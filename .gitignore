@@ -1,0 +1,36 @@
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+*.local
+*.secret
+secrets/
+credentials.json
+*.pem
+*.key
+
+# Logs and temp
+*.log
+*.tmp
+*.bak
+*.orig
+tmp/
