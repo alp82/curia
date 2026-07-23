@@ -6,11 +6,15 @@ Method: full clone of `an1creator/OpenACP` at `7485bbd` (the exact commit #16 pi
 
 ## Verdict
 
-**The vendored fork builds clean, tests green, and boots into a working bridge core from source — the "does it even build" risk from #16 is retired.** A generic ACP subprocess (my own mock agent, no model auth) spawned, ran a full prompt turn, and raised a permission request through OpenACP's gate — proving the exact seam curia needs (present an Orca worker to OpenACP as a thin ACP agent). Session persistence and the "in-flight escalations die on restart" claim both reproduced exactly as #16 predicted from source.
+**The vendored fork builds clean, tests green, boots into a working bridge core from source, and the full Discord escalate→answer→resume round-trip works live — the two big unknowns from #16 (does it build? does the human-in-the-loop loop actually close?) are both retired.** A generic ACP subprocess (my own mock agent, no model auth) spawned, ran a prompt turn, raised a permission through OpenACP's gate, that gate rendered as **allow/reject buttons in a per-session Discord thread**, and **Alp clicking ✅ Allow resumed the blocked worker to completion** (verified in the daemon log: `requestId call_2, optionId allow, isAllow true` → `Prompt execution completed` — a 7-minute block ended by the click, not a timeout). This is curia's #11 contract, proven end-to-end on real Discord.
 
-**One materially new finding that source-reading did not surface:** a session with **no messaging adapter bound is "headless", and OpenACP's core auto-approves any permission that carries an allow option** (and hangs-to-timeout on any that doesn't). So driving workers purely over the REST/SSE "api" channel is **not a human-gating surface** — escalations would silently self-approve. For curia this means a worker that must escalate has to be bound to a real adapter thread (Discord), or curia must run its own gate in front. This sharpens, not changes, #16's "OpenACP insists on owning the session lifecycle" note.
+**Two materially new findings source-reading did not surface:**
+1. A session with **no messaging adapter bound is "headless", and OpenACP's core auto-approves any permission carrying an allow option** (hangs-to-timeout on ones without). Driving workers purely over the REST/SSE "api" channel is therefore **not a human-gating surface** — escalations silently self-approve. Escalations must bind a real adapter thread (Discord), or curia interposes its own gate. Sharpens #16's "OpenACP owns the session lifecycle" note.
+2. **The `install` command is broken in a from-source build** (needs a bundled plugin catalog that only ships in the published npm package), and — a related operational caveat — when the Discord adapter **fails to post a permission message** (a `Missing Access` on the thread, seen once here), the gate is left **pending with no human-answerable UI and the worker hangs** to timeout. Curia's own durable-escalation record must cover post-failures, not just restarts.
 
-**Still blocked on Discord bot credentials** (see checklist at the end): the Discord-specific surface — thread-per-session, allow/reject buttons, first-click-wins, images both directions, inbound voice-memo STT, and a restart-mid-escalation *on the real (non-headless) gate* — was not exercised. The Discord adapter is a separate frozen npm artifact (`@openacp/discord-adapter`, AGPL-declared), not in this repo's source; booting it needs a token. This ticket stays open pending that.
+**Remaining (best re-run in a clean throwaway guild):** agent→human images through the bridge, inbound voice-memo STT, and a literal first-click-wins race (only one click was exercised). These were blocked by an intermittent `Missing Access` on the thread in the pre-configured "AI Stack" server (see Discord section) — a guild-permission-overwrite quirk, not an OpenACP defect. The core loop is proven; these are polish.
+
+**License correction to #16:** the **Discord adapter npm artifact (`@openacp/discord-adapter@2026.518.1`) is MIT-declared**, not AGPL. Only the core `@openacp/cli` / `@n1creator/openacp-cli` *published tarballs* carry the AGPL injection; building the core from source is MIT. So the Discord path is not the license risk #16 implied — the risk is narrowly the published-core-CLI tarball, which vendoring-from-source sidesteps.
 
 ## What passed, hands-on
 
@@ -43,6 +47,21 @@ Wrote a second mock agent that raises a permission with **no allow option**, so 
 
 This is exactly #16's "sessions durable, in-flight escalations die" — now empirical. **Consequence for curia (confirms #11):** curia must own its durable escalation record and re-ask on reconnect; OpenACP will not hold a question across a restart.
 
+## Discord live verification (with Alp's throwaway bot)
+
+Alp provisioned a bot (**CuriaBot#1524**) and handed me the token; it was in one guild, **"AI Stack"** (`1458774587209683088`). Because the from-source `install` command is broken (see below), I wired the adapter in by hand: `npm install @openacp/discord-adapter --prefix <root>/plugins`, registered it in `plugins.json` (`source: npm`), wrote `botToken`/`guildId`/`enabled` into its settings, and booted.
+
+- **Gateway connect — PASS.** First boot failed to *create channels* with `DiscordAPIError[50013] Missing Permissions` — the bot lacked **Manage Channels / Manage Messages / Manage Threads**. I decoded the exact missing bits, Alp granted them via the role, I re-verified the bot's guild permission integer over the Discord API, and re-booted. Second boot: `[DiscordAdapter] Client ready`, guild recognized, **Initialization complete**. So the token + **Message Content intent** were correct from the start; the only wall was three guild permissions.
+- **Channel + thread creation — PASS.** The adapter created an `openacp-sessions` channel (logged *"Community mode not enabled, using threads fallback"* — AI Stack isn't a Community server, so it uses a text channel + threads rather than a true Forum Channel, exactly as #16 read), an `openacp-notifications` channel, and an `Assistant` thread.
+- **Thread-per-session — PASS.** `openacp api new mock … --channel discord` returned `channelId: discord, threadId: 1529836183293792436`; the Discord API confirmed a public thread (`type 11`) named *"🔄 mock — New Session"* under the sessions channel.
+- **Permission buttons — PASS.** Sending a prompt drove the mock agent to raise its permission; the thread showed **`🔐 Permission request: Modifying critical configuration file`** with two buttons — *✅ Allow this change* (style 3) and *❌ Skip this change* (style 4) — custom_ids `p:O6NUVGyT:allow` / `p:O6NUVGyT:reject`. The `p:<key>:<optionId>` scheme is exactly #16's source read. A session-started message with *Enable Bypass* / *Text to Speech* control buttons also rendered.
+- **Button click → resume — PASS (the headline).** The bridged (non-headless) session did **not** auto-approve — the worker blocked in `requestPermission` for ~7 minutes. Alp clicked **✅ Allow**; the log recorded `requestId call_2, optionId allow, isAllow true` and then `Prompt execution completed (durationMs 434545)`. A timeout would have produced a rejection, not an `allow` outcome — so the click genuinely resolved the gate and resumed the turn. **This is curia's escalate→answer→resume contract (#11), closed live over real Discord.**
+- **Caveat — thread `Missing Access` after the turn.** Immediately after, a follow-up permission post failed with `DiscordAPIError[50001] Missing Access` on the same thread, and the bot could no longer GET the thread's messages — yet the thread still appears in the guild's active-threads list. The bot created that channel and had posted to it minutes earlier, so this is a **channel permission-overwrite interaction specific to this pre-configured server** (View Channel not effectively granted on the new channel/thread), not an OpenACP bug. It left a second turn hung with no answerable UI — which is itself the operational lesson: **if the bridge can't post the permission buttons, the escalation is silently un-answerable and the worker hangs to timeout.** The image/voice/first-click-wins checks were blocked by this and should be re-run in a clean throwaway guild (no restrictive category overwrites).
+
+## Finding: `install` is broken in a from-source build
+
+`node dist/cli.js install @openacp/discord-adapter` fails with `PluginCatalogError: The packaged plugin catalog is unavailable or invalid` — the plugin catalog ships only inside the published npm package, not the source tree. **Consequence for vendoring:** a from-source deploy can't use `openacp install`; plugins must be placed via `npm install --prefix <root>/plugins` and registered in `plugins.json` directly (which is exactly what the setup wizard's non-interactive path does under the hood). Worth scripting if curia vendors OpenACP.
+
 ## New finding: headless sessions auto-approve permissions
 
 `src/core/core.ts:972-990` — when a session has no adapter (the REST/`api` channel is adapter-less = "headless"), core installs a fallback permission handler that:
@@ -61,28 +80,28 @@ Reproduced both branches live. **Why it matters for #17/#11:** "connect it to a 
 | Permission gate exists & fires | ✔ PASS — reproduced pending + auto-approve branches |
 | Session persistence | ✔ PASS — durable JSON store reloads across restart |
 | Restart kills in-flight escalation | ✔ PASS — turn lost, re-dispatch required |
-| Discord thread-per-session | ⏳ needs bot token |
-| Allow/reject buttons + first-click-wins | ⏳ needs bot token |
-| Images both directions through the bridge | ⏳ needs bot token |
-| Inbound voice-memo → STT | ⏳ needs bot token (local faster-whisper bootstraps a Python env on first use) |
-| Restart mid-escalation on the *real* (bridged) gate | ⏳ needs bot token |
+| Discord adapter loads + gateway connect | ✔ PASS — token + Message Content intent valid, guild recognized |
+| Discord thread-per-session | ✔ PASS — real thread per `api new --channel discord` |
+| Allow/reject buttons render | ✔ PASS — `p:<key>:<optionId>` scheme, matches #16's source read |
+| **Button click → worker resumes** | ✔ **PASS — Alp clicked ✅ Allow, blocked turn resumed & completed** |
+| Non-headless session does NOT auto-approve | ✔ PASS — waited 7 min for the human click |
+| First-click-wins race | ⏳ only one click exercised; re-run in a clean guild |
+| Images both directions through the bridge | ⏳ blocked by thread `Missing Access`; re-run in a clean guild |
+| Inbound voice-memo → STT | ⏳ not reached (local faster-whisper bootstraps a Python env on first use) |
 
 ## Side effects of this run (cleanup)
 
-- Instance state was correctly isolated to a scratchpad dir via `OPENACP_INSTANCE_ROOT`.
-- **But** the daemon auto-installed `cloudflared` to `~/.openacp/bin/cloudflared` and created `~/.openacp/` (a global cache path, not overridable by the instance-root env). Harmless, but present on the box now. Safe to `rm -rf ~/.openacp` if unwanted.
-- All spawned processes were killed; nothing is left listening.
+- Instance state was isolated to a scratchpad dir via `OPENACP_INSTANCE_ROOT`; all processes were killed, nothing left listening.
+- The daemon auto-installed `cloudflared` to `~/.openacp/bin/cloudflared` and created `~/.openacp/` (a global cache path not overridable by the instance-root env). Safe to `rm -rf ~/.openacp` if unwanted.
+- **In the "AI Stack" Discord server, OpenACP created two channels that are still there:** `openacp-sessions` (`1529836015336820738`) and `openacp-notifications` (`1529836017589424129`), plus session/Assistant threads under them. These are scaffolding from the test — delete them when convenient (I left them rather than delete channels in a real server unprompted).
+- The bot token is inert now (daemon stopped). Reset it in the Discord Developer Portal if you don't want it lingering.
 
-## Handoff: Discord verification checklist (blocked on Alp)
+## Remaining to fully close #22
 
-To finish the Discord half, I need a throwaway Discord bot. Precise steps:
+The build, core-bridge, persistence, restart, and the **Discord escalate→answer→resume round-trip** are all verified live — enough to de-risk the "vendor OpenACP" branch of #17. Three polish checks remain, all blocked only by the `Missing Access` overwrite quirk in the AI Stack guild, so they want a **clean throwaway guild** (created fresh, no restrictive category permissions, bot invited with integer `328565073936`):
 
-1. **Create the app + bot:** https://discord.com/developers/applications → New Application → Bot tab → Reset Token → copy the **bot token**.
-2. **Enable the Message Content intent:** Bot tab → Privileged Gateway Intents → toggle **MESSAGE CONTENT INTENT** on (OpenACP reads message bodies).
-3. **Invite it to a server** (a fresh private test guild is ideal): OAuth2 → URL Generator → scopes `bot` + `applications.commands`; OpenACP's docs specify permission integer **`328565073936`**. Open the generated URL, add the bot to the guild.
-4. **Grab the guild ID:** enable Developer Mode in Discord (Settings → Advanced), right-click the server → Copy Server ID.
-5. **Hand me:** the **bot token** and the **guild ID**. Drop them in a file I can read (e.g. `~/.config/curia-openacp-discord.env` with `OPENACP_DISCORD_BOT_TOKEN=…` and `OPENACP_DISCORD_GUILD_ID=…`), or paste in-session. A private test guild means no risk to any real server.
+1. **Images both directions** — mock agent sends a file into the thread (agent→human); a human attaches a screenshot in the thread (human→agent) and the worker receives it.
+2. **Inbound voice-memo → STT** — post a Discord voice message; confirm the local faster-whisper bootstrap transcribes it into the prompt.
+3. **First-click-wins race** — two devices, near-simultaneous clicks; confirm the second gets "expired".
 
-With those I'll: install `@openacp/discord-adapter`, boot with Discord enabled, and verify thread-per-session, allow/reject buttons + first-click-wins, images both ways, and a voice-memo transcript — plus a restart mid-escalation on the real bridged gate — then close #22 and record the result on the map.
-
-**Alternative if you'd rather not:** the build + core-bridge + persistence + restart behavior is already enough to de-risk the "vendor OpenACP" branch of #17 on everything except the Discord UX, which #16 already read from the compiled adapter. If you want to skip the live Discord run, say so and I'll close #22 on the strength of the source-read + this boot trial.
+If you want these, spin up a fresh private guild + re-invite CuriaBot with integer `328565073936`, hand me the new guild ID, and I'll finish. Otherwise this is a strong stopping point — #16's compiled-adapter read already covers the images/voice code paths, and the live loop is proven.
