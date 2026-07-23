@@ -1,0 +1,8 @@
+node_modules/
+paseo-prefix/
+paseo-home/
+cfg-herdr/
+cfg-paseo/
+ws-herdr/
+ws-paseo/
+daemon/results/

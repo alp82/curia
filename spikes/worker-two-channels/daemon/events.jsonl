@@ -1,0 +1,13 @@
+{"ts":"2026-07-23T22:03:20.034Z","type":"notify","worker":"herdr-w1","message":"DEMO-1 started"}
+{"ts":"2026-07-23T22:03:23.092Z","type":"escalation_open","worker":"herdr-w1","id":"esc-1-herdr-w1","kind":"choice","prompt":"Which title for the haiku?","options":["Conductor","Overseer"]}
+{"ts":"2026-07-23T22:04:09.493Z","type":"escalation_answered","worker":"herdr-w1","id":"esc-1-herdr-w1","answer":"Overseer"}
+{"ts":"2026-07-23T22:04:18.710Z","type":"result","worker":"herdr-w1","ticket":"DEMO-1","status":"resolved","summary":"Wrote a haiku titled \"Overseer\" about orchestrating coding agents and committed it as haiku.txt.","details":{"commit":"cdbfe21","title":"Overseer"}}
+{"ts":"2026-07-23T22:04:20.262Z","type":"worker_done_hook","worker":"herdr-w1","hook_event":"Stop","session_id":"753b608a-631f-459e-9b37-b887d7abfe0f","stop_hook_active":false}
+{"ts":"2026-07-23T22:07:11.348Z","type":"notify","worker":"paseo-w1","message":"DEMO-2 started"}
+{"ts":"2026-07-23T22:07:18.147Z","type":"escalation_open","worker":"paseo-w1","id":"esc-2-paseo-w1","kind":"choice","prompt":"Which title for the haiku?","options":["Conductor","Overseer"]}
+{"ts":"2026-07-23T22:08:45.708Z","type":"escalation_open","worker":"paseo-w1","id":"esc-3-paseo-w1","kind":"choice","prompt":"Which title for the haiku?","options":["Conductor","Overseer"]}
+{"ts":"2026-07-23T22:09:05.457Z","type":"escalation_answered","worker":"paseo-w1","id":"esc-2-paseo-w1","answer":"Conductor"}
+{"ts":"2026-07-23T22:10:27.053Z","type":"escalation_answered","worker":"paseo-w1","id":"esc-3-paseo-w1","answer":"Conductor"}
+{"ts":"2026-07-23T22:11:17.840Z","type":"notify","worker":"paseo-w1","message":"steer-ack"}
+{"ts":"2026-07-23T22:11:23.139Z","type":"result","worker":"paseo-w1","ticket":"DEMO-2","status":"resolved","summary":"Wrote a 3-line haiku titled \"Conductor\" to haiku.txt and committed it.","details":{"commit":"1e87a19","title":"Conductor"}}
+{"ts":"2026-07-23T22:11:30.358Z","type":"worker_done_hook","worker":"paseo-w1","hook_event":"Stop","session_id":"2dde0936-34ca-4ae3-9220-17d0cbc2db25","stop_hook_active":false}
