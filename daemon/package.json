@@ -1,0 +1,15 @@
+{
+  "name": "curia-daemon",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Curia daemon: worker-facing MCP surface + Discord bridge + durable escalation record",
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "discord.js": "^14.16.0",
+    "zod": "^3.24.0"
+  }
+}
