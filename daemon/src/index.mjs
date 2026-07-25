@@ -23,6 +23,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 import { EscalationStore } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
+import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
 import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -117,11 +118,13 @@ function openEscalation({ worker, ticket, kind, prompt, options, preview_url, fi
   return { record, answered }
 }
 
-function settle(record, text) {
+// Resolves with { text, attachments } — the answer's images travel with it all
+// the way to the worker's tool result (#34).
+function settle(record, text, attachments = []) {
   clearNudge(record.id)
   const resolve = pending.get(record.id)
   pending.delete(record.id)
-  if (resolve) resolve(text)
+  if (resolve) resolve({ text, attachments })
 }
 
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
@@ -132,11 +135,11 @@ const gate = {
       .filter((r) => r.discord?.threadId === threadId)
       .filter((r) => ['free-text', 'choice', 'preview-review'].includes(r.kind))
       .at(-1) ?? null,
-  answer(id, { answer, by, via }) {
-    const result = store.answer(id, { answer, by, via })
+  answer(id, { answer, attachments = [], by, via }) {
+    const result = store.answer(id, { answer, attachments, by, via })
     if (result.ok) {
-      log(`escalation ${result.record.id} answered via ${via}${result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''}`)
-      settle(result.record, answer)
+      log(`escalation ${result.record.id} answered via ${via}${attachments.length ? ` (+${attachments.length} attachment${attachments.length > 1 ? 's' : ''})` : ''}${result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''}`)
+      settle(result.record, answer, attachments)
       if (bridge) bridge.markAnswered(result.record).catch(() => {})
     }
     return result
@@ -181,9 +184,9 @@ function overseerConfirm(ticket, prompt) {
     notifyThread(ticket, `⌛ confirm **${record.id}** expired unanswered after ${curiaConfig.dispatch.confirm_ttl_h}h`)
   }, curiaConfig.dispatch.confirm_ttl_h * 3600_000)
   ttl.unref()
-  return answered.then((answer) => {
+  return answered.then(({ text }) => {
     clearTimeout(ttl)
-    return answer === 'approve'
+    return text === 'approve'
   })
 }
 
@@ -242,17 +245,66 @@ const router = new CommandRouter({ dispatcher, attach: attachApi, log })
 
 // ---- worker-facing MCP surface (#29 shape) ---------------------------------
 
+// Outbound images (#34): a worker may publish files from its OWN worktree and
+// the daemon's data dir, nothing else — the daemon holds a Discord token and a
+// tailnet position, so an unbounded path here would turn `notify` into an
+// exfiltration primitive for anything the box can read. A worker the dispatcher
+// does not know (synthetic/lab callers, whose MCP URL the daemon did not write)
+// falls back to the workspace root.
+function outboundImages(worker, images) {
+  if (!images?.length) return { files: [], refusals: [] }
+  const known = dispatcher.workers.get(worker)
+  const roots = [known?.wtPath ?? curiaConfig.dispatch.workspace_root, DATA]
+  return resolveOutboundImages(images, { roots, cwd: known?.wtPath })
+}
+
+// Keep a blocked ask_human alive on the wire (#34).
+//
+// The block itself is sound — the daemon holds the response for as long as it
+// takes. What killed real workers was the CLIENT: Claude Code aborts an MCP
+// tool call after 300s of server silence (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT),
+// so an escalation was dead ~25 minutes before the #11 re-nudge could ever
+// fire. The fix belongs here rather than in a client env var: every worker lane
+// curia has evaluated (Claude Code, Codex, Cline, pi via ACP shims) speaks MCP,
+// and periodic traffic on the stream is the protocol's own answer to a long
+// call. Progress notifications when the client offered a token, logging
+// notifications otherwise — either way, bytes flow and no idle timer fires.
+const KEEPALIVE_MS = Number(process.env.MCP_KEEPALIVE_MS ?? 60_000)
+
+function startKeepAlive(extra, id) {
+  const token = extra?._meta?.progressToken
+  let n = 0
+  log(`keepalive for ${id}: ${token ? `progress notifications (token ${token})` : 'logging notifications (client offered no progressToken)'} every ${KEEPALIVE_MS / 1000}s`)
+  const tick = () => {
+    n += 1
+    const sent = token
+      ? extra.sendNotification({
+        method: 'notifications/progress',
+        params: { progressToken: token, progress: n, message: `curia: still waiting for a human on ${id}` },
+      })
+      : extra.sendNotification({
+        method: 'notifications/message',
+        params: { level: 'info', logger: 'curia', data: `still waiting for a human on ${id} (${n})` },
+      })
+    Promise.resolve(sent).catch((e) => log(`keepalive for ${id} failed: ${e.message}`))
+  }
+  const timer = setInterval(tick, KEEPALIVE_MS)
+  timer.unref()
+  return () => clearInterval(timer)
+}
+
 function buildMcpServer(worker, ticket) {
-  const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' })
+  const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
 
   server.tool(
     'notify',
-    'Fire-and-forget status update to the human. Returns immediately.',
-    { message: z.string() },
-    async ({ message }) => {
-      store.logEvent('notify', { worker, ticket, message })
-      if (bridge) bridge.notify(ticket, `📣 \`${worker}\`: ${message}`).catch(() => {})
-      return { content: [{ type: 'text', text: 'ok' }] }
+    'Fire-and-forget status update to the human. Returns immediately. `images`: local file paths inside your workspace to show the human (screenshots, renders).',
+    { message: z.string(), images: z.array(z.string()).optional() },
+    async ({ message, images }) => {
+      const { files, refusals } = outboundImages(worker, images)
+      store.logEvent('notify', { worker, ticket, message, images: files.map((f) => f.attachment), refusals })
+      if (bridge) bridge.notify(ticket, `📣 \`${worker}\`: ${message}`, { files }).catch(() => {})
+      return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }] }
     },
   )
 
@@ -264,11 +316,17 @@ function buildMcpServer(worker, ticket) {
       kind: z.enum(['free-text', 'choice', 'approve-reject', 'preview-review']),
       options: z.array(z.string()).optional(),
       preview_url: z.string().optional(),
+      images: z.array(z.string()).optional(),
     },
-    async (payload) => {
-      const { answered } = openEscalation({ worker, ticket, ...payload })
-      const answer = await answered
-      return { content: [{ type: 'text', text: answer }] }
+    async ({ images, ...payload }, extra) => {
+      const { files, refusals } = outboundImages(worker, images)
+      const { record, answered } = openEscalation({ worker, ticket, ...payload, files })
+      const stopKeepAlive = startKeepAlive(extra, record.id)
+      // Images the human replies with come back as real content blocks, so the
+      // picture lands in this worker's context without a Read round-trip (#34).
+      const { text, attachments } = await answered.finally(stopKeepAlive)
+      const refusalNote = refusals.length ? [{ type: 'text', text: `(curia refused ${refusals.length} outbound image(s): ${refusals.join('; ')})` }] : []
+      return { content: [...refusalNote, { type: 'text', text }, ...inboundContent(attachments)] }
     },
   )
 
@@ -362,21 +420,31 @@ async function handleRequest(req, res) {
 
   if (url.pathname === '/escalate' && req.method === 'POST') {
     const body = await readBody(req)
+    const worker = body.worker ?? 'synthetic'
+    // Same containment as the MCP path: /escalate is loopback-only, but it must
+    // not be the softer way to hand the bridge an arbitrary file.
+    const { files } = outboundImages(worker, body.images ?? body.files)
     const { record, answered } = openEscalation({
-      worker: body.worker ?? 'synthetic', ticket: body.ticket ?? 'unknown',
+      worker, ticket: body.ticket ?? 'unknown',
       kind: body.kind ?? 'approve-reject', prompt: body.prompt ?? '(no prompt)',
-      options: body.options, preview_url: body.preview_url, files: body.files,
+      options: body.options, preview_url: body.preview_url, files,
     })
     if (url.searchParams.get('wait')) {
-      const answer = await answered
-      return json(200, { id: record.id, answer })
+      const { text, attachments } = await answered
+      return json(200, { id: record.id, answer: text, attachments })
     }
     return json(200, { id: record.id })
   }
 
   if (url.pathname === '/answer' && req.method === 'POST') {
-    const { id, answer } = await readBody(req)
-    const result = gate.answer(id, { answer: String(answer), by: 'rest', via: 'rest' })
+    const { id, answer, attachments } = await readBody(req)
+    // Attachment paths get read and inlined into a worker's context, so they
+    // pass the same containment gate as outbound images rather than being
+    // trusted because the caller reached loopback.
+    const { files } = outboundImages('rest', attachments)
+    const result = gate.answer(id, {
+      answer: String(answer), attachments: files.map((f) => f.attachment), by: 'rest', via: 'rest',
+    })
     return json(result.ok ? 200 : 409, result)
   }
 

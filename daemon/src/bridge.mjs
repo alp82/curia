@@ -16,6 +16,7 @@ import {
   Client, GatewayIntentBits, ChannelType, REST, Routes,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder,
 } from 'discord.js'
+import { safeLeaf } from './images.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
@@ -202,12 +203,16 @@ export class DiscordBridge {
     await thread.send({ content: message, files })
   }
 
+  // Attachment names come from Discord, i.e. from outside — path.join with a
+  // raw name lets `../` walk out of the attachments dir and overwrite anything
+  // the daemon can write. Take a sanitized leaf only.
   async #downloadAttachments(escalationId, attachments) {
     const dir = path.join(this.dataDir, 'attachments', escalationId)
     const saved = []
+    let i = 0
     for (const a of attachments.values()) {
       fs.mkdirSync(dir, { recursive: true })
-      const dest = path.join(dir, a.name)
+      const dest = path.join(dir, safeLeaf(a.name, `attachment-${++i}`))
       const res = await fetch(a.url)
       await finished(Readable.fromWeb(res.body).pipe(fs.createWriteStream(dest)))
       saved.push(dest)
@@ -267,9 +272,12 @@ export class DiscordBridge {
       : []
     if (!answer && !attachments.length) return
     if (attachments.length) {
+      // The path line stays: it is the readable form in the durable record, and
+      // the worker keeps a handle on the file. The image itself now also rides
+      // back as a real content block (see `attachments`, #34).
       answer = [answer, ...attachments.map((p) => `[attachment: ${p}]`)].filter(Boolean).join('\n')
     }
-    const result = this.handlers.answer(open.id, { answer, by: m.author.id, via: 'thread-reply' })
+    const result = this.handlers.answer(open.id, { answer, attachments, by: m.author.id, via: 'thread-reply' })
     await m.react(result.ok ? '✅' : '⚠️')
   }
 }

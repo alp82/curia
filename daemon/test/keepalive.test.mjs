@@ -1,0 +1,265 @@
+// The keepalive is what makes #11's "block indefinitely" true in practice, and
+// it is invisible from the outside: without it a blocked ask_human still looks
+// perfectly healthy on the daemon side while the CLIENT quietly aborts the call
+// after 300s of stream silence (Claude Code's MCP idle timeout). That failure
+// mode cost #34 two full lab runs before it was understood, and a refactor that
+// drops the notification would reintroduce it with every test still green — so
+// this boots the REAL daemon and asserts the bytes actually reach a real MCP
+// client mid-call.
+//
+// It also pins the first-valid-wins gate (#11/#31) end to end on the same boot:
+// two answers race, exactly one closes the call, the loser is told why.
+//
+// Same fixture posture as index.test.mjs: inert gh/tmux/tailscale shims, temp
+// config + data dir, REST-only (no bridge token) — nothing here touches the
+// live box.
+
+import { test, describe, before, after } from 'node:test'
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import fs from 'node:fs'
+import http from 'node:http'
+import net from 'node:net'
+import os from 'node:os'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
+
+const DIR = path.dirname(fileURLToPath(import.meta.url))
+const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
+
+const KEEPALIVE_MS = 150
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer()
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address()
+      srv.close(() => resolve(port))
+    })
+    srv.once('error', reject)
+  })
+}
+
+function request(port, method, urlPath, { headers = {}, body = null } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, headers }, (res) => {
+      let data = ''
+      res.on('data', (c) => { data += c })
+      res.on('end', () => resolve({ status: res.statusCode, body: data }))
+    })
+    req.once('error', reject)
+    if (body !== null) req.write(body)
+    req.end()
+  })
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// Poll until `fn` returns something truthy, or give up loudly — never a bare
+// sleep that passes on a slow machine and flakes on a busy one.
+async function until(fn, what, ms = 10_000) {
+  const deadline = Date.now() + ms
+  for (;;) {
+    const v = await fn()
+    if (v) return v
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`)
+    await sleep(50)
+  }
+}
+
+describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + real MCP client)', () => {
+  let tmp
+  let child
+  let port
+  let childLog = ''
+
+  before(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-keepalive-test-'))
+    const cfgDir = path.join(tmp, 'config')
+    const dataDir = path.join(tmp, 'data')
+    const shim = path.join(tmp, 'shim')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.mkdirSync(shim, { recursive: true })
+    for (const bin of ['gh', 'tmux', 'tailscale']) {
+      const p = path.join(shim, bin)
+      fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
+      fs.chmodSync(p, 0o755)
+    }
+    const [daemonPort, ttydPort, servePort] = [await freePort(), await freePort(), await freePort()]
+    port = daemonPort
+    fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
+      'watch:',
+      '  - repo: example/fixture',
+      '    mode: ready-for-agent',
+      'dispatch:',
+      '  auto_dispatch: false',
+      '  max_concurrent: 1',
+      '  poll_interval_s: 60',
+      `  workspace_root: ${path.join(tmp, 'work')}`,
+      '  ready_timeout_s: 5',
+      '  confirm_ttl_h: 1',
+      'attach:',
+      `  ttyd_port: ${ttydPort}`,
+      `  serve_port: ${servePort}`,
+      '',
+    ].join('\n'))
+    fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
+      'defaults:',
+      '  untyped: sonnet',
+      'models:',
+      '  sonnet: { provider: anthropic, backend: claude }',
+      'backends:',
+      '  claude:',
+      '    template: claude --model {model} "$(cat {prompt_file})"',
+      '',
+    ].join('\n'))
+
+    child = spawn(process.execPath, [DAEMON], {
+      env: {
+        ...process.env,
+        PORT: String(daemonPort),
+        CURIA_CONFIG_DIR: cfgDir,
+        CURIA_DATA_DIR: dataDir,
+        PATH: `${shim}:${process.env.PATH}`,
+        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
+        DISCORD_BOT_TOKEN: '',
+        MCP_KEEPALIVE_MS: String(KEEPALIVE_MS),
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    child.stdout.on('data', (c) => { childLog += c })
+    child.stderr.on('data', (c) => { childLog += c })
+
+    await until(async () => {
+      try {
+        return (await request(port, 'GET', '/state')).status === 200
+      } catch { return false }
+    }, `the daemon to listen; log:\n${childLog}`)
+  })
+
+  after(() => {
+    if (child && child.exitCode === null) child.kill('SIGKILL')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  test('progress notifications flow to the client while the call is still blocked, then the answer releases it', async () => {
+    const client = new Client({ name: 'curia-keepalive-test', version: '0.0.0' })
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=lab&ticket=77`))
+    await client.connect(transport)
+
+    // onprogress is what makes the SDK put a progressToken on the request —
+    // exactly what Claude Code does, so this exercises the token branch.
+    const progress = []
+    const call = client.callTool(
+      { name: 'ask_human', arguments: { prompt: 'keepalive fixture', kind: 'free-text' } },
+      undefined,
+      { onprogress: (p) => progress.push(p), timeout: 30_000 },
+    )
+
+    const open = await until(
+      async () => JSON.parse((await request(port, 'GET', '/state')).body).open_escalations[0],
+      'the escalation to open',
+    )
+
+    // Enough wall clock for several ticks; assert on the ones that landed, and
+    // require more than one so a single flush cannot pass for a heartbeat.
+    await sleep(KEEPALIVE_MS * 5)
+    assert.ok(
+      progress.length >= 2,
+      `expected repeated progress notifications while blocked, got ${progress.length} — the client would go silent and abort`,
+    )
+    assert.match(String(progress.at(-1).message ?? ''), new RegExp(open.id), 'the keepalive names the escalation it is holding')
+
+    // Still blocked: the notifications are keepalive, not a result.
+    assert.equal(
+      await Promise.race([call.then(() => 'resolved'), sleep(50).then(() => 'pending')]),
+      'pending',
+      'progress must not resolve the tool call',
+    )
+
+    const answered = await request(port, 'POST', '/answer', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: open.id, answer: 'released' }),
+    })
+    assert.equal(answered.status, 200)
+
+    const result = await call
+    assert.match(result.content.map((c) => c.text ?? '').join('\n'), /released/)
+    await client.close()
+  })
+
+  // The other branch. A worker lane that offers no progressToken still has to
+  // get bytes, or it dies at its own idle timeout exactly like Claude Code did
+  // — and this is the branch a silent regression would leave uncovered, since
+  // Claude Code itself never takes it. (What a *given* client does with a
+  // logging notification is its business; the daemon's job is to keep sending.)
+  test('a client that offers no progressToken still gets keepalive traffic', async () => {
+    const client = new Client({ name: 'curia-keepalive-test-notoken', version: '0.0.0' })
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=lab2&ticket=78`))
+    await client.connect(transport)
+
+    const logs = []
+    client.setNotificationHandler(LoggingMessageNotificationSchema, (n) => { logs.push(n) })
+
+    // No onprogress ⇒ no progressToken on the wire ⇒ the fallback path.
+    const call = client.callTool(
+      { name: 'ask_human', arguments: { prompt: 'fallback fixture', kind: 'free-text' } },
+      undefined,
+      { timeout: 30_000 },
+    )
+
+    const open = await until(
+      async () => JSON.parse((await request(port, 'GET', '/state')).body).open_escalations.find((e) => e.ticket === '78'),
+      'the fallback escalation to open',
+    )
+
+    await sleep(KEEPALIVE_MS * 5)
+    assert.ok(
+      logs.length >= 2,
+      `expected repeated logging notifications on the tokenless path, got ${logs.length}`,
+    )
+    assert.match(String(logs.at(-1).params.data ?? ''), new RegExp(open.id))
+
+    await request(port, 'POST', '/answer', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: open.id, answer: 'released' }),
+    })
+    await call
+    await client.close()
+  })
+
+  test('the loser of an answer race is refused with a reason, and the winner stands', async () => {
+    const opened = await request(port, 'POST', '/escalate', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ prompt: 'race fixture', kind: 'approve-reject' }),
+    })
+    const { id } = JSON.parse(opened.body)
+
+    // Fired together: whichever the daemon serializes first wins — the point is
+    // that the second is refused rather than overwriting a closed record.
+    const [a, b] = await Promise.all([
+      request(port, 'POST', '/answer', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, answer: 'approve' }),
+      }),
+      request(port, 'POST', '/answer', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, answer: 'reject' }),
+      }),
+    ])
+
+    const codes = [a.status, b.status].sort()
+    assert.deepEqual(codes, [200, 409], 'exactly one answer may close the escalation')
+
+    const loser = JSON.parse(a.status === 409 ? a.body : b.body)
+    assert.equal(loser.ok, false)
+    assert.equal(loser.reason, 'answered', 'the loser is told the call was already answered, not left guessing')
+
+    // The record kept the winner's answer, and the escalation is off the open list.
+    const state = JSON.parse((await request(port, 'GET', '/state')).body)
+    assert.equal(state.open_escalations.some((e) => e.id === id), false)
+  })
+})

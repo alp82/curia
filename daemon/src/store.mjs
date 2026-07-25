@@ -61,7 +61,10 @@ export class EscalationStore {
       }
       case 'esc_answer': {
         const r = this.escalations.get(ev.id)
-        if (r) { r.status = 'answered'; r.answer = ev.answer; r.answered_by = ev.by; r.answered_via = ev.via; r.closed_at = ev.ts }
+        if (r) {
+          r.status = 'answered'; r.answer = ev.answer; r.answered_by = ev.by
+          r.answered_via = ev.via; r.attachments = ev.attachments ?? []; r.closed_at = ev.ts
+        }
         break
       }
       case 'esc_cancel': {
@@ -123,11 +126,13 @@ export class EscalationStore {
 
   // First valid answer wins, closes atomically. Answers to superseded ids route
   // to the live successor; answers to closed records are rejected.
-  answer(id, { answer, by, via }) {
+  // Inbound attachment paths are part of the durable record (#34): the answer a
+  // restarted daemon replays must still carry its images.
+  answer(id, { answer, attachments = [], by, via }) {
     const { record, routed_from } = this.resolveLive(id)
     if (!record) return { ok: false, reason: 'unknown' }
     if (record.status !== 'open') return { ok: false, reason: record.status, record }
-    this._append({ type: 'esc_answer', id: record.id, answer, by, via, routed_from })
+    this._append({ type: 'esc_answer', id: record.id, answer, attachments, by, via, routed_from })
     return { ok: true, record, routed_from }
   }
 

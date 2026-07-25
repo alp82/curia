@@ -20,10 +20,10 @@ Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml`
 
 ## Surfaces
 
-- `POST /mcp?worker=<name>&ticket=<n>` — MCP tools `ask_human` (blocking), `notify`, `report_result`. Ticket binding rides the spawn URL (#11).
+- `POST /mcp?worker=<name>&ticket=<n>` — MCP tools `ask_human` (blocking), `notify`, `report_result`. Ticket binding rides the spawn URL (#11). `ask_human` and `notify` also take `images: [<path>]` (#34).
 - `GET /state` — open escalations + bridge status.
 - `POST /escalate` — synthetic escalation (testing / non-MCP emitters); `?wait=1` blocks until answered.
-- `POST /answer {id, answer}` / `POST /cancel {id}` — same first-valid-wins gate as Discord.
+- `POST /answer {id, answer, attachments?}` / `POST /cancel {id}` — same first-valid-wins gate as Discord.
 - `POST /worker_done?worker=` — Stop-hook webhook (#29); closes the dispatch lifecycle (result recorded ⇒ clean close; result-less ⇒ abnormal exit, session kept for post-mortem).
 - `POST /command {text}` — canonical command text, REST parity with the Discord slash verbs.
 - `POST /reconcile` — on-demand reconcile (boot reconcile runs automatically).
@@ -41,6 +41,27 @@ Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml`
 `data/events.jsonl` is the only durable artifact — an append-only journal; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map and ticket→thread cache are ephemeral (#9); a restart loses only the in-process worker call (accepted re-dispatch posture, #11/#12).
 
 Supersede (#29): a re-issued `ask_human` (same worker + same payload while an older escalation is open) closes the old record, strips its buttons in Discord, and routes late answers to the live successor.
+
+## Blocking for hours (#34)
+
+The daemon holds a blocked `ask_human` indefinitely — Node's `requestTimeout` covers only request *receipt*, so nothing server-side expires the held response. The client is what needed handling: **Claude Code aborts an MCP tool call after 300s of server silence** (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`), which killed every real worker five minutes in — twenty-five minutes before the #11 re-nudge could ever fire.
+
+The fix is a daemon-side keepalive on the MCP stream (`MCP_KEEPALIVE_MS`, default 60 s): progress notifications when the client offered a `progressToken` (Claude Code does), logging notifications otherwise. It is client-agnostic on purpose — every worker lane curia has evaluated speaks MCP, and none of them should need a bespoke env var to make blocking work.
+
+Verified live in two runs, because one run cannot show both halves (see the credential note below): a worker held **38 min** with its MCP socket still established and the 30-minute re-nudge firing on schedule, and a second held **435 s** — past the same 300 s mark — then released with an unguessable token that it echoed back verbatim, proving the answer reaches the worker intact after a long hold. The tokenless branch is covered by test only: the daemon keeps sending, but no real client that omits `progressToken` has been observed honouring it.
+
+**A block is bounded by the worker's credentials, not by the daemon.** `seedConfigDir` copies the host's `.credentials.json` into each worker at spawn, so a worker holds a credential *snapshot*. The 38-minute run outlived its snapshot: the answer arrived, the blocked call returned, and the worker then died on its next model turn with `OAuth session expired and could not be refreshed`. Nothing in the escalation record is lost when this happens (the answer is journalled, the ticket re-frontiers), and it is the re-dispatch posture of #11/#12 working as designed rather than a bug — but it does mean a very long HITL wait can cost the in-flight turn, and an auth-health watchdog (#21, #28) would turn a silent death into a visible one.
+
+## Images, both directions (#34)
+
+Amends the #11 payload contract:
+
+- **Outbound** (worker → human): `images: [<path>]` on `ask_human` / `notify`. A worker may publish only from inside its own worktree and the daemon's data dir — resolved through `realpath`, so a symlink planted in the worktree cannot exfiltrate arbitrary files through the daemon's Discord token. Non-images, oversized files (>8 MB) and anything past the fourth are refused with a reason handed back to the worker; the message still goes.
+- **Inbound** (human → worker): Discord attachments are downloaded under `data/attachments/<esc-id>/` (names sanitized to a leaf — `..` used to be able to walk out) and returned as real MCP `image` content blocks, so the picture lands in the worker's context. Verified live through the bridge's own download path — a screenshot attached to a thread reply, described in detail by a worker whose transcript shows exactly three tool calls and no `Read`, against a tool result carrying one `image` block. Anything unreadable, oversized (>5 MB) or not an image degrades to a visible `[attachment: <path>]` line rather than vanishing.
+
+Attachment paths are part of the durable record, so a replayed answer keeps its images. Outbound is verified live end to end — a real worker's `notify` image rendered inline in the thread, while the same worker's attempt to publish `/etc/hostname` came back `refused — not a readable path inside this worker's workspace` with the message still delivered.
+
+First-valid-wins (#11/#31) is verified live across two devices: Approve on the phone and Reject on the PC, one `esc_answer` in the journal, and the loser told `⚠️ not open — answered (answer was reject)` in an ephemeral reply rather than left guessing.
 
 Dispatch state follows the same posture (#33): the workers map is a disposable in-memory cache. Reconcile (boot + on demand) re-derives it from GitHub claims, `tmux ls` and the journal — epoch-scoped (journal events only count against a ticket's latest dispatch), orphan sessions swept and dead claims released only on positive gh evidence, open overseer confirms voided on boot (the resolver died with the old process). Provider/model cooling is in-memory only and expires at the provider's stated reset (or a journalled 1 h fallback).
 
