@@ -1,0 +1,218 @@
+// Preview links (#40, implementing #8's scheme "B1"): one HTTPS Serve port per
+// preview, allocated by the DAEMON — not by the worker — from a configured
+// range, proxying a dev server the worker runs on localhost.
+//
+//   worker: npm run dev            (binds 127.0.0.1:<dev-port>)
+//   daemon: publish_preview(port)  -> tailscale serve --bg --https=<serve-port> http://127.0.0.1:<dev-port>
+//   human:  https://<box>.<tailnet>.ts.net:<serve-port>/
+//
+// Why the daemon allocates: a worker choosing its own Serve port would collide
+// with other workers and with the attach rule, and — the sharper reason —
+// `tailscale serve` publishes ANY localhost port to the whole tailnet. The
+// daemon's own MCP/REST surface (/answer, /command, /escalate) is a localhost
+// port. So "publish this port" is a privileged request from an agent that may
+// be confused or wrong, and the registry is where that is contained:
+//
+//   - reserved ports are refused outright (the daemon's own port, the ttyd
+//     port, the attach Serve port) — publishing the daemon port would hand the
+//     escalation-answer surface to the tailnet with no auth at all;
+//   - the dev port must be a LIVE localhost listener, so a worker cannot
+//     reserve a rule pointing at a port something else may bind later;
+//   - the Serve port comes from the configured range only, never from the
+//     worker.
+//
+// State posture (#9): the registry is an ephemeral cache. The durable truth is
+// tailscaled's own serve config, which SURVIVES daemon restarts — so a rule
+// outlives the process that made it, and reconcile must re-derive and sweep
+// (the same orphan discipline as the tmux sweep in #33/#19).
+
+import net from 'node:net'
+import { execFileP } from './exec.mjs'
+
+export const DEFAULT_RANGE = { from: 8500, to: 8599 }
+
+// `tailscale serve status --json` shape, verified live on this host:
+//   { "TCP": { "8443": { "HTTPS": true } },
+//     "Web": { "host:8443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:7681" } } } } }
+// Returns Map<servePort, proxyTarget>. A shape we do not recognise yields an
+// empty map rather than a throw — an unreadable status must not take the
+// daemon down, and every caller treats "unknown" conservatively.
+export function parseServedPorts(status) {
+  const out = new Map()
+  const web = status?.Web
+  if (!web || typeof web !== 'object') return out
+  for (const [hostPort, entry] of Object.entries(web)) {
+    const port = Number(String(hostPort).split(':').pop())
+    if (!Number.isInteger(port)) continue
+    const proxy = entry?.Handlers?.['/']?.Proxy ?? null
+    out.set(port, proxy)
+  }
+  return out
+}
+
+export function portLive(port, { host = '127.0.0.1', timeout = 750 } = {}) {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port, timeout })
+    sock.once('connect', () => { sock.destroy(); resolve(true) })
+    sock.once('error', () => resolve(false))
+    sock.once('timeout', () => { sock.destroy(); resolve(false) })
+  })
+}
+
+export function previewUrl(base, servePort) {
+  return `https://${base}:${servePort}/`
+}
+
+export class PreviewRegistry {
+  // `reserved` is the set of localhost ports a preview may never point AT.
+  constructor({
+    range = DEFAULT_RANGE,
+    reserved = [],
+    exec = execFileP,
+    isLive = portLive,
+    log = console.log,
+  } = {}) {
+    this.range = range
+    this.reserved = new Set(reserved.filter((p) => Number.isInteger(p)))
+    this.exec = exec
+    this.isLive = isLive
+    this.log = log
+    this.byTicket = new Map() // ticket -> { servePort, devPort } — ephemeral (#9)
+  }
+
+  get(ticket) {
+    return this.byTicket.get(String(ticket)) ?? null
+  }
+
+  list() {
+    return [...this.byTicket.entries()].map(([ticket, v]) => ({ ticket, ...v }))
+  }
+
+  inRange(port) {
+    return port >= this.range.from && port <= this.range.to
+  }
+
+  // Live serve rules straight from tailscaled — the durable side of the state.
+  // Throws on an unreadable status: callers decide, because "no rules" and "I
+  // could not ask" must never collapse into the same answer (the recurring bug
+  // class #33's review killed four times).
+  async servedPorts() {
+    const { stdout } = await this.exec('tailscale', ['serve', 'status', '--json'], { maxBuffer: 8 * 1024 * 1024 })
+    return parseServedPorts(JSON.parse(stdout))
+  }
+
+  #refuse(reason) {
+    return { ok: false, reason }
+  }
+
+  // Allocate + publish. Idempotent per ticket: a repeat call for the same dev
+  // port returns the existing allocation rather than burning a second port.
+  async publish(ticket, devPort, { base }) {
+    const key = String(ticket)
+    if (!Number.isInteger(devPort) || devPort < 1 || devPort > 65535) {
+      return this.#refuse(`dev port must be a port number (got ${JSON.stringify(devPort)})`)
+    }
+    if (this.reserved.has(devPort)) {
+      return this.#refuse(`refusing to publish port ${devPort} — it is one of curia's own surfaces (daemon API, ttyd, attach), and publishing it would expose it to the whole tailnet`)
+    }
+    const existing = this.byTicket.get(key)
+    if (existing && existing.devPort === devPort) {
+      return { ok: true, ...existing, url: previewUrl(base, existing.servePort), reused: true }
+    }
+    if (!(await this.isLive(devPort))) {
+      return this.#refuse(`nothing is listening on 127.0.0.1:${devPort} — start the dev server first, then publish (a rule pointing at a dead port would publish whatever binds it next)`)
+    }
+
+    let served
+    try {
+      served = await this.servedPorts()
+    } catch (e) {
+      return this.#refuse(`could not read tailscale serve status (${e.message}) — refusing to allocate blind`)
+    }
+
+    const taken = new Set([...served.keys(), ...[...this.byTicket.values()].map((v) => v.servePort)])
+    let servePort = null
+    for (let p = this.range.from; p <= this.range.to; p += 1) {
+      if (!taken.has(p)) { servePort = p; break }
+    }
+    if (servePort === null) {
+      return this.#refuse(`no free preview port in ${this.range.from}-${this.range.to} (${taken.size} in use)`)
+    }
+
+    // If this ticket already had a different dev port, withdraw the stale rule
+    // rather than leaking it — serve config outlives the process.
+    if (existing) await this.#serveOff(existing.servePort).catch(() => {})
+
+    await this.exec('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://127.0.0.1:${devPort}`])
+    this.byTicket.set(key, { servePort, devPort })
+    this.log(`preview for ticket ${key}: https://${base}:${servePort}/ -> 127.0.0.1:${devPort}`)
+    return { ok: true, servePort, devPort, url: previewUrl(base, servePort), reused: false }
+  }
+
+  // "handler does not exist" is POSITIVE ABSENCE, not a failed withdrawal —
+  // same classification rule as attach.mjs's serveOff.
+  async #serveOff(servePort) {
+    try {
+      await this.exec('tailscale', ['serve', `--https=${servePort}`, 'off'])
+    } catch (e) {
+      if (/handler does not exist/i.test(`${e?.message ?? ''}\n${e?.stderr ?? ''}`)) return
+      throw e
+    }
+  }
+
+  async withdraw(ticket) {
+    const key = String(ticket)
+    const entry = this.byTicket.get(key)
+    if (!entry) return { ok: true, withdrawn: false }
+    try {
+      await this.#serveOff(entry.servePort)
+    } catch (e) {
+      // Keep the entry: an un-withdrawn rule is still published, and dropping
+      // the record here would make the next sweep the only thing that could
+      // ever find it.
+      this.log(`WARNING: preview rule for ticket ${key} on :${entry.servePort} REMAINS PUBLISHED — withdrawal failed: ${e.message}`)
+      return { ok: false, reason: e.message }
+    }
+    this.byTicket.delete(key)
+    return { ok: true, withdrawn: true, servePort: entry.servePort }
+  }
+
+  // Orphan sweep (#19's lesson, #33's discipline): `tailscale serve --bg`
+  // config persists in tailscaled across daemon restarts, so a rule can easily
+  // outlive both the worker and the process that published it. Anything in our
+  // range that no live ticket claims is withdrawn.
+  //
+  // `liveTickets` must be positively known. An indeterminate serve status
+  // aborts the sweep rather than withdrawing everything.
+  async sweep(liveTickets) {
+    const live = new Set([...liveTickets].map(String))
+    let served
+    try {
+      served = await this.servedPorts()
+    } catch (e) {
+      this.log(`preview sweep skipped — could not read serve status: ${e.message}`)
+      return { swept: [], skipped: true }
+    }
+
+    // Drop cache entries for tickets that are gone, and remember their ports.
+    const swept = []
+    for (const [ticket, entry] of [...this.byTicket]) {
+      if (!live.has(ticket)) {
+        await this.#serveOff(entry.servePort).catch((e) => this.log(`preview withdraw for ${ticket} failed: ${e.message}`))
+        this.byTicket.delete(ticket)
+        swept.push({ servePort: entry.servePort, ticket })
+      }
+    }
+
+    // Rules in our range that no cache entry claims are orphans from a previous
+    // process — the case the in-memory pass structurally cannot see.
+    const claimed = new Set([...this.byTicket.values()].map((v) => v.servePort))
+    for (const port of served.keys()) {
+      if (!this.inRange(port) || claimed.has(port)) continue
+      await this.#serveOff(port).catch((e) => this.log(`orphan preview withdraw on :${port} failed: ${e.message}`))
+      this.log(`swept orphan preview rule on :${port} (no live ticket claims it)`)
+      swept.push({ servePort: port, ticket: null })
+    }
+    return { swept, skipped: false }
+  }
+}

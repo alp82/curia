@@ -87,7 +87,7 @@ export class Dispatcher {
   // notify(ticket, msg) and confirm(ticket, prompt) → Promise<boolean> are
   // injected by index.mjs (bridge-guarded notify; approve-reject escalation
   // confirm with first-valid-confirm-wins + bounded TTL).
-  constructor({ config, routing, store, notify, confirm, cancelEscalation, log = console.log, cooling, dataDir, daemonPort, deps }) {
+  constructor({ config, routing, store, notify, confirm, cancelEscalation, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
     this.config = config
     this.routing = routing
     this.store = store
@@ -102,6 +102,9 @@ export class Dispatcher {
     this.cooling = cooling ?? new Cooling()
     this.dataDir = dataDir
     this.daemonPort = daemonPort
+    // Preview registry (#40) — optional so tests and any preview-less
+    // deployment construct a Dispatcher unchanged. Every call site guards.
+    this.previews = previews ?? null
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.workers = new Map() // session -> worker record (disposable cache)
@@ -565,12 +568,26 @@ export class Dispatcher {
     if (w) w.resultReceived = true
   }
 
+  // A preview outlives its worker unless someone withdraws it: `tailscale
+  // serve --bg` config lives in tailscaled, not in this process. Every path
+  // that ends a ticket goes through here.
+  async #withdrawPreview(ticket, why) {
+    if (!this.previews?.get(ticket)) return
+    const r = await this.previews.withdraw(ticket).catch((e) => ({ ok: false, reason: e.message }))
+    if (r.ok && r.withdrawn) this.log(`preview for ticket ${ticket} withdrawn (${why})`)
+    else if (!r.ok) this.log(`WARNING: preview for ticket ${ticket} REMAINS PUBLISHED after ${why}: ${r.reason}`)
+  }
+
   async onWorkerDone(workerName) {
     const w = this.workers.get(workerName)
     const m = workerName.match(SESSION_RE)
     const ticket = w?.ticket ?? (m ? m[1] : workerName)
     const resultsFile = path.join(this.dataDir, 'results', `${workerName}.json`)
     const hasResult = Boolean(w?.resultReceived) || fs.existsSync(resultsFile)
+    // Both branches: a finished worker's dev server is dead either way, so the
+    // rule would publish a dead port (or whatever binds it next) — the exact
+    // thing publish() refuses to create in the first place.
+    await this.#withdrawPreview(ticket, hasResult ? 'worker finished' : 'worker exited without a result')
     if (hasResult) {
       this.store.logEvent('lifecycle_closed', { worker: workerName, ticket, repo: w?.repo })
       await this.deps.killSession(workerName).catch(() => {})
@@ -600,6 +617,7 @@ export class Dispatcher {
         return
       }
       const w = this.workers.get(session)
+      await this.#withdrawPreview(ticket, 'ticket cancelled')
       await this.deps.killSession(session).catch(() => {})
       // The journal records what HAPPENED, not what was attempted (the W1
       // rule): dispatch_unclaimed only after the unclaim returned; a failed or
@@ -695,6 +713,17 @@ export class Dispatcher {
     // viewer identity: a cfg dir whose session is gone belongs to no live
     // worker whoever owns the ticket.
     if (ctx.sessions) this.#sweepAbandonedCredentials(ctx.sessions)
+
+    // Preview sweep (#40) rides the same evidence rule: a determinate session
+    // list is enough (a live session is a live ticket whoever owns it), and an
+    // indeterminate one must NEVER reach the sweep — "no sessions" would read
+    // as "no live tickets" and withdraw every preview currently being reviewed.
+    // This is also the only pass that can see a rule left behind by a PREVIOUS
+    // daemon process, since `tailscale serve --bg` config lives in tailscaled.
+    if (ctx.sessions && this.previews) {
+      const liveTickets = ctx.sessions.map((s) => s.match(SESSION_RE)?.[1]).filter(Boolean)
+      await this.previews.sweep(liveTickets).catch((e) => this.log(`preview sweep failed: ${e.message}`))
+    }
 
     if (boot) this.#voidBootConfirms()
     await this.#assertAttachSurface()

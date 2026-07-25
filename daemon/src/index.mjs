@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { EscalationStore } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
+import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
 import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -241,6 +242,17 @@ const attachApi = {
   },
 }
 
+// Preview links (#40, implementing #8): the daemon owns allocation. `reserved`
+// is the containment that matters — publishing the daemon's own port would put
+// /answer, /command and /escalate on the tailnet unauthenticated, and
+// publishing the raw ttyd port would bypass the attach rule entirely.
+const previews = new PreviewRegistry({
+  range: curiaConfig.preview,
+  reserved: [PORT, curiaConfig.attach.ttyd_port, curiaConfig.attach.serve_port],
+  log,
+})
+dispatcher.previews = previews // constructed after the dispatcher; teardown + sweep read it here
+
 const router = new CommandRouter({ dispatcher, attach: attachApi, log })
 
 // ---- worker-facing MCP surface (#29 shape) ---------------------------------
@@ -305,6 +317,28 @@ function buildMcpServer(worker, ticket) {
       store.logEvent('notify', { worker, ticket, message, images: files.map((f) => f.attachment), refusals })
       if (bridge) bridge.notify(ticket, `📣 \`${worker}\`: ${message}`, { files }).catch(() => {})
       return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }] }
+    },
+  )
+
+  // #40: the worker runs its dev server on localhost and asks the daemon to
+  // publish it. The worker never picks the public port — see preview.mjs for
+  // why that separation is the whole point of the registry.
+  server.tool(
+    'publish_preview',
+    'Publish a dev server you have started on localhost as an HTTPS preview link the human can open from any device. Start the server FIRST (it must be listening), then call this with its port. Returns the URL — pass it to ask_human(kind: "preview-review") to get it reviewed. The link is withdrawn automatically when this ticket finishes.',
+    { dev_port: z.number().int() },
+    async ({ dev_port }) => {
+      let base
+      try {
+        base = await attachBase()
+      } catch (e) {
+        return { content: [{ type: 'text', text: `preview unavailable: could not resolve this box's tailnet name (${e.message})` }] }
+      }
+      const r = await previews.publish(ticket, dev_port, { base })
+      store.logEvent('preview', { worker, ticket, dev_port, ok: r.ok, url: r.url ?? null, reason: r.reason ?? null })
+      if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }] }
+      if (bridge) bridge.notify(ticket, `🔗 preview for \`${worker}\`: ${r.url} (dev server on :${dev_port})`).catch(() => {})
+      return { content: [{ type: 'text', text: r.url }] }
     },
   )
 

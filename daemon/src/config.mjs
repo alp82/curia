@@ -5,6 +5,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parse } from 'yaml'
+import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
@@ -42,6 +43,24 @@ export function loadCuriaConfig(file) {
   for (const key of ['ttyd_port', 'serve_port']) {
     if (!(Number.isInteger(a[key]) && a[key] > 0 && a[key] < 65536)) fail(file, `attach.${key} must be a port number`)
   }
+
+  // Preview port range (#40/#8). Optional with defaults — an existing config
+  // predating previews must still boot — but validated hard when present, and
+  // the range must not swallow the attach port: sweeping it would take /attach
+  // down tailnet-wide on the next reconcile.
+  const p = cfg.preview ?? {}
+  if (typeof p !== 'object') fail(file, '`preview` must be a mapping')
+  const range = { from: p.port_from ?? DEFAULT_PREVIEW_RANGE.from, to: p.port_to ?? DEFAULT_PREVIEW_RANGE.to }
+  for (const [key, v] of [['port_from', range.from], ['port_to', range.to]]) {
+    if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(file, `preview.${key} must be a port number`)
+  }
+  if (range.to < range.from) fail(file, `preview.port_to (${range.to}) must not be below preview.port_from (${range.from})`)
+  for (const [name, port] of [['attach.serve_port', a.serve_port], ['attach.ttyd_port', a.ttyd_port]]) {
+    if (port >= range.from && port <= range.to) {
+      fail(file, `preview range ${range.from}-${range.to} contains ${name} (${port}) — the preview sweep would withdraw it`)
+    }
+  }
+  cfg.preview = range
 
   return cfg
 }
