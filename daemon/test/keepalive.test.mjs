@@ -262,4 +262,34 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     const state = JSON.parse((await request(port, 'GET', '/state')).body)
     assert.equal(state.open_escalations.some((e) => e.id === id), false)
   })
+
+  // #41 turned report_result from a fire-and-forget journal write into the call
+  // that closes the TICKET, and it now reports back what the daemon did. On this
+  // boot every `gh` is an inert failing shim, which is exactly the interesting
+  // case: the resolve step must decline out loud instead of hanging the call or
+  // taking the daemon down with it.
+  test('report_result returns the daemon\'s resolve outcome, and declines safely when it cannot identify the ticket', async () => {
+    const call = async (worker, ticket) => {
+      const client = new Client({ name: 'curia-result-test', version: '0.0.0' })
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=${worker}&ticket=${ticket}`)))
+      const res = await client.callTool(
+        { name: 'report_result', arguments: { ticket: String(ticket), status: 'resolved', summary: 'fixture' } },
+        undefined,
+        { timeout: 30_000 },
+      )
+      await client.close()
+      return res.content.map((c) => c.text).join('\n')
+    }
+
+    // a non-curia session name carries no ticket binding at all
+    assert.match(await call('lab', 77), /no curia ticket is bound/)
+    // a real binding, but no dispatch epoch and no readable gh ⇒ no repo
+    assert.match(await call('curia-77', 77), /could not tell which repo #77 belongs to/)
+
+    const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+    assert.ok(journal.includes('"type":"result"'), 'the result is journalled either way')
+    assert.equal(journal.match(/"type":"resolve_skipped"/g).length, 2)
+    assert.ok(fs.existsSync(path.join(tmp, 'data', 'results', 'curia-77.json')), 'and the results file still gates the lifecycle')
+    assert.equal(child.exitCode, null, 'the daemon is still up')
+  })
 })

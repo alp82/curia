@@ -95,6 +95,17 @@ function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], re
     ensureTtyd: async () => ({ verified: true }),
     assertServe: async () => {},
     serveOff: async () => {},
+    // resolve + land (#41)
+    commentIssue: async () => {},
+    closeIssue: async () => {},
+    setIssueBody: async () => {},
+    issueComments: async () => [],
+    findPullRequest: async () => null,
+    createPullRequest: async () => 'https://github.com/o/r/pull/1',
+    defaultBranchOf: async () => 'main',
+    commitsOnBranch: async () => [],
+    pushBranch: async () => 'abc1234',
+    hasUnpushedWork: async () => false,
   }
   return new Dispatcher({
     config,
@@ -901,5 +912,261 @@ describe('an unverified ttyd listener is never published (F3)', () => {
 
     assert.deepEqual(calls, [], 'assertServe must not run even when serveOff fails')
     assert.ok(logs.some((l) => /REMAINS PUBLISHED/.test(l)), 'the warning states plainly that the surface may still be published')
+  })
+})
+
+// ---- #41: report_result now closes the TICKET, not just the lifecycle --------
+
+describe('onResult acts on the SPAWN BINDING, never on the reported ticket number', () => {
+  test('a worker naming someone else\'s ticket resolves its own, and the disagreement is journalled', async () => {
+    const closed = []
+    const d = makeDispatcher({ closeIssue: async (repo, n) => closed.push(`${repo}#${n}`) })
+    d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/nope/42', cfgDir: '/c', state: 'ready' })
+
+    // this path closes issues and rewrites map bodies — `ticket` is
+    // worker-supplied text and must never steer it
+    await d.onResult('curia-42', { ticket: '99', status: 'resolved', summary: 'done' })
+
+    assert.deepEqual(closed, ['o/r#42'], 'the repair closes the BOUND ticket; #99 is never touched')
+    assert.ok(events.some((e) => e.type === 'result_ticket_mismatch' && e.bound === '42' && e.reported === '99'))
+    assert.ok(events.some((e) => e.type === 'ticket_resolved' && e.ticket === '42'))
+    assert.ok(!events.some((e) => e.type === 'ticket_resolved' && e.ticket === '99'))
+  })
+
+  test('a worker whose record this process never held still resolves, via the journal epoch', async () => {
+    fs.writeFileSync(
+      path.join(tmp, 'data', 'events.jsonl'),
+      JSON.stringify({ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' }) + '\n',
+    )
+    const d = makeDispatcher()
+    const text = await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+    assert.ok(events.some((e) => e.type === 'ticket_resolved' && e.repo === 'o/r' && e.ticket === '42'))
+    assert.match(text, /ticket closed/)
+  })
+
+  test('a worker whose repo cannot be determined touches nothing', async () => {
+    const d = makeDispatcher({ closeIssue: async () => { throw new Error('must not be called') } })
+    const text = await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+    assert.match(text, /could not tell which repo/)
+    assert.ok(events.some((e) => e.type === 'resolve_skipped'))
+  })
+})
+
+describe('a non-clean result resolves nothing AND hands the ticket back (#41)', () => {
+  const worker = () => ({ repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready' })
+
+  test('blocked: claim released, reason noted on the ticket, nothing closed or pushed', async () => {
+    const acts = []
+    const d = makeDispatcher({
+      unclaim: async (repo, n) => acts.push(`unclaim:${repo}#${n}`),
+      commentIssue: async (repo, n, body) => acts.push({ comment: `${repo}#${n}`, body }),
+      closeIssue: async () => acts.push('close'),
+      pushBranch: async () => acts.push('push'),
+      removeCredentials: () => acts.push('credentials'),
+    })
+    d.workers.set('curia-42', worker())
+
+    const text = await d.onResult('curia-42', { ticket: '42', status: 'blocked', summary: 'need a human' })
+
+    assert.ok(acts.includes('unclaim:o/r#42'), 'before #41 the claim was kept and the ticket vanished from every frontier')
+    assert.ok(!acts.includes('close') && !acts.includes('push'))
+    // the worker is still alive here — taking its credential copy now kills its
+    // next model turn (#34)
+    assert.ok(!acts.includes('credentials'), 'a live worker keeps its credentials')
+    const note = acts.find((a) => a.comment)
+    assert.match(note.body, /did \*\*not\*\* resolve/)
+    assert.match(note.body, /need a human/)
+    assert.ok(events.some((e) => e.type === 'dispatch_unclaimed'))
+    assert.ok(events.some((e) => e.type === 'nonclean_noted' && e.released === true && e.noted === true))
+    assert.match(text, /nothing was resolved or pushed/)
+    assert.match(notifies.at(-1).message, /NOT resolved/)
+  })
+
+  test('blocked with a failing unclaim: the note and the thread both say the ticket is still assigned', async () => {
+    let body = null
+    const d = makeDispatcher({
+      unclaim: async () => { throw new Error('gh: HTTP 502') },
+      commentIssue: async (repo, n, b) => { body = b },
+    })
+    d.workers.set('curia-42', worker())
+
+    await d.onResult('curia-42', { ticket: '42', status: 'blocked', summary: 'stuck' })
+
+    assert.match(body, /Releasing its claim FAILED/)
+    assert.ok(events.some((e) => e.type === 'unclaim_failed'))
+    assert.ok(!events.some((e) => e.type === 'dispatch_unclaimed'))
+    assert.match(notifies.at(-1).message, /claim release FAILED/)
+  })
+
+  test('a note that cannot be posted still releases the claim, and says which half failed', async () => {
+    const d = makeDispatcher({
+      commentIssue: async () => { throw new Error('gh: HTTP 403') },
+    })
+    d.workers.set('curia-42', worker())
+
+    await d.onResult('curia-42', { ticket: '42', status: 'aborted', summary: 'cancelled' })
+
+    assert.ok(events.some((e) => e.type === 'nonclean_noted' && e.released === true && e.noted === false))
+    assert.match(notifies.at(-1).message, /the note could not be posted/)
+  })
+})
+
+describe('two workers resolving into one map body do not lose each other\'s pointer (#41)', () => {
+  test('the map lock serialises read-modify-write; both pointers survive', async () => {
+    const MAP = [
+      '## Decisions so far', '', '- [older](https://github.com/o/r/issues/7) — done', '', '## Not yet specified', '',
+    ].join('\n')
+    const issues = {
+      1: { number: 1, title: 'map', state: 'open', labels: [{ name: 'wayfinder:map' }], body: MAP },
+      42: { number: 42, title: 'forty-two', state: 'closed', html_url: 'https://github.com/o/r/issues/42', parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' },
+      43: { number: 43, title: 'forty-three', state: 'closed', html_url: 'https://github.com/o/r/issues/43', parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' },
+    }
+    const d = makeDispatcher({
+      fetchIssue: async (repo, n) => ({ ...issues[String(n)] }),
+      issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T00:00:00Z' }],
+      // a slow write is what turns a read-modify-write race from theoretical
+      // into reproducible
+      setIssueBody: async (repo, n, body) => {
+        await new Promise((r) => setTimeout(r, 30))
+        issues[String(n)].body = body
+      },
+    })
+    d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/nope', cfgDir: '/c', state: 'ready' })
+    d.workers.set('curia-43', { repo: 'o/r', ticket: '43', session: 'curia-43', wtPath: '/nope', cfgDir: '/c', state: 'ready' })
+
+    await Promise.all([
+      d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'answer A' }),
+      d.onResult('curia-43', { ticket: '43', status: 'resolved', summary: 'answer B' }),
+    ])
+
+    const body = issues['1'].body
+    assert.match(body, /issues\/42\) — answer A/)
+    assert.match(body, /issues\/43\) — answer B/)
+    assert.match(body, /issues\/7\) — done/, 'the pre-existing decision is untouched')
+    assert.equal(body.split('\n').filter((l) => /^## /.test(l)).length, 2, 'the section structure survives both writes')
+  })
+})
+
+describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
+  function writeJournal(lines) {
+    fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  }
+
+  test('a live session that already reported a result is a finishing worker, not an orphan', async () => {
+    // The worker resolved its ticket, so the issue is CLOSED and its claim may
+    // already be gone — every positive-evidence test reads "orphan" while the
+    // worktree still holds commits the daemon has not pushed.
+    writeJournal([
+      { type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' },
+      { type: 'result', worker: 'curia-42', ticket: '42', status: 'resolved' },
+    ])
+    const destroyed = []
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
+      killSession: async (n) => destroyed.push(`kill:${n}`),
+      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeConfigDir: (dir) => destroyed.push(`cfg:${dir}`),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(destroyed, [])
+    assert.ok(events.some((e) => e.type === 'orphan_sweep_skipped' && e.worker === 'curia-42'))
+    assert.ok(!typesOf().includes('orphan_swept'))
+  })
+
+  test('a genuine orphan whose branch holds unpushed commits keeps its worktree', async () => {
+    writeJournal([{ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' }])
+    const destroyed = []
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
+      killSession: async (n) => destroyed.push(`kill:${n}`),
+      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeConfigDir: () => {},
+      hasUnpushedWork: async () => true,
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.ok(typesOf().includes('orphan_swept'), 'the session is still swept')
+    assert.deepEqual(destroyed.filter((x) => x.startsWith('worktree:')), [], 'but the only copy of the work survives')
+    assert.ok(events.some((e) => e.type === 'orphan_worktree_kept' && /commits that exist nowhere else/.test(e.reason)))
+  })
+
+  test('an indeterminate unpushed-work check keeps the worktree too', async () => {
+    writeJournal([{ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' }])
+    const destroyed = []
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
+      killSession: async () => {},
+      removeWorktree: async (b, wt) => destroyed.push(wt),
+      removeConfigDir: () => {},
+      hasUnpushedWork: async () => { throw new Error('git exploded') },
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(destroyed, [], '"cannot tell" is not "nothing there"')
+    assert.ok(events.some((e) => e.type === 'orphan_worktree_kept' && /could not tell/.test(e.reason)))
+  })
+
+  test('an orphan with nothing unlanded is still cleaned up in full', async () => {
+    writeJournal([{ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' }])
+    const destroyed = []
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
+      killSession: async (n) => destroyed.push(`kill:${n}`),
+      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeConfigDir: (dir) => destroyed.push(`cfg:${path.basename(dir)}`),
+      hasUnpushedWork: async () => false,
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.ok(typesOf().includes('orphan_swept'))
+    assert.ok(destroyed.some((x) => x.startsWith('worktree:')))
+    assert.ok(!typesOf().includes('orphan_worktree_kept'))
+  })
+})
+
+describe('the spawn prompt names the parent map (#41)', () => {
+  test('a map child is prompted with its map number; the parent lookup rides the issue payload', async () => {
+    let prompt = null
+    const d = makeDispatcher({
+      fetchIssue: async (repo, n) => (String(n) === '1'
+        ? { number: 1, title: 'map', state: 'open', labels: [{ name: 'wayfinder:map' }] }
+        : { ...OPEN_ISSUE, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' }),
+      writePrompt: (cfgDir, issue, opts) => { prompt = opts; return '/p' },
+    }, { readyTimeoutS: 0 })
+
+    await d.start('42', { repo: 'o/r' })
+    assert.equal(prompt.mapNumber, 1)
+  })
+
+  test('a parent that is not a map, and an unreadable parent, both prompt without one', async () => {
+    let prompt = null
+    const d = makeDispatcher({
+      fetchIssue: async (repo, n) => (String(n) === '1'
+        ? { number: 1, title: 'ordinary parent', state: 'open', labels: [] }
+        : { ...OPEN_ISSUE, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' }),
+      writePrompt: (cfgDir, issue, opts) => { prompt = opts; return '/p' },
+    }, { readyTimeoutS: 0 })
+    await d.start('42', { repo: 'o/r' })
+    assert.equal(prompt.mapNumber, null)
+
+    prompt = null
+    const d2 = makeDispatcher({
+      fetchIssue: async (repo, n) => {
+        if (String(n) === '1') throw new Error('HTTP 502')
+        return { ...OPEN_ISSUE, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' }
+      },
+      writePrompt: (cfgDir, issue, opts) => { prompt = opts; return '/p' },
+    }, { readyTimeoutS: 0 })
+    await d2.start('42', { repo: 'o/r' })
+    assert.equal(prompt.mapNumber, null, 'a failed read must not invent a map for the worker to edit')
   })
 })

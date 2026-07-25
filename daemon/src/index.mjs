@@ -364,21 +364,32 @@ function buildMcpServer(worker, ticket) {
     },
   )
 
+  // #41: this call now also closes the TICKET, not just curia's dispatch
+  // lifecycle. The worker has already run the resolve protocol itself; the
+  // daemon verifies it, repairs what is missing, and lands the branch as a PR.
+  // The outcome comes back as the tool result, so the one agent still able to
+  // react to a failure hears about it — and the keepalive is reused because that
+  // work involves several gh/git round-trips and the client aborts an MCP call
+  // after 300s of silence (#34).
   server.tool(
     'report_result',
-    'Deliver the structured resolution for the ticket. Call exactly once, when the work is done.',
+    'Deliver the structured resolution for the ticket. Call exactly once, when the work is done and you have run the resolve protocol from your standing orders. curia verifies the resolution, repairs anything missing, and pushes your branch as a pull request; the reply tells you what it did.',
     {
       ticket: z.string(),
       status: z.enum(['resolved', 'blocked', 'aborted']),
       summary: z.string(),
       details: z.record(z.string(), z.any()).optional(),
     },
-    async (result) => {
+    async (result, extra) => {
       const rec = store.logEvent('result', { worker, ...result })
       fs.writeFileSync(path.join(DATA, 'results', `${worker}.json`), JSON.stringify(rec, null, 2))
-      dispatcher.onResult(worker)
       if (bridge) bridge.notify(result.ticket, `🏁 \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
-      return { content: [{ type: 'text', text: 'result recorded' }] }
+      const stopKeepAlive = startKeepAlive(extra, `${worker}/result`)
+      try {
+        return { content: [{ type: 'text', text: await dispatcher.onResult(worker, result) }] }
+      } finally {
+        stopKeepAlive()
+      }
     },
   )
 

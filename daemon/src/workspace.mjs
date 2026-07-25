@@ -71,21 +71,77 @@ export async function ensureBaseClone(root, repo) {
   return base
 }
 
+export function branchFor(n) {
+  return `curia/${n}`
+}
+
+export async function defaultBranchOf(base) {
+  const { stdout } = await git(base, ['symbolic-ref', 'refs/remotes/origin/HEAD'])
+  return stdout.trim().replace('refs/remotes/origin/', '')
+}
+
 // Fresh worktree on branch curia/<n> off origin's default branch. -B force-
 // resets a stale branch on re-dispatch; a stale worktree registration at the
 // same path is removed first (worktree add refuses an existing path).
 export async function createWorktree(base, n) {
   const wt = path.join(path.dirname(base), 'wt', String(n))
-  const { stdout } = await git(base, ['symbolic-ref', 'refs/remotes/origin/HEAD'])
-  const defaultBranch = stdout.trim().replace('refs/remotes/origin/', '')
+  const defaultBranch = await defaultBranchOf(base)
   if (fs.existsSync(wt)) {
     await git(base, ['worktree', 'remove', '--force', wt]).catch(() => {})
     fs.rmSync(wt, { recursive: true, force: true })
   }
   await git(base, ['worktree', 'prune'])
   fs.mkdirSync(path.dirname(wt), { recursive: true })
-  await git(base, ['worktree', 'add', '-B', `curia/${n}`, wt, `origin/${defaultBranch}`])
+  await git(base, ['worktree', 'add', '-B', branchFor(n), wt, `origin/${defaultBranch}`])
   return wt
+}
+
+// ---- landing the work (#41) --------------------------------------------------
+
+// What the worker ACTUALLY committed, observed by the daemon in git rather than
+// taken from the worker's account of itself — this is what the PR body reports.
+export async function commitsOnBranch(wtPath, defaultBranch) {
+  const { stdout } = await git(wtPath, ['log', '--format=%h%x09%s', `origin/${defaultBranch}..HEAD`])
+  return stdout.split('\n').filter((l) => l.trim()).map((l) => {
+    const [sha, ...rest] = l.split('\t')
+    return { sha, subject: rest.join('\t') }
+  })
+}
+
+// The daemon pushes; the worker never does (#41) — the same containment
+// boundary as preview allocation (#40). The base clone's push URL stays
+// disabled, so this goes out over an EXPLICIT URL with gh's credential helper
+// named on the command line: the daemon does not depend on `gh auth setup-git`
+// having been run for whoever owns the box.
+//
+// Pushing an explicit URL does not move refs/remotes/origin/*, and
+// hasUnpushedWork() — which decides whether the orphan sweep is allowed to
+// destroy a worktree — reads exactly that ref. So the tracking ref is updated
+// here, to the sha that was actually pushed and nothing else.
+export async function pushBranch(wtPath, repo, branch) {
+  const { stdout } = await git(wtPath, ['rev-parse', 'HEAD'])
+  const sha = stdout.trim()
+  await git(wtPath, [
+    '-c', 'credential.helper=!gh auth git-credential',
+    'push', `https://github.com/${repo}.git`, `${sha}:refs/heads/${branch}`,
+  ], { timeout: CLONE_TIMEOUT_MS })
+  await git(wtPath, ['update-ref', `refs/remotes/origin/${branch}`, sha])
+  return sha
+}
+
+// Does this worktree hold commits that exist nowhere else? Before #41 a
+// worktree held only a local commit nobody depended on, so the orphan sweep
+// could force-remove it freely. Now the daemon is expected to land that work,
+// and a sweep that fires between the commit and the push would destroy the only
+// copy. Throws when it cannot tell — callers must read "unknown" as "keep".
+export async function hasUnpushedWork(wtPath, branch, defaultBranch) {
+  let ref = `origin/${defaultBranch}`
+  try {
+    await git(wtPath, ['rev-parse', '--verify', `refs/remotes/origin/${branch}`])
+    ref = `refs/remotes/origin/${branch}`
+  } catch { /* never pushed: measure against the default branch instead */ }
+  const { stdout } = await git(wtPath, ['rev-list', '--count', `${ref}..HEAD`])
+  return Number(stdout.trim()) > 0
 }
 
 // Branch is kept deliberately (salvage; re-frontier is the recovery).
@@ -162,11 +218,30 @@ export function writeHarness(wtPath, worker, ticket, daemonPort) {
 }
 
 // Prompt file lives in the config dir, not the worktree. Ticket title/body +
-// the standing orders (never push; report_result exactly once; then stop).
-export function writePrompt(cfgDir, issue, { repo, wtPath }) {
+// the standing orders: the resolve protocol (#41), never push, report_result
+// exactly once, then stop.
+//
+// The resolve protocol is spelled out INLINE rather than by reference to
+// `docs/agents/issue-tracker.md`: the worktree is the watched repo's, and most
+// watched repos carry no such doc. It is deliberately the tracker's ordinary
+// idiom — `gh` — because that is what the wayfinder skill does at the end of a
+// session; a curia-specific resolve path would put every ticket prompt at odds
+// with the skill the ticket came from (#7). The daemon verifies and repairs
+// afterwards (resolve.mjs), which is why an honest report_result matters more
+// here than a flawless protocol run.
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
+  const n = issue.number
+  const mapStep = mapNumber
+    ? [
+      `  3. Append ONE line to the \`## Decisions so far\` section of the parent map ${repo}#${mapNumber}:`,
+      `     \`- [${issue.title}](https://github.com/${repo}/issues/${n}) — <one-line gist of the answer>\``,
+      '     Read the map body, insert the line at the END of that section, write it back, then re-read',
+      '     and confirm your line is there — another worker may be editing the same body at the same time.',
+    ]
+    : ['  3. This ticket has no parent map, so there is no Decisions-so-far line to append.']
   const body = [
-    `# ${repo}#${issue.number}: ${issue.title}`,
+    `# ${repo}#${n}: ${issue.title}`,
     '',
     issue.body ?? '(no body)',
     '',
@@ -175,11 +250,20 @@ export function writePrompt(cfgDir, issue, { repo, wtPath }) {
     '## Standing orders (curia daemon)',
     '',
     `- Work ONLY inside this worktree: ${wtPath}. Never touch anything outside it.`,
-    '- Commit your work locally on the current branch. NEVER push to any remote, under any circumstances.',
-    '- When the work is done, call the `report_result` tool on the `curia` MCP server exactly once',
-    `  (ticket: "${issue.number}") with an honest status and summary, then stop.`,
-    '- If you are blocked, call `report_result` with status "blocked" instead of guessing — or use',
-    '  `ask_human` for a decision you cannot make alone.',
+    `- Commit your work locally on the current branch (\`${branchFor(n)}\`). NEVER push, and never open a`,
+    '  pull request: curia pushes the branch and opens the PR itself once you report a clean result.',
+    '- When the work is done, resolve the ticket the ordinary way, with `gh`:',
+    `  1. \`gh issue comment ${n} --repo ${repo}\` — the resolution: what the answer is and why.`,
+    `  2. \`gh issue close ${n} --repo ${repo}\``,
+    ...mapStep,
+    '  Touch NOTHING else on the tracker: no other issue, no labels, no other section of the map, no',
+    "  rewriting of anyone else's text. Leave the assignee alone — that claim is curia's record of who",
+    '  did this work.',
+    '- Then call the `report_result` tool on the `curia` MCP server exactly once',
+    `  (ticket: "${n}") with an honest status and summary, and stop. curia verifies the steps above and`,
+    '  repairs anything missing, so an honest summary matters more than a perfect protocol run.',
+    '- If you are blocked, call `report_result` with status "blocked" — do NOT comment-and-close a ticket',
+    '  you did not actually resolve. Use `ask_human` for a decision you cannot make alone.',
     '',
   ].join('\n')
   fs.writeFileSync(promptFile, body)

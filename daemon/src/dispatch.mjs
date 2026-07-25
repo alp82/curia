@@ -18,14 +18,17 @@ import path from 'node:path'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim,
-  selectLane, frontierForRepo,
+  selectLane, frontierForRepo, commentIssue, closeIssue, setIssueBody, issueComments,
+  parentNumberOf, hasLabel, findPullRequest, createPullRequest,
 } from './github.mjs'
 import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, Cooling } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
 import {
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
+  branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork,
 } from './workspace.mjs'
+import { resolveAndLand, summariseOutcome, nonCleanComment } from './resolve.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 
 const READY_MARKER = /⏵⏵|bypass permissions/
@@ -49,6 +52,9 @@ const DEFAULT_DEPS = {
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt,
   ensureTtyd, assertServe, serveOff,
+  // resolve + land (#41)
+  commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
+  defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork,
 }
 
 // How many trailing pane lines the usage-limit classifier is allowed to see.
@@ -109,6 +115,7 @@ export class Dispatcher {
     this.root = config.dispatch.workspace_root
     this.workers = new Map() // session -> worker record (disposable cache)
     this.inFlight = new Set() // admission guard: sessions mid-start, pre-spawn
+    this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
     this.autoTimer = null
     this.wakeTimer = null
@@ -342,7 +349,7 @@ export class Dispatcher {
       const wtPath = await this.deps.createWorktree(base, n)
       this.deps.seedConfigDir(cfgDir, wtPath)
       this.deps.writeHarness(wtPath, session, n, this.daemonPort)
-      const promptFile = this.deps.writePrompt(cfgDir, full, { repo, wtPath })
+      const promptFile = this.deps.writePrompt(cfgDir, full, { repo, wtPath, mapNumber: await this.#mapNumberFor(repo, full) })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
       const useModel = cands[0]
@@ -384,6 +391,25 @@ export class Dispatcher {
         this.store.logEvent('unclaim_failed', { repo, ticket: n, worker: session, reason: e.message, error: unclaimErr.message })
       }
       return `⚠️ dispatch of ${repo}#${n} failed before the worker could run: ${e.message} — ${released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'}`
+    }
+  }
+
+  // Which wayfinder map, if any, owns this ticket — so the standing orders can
+  // name the map the worker must append its Decisions-so-far line to (#41).
+  // Derived from the issue's own `parent_issue_url`, never stored: the same
+  // lookup runs again at resolve time. A parent that is not labelled
+  // `wayfinder:map` (an ordinary nested sub-issue) yields null, and so does any
+  // failed read — the flat shape of the protocol is the safe default, because
+  // it asks the worker for one thing less rather than one thing wrong.
+  async #mapNumberFor(repo, issue) {
+    const parent = parentNumberOf(issue)
+    if (!parent) return null
+    try {
+      const parentIssue = await this.deps.fetchIssue(repo, parent)
+      return hasLabel(parentIssue, 'wayfinder:map') ? parent : null
+    } catch (e) {
+      this.log(`could not read parent #${parent} of ${repo}#${issue.number} (${e.message}) — prompting without a map`)
+      return null
     }
   }
 
@@ -536,7 +562,13 @@ export class Dispatcher {
   // unclaimed would make #reconcileDeadClaims treat the epoch as closed
   // forever). unclaim_failed is not matched by closedAfterEpoch, so the next
   // reconcile retries the release.
-  async #releaseClaim(worker, reason) {
+  // `keepCredentials` exists for exactly one caller: the non-clean report_result
+  // path (#41), where the worker is STILL ALIVE — every other caller's session
+  // is already dead. Deleting the per-worker credential copy under a live worker
+  // kills its next model turn (#34's snapshot bound), and a `blocked` worker
+  // still has a turn to end. The abandoned-credential sweep collects it once the
+  // session is positively gone.
+  async #releaseClaim(worker, reason, { keepCredentials = false } = {}) {
     this.workers.delete(worker.session)
     let released = false
     let failure = null
@@ -552,7 +584,7 @@ export class Dispatcher {
     // the session is dead and the record is being dropped, so nothing later
     // will collect the host OAuth credential copy — take it now; the rest of
     // the config dir (prompt.md) stays for post-mortem
-    if (worker.cfgDir) this.deps.removeCredentials(worker.cfgDir)
+    if (worker.cfgDir && !keepCredentials) this.deps.removeCredentials(worker.cfgDir)
     if (released) {
       this.store.logEvent('dispatch_unclaimed', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, reason })
     } else {
@@ -563,9 +595,126 @@ export class Dispatcher {
 
   // ---- lifecycle callbacks -----------------------------------------------------
 
-  onResult(workerName) {
+  // report_result lands here. Marking the dispatch lifecycle is the old half;
+  // the new half (#41) is the TICKET's own resolution — verified, repaired and
+  // landed by resolve.mjs, or explicitly not-resolved on a non-clean status.
+  // Returns the text the worker gets back as its tool result, so a failure the
+  // daemon hit is visible to the one agent still able to react to it.
+  async onResult(workerName, result = null) {
     const w = this.workers.get(workerName)
     if (w) w.resultReceived = true
+    if (!result) return 'result recorded'
+
+    // The ticket comes from the SPAWN BINDING (the worker record, else the
+    // session name), never from `result.ticket` — that field is worker-supplied,
+    // and this path closes issues and rewrites map bodies. A worker that names
+    // someone else's ticket gets its own resolved and the disagreement
+    // journalled.
+    const m = workerName.match(SESSION_RE)
+    const ticket = String(w?.ticket ?? (m ? m[1] : ''))
+    if (!ticket) {
+      this.store.logEvent('resolve_skipped', { worker: workerName, reason: 'no ticket is bound to this worker' })
+      return 'result recorded — no curia ticket is bound to this worker, so nothing on the tracker was touched'
+    }
+    if (result.ticket != null && String(result.ticket) !== ticket) {
+      this.store.logEvent('result_ticket_mismatch', { worker: workerName, bound: ticket, reported: String(result.ticket) })
+      this.log(`WARNING: ${workerName} reported ticket ${result.ticket} but is bound to ${ticket} — acting on ${ticket}`)
+    }
+    const repo = w?.repo ?? this.#epochRepo(ticket)
+    if (!repo) {
+      this.store.logEvent('resolve_skipped', { worker: workerName, ticket, reason: 'no repo could be determined' })
+      return `result recorded — curia could not tell which repo #${ticket} belongs to, so the ticket was left untouched`
+    }
+
+    try {
+      return result.status === 'resolved'
+        ? await this.#resolveTicket(workerName, repo, ticket, result, w)
+        : await this.#noteNonClean(workerName, repo, ticket, result, w)
+    } catch (e) {
+      this.store.logEvent('resolve_failed', { repo, ticket, worker: workerName, status: result.status, error: e.message })
+      this.notify(ticket, `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${e.message}`)
+      return `result recorded — but curia's resolve step failed: ${e.message}`
+    }
+  }
+
+  // The repo this ticket was last dispatched against, for a worker whose record
+  // this process never held (reconcile-adopted, or a restart mid-flight).
+  #epochRepo(ticket) {
+    let repo = null
+    for (const ev of this.#readJournal()) {
+      if ((ev.type === 'dispatch_claimed' || ev.type === 'worker_spawned')
+        && String(ev.ticket ?? '') === String(ticket) && ev.repo) repo = ev.repo
+    }
+    return repo
+  }
+
+  async #resolveTicket(workerName, repo, ticket, result, w) {
+    const wtPath = w?.wtPath ?? worktreePathFor(this.root, repo, ticket)
+    const login = await this.deps.viewerLogin().catch(() => null)
+    const out = await resolveAndLand({
+      repo, ticket, worker: workerName, result, login,
+      wtPath: fs.existsSync(wtPath) ? wtPath : null,
+      basePath: basePathFor(this.root, repo),
+      branch: branchFor(ticket),
+      // comments are judged against this dispatch, so a resolution comment left
+      // by an EARLIER dispatch of the same ticket does not count as this one's
+      epochTs: w?.spawnedAt ? new Date(w.spawnedAt).toISOString() : null,
+      model: w?.model ?? null,
+      deps: this.deps,
+      journal: (type, data) => this.store.logEvent(type, data),
+      withMapLock: (key, fn) => this.#withMapLock(key, fn),
+      log: this.log,
+    })
+    this.store.logEvent('ticket_resolved', {
+      repo, ticket, worker: workerName,
+      comment: out.comment, close: out.close, map: out.map.state, land: out.land.state,
+      pr: out.land.url ?? null, repaired: out.repaired,
+    })
+    const text = summariseOutcome(out)
+    this.notify(ticket, `✅ ${repo}#${ticket} resolved — ${text}`)
+    return text
+  }
+
+  // A non-clean result resolves NOTHING — and the ticket has to actually come
+  // back. It did not before #41: report_result writes a `result` event, and
+  // reconcile's closedAfterEpoch reads any post-epoch `result` as "this epoch is
+  // closed", so the dead-claim pass skipped the ticket. It stayed assigned to
+  // the bot, invisible to every frontier, until a human ran /cancel. So the
+  // release happens here, explicitly, and the ticket says why it is back.
+  //
+  // Consequence worth naming: with auto_dispatch ON, a ticket that always ends
+  // `blocked` now returns to the frontier every poll and collects one comment
+  // per attempt. That loop already existed and burned quota silently; it is now
+  // written on the ticket, which is the point.
+  async #noteNonClean(workerName, repo, ticket, result, w) {
+    const record = w ?? { repo, ticket, session: workerName }
+    const released = await this.#releaseClaim(record, `worker reported ${result.status}`, { keepCredentials: true })
+    let noted = false
+    try {
+      await this.deps.commentIssue(repo, ticket, nonCleanComment({ worker: workerName, result, released }))
+      noted = true
+    } catch (e) {
+      this.log(`could not note the ${result.status} result on ${repo}#${ticket}: ${e.message}`)
+    }
+    this.store.logEvent('nonclean_noted', { repo, ticket, worker: workerName, status: result.status, released, noted })
+    const tail = released
+      ? 'claim released, ticket back on the frontier'
+      : 'claim release FAILED — the ticket is still assigned; reconcile will retry'
+    this.notify(ticket, `↩️ ${repo}#${ticket} NOT resolved (**${result.status}**) — ${tail}${noted ? ', reason noted on the ticket' : ', and the note could not be posted'}`)
+    return `result recorded — nothing was resolved or pushed; ${tail}`
+  }
+
+  // Serialise this daemon's writes to one map body. GitHub has no conditional
+  // issue update, so two workers appending Decisions-so-far lines concurrently
+  // would read the same body and one line would vanish. This closes the
+  // in-process race; the cross-process one (a human editing the same body) is
+  // narrowed by reading inside the lock and verifying after, and survived by
+  // journalling the line.
+  #withMapLock(key, fn) {
+    const prev = this.mapLocks.get(key) ?? Promise.resolve()
+    const run = prev.catch(() => {}).then(fn)
+    this.mapLocks.set(key, run.then(() => {}, () => {}))
+    return run
   }
 
   // A preview outlives its worker unless someone withdraws it: `tailscale
@@ -782,7 +931,7 @@ export class Dispatcher {
 
   // Live curia-<n> sessions: re-adopt the ones GitHub still says we own, sweep
   // the ones every candidate repo positively disowns.
-  async #reconcileSessions({ epochs, login, sessions, failedRepos, getIssue, skipRepo }) {
+  async #reconcileSessions({ journal, epochs, login, sessions, failedRepos, getIssue, skipRepo }) {
     for (const session of sessions) {
       if (this.workers.has(session) || this.inFlight.has(session)) continue
       const n = session.match(SESSION_RE)[1]
@@ -816,16 +965,54 @@ export class Dispatcher {
         }
       }
       if (adopted || sawFailure) continue
+
+      // #41 guard, BEFORE the sweep: a live session that already reported a
+      // result is a FINISHING worker, not an orphan. Its ticket is closed
+      // (the worker resolved it) and its claim may already be released, so every
+      // positive-evidence test above now reads "orphan" — on a session whose
+      // worktree may still hold the only copy of the commits.
+      const reported = journal.some((ev, i) => i > (epoch?.idx ?? -1)
+        && (ev.type === 'result' || ev.type === 'ticket_resolved')
+        && (ev.worker === session || String(ev.ticket ?? '') === n))
+      if (reported) {
+        this.store.logEvent('orphan_sweep_skipped', { worker: session, ticket: n, reason: 'reported a result after its dispatch' })
+        this.log(`reconcile: not sweeping ${session} — it reported a result after its dispatch`)
+        continue
+      }
+
       // positive evidence from every candidate repo: closed / unassigned /
       // absent everywhere ⇒ orphan
       this.store.logEvent('orphan_swept', { worker: session, ticket: n })
       await this.deps.killSession(session).catch(() => {})
-      if (sweepRepo) {
-        await this.deps.removeWorktree(basePathFor(this.root, sweepRepo), worktreePathFor(this.root, sweepRepo, n)).catch(() => {})
-      }
+      if (sweepRepo) await this.#sweepWorktree(sweepRepo, n, session)
       this.deps.removeConfigDir(cfgDirFor(this.root, session))
       this.log(`reconcile: swept orphan ${session}`)
     }
+  }
+
+  // `git worktree remove --force` on an orphan used to be free: the worktree
+  // held at most a local commit nothing depended on. Since #41 the daemon is
+  // expected to push that branch and open a PR, so a sweep that fires before the
+  // landing would destroy the only copy of real work. Unpushed ⇒ keep the
+  // worktree (loudly); and "cannot tell" is not "nothing there" — an
+  // indeterminate check keeps it too, the same evidence rule the rest of
+  // reconcile runs on.
+  async #sweepWorktree(repo, n, session) {
+    const base = basePathFor(this.root, repo)
+    const wt = worktreePathFor(this.root, repo, n)
+    let unpushed = true
+    let why = 'it holds commits that exist nowhere else'
+    try {
+      unpushed = await this.deps.hasUnpushedWork(wt, branchFor(n), await this.deps.defaultBranchOf(base))
+    } catch (e) {
+      why = `curia could not tell whether it holds unlanded commits (${e.message})`
+    }
+    if (unpushed) {
+      this.store.logEvent('orphan_worktree_kept', { worker: session, ticket: n, repo, path: wt, reason: why })
+      this.log(`reconcile: kept orphan worktree ${wt} — ${why}`)
+      return
+    }
+    await this.deps.removeWorktree(base, wt).catch(() => {})
   }
 
   // Dead claims: journal-claimed (dispatch_claimed keeps manual claims safe),
