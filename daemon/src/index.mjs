@@ -1,16 +1,18 @@
-// Curia daemon (#31): durable escalation record + Discord bridge module,
-// plus the worker-facing MCP surface proven in spike #29.
+// Curia daemon (#31 + #33): durable escalation record + Discord bridge module,
+// the worker-facing MCP surface proven in spike #29, and the dispatch loop.
 //
 //   POST /mcp?worker=<name>&ticket=<n>  — streamable-HTTP MCP (ask_human / notify / report_result)
 //   GET  /state                          — open escalations
 //   POST /escalate                       — synthetic escalation (testing / non-MCP emitters)
 //   POST /answer {id, answer}            — REST answer (same first-valid-wins gate as Discord)
-//   POST /worker_done?worker=            — Stop-hook webhook
+//   POST /worker_done?worker=            — Stop-hook webhook (closes the dispatch lifecycle)
+//   POST /command {text}                 — canonical command text (REST parity with the slash verbs)
+//   POST /reconcile                      — on-demand reconcile (boot reconcile runs automatically)
 //
 // State posture (#9): the events journal is the only durable artifact; the
-// pending-resolver map and ticket→thread cache are ephemeral. A daemon restart
-// keeps every open escalation renderable and answerable; only the in-process
-// worker call is lost (accepted re-dispatch posture, #11/#12).
+// pending-resolver map, ticket→thread cache and dispatcher workers map are
+// ephemeral. A daemon restart keeps every open escalation renderable and
+// answerable, and reconcile re-derives live workers from GitHub + tmux.
 
 import http from 'node:http'
 import path from 'node:path'
@@ -21,6 +23,12 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 import { EscalationStore } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
+import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
+import { Cooling } from './routing.mjs'
+import { Dispatcher } from './dispatch.mjs'
+import { CommandRouter } from './commands.mjs'
+import { hasSession } from './tmux.mjs'
+import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -36,8 +44,16 @@ if (fs.existsSync(envFile)) {
 
 const PORT = Number(process.env.PORT ?? 4271)
 const NUDGE_MS = Number(process.env.NUDGE_MS ?? 30 * 60 * 1000) // ~30-min re-nudge (#11)
-const DATA = path.join(ROOT, 'data')
+// CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
+// fixture dir so a test run never writes into the real journal.
+const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
 fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
+
+// dispatch-loop config (#33) — hand-edited YAML, validated on load; a bad
+// shape refuses the boot rather than limping
+const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
+const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
+const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
 
 const store = new EscalationStore(DATA)
 const pending = new Map() // escalation id -> resolve(answerText) — ephemeral, dies with the process
@@ -135,13 +151,94 @@ const gate = {
     return result
   },
   async command(canonical, userId) {
-    // #18: the bridge only macro-expands; interpretation belongs to the overseer
-    // session, which isn't built yet. Log the canonical text so the seam is proven.
+    // #18 seam unchanged: the bridge only macro-expands; the far side is now
+    // the deterministic command router (stated deviation — the overseer agent
+    // session is a later ticket).
     store.logEvent('command', { canonical, by: userId })
-    log(`command relayed: "${canonical}"`)
-    return `📨 relayed to overseer: \`${canonical}\`\n_(overseer session not wired yet — logged to the journal)_`
+    log(`command: "${canonical}"`)
+    return router.handle(canonical, userId)
   },
 }
+
+// ---- dispatch loop (#33) ----------------------------------------------------
+
+function notifyThread(ticket, message) {
+  if (bridge) bridge.notify(ticket, message).catch((e) => log(`notify ticket-${ticket} failed:`, e.message))
+  else log(`[notify ticket-${ticket}] ${message}`)
+}
+
+// Overseer confirm: a plain approve-reject escalation (first-valid-confirm-wins
+// and Discord buttons come free from the reused gate). Bounded life: an
+// in-process timer auto-cancels after confirm_ttl_h, and the resolver does NOT
+// survive restart — boot reconcile voids open overseer confirms instead.
+function overseerConfirm(ticket, prompt) {
+  const { record, answered } = openEscalation({ worker: 'overseer', ticket, kind: 'approve-reject', prompt })
+  const ttl = setTimeout(() => {
+    const r = store.get(record.id)
+    if (r?.status !== 'open') return
+    gate.cancel(record.id, { by: 'ttl' })
+    store.logEvent('confirm_expired', { id: record.id, ticket })
+    notifyThread(ticket, `⌛ confirm **${record.id}** expired unanswered after ${curiaConfig.dispatch.confirm_ttl_h}h`)
+  }, curiaConfig.dispatch.confirm_ttl_h * 3600_000)
+  ttl.unref()
+  return answered.then((answer) => {
+    clearTimeout(ttl)
+    return answer === 'approve'
+  })
+}
+
+const dispatcher = new Dispatcher({
+  config: curiaConfig,
+  routing: routingConfig,
+  store,
+  notify: notifyThread,
+  confirm: overseerConfirm,
+  // gate.cancel, not store.cancel: voiding a boot-orphaned confirm must also
+  // settle it — release any pending resolver (a confirm opened via
+  // POST /command inside the listen→boot-reconcile window has a live one) and
+  // mark the Discord buttons.
+  cancelEscalation: (id, opts) => gate.cancel(id, opts),
+  log,
+  cooling: new Cooling(),
+  dataDir: DATA,
+  daemonPort: PORT,
+})
+
+// /attach continuation: daemon-side whitelist refusal + liveness check, then
+// the runtime-derived tailnet URL (never hardcoded).
+const attachApi = {
+  async link(ticket) {
+    const session = `curia-${ticket}`
+    if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
+    if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
+    // Same rule as reconcile's #assertAttachSurface: only a listener verified
+    // as our hardened ttyd is ever published. Handing out a link would both
+    // assert the serve rule over an unverified listener and point a human at it.
+    const { verified } = await ensureTtyd({ ttydPort: curiaConfig.attach.ttyd_port, log })
+    if (!verified) {
+      // Refusing alone withdraws nothing: /attach runs on every request, so
+      // THIS is the path that detects a verified→unverified flip first (there
+      // is no periodic reconcile — startAutoLoop only schedules dispatch
+      // ticks), and the persisted serve rule still points at
+      // 127.0.0.1:<ttyd_port> — a foreign listener that took the port would
+      // stay live tailnet-wide at a URL already sitting in the Discord
+      // thread. Same posture as reconcile's #assertAttachSurface: actively
+      // withdraw the rule, then refuse.
+      try {
+        await serveOff({ servePort: curiaConfig.attach.serve_port, log })
+        log(`attach: ttyd listener on port ${curiaConfig.attach.ttyd_port} is UNVERIFIED — serve rule for :${curiaConfig.attach.serve_port} withdrawn`)
+      } catch (e) {
+        log(`WARNING: ttyd listener on port ${curiaConfig.attach.ttyd_port} is UNVERIFIED and withdrawing the serve rule failed (${e.message}) — if a rule for :${curiaConfig.attach.serve_port} exists, the unverified listener REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${curiaConfig.attach.serve_port} off\` by hand`)
+      }
+      throw new Error(`the listener on ttyd port ${curiaConfig.attach.ttyd_port} could not be verified as curia's hardened ttyd — refusing to publish it; kill it and re-run reconcile`)
+    }
+    await assertServe({ servePort: curiaConfig.attach.serve_port, ttydPort: curiaConfig.attach.ttyd_port })
+    const base = await attachBase()
+    return attachUrl(base, curiaConfig.attach.serve_port, ticket)
+  },
+}
+
+const router = new CommandRouter({ dispatcher, attach: attachApi, log })
 
 // ---- worker-facing MCP surface (#29 shape) ---------------------------------
 
@@ -187,6 +284,7 @@ function buildMcpServer(worker, ticket) {
     async (result) => {
       const rec = store.logEvent('result', { worker, ...result })
       fs.writeFileSync(path.join(DATA, 'results', `${worker}.json`), JSON.stringify(rec, null, 2))
+      dispatcher.onResult(worker)
       if (bridge) bridge.notify(result.ticket, `🏁 \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
       return { content: [{ type: 'text', text: 'result recorded' }] }
     },
@@ -204,11 +302,42 @@ async function readBody(req) {
   try { return raw ? JSON.parse(raw) : {} } catch { return { raw } }
 }
 
-const httpServer = http.createServer(async (req, res) => {
+// Every route body is awaited inside handleRequest, and handleRequest is
+// awaited inside one try/catch here. Without it a rejection from any async
+// route (POST /command → router.handle, POST /reconcile → dispatcher.reconcile)
+// both hangs the request AND raises an unhandled rejection, which Node ≥15
+// turns into an uncaught exception that kills the daemon.
+const httpServer = http.createServer((req, res) => {
+  handleRequest(req, res).catch((e) => {
+    log(`request ${req.method} ${req.url} failed: ${e.message}`)
+    if (res.writableEnded) return
+    if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ error: e.message }))
+  })
+})
+
+async function handleRequest(req, res) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   const json = (code, obj) => {
     res.writeHead(code, { 'content-type': 'application/json' })
     res.end(JSON.stringify(obj, null, 2))
+  }
+
+  // CSRF gate for the whole loopback surface. A cross-origin
+  // `fetch('http://127.0.0.1:4271/command', {mode:'no-cors', ...})` from any
+  // page in a browser ON THIS HOST is a CORS *simple* request — no preflight,
+  // and the side effect lands even though the response is unreadable. The port
+  // is a fixed default and readBody JSON-parses regardless of content-type, so
+  // without this check any web page could dispatch a bypassPermissions worker
+  // on an attacker-filed issue (POST /command with an explicit repo skips the
+  // frontier gate) or reach `git worktree remove --force` via POST /reconcile.
+  // Browsers always send Origin on cross-origin requests and stamp
+  // Sec-Fetch-Site; loopback tooling (curl, the worker's Stop hook, the MCP
+  // client) sends neither — so refuse any request that carries either marker
+  // of a browser-mediated cross-site call.
+  const site = req.headers['sec-fetch-site']
+  if (req.headers.origin !== undefined || (site && site !== 'same-origin' && site !== 'none')) {
+    return json(403, { error: 'cross-origin request refused — this surface is for loopback tooling, not browsers' })
   }
 
   if (url.pathname === '/mcp') {
@@ -266,16 +395,43 @@ const httpServer = http.createServer(async (req, res) => {
       session_id: body.session_id,
       stop_hook_active: body.stop_hook_active,
     })
+    dispatcher.onWorkerDone(worker).catch((e) => log(`onWorkerDone ${worker} failed:`, e.message))
+    return json(200, { ok: true })
+  }
+
+  // REST parity with the Discord slash verbs (agent-driven verification;
+  // localhost-only like everything else). Goes through gate.command, the SAME
+  // seam Discord uses — two hand-rolled copies of log+journal+dispatch had
+  // already drifted apart.
+  if (url.pathname === '/command' && req.method === 'POST') {
+    const { text } = await readBody(req)
+    if (typeof text !== 'string' || !text.trim()) return json(400, { error: 'body must carry {text}' })
+    const reply = await gate.command(text, 'rest')
+    return json(200, { reply })
+  }
+
+  if (url.pathname === '/reconcile' && req.method === 'POST') {
+    await dispatcher.reconcile({ boot: false })
     return json(200, { ok: true })
   }
 
   json(404, { error: 'not found' })
-})
+}
 
 // ---- boot -------------------------------------------------------------------
 
 httpServer.listen(PORT, '127.0.0.1', () => {
   log(`curia daemon listening on http://127.0.0.1:${PORT}`)
+  // boot reconcile (#33): re-derive live workers from GitHub + tmux + journal,
+  // sweep orphans, release dead claims, void restart-orphaned overseer
+  // confirms, assert the attach surface — then start the auto loop (a no-op
+  // while auto_dispatch is false). Not gated on the bridge.
+  dispatcher.reconcile({ boot: true })
+    .then(() => {
+      log('boot reconcile done')
+      dispatcher.startAutoLoop()
+    })
+    .catch((e) => log(`boot reconcile failed: ${e.message} — POST /reconcile to retry`))
 })
 
 // restart recovery: every open escalation in the journal gets its nudge timer

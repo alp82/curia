@@ -1,0 +1,30 @@
+# Label-only model routing (#13) — all-Claude for now (stated deviation 3, user-decided).
+# The gpt/codex lane is a follow-up ticket; a second backend is a config addition here.
+
+defaults:
+  grilling: fable
+  prototype: fable
+  research: opus
+  task: opus
+  untyped: opus
+
+models:
+  fable:
+    provider: anthropic
+    backend: claude
+  opus:
+    provider: anthropic
+    backend: claude
+  sonnet:
+    provider: anthropic
+    backend: claude
+
+# Intra-Claude only; chains are explicit config, so "never upgrade bulk work to
+# fable" stays structural (fable never appears downstream in any chain).
+fallbacks:
+  fable: [opus]
+  opus: [sonnet]
+
+backends:
+  claude:
+    template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"'

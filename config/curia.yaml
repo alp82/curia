@@ -1,0 +1,20 @@
+# Curia daemon: watch list + dispatch + attach settings (#33).
+# Hand-edited config — the daemon validates on load and refuses to boot on a bad shape.
+
+watch:
+  - repo: getalfredo/landing-page          # mode auto (default): map-if-present
+  - repo: alp82/alperortac.com
+  - repo: alp82/curia
+    mode: ready-for-agent                  # settled answer 3 — exercises the flat lane
+
+dispatch:
+  auto_dispatch: false                     # shipped OFF (settled answer 1)
+  max_concurrent: 2
+  poll_interval_s: 60
+  workspace_root: /home/alp/curia-work     # daemon-owned; never Alp's working tree
+  ready_timeout_s: 45
+  confirm_ttl_h: 4                         # overseer confirms auto-expire (bounded life)
+
+attach:
+  ttyd_port: 7681
+  serve_port: 8443

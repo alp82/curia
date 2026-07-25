@@ -34,3 +34,4 @@ credentials.json
 *.bak
 *.orig
 tmp/
+.forge/
