@@ -35,16 +35,51 @@ const SLASH_MANIFEST = [
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true)),
 ]
 
+// Macro-expansion only — this never interprets (#18). Returns the canonical
+// text, or `{ error }` for something the expansion itself can see is wrong.
+//
+// A missing option must NOT be interpolated. `${opt('ticket')}` stringifies an
+// absent option to the literal "null", which relayed `start null` into the
+// router and came back as an unhelpful parse failure — the option is declared
+// required, so an absent one means the client sent a command shape we did not
+// register (a stale client-side manifest, verified live from the phone), and
+// that deserves to be said out loud rather than turned into a fake ticket id.
+// Same rule as everywhere else in the daemon: a missing read is not a value.
 function expandCommand(i) {
   const opt = (name) => i.options.getString(name)
+  const need = (name) => {
+    const v = opt(name)
+    return v == null || v === '' ? null : v
+  }
   switch (i.commandName) {
     case 'frontier': return `frontier${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'status': return 'status'
-    case 'start': return `start ${opt('ticket')}${opt('model') ? ' model=' + opt('model') : ''}${opt('backend') ? ' backend=' + opt('backend') : ''}`
-    case 'cancel': return `cancel ${opt('ticket')}`
-    case 'attach': return `attach ${opt('ticket')}`
+    case 'start': {
+      const ticket = need('ticket')
+      if (!ticket) return { error: 'missing' }
+      return `start ${ticket}${opt('model') ? ' model=' + opt('model') : ''}${opt('backend') ? ' backend=' + opt('backend') : ''}`
+    }
+    case 'cancel':
+    case 'attach': {
+      const ticket = need('ticket')
+      if (!ticket) return { error: 'missing' }
+      return `${i.commandName} ${ticket}`
+    }
     default: return null
   }
+}
+
+function missingOptionReply(commandName) {
+  return [
+    `⛔ \`/${commandName}\` arrived with no **ticket** — the option is required, so your Discord client is`,
+    'using a stale copy of the command list.',
+    '',
+    `Fix: fully close and reopen Discord (mobile: swipe the app away), then run \`/${commandName}\` again — the`,
+    'ticket field should appear as a required prompt.',
+    '',
+    '_There is no plain-text fallback from a phone: a channel message is only ever read as an answer to',
+    "an open escalation, so the slash manifest is the phone's only command surface._",
+  ].join('\n')
 }
 
 export class DiscordBridge {
@@ -229,6 +264,10 @@ export class DiscordBridge {
     if (i.isChatInputCommand()) {
       const canonical = expandCommand(i)
       if (!canonical) return
+      if (typeof canonical === 'object') {
+        await i.reply({ content: missingOptionReply(i.commandName), ephemeral: true })
+        return
+      }
       await i.deferReply()
       const reply = await this.handlers.command(canonical, i.user.id)
       await i.editReply(reply ?? `relayed: \`${canonical}\``)
