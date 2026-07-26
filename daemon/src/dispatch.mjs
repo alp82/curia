@@ -727,12 +727,69 @@ export class Dispatcher {
     else if (!r.ok) this.log(`WARNING: preview for ticket ${ticket} REMAINS PUBLISHED after ${why}: ${r.reason}`)
   }
 
+  // Open escalations bound to THIS worker. The binding is the spawn binding —
+  // the MCP URL and the Stop hook carry the same `worker=curia-<n>` — so an
+  // overseer confirm on the same ticket is correctly not one of these: a
+  // confirm is a question to a human about the worker, not a call the worker
+  // is sitting in.
+  #openEscalationsFor(workerName) {
+    return this.store.openEscalations().filter((r) => r.worker === workerName)
+  }
+
   async onWorkerDone(workerName) {
     const w = this.workers.get(workerName)
     const m = workerName.match(SESSION_RE)
     const ticket = w?.ticket ?? (m ? m[1] : workerName)
     const resultsFile = path.join(this.dataDir, 'results', `${workerName}.json`)
     const hasResult = Boolean(w?.resultReceived) || fs.existsSync(resultsFile)
+
+    // #47: the Stop hook fires when a TURN ends, which is not the same as a
+    // worker ending. #35 caught the difference live — a worker that pushes
+    // ask_human onto a background MCP task ends its turn while the call is
+    // still pending, and every terminal act below then ran on a healthy blocked
+    // worker: the preview was withdrawn out from under the human mid-review,
+    // the record was marked failed, and the thread was told it had stopped
+    // without a result.
+    //
+    // The daemon already held the evidence and did not consult it: an OPEN
+    // escalation bound to this worker means it is blocked in `ask_human`,
+    // exactly where #11 promises it stays. This is decided BEFORE the result
+    // branch, because the question here is "is this worker still there", not
+    // "did it finish" — and the result branch kills the session, which would
+    // strand a question a human is still being asked. Nothing terminal happens;
+    // the Stop that follows the answer is judged on its own, with no open
+    // escalation left to defer on.
+    const open = this.#openEscalationsFor(workerName)
+    if (open.length) {
+      // The one thing that outranks a pending call is positive evidence the
+      // session is gone (killed between the hook's curl and this check): the
+      // call can never resume, so the exit is abnormal after all and the
+      // escalation must not keep asking — a human answering into a dead worker
+      // gets a ✅ for an answer nothing will ever read. An INDETERMINATE tmux
+      // read is not evidence (the standing rule), and its safe direction is the
+      // block: deferring costs a delayed lifecycle close, while acting on it
+      // kills a live human's preview.
+      let gone = false
+      try {
+        gone = !(await this.deps.hasSession(workerName))
+      } catch (e) {
+        this.log(`worker_done ${workerName}: session presence indeterminate (${e.message}) — treating the open escalation as a live block`)
+      }
+      if (!gone) {
+        if (w) w.state = 'blocked'
+        this.store.logEvent('worker_blocked_on_human', {
+          worker: workerName, ticket, repo: w?.repo, escalations: open.map((r) => r.id),
+        })
+        this.log(`worker_done ${workerName}: turn ended with ${open.map((r) => r.id).join(', ')} still open — blocked on a human, not gone`)
+        return
+      }
+      for (const r of open) {
+        this.cancelEscalation(r.id, { by: 'worker-death' })
+        this.store.logEvent('escalation_orphaned', { id: r.id, worker: workerName, ticket })
+      }
+      this.notify(ticket, `⚠️ \`${workerName}\` is gone while ${open.length} escalation(s) were still open — ${open.map((r) => `**${r.id}**`).join(', ')} cancelled: nothing is waiting for an answer any more`)
+    }
+
     // Both branches: a finished worker's dev server is dead either way, so the
     // rule would publish a dead port (or whatever binds it next) — the exact
     // thing publish() refuses to create in the first place.
@@ -768,6 +825,15 @@ export class Dispatcher {
       const w = this.workers.get(session)
       await this.#withdrawPreview(ticket, 'ticket cancelled')
       await this.deps.killSession(session).catch(() => {})
+      // The other half of #47: this is the one path that KNOWS the worker is
+      // gone. A worker cancelled while blocked leaves its ask_human asking —
+      // the record stays open, the thread keeps nudging every ~30 min, and an
+      // answer would settle a resolver whose worker no longer exists. Cancel
+      // them here, where the death is certain.
+      for (const r of this.#openEscalationsFor(session)) {
+        this.cancelEscalation(r.id, { by: 'cancel' })
+        this.store.logEvent('escalation_orphaned', { id: r.id, worker: session, ticket })
+      }
       // The journal records what HAPPENED, not what was attempted (the W1
       // rule): dispatch_unclaimed only after the unclaim returned; a failed or
       // impossible unclaim journals unclaim_failed (which closedAfterEpoch

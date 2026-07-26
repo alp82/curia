@@ -32,12 +32,16 @@ const OPEN_ISSUE = {
 let tmp
 let notifies
 let events
+let escalations // open escalation records the store double reports (#47)
+let cancelled // ids the dispatcher cancelled through the injected gate
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-dispatch-test-'))
   fs.mkdirSync(path.join(tmp, 'data', 'results'), { recursive: true })
   notifies = []
   events = []
+  escalations = []
+  cancelled = []
 })
 
 afterEach(() => {
@@ -68,7 +72,7 @@ function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], re
   }
   const store = {
     logEvent: (type, data) => { const rec = { type, ...data }; events.push(rec); return rec },
-    openEscalations: () => [],
+    openEscalations: () => escalations,
     cancel: () => ({ ok: true }),
   }
   const base = {
@@ -113,6 +117,7 @@ function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], re
     store,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     confirm,
+    cancelEscalation: (id, opts) => { cancelled.push({ id, ...opts }); return { ok: true } },
     log: () => {},
     dataDir: path.join(tmp, 'data'),
     daemonPort: 4271,
@@ -194,6 +199,121 @@ describe('abnormal-exit detection (criterion 4)', () => {
 
     assert.ok(typesOf().includes('lifecycle_closed'))
     assert.equal(killed, 'curia-42')
+  })
+})
+
+// #47: the Stop hook reports the end of a TURN, not the end of a worker. A
+// worker blocked in ask_human ends its turn while the call is pending, and the
+// terminal path used to run on it — withdrawing the preview the human was
+// mid-review of.
+describe('a blocked worker is not a crashed one (#47)', () => {
+  // Preview double: `withdrawn` is the assertion that matters — the rehearsal's
+  // damage was the link disappearing under a human, not the journal line.
+  function previewDouble(withdrawn) {
+    return {
+      get: () => ({ url: 'https://box.ts.net:8500/' }),
+      withdraw: async (ticket) => { withdrawn.push(String(ticket)); return { ok: true, withdrawn: true } },
+    }
+  }
+
+  const blockedWorker = () => ({ repo: 'o/r', ticket: '42', session: 'curia-42', state: 'ready', resultReceived: false })
+
+  test('Stop while an escalation is open: preview kept, no crash notify, worker marked blocked', async () => {
+    const withdrawn = []
+    let killed = null
+    const d = makeDispatcher({ hasSession: async () => true, killSession: async (n) => { killed = n } })
+    d.previews = previewDouble(withdrawn)
+    d.workers.set('curia-42', blockedWorker())
+    escalations = [{ id: 'esc-21', worker: 'curia-42', ticket: '42', status: 'open' }]
+
+    await d.onWorkerDone('curia-42')
+
+    assert.deepEqual(withdrawn, [], 'the human is still reviewing that preview')
+    assert.ok(!typesOf().includes('worker_abnormal_exit'))
+    assert.ok(!typesOf().includes('lifecycle_closed'))
+    assert.ok(typesOf().includes('worker_blocked_on_human'))
+    assert.deepEqual(events.at(-1).escalations, ['esc-21'])
+    assert.equal(killed, null)
+    assert.equal(d.workers.get('curia-42').state, 'blocked')
+    assert.deepEqual(notifies, [], 'the escalation itself is the human surface — a crash notify would be a lie')
+  })
+
+  test('an open escalation belonging to someone else does not defer this worker', async () => {
+    const withdrawn = []
+    const d = makeDispatcher({ hasSession: async () => true })
+    d.previews = previewDouble(withdrawn)
+    d.workers.set('curia-42', blockedWorker())
+    // an overseer confirm on the same ticket, and another worker's block
+    escalations = [
+      { id: 'esc-30', worker: 'overseer', ticket: '42', status: 'open' },
+      { id: 'esc-31', worker: 'curia-43', ticket: '43', status: 'open' },
+    ]
+
+    await d.onWorkerDone('curia-42')
+
+    assert.ok(typesOf().includes('worker_abnormal_exit'))
+    assert.deepEqual(withdrawn, ['42'])
+    assert.match(notifies.at(-1).message, /WITHOUT reporting a result/)
+  })
+
+  test('the deferral is re-judged: once the escalation closes, the next Stop closes the lifecycle', async () => {
+    const withdrawn = []
+    let killed = null
+    const d = makeDispatcher({ hasSession: async () => true, killSession: async (n) => { killed = n } })
+    d.previews = previewDouble(withdrawn)
+    d.workers.set('curia-42', blockedWorker())
+    escalations = [{ id: 'esc-21', worker: 'curia-42', ticket: '42', status: 'open' }]
+
+    await d.onWorkerDone('curia-42') // blocked: deferred
+    escalations = [] // human answered; the worker resumed, worked, reported
+    d.onResult('curia-42')
+    await d.onWorkerDone('curia-42')
+
+    assert.ok(typesOf().includes('lifecycle_closed'))
+    assert.equal(killed, 'curia-42')
+    assert.deepEqual(withdrawn, ['42'], 'withdrawn once, at the real end')
+  })
+
+  test('an INDETERMINATE session read keeps the block — it is not evidence of death', async () => {
+    const withdrawn = []
+    const d = makeDispatcher({ hasSession: async () => { throw new Error('tmux session presence is indeterminate: wedged') } })
+    d.previews = previewDouble(withdrawn)
+    d.workers.set('curia-42', blockedWorker())
+    escalations = [{ id: 'esc-21', worker: 'curia-42', ticket: '42', status: 'open' }]
+
+    await d.onWorkerDone('curia-42')
+
+    assert.ok(typesOf().includes('worker_blocked_on_human'))
+    assert.deepEqual(withdrawn, [])
+    assert.deepEqual(cancelled, [])
+  })
+
+  test('/cancel on a blocked worker cancels the question it was blocked on', async () => {
+    const d = makeDispatcher({}, { confirm: async () => true })
+    d.workers.set('curia-42', { ...blockedWorker(), wtPath: '/w/42', cfgDir: '/c/42' })
+    escalations = [{ id: 'esc-21', worker: 'curia-42', ticket: '42', status: 'open' }]
+
+    d.cancel('42', { by: 'test' })
+    await waitFor(() => notifies.some((n) => /cancelled/.test(n.message)))
+
+    assert.deepEqual(cancelled, [{ id: 'esc-21', by: 'cancel' }], 'the thread must stop asking a worker that no longer exists')
+    assert.ok(typesOf().includes('escalation_orphaned'))
+  })
+
+  test('a session POSITIVELY gone is a real exit: the orphaned escalation is cancelled', async () => {
+    const withdrawn = []
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.previews = previewDouble(withdrawn)
+    d.workers.set('curia-42', blockedWorker())
+    escalations = [{ id: 'esc-21', worker: 'curia-42', ticket: '42', status: 'open' }]
+
+    await d.onWorkerDone('curia-42')
+
+    assert.deepEqual(cancelled, [{ id: 'esc-21', by: 'worker-death' }])
+    assert.ok(typesOf().includes('escalation_orphaned'))
+    assert.ok(typesOf().includes('worker_abnormal_exit'))
+    assert.deepEqual(withdrawn, ['42'])
+    assert.match(notifies[0].message, /still open/)
   })
 })
 
