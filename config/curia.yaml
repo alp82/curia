@@ -9,11 +9,18 @@ watch:
 
 dispatch:
   auto_dispatch: false                     # shipped OFF (settled answer 1)
-  max_concurrent: 2
+  # #54 item 8: a worker awaiting review holds its slot on purpose — that is the
+  # backpressure that beats a pile of unreviewed PRs — so this is a RESOURCE
+  # number now: ~0.3-0.5 GB per worker plus ~0.3 GB per preview dev server
+  # against 8 GB. Quota stays bounded separately by #13's reactive cooling.
+  # The long-lived tenant is a grilling ticket (N blocking questions), not review.
+  max_concurrent: 6
   poll_interval_s: 60
   workspace_root: /home/alp/curia-work     # daemon-owned; never Alp's working tree
   ready_timeout_s: 45
   confirm_ttl_h: 4                         # overseer confirms auto-expire (bounded life)
+  stop_nudge_budget: 3                     # #54: how often the Stop hook may hold a worker
+                                           # at the ending before curia stops holding it
 
 attach:
   ttyd_port: 7681

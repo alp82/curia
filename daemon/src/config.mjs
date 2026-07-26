@@ -45,7 +45,12 @@ export function loadCuriaConfig(file) {
   const d = cfg.dispatch
   if (!d || typeof d !== 'object') fail(file, '`dispatch` section missing')
   if (typeof d.auto_dispatch !== 'boolean') fail(file, 'dispatch.auto_dispatch must be a boolean')
-  for (const key of ['max_concurrent', 'poll_interval_s', 'ready_timeout_s', 'confirm_ttl_h']) {
+  // stop_nudge_budget (#54 item 4) is optional with a default so a config
+  // predating the merge-gated ending still boots. It must be > 0: a budget of
+  // zero would disable the Stop-hook enforcement silently, and turning the
+  // enforcement off is not a thing a number should express by accident.
+  d.stop_nudge_budget = d.stop_nudge_budget ?? 3
+  for (const key of ['max_concurrent', 'poll_interval_s', 'ready_timeout_s', 'confirm_ttl_h', 'stop_nudge_budget']) {
     if (!(typeof d[key] === 'number' && d[key] > 0)) fail(file, `dispatch.${key} must be a positive number`)
   }
   if (typeof d.workspace_root !== 'string' || !path.isAbsolute(d.workspace_root)) {

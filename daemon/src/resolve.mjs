@@ -24,9 +24,21 @@
 //      that authority — same containment boundary as preview allocation (#40),
 //      and the reason the base clone's push URL stays disabled.
 //
+//      Since #54 the worker ASKS for this, through the `open_pull_request` tool,
+//      because landing now happens in the middle of the ticket rather than at its
+//      end: the pull request is what the human reviews before anything is
+//      resolved. `landBranch` below is that tool's body. resolveAndLand keeps
+//      landing only as a REPAIR — a worker that reported `resolved` with commits
+//      and no pull request would otherwise leave the only copy of its work in a
+//      worktree.
+//
 //   3. TELL THE TRUTH about what was committed. The PR body's commit list is
 //      read out of git by the daemon, not taken from the worker's account of
 //      itself.
+//
+//   4. Since #54: check that the code is actually IN. `resolved` means merged
+//      (#48), so a ticket closed over an unmerged pull request is reported as the
+//      defect it is rather than passed off as a clean resolution.
 //
 // Evidence rule, inherited from #33's review waves: a failed READ is never
 // evidence. If the comment list or the map body cannot be read, nothing is
@@ -37,6 +49,21 @@
 import { parentNumberOf, hasLabel } from './github.mjs'
 
 export const DECISIONS_HEADING = /^##\s+Decisions so far\s*$/i
+
+// Curia's own comments carry this marker, and the resolution-comment check
+// ignores every comment that has it.
+//
+// Without it the check is wrong in the one direction that matters. It asks "is
+// there a comment by us since this dispatch", and the daemon itself now comments
+// on an OPEN ticket — `open_pull_request` posts the pull-request link mid-ticket.
+// That comment would satisfy the check, so a worker that closed its ticket
+// without writing a resolution would have curia's own link comment accepted as
+// its resolution and no fallback posted.
+export const MACHINE_MARKER = '<!-- curia:machine -->'
+
+function machine(lines) {
+  return [MACHINE_MARKER, ...lines].join('\n')
+}
 
 function escapeRe(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -105,7 +132,7 @@ export function fallbackResolutionComment(result) {
 }
 
 export function nonCleanComment({ worker, result, released }) {
-  return [
+  return machine([
     `⚠️ curia: worker \`${worker}\` stopped with status **${result.status}** and did **not** resolve this ticket.`,
     '',
     result.summary ?? '(no summary)',
@@ -113,16 +140,23 @@ export function nonCleanComment({ worker, result, released }) {
     released
       ? '_The ticket stays open and its claim has been released, so it returns to the frontier. Nothing was pushed._'
       : '_The ticket stays open. Releasing its claim FAILED, so it is still assigned and will not appear on the frontier until reconcile retries. Nothing was pushed._',
-  ].join('\n')
+  ])
 }
 
-export function prBody({ repo, ticket, title, result, commits, worker, model }) {
+export function prLinkComment({ branch, commits, url, state }) {
+  return machine([
+    `🔗 curia pushed \`${branch}\` (${commits} commit${commits === 1 ? '' : 's'}) and ${state === 'updated' ? 'updated' : 'opened'} ${url}`,
+  ])
+}
+
+export function prBody({ repo, ticket, title, summary, commits, worker, model }) {
   return [
-    // deliberately NOT a closing keyword: the worker already closed the ticket,
-    // and "Resolves #n" on top of that reads as if the merge did it
+    // deliberately NOT a closing keyword: the worker closes the ticket itself
+    // after the merge, and "Resolves #n" on top of that reads as if the merge
+    // did it
     `Ticket: ${repo}#${ticket} — [${title}](https://github.com/${repo}/issues/${ticket})`,
     '',
-    result.summary ?? '(no summary)',
+    summary ?? '(no summary)',
     '',
     '---',
     '',
@@ -132,6 +166,42 @@ export function prBody({ repo, ticket, title, result, commits, worker, model }) 
       ? ['Commits (read out of git by the daemon, not reported by the worker):', '', ...commits.map((c) => `- \`${c.sha}\` ${c.subject}`)].join('\n')
       : 'No commits on the branch.',
   ].join('\n')
+}
+
+// ---- landing (the `open_pull_request` tool) -----------------------------------
+
+// Push `curia/<n>` and open — or update — its pull request. Idempotent across
+// the rejection loop by design (#54 item 1): the first call opens, every later
+// call pushes the new commits and rewrites the body in place, so one ticket has
+// one pull request however many review rounds it takes.
+//
+// A pull request that is no longer OPEN (merged or closed by an earlier
+// dispatch) is not reused — a merged pull request cannot carry new commits, so
+// the branch gets a fresh one.
+export async function landBranch({
+  repo, ticket, title, summary, worker, model, wtPath, basePath, branch, deps, journal,
+}) {
+  const defaultBranch = await deps.defaultBranchOf(basePath)
+  const commits = await deps.commitsOnBranch(wtPath, defaultBranch)
+  if (!commits.length) {
+    journal('land_skipped', { repo, ticket, worker, branch, reason: 'no commits on the branch' })
+    return { ok: false, state: 'no-commits', branch }
+  }
+  const sha = await deps.pushBranch(wtPath, repo, branch)
+  journal('branch_pushed', { repo, ticket, worker, branch, sha, commits: commits.length })
+
+  const body = prBody({ repo, ticket, title, summary, commits, worker, model })
+  const existing = await deps.findPullRequest(repo, branch)
+  if (existing && existing.state === 'OPEN') {
+    await deps.setPullRequestBody(repo, existing.number, body)
+    journal('pr_reused', { repo, ticket, worker, branch, url: existing.url, commits: commits.length })
+    return { ok: true, state: 'updated', url: existing.url, number: existing.number, commits: commits.length, branch }
+  }
+  const url = await deps.createPullRequest(repo, {
+    head: branch, base: defaultBranch, title: `${title} (${repo}#${ticket})`, body,
+  })
+  journal('pr_opened', { repo, ticket, worker, branch, url, commits: commits.length })
+  return { ok: true, state: 'opened', url, commits: commits.length, branch }
 }
 
 // ---- the pipeline ------------------------------------------------------------
@@ -174,8 +244,12 @@ export async function resolveAndLand({
     // The worker holds the same gh identity as the daemon, so "a comment by us
     // since this dispatch" is the test. A comment Alp wrote himself after the
     // spawn also satisfies it; the failure direction is "post no fallback",
-    // which is the harmless one.
-    const own = comments.some((c) => c.user?.login === login && (!epochTs || String(c.created_at) >= epochTs))
+    // which is the harmless one. Curia's OWN machine comments are excluded —
+    // see MACHINE_MARKER: `open_pull_request` comments on an open ticket, and
+    // that link would otherwise pass for the worker's resolution.
+    const own = comments.some((c) => c.user?.login === login
+      && !String(c.body ?? '').includes(MACHINE_MARKER)
+      && (!epochTs || String(c.created_at) >= epochTs))
     if (own) {
       out.comment = 'present'
     } else {
@@ -237,35 +311,55 @@ export async function resolveAndLand({
     }
   }
 
-  // --- 4. land the code ------------------------------------------------------
+  // --- 4. is the code IN? ----------------------------------------------------
+  //
+  // Landing itself moved to `landBranch`, which the worker calls mid-ticket so a
+  // human can review the pull request before anything is resolved (#54 item 1).
+  // What is left here is the check `resolved` now has to pass — merged, not
+  // merely pushed (#48) — plus the one repair that has no other cure: a worker
+  // that committed and never opened a pull request would leave the ONLY copy of
+  // its work in a worktree the lifecycle is about to stop protecting.
   if (wtPath && basePath && branch) {
     try {
       const defaultBranch = await deps.defaultBranchOf(basePath)
       const commits = await deps.commitsOnBranch(wtPath, defaultBranch)
       if (!commits.length) {
         out.land = { state: 'no-commits' }
-        journal('land_skipped', { repo, ticket, worker, branch, reason: 'no commits on the branch' })
       } else {
-        const sha = await deps.pushBranch(wtPath, repo, branch)
-        journal('branch_pushed', { repo, ticket, worker, branch, sha, commits: commits.length })
-        const existing = await deps.findPullRequest(repo, branch)
-        const prUrl = existing?.url ?? await deps.createPullRequest(repo, {
-          head: branch,
-          base: defaultBranch,
-          title: `${title} (${repo}#${ticket})`,
-          body: prBody({ repo, ticket, title, result, commits, worker, model }),
-        })
-        out.land = { state: existing ? 'pr-reused' : 'pr-opened', url: prUrl, commits: commits.length, branch }
-        journal('pr_' + (existing ? 'reused' : 'opened'), { repo, ticket, worker, branch, url: prUrl })
-        // the ticket is closed by now, so this comment is the only pointer from
-        // the ticket to the artifact
-        await deps.commentIssue(repo, ticket, `🔗 curia pushed \`${branch}\` (${commits.length} commit${commits.length > 1 ? 's' : ''}) and ${existing ? 'reused' : 'opened'} ${prUrl}`)
+        const pr = await deps.findPullRequest(repo, branch)
+        if (!pr) {
+          const landed = await landBranch({
+            repo, ticket, title, summary: result.summary, worker, model,
+            wtPath, basePath, branch, deps, journal,
+          })
+          out.land = { state: 'repaired', url: landed.url, commits: landed.commits, branch }
+          out.repaired.push('pull request')
+          out.warnings.push(`the worker never called \`open_pull_request\` — curia pushed \`${branch}\` and opened ${landed.url}, which NOBODY REVIEWED and which is not merged`)
+          journal('land_repaired', { repo, ticket, worker, branch, url: landed.url })
+          await deps.commentIssue(repo, ticket, prLinkComment({ branch, commits: landed.commits, url: landed.url, state: landed.state }))
+        } else if (pr.state === 'MERGED') {
+          out.land = { state: 'merged', url: pr.url, commits: commits.length, branch }
+        } else {
+          // Open or closed and unmerged: the ticket now states a decision whose
+          // code is not in the default branch, which is the thing #48 set out to
+          // make impossible. Curia cannot merge it — only a human approval can —
+          // so it says so loudly and keeps the workspace.
+          out.land = { state: pr.state === 'OPEN' ? 'unmerged' : 'pr-closed', url: pr.url, commits: commits.length, branch }
+          out.warnings.push(`${pr.url} is **${pr.state}**, not merged — this ticket is closed over code that is not in \`${defaultBranch}\``)
+          journal('resolved_unmerged', { repo, ticket, worker, branch, url: pr.url, pr_state: pr.state })
+          // push whatever is not on the remote yet, so nothing lives only in a
+          // worktree the human may now discard
+          if (await deps.hasUnpushedWork(wtPath, branch, defaultBranch).catch(() => true)) {
+            const sha = await deps.pushBranch(wtPath, repo, branch)
+            journal('branch_pushed', { repo, ticket, worker, branch, sha, commits: commits.length, reason: 'unmerged at resolve' })
+          }
+        }
       }
     } catch (e) {
       out.land = { state: 'failed', error: e.message, branch }
-      out.warnings.push(`the work was NOT landed (${e.message}) — the commits are still in ${wtPath}`)
+      out.warnings.push(`curia could not establish whether the work is landed (${e.message}) — the commits are in ${wtPath}`)
       journal('land_failed', { repo, ticket, worker, branch, error: e.message })
-      log(`landing ${repo}#${ticket} failed: ${e.message}`)
+      log(`landing check for ${repo}#${ticket} failed: ${e.message}`)
     }
   }
 
@@ -287,10 +381,12 @@ export function summariseOutcome(out) {
   else if (m.state === 'parent-not-a-map') bits.push(`parent #${m.number} is not a map — no pointer`)
   else if (m.state === 'error') bits.push(`map #${m.number} FAILED`)
   const l = out.land
-  if (l.state === 'pr-opened') bits.push(`PR opened: ${l.url}`)
-  else if (l.state === 'pr-reused') bits.push(`branch pushed, existing PR ${l.url}`)
-  else if (l.state === 'no-commits') bits.push('nothing to land (no commits)')
-  else if (l.state === 'failed') bits.push(`landing FAILED: ${l.error}`)
+  if (l.state === 'merged') bits.push(`code merged (${l.url})`)
+  else if (l.state === 'unmerged') bits.push(`⚠️ ${l.url} is still OPEN — the code is NOT merged`)
+  else if (l.state === 'pr-closed') bits.push(`⚠️ ${l.url} was closed unmerged — the code is NOT in`)
+  else if (l.state === 'repaired') bits.push(`⚠️ curia opened ${l.url} for you — unreviewed and unmerged`)
+  else if (l.state === 'no-commits') bits.push('no code to land')
+  else if (l.state === 'failed') bits.push(`landing check FAILED: ${l.error}`)
   const warn = out.warnings.length ? `\n⚠️ ${out.warnings.join('\n⚠️ ')}` : ''
   return bits.join('; ') + warn
 }

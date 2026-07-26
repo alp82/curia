@@ -109,3 +109,30 @@ describe('skills config (#57)', () => {
     )
   })
 })
+
+describe('the Stop-hook nudge budget (#54 item 4)', () => {
+  // Its own fixture: the skills describe above tears its tmp dir down.
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-budget-'))
+    root = path.join(tmp, 'host-skills')
+    fs.mkdirSync(root, { recursive: true })
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('an omitted budget takes the default, so a config predating the ending still boots', () => {
+    const cfg = loadCuriaConfig(writeConfig(`skills:\n  root: ${root}\n  install: []`))
+    assert.equal(cfg.dispatch.stop_nudge_budget, 3)
+  })
+
+  test('a budget of zero is refused — turning the enforcement off is not a number', () => {
+    const file = writeConfig(`skills:\n  root: ${root}\n  install: []`)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('  confirm_ttl_h: 4', '  confirm_ttl_h: 4\n  stop_nudge_budget: 0'))
+    assert.throws(() => loadCuriaConfig(file), /stop_nudge_budget must be a positive number/)
+  })
+
+  test('a stated budget is taken as given', () => {
+    const file = writeConfig(`skills:\n  root: ${root}\n  install: []`)
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('  confirm_ttl_h: 4', '  confirm_ttl_h: 4\n  stop_nudge_budget: 5'))
+    assert.equal(loadCuriaConfig(file).dispatch.stop_nudge_budget, 5)
+  })
+})

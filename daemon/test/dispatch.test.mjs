@@ -60,13 +60,18 @@ async function waitFor(cond, ms = 8000) {
 }
 
 // Deps default to inert doubles; each test overrides only what it asserts on.
-function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING, confirm = async () => false, skills = null } = {}) {
+function makeDispatcher(deps = {}, {
+  watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING,
+  confirm = async () => false, skills = null, stopNudgeBudget = 3,
+  askReview = async () => ({ text: 'approve', status: 'answered' }),
+} = {}) {
   const root = path.join(tmp, 'work')
   const config = {
     watch,
     dispatch: {
       auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60,
       workspace_root: root, ready_timeout_s: readyTimeoutS, confirm_ttl_h: 4,
+      stop_nudge_budget: stopNudgeBudget,
     },
     attach: { ttyd_port: 7681, serve_port: 8443 },
     skills,
@@ -118,6 +123,8 @@ function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], re
     commitsOnBranch: async () => [],
     pushBranch: async () => 'abc1234',
     hasUnpushedWork: async () => false,
+    setPullRequestBody: async () => {},
+    deleteRemoteBranch: async () => ({ deleted: true }),
   }
   return new Dispatcher({
     config,
@@ -125,6 +132,7 @@ function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], re
     store,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     confirm,
+    askReview,
     cancelEscalation: (id, opts) => { cancelled.push({ id, ...opts }); return { ok: true } },
     log: () => {},
     dataDir: path.join(tmp, 'data'),
@@ -1416,5 +1424,456 @@ describe('the worker skill set and the tracker prerequisite (#57)', () => {
 
     assert.match(reply, /dispatched/)
     assert.ok(!typesOf().includes('tracker_doc_missing'))
+  })
+})
+
+// ---- the merge-gated ending (#54) --------------------------------------------
+
+function journalTo(lines) {
+  fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+}
+
+// A live worker record with a real worktree on disk, the shape every tool body
+// below resolves its binding from.
+function liveWorker(d, over = {}) {
+  const wt = path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42')
+  fs.mkdirSync(wt, { recursive: true })
+  const w = {
+    repo: 'o/r', ticket: '42', title: 'a ticket', session: 'curia-42', wtPath: wt,
+    cfgDir: path.join(tmp, 'work', 'cfg', 'curia-42'), model: 'opus',
+    state: 'ready', resultReceived: false, spawnedAt: Date.now(), ...over,
+  }
+  d.workers.set('curia-42', w)
+  return w
+}
+
+describe('open_pull_request (#54 item 1)', () => {
+  test('it pushes, opens the PR, comments the link on the OPEN ticket, and points at the gate', async () => {
+    const calls = []
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
+      pushBranch: async (wt, repo, branch) => { calls.push(`push:${branch}`); return 'abc1234' },
+      createPullRequest: async () => { calls.push('create'); return 'https://github.com/o/r/pull/7' },
+      commentIssue: async (repo, n, body) => { calls.push(`comment:${/curia:machine/.test(body) ? 'marked' : 'BARE'}`) },
+    })
+    const w = liveWorker(d)
+
+    const reply = await d.openPullRequest('curia-42', { summary: 'what it does' })
+
+    assert.match(reply, /opened https:\/\/github\.com\/o\/r\/pull\/7/)
+    assert.match(reply, /Next: request_review/)
+    assert.deepEqual(calls, ['push:curia/42', 'create', 'comment:marked'])
+    assert.equal(w.prUrl, 'https://github.com/o/r/pull/7')
+    assert.ok(typesOf().includes('pr_opened'))
+  })
+
+  test('a second call updates the same pull request — the rejection loop opens one, not one per round', async () => {
+    const calls = []
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
+      findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' }),
+      setPullRequestBody: async () => { calls.push('edit') },
+      createPullRequest: async () => { calls.push('create'); return 'x' },
+    })
+    liveWorker(d)
+
+    const reply = await d.openPullRequest('curia-42', { summary: 's' })
+    assert.match(reply, /updated https/)
+    assert.deepEqual(calls, ['edit'])
+  })
+
+  test('no commits refuses without pushing, and says what to do instead', async () => {
+    const d = makeDispatcher({ commitsOnBranch: async () => [] })
+    liveWorker(d)
+    const reply = await d.openPullRequest('curia-42', { summary: 's' })
+    assert.match(reply, /no commits.*Commit your work first/s)
+  })
+
+  test('a failed push tells the worker its commits are safe, and journals the failure', async () => {
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      pushBranch: async () => { throw new Error('permission denied') },
+    })
+    liveWorker(d)
+    const reply = await d.openPullRequest('curia-42', { summary: 's' })
+    assert.match(reply, /could not land `curia\/42`: permission denied/)
+    assert.match(reply, /commits are safe in the worktree/)
+    assert.ok(typesOf().includes('land_failed'))
+  })
+})
+
+describe('request_review: the one gate (#54 item 2)', () => {
+  test('every link is composed by the daemon — the worker passes none', async () => {
+    let asked = null
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' }),
+    }, { askReview: async (worker, ticket, text) => { asked = { worker, ticket, text }; return { text: 'approve', status: 'answered' } } })
+    liveWorker(d)
+    // an ALLOCATED preview, not a string the worker handed over (#40's limit)
+    d.previews = { get: () => ({ servePort: 8500, devPort: 5173, url: 'https://box.ts.net:8500/' }) }
+
+    const r = await d.requestReview('curia-42', { summary: 'did it', charting: 'create "next"' })
+
+    assert.equal(asked.worker, 'curia-42')
+    assert.equal(asked.ticket, '42')
+    assert.match(asked.text, /Ticket: https:\/\/github\.com\/o\/r\/issues\/42/)
+    assert.match(asked.text, /Pull request \(\*\*OPEN\*\*\): https:\/\/github\.com\/o\/r\/pull\/7/)
+    assert.match(asked.text, /Preview: https:\/\/box\.ts\.net:8500\//)
+    assert.match(asked.text, /create "next"/)
+    assert.equal(r.approved, true)
+    assert.match(r.text, /APPROVED/)
+    assert.match(r.text, /gh pr merge <url> --repo o\/r --squash --delete-branch/)
+  })
+
+  test('a ticket with no code says so rather than inventing a link', async () => {
+    let asked = null
+    const d = makeDispatcher({}, { askReview: async (w, t, text) => { asked = text; return { text: 'approve', status: 'answered' } } })
+    liveWorker(d)
+    const r = await d.requestReview('curia-42', { summary: 'a grilling answer', charting: 'none' })
+    assert.match(asked, /No pull request — this ticket produced no code/)
+    assert.equal(r.approved, true)
+  })
+
+  test('an approval is journalled as a fact the Stop hook can check', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveWorker(d)
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.ok(events.some((e) => e.type === 'review_requested'))
+    assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === true))
+  })
+
+  test('a rejection returns the human words as feedback and forbids merging', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'rename the flag', status: 'answered' }) })
+    liveWorker(d)
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, false)
+    assert.match(r.text, /NOT approved/)
+    assert.match(r.text, /rename the flag/)
+    assert.match(r.text, /Do not merge and do not resolve/)
+    assert.match(r.text, /open_pull_request again, then\nrequest_review again/)
+    assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === false))
+  })
+
+  test('a cancelled gate is not a rejection: nothing is merged and nothing resolved', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'aborted: a human cancelled this escalation', status: 'cancelled' }) })
+    liveWorker(d)
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.equal(r.aborted, true)
+    assert.match(r.text, /was cancelled, not answered/)
+    assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === false && e.status === 'cancelled'))
+  })
+
+  test('the worker reads *awaiting review* while it is blocked on the gate', async () => {
+    let seen = null
+    const d = makeDispatcher({}, {
+      askReview: async () => { seen = d.workers.get('curia-42').state; return { text: 'approve', status: 'answered' } },
+    })
+    liveWorker(d)
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.equal(seen, 'awaiting-review')
+  })
+
+  test('/status reads awaiting-review off the open escalation, so an adopted worker is right too', async () => {
+    const d = makeDispatcher()
+    liveWorker(d, { state: 'ready' })
+    escalations.push({ id: 'esc-9', worker: 'curia-42', ticket: '42', kind: 'review-gate', status: 'open' })
+    const { workers } = await d.status()
+    assert.equal(workers[0].state, 'awaiting-review')
+  })
+})
+
+describe('the Stop hook enforces the ending (#54 item 4)', () => {
+  test('#47 stays first: a turn that ends on an open escalation is a block, never a stop-block', async () => {
+    const d = makeDispatcher({ hasSession: async () => true })
+    liveWorker(d)
+    escalations.push({ id: 'esc-1', worker: 'curia-42', ticket: '42', kind: 'free-text', status: 'open' })
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.deepEqual(decision, { allow: true, terminal: false })
+    assert.ok(typesOf().includes('worker_blocked_on_human'))
+    assert.ok(!typesOf().includes('stop_blocked'), 'a worker waiting on a human must not be told to keep working')
+    assert.equal(d.workers.get('curia-42').state, 'blocked')
+  })
+
+  test('a worker blocked on the GATE reads awaiting-review, distinguishably', async () => {
+    const d = makeDispatcher({ hasSession: async () => true })
+    liveWorker(d)
+    escalations.push({ id: 'esc-1', worker: 'curia-42', ticket: '42', kind: 'review-gate', status: 'open' })
+
+    await d.onStopHook('curia-42', {})
+
+    assert.equal(d.workers.get('curia-42').state, 'awaiting-review')
+    assert.ok(events.some((e) => e.type === 'worker_blocked_on_human' && e.awaiting_review === true))
+  })
+
+  test('a worker that stops before the gate is blocked with its outstanding checklist', async () => {
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const d = makeDispatcher({ commitsOnBranch: async () => [{ sha: 'a', subject: 's' }] })
+    liveWorker(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /open_pull_request/)
+    assert.match(decision.reason, /request_review/)
+    assert.match(decision.reason, /report_result/)
+    assert.match(decision.reason, /nudge 1 of 3/)
+    assert.ok(events.some((e) => e.type === 'stop_blocked' && e.attempt === 1))
+  })
+
+  test('a merged, reported ticket is allowed to stop and closes the lifecycle', async () => {
+    journalTo([
+      { type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' },
+      { type: 'pr_opened', ticket: '42', repo: 'o/r', worker: 'curia-42' },
+      { type: 'review_answered', ticket: '42', worker: 'curia-42', approved: true },
+    ])
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      findPullRequest: async () => ({ number: 7, url: 'u', state: 'MERGED' }),
+    })
+    liveWorker(d, { resultReceived: true })
+
+    assert.deepEqual(await d.onStopHook('curia-42', {}), { allow: true, terminal: true })
+    assert.ok(!typesOf().includes('stop_blocked'))
+  })
+
+  test('an approved but unmerged pull request holds the worker for the merge', async () => {
+    journalTo([
+      { type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' },
+      { type: 'pr_opened', ticket: '42', repo: 'o/r', worker: 'curia-42' },
+      { type: 'review_answered', ticket: '42', worker: 'curia-42', approved: true },
+    ])
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      findPullRequest: async () => ({ number: 7, url: 'u', state: 'OPEN' }),
+    })
+    liveWorker(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /merge the approved pull request/)
+  })
+
+  test('past the nudge budget the stop is allowed, loudly — a worker that cannot comply never loops on quota', async () => {
+    journalTo([
+      { type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' },
+      { type: 'stop_blocked', ticket: '42', worker: 'curia-42', attempt: 1 },
+      { type: 'stop_blocked', ticket: '42', worker: 'curia-42', attempt: 2 },
+    ])
+    const d = makeDispatcher({}, { stopNudgeBudget: 2 })
+    liveWorker(d)
+
+    const decision = await d.onStopHook('curia-42', { stopHookActive: true })
+
+    assert.deepEqual(decision, { allow: true, terminal: true })
+    assert.ok(events.some((e) => e.type === 'stop_budget_exhausted' && e.blocks === 2))
+    assert.match(notifies.at(-1).message, /no longer holding it/)
+  })
+
+  test('an unreadable git log drops the pull-request item rather than trapping the worker', async () => {
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const d = makeDispatcher({ commitsOnBranch: async () => { throw new Error('index.lock') } })
+    liveWorker(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+    assert.equal(decision.decision, 'block')
+    assert.ok(!/open_pull_request/.test(decision.reason), 'a failed read must not add work')
+  })
+
+  test('a worker with no binding is let go rather than held forever', async () => {
+    const d = makeDispatcher()
+    assert.deepEqual(await d.onStopHook('curia-lab', {}), { allow: true, terminal: true })
+  })
+})
+
+describe('merge ends the workspace lease (#54 item 7)', () => {
+  const withResult = (d) => fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
+
+  test('a merged pull request releases the worktree and repairs the remote branch', async () => {
+    const done = []
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ number: 7, url: 'https://x/pull/7', state: 'MERGED' }),
+      removeWorktree: async (base, wt) => { done.push(`rm:${path.basename(wt)}`) },
+      deleteRemoteBranch: async (repo, branch) => { done.push(`del:${branch}`); return { deleted: true } },
+    })
+    liveWorker(d)
+    withResult(d)
+
+    await d.onWorkerDone('curia-42')
+
+    assert.deepEqual(done, ['rm:42', 'del:curia/42'])
+    assert.ok(events.some((e) => e.type === 'lease_released' && e.merged === true))
+    assert.match(notifies.at(-1).message, /is merged — worktree removed, remote `curia\/42` deleted/)
+  })
+
+  test('an UNMERGED pull request keeps the worktree and the branch, loudly', async () => {
+    let removed = false
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ number: 7, url: 'https://x/pull/7', state: 'OPEN' }),
+      removeWorktree: async () => { removed = true },
+    })
+    liveWorker(d)
+    withResult(d)
+
+    await d.onWorkerDone('curia-42')
+
+    assert.equal(removed, false, 'the worktree may hold the only copy of unlanded work')
+    assert.ok(events.some((e) => e.type === 'lease_kept'))
+    assert.match(notifies.at(-1).message, /KEPT.*is \*\*OPEN\*\*, not merged/)
+  })
+
+  test('an unreadable pull-request state keeps the workspace — "cannot tell" is not "merged"', async () => {
+    let removed = false
+    const d = makeDispatcher({
+      findPullRequest: async () => { throw new Error('HTTP 502') },
+      removeWorktree: async () => { removed = true },
+    })
+    liveWorker(d)
+    withResult(d)
+
+    await d.onWorkerDone('curia-42')
+
+    assert.equal(removed, false)
+    assert.ok(events.some((e) => e.type === 'lease_kept' && /502/.test(e.reason)))
+  })
+
+  test('a ticket that produced no code releases its worktree without a pull request', async () => {
+    let removed = false
+    const d = makeDispatcher({
+      findPullRequest: async () => null,
+      commitsOnBranch: async () => [],
+      removeWorktree: async () => { removed = true },
+      deleteRemoteBranch: async () => { throw new Error('must not be called — there is no branch to delete') },
+    })
+    liveWorker(d)
+    withResult(d)
+
+    await d.onWorkerDone('curia-42')
+
+    assert.equal(removed, true)
+    assert.ok(events.some((e) => e.type === 'lease_released' && e.merged === false))
+  })
+
+  test('no pull request but commits on the branch keeps everything', async () => {
+    let removed = false
+    const d = makeDispatcher({
+      findPullRequest: async () => null,
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      removeWorktree: async () => { removed = true },
+    })
+    liveWorker(d)
+    withResult(d)
+
+    await d.onWorkerDone('curia-42')
+
+    assert.equal(removed, false)
+    assert.match(notifies.at(-1).message, /cannot rule out unlanded commits/)
+  })
+})
+
+describe('awaiting review is not a dead claim (#54 item 5)', () => {
+  const assignedToMe = { ...OPEN_ISSUE, assignees: [{ login: 'me' }] }
+
+  test('an open pull request from curia/<n> keeps the claim', async () => {
+    // open + assigned + no live session + no result is ALSO the shape of a
+    // worker whose box rebooted while a human sat on the gate.
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const unclaimed = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...assignedToMe }),
+      findPullRequest: async () => ({ number: 7, url: 'https://x/pull/7', state: 'OPEN' }),
+      unclaim: async (repo, n) => { unclaimed.push(String(n)) },
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(unclaimed, [])
+    assert.ok(events.some((e) => e.type === 'dead_claim_kept_awaiting_review'))
+  })
+
+  test('a merged pull request does not keep it — that claim really is dead', async () => {
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const unclaimed = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...assignedToMe }),
+      findPullRequest: async () => ({ number: 7, url: 'u', state: 'MERGED' }),
+      unclaim: async (repo, n) => { unclaimed.push(String(n)) },
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(unclaimed, ['42'])
+    assert.ok(events.some((e) => e.type === 'dead_claim_released'))
+  })
+
+  test('an unreadable pull-request state releases nothing this pass', async () => {
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const unclaimed = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...assignedToMe }),
+      findPullRequest: async () => { throw new Error('HTTP 502') },
+      unclaim: async (repo, n) => { unclaimed.push(String(n)) },
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(unclaimed, [])
+    assert.ok(events.some((e) => e.type === 'reconcile_repo_skipped'))
+  })
+})
+
+describe('the gate the Stop hook cannot enforce', () => {
+  test('a resolve with no approved review is journalled and said out loud', async () => {
+    // report_result ends the Stop checklist, so a worker that skips straight from
+    // the work to comment-close-report is never held. Nothing can un-resolve it;
+    // the daemon can refuse to call it reviewed.
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', html_url: 'u' }),
+      issueComments: async () => [{ user: { login: 'me' }, created_at: '2999-01-01T00:00:00Z', body: 'resolution' }],
+      commitsOnBranch: async () => [],
+    })
+    liveWorker(d)
+
+    const text = await d.onResult('curia-42', { status: 'resolved', summary: 's' })
+
+    assert.ok(events.some((e) => e.type === 'resolved_unreviewed'))
+    assert.match(text, /NO approved review gate/)
+  })
+
+  test('a resolve WITH an approval this epoch says nothing extra', async () => {
+    journalTo([
+      { type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' },
+      { type: 'review_answered', ticket: '42', worker: 'curia-42', approved: true },
+    ])
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', html_url: 'u' }),
+      issueComments: async () => [{ user: { login: 'me' }, created_at: '2999-01-01T00:00:00Z', body: 'resolution' }],
+      commitsOnBranch: async () => [],
+    })
+    liveWorker(d)
+
+    const text = await d.onResult('curia-42', { status: 'resolved', summary: 's' })
+
+    assert.ok(!events.some((e) => e.type === 'resolved_unreviewed'))
+    assert.ok(!/NO approved review gate/.test(text))
+  })
+
+  test("an approval from an EARLIER dispatch does not count for this one", async () => {
+    journalTo([
+      { type: 'review_answered', ticket: '42', worker: 'curia-42', approved: true },
+      { type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' },
+    ])
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', html_url: 'u' }),
+      issueComments: async () => [{ user: { login: 'me' }, created_at: '2999-01-01T00:00:00Z', body: 'resolution' }],
+      commitsOnBranch: async () => [],
+    })
+    liveWorker(d)
+
+    await d.onResult('curia-42', { status: 'resolved', summary: 's' })
+    assert.ok(events.some((e) => e.type === 'resolved_unreviewed'))
   })
 })

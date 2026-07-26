@@ -138,7 +138,9 @@ export class PreviewRegistry {
     }
     const existing = this.byTicket.get(key)
     if (existing && existing.devPort === devPort) {
-      return { ok: true, ...existing, url: previewUrl(base, existing.servePort), reused: true }
+      const url = previewUrl(base, existing.servePort)
+      this.byTicket.set(key, { ...existing, url })
+      return { ok: true, ...existing, url, reused: true }
     }
     const target = await this.isLive(devPort)
     if (!target) {
@@ -166,9 +168,15 @@ export class PreviewRegistry {
     if (existing) await this.#serveOff(existing.servePort).catch(() => {})
 
     await this.exec('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://${target}:${devPort}`])
-    this.byTicket.set(key, { servePort, devPort, target })
-    this.log(`preview for ticket ${key}: https://${base}:${servePort}/ -> ${target}:${devPort}`)
-    return { ok: true, servePort, devPort, target, url: previewUrl(base, servePort), reused: false }
+    // The URL is kept on the entry, not only returned: the review gate (#54)
+    // shows the human the preview link, and it must be the link this registry
+    // actually allocated rather than a string a worker handed over. Resolving
+    // the tailnet name again there would mean a second `tailscale` call inside a
+    // blocking tool.
+    const url = previewUrl(base, servePort)
+    this.byTicket.set(key, { servePort, devPort, target, url })
+    this.log(`preview for ticket ${key}: ${url} -> ${target}:${devPort}`)
+    return { ok: true, servePort, devPort, target, url, reused: false }
   }
 
   // "handler does not exist" is POSITIVE ABSENCE, not a failed withdrawal —

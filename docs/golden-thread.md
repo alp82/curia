@@ -2,8 +2,8 @@
 
 The scripted end-to-end demo for map [#1](https://github.com/alp82/curia/issues/1), ticket
 [#35](https://github.com/alp82/curia/issues/35). One pass proves the destination: phone → Discord →
-frontier → dispatch → escalate → answer → resolve → map → preview → attach, with one command spoken
-rather than typed.
+frontier → dispatch → escalate → answer → review → merge → resolve → map → preview → attach, with one
+command spoken rather than typed.
 
 HITL: Alp drives. Nothing here is automated — the point is that a human on a phone can run the whole
 thread.
@@ -101,7 +101,8 @@ Leave the PC attached for the rest of the run; it is the window into what the wo
 The worker reaches the copy question it cannot answer alone and calls `ask_human`.
 
 Expect a thread named for ticket 48 in #curia, with the question rendered by kind (free-text → reply
-in thread; choice → numbered options; approve-reject → buttons; preview-review → buttons + link).
+in thread; choice → numbered options; approve-reject → buttons; preview-review → buttons + link;
+review-gate → buttons + the links curia composed).
 
 **Phone:** answer in the thread — **dictate this one** if the `/start` dictation was typed. The
 worker is blocked in the tool call while this sits there; the daemon keeps the MCP stream alive so
@@ -126,37 +127,64 @@ If the worker gets absorbed in building and never publishes, nudge it in the thr
 dev server and publish a preview"* — rather than counting the leg failed; the tool description tells
 it how, and a nudge through the escalation surface is itself part of the thread.
 
-### 6 — Resolve, land, and the map
+### 6 — The pull request, and the review gate
 
-The worker runs the resolve protocol from its standing orders (`gh issue comment` → `gh issue close`
-→ one line appended to map #42's `## Decisions so far`), then calls `report_result` once.
+Since [#54](https://github.com/alp82/curia/issues/54) the worker does not resolve anything until a
+human has approved it, and `resolved` means **merged**.
+
+The worker commits, calls `open_pull_request` (curia pushes `curia/48` and opens the PR — the worker
+never pushes), then calls `request_review`.
+
+Expect in the thread: a **[esc-n] curia-48 asks for review** message carrying the worker's summary,
+the **concrete charting it proposes for the map**, and the links curia composed itself — ticket, pull
+request with its live state, preview.
+
+**Phone:** reply in the thread with one change to make. That reply is a **rejection**, and the
+worker gets your words back verbatim. Expect it to commit again, call `open_pull_request` again
+(the **same** PR is updated, never a second one), and re-ask.
+
+**Phone:** now press **✅ Approve**. Only the button approves; any reply is feedback.
+
+### 7 — Merge, resolve, and the map
+
+Expect the worker to merge its own PR (`gh pr merge … --squash --delete-branch` — the one write to
+the remote it owns, and only what was just approved), then run the resolve step of the skill it is
+running: resolution comment → close → one line appended to map #42's `## Decisions so far` → the
+charting it got approved. Then `report_result` once.
 
 Expect, in the thread:
 - `🏁 curia-48 reports resolved: …`;
-- then the outcome line from the daemon's verify-and-repair pass: ticket closed, map #42 updated,
-  **PR opened** with a commit list read out of git.
+- the outcome line from the daemon's verify-and-repair pass: ticket closed, map #42 updated,
+  **code merged**;
+- `🏁 curia-48 finished … <PR> is merged — worktree removed, remote curia/48 deleted`.
 
-Expect on GitHub: issue #48 closed with a resolution comment; map #42 carrying a new
-Decisions-so-far pointer to it; a PR from `curia/48` into `main`.
+Expect on GitHub: PR merged into `main`; issue #48 closed with a resolution comment; map #42
+carrying a new Decisions-so-far pointer; the `curia/48` branch gone.
 
 Expect on the box: the preview Serve rule withdrawn (`tailscale serve status` no longer lists the
-8500-range port), the tmux session gone, the attach rule on 8443 untouched.
+8500-range port), the tmux session gone, the worktree gone, the attach rule on 8443 untouched.
 
-### 7 — Close the loop
+**If the worker tries to stop with a step outstanding**, curia's Stop hook refuses the stop and lists
+what is missing — up to `stop_nudge_budget` times (3), after which it lets go and says the ticket is
+unfinished. Seeing one of those refusals in the pane is a pass, not a fault.
 
-**Phone:** `/status` → `💤 no live workers`.
+### 8 — Close the loop
+
+**Phone:** `/status` → `💤 no live workers`. While the gate was open it read **awaiting-review**.
 
 ## Pass bar
 
-The thread passes when all seven hold in one unbroken run:
+The thread passes when all eight hold in one unbroken run:
 
 1. Frontier reported across **both** demo repos from the phone.
 2. `/start` dispatched, and the **routing rule** picked the model — not Alp.
 3. The worker escalated to Discord and the answer resumed it.
-4. The ticket resolved: closed, with a resolution comment.
-5. The parent map gained its Decisions-so-far pointer.
-6. A preview link opened **on the phone**.
-7. The PC attached to the **same** live tmux session the phone dispatched.
+4. One **rejection** at the review gate looped back into new commits on the **same** pull request,
+   and the approval came from the phone.
+5. The ticket resolved: closed, with a resolution comment, over **merged** code.
+6. The parent map gained its Decisions-so-far pointer.
+7. A preview link opened **on the phone**.
+8. The PC attached to the **same** live tmux session the phone dispatched.
 
 Plus: at least one command or answer spoken rather than typed.
 

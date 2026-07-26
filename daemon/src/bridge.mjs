@@ -17,6 +17,7 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder,
 } from 'discord.js'
 import { safeLeaf } from './images.mjs'
+import { REVIEW_KIND } from './lifecycle.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
@@ -165,7 +166,7 @@ export class DiscordBridge {
       if (row.components.length === 5) { rows.push(row); row = new ActionRowBuilder() }
       row.addComponents(b)
     }
-    if (record.kind === 'approve-reject' || record.kind === 'preview-review') {
+    if (record.kind === 'approve-reject' || record.kind === 'preview-review' || record.kind === REVIEW_KIND) {
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|approve`).setLabel('✅ Approve').setStyle(ButtonStyle.Success))
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|reject`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger))
     }
@@ -181,6 +182,18 @@ export class DiscordBridge {
   }
 
   #escalationBody(record) {
+    // The review gate (#54) is the one kind whose prompt is a multi-line block
+    // the daemon composed — summary, proposed charting, the links to look at. A
+    // blockquote would mark only its first line, so it is printed as it stands.
+    if (record.kind === REVIEW_KIND) {
+      return [
+        `**[${record.id}]** \`${record.worker}\` asks for review:`,
+        '',
+        record.prompt,
+        '',
+        '_✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the worker gets your words)._',
+      ].join('\n')
+    }
     const head = `**[${record.id}]** \`${record.worker}\` asks (*${record.kind}*):\n> ${record.prompt}`
     const parts = [head]
     if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {

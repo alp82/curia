@@ -28,6 +28,7 @@ import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
 import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
+import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { hasSession } from './tmux.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
@@ -131,10 +132,14 @@ function settle(record, text, attachments = []) {
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
 const gate = {
   get: (id) => store.get(id),
+  // `review-gate` is here because a rejection IS feedback (#48): the human's own
+  // words have to reach the worker, and a button cannot carry them. Approval
+  // still comes from the ✅ button — see classifyReviewAnswer, where anything
+  // else counts as a rejection.
   findOpenForThread: (threadId) =>
     store.openEscalations()
       .filter((r) => r.discord?.threadId === threadId)
-      .filter((r) => ['free-text', 'choice', 'preview-review'].includes(r.kind))
+      .filter((r) => ['free-text', 'choice', 'preview-review', REVIEW_KIND].includes(r.kind))
       .at(-1) ?? null,
   answer(id, { answer, attachments = [], by, via }) {
     const result = store.answer(id, { answer, attachments, by, via })
@@ -191,12 +196,27 @@ function overseerConfirm(ticket, prompt) {
   })
 }
 
+// The review gate (#54 item 2). The same escalation machinery every ask_human
+// uses — so first-valid-wins, the ~30-min re-nudge, Discord buttons, thread-reply
+// capture and restart survival all come free — under its own kind, which is what
+// makes an approval a fact the daemon can check (`/status`, the Stop hook) rather
+// than a string in a prompt. Unlike overseerConfirm there is NO ttl: #11's
+// indefinite block is the whole promise, and a review that expired under a human
+// who was merely asleep would drop the work on the floor.
+function askReview(worker, ticket, promptText) {
+  const { record, answered } = openEscalation({ worker, ticket, kind: REVIEW_KIND, prompt: promptText })
+  // The final status separates an approval-or-rejection from a 🛑 Cancel, which
+  // settles the same promise with an "aborted" text.
+  return answered.then(({ text }) => ({ text, status: store.get(record.id)?.status ?? 'answered' }))
+}
+
 const dispatcher = new Dispatcher({
   config: curiaConfig,
   routing: routingConfig,
   store,
   notify: notifyThread,
   confirm: overseerConfirm,
+  askReview,
   // gate.cancel, not store.cancel: voiding a boot-orphaned confirm must also
   // settle it — release any pending resolver (a confirm opened via
   // POST /command inside the listen→boot-reconcile window has a live one) and
@@ -339,6 +359,46 @@ function buildMcpServer(worker, ticket) {
       if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }] }
       if (bridge) bridge.notify(ticket, `🔗 preview for \`${worker}\`: ${r.url} (dev server on :${dev_port})`).catch(() => {})
       return { content: [{ type: 'text', text: r.url }] }
+    },
+  )
+
+  // #54 item 1: landing left report_result, because the pull request is now what
+  // a human reviews BEFORE anything is resolved. The worker still never pushes —
+  // it asks the daemon to, which is the #40/#41 containment boundary with its
+  // timing changed and nothing else.
+  server.tool(
+    'open_pull_request',
+    'Push the commits on your branch and open the pull request for this ticket — curia does the pushing, you never do. Call it once you have committed something, and again after later commits: it updates the same pull request. Returns the pull-request URL. Next step after this is request_review.',
+    { summary: z.string().describe('What this change does, for the pull-request body.') },
+    // keepalive: a push plus two gh round-trips is well inside the client's 300s
+    // idle abort (#34), but "well inside" is not a guarantee on a big repo
+    async ({ summary }, extra) => {
+      const stopKeepAlive = startKeepAlive(extra, `${worker}/pr`)
+      try {
+        return { content: [{ type: 'text', text: await dispatcher.openPullRequest(worker, { summary }) }] }
+      } finally {
+        stopKeepAlive()
+      }
+    },
+  )
+
+  // #54 item 2 / #48's gate: one gate, whatever the ticket type. Only the LINKS
+  // differ, and the daemon composes every one of them from its own records.
+  server.tool(
+    'request_review',
+    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again.',
+    {
+      summary: z.string().describe('What you did, in a few lines. The human reads this on a phone.'),
+      charting: z.string().describe('CONCRETE map changes you propose: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
+    },
+    async ({ summary, charting }, extra) => {
+      const stopKeepAlive = startKeepAlive(extra, `${worker}/review`)
+      try {
+        const r = await dispatcher.requestReview(worker, { summary, charting })
+        return { content: [{ type: 'text', text: r.text }] }
+      } finally {
+        stopKeepAlive()
+      }
     },
   )
 
@@ -499,16 +559,40 @@ async function handleRequest(req, res) {
     return json(result.ok ? 200 : 409, result)
   }
 
+  // The Stop hook is now the ENFORCEMENT of the ending (#54 item 4), not just a
+  // notification that a turn ended: `{decision:"block", reason}` sends the worker
+  // back with its outstanding checklist.
+  //
+  // Two phases on purpose. The decision is awaited, because the hook needs it on
+  // the wire; the terminal work is NOT, because it kills the tmux session the
+  // hook's own curl is running inside — awaiting it would kill the request before
+  // the response left.
+  //
+  // Every failure here ALLOWS the stop. A daemon bug must never trap a worker in
+  // a block loop.
   if (url.pathname === '/worker_done' && req.method === 'POST') {
     const body = await readBody(req)
     const worker = url.searchParams.get('worker') ?? 'unknown'
+    const stopHookActive = Boolean(body.stop_hook_active)
     store.logEvent('worker_done', {
       worker,
       hook_event: body.hook_event_name,
       session_id: body.session_id,
       stop_hook_active: body.stop_hook_active,
     })
-    dispatcher.onWorkerDone(worker).catch((e) => log(`onWorkerDone ${worker} failed:`, e.message))
+    let decision
+    try {
+      decision = await dispatcher.onStopHook(worker, { stopHookActive })
+    } catch (e) {
+      log(`onStopHook ${worker} failed (${e.message}) — allowing the stop`)
+      decision = { allow: true, terminal: true }
+    }
+    if (decision?.decision === 'block') {
+      return json(200, { decision: 'block', reason: decision.reason })
+    }
+    if (decision?.terminal) {
+      dispatcher.onWorkerDone(worker).catch((e) => log(`onWorkerDone ${worker} failed:`, e.message))
+    }
     return json(200, { ok: true })
   }
 

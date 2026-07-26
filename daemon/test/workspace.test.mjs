@@ -5,8 +5,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { execFileSync } from 'node:child_process'
 import {
   seedConfigDir, workerEnv, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
+  createWorktree, remoteBranchExists,
 } from '../src/workspace.mjs'
 
 describe('per-worker config dir (#53)', () => {
@@ -125,5 +127,61 @@ describe('the worker skill set (#57)', () => {
       assert.equal(DEFAULT_SKILLS.includes(name), false, `${name} is deliberately withheld (#49)`)
     }
     assert.equal(defaultSkillsRoot(), path.join(os.homedir(), '.claude', 'skills'))
+  })
+})
+
+// #54 item 6: re-dispatch onto a ticket whose pull request is already open. This
+// runs against real git, because the bug it fixes was entirely in the plumbing:
+// `worktree add -B curia/<n> … origin/HEAD` force-reset the branch, so the second
+// worker started from the default branch and its non-forced push then failed —
+// after having thrown away every commit already under review.
+describe('createWorktree start point (#54 item 6)', () => {
+  let tmp
+  let base
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-wt-'))
+    const origin = path.join(tmp, 'origin.git')
+    const seed = path.join(tmp, 'seed')
+    execFileSync('git', ['init', '--bare', '-b', 'main', origin])
+    execFileSync('git', ['clone', origin, seed])
+    fs.writeFileSync(path.join(seed, 'README.md'), 'base\n')
+    git(seed, 'add', '.')
+    git(seed, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'base')
+    git(seed, 'push', 'origin', 'main')
+    // a first dispatch's work, already pushed and under review
+    git(seed, 'checkout', '-b', 'curia/42')
+    fs.writeFileSync(path.join(seed, 'work.txt'), 'reviewed work\n')
+    git(seed, 'add', '.')
+    git(seed, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'under review')
+    git(seed, 'push', 'origin', 'curia/42')
+
+    base = path.join(tmp, 'repos', 'o__r', 'base')
+    fs.mkdirSync(path.dirname(base), { recursive: true })
+    execFileSync('git', ['clone', origin, base])
+    git(base, 'remote', 'set-head', 'origin', 'main')
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('remoteBranchExists reads the tracking ref, and distinguishes absent from unreadable', async () => {
+    assert.equal(await remoteBranchExists(base, 'curia/42'), true)
+    assert.equal(await remoteBranchExists(base, 'curia/999'), false)
+    await assert.rejects(() => remoteBranchExists(path.join(tmp, 'not-a-repo'), 'curia/42'),
+      'a failed read must throw, never read as "no branch"')
+  })
+
+  test('a re-dispatch continues the existing branch instead of resetting it', async () => {
+    const wt = await createWorktree(base, 42)
+    assert.ok(fs.existsSync(path.join(wt, 'work.txt')), 'the commits already under review must survive')
+    assert.match(git(wt, 'log', '-1', '--format=%s'), /under review/)
+    assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/42')
+  })
+
+  test('a first dispatch still starts from the default branch', async () => {
+    const wt = await createWorktree(base, 77)
+    assert.equal(fs.existsSync(path.join(wt, 'work.txt')), false)
+    assert.match(git(wt, 'log', '-1', '--format=%s'), /base/)
+    assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/77')
   })
 })

@@ -12,7 +12,7 @@ import assert from 'node:assert/strict'
 import {
   sectionBounds, pointerLine, mapPointerFor, insertMapPointer,
   fallbackResolutionComment, nonCleanComment, prBody, resolveAndLand, summariseOutcome,
-  DECISIONS_HEADING,
+  landBranch, prLinkComment, DECISIONS_HEADING, MACHINE_MARKER,
 } from '../src/resolve.mjs'
 
 // A map body shaped like the real one: decisions that cite OTHER tickets, both
@@ -119,13 +119,30 @@ describe('comment bodies', () => {
 
   test('the PR body links the ticket WITHOUT a closing keyword and lists daemon-observed commits', () => {
     const b = prBody({
-      repo: 'o/r', ticket: '42', title: 'a ticket', result: { summary: 's' },
+      repo: 'o/r', ticket: '42', title: 'a ticket', summary: 's',
       commits: [{ sha: 'abc1234', subject: 'do it' }], worker: 'curia-42', model: 'opus',
     })
     assert.ok(!/\b(closes|fixes|resolves) #42/i.test(b), 'a closing keyword would read as if the merge resolved the ticket')
     assert.match(b, /Ticket: o\/r#42/)
     assert.match(b, /`abc1234` do it/)
     assert.match(b, /read out of git by the daemon/)
+  })
+
+  test("curia's own comments are marked, so they can never pass for the worker's resolution", () => {
+    // #54: open_pull_request comments on an OPEN ticket, and the
+    // resolution-comment check asks "is there a comment by us since this
+    // dispatch". Unmarked, curia's link comment would answer that question for a
+    // worker that wrote no resolution at all.
+    assert.ok(prLinkComment({ branch: 'curia/42', commits: 1, url: 'u', state: 'opened' }).startsWith(MACHINE_MARKER))
+    assert.ok(nonCleanComment({ worker: 'curia-42', result: { status: 'blocked' }, released: true }).startsWith(MACHINE_MARKER))
+    assert.ok(!fallbackResolutionComment({ summary: 's' }).includes(MACHINE_MARKER),
+      'the fallback IS the resolution — marking it would make a later dispatch re-post one')
+  })
+
+  test('the pull-request link comment says what was pushed and where', () => {
+    const one = prLinkComment({ branch: 'curia/42', commits: 1, url: 'https://x/pull/7', state: 'opened' })
+    assert.match(one, /pushed `curia\/42` \(1 commit\) and opened https:\/\/x\/pull\/7/)
+    assert.match(prLinkComment({ branch: 'curia/42', commits: 3, url: 'u', state: 'updated' }), /\(3 commits\) and updated/)
   })
 })
 
@@ -149,8 +166,11 @@ function harness({ issues, overrides = {}, result = { status: 'resolved', summar
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
     pushBranch: async (wt, repo, branch) => { calls.push({ op: 'push', branch }); return 'abc1234' },
-    findPullRequest: async () => null,
+    hasUnpushedWork: async () => false,
+    // the happy path since #54: the worker merged what a human approved
+    findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' }),
     createPullRequest: async (repo, opts) => { calls.push({ op: 'pr', ...opts }); return 'https://github.com/o/r/pull/7' },
+    setPullRequestBody: async (repo, n) => { calls.push({ op: 'prEdit', n }) },
     ...overrides,
   }
   return {
@@ -185,11 +205,26 @@ describe('resolveAndLand: the worker did everything right', () => {
     assert.equal(out.close, 'present')
     assert.equal(out.map.state, 'present')
     assert.deepEqual(out.repaired, [])
-    assert.equal(out.land.state, 'pr-opened')
-    assert.deepEqual(calls.map((c) => c.op), ['push', 'pr', 'comment'])
-    assert.match(calls.at(-1).body, /pushed `curia\/42`.*pull\/7/)
-    assert.ok(!calls.some((c) => c.op === 'setBody'), 'a map that already has the pointer is not rewritten')
-    assert.ok(!calls.some((c) => c.op === 'close'))
+    assert.equal(out.land.state, 'merged')
+    assert.deepEqual(calls.map((c) => c.op), [],
+      'landing happened mid-ticket through open_pull_request, and the merge was the worker\'s own')
+    assert.match(summariseOutcome(out), /code merged/)
+  })
+
+  test("curia's own link comment does not pass for the worker's resolution", async () => {
+    const h = harness({
+      issues: { 42: { ...TICKET } },
+      overrides: {
+        issueComments: async () => [{
+          user: { login: 'me' },
+          created_at: '2026-07-25T10:00:00Z',
+          body: prLinkComment({ branch: 'curia/42', commits: 1, url: 'u', state: 'opened' }),
+        }],
+      },
+    })
+    const out = await h.run()
+    assert.equal(out.comment, 'repaired', "the only comment on the ticket was curia's own")
+    assert.match(calls.find((c) => c.op === 'comment').body, /recorded by curia/)
   })
 })
 
@@ -323,73 +358,158 @@ describe('resolveAndLand: a failed read is never evidence', () => {
 
     assert.equal(out.map.state, 'error')
     assert.equal(out.close, 'present')
-    assert.equal(out.land.state, 'pr-opened', 'a map failure does not stop the landing')
+    assert.equal(out.land.state, 'merged', 'a map failure does not stop the landing check')
     assert.match(out.warnings.join(' '), /map pointer on #1 could not be written/)
   })
 })
 
-describe('resolveAndLand: landing', () => {
-  test('no commits ⇒ nothing is pushed and no PR is opened', async () => {
+// `resolved` means MERGED (#48), so this axis stopped being "did we push it" and
+// became "is the code actually in".
+describe('resolveAndLand: is the code IN', () => {
+  const withComment = { issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z', body: 'resolution' }] }
+
+  test('no commits ⇒ no landing question to answer', async () => {
     const h = harness({
       issues: { 42: { ...TICKET } },
-      overrides: {
-        issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z' }],
-        commitsOnBranch: async () => [],
-      },
+      overrides: { ...withComment, commitsOnBranch: async () => [] },
     })
     const out = await h.run()
 
     assert.equal(out.land.state, 'no-commits')
     assert.deepEqual(calls.map((c) => c.op), [])
-    assert.ok(journalled.some((e) => e.type === 'land_skipped'))
-    assert.match(summariseOutcome(out), /nothing to land/)
+    assert.match(summariseOutcome(out), /no code to land/)
   })
 
-  test('an existing PR for the branch is reused, not re-created', async () => {
+  test('a ticket closed over an OPEN pull request is reported as the defect it is', async () => {
     const h = harness({
       issues: { 42: { ...TICKET } },
       overrides: {
-        issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z' }],
+        ...withComment,
         findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' }),
       },
     })
     const out = await h.run()
 
-    assert.equal(out.land.state, 'pr-reused')
-    assert.ok(!calls.some((c) => c.op === 'pr'), 'gh pr create fails on an existing head — reuse instead')
-    assert.ok(journalled.some((e) => e.type === 'pr_reused'))
+    assert.equal(out.land.state, 'unmerged')
+    assert.match(out.warnings.join(' '), /is \*\*OPEN\*\*, not merged/)
+    assert.ok(journalled.some((e) => e.type === 'resolved_unmerged'))
+    assert.match(summariseOutcome(out), /NOT merged/)
   })
 
-  test('a failed push leaves the ticket resolved and names where the commits still are', async () => {
+  test('unpushed commits under an unmerged pull request are pushed, so nothing lives only in a worktree', async () => {
+    const h = harness({
+      issues: { 42: { ...TICKET } },
+      overrides: {
+        ...withComment,
+        findPullRequest: async () => ({ number: 7, url: 'u', state: 'OPEN' }),
+        hasUnpushedWork: async () => true,
+      },
+    })
+    await h.run()
+    assert.ok(calls.some((c) => c.op === 'push'))
+    assert.ok(journalled.some((e) => e.type === 'branch_pushed' && e.reason === 'unmerged at resolve'))
+  })
+
+  test('commits with NO pull request at all are landed as a repair, loudly', async () => {
+    // The one landing repair left: the worker skipped open_pull_request, so the
+    // only copy of its work is a worktree the lifecycle is about to stop
+    // protecting. Curia cannot get it reviewed after the fact — it can only
+    // refuse to lose it, and say that nobody looked.
+    const h = harness({
+      issues: { 42: { ...TICKET } },
+      overrides: { ...withComment, findPullRequest: async () => null },
+    })
+    const out = await h.run()
+
+    assert.equal(out.land.state, 'repaired')
+    assert.ok(out.repaired.includes('pull request'))
+    assert.deepEqual(calls.map((c) => c.op), ['push', 'pr', 'comment'])
+    assert.match(out.warnings.join(' '), /never called `open_pull_request`.*NOBODY REVIEWED/s)
+    assert.ok(journalled.some((e) => e.type === 'land_repaired'))
+  })
+
+  test('an unreadable pull-request state leaves the ticket resolved and says it cannot tell', async () => {
     const h = harness({
       issues: { 42: { ...TICKET, state: 'open' } },
       overrides: {
-        issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z' }],
-        pushBranch: async () => { throw new Error('permission denied') },
+        ...withComment,
+        findPullRequest: async () => { throw new Error('HTTP 502') },
       },
     })
     const out = await h.run()
 
     assert.equal(out.close, 'repaired', 'the resolution stands on its own')
     assert.equal(out.land.state, 'failed')
-    assert.match(out.warnings.join(' '), /NOT landed.*permission denied.*\/w\/42/s)
+    assert.match(out.warnings.join(' '), /could not establish whether the work is landed.*HTTP 502.*\/w\/42/s)
     assert.ok(journalled.some((e) => e.type === 'land_failed'))
-    assert.match(summariseOutcome(out), /landing FAILED/)
   })
 
-  test('a worker with no worktree on disk skips the landing entirely', async () => {
+  test('a worker with no worktree on disk skips the landing check entirely', async () => {
     const out = await resolveAndLand({
       repo: 'o/r', ticket: '42', worker: 'curia-42', login: 'me',
       result: { status: 'resolved', summary: 's' },
       wtPath: null, basePath: '/b', branch: 'curia/42',
       deps: {
         fetchIssue: async () => ({ ...TICKET }),
-        issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z' }],
+        issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z', body: 'r' }],
         commitsOnBranch: async () => { throw new Error('must not be called') },
       },
       journal: (type, data) => journalled.push({ type, ...data }),
       withMapLock: (key, fn) => fn(),
     })
     assert.equal(out.land.state, 'skipped')
+  })
+})
+
+// The `open_pull_request` tool's body. One ticket, one pull request, however many
+// review rounds it takes (#54 item 1).
+describe('landBranch', () => {
+  function land({ commits = [{ sha: 'abc1234', subject: 'do it' }], pr = null, ...over } = {}) {
+    return landBranch({
+      repo: 'o/r', ticket: '42', title: 'a ticket', summary: 'what it does',
+      worker: 'curia-42', model: 'opus', wtPath: '/w/42', basePath: '/b', branch: 'curia/42',
+      deps: {
+        defaultBranchOf: async () => 'main',
+        commitsOnBranch: async () => commits,
+        pushBranch: async (wt, repo, branch) => { calls.push({ op: 'push', branch }); return 'abc1234' },
+        findPullRequest: async () => pr,
+        createPullRequest: async (repo, opts) => { calls.push({ op: 'pr', ...opts }); return 'https://github.com/o/r/pull/7' },
+        setPullRequestBody: async (repo, n, body) => { calls.push({ op: 'prEdit', n, body }) },
+        ...over,
+      },
+      journal: (type, data) => journalled.push({ type, ...data }),
+    })
+  }
+
+  test('the first call pushes and opens, with the commit list read out of git', async () => {
+    const out = await land()
+    assert.equal(out.state, 'opened')
+    assert.equal(out.url, 'https://github.com/o/r/pull/7')
+    assert.deepEqual(calls.map((c) => c.op), ['push', 'pr'])
+    assert.match(calls[1].body, /`abc1234` do it/)
+    assert.equal(calls[1].base, 'main')
+    assert.ok(journalled.some((e) => e.type === 'pr_opened'))
+  })
+
+  test('a later call after a rejection updates the SAME pull request in place', async () => {
+    const out = await land({ pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } })
+    assert.equal(out.state, 'updated')
+    assert.deepEqual(calls.map((c) => c.op), ['push', 'prEdit'])
+    assert.ok(!calls.some((c) => c.op === 'pr'), 'gh pr create fails on an existing open head')
+    assert.ok(journalled.some((e) => e.type === 'pr_reused'))
+  })
+
+  test('a MERGED pull request from an earlier round is not reused — it cannot carry new commits', async () => {
+    const out = await land({ pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' } })
+    assert.equal(out.state, 'opened')
+    assert.ok(calls.some((c) => c.op === 'pr'))
+  })
+
+  test('no commits ⇒ nothing pushed, and the worker is told to commit first', async () => {
+    const out = await land({ commits: [] })
+    assert.equal(out.ok, false)
+    assert.equal(out.state, 'no-commits')
+    assert.deepEqual(calls.map((c) => c.op), [])
+    assert.ok(journalled.some((e) => e.type === 'land_skipped'))
   })
 })

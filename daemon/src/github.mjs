@@ -125,6 +125,26 @@ export async function createPullRequest(repo, { head, base, title, body }) {
   return out.trim().split('\n').filter(Boolean).at(-1) ?? ''
 }
 
+// Replace an open PR's body in place — the rejection loop opens one pull request
+// and updates it, rather than a new one per round (#54 item 1).
+export function setPullRequestBody(repo, n, body) {
+  return withBodyFile(body, (f) => gh(['pr', 'edit', String(n), '--repo', repo, '--body-file', f]))
+}
+
+// Merge ends the workspace lease (#54 item 7), and `gh pr merge --delete-branch`
+// is what the WORKER runs. This is the daemon's repair for the branch it left
+// behind. A missing ref is positive absence, not a failure: the worker's own
+// merge already deleted it, which is the expected case.
+export async function deleteRemoteBranch(repo, branch) {
+  try {
+    await gh(['api', '-X', 'DELETE', `repos/${repo}/git/refs/heads/${branch}`])
+    return { deleted: true }
+  } catch (e) {
+    if (/HTTP 404|Not Found|Reference does not exist/i.test(e.message)) return { deleted: false, absent: true }
+    throw e
+  }
+}
+
 // ---- pure filter/selection surface (frontier.test.mjs) ----------------------
 
 // Takeable = open, unassigned, unblocked, and not a PR. Absent

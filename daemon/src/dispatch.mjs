@@ -19,7 +19,8 @@ import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim,
   selectLane, frontierForRepo, commentIssue, closeIssue, setIssueBody, issueComments,
-  parentNumberOf, hasLabel, findPullRequest, createPullRequest,
+  parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
+  deleteRemoteBranch,
 } from './github.mjs'
 import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, Cooling } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
@@ -28,7 +29,8 @@ import {
   seedConfigDir, writeHarness, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, workerEnv,
 } from './workspace.mjs'
-import { resolveAndLand, summariseOutcome, nonCleanComment } from './resolve.mjs'
+import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment } from './resolve.mjs'
+import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 
 const READY_MARKER = /⏵⏵|bypass permissions/
@@ -59,8 +61,9 @@ const DEFAULT_DEPS = {
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt,
   ensureTtyd, assertServe, serveOff,
-  // resolve + land (#41)
+  // resolve + land (#41), merge-gated (#54)
   commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
+  setPullRequestBody, deleteRemoteBranch,
   defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork,
 }
 
@@ -100,12 +103,18 @@ export class Dispatcher {
   // notify(ticket, msg) and confirm(ticket, prompt) → Promise<boolean> are
   // injected by index.mjs (bridge-guarded notify; approve-reject escalation
   // confirm with first-valid-confirm-wins + bounded TTL).
-  constructor({ config, routing, store, notify, confirm, cancelEscalation, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
+  constructor({ config, routing, store, notify, confirm, askReview, cancelEscalation, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
     this.config = config
     this.routing = routing
     this.store = store
     this.notify = notify
     this.confirm = confirm
+    // askReview(worker, ticket, promptText) → { text, status } — the review gate
+    // (#54 item 2), injected by index.mjs on the same escalation machinery every
+    // ask_human uses, so first-valid-wins, the ~30-min re-nudge, the MCP
+    // keepalive and restart survival all come free. Absent in tests that never
+    // reach the gate.
+    this.askReview = askReview ?? (async () => ({ text: 'reject', status: 'answered' }))
     // index.mjs injects gate.cancel so voiding a confirm SETTLES it: the
     // pending resolver (if the confirm was opened after listen, mid-boot-
     // reconcile) is released and the Discord buttons get marked — a bare
@@ -358,7 +367,13 @@ export class Dispatcher {
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
       this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills)
       this.deps.writeHarness(wtPath, session, n, this.daemonPort)
-      const promptFile = this.deps.writePrompt(cfgDir, full, { repo, wtPath, mapNumber })
+      // The type label reaches the prompt (#49 decision 2): it was already
+      // parsed above for model routing and thrown away, and it is the only thing
+      // that stops a dispatched `wayfinder:grilling` worker from standing in for
+      // the human's side of its own ticket.
+      const promptFile = this.deps.writePrompt(cfgDir, full, {
+        repo, wtPath, mapNumber, type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
+      })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
       const useModel = cands[0]
@@ -619,6 +634,217 @@ export class Dispatcher {
     return released
   }
 
+  // ---- the merge-gated ending (#54) ---------------------------------------------
+
+  // Which ticket and repo a worker-facing tool call belongs to. The ticket comes
+  // from the SPAWN BINDING (the worker record, else the session name) and never
+  // from the caller — the same rule onResult follows, and for the same reason:
+  // these calls push branches and ask humans to approve things.
+  #bindingFor(workerName) {
+    const w = this.workers.get(workerName)
+    const m = workerName.match(SESSION_RE)
+    const ticket = String(w?.ticket ?? (m ? m[1] : ''))
+    if (!ticket) return { error: `no curia ticket is bound to \`${workerName}\`` }
+    const repo = w?.repo ?? this.#epochRepo(ticket)
+    if (!repo) return { error: `curia cannot tell which repo #${ticket} belongs to` }
+    const wtPath = w?.wtPath ?? worktreePathFor(this.root, repo, ticket)
+    return { w, ticket, repo, wtPath, branch: branchFor(ticket), basePath: basePathFor(this.root, repo) }
+  }
+
+  // `open_pull_request` (#54 item 1). Landing left report_result because the
+  // pull request is now what a human reviews BEFORE anything is resolved — so it
+  // has to be openable in the middle of a ticket, and re-openable after every
+  // rejection. The worker still never pushes: the containment boundary of #40/#41
+  // is unchanged, only its timing.
+  async openPullRequest(workerName, { summary = '' } = {}) {
+    const b = this.#bindingFor(workerName)
+    if (b.error) return `⛔ ${b.error} — nothing was pushed`
+    const { w, ticket, repo, wtPath, branch, basePath } = b
+    if (!fs.existsSync(wtPath)) return `⛔ the worktree ${wtPath} is gone — nothing was pushed`
+
+    let title = w?.title
+    if (!title) {
+      title = await this.deps.fetchIssue(repo, ticket).then((i) => i.title).catch(() => `#${ticket}`)
+    }
+    let out
+    try {
+      out = await landBranch({
+        repo, ticket, title, summary, worker: workerName, model: w?.model ?? null,
+        wtPath, basePath, branch, deps: this.deps,
+        journal: (type, data) => this.store.logEvent(type, data),
+      })
+    } catch (e) {
+      this.store.logEvent('land_failed', { repo, ticket, worker: workerName, branch, error: e.message })
+      this.notify(ticket, `⚠️ \`${workerName}\`: opening the pull request FAILED — ${e.message}`)
+      return `⛔ curia could not land \`${branch}\`: ${e.message}. Your commits are safe in the worktree; fix what you can and call this again.`
+    }
+    if (!out.ok) {
+      return `⛔ nothing to open a pull request from — \`${branch}\` carries no commits. Commit your work first.`
+    }
+    if (w) w.prUrl = out.url
+    await this.deps.commentIssue(repo, ticket, prLinkComment({
+      branch, commits: out.commits, url: out.url, state: out.state,
+    })).catch((e) => this.log(`pull-request comment on ${repo}#${ticket} failed: ${e.message}`))
+    this.notify(ticket, `🔀 \`${workerName}\` ${out.state === 'updated' ? 'updated' : 'opened'} ${out.url} (${out.commits} commit${out.commits === 1 ? '' : 's'} on \`${branch}\`)`)
+    return `${out.state === 'updated' ? 'updated' : 'opened'} ${out.url} — ${out.commits} commit${out.commits === 1 ? '' : 's'} pushed on \`${branch}\`. Next: request_review.`
+  }
+
+  // `request_review` (#54 item 2, #48's gate). One gate, and it never branches on
+  // ticket type: only the LINKS differ, and every one of them is composed here
+  // from curia's own records rather than from anything the worker says — the
+  // preview from the registry that allocated it, the pull request from GitHub,
+  // the ticket from the spawn binding. #40 recorded the alternative as a live
+  // limit: a worker can hand ask_human any `preview_url` string it likes.
+  async requestReview(workerName, { summary = '', charting = '' } = {}) {
+    const b = this.#bindingFor(workerName)
+    if (b.error) return { ok: false, text: `⛔ ${b.error} — no review was requested` }
+    const { w, ticket, repo, branch } = b
+
+    const title = w?.title ?? `#${ticket}`
+    const links = [`Ticket: https://github.com/${repo}/issues/${ticket}`]
+    let pr = null
+    try {
+      pr = await this.deps.findPullRequest(repo, branch)
+    } catch (e) {
+      this.log(`review gate for ${repo}#${ticket}: pull-request read failed (${e.message})`)
+    }
+    if (pr) links.push(`Pull request (**${pr.state}**): ${pr.url}`)
+    else if (w?.prUrl) links.push(`Pull request: ${w.prUrl} (curia could not re-read its state just now)`)
+    else links.push('_No pull request — this ticket produced no code._')
+    const preview = this.previews?.get(ticket)
+    if (preview?.url) links.push(`Preview: ${preview.url}`)
+
+    const { text, truncated } = reviewGateText({ repo, ticket, title, summary, charting, links })
+    this.store.logEvent('review_requested', {
+      repo, ticket, worker: workerName, pr: pr?.url ?? w?.prUrl ?? null,
+      preview: preview?.url ?? null, truncated,
+    })
+    if (w) w.state = 'awaiting-review'
+    const { text: answer, status } = await this.askReview(workerName, ticket, text)
+    if (w && w.state === 'awaiting-review') w.state = 'ready'
+
+    if (status !== 'answered') {
+      this.store.logEvent('review_answered', { repo, ticket, worker: workerName, approved: false, status })
+      return { ok: true, aborted: true, text: `${answer}\n\n(the review gate was ${status}, not answered — do not merge and do not resolve anything)` }
+    }
+    const { approved, feedback } = classifyReviewAnswer(answer)
+    this.store.logEvent('review_answered', { repo, ticket, worker: workerName, approved, via: 'gate' })
+    if (approved) {
+      return {
+        ok: true,
+        approved: true,
+        text: `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.${truncated ? '\n(note: your gate text was too long for one Discord message and was cut — keep the next one shorter)' : ''}`,
+      }
+    }
+    return {
+      ok: true,
+      approved: false,
+      text: [
+        'NOT approved. The human said:',
+        feedback || '(nothing beyond the rejection itself — ask them what to change with ask_human)',
+        '',
+        'Do not merge and do not resolve. Make the changes, commit, call open_pull_request again, then',
+        'request_review again.',
+      ].join('\n'),
+    }
+  }
+
+  // What the journal says has happened SINCE this ticket's latest dispatch. The
+  // epoch scoping is the same rule reconcile runs on: a pull request or an
+  // approval from an earlier dispatch of the same ticket is not this worker's.
+  #epochScan(ticket, workerName) {
+    const journal = this.#readJournal()
+    let epochIdx = -1
+    journal.forEach((ev, i) => {
+      if ((ev.type === 'dispatch_claimed' || ev.type === 'worker_spawned') && String(ev.ticket ?? '') === ticket) epochIdx = i
+    })
+    const mine = (ev) => ev.worker === workerName || String(ev.ticket ?? '') === ticket
+    const since = (pred) => journal.some((ev, i) => i > epochIdx && pred(ev))
+    return {
+      prOpened: since((ev) => ['pr_opened', 'pr_reused', 'land_repaired'].includes(ev.type) && mine(ev)),
+      reviewApproved: since((ev) => ev.type === 'review_answered' && ev.approved === true && mine(ev)),
+      blocks: journal.filter((ev, i) => i > epochIdx && ev.type === 'stop_blocked' && ev.worker === workerName).length,
+    }
+  }
+
+  // Everything the Stop-hook checklist is judged against. Cheap on purpose: the
+  // hook fires at the end of EVERY turn, so this reads the journal and local git
+  // and reaches GitHub only once a review has been approved (to ask whether the
+  // merge happened).
+  //
+  // Every read fails OPEN — an indeterminate answer drops that item from the
+  // checklist rather than adding it. Trapping a worker in a stop-block loop on a
+  // failed `git log` is worse than letting one unfinished ticket through to the
+  // repair path.
+  async #endingState(workerName) {
+    const b = this.#bindingFor(workerName)
+    if (b.error) return { error: b.error }
+    const { w, ticket, repo, wtPath, branch, basePath } = b
+    const state = {
+      ticket,
+      repo,
+      hasResult: Boolean(w?.resultReceived) || fs.existsSync(path.join(this.dataDir, 'results', `${workerName}.json`)),
+      ...this.#epochScan(ticket, workerName),
+      hasCommits: false,
+      prState: null,
+    }
+    try {
+      const commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(basePath))
+      state.hasCommits = commits.length > 0
+    } catch (e) {
+      this.log(`stop hook ${workerName}: could not read commits on ${branch} (${e.message}) — not asking for a pull request`)
+    }
+    if (state.reviewApproved && state.prOpened) {
+      try {
+        state.prState = (await this.deps.findPullRequest(repo, branch))?.state ?? null
+      } catch (e) {
+        this.log(`stop hook ${workerName}: could not read the pull request for ${branch} (${e.message}) — not asking for a merge`)
+      }
+    }
+    return state
+  }
+
+  // The Stop hook's answer (#54 item 4). Returns what index.mjs puts on the wire:
+  //   { decision: 'block', reason }  — hold the worker at the ending
+  //   { allow: true, terminal: bool } — let it stop; `terminal` says whether the
+  //                                     dispatch lifecycle should now close
+  //
+  // #47 stays FIRST and unchanged: a turn that ends with an escalation still open
+  // is a worker blocked on a human, not a worker that finished — and blocking
+  // THAT stop would spin a worker whose next move is not its own to make.
+  async onStopHook(workerName, { stopHookActive = false } = {}) {
+    const block = await this.#humanBlockEvidence(workerName)
+    if (block.blocked) {
+      this.#recordHumanBlock(workerName, block.open)
+      return { allow: true, terminal: false }
+    }
+
+    const state = await this.#endingState(workerName)
+    if (state.error) return { allow: true, terminal: true }
+    const items = outstanding(state)
+    if (!items.length) return { allow: true, terminal: true }
+
+    const budget = this.config.dispatch.stop_nudge_budget
+    const attempt = state.blocks + 1
+    if (attempt > budget) {
+      // The one thing worse than an unfinished ticket is a worker looping on
+      // quota unattended (#48). Past the budget the stop is allowed and the
+      // lifecycle closes on the evidence it actually has: report_result present
+      // ⇒ verify and repair; absent ⇒ the abnormal-exit branch, which keeps the
+      // pane and says so.
+      this.store.logEvent('stop_budget_exhausted', {
+        worker: workerName, ticket: state.ticket, repo: state.repo, blocks: state.blocks, outstanding: items,
+      })
+      this.notify(state.ticket, `🚧 \`${workerName}\` stopped with ${items.length} step(s) of the ending outstanding after ${state.blocks} nudge(s) — curia is no longer holding it:\n${items.map((t) => `• ${t}`).join('\n')}`)
+      return { allow: true, terminal: true }
+    }
+    this.store.logEvent('stop_blocked', {
+      worker: workerName, ticket: state.ticket, repo: state.repo, attempt, outstanding: items, stop_hook_active: stopHookActive,
+    })
+    this.log(`stop hook ${workerName}: blocking stop ${attempt}/${budget} — ${items.join('; ')}`)
+    return { decision: 'block', reason: stopReason(items, { attempt, budget }) }
+  }
+
   // ---- lifecycle callbacks -----------------------------------------------------
 
   // report_result lands here. Marking the dispatch lifecycle is the old half;
@@ -691,6 +917,16 @@ export class Dispatcher {
       withMapLock: (key, fn) => this.#withMapLock(key, fn),
       log: this.log,
     })
+    // The gate is the one thing the Stop hook structurally CANNOT enforce: a
+    // recorded result ends the checklist, so a worker that goes straight from the
+    // work to comment-close-report_result never gets held. Nothing here can
+    // un-resolve that ticket — but the daemon can refuse to call it reviewed, and
+    // this is the record a human reads afterwards. Sibling of the unmerged
+    // warning in resolve.mjs, for the same reason: say it, do not hide it.
+    if (!this.#epochScan(ticket, workerName).reviewApproved) {
+      this.store.logEvent('resolved_unreviewed', { repo, ticket, worker: workerName })
+      out.warnings.push('NO approved review gate for this dispatch — this ticket was resolved without anyone approving it')
+    }
     this.store.logEvent('ticket_resolved', {
       repo, ticket, worker: workerName,
       comment: out.comment, close: out.close, map: out.map.state, land: out.land.state,
@@ -762,6 +998,36 @@ export class Dispatcher {
     return this.store.openEscalations().filter((r) => r.worker === workerName)
   }
 
+  // #47's evidence, in one place because two callers need it: the Stop hook's
+  // decision and the terminal path. An open escalation bound to this worker means
+  // it is blocked in a human call; the ONE thing that outranks that is positive
+  // evidence the session is gone (killed between the hook's curl and this check),
+  // because then the call can never resume. An indeterminate tmux read is not
+  // evidence, and its safe direction is the block.
+  async #humanBlockEvidence(workerName) {
+    const open = this.#openEscalationsFor(workerName)
+    if (!open.length) return { blocked: false, gone: false, open }
+    let gone = false
+    try {
+      gone = !(await this.deps.hasSession(workerName))
+    } catch (e) {
+      this.log(`worker_done ${workerName}: session presence indeterminate (${e.message}) — treating the open escalation as a live block`)
+    }
+    return { blocked: !gone, gone, open }
+  }
+
+  #recordHumanBlock(workerName, open) {
+    const w = this.workers.get(workerName)
+    const reviewing = open.some((r) => r.kind === REVIEW_KIND)
+    if (w) w.state = reviewing ? 'awaiting-review' : 'blocked'
+    const ticket = w?.ticket ?? workerName.match(SESSION_RE)?.[1] ?? workerName
+    this.store.logEvent('worker_blocked_on_human', {
+      worker: workerName, ticket, repo: w?.repo,
+      escalations: open.map((r) => r.id), awaiting_review: reviewing,
+    })
+    this.log(`worker_done ${workerName}: turn ended with ${open.map((r) => r.id).join(', ')} still open — ${reviewing ? 'awaiting review' : 'blocked on a human'}, not gone`)
+  }
+
   async onWorkerDone(workerName) {
     const w = this.workers.get(workerName)
     const m = workerName.match(SESSION_RE)
@@ -785,30 +1051,15 @@ export class Dispatcher {
     // strand a question a human is still being asked. Nothing terminal happens;
     // the Stop that follows the answer is judged on its own, with no open
     // escalation left to defer on.
-    const open = this.#openEscalationsFor(workerName)
+    const { blocked, open } = await this.#humanBlockEvidence(workerName)
+    if (blocked) {
+      this.#recordHumanBlock(workerName, open)
+      return
+    }
     if (open.length) {
-      // The one thing that outranks a pending call is positive evidence the
-      // session is gone (killed between the hook's curl and this check): the
-      // call can never resume, so the exit is abnormal after all and the
-      // escalation must not keep asking — a human answering into a dead worker
-      // gets a ✅ for an answer nothing will ever read. An INDETERMINATE tmux
-      // read is not evidence (the standing rule), and its safe direction is the
-      // block: deferring costs a delayed lifecycle close, while acting on it
-      // kills a live human's preview.
-      let gone = false
-      try {
-        gone = !(await this.deps.hasSession(workerName))
-      } catch (e) {
-        this.log(`worker_done ${workerName}: session presence indeterminate (${e.message}) — treating the open escalation as a live block`)
-      }
-      if (!gone) {
-        if (w) w.state = 'blocked'
-        this.store.logEvent('worker_blocked_on_human', {
-          worker: workerName, ticket, repo: w?.repo, escalations: open.map((r) => r.id),
-        })
-        this.log(`worker_done ${workerName}: turn ended with ${open.map((r) => r.id).join(', ')} still open — blocked on a human, not gone`)
-        return
-      }
+      // Positively gone with calls still open: the exit is abnormal after all and
+      // the escalations must not keep asking — a human answering into a dead
+      // worker gets a ✅ for an answer nothing will ever read.
       for (const r of open) {
         this.cancelEscalation(r.id, { by: 'worker-death' })
         this.store.logEvent('escalation_orphaned', { id: r.id, worker: workerName, ticket })
@@ -824,16 +1075,80 @@ export class Dispatcher {
       this.store.logEvent('lifecycle_closed', { worker: workerName, ticket, repo: w?.repo })
       await this.deps.killSession(workerName).catch(() => {})
       this.workers.delete(workerName)
-      // worktree + branch + claim stay for review; the OAuth credential copy
-      // does not
+      // the OAuth credential copy never survives (a pre-#53 leftover collector)
       this.deps.removeCredentials(w?.cfgDir ?? cfgDirFor(this.root, workerName))
-      this.notify(ticket, `🏁 \`${workerName}\` finished with a recorded result — session closed; worktree, branch and claim kept for review`)
+      // #54 item 7: the merge — not the result — is what ends the lease. Review
+      // already happened, so "kept for review" no longer means anything; what
+      // decides now is whether the code is in.
+      const lease = await this.#endWorkspaceLease(workerName, ticket, w?.repo ?? this.#epochRepo(ticket))
+      this.notify(ticket, `🏁 \`${workerName}\` finished with a recorded result — session closed; ${lease}`)
     } else {
       // result-less exit: the pane is the post-mortem evidence — keep it
       if (w) w.state = 'failed'
       this.store.logEvent('worker_abnormal_exit', { worker: workerName, ticket, repo: w?.repo })
       this.notify(ticket, `🚨 \`${workerName}\` stopped WITHOUT reporting a result — session kept for post-mortem (\`/attach ${ticket}\`)`)
     }
+  }
+
+  // Merge ends the workspace lease (#54 item 7), replacing "worktree, branch and
+  // claim kept for review" — the review is over by now.
+  //
+  // Every branch here fails towards KEEPING the workspace. A worktree is the only
+  // copy of anything not pushed, so "merged" has to be positively established:
+  // an unreadable pull-request state, an unreadable git log, an unmerged pull
+  // request and a missing repo all keep it, loudly. The remote branch is deleted
+  // as a REPAIR only — the worker's own `gh pr merge --delete-branch` is what
+  // normally does it.
+  async #endWorkspaceLease(workerName, ticket, repo) {
+    if (!repo) return 'worktree kept — curia could not tell which repo this ticket belongs to'
+    const branch = branchFor(ticket)
+    const basePath = basePathFor(this.root, repo)
+    const wtPath = worktreePathFor(this.root, repo, ticket)
+
+    let pr
+    try {
+      pr = await this.deps.findPullRequest(repo, branch)
+    } catch (e) {
+      this.store.logEvent('lease_kept', { repo, ticket, worker: workerName, branch, reason: `pull-request state unreadable: ${e.message}` })
+      return `worktree and branch kept — curia could not read the pull-request state (${e.message})`
+    }
+
+    if (pr && pr.state !== 'MERGED') {
+      this.store.logEvent('lease_kept', { repo, ticket, worker: workerName, branch, reason: `pull request is ${pr.state}` })
+      return `⚠️ worktree and branch KEPT — ${pr.url} is **${pr.state}**, not merged`
+    }
+    if (!pr) {
+      // No pull request at all: fine for a ticket that produced no code, and a
+      // defect for one that did (resolveAndLand would have repaired it, so this
+      // is the indeterminate case).
+      let commits = null
+      try {
+        commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(basePath))
+      } catch { /* indeterminate ⇒ keep */ }
+      if (commits === null || commits.length) {
+        this.store.logEvent('lease_kept', { repo, ticket, worker: workerName, branch, reason: 'no pull request, and the branch may hold commits' })
+        return '⚠️ worktree and branch KEPT — there is no pull request and curia cannot rule out unlanded commits'
+      }
+    }
+
+    let removed = false
+    try {
+      await this.deps.removeWorktree(basePath, wtPath)
+      removed = true
+    } catch (e) {
+      this.log(`lease end for ${repo}#${ticket}: worktree removal failed (${e.message})`)
+    }
+    let branchNote = ''
+    if (pr) {
+      try {
+        const { absent } = await this.deps.deleteRemoteBranch(repo, branch)
+        branchNote = absent ? `, remote \`${branch}\` already gone` : `, remote \`${branch}\` deleted`
+      } catch (e) {
+        branchNote = `, remote \`${branch}\` still there (${e.message})`
+      }
+    }
+    this.store.logEvent('lease_released', { repo, ticket, worker: workerName, branch, merged: Boolean(pr), worktree_removed: removed })
+    return `${pr ? `${pr.url} is merged` : 'no code was produced'} — ${removed ? 'worktree removed' : 'worktree removal FAILED'}${branchNote}`
   }
 
   // ---- cancel --------------------------------------------------------------------
@@ -902,13 +1217,19 @@ export class Dispatcher {
 
   async status() {
     const live = (await this.deps.listSessions()).filter((s) => s.startsWith('curia-'))
+    // #54 item 9: *awaiting review* is read off the open escalation record, not
+    // off the worker record, so it is also right for a worker this process
+    // adopted at reconcile and whose in-memory state is a guess.
+    const reviewing = new Set(this.store.openEscalations()
+      .filter((r) => r.kind === REVIEW_KIND)
+      .map((r) => r.worker))
     const workers = [...this.workers.values()].map((w) => ({
       session: w.session,
       repo: w.repo,
       ticket: w.ticket,
       title: w.title,
       model: w.model,
-      state: w.state,
+      state: reviewing.has(w.session) ? 'awaiting-review' : w.state,
       uptime_s: w.spawnedAt ? Math.round((Date.now() - w.spawnedAt) / 1000) : null,
       result_received: w.resultReceived,
       tmux_live: live.includes(w.session),
@@ -1128,6 +1449,24 @@ export class Dispatcher {
         continue
       }
       if (issue && issue.state === 'open' && (issue.assignees ?? []).some((a) => a.login === login)) {
+        // #54 item 5: open + assigned + no live session + no result is ALSO the
+        // shape of *awaiting review* — a worker whose box rebooted while a human
+        // sat on the gate. An open pull request from `curia/<n>` says the work is
+        // real and waiting on a person, so the claim is not dead and re-dispatch
+        // is not the answer. An unreadable pull-request state is indeterminate
+        // and keeps the claim too, the same rule the rest of reconcile runs on.
+        let pr
+        try {
+          pr = await this.deps.findPullRequest(repo, branchFor(ticket))
+        } catch (e) {
+          skipRepo(repo, e)
+          continue
+        }
+        if (pr && pr.state === 'OPEN') {
+          this.store.logEvent('dead_claim_kept_awaiting_review', { repo, ticket, worker: session, pr: pr.url })
+          this.log(`reconcile: keeping the claim on ${repo}#${ticket} — ${pr.url} is open and awaiting review`)
+          continue
+        }
         try {
           await this.deps.unclaim(repo, ticket, login)
           this.store.logEvent('dead_claim_released', { repo, ticket, worker: session })

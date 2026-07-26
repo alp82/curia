@@ -1,7 +1,13 @@
-// The spawn prompt is the ONLY place the resolve protocol is stated (#41), and
-// it is also the only control on a bypassPermissions worker's tracker authority
-// — the disabled push URL is a speed bump, not a control (see workspace.mjs).
-// So the standing orders get pinned like an interface.
+// The spawn prompt is the only control on a bypassPermissions worker's tracker
+// authority — the disabled push URL is a speed bump, not a control (see
+// workspace.mjs). So it gets pinned like an interface.
+//
+// What it can pin CHANGED with #49/#54. The prompt no longer states the resolve
+// protocol: the worker reads that from the wayfinder skill installed in its own
+// config dir (#57), and restating it here is the duplication #49 deleted. So the
+// assertions below pin the parameters, the bounds, the tool block and the ordered
+// ending — and the ABSENCE of the protocol, because a well-meaning re-addition is
+// exactly how the two copies would drift apart again.
 
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -9,6 +15,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { writePrompt, branchFor } from '../src/workspace.mjs'
+import { ENDING } from '../src/lifecycle.mjs'
 
 const ISSUE = { number: 42, title: 'Close the loop', body: 'the question' }
 
@@ -21,48 +28,135 @@ function write(opts) {
   return fs.readFileSync(file, 'utf8')
 }
 
-describe('standing orders: the resolve protocol', () => {
-  test('a map ticket is told to comment, close, and append ONE line to its own map', () => {
+describe('the wayfinder invocation', () => {
+  test('a map ticket starts with the literal /wayfinder line — the only form that loads it', () => {
+    // #57, verified both directions: `wayfinder` carries
+    // disable-model-invocation, so prose naming the skill gets "cannot be used
+    // with Skill tool" and only a first-line slash command loads it.
     const p = write({ mapNumber: 1 })
-    assert.match(p, /gh issue comment 42 --repo o\/r/)
-    assert.match(p, /gh issue close 42 --repo o\/r/)
-    assert.match(p, /Decisions so far` section of the parent map o\/r#1/)
-    assert.match(p, /- \[Close the loop\]\(https:\/\/github\.com\/o\/r\/issues\/42\)/)
-    assert.match(p, /re-read\n\s*and confirm your line is there/, 'the lost-update risk is named, not assumed away')
+    assert.equal(p.split('\n')[0], '/wayfinder https://github.com/o/r/issues/1 ticket #42')
   })
 
-  test('a ticket with no map is told there is no pointer to append', () => {
+  test('a ticket with no map does not invoke the skill at all', () => {
+    // The skill works THROUGH a map; invoking it with nothing to work through
+    // would have it chart one. The flat ready-for-agent lane (#10) is this case.
     const p = write({ mapNumber: null })
-    assert.match(p, /no parent map/)
-    assert.ok(!/Decisions so far/.test(p))
-    assert.match(p, /gh issue close 42 --repo o\/r/, 'the rest of the protocol is unchanged')
+    assert.ok(!p.includes('/wayfinder'))
+    assert.equal(p.split('\n')[0], '# o/r#42: Close the loop')
+    assert.match(p, /belongs to no map/)
+  })
+})
+
+describe('parameters, not procedure', () => {
+  test('the tracker is named, so the skill never falls back to local markdown', () => {
+    const p = write({ mapNumber: 1 })
+    assert.match(p, /tracker is \*\*GitHub\*\*, repo `o\/r`/)
+    assert.match(p, /Do not fall back to a\n\s*local-markdown tracker/)
   })
 
-  test('the tracker authority is bounded, and the claim is left alone', () => {
+  test('the map, the ticket and the claim are stated as facts curia already established', () => {
     const p = write({ mapNumber: 1 })
-    assert.match(p, /Touch NOTHING else on the tracker/)
-    assert.match(p, /no other issue, no labels, no other section of the map/)
+    assert.match(p, /The map is o\/r#1 — https:\/\/github\.com\/o\/r\/issues\/1/)
+    assert.match(p, /already CLAIMED it in your name/)
+    assert.match(p, /you start at\n\s*resolving it, not at choosing it/)
+  })
+
+  test('the ticket type reaches the worker, with its meaning left to the skill', () => {
+    // The one line that stops a dispatched grilling worker from standing in for
+    // the human's side of its own ticket (#49 decision 2).
+    assert.match(write({ mapNumber: 1, type: 'wayfinder:grilling' }), /Ticket type: `wayfinder:grilling`/)
+    assert.match(write({ mapNumber: 1, type: null }), /no `wayfinder:` type label/)
+  })
+
+  test('the resolve protocol is NOT restated — the skill owns it now', () => {
+    const p = write({ mapNumber: 1 })
+    assert.ok(!/gh issue comment/.test(p), 'the literal command lines left writePrompt (#49)')
+    assert.ok(!/gh issue close/.test(p))
+    assert.ok(!/Decisions so far/.test(p), "resolve.mjs's DECISIONS_HEADING is curia's only copy")
+    assert.ok(!/- \[Close the loop\]\(/.test(p), 'the pointer line shape left too')
+  })
+})
+
+describe('bounds', () => {
+  test('reading is unbounded and writing is not', () => {
+    // #49 decision 3: the old wording read as a ban on the skill's own "zoom as
+    // needed", which is the reading a worker actually has to do.
+    const p = write({ mapNumber: 1 })
+    assert.match(p, /\*\*Read anything\.\*\*/)
+    assert.match(p, /Nothing here limits\n\s*reading/)
+    assert.match(p, /\*\*Write only:\*\* files inside \/w\/42; this ticket; the map o\/r#1 and its children;/)
+    assert.match(p, /the one merge a human has just approved/)
+  })
+
+  test('the claim is left alone and the browser prohibition is explicit', () => {
+    const p = write({ mapNumber: 1 })
     assert.match(p, /Leave the assignee alone/)
+    assert.match(p, /\*\*You have no browser and must not build one\*\*/)
+    assert.match(p, /no headless Chrome, no Playwright/)
   })
 
-  test('pushing and opening a PR stay the daemon\'s job', () => {
-    const p = write({ mapNumber: 1 })
-    assert.match(p, new RegExp(`current branch \\(\`${branchFor(42)}\`\\)`))
-    assert.match(p, /NEVER push, and never open a\n\s*pull request/)
-    assert.match(p, /curia pushes the branch and opens the PR itself/)
+  test('a HITL ticket is never answered by the worker itself', () => {
+    assert.match(write({ mapNumber: 1 }), /\*\*Never answer for the human\.\*\*/)
   })
 
-  test('report_result is still exactly once, and blocked never fakes a resolution', () => {
-    const p = write({ mapNumber: 1 })
-    assert.match(p, /`report_result` tool on the `curia` MCP server exactly once/)
-    assert.match(p, /do NOT comment-and-close a ticket\n\s*you did not actually resolve/)
-    assert.match(p, /ask_human/)
+  test('curia wins over a skill on conflict', () => {
+    assert.match(write({ mapNumber: 1 }), /Where a skill and these bounds disagree, these win/)
   })
 
-  test('the ticket body and the worktree boundary survive the rewrite', () => {
+  test('a mapless ticket is granted no map write at all', () => {
+    const p = write({ mapNumber: null })
+    assert.match(p, /\*\*Write only:\*\* files inside \/w\/42; this ticket;\n/)
+  })
+})
+
+describe('the tool block', () => {
+  test('every worker-facing tool is named with a reach-for-it-when', () => {
+    // #35: publish_preview's own description already said all this and lost to a
+    // strong prior for ~17 minutes. A positive pointer in the orders is the fix.
     const p = write({ mapNumber: 1 })
-    assert.match(p, /^# o\/r#42: Close the loop/)
+    for (const tool of ['ask_human', 'notify', 'publish_preview', 'open_pull_request', 'request_review', 'report_result']) {
+      assert.match(p, new RegExp(`- \`${tool}\` —`), `${tool} is missing from the tool block`)
+    }
+  })
+})
+
+describe('the ordered ending', () => {
+  test('it is numbered, in ENDING order, and renders from that one structure', () => {
+    const p = write({ mapNumber: 1 })
+    const positions = ['Commit your work locally', 'open_pull_request`. curia pushes', 'publish_preview` with its port',
+      'Call `request_review`', 'gh pr merge', 'Then resolve the ticket', 'report_result` exactly once']
+      .map((s) => p.indexOf(s))
+    assert.ok(positions.every((i) => i > -1), `every step appears: ${positions.join(',')}`)
+    assert.deepEqual([...positions].sort((a, b) => a - b), positions, 'and in the ENDING order')
+    assert.equal(ENDING.length, positions.length, 'a new step must appear in the prompt too')
+  })
+
+  test('the merge is the worker\'s, and the push never is', () => {
+    const p = write({ mapNumber: 1 })
+    assert.match(p, /Never `git push`: curia pushes for you/)
+    assert.match(p, /gh pr merge <url> --repo o\/r --squash --delete-branch/)
+    assert.match(p, /Only after the approval/)
+  })
+
+  test('a mapless ticket is told to resolve on the tracker instead of through the skill', () => {
+    assert.match(write({ mapNumber: null }), /post the resolution as a comment on o\/r#42/)
+    assert.match(write({ mapNumber: 1 }), /the resolve step of the skill you are running/)
+  })
+
+  test('blocked is still the honest way out, and the Stop hook is announced', () => {
+    const p = write({ mapNumber: 1 })
+    assert.match(p, /`report_result` with status `blocked`/)
+    assert.match(p, /Never comment-and-close\n\s*a ticket you did not resolve/)
+    assert.match(p, /Stop hook refuses your stop while a step is outstanding/)
+  })
+})
+
+describe('what survived the rewrite', () => {
+  test('the ticket body, the worktree boundary and the branch', () => {
+    const p = write({ mapNumber: 1 })
+    assert.match(p, /# o\/r#42: Close the loop/)
     assert.match(p, /the question/)
-    assert.match(p, /Work ONLY inside this worktree: \/w\/42/)
+    assert.match(p, /Your worktree is \/w\/42/)
+    assert.match(p, new RegExp(`on branch \`${branchFor(42)}\``))
   })
 })

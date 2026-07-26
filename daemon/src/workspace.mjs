@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileP } from './exec.mjs'
+import { endingProse } from './lifecycle.mjs'
 
 // Local git plumbing is fast; a fetch over the network is not, and a clone is
 // slower still — but all three still need a ceiling so a wedged child can
@@ -81,19 +82,47 @@ export async function defaultBranchOf(base) {
   return stdout.trim().replace('refs/remotes/origin/', '')
 }
 
-// Fresh worktree on branch curia/<n> off origin's default branch. -B force-
-// resets a stale branch on re-dispatch; a stale worktree registration at the
-// same path is removed first (worktree add refuses an existing path).
+// Does origin already carry this ticket's branch? Read from the tracking ref,
+// which ensureBaseClone has just refreshed with `fetch --prune` — no second
+// network round-trip, and no dependency on `gh auth setup-git` for a private
+// repo (the reason pushBranch names its credential helper on the command line).
+//
+// `for-each-ref` rather than `rev-parse --verify`, because an absent ref must be
+// distinguishable from a failed read: for-each-ref exits 0 with empty output for
+// "not there" and non-zero only when git itself failed. A failed read must
+// throw, since starting from the default branch on a repo we could not query
+// would silently abandon commits already under review.
+export async function remoteBranchExists(base, branch) {
+  const { stdout } = await git(base, ['for-each-ref', '--format=%(refname)', `refs/remotes/origin/${branch}`])
+  return stdout.trim().length > 0
+}
+
+// Fresh worktree on branch curia/<n>, started from origin/curia/<n> WHERE THAT
+// EXISTS and from origin's default branch otherwise.
+//
+// The start point is #54 item 6. Re-dispatch used to force-reset the branch off
+// origin/HEAD and then push non-forced, which fails outright once a pull request
+// is open — and, worse, would have thrown away every commit already under
+// review. Now a re-dispatch continues the branch it finds, so the second worker
+// adds to the same pull request (the rejection loop's own shape, applied across
+// dispatches).
+//
+// -B is kept: the local branch must point at whichever start point was chosen,
+// and a stale worktree registration at the same path is removed first (worktree
+// add refuses an existing path).
 export async function createWorktree(base, n) {
   const wt = path.join(path.dirname(base), 'wt', String(n))
-  const defaultBranch = await defaultBranchOf(base)
+  const branch = branchFor(n)
+  const start = await remoteBranchExists(base, branch)
+    ? `origin/${branch}`
+    : `origin/${await defaultBranchOf(base)}`
   if (fs.existsSync(wt)) {
     await git(base, ['worktree', 'remove', '--force', wt]).catch(() => {})
     fs.rmSync(wt, { recursive: true, force: true })
   }
   await git(base, ['worktree', 'prune'])
   fs.mkdirSync(path.dirname(wt), { recursive: true })
-  await git(base, ['worktree', 'add', '-B', branchFor(n), wt, `origin/${defaultBranch}`])
+  await git(base, ['worktree', 'add', '-B', branch, wt, start])
   return wt
 }
 
@@ -310,53 +339,108 @@ export function writeHarness(wtPath, worker, ticket, daemonPort) {
   }, null, 2))
 }
 
-// Prompt file lives in the config dir, not the worktree. Ticket title/body +
-// the standing orders: the resolve protocol (#41), never push, report_result
-// exactly once, then stop.
+// Prompt file lives in the config dir, not the worktree.
 //
-// The resolve protocol is spelled out INLINE rather than by reference to
-// `docs/agents/issue-tracker.md`: the worktree is the watched repo's, and most
-// watched repos carry no such doc. It is deliberately the tracker's ordinary
-// idiom — `gh` — because that is what the wayfinder skill does at the end of a
-// session; a curia-specific resolve path would put every ticket prompt at odds
-// with the skill the ticket came from (#7). The daemon verifies and repairs
-// afterwards (resolve.mjs), which is why an honest report_result matters more
-// here than a flawless protocol run.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null }) {
+// It supplies PARAMETERS, NOT PROCEDURE (#49 decision 2). Since #57 every worker
+// carries the real skill set in its config dir, so the resolve protocol, the
+// `gh` command lines, the `## Decisions so far` string and the pointer line's
+// shape all left this function: the worker reads them from the skill it is
+// running, and resolve.mjs's DECISIONS_HEADING is curia's only remaining copy of
+// the skill's vocabulary. The duplication was deleted rather than synchronised.
+//
+// What stays here is only what curia knows or owns: which map and ticket, that
+// the map is loaded and the ticket claimed, the ticket type, that the tracker is
+// GitHub (otherwise the skill follows its own instruction to fall back to a
+// local-markdown tracker), the tool block, the bounds no skill states, and the
+// ordered ending — rendered from lifecycle.mjs's ENDING, the same structure the
+// Stop hook blocks with.
+//
+// THE FIRST LINE IS LOAD-BEARING (#57). `wayfinder` carries
+// `disable-model-invocation: true`, so a model cannot reach it through the Skill
+// tool at all — told to invoke it in prose the call comes back "cannot be used
+// with Skill tool". A prompt whose first line is `/wayfinder` loads the full
+// skill text. That is the only working form, verified both directions.
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
   const n = issue.number
-  const mapStep = mapNumber
-    ? [
-      `  3. Append ONE line to the \`## Decisions so far\` section of the parent map ${repo}#${mapNumber}:`,
-      `     \`- [${issue.title}](https://github.com/${repo}/issues/${n}) — <one-line gist of the answer>\``,
-      '     Read the map body, insert the line at the END of that section, write it back, then re-read',
-      '     and confirm your line is there — another worker may be editing the same body at the same time.',
-    ]
-    : ['  3. This ticket has no parent map, so there is no Decisions-so-far line to append.']
+  const branch = branchFor(n)
+  const ticketUrl = `https://github.com/${repo}/issues/${n}`
+  const mapUrl = mapNumber ? `https://github.com/${repo}/issues/${mapNumber}` : null
+
+  // A mapless ticket gets no `/wayfinder` line: the skill works THROUGH a map,
+  // and invoking it with nothing to work through would invent one. The flat
+  // ready-for-agent lane (#10) is exactly this case.
+  const invocation = mapNumber ? [`/wayfinder ${mapUrl} ticket #${n}`, ''] : []
+
+  const params = [
+    `- The tracker is **GitHub**, repo \`${repo}\`, reached with the \`gh\` CLI. Do not fall back to a`,
+    '  local-markdown tracker: this repo carries `docs/agents/issue-tracker.md`.',
+    ...(mapNumber
+      ? [`- The map is ${repo}#${mapNumber} — ${mapUrl}. curia has loaded it for you.`]
+      : ['- This ticket belongs to no map, so there is no map to work through and no map line to append.']),
+    `- The ticket is ${repo}#${n} — ${ticketUrl}. curia has already CLAIMED it in your name: you start at`,
+    '  resolving it, not at choosing it.',
+    ...(type
+      ? [`- Ticket type: \`${type}\`. The skill's Ticket Types section says what that means for how you work it.`]
+      : ['- This ticket carries no `wayfinder:` type label.']),
+    `- Your worktree is ${wtPath}, on branch \`${branch}\`.`,
+  ]
+
+  const bounds = [
+    '- **Read anything.** Zoom into any issue, map, sibling or closed ticket you need. Nothing here limits',
+    '  reading.',
+    `- **Write only:** files inside ${wtPath}; this ticket;${mapNumber ? ` the map ${repo}#${mapNumber} and its children;` : ''}`,
+    '  and the one merge a human has just approved. Nothing else on the tracker, and nothing outside the',
+    '  worktree on disk.',
+    "- Leave the assignee alone, and do not rewrite anyone else's text. That claim is curia's record of who",
+    '  did this work.',
+    '- **You have no browser and must not build one** — no headless Chrome, no Playwright, no screenshot',
+    '  driver. `publish_preview` is how a human looks at a page.',
+    '- A HITL ticket is many `ask_human` calls, one question at a time. **Never answer for the human.**',
+    '- Where a skill and these bounds disagree, these win.',
+  ]
+
+  const tools = [
+    '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
+    '  takes.',
+    '- `notify` — a status line for the human. Returns at once.',
+    '- `publish_preview` — publish a dev server you have started on localhost as an HTTPS link. Start the',
+    '  server FIRST, then call this with the port it bound.',
+    '- `open_pull_request` — curia pushes your branch and opens or updates the pull request. You never push.',
+    '- `request_review` — the one gate. curia shows the human the pull request, the preview, the ticket and',
+    '  your proposed charting, and blocks until they approve or reject.',
+    '- `report_result` — exactly once, at the very end.',
+  ]
+
   const body = [
+    ...invocation,
     `# ${repo}#${n}: ${issue.title}`,
     '',
     issue.body ?? '(no body)',
     '',
     '---',
     '',
-    '## Standing orders (curia daemon)',
+    '## What curia already did (parameters, not procedure)',
     '',
-    `- Work ONLY inside this worktree: ${wtPath}. Never touch anything outside it.`,
-    `- Commit your work locally on the current branch (\`${branchFor(n)}\`). NEVER push, and never open a`,
-    '  pull request: curia pushes the branch and opens the PR itself once you report a clean result.',
-    '- When the work is done, resolve the ticket the ordinary way, with `gh`:',
-    `  1. \`gh issue comment ${n} --repo ${repo}\` — the resolution: what the answer is and why.`,
-    `  2. \`gh issue close ${n} --repo ${repo}\``,
-    ...mapStep,
-    '  Touch NOTHING else on the tracker: no other issue, no labels, no other section of the map, no',
-    "  rewriting of anyone else's text. Leave the assignee alone — that claim is curia's record of who",
-    '  did this work.',
-    '- Then call the `report_result` tool on the `curia` MCP server exactly once',
-    `  (ticket: "${n}") with an honest status and summary, and stop. curia verifies the steps above and`,
-    '  repairs anything missing, so an honest summary matters more than a perfect protocol run.',
-    '- If you are blocked, call `report_result` with status "blocked" — do NOT comment-and-close a ticket',
-    '  you did not actually resolve. Use `ask_human` for a decision you cannot make alone.',
+    ...params,
+    '',
+    '## Bounds (curia daemon)',
+    '',
+    ...bounds,
+    '',
+    '## Your tools (the `curia` MCP server)',
+    '',
+    ...tools,
+    '',
+    '## How this ends',
+    '',
+    ...endingProse({ repo, ticket: n, branch, mapNumber }),
+    '',
+    '- If you cannot finish, call `report_result` with status `blocked` and say why. Never comment-and-close',
+    '  a ticket you did not resolve.',
+    '- curia holds you at this ending: its Stop hook refuses your stop while a step is outstanding, and',
+    '  tells you which one. It also verifies the resolution afterwards and repairs what is missing, so an',
+    '  honest `report_result` matters more than a perfect run.',
     '',
   ].join('\n')
   fs.writeFileSync(promptFile, body)
