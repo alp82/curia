@@ -20,7 +20,10 @@ My standing orders gave these steps, in this order:
 
 ## 2. The tools
 
-- `open_pull_request` — *(pass 2 records the return value here)*
+- `open_pull_request` — called after the first commit. Returned one line:
+  `opened https://github.com/alp82/curia/pull/61 — 1 commit pushed on curia/60. Next: request_review.`
+  The return value itself named the next step. Called again after this pass; it updated the same
+  pull request.
 - `publish_preview` — not called. The change is one markdown file. There is no server to look at,
   and the pull request diff shows the file.
 - `request_review` — *(pass 2 or later records what came back)*
