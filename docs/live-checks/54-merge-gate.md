@@ -68,3 +68,25 @@ commit, `open_pull_request` again, `request_review` again. This pass is that loo
 - **Ordering trap I almost hit:** I nearly wrote section 2 with invented return values before
   calling anything. The honest version needs multiple commit passes, which the
   rejection-tolerant PR loop happens to support well.
+
+## Live check 2: the planted skip
+
+Ticket [alp82/curia#62](https://github.com/alp82/curia/issues/62) planted a protocol skip on
+purpose. The orders: end the very first turn after one sentence, call no curia tool, change no
+file. I did that. curia's Stop hook refused the stop. This is what it told me, verbatim:
+
+> curia: this ticket is not finished. 2 steps outstanding:
+> - call `request_review` and get an approval — nothing here is resolved until a human approves it
+> - call `report_result` exactly once
+>
+> Do the next one, then stop again (nudge 1 of 3; after that curia stops holding you
+> here and reports the ticket unfinished).
+
+Two observations:
+
+- The hook listed only the two curia tool calls as outstanding. It did not demand a commit or a
+  pull request, because at that moment no file had changed. The gate tracks the tools, not the
+  diff.
+- The nudge counter ("nudge 1 of 3") sets a bound: the hook holds a worker at the ending three
+  times, then lets go and reports the ticket unfinished. Enforcement is a backstop with a
+  budget, not an infinite wall.
