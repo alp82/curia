@@ -40,8 +40,10 @@ function fakeExec({ status = { Web: {} }, failStatus = null, failServe = null } 
   return { exec, calls }
 }
 
-const alwaysLive = async () => true
-const neverLive = async () => false
+// isLive resolves the localhost address to point the rule AT, or null.
+const alwaysLive = async () => '127.0.0.1'
+const liveOnIpv6 = async () => 'localhost'
+const neverLive = async () => null
 
 describe('parseServedPorts reads the real tailscale shape', () => {
   test('a live rule maps its serve port to its proxy target', () => {
@@ -74,6 +76,7 @@ describe('publish refuses what must never reach the tailnet', () => {
     const r = await reg.publish('7', 4321, { base: BASE })
     assert.equal(r.ok, false)
     assert.match(r.reason, /nothing is listening/)
+    assert.match(r.reason, /both 127\.0\.0\.1 and \[::1\]/, 'the refusal must say which addresses were probed — the worker cannot otherwise tell a dead server from a wrong-family bind')
     assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
   })
 
@@ -90,6 +93,39 @@ describe('publish refuses what must never reach the tailnet', () => {
     const r = await reg.publish('7', 4321, { base: BASE })
     assert.equal(r.ok, false)
     assert.match(r.reason, /could not read tailscale serve status/)
+    assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
+  })
+})
+
+// Regression: "localhost" is not one address. Vite v8 binds [::1] only, so an
+// IPv4-only probe refused a dev server that was running and the rehearsal's
+// preview leg could never pass against a real project repo.
+describe('the rule points at the address the dev server is actually on', () => {
+  test('an IPv6-only dev server is published, not refused', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: liveOnIpv6, log: () => {} })
+    const r = await reg.publish('7', 3015, { base: BASE })
+    assert.equal(r.ok, true, 'a running dev server must never be reported as absent')
+    assert.equal(r.target, 'localhost')
+    assert.ok(
+      calls.some((c) => c === `tailscale serve --bg --https=${DEFAULT_RANGE.from} http://localhost:3015`),
+      'the IPv6 case must go out as `localhost` — tailscale mangles a bracketed literal into http://::1:<port> and the proxy then 500s',
+    )
+  })
+
+  test('an IPv4 dev server still gets an explicit 127.0.0.1, never a resolved name', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: alwaysLive, log: () => {} })
+    const r = await reg.publish('7', 3055, { base: BASE })
+    assert.equal(r.target, '127.0.0.1')
+    assert.ok(calls.some((c) => c.endsWith('http://127.0.0.1:3055')))
+  })
+
+  test('reserved ports are still refused whichever family answers', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ reserved: [4271], exec, isLive: liveOnIpv6, log: () => {} })
+    const r = await reg.publish('7', 4271, { base: BASE })
+    assert.equal(r.ok, false, 'containment is by port and must not depend on the address family')
     assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
   })
 })

@@ -2,8 +2,8 @@
 // preview, allocated by the DAEMON — not by the worker — from a configured
 // range, proxying a dev server the worker runs on localhost.
 //
-//   worker: npm run dev            (binds 127.0.0.1:<dev-port>)
-//   daemon: publish_preview(port)  -> tailscale serve --bg --https=<serve-port> http://127.0.0.1:<dev-port>
+//   worker: npm run dev            (binds SOME localhost address — see localhostTarget)
+//   daemon: publish_preview(port)  -> tailscale serve --bg --https=<serve-port> http://<target>:<dev-port>
 //   human:  https://<box>.<tailnet>.ts.net:<serve-port>/
 //
 // Why the daemon allocates: a worker choosing its own Serve port would collide
@@ -50,13 +50,34 @@ export function parseServedPorts(status) {
   return out
 }
 
-export function portLive(port, { host = '127.0.0.1', timeout = 750 } = {}) {
+function dial(host, port, timeout) {
   return new Promise((resolve) => {
     const sock = net.connect({ host, port, timeout })
     sock.once('connect', () => { sock.destroy(); resolve(true) })
     sock.once('error', () => resolve(false))
     sock.once('timeout', () => { sock.destroy(); resolve(false) })
   })
+}
+
+// Which localhost address is the dev server ACTUALLY on? Returns the host to
+// put in the Serve rule, or null if nothing answers on either family.
+//
+// "localhost" is not one address. Vite (verified on v8 in both demo repos)
+// binds `[::1]` and NOT 127.0.0.1 unless told otherwise, so probing only IPv4
+// refused a dev server that was plainly running — the worker was told "start
+// the dev server first" right after it had, with no way to tell what curia
+// actually wanted. Whatever answers is what the rule must point at.
+//
+// The IPv6 case yields `localhost`, not `[::1]`: tailscale's target parser does
+// not handle a bracketed literal — `http://[::1]:3099` is stored as
+// `http://::1:3099` and the proxy then 500s (verified live). `localhost`
+// resolves at dial time inside tailscaled and reaches the same listener.
+// IPv4 stays an explicit 127.0.0.1 so the common case carries no resolution
+// ambiguity at all.
+export async function localhostTarget(port, { timeout = 750 } = {}) {
+  if (await dial('127.0.0.1', port, timeout)) return '127.0.0.1'
+  if (await dial('::1', port, timeout)) return 'localhost'
+  return null
 }
 
 export function previewUrl(base, servePort) {
@@ -69,7 +90,7 @@ export class PreviewRegistry {
     range = DEFAULT_RANGE,
     reserved = [],
     exec = execFileP,
-    isLive = portLive,
+    isLive = localhostTarget,
     log = console.log,
   } = {}) {
     this.range = range
@@ -119,8 +140,9 @@ export class PreviewRegistry {
     if (existing && existing.devPort === devPort) {
       return { ok: true, ...existing, url: previewUrl(base, existing.servePort), reused: true }
     }
-    if (!(await this.isLive(devPort))) {
-      return this.#refuse(`nothing is listening on 127.0.0.1:${devPort} — start the dev server first, then publish (a rule pointing at a dead port would publish whatever binds it next)`)
+    const target = await this.isLive(devPort)
+    if (!target) {
+      return this.#refuse(`nothing is listening on port ${devPort} — probed both 127.0.0.1 and [::1]. Start the dev server first, then publish (a rule pointing at a dead port would publish whatever binds it next)`)
     }
 
     let served
@@ -143,10 +165,10 @@ export class PreviewRegistry {
     // rather than leaking it — serve config outlives the process.
     if (existing) await this.#serveOff(existing.servePort).catch(() => {})
 
-    await this.exec('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://127.0.0.1:${devPort}`])
-    this.byTicket.set(key, { servePort, devPort })
-    this.log(`preview for ticket ${key}: https://${base}:${servePort}/ -> 127.0.0.1:${devPort}`)
-    return { ok: true, servePort, devPort, url: previewUrl(base, servePort), reused: false }
+    await this.exec('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://${target}:${devPort}`])
+    this.byTicket.set(key, { servePort, devPort, target })
+    this.log(`preview for ticket ${key}: https://${base}:${servePort}/ -> ${target}:${devPort}`)
+    return { ok: true, servePort, devPort, target, url: previewUrl(base, servePort), reused: false }
   }
 
   // "handler does not exist" is POSITIVE ABSENCE, not a failed withdrawal —
