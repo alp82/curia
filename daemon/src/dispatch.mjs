@@ -34,6 +34,13 @@ import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 const READY_MARKER = /⏵⏵|bypass permissions/
 const SESSION_RE = /^curia-(\d+)$/
 
+// The tracker doc every watched repo is meant to carry (#57 step 3). The
+// wayfinder skill reads it to learn how this repo expresses maps and tickets;
+// without it the skill follows its own instruction to fall back to the
+// local-markdown tracker, and the worker writes .scratch/ files instead of
+// resolving on GitHub.
+const TRACKER_DOC = 'docs/agents/issue-tracker.md'
+
 // gh failure classification, shared by #resolveRepo and reconcile's getIssue:
 // only an HTTP 404 is POSITIVE evidence the issue does not exist in a repo.
 // Any other failure (rate limit, 5xx, network) is indeterminate and must
@@ -347,9 +354,11 @@ export class Dispatcher {
       const full = issue
       const base = await this.deps.ensureBaseClone(this.root, repo)
       const wtPath = await this.deps.createWorktree(base, n)
-      this.deps.seedConfigDir(cfgDir, wtPath)
+      const mapNumber = await this.#mapNumberFor(repo, full)
+      this.#assertTracker(repo, n, session, wtPath, mapNumber)
+      this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills)
       this.deps.writeHarness(wtPath, session, n, this.daemonPort)
-      const promptFile = this.deps.writePrompt(cfgDir, full, { repo, wtPath, mapNumber: await this.#mapNumberFor(repo, full) })
+      const promptFile = this.deps.writePrompt(cfgDir, full, { repo, wtPath, mapNumber })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
       const useModel = cands[0]
@@ -391,6 +400,24 @@ export class Dispatcher {
       }
       return `⚠️ dispatch of ${repo}#${n} failed before the worker could run: ${e.message} — ${released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'}`
     }
+  }
+
+  // The belt behind the prompt naming the tracker (#57 step 3, #49 decision 2).
+  // Throws before the config dir is seeded, so the ordinary prepare-failure
+  // path unclaims and tells the operator why.
+  //
+  // Only a MAP CHILD is refused: that is the ticket whose worker invokes the
+  // wayfinder skill, and the one whose resolution the fallback would silently
+  // send to `.scratch/` instead of GitHub. A plain ready-for-agent ticket
+  // invokes no such skill, and #10 watches ANY plain repo through the flat
+  // lane — refusing those for a missing doc would take that lane away. It gets
+  // a journal line instead, so the absence is on the record either way.
+  #assertTracker(repo, n, session, wtPath, mapNumber) {
+    if (fs.existsSync(path.join(wtPath, TRACKER_DOC))) return
+    if (mapNumber) {
+      throw new Error(`${repo} has no ${TRACKER_DOC}, so a worker on map child #${n} would fall back to the local-markdown tracker and write .scratch/ files instead of resolving on GitHub — run \`/setup-matt-pocock-skills\` in ${repo} first`)
+    }
+    this.store.logEvent('tracker_doc_missing', { repo, ticket: n, worker: session })
   }
 
   // Which wayfinder map, if any, owns this ticket — so the standing orders can

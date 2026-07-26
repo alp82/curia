@@ -5,7 +5,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { seedConfigDir, workerEnv, hostStorageDir } from '../src/workspace.mjs'
+import {
+  seedConfigDir, workerEnv, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
+} from '../src/workspace.mjs'
 
 describe('per-worker config dir (#53)', () => {
   let tmp
@@ -53,5 +55,75 @@ describe('per-worker config dir (#53)', () => {
     assert.notEqual(env.CLAUDE_CONFIG_DIR, env.CLAUDE_SECURESTORAGE_CONFIG_DIR)
     // an absolute path, not the empty-string form (see workerEnv's note)
     assert.ok(path.isAbsolute(env.CLAUDE_SECURESTORAGE_CONFIG_DIR))
+  })
+})
+
+describe('the worker skill set (#57)', () => {
+  let tmp
+  let root
+
+  // A stand-in host skills root: one directory per skill, each with a SKILL.md.
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-skills-'))
+    root = path.join(tmp, 'host-skills')
+    for (const name of ['wayfinder', 'tdd', 'grilling']) {
+      fs.mkdirSync(path.join(root, name), { recursive: true })
+      fs.writeFileSync(path.join(root, name, 'SKILL.md'), `# ${name}\n`)
+    }
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('seeding symlinks each configured skill, and reading through the link reaches the host', () => {
+    const cfgDir = path.join(tmp, 'cfg', 'curia-10')
+    seedConfigDir(cfgDir, path.join(tmp, 'wt', '10'), { root, install: ['wayfinder', 'tdd'] })
+
+    const skillsDir = path.join(cfgDir, 'skills')
+    assert.deepEqual(fs.readdirSync(skillsDir).sort(), ['tdd', 'wayfinder'])
+    // a symlink, not a copy: the version tracks the host with no snapshot to
+    // go stale, which is what makes this safe where #53's copy was not
+    assert.ok(fs.lstatSync(path.join(skillsDir, 'wayfinder')).isSymbolicLink())
+    assert.equal(fs.readlinkSync(path.join(skillsDir, 'wayfinder')), path.join(root, 'wayfinder'))
+    assert.equal(fs.readFileSync(path.join(skillsDir, 'wayfinder', 'SKILL.md'), 'utf8'), '# wayfinder\n')
+
+    // the bound: one read-only skills directory and NOTHING else from the host
+    assert.deepEqual(fs.readdirSync(cfgDir).sort(), ['.claude.json', 'settings.json', 'skills'])
+  })
+
+  test('no skills configured installs none — the seam every test double takes', () => {
+    const cfgDir = path.join(tmp, 'cfg', 'curia-11')
+    seedConfigDir(cfgDir, path.join(tmp, 'wt', '11'))
+    assert.equal(fs.existsSync(path.join(cfgDir, 'skills')), false)
+
+    // an explicitly empty list is the opt-out, and behaves the same
+    seedConfigDir(cfgDir, path.join(tmp, 'wt', '11'), { root, install: [] })
+    assert.equal(fs.existsSync(path.join(cfgDir, 'skills')), false)
+  })
+
+  test('a re-seeded config dir carries no skill that has left the list', () => {
+    const cfgDir = path.join(tmp, 'cfg', 'curia-12')
+    seedConfigDir(cfgDir, path.join(tmp, 'wt', '12'), { root, install: ['wayfinder', 'grilling'] })
+    seedConfigDir(cfgDir, path.join(tmp, 'wt', '12'), { root, install: ['wayfinder'] })
+
+    assert.deepEqual(fs.readdirSync(path.join(cfgDir, 'skills')), ['wayfinder'],
+      'a link left behind would hand the worker a skill the operator removed')
+  })
+
+  test('a skill missing from the host refuses the spawn instead of shipping a worker without it', () => {
+    const cfgDir = path.join(tmp, 'cfg', 'curia-13')
+    assert.throws(
+      () => installSkills(cfgDir, { root, install: ['wayfinder', 'gone'] }),
+      /skill "gone" has no SKILL.md/,
+    )
+  })
+
+  test('the default set is the nine of #49, and the charting-and-PM skills are withheld', () => {
+    for (const name of ['wayfinder', 'grilling', 'domain-modeling', 'research', 'prototype',
+      'implement', 'tdd', 'code-review', 'diagnosing-bugs']) {
+      assert.ok(DEFAULT_SKILLS.includes(name), `${name} must be installed`)
+    }
+    for (const name of ['to-tickets', 'triage', 'to-spec', 'handoff']) {
+      assert.equal(DEFAULT_SKILLS.includes(name), false, `${name} is deliberately withheld (#49)`)
+    }
+    assert.equal(defaultSkillsRoot(), path.join(os.homedir(), '.claude', 'skills'))
   })
 })

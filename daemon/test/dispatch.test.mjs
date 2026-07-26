@@ -60,7 +60,7 @@ async function waitFor(cond, ms = 8000) {
 }
 
 // Deps default to inert doubles; each test overrides only what it asserts on.
-function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING, confirm = async () => false } = {}) {
+function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING, confirm = async () => false, skills = null } = {}) {
   const root = path.join(tmp, 'work')
   const config = {
     watch,
@@ -69,6 +69,7 @@ function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], re
       workspace_root: root, ready_timeout_s: readyTimeoutS, confirm_ttl_h: 4,
     },
     attach: { ttyd_port: 7681, serve_port: 8443 },
+    skills,
   }
   const store = {
     logEvent: (type, data) => { const rec = { type, ...data }; events.push(rec); return rec },
@@ -89,7 +90,14 @@ function makeDispatcher(deps = {}, { watch = [{ repo: 'o/r', mode: 'auto' }], re
     capturePane: async () => '',
     killSession: async () => {},
     ensureBaseClone: async (r, repo) => path.join(r, 'repos', repo.replace('/', '__'), 'base'),
-    createWorktree: async (b, n) => path.join(path.dirname(b), 'wt', String(n)),
+    // A real directory carrying the tracker doc, because that is what every
+    // watched repo has: the doc-less case is a deliberate override (#57).
+    createWorktree: async (b, n) => {
+      const wt = path.join(path.dirname(b), 'wt', String(n))
+      fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
+      fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+      return wt
+    },
     removeWorktree: async () => {},
     removeConfigDir: () => {},
     removeCredentials: () => {},
@@ -1338,5 +1346,75 @@ describe('the spawn prompt names the parent map (#41)', () => {
     }, { readyTimeoutS: 0 })
     await d2.start('42', { repo: 'o/r' })
     assert.equal(prompt.mapNumber, null, 'a failed read must not invent a map for the worker to edit')
+  })
+})
+
+// #57: a worker had no skills at all, and no guard against the wayfinder skill
+// falling back to the local-markdown tracker in a repo that carries no
+// docs/agents/issue-tracker.md.
+describe('the worker skill set and the tracker prerequisite (#57)', () => {
+  const MAP_CHILD = { ...OPEN_ISSUE, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' }
+  const MAP = { number: 1, title: 'map', state: 'open', labels: [{ name: 'wayfinder:map' }] }
+
+  test('the configured skill set reaches seedConfigDir', async () => {
+    const skills = { root: '/host/skills', install: ['wayfinder', 'tdd'] }
+    let seeded = null
+    const d = makeDispatcher({
+      seedConfigDir: (cfgDir, wtPath, s) => { seeded = s },
+    }, { readyTimeoutS: 0, skills })
+
+    await d.start('42', { repo: 'o/r' })
+    assert.deepEqual(seeded, skills)
+  })
+
+  test('a map child in a repo with no tracker doc is refused, and the claim released', async () => {
+    let unclaimed = null
+    const d = makeDispatcher({
+      fetchIssue: async (repo, n) => (String(n) === '1' ? MAP : { ...MAP_CHILD }),
+      // the doc-less repo: a worktree with no docs/agents/issue-tracker.md
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(wt, { recursive: true })
+        return wt
+      },
+      unclaim: async (repo, n) => { unclaimed = `${repo}#${n}` },
+      newSession: async () => { throw new Error('a refused dispatch must never spawn') },
+    }, { readyTimeoutS: 0 })
+
+    const reply = await d.start('42', { repo: 'o/r' })
+
+    assert.match(reply, /issue-tracker\.md/)
+    assert.match(reply, /setup-matt-pocock-skills/)
+    assert.equal(unclaimed, 'o/r#42', 'never leave a claim on a ticket no worker will run')
+    assert.ok(typesOf().includes('dispatch_unclaimed'))
+    assert.ok(!typesOf().includes('worker_spawned'))
+  })
+
+  test('a plain ticket in the same repo still dispatches, and the absence is journalled', async () => {
+    const d = makeDispatcher({
+      // no parent ⇒ no map ⇒ no wayfinder invocation ⇒ nothing to fall back
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(wt, { recursive: true })
+        return wt
+      },
+    }, { readyTimeoutS: 0 })
+
+    const reply = await d.start('42', { repo: 'o/r' })
+
+    assert.match(reply, /dispatched/, 'the flat lane watches ANY plain repo (#10) — do not take it away')
+    assert.ok(typesOf().includes('worker_spawned'))
+    assert.ok(typesOf().includes('tracker_doc_missing'), 'the absence stays on the record')
+  })
+
+  test('a map child in a repo that HAS the doc dispatches unremarked', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async (repo, n) => (String(n) === '1' ? MAP : { ...MAP_CHILD }),
+    }, { readyTimeoutS: 0 })
+
+    const reply = await d.start('42', { repo: 'o/r' })
+
+    assert.match(reply, /dispatched/)
+    assert.ok(!typesOf().includes('tracker_doc_missing'))
   })
 })

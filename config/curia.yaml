@@ -22,3 +22,19 @@ attach:
 preview:                                   # #40, implementing #8: one Serve port per preview
   port_from: 8500                          # must not contain attach.serve_port — the sweep
   port_to: 8599                            # withdraws every rule it finds in this range
+
+skills:                                    # #57, decision 1 of #49: what a worker can invoke
+  root: ~/.claude/skills                   # host skills, symlinked read-only into each worker
+  install:                                 # every name must exist at boot or the daemon refuses
+    - wayfinder
+    - grilling
+    - domain-modeling
+    - research
+    - prototype
+    - implement
+    - tdd
+    - code-review
+    - diagnosing-bugs
+  # Withheld on purpose: to-tickets, triage, to-spec, handoff — the
+  # charting-and-PM side. to-tickets is mass ticket creation in the hands of a
+  # worker that now carries charting authority (#49).

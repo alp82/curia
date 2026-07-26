@@ -190,10 +190,70 @@ export function workerEnv(cfgDir) {
   return { CLAUDE_CONFIG_DIR: cfgDir, CLAUDE_SECURESTORAGE_CONFIG_DIR: hostStorageDir() }
 }
 
+// The skill set a worker gets (#57, decision 1 of #49). Before this, a worker
+// had NO skills at all, so the spawn prompt was the whole of its wayfinder
+// knowledge — which is why restating skill doctrine in the prompt was the
+// wrong fix and installing the real skills is the right one.
+//
+// Deliberately absent: to-tickets, triage, to-spec, handoff — the
+// charting-and-PM side, and to-tickets is mass ticket creation in the hands of
+// a worker that now carries charting authority (#49).
+//
+// `wayfinder` and `implement` carry `disable-model-invocation: true`, so they
+// are neither listed to the model nor reachable through its Skill tool — the
+// call comes back "cannot be used with Skill tool". Installing them is still
+// required, because a prompt whose FIRST LINE is `/wayfinder` does load the
+// skill (verified live); naming a skill in prose does not. That is a
+// constraint on the spawn prompt (#54), not on this list.
+export const DEFAULT_SKILLS = [
+  'wayfinder', 'grilling', 'domain-modeling', 'research', 'prototype',
+  'implement', 'tdd', 'code-review', 'diagnosing-bugs',
+]
+
+// The host's skills root. ~/.claude/skills is where Claude Code looks, and on
+// this host every entry there is already a symlink into ~/.agents/skills — one
+// more level of indirection changes nothing, since the worker only ever reads.
+export function defaultSkillsRoot() {
+  return path.join(os.homedir(), '.claude', 'skills')
+}
+
+// <cfgDir>/skills/<name> → <root>/<name>, symlinked rather than copied: a
+// worker never writes a skill, so versions track the host with no snapshot to
+// go stale. That is the exact opposite of the credential case (#53), where the
+// worker DOES write and a symlink was replaced by a regular file — read-only
+// is what makes the link safe here.
+//
+// Rebuilt from nothing on every seed: a config dir reused across dispatches
+// must not keep a link to a skill that has since left the list, and a dangling
+// link to a skill removed from the host must not survive either.
+export function installSkills(cfgDir, skills) {
+  const dir = path.join(cfgDir, 'skills')
+  fs.rmSync(dir, { recursive: true, force: true })
+  const names = skills?.install ?? []
+  if (!names.length) return []
+  fs.mkdirSync(dir, { recursive: true })
+  for (const name of names) {
+    const src = path.join(skills.root, name)
+    // Config load already proved these exist, but the host can change under a
+    // running daemon. Refusing here costs one dispatch; the alternative is a
+    // worker that silently lacks the skill it was dispatched to use, which is
+    // the failure this whole ticket exists to end.
+    if (!fs.existsSync(path.join(src, 'SKILL.md'))) {
+      throw new Error(`skill "${name}" has no SKILL.md under ${skills.root} — refusing to spawn a worker without its configured skill set`)
+    }
+    fs.symlinkSync(src, path.join(dir, name), 'dir')
+  }
+  return names
+}
+
 // Pre-seed the per-worker CLAUDE_CONFIG_DIR so no first-spawn dialog ever
 // appears — exact prototype.md §1 shape, verified live. The projects key MUST
 // be the absolute worktree path (matched exactly).
-export function seedConfigDir(cfgDir, wtPath) {
+//
+// `skills` is the validated config section ({ root, install }); omitting it
+// installs nothing, which is what every test double and every caller with no
+// skills configured gets.
+export function seedConfigDir(cfgDir, wtPath, skills = null) {
   fs.mkdirSync(cfgDir, { recursive: true })
   const claudeJson = {
     hasCompletedOnboarding: true,
@@ -217,6 +277,9 @@ export function seedConfigDir(cfgDir, wtPath) {
   // hold a snapshot, and a stale copy that still parses is worse than none,
   // because it would be a *silent* return to the frozen-token failure.
   fs.rmSync(path.join(cfgDir, '.credentials.json'), { force: true })
+  // One read-only directory, and nothing else from the host: no CLAUDE.md, no
+  // allowlist, no MCP connectors, no saved permission mode (#23/#29).
+  installSkills(cfgDir, skills)
 }
 
 // Workspace harness: .mcp.json (curia HTTP MCP side channel) + .claude/settings.json

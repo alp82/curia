@@ -3,14 +3,28 @@
 // and the key, and the daemon refuses to boot rather than limping.
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
+import { DEFAULT_SKILLS, defaultSkillsRoot } from './workspace.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
+// A plain directory name and nothing else. The file is hand-edited, so this
+// also refuses "..", "a/b" and any other way of pointing the worker's skills
+// dir outside the configured root.
+const SKILL_NAME_RE = /^[\w.-]+$/
+
 function fail(file, msg) {
   throw new Error(`bad config ${file}: ${msg}`)
+}
+
+// YAML has no tilde expansion, and `~/.claude/skills` is how a human writes
+// this path.
+function expandHome(p) {
+  if (p === '~') return os.homedir()
+  return p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p
 }
 
 export function loadCuriaConfig(file) {
@@ -61,6 +75,30 @@ export function loadCuriaConfig(file) {
     }
   }
   cfg.preview = range
+
+  // Worker skill set (#57). Optional section with defaults, but validated the
+  // same either way: the daemon refuses to boot naming the missing skill
+  // rather than dispatching a worker that silently lacks one. Only an
+  // explicitly empty `install:` opts out — silence by omission is the failure
+  // this section exists to end, so omission takes the full default list.
+  const s = cfg.skills ?? {}
+  if (typeof s !== 'object' || Array.isArray(s)) fail(file, '`skills` must be a mapping')
+  const skillsRoot = expandHome(s.root ?? defaultSkillsRoot())
+  if (typeof skillsRoot !== 'string' || !path.isAbsolute(skillsRoot)) {
+    fail(file, 'skills.root must be an absolute path')
+  }
+  const install = s.install ?? DEFAULT_SKILLS
+  if (!Array.isArray(install)) fail(file, 'skills.install must be a list of skill names')
+  for (const name of install) {
+    if (typeof name !== 'string' || !SKILL_NAME_RE.test(name) || name === '.' || name === '..') {
+      fail(file, `skills.install: ${JSON.stringify(name)} is not a plain skill name`)
+    }
+    const manifest = path.join(skillsRoot, name, 'SKILL.md')
+    if (!fs.existsSync(manifest)) {
+      fail(file, `skills.install names "${name}", but ${manifest} does not exist — install the skill or drop it from the list`)
+    }
+  }
+  cfg.skills = { root: skillsRoot, install }
 
   return cfg
 }
