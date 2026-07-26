@@ -26,16 +26,25 @@ My standing orders gave these steps, in this order:
   pull request.
 - `publish_preview` — not called. The change is one markdown file. There is no server to look at,
   and the pull request diff shows the file.
-- `request_review` — *(pass 2 or later records what came back)*
+- `request_review` — called once so far. It blocked, then returned "NOT approved" with the
+  human's words (quoted in section 3) and the loop instruction: fix, commit,
+  `open_pull_request`, `request_review` again. The second call happens after this pass;
+  its answer cannot land in the merged file.
 - `report_result` — called last, after resolve. Its return lands after this file is frozen,
   so it can never appear here.
 
 ## 3. The gate
 
-*(written before the first answer; a later pass fills this in)*
+I called `request_review` with a short summary of this file and a charting proposal: no map
+changes beyond the one Decisions-so-far line, because map #59 is a fixture. Per my orders,
+curia showed the human the pull request, the ticket, and the proposed charting. The first
+answer was a rejection, in the human's own words:
 
-I called `request_review` with a short summary of this file and a charting proposal of "none".
-curia showed the human the pull request, the ticket, and the proposed charting.
+> Not yet. Section 4 must also say whether curia's Stop hook ever blocked your stop, and quote
+> what it told you if it did. Add that, then ask again.
+
+The tool result wrapped that text with its own instruction: do not merge, do not resolve,
+commit, `open_pull_request` again, `request_review` again. This pass is that loop running.
 
 ## 4. What surprised me
 
@@ -49,6 +58,13 @@ curia showed the human the pull request, the ticket, and the proposed charting.
 - **The charting field forced a real answer.** Even on a fixture map, `request_review` requires
   concrete map changes or an explicit "none". A vague proposal is called out as a rubber stamp
   in the tool description itself. That is good pressure.
+- **The Stop hook never blocked me — and never could appear here if it did.** Up to the last
+  commit, curia's Stop hook has not refused a stop, because I never tried to stop with a step
+  outstanding: the blocking came from `request_review` itself, which holds the session open,
+  not from the hook. So there is nothing to quote. And the hook's real territory — a stop
+  attempted after the merge, with resolve steps missing — lies past the point where this file
+  froze. The enforcement backstop is exactly the part of the ending a merged live check
+  cannot witness.
 - **Ordering trap I almost hit:** I nearly wrote section 2 with invented return values before
   calling anything. The honest version needs multiple commit passes, which the
   rejection-tolerant PR loop happens to support well.
