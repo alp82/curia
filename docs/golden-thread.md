@@ -54,9 +54,10 @@ Each line must pass. A failure here is a setup problem, not a demo result.
    `:3055` (landing-page) in his working trees, so the worker's Vite will bind the next free port
    instead. That is fine and is exactly why `publish_preview` takes the port the worker *actually*
    bound rather than a per-repo configured one (#40).
-8. **Answer promptly during the run.** A worker holds a credential *snapshot* taken at spawn
-   (`seedConfigDir`); a long enough HITL wait outlives it and the worker dies on its next model turn
-   with `OAuth session expired` (#34). Minutes are fine. An hour is not.
+8. **~~Answer promptly during the run.~~** No longer a constraint since #53: a worker shares the
+   host's credential store (`CLAUDE_SECURESTORAGE_CONFIG_DIR`) instead of holding a snapshot taken at
+   spawn, so a block that outlives a token refresh resumes on the refreshed token rather than dying
+   on its next model turn with `OAuth session expired` (#34). An hour is now fine.
 
 ## The script
 

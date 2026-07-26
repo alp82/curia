@@ -26,7 +26,7 @@ import { hasSession, listSessions, newSession, capturePane, killSession } from '
 import {
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
-  branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork,
+  branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, workerEnv,
 } from './workspace.mjs'
 import { resolveAndLand, summariseOutcome, nonCleanComment } from './resolve.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
@@ -354,7 +354,7 @@ export class Dispatcher {
 
       const useModel = cands[0]
       const cmd = buildSpawnCmd(this.routing, backendName, useModel, promptFile)
-      await this.deps.newSession({ name: session, cwd: wtPath, env: { CLAUDE_CONFIG_DIR: cfgDir }, shellCmd: cmd })
+      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir), shellCmd: cmd })
       this.store.logEvent('worker_spawned', { repo, ticket: n, worker: session, model: useModel, backend: backendName })
 
       const worker = {
@@ -371,8 +371,7 @@ export class Dispatcher {
       return `🚀 dispatched ${repo}#${n} → \`${session}\` on **${useModel}** — watching for readiness`
     } catch (e) {
       this.workers.delete(session)
-      // seedConfigDir may already have copied the host OAuth credentials, and
-      // no tmux session ever existed here, so no sweep would ever collect the
+      // No tmux session ever existed here, so no sweep would ever collect the
       // dir — remove it whole (no worker ran; there is nothing to post-mortem)
       this.deps.removeConfigDir(cfgDir)
       // W1 class, in the journal: dispatch_unclaimed is written ONLY when the
@@ -521,7 +520,7 @@ export class Dispatcher {
       const next = cands[0]
       try {
         const cmd = buildSpawnCmd(this.routing, worker.backend, next, worker.promptFile)
-        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: { CLAUDE_CONFIG_DIR: worker.cfgDir }, shellCmd: cmd })
+        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir), shellCmd: cmd })
         worker.model = next
         worker.provider = this.routing.models[next].provider
         worker.spawnedAt = Date.now()
@@ -1113,13 +1112,18 @@ export class Dispatcher {
     }
   }
 
-  // Abandoned credential collection. Two terminal states deliberately keep the
-  // whole workspace for post-mortem (onWorkerDone's abnormal-exit branch and
-  // the watchdog's ready-timeout), so the per-worker copy of the host OAuth
-  // refresh token used to persist until a human ran /cancel. Deleting eagerly
-  // in those branches would break a session a human re-attaches and resumes —
-  // so collect here instead, once the tmux session is positively gone:
-  // credentials only, never the dir (prompt.md survives the post-mortem).
+  // Abandoned credential collection — a pre-#53 leftover collector now.
+  // Workers no longer hold a credential of their own (workerEnv shares the
+  // host store), so a fresh cfg dir has nothing to collect and this is a no-op
+  // for it. It still runs because cfg dirs seeded before #53 hold a real host
+  // refresh token on disk, and the two terminal states that deliberately keep
+  // the whole workspace for post-mortem (onWorkerDone's abnormal-exit branch
+  // and the watchdog's ready-timeout) would otherwise leave one there until a
+  // human ran /cancel. Deleting eagerly in those branches would break a session
+  // a human re-attaches and resumes — so collect here instead, once the tmux
+  // session is positively gone: credentials only, never the dir (prompt.md
+  // survives the post-mortem). Unlink-only, so it can never reach through to
+  // the shared host file.
   // Runs only on a determinate session list (the W1/R1 rule: an indeterminate
   // read is a failed pass, not evidence of absence).
   #sweepAbandonedCredentials(sessions) {

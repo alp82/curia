@@ -1,7 +1,8 @@
 // Daemon-owned workspaces (#33 step 6). Layout under workspace_root:
 //   repos/<owner>__<repo>/base   — shared base clone (push-disabled)
 //   repos/<owner>__<repo>/wt/<n> — per-ticket worktrees
-//   cfg/curia-<n>                — per-worker CLAUDE_CONFIG_DIR (+ prompt file)
+//   cfg/curia-<n>                — per-worker CLAUDE_CONFIG_DIR (+ prompt file);
+//                                  holds no credential of its own since #53
 // Never Alp's working tree; nothing here is authoritative state.
 
 import fs from 'node:fs'
@@ -149,16 +150,44 @@ export async function removeWorktree(base, wtPath) {
   await git(base, ['worktree', 'remove', '--force', wtPath])
 }
 
-// The config dir holds a copy of the host OAuth refresh token, so it needs a
-// deletion owner. Full removal where the worktree is destroyed
-// anyway (cancel, orphan sweep); credentials-only where the workspace is kept
-// for review (lifecycle close) so prompt.md survives the post-mortem.
+// Full removal where the worktree is destroyed anyway (cancel, orphan sweep);
+// credentials-only where the workspace is kept for review (lifecycle close) so
+// prompt.md survives the post-mortem. Since #53 a worker's config dir holds no
+// credential of its own, so removeCredentials collects only pre-#53 leftovers —
+// kept because those copies are real host refresh tokens sitting on disk.
 export function removeConfigDir(cfgDir) {
   fs.rmSync(cfgDir, { recursive: true, force: true })
 }
 
 export function removeCredentials(cfgDir) {
   fs.rmSync(path.join(cfgDir, '.credentials.json'), { force: true })
+}
+
+// Where the host's own credential store lives — the single file every worker
+// shares (#53).
+export function hostStorageDir() {
+  return path.join(os.homedir(), '.claude')
+}
+
+// The whole per-worker env: config isolated, credentials shared.
+//
+// CLAUDE_SECURESTORAGE_CONFIG_DIR is what separates the two. Claude Code
+// resolves its credential store through it and falls back to CLAUDE_CONFIG_DIR
+// only when it is unset, so pointing it at the host's ~/.claude puts the worker
+// on the host's *exact* credentials path — the same file, the same refresh
+// lineage, the same atomic-rename write. That is precisely what a second host
+// session does, which is why several host sessions coexist for days while a
+// worker holding a frozen copy died at the first host-side refresh (#34).
+// Everything else stays isolated by CLAUDE_CONFIG_DIR: settings, allowlist,
+// permission mode, CLAUDE.md, MCP connectors, projects (#23/#29).
+//
+// An absolute path, not the empty string that also selects ~/.claude: explicit
+// beats HOME-dependent, and `env K=` through tmux is a needless edge. Porting
+// to macOS would want the empty form instead — a non-empty value also suffixes
+// the keychain service name, which would break sharing where the keychain, not
+// the plaintext file, is the store.
+export function workerEnv(cfgDir) {
+  return { CLAUDE_CONFIG_DIR: cfgDir, CLAUDE_SECURESTORAGE_CONFIG_DIR: hostStorageDir() }
 }
 
 // Pre-seed the per-worker CLAUDE_CONFIG_DIR so no first-spawn dialog ever
@@ -183,10 +212,11 @@ export function seedConfigDir(cfgDir, wtPath) {
   }
   fs.writeFileSync(path.join(cfgDir, '.claude.json'), JSON.stringify(claudeJson, null, 2))
   fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({ skipDangerousModePermissionPrompt: true }, null, 2))
-  const hostCreds = path.join(os.homedir(), '.claude', '.credentials.json')
-  const dest = path.join(cfgDir, '.credentials.json')
-  fs.copyFileSync(hostCreds, dest)
-  fs.chmodSync(dest, 0o600)
+  // No credential is written here — workerEnv shares the host store instead
+  // (#53). Unlink defensively: a cfg dir reused from before #53 could still
+  // hold a snapshot, and a stale copy that still parses is worse than none,
+  // because it would be a *silent* return to the frozen-token failure.
+  fs.rmSync(path.join(cfgDir, '.credentials.json'), { force: true })
 }
 
 // Workspace harness: .mcp.json (curia HTTP MCP side channel) + .claude/settings.json

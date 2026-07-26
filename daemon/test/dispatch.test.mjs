@@ -599,6 +599,56 @@ describe('usage-limit respawn failure releases the claim (B3)', () => {
   })
 })
 
+describe('every spawn path shares the host credential store (#53)', () => {
+  // The frozen-copy failure (#34) came back on the *respawn* path in an earlier
+  // shape of this code, so both paths are asserted: a worker that survives its
+  // first host-side refresh but respawns onto a snapshot is still broken.
+  test('the initial spawn carries CLAUDE_SECURESTORAGE_CONFIG_DIR alongside the isolated config dir', async () => {
+    const envs = []
+    const d = makeDispatcher({
+      newSession: async ({ env }) => { envs.push(env) },
+    })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+
+    assert.equal(envs.length, 1)
+    assert.equal(envs[0].CLAUDE_SECURESTORAGE_CONFIG_DIR, path.join(os.homedir(), '.claude'))
+    assert.match(envs[0].CLAUDE_CONFIG_DIR, /cfg[/\\]curia-42$/)
+    assert.notEqual(envs[0].CLAUDE_CONFIG_DIR, envs[0].CLAUDE_SECURESTORAGE_CONFIG_DIR)
+
+    // retire the watchdog: the loop stops as soon as the record it was spawned
+    // for is gone, and a poller outliving its test journals into the NEXT one
+    d.workers.delete('curia-42')
+  })
+
+  test('the respawn after a usage limit carries it too', async () => {
+    const routing = {
+      defaults: ROUTING.defaults,
+      models: {
+        sonnet: { provider: 'anthropic', backend: 'claude' },
+        haiku: { provider: 'anthropic', backend: 'claude' },
+      },
+      fallbacks: { sonnet: ['haiku'] },
+      backends: ROUTING.backends,
+    }
+    const envs = []
+    const d = makeDispatcher({
+      newSession: async ({ env }) => { envs.push(env) },
+      capturePane: async () => 'Sonnet usage limit reached | 1800000000',
+    }, { routing })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => envs.length > 1)
+
+    assert.equal(envs[1].CLAUDE_SECURESTORAGE_CONFIG_DIR, path.join(os.homedir(), '.claude'))
+    assert.deepEqual(envs[1], envs[0], 'a respawn must not be authenticated differently from a spawn')
+
+    // this pane says "usage limit" forever, so the watchdog would respawn on a
+    // loop for the rest of the run if the record stayed
+    d.workers.delete('curia-42')
+  })
+})
+
 describe('true exhaustion with a FAILED unclaim tells the operator the truth (residual 3)', () => {
   test('unclaim throws on the exhaustion release ⇒ unclaim_failed journalled AND a claim-release-FAILED notify', async () => {
     // provider-scope limit (generic "Claude usage limit reached") with no
