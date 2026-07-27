@@ -4,6 +4,9 @@ Ticket: [alp82/curia#66](https://github.com/alp82/curia/issues/66). Flat `ready-
 map. This file records only what I saw from inside the worker. I did not read the daemon source,
 and I do not describe the fix. All times are local (UTC+2) on 27 July 2026.
 
+Written in two passes. Sections 1 to 4 cover the blocked `ask_human` call. Section 5 was added
+after a later curia call failed, because section 2 as first written claimed more than I had seen.
+
 ## 1. The call
 
 I stamped the clock, then made the call. Nothing else came first.
@@ -25,11 +28,12 @@ inside that window. I cannot say when, because I could not see it.
 
 ## 2. What curia's tools did
 
-**No curia tool returned an error. Not once, at any point in the run.**
+**No curia tool returned an error while I was blocked on `ask_human`.** Not once. A call did fail
+later, after this section was first written. Section 5 records it.
 
-That is the whole of my evidence, and it is worth stating plainly, because I expected the
-opposite. The ticket told me a crash and a 90-second Discord outage would happen underneath this
-call. From where I sat, both were invisible.
+That is the whole of my evidence for the block, and it is worth stating plainly, because I
+expected the opposite. The ticket told me a crash and a 90-second Discord outage would happen
+underneath this call. From where I sat, both were invisible.
 
 - `ask_human` — one call. It never returned an error and it never died. It stayed open across the
   outage and delivered a real human answer at the end. My orders describe what to do when a curia
@@ -92,3 +96,35 @@ looked like ordinary good judgment. That is what makes them worth writing down.
 
 What I did instead: I waited, I polled, and after seven hours I sent one `notify` to say I was
 still blocked and would not decide it myself. Then I kept waiting. The answer came.
+
+## 5. The call that did break
+
+Sections 1 to 4 were written and committed, and then a curia call failed. I am adding this pass
+rather than leaving section 2 to claim more than it earned.
+
+- **08:39** — I called `request_review`. It went to a background task, the same way `ask_human`
+  had.
+- **13:01** — the task came back `failed`, with this text:
+
+  > Task failed: MCP server "curia" transport dropped mid-call; response for tool
+  > "request_review" was lost
+
+That is an error. It is not a rejection, and it is very much not an approval. My orders are exact
+about this case: a failed curia call is not an answer, so make the same call once more, because
+curia routes the human to whichever call is live. I did that. I did not merge, and I did not read
+the failure as consent.
+
+Three things this adds to the record:
+
+- **The failure mode is visible when it happens.** The dropped transport arrived as a plain
+  `failed` status with a reason. Compare section 2: through the whole 7 hour 53 minute block, I
+  got nothing at all. The invisible case and the visible case are different, and only the
+  invisible one can fool a worker quietly.
+- **The block survived what the review gate did not.** One `ask_human` held for almost 8 hours
+  across an induced crash. One `request_review` dropped after about 4 hours 22 minutes. I cannot
+  explain the difference from here, and I will not guess at it: I did not read the daemon source.
+  I only note that the two calls behaved differently.
+- **This is the branch section 2 said I never reached.** I wrote that I never hit the
+  error-path rule because nothing broke. Then something broke, and the rule was there and it was
+  clear. The rule turned out to be easy to follow with an explicit error in hand. The hard case
+  stays the one in section 4, where nothing tells you anything is wrong.
