@@ -397,6 +397,22 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '- **You have no browser and must not build one** — no headless Chrome, no Playwright, no screenshot',
     '  driver. `publish_preview` is how a human looks at a page.',
     '- A HITL ticket is many `ask_human` calls, one question at a time. **Never answer for the human.**',
+    // #56: a daemon crash took an in-flight ask_human down with it, and the worker
+    // read the transport error as permission to decide the question itself. A
+    // failed call is the one case where "never answer for the human" has to be
+    // said again, because the failure looks like an answer arriving empty.
+    '- **A failed `curia` tool call is not an answer.** If a call returns an error instead of a human reply,',
+    '  make the same call once more: curia routes the human to whichever call is live. If it fails again,',
+    '  stop and end your turn — say what you were asking. Never treat an unanswered question as answered,',
+    '  and never decide it yourself because the tool broke.',
+    // Written by the #56 live check, whose worker blocked for 7h53m and reported
+    // that the rule above would never have fired: nothing broke. What pushed it
+    // toward answering was silence plus a plausible story, and the low stakes of
+    // the question — "nobody audits a heading".
+    '- **Silence is not an answer either.** `ask_human` blocks for as long as the human takes, and hours',
+    '  are normal. A slow, backgrounded or quiet call is still open: keep waiting. Never let a story about',
+    '  why nobody replied — the daemon must be dead, they must be asleep — stand in for the reply. This',
+    '  holds hardest on small questions, because a wrong answer to a small one is the one nobody checks.',
     '- Where a skill and these bounds disagree, these win.',
   ]
 

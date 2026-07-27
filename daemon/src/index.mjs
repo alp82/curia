@@ -23,6 +23,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 import { EscalationStore } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
+import { installCrashGuard } from './health.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
@@ -67,6 +68,16 @@ let bridge = null
 function log(...args) {
   console.log(`[${new Date().toISOString()}]`, ...args)
 }
+
+// #56: a transient gateway/socket error must not take dispatch, escalation,
+// preview and reconcile down with it. Installed HERE, before the bridge and
+// before boot reconcile, because the crash it exists for fires from a timer
+// nobody in this file owns. Everything without a network signal still exits —
+// the difference from today is one journal line before it does.
+installCrashGuard({
+  log,
+  journal: (type, detail) => store.logEvent(type, detail),
+})
 
 // ---- escalation lifecycle -------------------------------------------------
 
@@ -517,8 +528,13 @@ async function handleRequest(req, res) {
   }
 
   if (url.pathname === '/state' && req.method === 'GET') {
+    // `bridge` keeps its string shape and gains `degraded` (#56): a poller that
+    // only knew up/down still reads correctly, and one that cares can tell a
+    // reconnecting gateway from a dead one.
+    const health = bridge ? bridge.status() : null
     return json(200, {
-      bridge: bridge ? 'up' : 'down',
+      bridge: health?.state ?? 'down',
+      bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
       open_escalations: store.openEscalations(),
     })
   }
@@ -638,33 +654,96 @@ for (const r of store.openEscalations()) {
   scheduleNudge(r)
 }
 
+// #56 bridge health. The outage clock lives HERE rather than on the bridge
+// object, because a wedge recovery throws the bridge away and builds a new one —
+// a per-instance clock would report a fresh instance as never having been down.
+const BRIDGE_NOTICE_MS = Number(process.env.BRIDGE_NOTICE_MS ?? 30_000)
+const BRIDGE_WEDGE_MS = Number(process.env.BRIDGE_WEDGE_MS ?? 5 * 60 * 1000)
+let bridgeDownSince = null
+
+// The announcement can only ever be made AFTER the bridge is back, because
+// Discord is the surface being announced about — there is no second channel to
+// the phone. So the honest contract is: journal + /state while it is down, one
+// line in the channel once it works again.
+function onBridgeHealth(ev) {
+  store.logEvent('bridge_health', {
+    state: ev.state, previous: ev.previous, reason: ev.reason, error: ev.error ?? null,
+  })
+  if (ev.state === ev.previous) return // an error report, not a transition
+  if (ev.state !== 'up') {
+    if (!bridgeDownSince) bridgeDownSince = Date.now()
+    return
+  }
+  const downMs = bridgeDownSince ? Date.now() - bridgeDownSince : 0
+  bridgeDownSince = null
+  if (downMs < BRIDGE_NOTICE_MS) return // routine gateway resume; the journal has it
+  const open = store.openEscalations()
+  const held = open.length
+    ? `${open.length} open question${open.length > 1 ? 's' : ''} stayed answerable throughout (${open.map((r) => r.id).join(', ')}).`
+    : 'No question was open at the time.'
+  const text = `🔌 Discord bridge was down for ${Math.round(downMs / 1000)}s and is back. ${held}`
+  store.logEvent('bridge_recovered', { down_ms: downMs, open: open.map((r) => r.id) })
+  bridge?.announce(text).catch((e) => log(`bridge recovery notice failed: ${e.message}`))
+}
+
 if (process.env.DISCORD_BOT_TOKEN) {
   const allowed = (process.env.DISCORD_ALLOWED_USERS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   if (!allowed.length) {
     log('DISCORD_ALLOWED_USERS is empty — refusing to start the bridge without an auth gate')
   } else {
-    const b = new DiscordBridge({
-      token: process.env.DISCORD_BOT_TOKEN,
-      allowedUsers: allowed,
-      guildId: process.env.CURIA_GUILD_ID,
-      channelName: process.env.CURIA_CHANNEL ?? 'curia',
-      dataDir: DATA,
-      handlers: gate,
-      log,
-    })
-    const startBridge = (attempt = 1) => b.start().then(() => {
-      bridge = b
-      // re-render any recovered escalation that has no message yet, and confirm
-      // recovered ones that do are still answerable (message ids in the record)
-      for (const r of store.openEscalations()) {
-        if (!r.discord) renderEscalation(r)
-      }
-    }).catch((e) => {
-      const delay = Math.min(60_000, 5_000 * attempt)
-      log(`bridge start attempt ${attempt} failed: ${e.message} — retrying in ${delay / 1000}s (escalations remain REST-answerable)`)
-      setTimeout(() => startBridge(attempt + 1), delay).unref()
-    })
-    startBridge()
+    // Set while a launch ladder is in flight, cleared only on success. The wedge
+    // watchdog reads it so a bridge that is already retrying does not collect a
+    // second, third and fourth retry ladder running against each other.
+    let bridgeLaunching = false
+    // A fresh instance per launch: the wedge watchdog below relaunches, and a
+    // destroyed discord.js Client does not log back in.
+    const launchBridge = (attempt = 1) => {
+      bridgeLaunching = true
+      const b = new DiscordBridge({
+        token: process.env.DISCORD_BOT_TOKEN,
+        allowedUsers: allowed,
+        guildId: process.env.CURIA_GUILD_ID,
+        channelName: process.env.CURIA_CHANNEL ?? 'curia',
+        dataDir: DATA,
+        handlers: gate,
+        log,
+        onHealth: onBridgeHealth,
+      })
+      return b.start().then(() => {
+        bridge = b
+        bridgeLaunching = false
+        // re-render any recovered escalation that has no message yet, and confirm
+        // recovered ones that do are still answerable (message ids in the record)
+        for (const r of store.openEscalations()) {
+          if (!r.discord) renderEscalation(r)
+        }
+      }).catch((e) => {
+        if (!bridgeDownSince) bridgeDownSince = Date.now()
+        const delay = Math.min(60_000, 5_000 * attempt)
+        log(`bridge start attempt ${attempt} failed: ${e.message} — retrying in ${delay / 1000}s (escalations remain REST-answerable)`)
+        b.stop().catch(() => {})
+        setTimeout(() => launchBridge(attempt + 1), delay).unref()
+      })
+    }
+    launchBridge()
+
+    // Wedge watchdog (#56). Surviving the crash is only half the fix: a bridge
+    // that no longer dies but never reconnects is the silent failure this ticket
+    // calls the worse one. discord.js reconnects on its own, so this fires only
+    // when its own recovery did not — and then it rebuilds the bridge rather
+    // than leaving a live daemon with a dead phone.
+    const wedgeTimer = setInterval(() => {
+      if (!bridgeDownSince || bridgeLaunching) return
+      const downMs = Date.now() - bridgeDownSince
+      if (downMs < BRIDGE_WEDGE_MS) return
+      store.logEvent('bridge_wedged', { down_ms: downMs })
+      log(`[bridge] down for ${Math.round(downMs / 1000)}s with no recovery — rebuilding the bridge`)
+      const dead = bridge
+      bridge = null
+      dead?.stop().catch(() => {})
+      launchBridge()
+    }, 60_000)
+    wedgeTimer.unref()
   }
 } else {
   log('no DISCORD_BOT_TOKEN — running without the bridge (REST-only)')

@@ -13,7 +13,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import {
-  Client, GatewayIntentBits, ChannelType, REST, Routes,
+  Client, Events, GatewayIntentBits, ChannelType, REST, Routes,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder,
 } from 'discord.js'
 import { safeLeaf } from './images.mjs'
@@ -84,7 +84,9 @@ function missingOptionReply(commandName) {
 }
 
 export class DiscordBridge {
-  constructor({ token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, log = console.log }) {
+  // onHealth({state, previous, down_ms, reason, error}) — the daemon journals it
+  // and decides whether to say it out loud (#56).
+  constructor({ token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, log = console.log, onHealth = () => {} }) {
     this.token = token
     this.allowedUsers = allowedUsers // array of user-id strings; the auth gate
     this.guildId = guildId
@@ -92,10 +94,22 @@ export class DiscordBridge {
     this.dataDir = dataDir
     this.handlers = handlers
     this.log = log
+    this.onHealth = onHealth
     this.threadByTicket = new Map() // ephemeral cache, rebuilt from Discord on demand
+    // Bridge health (#56). Ephemeral like every other cache here: the journal
+    // holds the transitions, this holds only what is true right now.
+    this.health = { state: 'down', since: Date.now(), last_error: null }
+    this.unhealthySince = null
     this.client = new Client({
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     })
+    // Installed at CONSTRUCTION, not after login: an unhandled 'error' on the
+    // Client is fatal exactly like the raw-socket one, and login itself is when
+    // the gateway can first fail. This does not catch #56's crash (that error is
+    // emitted one layer below, on the ws socket — see health.mjs), so it is
+    // hygiene rather than the fix.
+    this.client.on(Events.Error, (e) => this.#onError('client', e))
+    this.client.on(Events.ShardError, (e, id) => this.#onError(`shard ${id}`, e))
   }
 
   authorized(userId) {
@@ -113,11 +127,67 @@ export class DiscordBridge {
     await this.#registerSlashCommands()
     this.client.on('interactionCreate', (i) => this.#onInteraction(i).catch((e) => this.log('interaction error', e)))
     this.client.on('messageCreate', (m) => this.#onMessage(m).catch((e) => this.log('message error', e)))
+    this.#watchGateway()
+    this.#setHealth('up', { reason: 'ready' })
     this.log(`[bridge] ready: guild=${this.guild.name} channel=#${this.channel.name}`)
   }
 
   async stop() {
+    this.#setHealth('down', { reason: 'stopped' })
     await this.client.destroy()
+  }
+
+  // ---- health (#56) --------------------------------------------------------
+  //
+  // A bridge that is quietly down is worse than one that crashed, because
+  // Discord is the phone's only surface: nothing else tells Alp that answers are
+  // not arriving. So every transition is journalled, `/state` carries the live
+  // value, and the daemon announces the outage IN THE CHANNEL once the channel
+  // works again — which is the earliest moment any announcement can be made.
+  #watchGateway() {
+    this.client.on(Events.ShardDisconnect, (event, id) =>
+      this.#setHealth('degraded', { reason: `shard ${id} disconnected (code ${event?.code ?? '?'})` }))
+    this.client.on(Events.ShardReconnecting, (id) =>
+      this.#setHealth('degraded', { reason: `shard ${id} reconnecting` }))
+    this.client.on(Events.ShardResume, (id) => this.#setHealth('up', { reason: `shard ${id} resumed` }))
+    this.client.on(Events.ShardReady, (id) => this.#setHealth('up', { reason: `shard ${id} ready` }))
+    // Invalidated is NOT transient: the session is gone and this client will
+    // never reconnect on its own.
+    this.client.on(Events.Invalidated, () => this.#setHealth('down', { reason: 'session invalidated' }))
+  }
+
+  #onError(where, e) {
+    this.health.last_error = `${where}: ${e?.message ?? String(e)}`
+    this.log(`[bridge] ${where} error: ${e?.message ?? e}`)
+    this.onHealth({ state: this.health.state, previous: this.health.state, down_ms: 0, reason: `${where} error`, error: e?.message ?? String(e) })
+  }
+
+  #setHealth(state, { reason }) {
+    const previous = this.health.state
+    if (previous === state) return
+    const now = Date.now()
+    if (previous === 'up') this.unhealthySince = now
+    const down_ms = state === 'up' && this.unhealthySince ? now - this.unhealthySince : 0
+    if (state === 'up') this.unhealthySince = null
+    this.health = { state, since: now, last_error: this.health.last_error }
+    this.log(`[bridge] ${previous} → ${state} (${reason})`)
+    this.onHealth({ state, previous, down_ms, reason, error: this.health.last_error })
+  }
+
+  status() {
+    return {
+      state: this.health.state,
+      since: new Date(this.health.since).toISOString(),
+      unhealthy_for_s: this.unhealthySince ? Math.round((Date.now() - this.unhealthySince) / 1000) : 0,
+      last_error: this.health.last_error,
+    }
+  }
+
+  // A plain channel line, not a thread line: an outage is about the bridge, not
+  // about one ticket.
+  async announce(text) {
+    if (!this.channel) throw new Error('no channel yet')
+    await this.channel.send(text)
   }
 
   // Top-level channel, no category parent — dodges the permission-overwrite

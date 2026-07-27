@@ -95,6 +95,18 @@ describe('bounds', () => {
     assert.match(p, /no headless Chrome, no Playwright/)
   })
 
+  // #56: the daemon died and took a worker's ask_human with it; the worker read
+  // the transport error as permission to answer its own question. The live check
+  // then found the error-path rule is not enough — its own call never errored, it
+  // just went quiet for 7h53m, and a story filled the silence.
+  test('a failed curia call is not an answer, and neither is silence (#56)', () => {
+    const body = write({ mapNumber: 1 })
+    assert.match(body, /\*\*A failed `curia` tool call is not an answer\.\*\*/)
+    assert.match(body, /make the same call once more/, 'the retry is what supersede routing exists for')
+    assert.match(body, /\*\*Silence is not an answer either\.\*\*/)
+    assert.match(body, /stand in for the reply/)
+  })
+
   test('a HITL ticket is never answered by the worker itself', () => {
     assert.match(write({ mapNumber: 1 }), /\*\*Never answer for the human\.\*\*/)
   })
