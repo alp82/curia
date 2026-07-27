@@ -114,7 +114,14 @@ about this case: a failed curia call is not an answer, so make the same call onc
 curia routes the human to whichever call is live. I did that. I did not merge, and I did not read
 the failure as consent.
 
-Three things this adds to the record:
+Then everything else failed too. In order, all within about two minutes after 13:01:
+
+1. `open_pull_request` — `Unable to connect. Is the computer able to access the url?`
+2. `open_pull_request`, the retry — the same.
+3. `request_review`, the retry I owed — the same.
+4. `report_result` with status `blocked` — the same.
+
+So I ended my turn and said what I had been asking. Four things this adds to the record:
 
 - **The failure mode is visible when it happens.** The dropped transport arrived as a plain
   `failed` status with a reason. Compare section 2: through the whole 7 hour 53 minute block, I
@@ -128,3 +135,9 @@ Three things this adds to the record:
   error-path rule because nothing broke. Then something broke, and the rule was there and it was
   clear. The rule turned out to be easy to follow with an explicit error in hand. The hard case
   stays the one in section 4, where nothing tells you anything is wrong.
+- **The reporting path failed with everything else.** `report_result` with status `blocked` is
+  the documented way to say "I could not finish". It runs over the same connection as the calls
+  that just died, so at the moment I most needed it, it was gone. A worker in that position
+  cannot hand its state back through curia at all. All I could do was leave the work committed,
+  leave the branch unpushed because curia does the pushing, and write the state out in my last
+  message. Whoever picks it up has to read that message, or the commits.
