@@ -17,16 +17,32 @@ thread.
 | Discord | guild **AI Stack**, channel **#curia**, thread-per-ticket |
 | Attach | `https://alppc.tail3b99f1.ts.net:8443/?arg=curia-<n>` (shared ttyd) |
 | Preview | `https://alppc.tail3b99f1.ts.net:85xx/` (allocated per preview, 8500–8599) |
-| Demo ticket | `alp82/alperortac.com#48` — *Author subpage: Curia*, child of map #42 |
-| Backup ticket | `getalfredo/landing-page#88` — *Prototype: Day one two-column split*, child of map #81 |
+| Demo ticket | `alp82/alperortac.com#67` — *TEST: the run scoreboard at /curia-check*, child of test map #66 |
+| Backup ticket | a second child of test map #66 — create one, do not spend a real ticket |
 
-**Why #48 is the demo ticket.** It forces every leg rather than hoping for it: its body says
-*"Content from Alper (source of truth) … Do not invent copy"*, so the worker **must** call
-`ask_human` — the escalation leg cannot be skipped by a worker that decides it knows enough. It is
-visual work with a dev server (`bun --bun vite dev --port 3015`), so the preview leg is natural. It
-is a map child, so the map-update leg fires. And `bun` lives at `/usr/bin/bun`, unlike `node`, which
-on this box comes from an fnm multishell path that is only as durable as the shell that started the
-daemon.
+**Why #67 is the demo ticket.** #35's two tickets are both closed, and this run deliberately spends
+**no real work**: map #66 and ticket #67 are disposable fixtures created for the rehearsal, on a real
+project repo so the merge leg is real. #67 still forces every leg rather than hoping for it:
+
+- **The escalation cannot be skipped.** The page's leg names are Alp's and are *not in the repo*, so
+  a worker that decides it knows enough has nothing to decide from. The shape question (chip
+  right-aligned vs its own column) is a second thing only Alp can answer.
+- **The preview is forced, not natural.** The worker has no browser (#49 forbids it one), so the page
+  can only be judged on Alp's screen through a published Serve link.
+- **The rejection is expected.** The ticket says so in its own body, so the loop is exercised on a
+  ticket carrying a **live dev server and a published preview** — the gap #54's markdown-file
+  rejection left open.
+- **The charting is real.** #67 is a child of map #66, whose *Not yet specified* holds two fog
+  patches — where the scoreboard's state comes from, and the teardown that deletes the route. The
+  worker must graduate at least one into a concrete ticket, and that proposal is what Alp judges on
+  the phone at the gate.
+
+**A finding the ticket choice surfaced.** `getalfredo/landing-page#105` looked like the better visual
+demo and is undispatchable: it requires driving chrome over a devtools socket, which the standing
+orders forbid outright (*you have no browser and must not build one*). Any measure-it-in-the-browser
+ticket is refused by construction today.
+
+**Clean-up after the run.** Close map #66 and delete the `/curia-check` route. Both are fixtures.
 
 Routing: `wayfinder:prototype` → **fable** (no `model:` override on the ticket), backend `claude`.
 
@@ -45,11 +61,12 @@ Each line must pass. A failure here is a setup problem, not a demo result.
    `curl -s -X POST localhost:4271/command -H 'Content-Type: application/json' -d '{"text":"frontier"}'`
    → both demo repos with takeable items.
 6. **Pre-warm the base clone.** First dispatch for a repo does a full `gh repo clone`, and the worker
-   then runs `bun install` before it can serve anything. Cold, that is minutes of dead air in the
+   then installs before it can serve anything. Cold, that is minutes of dead air in the
    middle of the demo. Warm it:
    `gh repo clone alp82/alperortac.com /home/alp/curia-work/repos/alp82__alperortac.com/base`
-   (the daemon fetches an existing clone instead of re-cloning), then `bun install` inside it once so
-   the package cache is hot.
+   (the daemon fetches an existing clone instead of re-cloning), then run the repo's install once so
+   the package cache is hot. A git worktree gets its own empty `node_modules`, so what this warms is
+   the **package cache**, not the worker's tree.
 7. **Expect the dev port to move.** Alp's own dev servers usually hold `:3015` (alperortac.com) and
    `:3055` (landing-page) in his working trees, so the worker's Vite will bind the next free port
    instead. That is fine and is exactly why `publish_preview` takes the port the worker *actually*
@@ -74,21 +91,21 @@ list.
 
 ### 2 — Dispatch, spoken
 
-**Phone, #curia:** `/start` with ticket `alp82/alperortac.com#48`.
+**Phone, #curia:** `/start` with ticket `alp82/alperortac.com#67`.
 
 Dictate the ticket argument with the keyboard mic rather than typing it (the voice leg, #30 — voice
 is phone keyboard dictation, not a separate grammar; whatever the mic produces is ordinary command
 text). If the dictation garbles the slug, that *is* the result to record — retype and note it.
 
 Expect, in order:
-- an immediate reply naming the model the routing rule picked (**fable**) and the session `curia-48`;
+- an immediate reply naming the model the routing rule picked (**fable**) and the session `curia-67`;
 - the GitHub issue assigned to `alp82` (the claim, taken **before** the spawn);
-- a worktree at `/home/alp/curia-work/repos/alp82__alperortac.com/wt/48` on branch `curia/48`;
+- a worktree at `/home/alp/curia-work/repos/alp82__alperortac.com/wt/67` on branch `curia/67`;
 - a `worker_ready` within ~45s.
 
 ### 3 — Attach from the PC to the live session
 
-**Phone:** `/attach 48` → a `https://alppc.tail3b99f1.ts.net:8443/?arg=curia-48` link.
+**Phone:** `/attach alp82/alperortac.com#67` → a `https://alppc.tail3b99f1.ts.net:8443/?arg=curia-67` link.
 
 **PC:** open that same URL in a browser. Both devices are now on **one** tmux session — this is the
 same-live-session leg. Type a character on the PC and watch it appear in the phone's view (and vice
@@ -98,9 +115,10 @@ Leave the PC attached for the rest of the run; it is the window into what the wo
 
 ### 4 — Escalation, answered from the phone
 
-The worker reaches the copy question it cannot answer alone and calls `ask_human`.
+The worker reaches the question it cannot answer alone — the leg names are not in the repo, and the
+shape is a two-way choice it is forbidden to make — and calls `ask_human`.
 
-Expect a thread named for ticket 48 in #curia, with the question rendered by kind (free-text → reply
+Expect a thread named for ticket 67 in #curia, with the question rendered by kind (free-text → reply
 in thread; choice → numbered options; approve-reject → buttons; preview-review → buttons + link;
 review-gate → buttons + the links curia composed).
 
@@ -115,7 +133,9 @@ worker's context as a real image block, not a file path.
 
 ### 5 — Preview, opened from the phone
 
-The worker starts `bun --bun vite dev --port 3015` in its worktree and calls `publish_preview(3015)`.
+The worker starts `bun --bun vite dev` in its worktree and calls
+`publish_preview(<the port it actually bound>)`. Alp's own dev server holds `:3015`, so Vite will
+move to the next free port — which is the whole reason the tool takes the bound port (#40).
 
 Expect a `🔗 preview` message in the thread carrying
 `https://alppc.tail3b99f1.ts.net:85xx/` — the daemon allocated the public port, not the worker.
@@ -132,10 +152,10 @@ it how, and a nudge through the escalation surface is itself part of the thread.
 Since [#54](https://github.com/alp82/curia/issues/54) the worker does not resolve anything until a
 human has approved it, and `resolved` means **merged**.
 
-The worker commits, calls `open_pull_request` (curia pushes `curia/48` and opens the PR — the worker
+The worker commits, calls `open_pull_request` (curia pushes `curia/67` and opens the PR — the worker
 never pushes), then calls `request_review`.
 
-Expect in the thread: a **[esc-n] curia-48 asks for review** message carrying the worker's summary,
+Expect in the thread: a **[esc-n] curia-67 asks for review** message carrying the worker's summary,
 the **concrete charting it proposes for the map**, and the links curia composed itself — ticket, pull
 request with its live state, preview.
 
@@ -149,17 +169,17 @@ worker gets your words back verbatim. Expect it to commit again, call `open_pull
 
 Expect the worker to merge its own PR (`gh pr merge … --squash --delete-branch` — the one write to
 the remote it owns, and only what was just approved), then run the resolve step of the skill it is
-running: resolution comment → close → one line appended to map #42's `## Decisions so far` → the
+running: resolution comment → close → one line appended to map #66's `## Decisions so far` → the
 charting it got approved. Then `report_result` once.
 
 Expect, in the thread:
-- `🏁 curia-48 reports resolved: …`;
-- the outcome line from the daemon's verify-and-repair pass: ticket closed, map #42 updated,
+- `🏁 curia-67 reports resolved: …`;
+- the outcome line from the daemon's verify-and-repair pass: ticket closed, map #66 updated,
   **code merged**;
-- `🏁 curia-48 finished … <PR> is merged — worktree removed, remote curia/48 deleted`.
+- `🏁 curia-67 finished … <PR> is merged — worktree removed, remote curia/67 deleted`.
 
-Expect on GitHub: PR merged into `main`; issue #48 closed with a resolution comment; map #42
-carrying a new Decisions-so-far pointer; the `curia/48` branch gone.
+Expect on GitHub: PR merged into `main`; issue #67 closed with a resolution comment; map #66
+carrying a new Decisions-so-far pointer; the `curia/67` branch gone.
 
 Expect on the box: the preview Serve rule withdrawn (`tailscale serve status` no longer lists the
 8500-range port), the tmux session gone, the worktree gone, the attach rule on 8443 untouched.
