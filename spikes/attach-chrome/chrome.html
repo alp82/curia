@@ -1,0 +1,409 @@
+<!-- PROTOTYPE (#69) — injected into ttyd's stock index by build-index.py.
+     Three variants of the attach surface on the real attach page, switchable
+     via ?variant=A|B|C. Throwaway: no tests, no error handling. -->
+<style>
+:root{
+  --chrome-top:0px; --chrome-bottom:0px;
+  --pb-bg:#111418; --pb-fg:#e6e9ef; --pb-line:#2b323c; --pb-accent:#5aa2ff;
+}
+/* ttyd sizes #terminal-container at height:100%; pin it instead so chrome can
+   claim edges and term.fit() recomputes the grid against what is left.
+   (Measured: Chrome and Firefox both resolve ttyd's child
+   `.terminal{height:calc(100% - 10px)}` against these offsets — 590px of a
+   600px viewport in each. This is not the cause of the blank Firefox page.) */
+#terminal-container{
+  position:fixed !important; top:var(--chrome-top); left:0; right:0;
+  bottom:var(--chrome-bottom); height:auto !important; width:auto !important;
+  margin:0 !important;
+}
+
+/* diagnostic strip — prototype only, prints what the page actually thinks */
+#diag{
+  position:fixed; top:0; left:0; z-index:10002; max-width:100vw;
+  background:#ffd400; color:#111; font:12px/1.35 monospace;
+  padding:4px 8px; white-space:pre-wrap; word-break:break-all;
+}
+#diag.off{display:none}
+
+/* ---------- variant switcher (prototype only, never ships) ---------- */
+#protobar{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(var(--chrome-bottom) + 10px); z-index:10001;
+  display:flex; align-items:center; gap:2px;
+  background:rgba(20,22,26,.92); color:var(--pb-fg);
+  border:1px solid var(--pb-accent); border-radius:999px;
+  padding:3px 4px; box-shadow:0 6px 20px rgba(0,0,0,.5);
+  font:12px/1.2 system-ui,-apple-system,sans-serif;
+}
+#protobar button{
+  background:transparent; color:inherit; border:0; border-radius:999px;
+  min-width:34px; min-height:34px; font-size:17px; cursor:pointer;
+}
+#protobar button:hover{background:#252a31}
+#protobar button:focus-visible{outline:2px solid var(--pb-accent); outline-offset:2px}
+#pb-label{padding:0 8px; white-space:nowrap; max-width:58vw; overflow:hidden; text-overflow:ellipsis}
+#pb-label b{color:var(--pb-accent)}
+
+/* ---------- shared touch key-bar (spike #32, promoted) ---------- */
+#keybar{
+  position:fixed; left:0; right:0; bottom:0; z-index:9999; display:none;
+  gap:4px; padding:4px 6px calc(4px + env(safe-area-inset-bottom));
+  background:#15181d; border-top:1px solid var(--pb-line); font-family:monospace;
+}
+#keybar.on{display:flex}
+#keybar button{
+  flex:1; min-width:0; min-height:44px; padding:10px 2px; font-size:15px;
+  background:#232830; color:#dfe4ec; border:1px solid #39414d; border-radius:8px;
+  font-family:inherit; touch-action:manipulation;
+}
+#keybar button.hit{background:#3d4650}
+#keybar button:focus-visible{outline:2px solid var(--pb-accent); outline-offset:-2px}
+
+/* ---------- variant B: top bar with Read / Drive ---------- */
+#topbar{
+  position:fixed; top:0; left:0; right:0; z-index:9998; display:none;
+  align-items:center; gap:10px; height:44px; padding:0 10px;
+  padding-top:env(safe-area-inset-top);
+  background:var(--pb-bg); color:var(--pb-fg); border-bottom:1px solid var(--pb-line);
+  font:13px/1 system-ui,-apple-system,sans-serif;
+}
+#topbar.on{display:flex}
+#tb-session{font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+#tb-size{color:#8b95a5; font-variant-numeric:tabular-nums}
+#tb-modes{margin-left:auto; display:flex; background:#1c2027; border:1px solid var(--pb-line); border-radius:8px; overflow:hidden}
+#tb-modes button{
+  background:transparent; color:#9aa5b5; border:0; min-height:34px; padding:0 14px;
+  font:inherit; font-weight:600; cursor:pointer;
+}
+#tb-modes button[aria-pressed="true"]{background:var(--pb-accent); color:#08101c}
+#tb-modes button:focus-visible{outline:2px solid #fff; outline-offset:-3px}
+
+/* ---------- variant C: cockpit puck ---------- */
+#puck{
+  position:fixed; right:10px; z-index:9998; display:none;
+  bottom:calc(var(--chrome-bottom) + 56px);
+  flex-direction:column; align-items:flex-end; gap:6px;
+  font:13px/1 system-ui,-apple-system,sans-serif;
+}
+#puck.on{display:flex}
+#puck-panel{
+  display:none; flex-direction:column; gap:6px; padding:8px;
+  background:var(--pb-bg); color:var(--pb-fg);
+  border:1px solid var(--pb-line); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.5);
+}
+#puck.open #puck-panel{display:flex}
+#puck-panel .row{display:flex; align-items:center; gap:6px}
+#puck-panel .row .lbl{min-width:74px; color:#9aa5b5}
+#puck button{
+  min-width:44px; min-height:44px; background:#232830; color:#dfe4ec;
+  border:1px solid #39414d; border-radius:10px; font:inherit; font-size:15px; cursor:pointer;
+}
+#puck button[aria-pressed="true"]{background:var(--pb-accent); color:#08101c; border-color:var(--pb-accent)}
+#puck button:focus-visible{outline:2px solid var(--pb-accent); outline-offset:2px}
+#puck-size{color:#8b95a5; font-variant-numeric:tabular-nums; padding:0 4px}
+</style>
+
+<div id="diag" class="off"></div>
+
+<div id="topbar" role="banner">
+  <span id="tb-session">curia</span>
+  <span id="tb-size">--</span>
+  <div id="tb-modes" role="group" aria-label="terminal mode">
+    <button id="tb-read" aria-pressed="false">Read</button>
+    <button id="tb-drive" aria-pressed="false">Drive</button>
+  </div>
+</div>
+
+<div id="keybar" role="group" aria-label="terminal keys"></div>
+
+<div id="puck">
+  <div id="puck-panel">
+    <div class="row"><span class="lbl">Text</span>
+      <button id="pk-minus" aria-label="smaller text">A&minus;</button>
+      <button id="pk-plus" aria-label="larger text">A+</button>
+      <span id="puck-size">--</span></div>
+    <div class="row"><span class="lbl">Keys</span>
+      <button id="pk-keys" aria-pressed="false" aria-label="toggle key bar">&#9000;</button>
+      <span class="lbl">Theme</span>
+      <button id="pk-theme" aria-label="cycle theme">&#9680;</button></div>
+  </div>
+  <button id="puck-toggle" aria-expanded="false" aria-label="terminal settings">&#9881;</button>
+</div>
+
+<div id="protobar" role="group" aria-label="prototype variant switcher">
+  <button id="pb-prev" aria-label="previous variant">&lsaquo;</button>
+  <span id="pb-label"></span>
+  <button id="pb-next" aria-label="next variant">&rsaquo;</button>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+var ORDER = ['A','B','C'];
+var NAMES = {
+  A: 'Fit — no chrome, size follows the device',
+  B: 'Read / Drive — two modes, one bar',
+  C: 'Cockpit — you set it, it sticks'
+};
+
+/* ---------------- url state ---------------- */
+function qs(){ return new URLSearchParams(location.search); }
+function get(k, d){ var v = qs().get(k); return v === null ? d : v; }
+function set(k, v){
+  var s = qs();
+  if (v === null) s.delete(k); else s.set(k, v);
+  history.replaceState(null, '', location.pathname + '?' + s.toString());
+}
+
+/* ---------------- terminal handle ----------------
+   ttyd exposes the xterm Terminal as window.term and hangs its own
+   fit() on it, so chrome can drive font, theme and grid live. It only
+   exists after the socket connects, hence the poll. */
+function withTerm(cb){
+  if (window.term && window.term.fit) return cb(window.term);
+  var t = setInterval(function(){
+    if (window.term && window.term.fit){ clearInterval(t); cb(window.term); }
+  }, 80);
+}
+function termOpts(o){
+  withTerm(function(t){
+    for (var k in o) t.options[k] = o[k];
+    requestAnimationFrame(function(){ t.fit(); reportSize(); });
+  });
+}
+function refit(){ withTerm(function(t){ t.fit(); reportSize(); }); }
+function edges(top, bottom){
+  var r = document.documentElement.style;
+  r.setProperty('--chrome-top', top + 'px');
+  r.setProperty('--chrome-bottom', bottom + 'px');
+  refit();
+}
+function reportSize(){
+  var t = window.term; if (!t) return;
+  var s = t.cols + '×' + t.rows + '  ' + t.options.fontSize + 'px';
+  var a = document.getElementById('tb-size'); if (a) a.textContent = s;
+  var b = document.getElementById('puck-size'); if (b) b.textContent = s;
+}
+function helper(){ return document.querySelector('.xterm-helper-textarea'); }
+
+var THEMES = {
+  dark:  { background:'#0f1115', foreground:'#d8dee9', cursor:'#d8dee9', selectionBackground:'#33405a' },
+  light: { background:'#fbfbfd', foreground:'#1b1e23', cursor:'#1b1e23', selectionBackground:'#c8d6ea' },
+  hc:    { background:'#000000', foreground:'#ffffff', cursor:'#ffff00', selectionBackground:'#0050a0' }
+};
+function theme(name){
+  termOpts({ theme: THEMES[name] || THEMES.dark, minimumContrastRatio: name === 'hc' ? 7 : 1 });
+  document.getElementById('keybar').style.background = name === 'light' ? '#e9ebf0' : '#15181d';
+}
+
+/* ---------------- key-bar (spike #32) ---------------- */
+var KEYS = [
+  ['Esc','Escape',27,''], ['Tab','Tab',9,''], ['⇧Tab','Tab',9,'shift'],
+  ['↑','ArrowUp',38,''], ['↓','ArrowDown',40,''],
+  ['^C','c',67,'ctrl'], ['⏎','Enter',13,'']
+];
+var keybar = document.getElementById('keybar');
+KEYS.forEach(function(k){
+  var b = document.createElement('button');
+  b.textContent = k[0];
+  b.setAttribute('aria-label', k[0]);
+  b.dataset.k = k[1] + ':' + k[2] + ':' + k[3];
+  keybar.appendChild(b);
+});
+keybar.addEventListener('pointerdown', function(e){
+  e.preventDefault();                       // keep terminal focus
+  var b = e.target.closest('button');
+  if (b){ b.classList.add('hit'); setTimeout(function(){ b.classList.remove('hit'); }, 150); }
+}, true);
+keybar.addEventListener('click', function(e){
+  var b = e.target.closest('button'); if (!b) return;
+  var p = b.dataset.k.split(':'), t = helper(); if (!t) return;
+  t.focus();
+  t.dispatchEvent(new KeyboardEvent('keydown', {
+    key: p[0], keyCode: +p[1], which: +p[1],
+    shiftKey: p[2] === 'shift', ctrlKey: p[2] === 'ctrl',
+    bubbles: true, cancelable: true
+  }));
+});
+function keybarOn(on){
+  keybar.classList.toggle('on', !!on);
+  edges(parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--chrome-top')) || 0,
+        on ? keybar.offsetHeight : 0);
+}
+
+/* keep bottom chrome above the virtual keyboard */
+if (window.visualViewport){
+  var vv = window.visualViewport;
+  var lift = function(){
+    var off = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    keybar.style.transform = 'translateY(-' + off + 'px)';
+    document.getElementById('protobar').style.marginBottom = off + 'px';
+  };
+  vv.addEventListener('resize', lift); vv.addEventListener('scroll', lift); lift();
+}
+
+/* ---------------- variant A: fit ----------------
+   No chrome at all on desktop. One rule: readability floor first, columns
+   land where they land. Desktop scales with the viewport instead of
+   sitting at ttyd's 13px default. */
+function autoFont(){
+  if (window.matchMedia('(pointer:fine)').matches){
+    return Math.max(15, Math.min(24, Math.round(window.innerWidth / 70)));
+  }
+  return 15;                       // phone: never below this, ~26 cols and that is the answer
+}
+var A = {
+  activate: function(){
+    termOpts({ fontSize: autoFont(), lineHeight: 1.0, letterSpacing: 0 });
+    theme('dark');
+    keybarOn(!window.matchMedia('(pointer:fine)').matches);
+    this._r = function(){ termOpts({ fontSize: autoFont() }); };
+    window.addEventListener('resize', this._r);
+    window.addEventListener('orientationchange', this._r);
+  },
+  deactivate: function(){
+    window.removeEventListener('resize', this._r);
+    window.removeEventListener('orientationchange', this._r);
+  }
+};
+
+/* ---------------- variant B: read / drive ----------------
+   Most attach time is watching. Read mode is tuned for a long scrollback
+   and never opens the phone keyboard. Drive mode is tuned for typing. */
+var topbar = document.getElementById('topbar');
+var B = {
+  mode: null,
+  setMode: function(m){
+    this.mode = m;
+    set('mode', m);
+    document.getElementById('tb-read').setAttribute('aria-pressed', m === 'read');
+    document.getElementById('tb-drive').setAttribute('aria-pressed', m === 'drive');
+    var t = helper();
+    if (m === 'read'){
+      termOpts({ fontSize: autoFont() + 3, lineHeight: 1.25 });
+      keybarOn(false);
+      if (t){ t.readOnly = true; t.setAttribute('inputmode','none'); t.blur(); }
+    } else {
+      termOpts({ fontSize: Math.max(14, autoFont() - 1), lineHeight: 1.0 });
+      keybarOn(true);
+      if (t){ t.readOnly = false; t.removeAttribute('inputmode'); t.focus(); }
+    }
+    edges(topbar.offsetHeight, keybar.classList.contains('on') ? keybar.offsetHeight : 0);
+  },
+  activate: function(){
+    topbar.classList.add('on');
+    document.getElementById('tb-session').textContent = get('arg', 'curia');
+    theme('dark');
+    this.setMode(get('mode', 'read'));
+  },
+  deactivate: function(){
+    topbar.classList.remove('on');
+    var t = helper();
+    if (t){ t.readOnly = false; t.removeAttribute('inputmode'); }
+  }
+};
+document.getElementById('tb-read').onclick  = function(){ B.setMode('read'); };
+document.getElementById('tb-drive').onclick = function(){ B.setMode('drive'); };
+
+/* ---------------- variant C: cockpit ----------------
+   No modes and no guessing. The human sets font, keys and theme once per
+   device and it sticks. Key-bar is offered on desktop too. */
+var PREF_KEY = 'curia.attach.prefs';
+var puck = document.getElementById('puck');
+var C = {
+  prefs: null,
+  load: function(){
+    var d = { fontSize: 16, keys: !window.matchMedia('(pointer:fine)').matches, theme: 'dark' };
+    try { return Object.assign(d, JSON.parse(localStorage.getItem(PREF_KEY) || '{}')); }
+    catch(e){ return d; }
+  },
+  save: function(){ try { localStorage.setItem(PREF_KEY, JSON.stringify(this.prefs)); } catch(e){} },
+  apply: function(){
+    termOpts({ fontSize: this.prefs.fontSize, lineHeight: 1.15 });
+    theme(this.prefs.theme);
+    keybarOn(this.prefs.keys);
+    document.getElementById('pk-keys').setAttribute('aria-pressed', this.prefs.keys);
+    this.save();
+  },
+  activate: function(){ puck.classList.add('on'); this.prefs = this.load(); this.apply(); },
+  deactivate: function(){ puck.classList.remove('on'); puck.classList.remove('open'); }
+};
+document.getElementById('puck-toggle').onclick = function(){
+  var open = puck.classList.toggle('open');
+  this.setAttribute('aria-expanded', open);
+};
+document.getElementById('pk-minus').onclick = function(){
+  C.prefs.fontSize = Math.max(10, C.prefs.fontSize - 1); C.apply();
+};
+document.getElementById('pk-plus').onclick = function(){
+  C.prefs.fontSize = Math.min(32, C.prefs.fontSize + 1); C.apply();
+};
+document.getElementById('pk-keys').onclick = function(){
+  C.prefs.keys = !C.prefs.keys; C.apply();
+};
+document.getElementById('pk-theme').onclick = function(){
+  var order = ['dark','light','hc'];
+  C.prefs.theme = order[(order.indexOf(C.prefs.theme) + 1) % order.length]; C.apply();
+};
+
+/* ---------------- switcher ---------------- */
+var IMPL = { A:A, B:B, C:C };
+var current = null;
+
+function show(v){
+  if (ORDER.indexOf(v) === -1) v = 'A';
+  if (current && IMPL[current].deactivate) IMPL[current].deactivate();
+  keybarOn(false); edges(0, 0);
+  current = v;
+  set('variant', v);
+  document.getElementById('pb-label').innerHTML = '<b>' + v + '</b> — ' + NAMES[v];
+  IMPL[v].activate();
+}
+function cycle(step){
+  show(ORDER[(ORDER.indexOf(current) + step + ORDER.length) % ORDER.length]);
+}
+document.getElementById('pb-prev').onclick = function(){ cycle(-1); };
+document.getElementById('pb-next').onclick = function(){ cycle(1); };
+document.addEventListener('keydown', function(e){
+  var a = document.activeElement;
+  if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable)) return;
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+
+withTerm(function(t){
+  t.onResize(reportSize);
+  show(get('variant', 'A'));
+});
+
+/* ---------------- diagnostic strip (?diag=1) ----------------
+   The blank-page report could not be reproduced in Chrome, and headless
+   Firefox screenshots fire before the socket connects. So the page reports
+   what it sees. window.__diag is installed in <head> by build-index.py,
+   ahead of ttyd's bundle, which is the only way to observe its socket. */
+if (get('diag', '0') === '1'){
+  var diag = document.getElementById('diag');
+  diag.classList.remove('off');
+  setInterval(function(){
+    var d = window.__diag || { ws: ['<no head hook>'], err: [] };
+    var t = window.term;
+    diag.textContent = [
+      'ua      ' + navigator.userAgent.slice(0, 90),
+      'view    ' + window.innerWidth + 'x' + window.innerHeight + ' dpr=' + window.devicePixelRatio +
+        ' fine=' + window.matchMedia('(pointer:fine)').matches,
+      'term    ' + (t ? (t.cols + 'x' + t.rows + ' font=' + t.options.fontSize +
+        ' bg=' + (t.options.theme && t.options.theme.background)) : 'ABSENT'),
+      'canvas  ' + (function(){
+        var e = document.querySelector('#terminal-container .terminal');
+        if (!e) return 'no .terminal';
+        var r = e.getBoundingClientRect();
+        return Math.round(r.width) + 'x' + Math.round(r.height);
+      })(),
+      'socket  ' + d.ws.slice(-6).join(' | '),
+      'errors  ' + (d.err.length ? d.err.slice(-3).join(' | ') : 'none')
+    ].join('\n');
+  }, 500);
+}
+})();
+</script>
