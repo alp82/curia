@@ -20,10 +20,21 @@ models:
     backend: claude
   # `gpt` is the label vocabulary (`model:gpt` on a ticket); `id` is what the
   # CLI is actually asked for, because `codex --model gpt` is not a model.
+  #
+  # There is no plain `gpt-5.6` — the release is three models. `sol` is the
+  # frontier coding one (priority 1); `terra` is the everyday one and `luna` the
+  # cheap fast one, either of which is a defensible swap for a bulk lane.
+  #
+  # The effort is stated because a model's own default is not a constant:
+  # gpt-5.5 defaults to medium and gpt-5.6-sol to low, so taking the default
+  # here would have made this upgrade a quiet downgrade in thinking. `high`
+  # rather than `xhigh`/`max`, because #13 sends the bulk lane here to SPREAD
+  # quota, and burning it faster than the anthropic lane defeats that.
   gpt:
     provider: openai
     backend: codex
-    id: gpt-5.5
+    id: gpt-5.6-sol
+    reasoning_effort: high
 
 # Chains are explicit config, so two #13 rules stay STRUCTURAL rather than
 # remembered: cross-provider first (a cooling provider must not strand a

@@ -393,10 +393,16 @@ const HARNESS = {
     // hasTrustDialogAccepted: without it the first spawn stops at a "Do you trust
     // the contents of this directory?" prompt and the worker never reaches its
     // composer (observed, before this line existed).
-    harness: ({ wtPath, cfgDir, worker, ticket, daemonPort }) => {
+    harness: ({ wtPath, cfgDir, worker, ticket, daemonPort, reasoningEffort }) => {
       fs.writeFileSync(path.join(cfgDir, 'config.toml'), [
         '# Written by the curia daemon per worker. Never hand-edited.',
         '',
+        // Written whenever routing states one, because a model's OWN default is
+        // not a constant across models: gpt-5.5 defaults to medium and
+        // gpt-5.6-sol to low, so changing `models.<name>.id` alone would move
+        // the effort underneath the lane without saying so. Stating it makes the
+        // model and the depth two separate, visible decisions.
+        ...(reasoningEffort ? [`model_reasoning_effort = ${toml(reasoningEffort)}`, ''] : []),
         '[features]',
         'hooks = true',
         '',
@@ -526,8 +532,8 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude')
 // The curia side channel: the MCP server the worker's tools come from, and the
 // Stop hook that enforces the ending (#54). Where it lands is the backend's
 // business — see the HARNESS table.
-export function writeHarness({ wtPath, cfgDir, worker, ticket, daemonPort, backend = 'claude' }) {
-  harnessFor(backend).harness({ wtPath, cfgDir, worker, ticket, daemonPort })
+export function writeHarness({ wtPath, cfgDir, worker, ticket, daemonPort, backend = 'claude', reasoningEffort = null }) {
+  harnessFor(backend).harness({ wtPath, cfgDir, worker, ticket, daemonPort, reasoningEffort })
 }
 
 // Prompt file lives in the config dir, not the worktree.

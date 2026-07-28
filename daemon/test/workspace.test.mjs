@@ -248,7 +248,7 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(6)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'codex')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-6', ticket: 6, daemonPort: 4271, backend: 'codex' })
+    writeHarness({ wtPath, cfgDir, worker: 'curia-6', ticket: 6, daemonPort: 4271, backend: 'codex', reasoningEffort: 'high' })
 
     const toml = fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')
     // without the trust entry the first spawn stops at "Do you trust the
@@ -261,6 +261,10 @@ describe('the codex worker harness (#39)', () => {
     // lifts Claude Code's identical abort — does nothing here. Without this line
     // every blocking ask_human dies at five minutes (observed live, twice).
     assert.match(toml, /tool_timeout_sec = 86400/)
+
+    // Stated, not defaulted: gpt-5.5 defaults to medium and gpt-5.6-sol to low,
+    // so leaving it out would move the depth whenever the model id moves.
+    assert.match(toml, /model_reasoning_effort = "high"/)
 
     const hooks = JSON.parse(fs.readFileSync(path.join(cfgDir, 'hooks.json'), 'utf8'))
     assert.match(hooks.hooks.Stop[0].hooks[0].command, /worker_done\?worker=curia-6/)
@@ -277,6 +281,14 @@ describe('the codex worker harness (#39)', () => {
     assert.ok(fs.existsSync(path.join(wtPath, '.mcp.json')))
     assert.ok(fs.existsSync(path.join(wtPath, '.claude', 'settings.json')))
     assert.equal(fs.existsSync(path.join(cfgDir, 'config.toml')), false)
+  })
+
+  test('an unstated reasoning effort leaves the model to its own default', () => {
+    const { cfgDir, wtPath } = dirs(11)
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'codex')
+    writeHarness({ wtPath, cfgDir, worker: 'curia-11', ticket: 11, daemonPort: 4271, backend: 'codex' })
+    assert.equal(/model_reasoning_effort/.test(fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')), false)
   })
 
   test('an unknown backend refuses rather than seeding a worker nothing can drive', () => {

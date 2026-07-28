@@ -12,6 +12,9 @@ import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
+// Every reasoning effort any configured model accepts, unioned.
+const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+
 // A plain directory name and nothing else. The file is hand-edited, so this
 // also refuses "..", "a/b" and any other way of pointing the worker's skills
 // dir outside the configured root.
@@ -136,6 +139,13 @@ export function loadRoutingConfig(file) {
     // at boot naming the key beats failing at dispatch with a claim already taken.
     if (m.id !== undefined && (typeof m.id !== 'string' || !SAFE_SUBSTITUTION.test(m.id))) {
       fail(file, `models.${name}.id must be a quote-free model name (got ${JSON.stringify(m.id)})`)
+    }
+    // Checked against the union across models, not per model: which efforts a
+    // model accepts is the model's business (gpt-5.6 adds `max` and `ultra`,
+    // gpt-5.5 has neither) and a stale list here would refuse a valid config.
+    // This catches the typo, which is the failure worth catching at boot.
+    if (m.reasoning_effort !== undefined && !REASONING_EFFORTS.includes(m.reasoning_effort)) {
+      fail(file, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
     }
   }
   for (const [type, model] of Object.entries(cfg.defaults)) {

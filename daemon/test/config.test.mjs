@@ -214,3 +214,43 @@ describe('routing config with a second backend (#39)', () => {
     assert.throws(() => load(lines), /models\.gpt\.id must be a quote-free model name/)
   })
 })
+
+describe('reasoning effort is stated, not inherited (#39)', () => {
+  let dir
+  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-effort-')) })
+  after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  const lines = (effort) => [
+    'defaults:',
+    '  untyped: gpt',
+    'models:',
+    `  gpt: { provider: openai, backend: codex, id: gpt-5.6-sol${effort === null ? '' : `, reasoning_effort: ${effort}`} }`,
+    'backends:',
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x' }",
+  ]
+
+  function load(effort) {
+    const file = path.join(dir, 'routing.yaml')
+    fs.writeFileSync(file, lines(effort).join('\n'))
+    return loadRoutingConfig(file)
+  }
+
+  test('a stated effort is taken as given', () => {
+    assert.equal(load('high').models.gpt.reasoning_effort, 'high')
+  })
+
+  test('an omitted effort leaves the model to its own default', () => {
+    assert.equal(load(null).models.gpt.reasoning_effort, undefined)
+  })
+
+  // Checked against the union across models: gpt-5.6 accepts `max` and `ultra`
+  // and gpt-5.5 accepts neither, so a per-model list here would go stale and
+  // start refusing valid configs. This catches the typo.
+  test('the efforts only gpt-5.6 accepts still load', () => {
+    for (const e of ['max', 'ultra']) assert.equal(load(e).models.gpt.reasoning_effort, e)
+  })
+
+  test('a misspelled effort refuses the boot', () => {
+    assert.throws(() => load('extreme'), /reasoning_effort must be one of/)
+  })
+})

@@ -371,7 +371,10 @@ export class Dispatcher {
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
       this.#assertNoPlantedHooks(wtPath, backendName)
       this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills, backendName)
-      this.deps.writeHarness({ wtPath, cfgDir, worker: session, ticket: n, daemonPort: this.daemonPort, backend: backendName })
+      this.deps.writeHarness({
+        wtPath, cfgDir, worker: session, ticket: n, daemonPort: this.daemonPort,
+        backend: backendName, reasoningEffort: this.routing.models[useModel].reasoning_effort ?? null,
+      })
       // The type label reaches the prompt (#49 decision 2): it was already
       // parsed above for model routing and thrown away, and it is the only thing
       // that stops a dispatched `wayfinder:grilling` worker from standing in for
@@ -596,6 +599,7 @@ export class Dispatcher {
         this.deps.writeHarness({
           wtPath: worker.wtPath, cfgDir: worker.cfgDir, worker: worker.session,
           ticket: worker.ticket, daemonPort: this.daemonPort, backend: nextBackend,
+          reasoningEffort: this.routing.models[next].reasoning_effort ?? null,
         })
         const cmd = buildSpawnCmd(this.routing, nextBackend, next, worker.promptFile)
         await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir, nextBackend), shellCmd: cmd })
