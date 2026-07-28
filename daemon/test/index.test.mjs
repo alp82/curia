@@ -97,6 +97,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       'backends:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+    "    ready: '\u23f5\u23f5|bypass permissions'",
       '',
     ].join('\n'))
 
@@ -234,6 +235,7 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       'backends:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+    "    ready: '\u23f5\u23f5|bypass permissions'",
       '',
     ].join('\n'))
 

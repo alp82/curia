@@ -8,6 +8,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import {
   seedConfigDir, workerEnv, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
+  writeHarness, removeCredentials, untrustedProjectHooks,
   createWorktree, remoteBranchExists,
 } from '../src/workspace.mjs'
 
@@ -183,5 +184,116 @@ describe('createWorktree start point (#54 item 6)', () => {
     assert.equal(fs.existsSync(path.join(wt, 'work.txt')), false)
     assert.match(git(wt, 'log', '-1', '--format=%s'), /base/)
     assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/77')
+  })
+})
+
+// ---- the codex harness (#39) -------------------------------------------------
+
+describe('the codex worker harness (#39)', () => {
+  let tmp
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-codex-')) })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  const dirs = (n) => ({
+    cfgDir: path.join(tmp, 'cfg', `curia-${n}`),
+    wtPath: path.join(tmp, 'wt', String(n)),
+  })
+
+  test('CODEX_HOME is the whole isolation, and no Claude variable leaks into it', () => {
+    const { cfgDir } = dirs(1)
+    assert.deepEqual(workerEnv(cfgDir, 'codex'), { CODEX_HOME: cfgDir })
+  })
+
+  // The #53 property, reached by the opposite mechanism: codex FOLLOWS the link
+  // when it refreshes (Claude replaces it), so the worker writes the host's own
+  // file and the two share one refresh lineage.
+  test('the credential is a symlink to the host store, never a copy', () => {
+    const { cfgDir, wtPath } = dirs(2)
+    seedConfigDir(cfgDir, wtPath, null, 'codex')
+    const link = path.join(cfgDir, 'auth.json')
+    assert.equal(fs.lstatSync(link).isSymbolicLink(), true)
+    assert.equal(fs.readlinkSync(link), path.join(hostStorageDir('codex'), 'auth.json'))
+  })
+
+  test('a real credential file left in a reused config dir is swept, not reused', () => {
+    const { cfgDir, wtPath } = dirs(3)
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.writeFileSync(path.join(cfgDir, 'auth.json'), '{"stale":"token"}')
+    seedConfigDir(cfgDir, wtPath, null, 'codex')
+    assert.equal(fs.lstatSync(path.join(cfgDir, 'auth.json')).isSymbolicLink(), true)
+  })
+
+  // rmSync unlinks a symlink rather than following it, so the sweep must never
+  // reach the host file the link points at.
+  test('sweeping credentials removes the link and not the host file it points at', () => {
+    const { cfgDir, wtPath } = dirs(4)
+    seedConfigDir(cfgDir, wtPath, null, 'codex')
+    const host = path.join(hostStorageDir('codex'), 'auth.json')
+    const hostExisted = fs.existsSync(host)
+    removeCredentials(cfgDir)
+    assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), false)
+    assert.equal(fs.existsSync(host), hostExisted)
+  })
+
+  test('skills install the same way under codex — both CLIs read <config>/skills', () => {
+    const { cfgDir, wtPath } = dirs(5)
+    const root = path.join(tmp, 'skills')
+    fs.mkdirSync(path.join(root, 'wayfinder'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'wayfinder', 'SKILL.md'), '# wayfinder')
+    seedConfigDir(cfgDir, wtPath, { root, install: ['wayfinder'] }, 'codex')
+    assert.equal(fs.readFileSync(path.join(cfgDir, 'skills', 'wayfinder', 'SKILL.md'), 'utf8'), '# wayfinder')
+  })
+
+  test('the harness writes config and hooks into the config dir, and NOTHING into the repo', () => {
+    const { cfgDir, wtPath } = dirs(6)
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'codex')
+    writeHarness({ wtPath, cfgDir, worker: 'curia-6', ticket: 6, daemonPort: 4271, backend: 'codex' })
+
+    const toml = fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')
+    // without the trust entry the first spawn stops at "Do you trust the
+    // contents of this directory?" and the worker never reaches its composer
+    assert.match(toml, new RegExp(`\\[projects\\."${wtPath}"\\]\\ntrust_level = "trusted"`))
+    assert.match(toml, /\[features\]\nhooks = true/)
+    assert.match(toml, /\[mcp_servers\.curia\]\nurl = "http:\/\/127\.0\.0\.1:4271\/mcp\?worker=curia-6&ticket=6"/)
+
+    const hooks = JSON.parse(fs.readFileSync(path.join(cfgDir, 'hooks.json'), 'utf8'))
+    assert.match(hooks.hooks.Stop[0].hooks[0].command, /worker_done\?worker=curia-6/)
+
+    assert.deepEqual(fs.readdirSync(wtPath), [])
+  })
+
+  // The claude lane's own shape, asserted alongside so the two stay told apart.
+  test('the claude lane still writes its side channel into the worktree', () => {
+    const { cfgDir, wtPath } = dirs(7)
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'claude')
+    writeHarness({ wtPath, cfgDir, worker: 'curia-7', ticket: 7, daemonPort: 4271, backend: 'claude' })
+    assert.ok(fs.existsSync(path.join(wtPath, '.mcp.json')))
+    assert.ok(fs.existsSync(path.join(wtPath, '.claude', 'settings.json')))
+    assert.equal(fs.existsSync(path.join(cfgDir, 'config.toml')), false)
+  })
+
+  test('an unknown backend refuses rather than seeding a worker nothing can drive', () => {
+    const { cfgDir, wtPath } = dirs(8)
+    assert.throws(() => seedConfigDir(cfgDir, wtPath, null, 'cursor'), /no worker harness/)
+    assert.throws(() => workerEnv(cfgDir, 'cursor'), /no worker harness/)
+  })
+
+  // The codex spawn bypasses hook trust for the hook curia writes; the same flag
+  // would run one the repo carries, with no model in the loop.
+  test('a repo-planted project hook file is spotted on the codex lane', () => {
+    const { wtPath } = dirs(9)
+    fs.mkdirSync(path.join(wtPath, '.codex'), { recursive: true })
+    fs.writeFileSync(path.join(wtPath, '.codex', 'hooks.json'), '{}')
+    assert.equal(untrustedProjectHooks(wtPath, 'codex'), path.join(wtPath, '.codex', 'hooks.json'))
+    // the claude lane does not pass that flag, so it is not this guard's business
+    assert.equal(untrustedProjectHooks(wtPath, 'claude'), null)
+  })
+
+  test('a clean worktree passes the hook guard', () => {
+    const { wtPath } = dirs(10)
+    fs.mkdirSync(wtPath, { recursive: true })
+    assert.equal(untrustedProjectHooks(wtPath, 'codex'), null)
   })
 })

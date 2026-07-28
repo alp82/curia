@@ -53,7 +53,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit } from '../src/routing.mjs'
+import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit, carriesLimitPhrase } from '../src/routing.mjs'
 
 const routing = {
   defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
@@ -64,7 +64,7 @@ const routing = {
   },
   fallbacks: { fable: ['opus'], opus: ['sonnet'] },
   backends: {
-    claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"' },
+    claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', readyRe: /⏵⏵|bypass permissions/ },
   },
 }
 
@@ -263,5 +263,124 @@ describe('parseUsageLimit', () => {
 
   test('pane text with no usage-limit language does not match', () => {
     assert.equal(parseUsageLimit('⏵⏵ bypass permissions on'), null)
+  })
+})
+
+// ---- the codex lane (#39) ----------------------------------------------------
+
+describe('two providers (#39, restoring #13)', () => {
+  const twoLane = {
+    defaults: { grilling: 'fable', research: 'gpt', task: 'opus', untyped: 'opus' },
+    models: {
+      fable: { provider: 'anthropic', backend: 'claude' },
+      opus: { provider: 'anthropic', backend: 'claude' },
+      sonnet: { provider: 'anthropic', backend: 'claude' },
+      gpt: { provider: 'openai', backend: 'codex', id: 'gpt-5.5' },
+    },
+    fallbacks: { fable: ['opus'], opus: ['gpt', 'sonnet'], sonnet: ['gpt'], gpt: ['opus'] },
+    backends: {
+      claude: { template: 'claude --model {model} "$(cat {prompt_file})"' },
+      codex: { template: 'codex --model {model} "$(cat {prompt_file})"' },
+    },
+  }
+
+  test('research routes to the gpt lane again — #33 sent it to opus by deviation', () => {
+    assert.equal(resolveModel(twoLane, ['wayfinder:research']), 'gpt')
+  })
+
+  // `codex --model gpt` is not a model. The routing name is the LABEL
+  // vocabulary (`model:gpt`); models.<name>.id is what the CLI is asked for.
+  test('the spawn command carries the CLI model id, not the routing name', () => {
+    assert.match(buildSpawnCmd(twoLane, 'codex', 'gpt', '/tmp/p.md'), /--model gpt-5\.5/)
+  })
+
+  test('a model with no id still spawns under its own name', () => {
+    assert.match(buildSpawnCmd(twoLane, 'claude', 'opus', '/tmp/p.md'), /--model opus/)
+  })
+
+  // The id reaches a shell template, so it passes the same whitelist every
+  // other substitution does.
+  test('an id that is not quote-free is refused rather than substituted', () => {
+    const bad = { ...twoLane, models: { ...twoLane.models, gpt: { ...twoLane.models.gpt, id: 'gpt"; rm -rf /' } } }
+    assert.throws(() => buildSpawnCmd(bad, 'codex', 'gpt', '/tmp/p.md'), /not quote-free/)
+  })
+
+  // The point of a second provider (#13): one cooling provider is no longer
+  // exhaustion, it is the ordinary case the cross-provider chains exist for.
+  test('a cooling provider falls across to the other one instead of exhausting', () => {
+    const cooling = new Cooling()
+    cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
+    assert.deepEqual(candidates(twoLane, 'opus', cooling), ['gpt'])
+  })
+
+  test('exhaustion now needs BOTH providers cooling', () => {
+    const cooling = new Cooling()
+    cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
+    cooling.coolProvider('openai', new Date(Date.now() + 3600_000))
+    assert.deepEqual(candidates(twoLane, 'opus', cooling), [])
+  })
+
+  // #13's "never upgrade bulk work to fable" is structural, not remembered:
+  // fable is downstream of nothing, so no chain can fall into it.
+  test('no chain falls into fable', () => {
+    const cooling = new Cooling()
+    for (const from of Object.keys(twoLane.models)) {
+      if (from === 'fable') continue
+      assert.equal(candidates(twoLane, from, cooling).includes('fable'), false, `${from} reached fable`)
+    }
+  })
+})
+
+describe('parseUsageLimit is per provider (#39)', () => {
+  // The codex cap message. The Claude pattern misses it outright: it requires a
+  // word before "usage limit reached", and codex writes the phrase first.
+  test('a codex cap message is a provider-scope hit with no parseable reset', () => {
+    const result = parseUsageLimit("You've hit your usage limit. Upgrade to Plus to continue using Codex", 'openai')
+    assert.equal(result.scope, 'provider')
+    assert.equal(result.resetAt, null)
+  })
+
+  test('the other codex phrasings all read as cap hits', () => {
+    for (const text of [
+      'Usage limit reached. You\'ve reached your usage limit. Increase your limits to continue using codex.',
+      'You’ve hit your usage limit for gpt-5.5',
+      "You're out of credits.",
+      'Your workspace is out of credits. Add credits to continue using Codex.',
+      "You've reached your workspace credit limit",
+    ]) {
+      assert.notEqual(parseUsageLimit(text, 'openai'), null, text)
+    }
+  })
+
+  // Read off a live pane, not guessed: codex opens EVERY session with this line
+  // and puts the second in its status bar. Either one classified as a cap hit
+  // would kill a healthy worker and cool the provider for an hour.
+  test('the healthy-session lines codex always prints are not cap hits', () => {
+    for (const text of [
+      'You have 2 usage limit resets available. Run /usage to use one.',
+      'No usage limit resets are available.',
+      'Remaining usage on the primary usage limit',
+      'Approaching rate limits',
+    ]) {
+      assert.equal(parseUsageLimit(text, 'openai'), null, text)
+    }
+  })
+
+  test('each provider reads only its own vocabulary', () => {
+    assert.equal(parseUsageLimit("You've hit your usage limit.", 'anthropic'), null)
+    assert.equal(parseUsageLimit('You can use up to 50% of your weekly usage limit on Fable 5', 'openai'), null)
+  })
+
+  test('an unknown provider classifies nothing rather than guessing', () => {
+    assert.equal(parseUsageLimit('Fable 5 usage limit reached', 'mistral'), null)
+  })
+
+  // The forge guard reads EVERY provider's vocabulary, because a worker's own
+  // provider changes under it on a cross-provider fallback while this answer is
+  // computed once, from the ticket text, at dispatch.
+  test('the forge guard spans providers', () => {
+    assert.equal(carriesLimitPhrase('the banner says "usage limit reached" wrongly'), true)
+    assert.equal(carriesLimitPhrase("the banner says \"You've hit your usage limit\" wrongly"), true)
+    assert.equal(carriesLimitPhrase('show the weekly usage limit in the header'), false)
   })
 })

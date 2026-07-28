@@ -22,18 +22,18 @@ import {
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch,
 } from './github.mjs'
-import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, Cooling } from './routing.mjs'
+import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, carriesLimitPhrase, Cooling } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
 import {
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, workerEnv,
+  untrustedProjectHooks,
 } from './workspace.mjs'
 import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 
-const READY_MARKER = /⏵⏵|bypass permissions/
 const SESSION_RE = /^curia-(\d+)$/
 
 // The tracker doc every watched repo is meant to carry (#57 step 3). The
@@ -67,15 +67,11 @@ const DEFAULT_DEPS = {
   defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork,
 }
 
-// How many trailing pane lines the usage-limit classifier is allowed to see.
+// How many trailing pane lines the two pane classifiers are allowed to see.
 const PANE_TAIL_LINES = 20
 
-// The phrase parseUsageLimit keys on. Used here to detect the one input that
-// can forge it.
-const LIMIT_PHRASE = /usage limit reached/i
-
 // The pane is UNTRUSTED TEXT. The backend template passes the ticket body as
-// argv, so Claude Code renders attacker-controlled issue text into the very
+// argv, so the agent CLI renders attacker-controlled issue text into the very
 // transcript this module scrapes — a ticket whose body contains
 // "…usage limit reached" would otherwise kill a healthy session and cool the
 // model for an hour.
@@ -96,7 +92,7 @@ export function paneTail(pane, lines = PANE_TAIL_LINES) {
 }
 
 export function textCarriesLimitPhrase(...parts) {
-  return LIMIT_PHRASE.test(parts.filter(Boolean).join('\n'))
+  return carriesLimitPhrase(parts.filter(Boolean).join('\n'))
 }
 
 export class Dispatcher {
@@ -339,10 +335,6 @@ export class Dispatcher {
     if (!this.routing.models[modelName]) {
       return `⛔ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
     }
-    const backendName = backend ?? this.routing.models[modelName].backend
-    if (!this.routing.backends[backendName]) {
-      return `⛔ unknown backend \`${backendName}\` — configured backends: ${Object.keys(this.routing.backends).join(', ')}`
-    }
     const cands = candidates(this.routing, modelName, this.cooling)
     if (!cands.length) {
       // exhaustion BEFORE the claim — never claim what cannot be spawned.
@@ -350,6 +342,18 @@ export class Dispatcher {
       // continuation cannot echo it) and the reply sentinel when the latch
       // suppressed it (so the continuation is never silent).
       return this.#exhausted(n, repo)
+    }
+
+    // The backend belongs to the model actually being SPAWNED, not the one that
+    // was asked for. Those differ whenever the requested model is cooling and
+    // the chain fell through to the next candidate — which under #39 can cross
+    // providers, and so can cross backends. Reading it off `modelName` was
+    // invisible while every model was a claude one; with a codex lane it would
+    // seed a claude config dir and then spawn codex into it.
+    const useModel = cands[0]
+    const backendName = backend ?? this.routing.models[useModel].backend
+    if (!this.routing.backends[backendName]) {
+      return `⛔ unknown backend \`${backendName}\` — configured backends: ${Object.keys(this.routing.backends).join(', ')}`
     }
 
     const login = await this.deps.viewerLogin()
@@ -365,8 +369,9 @@ export class Dispatcher {
       const wtPath = await this.deps.createWorktree(base, n)
       const mapNumber = await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
-      this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills)
-      this.deps.writeHarness(wtPath, session, n, this.daemonPort)
+      this.#assertNoPlantedHooks(wtPath, backendName)
+      this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills, backendName)
+      this.deps.writeHarness({ wtPath, cfgDir, worker: session, ticket: n, daemonPort: this.daemonPort, backend: backendName })
       // The type label reaches the prompt (#49 decision 2): it was already
       // parsed above for model routing and thrown away, and it is the only thing
       // that stops a dispatched `wayfinder:grilling` worker from standing in for
@@ -376,9 +381,8 @@ export class Dispatcher {
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
-      const useModel = cands[0]
       const cmd = buildSpawnCmd(this.routing, backendName, useModel, promptFile)
-      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir), shellCmd: cmd })
+      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir, backendName), shellCmd: cmd })
       this.store.logEvent('worker_spawned', { repo, ticket: n, worker: session, model: useModel, backend: backendName })
 
       const worker = {
@@ -433,6 +437,17 @@ export class Dispatcher {
       throw new Error(`${repo} has no ${TRACKER_DOC}, so a worker on map child #${n} would fall back to the local-markdown tracker and write .scratch/ files instead of resolving on GitHub — run \`/setup-matt-pocock-skills\` in ${repo} first`)
     }
     this.store.logEvent('tracker_doc_missing', { repo, ticket: n, worker: session })
+  }
+
+  // Refuse before the config dir is seeded, so the ordinary prepare-failure path
+  // unclaims and tells the operator why. See untrustedProjectHooks: the codex
+  // spawn bypasses hook trust for the hook curia writes, and the same flag would
+  // run one the watched repo happens to carry.
+  #assertNoPlantedHooks(wtPath, backendName) {
+    const planted = untrustedProjectHooks(wtPath, backendName)
+    if (planted) {
+      throw new Error(`${planted} is a hook file curia did not write, and the ${backendName} lane spawns with hook trust bypassed — it would run unreviewed, with no model in the loop. Dispatch this ticket on another backend (\`/start <ticket> <model>\`) or remove the file from the repo`)
+    }
   }
 
   // Which wayfinder map, if any, owns this ticket — so the standing orders can
@@ -491,6 +506,12 @@ export class Dispatcher {
   // usage-limit reached text ⇒ cool + next candidate; timeout ⇒ record and
   // surface, keep claim + session for inspection (never guess keystrokes).
   async #watchdog(worker) {
+    // Resolved once, and loudly: readiness that silently never matches is #33's
+    // live-only defect, and its whole symptom was silence.
+    const readyRe = this.routing.backends[worker.backend]?.readyRe
+    if (!readyRe) {
+      throw new Error(`no readiness marker for backend "${worker.backend}" on ${worker.session} — refusing to watch a pane against nothing`)
+    }
     const deadline = Date.now() + this.config.dispatch.ready_timeout_s * 1000
     while (Date.now() < deadline) {
       await sleep(2000)
@@ -506,7 +527,7 @@ export class Dispatcher {
       // must no more forge readiness than "usage limit reached" may forge a
       // cap hit. The composer marker is a bottom-of-pane signal anyway.
       const tail = paneTail(pane)
-      const limit = parseUsageLimit(tail)
+      const limit = parseUsageLimit(tail, worker.provider)
       if (limit && worker.promptCarriesLimitText) {
         // the ticket's own text can produce this match — refuse to cool a model
         // or kill a session on it; the ready-timeout path surfaces a genuine
@@ -522,7 +543,9 @@ export class Dispatcher {
         await this.#handleLimit(worker, limit)
         return
       }
-      if (READY_MARKER.test(tail)) {
+      // Per backend (#39): the claude composer's `⏵⏵` marker never appears in a
+      // codex pane, whose composer says `<model> <effort> · <cwd>`.
+      if (readyRe.test(tail)) {
         worker.state = 'ready'
         this.store.logEvent('worker_ready', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: worker.model })
         this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${worker.model}** — \`/attach ${worker.ticket}\` to watch`)
@@ -560,14 +583,28 @@ export class Dispatcher {
     const cands = candidates(this.routing, worker.requestedModel, this.cooling)
     if (cands.length) {
       const next = cands[0]
+      // The whole point of a second provider (#13) is that a cap hit falls
+      // ACROSS it, and a cross-provider fallback is also a cross-backend one:
+      // the next model wants a different config dir, a different credential
+      // arrangement and a different side-channel layout. Re-seed before
+      // respawning rather than handing the new CLI the old lane's harness.
+      // Same-backend fallbacks re-seed too — it is idempotent, and one path is
+      // easier to trust than a branch that has to be right about when it matters.
+      const nextBackend = this.routing.models[next].backend
       try {
-        const cmd = buildSpawnCmd(this.routing, worker.backend, next, worker.promptFile)
-        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir), shellCmd: cmd })
+        this.deps.seedConfigDir(worker.cfgDir, worker.wtPath, this.config.skills, nextBackend)
+        this.deps.writeHarness({
+          wtPath: worker.wtPath, cfgDir: worker.cfgDir, worker: worker.session,
+          ticket: worker.ticket, daemonPort: this.daemonPort, backend: nextBackend,
+        })
+        const cmd = buildSpawnCmd(this.routing, nextBackend, next, worker.promptFile)
+        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir, nextBackend), shellCmd: cmd })
         worker.model = next
+        worker.backend = nextBackend
         worker.provider = this.routing.models[next].provider
         worker.spawnedAt = Date.now()
         worker.state = 'spawning'
-        this.store.logEvent('worker_spawned', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: next, retry_after_limit: true })
+        this.store.logEvent('worker_spawned', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: next, backend: nextBackend, retry_after_limit: true })
         this.notify(worker.ticket, `♻️ \`${worker.session}\` hit a ${limit.scope} usage limit — respawned on **${next}**`)
         this.#watchdog(worker).catch((e) => this.log(`watchdog ${worker.session} failed:`, e.message))
         return

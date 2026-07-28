@@ -1,10 +1,10 @@
-# Label-only model routing (#13) — all-Claude for now (stated deviation 3, user-decided).
-# The gpt/codex lane is a follow-up ticket; a second backend is a config addition here.
+# Label-only model routing (#13). Two providers since #39, which restored the
+# gpt/codex lane #33 shipped without.
 
 defaults:
   grilling: fable
   prototype: fable
-  research: opus
+  research: gpt          # #13: spread quota — research is the bulk lane
   task: opus
   untyped: opus
 
@@ -18,13 +18,40 @@ models:
   sonnet:
     provider: anthropic
     backend: claude
+  # `gpt` is the label vocabulary (`model:gpt` on a ticket); `id` is what the
+  # CLI is actually asked for, because `codex --model gpt` is not a model.
+  gpt:
+    provider: openai
+    backend: codex
+    id: gpt-5.5
 
-# Intra-Claude only; chains are explicit config, so "never upgrade bulk work to
-# fable" stays structural (fable never appears downstream in any chain).
+# Chains are explicit config, so two #13 rules stay STRUCTURAL rather than
+# remembered: cross-provider first (a cooling provider must not strand a
+# ticket), and "never upgrade bulk work to fable" — fable appears in no chain
+# downstream of anything, so nothing can fall INTO it.
 fallbacks:
-  fable: [opus]
-  opus: [sonnet]
+  fable: [opus]          # transitively reaches gpt through opus
+  opus: [gpt, sonnet]
+  sonnet: [gpt]
+  gpt: [opus]            # transitively reaches sonnet through opus
 
 backends:
+  # `ready` is the pane text that says this backend reached its composer. It is
+  # required, not defaulted: #33 lost readiness live to a marker that matched
+  # nothing, and the symptom was silence.
   claude:
     template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"'
+    ready: '⏵⏵|bypass permissions'
+  # `--dangerously-bypass-hook-trust` is what makes the Stop hook fire without an
+  # interactive "Hooks need review" prompt that no one is there to answer. curia
+  # writes that hook itself, into a config dir it owns; the flag is not scoped to
+  # it, so the daemon refuses to dispatch onto a worktree carrying its own
+  # `.codex/hooks.json` (see untrustedProjectHooks).
+  # The marker is the codex status footer, `<model> <effort> · <cwd>`, keyed on
+  # the middle dot followed by a path. NOT the composer placeholder: that is a
+  # rotating tip ("Explain this codebase", "Implement {feature}", "Use /skills to
+  # list available skills" all observed in one session), so keying on any one of
+  # them would read ready only sometimes.
+  codex:
+    template: 'codex --model {model} --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat {prompt_file})"'
+    ready: '·\s[~/]'

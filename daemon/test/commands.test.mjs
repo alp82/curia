@@ -111,7 +111,7 @@ describe('CommandRouter backend refusal', () => {
     let started = false
     const dispatcher = {
       routing: {
-        backends: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"' } },
+        backends: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', readyRe: /⏵⏵|bypass permissions/ } },
       },
       start: async () => { started = true },
     }

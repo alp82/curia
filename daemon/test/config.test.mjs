@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-import { loadCuriaConfig } from '../src/config.mjs'
+import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
 
 let tmp
@@ -134,5 +134,83 @@ describe('the Stop-hook nudge budget (#54 item 4)', () => {
     const file = writeConfig(`skills:\n  root: ${root}\n  install: []`)
     fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('  confirm_ttl_h: 4', '  confirm_ttl_h: 4\n  stop_nudge_budget: 5'))
     assert.equal(loadCuriaConfig(file).dispatch.stop_nudge_budget, 5)
+  })
+})
+
+// ---- two backends (#39) ------------------------------------------------------
+
+describe('routing config with a second backend (#39)', () => {
+  let dir
+  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-routing-cfg-')) })
+  after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  const BASE = [
+    'defaults:',
+    '  untyped: opus',
+    '  research: gpt',
+    'models:',
+    '  opus: { provider: anthropic, backend: claude }',
+    '  gpt: { provider: openai, backend: codex, id: gpt-5.5 }',
+    'backends:',
+    "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'bypass permissions' }",
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '\u00b7\\s[~/]' }",
+  ]
+
+  function load(lines) {
+    const file = path.join(dir, 'routing.yaml')
+    fs.writeFileSync(file, lines.join('\n'))
+    return loadRoutingConfig(file)
+  }
+
+  test('the two-lane config loads and compiles each backend readiness marker', () => {
+    const cfg = load(BASE)
+    assert.equal(cfg.models.gpt.id, 'gpt-5.5')
+    assert.equal(cfg.backends.codex.readyRe.test('  gpt-5.5 low · ~/curia-work/wt/39'), true)
+    assert.equal(cfg.backends.claude.readyRe.test('  gpt-5.5 low · ~/curia-work/wt/39'), false)
+  })
+
+  // #33 lost readiness live to a marker that matched nothing, and the whole
+  // symptom was silence — so an absent one refuses the boot (#57's precedent).
+  test('a backend with no readiness marker refuses the boot', () => {
+    const lines = BASE.map((l) => (l.startsWith('  codex:')
+      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"' }"
+      : l))
+    assert.throws(() => load(lines), /backends\.codex needs a `ready` regex/)
+  })
+
+  test('a readiness marker that is not a regex refuses the boot', () => {
+    const lines = BASE.map((l) => (l.startsWith('  codex:')
+      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '[unclosed' }"
+      : l))
+    assert.throws(() => load(lines), /is not a valid regex/)
+  })
+
+  // A backend with no harness would get no config dir, no curia tools and no
+  // Stop hook — a worker that cannot be driven or ended.
+  test('a backend with no harness in workspace.mjs refuses the boot', () => {
+    const lines = [...BASE.slice(0, -2),
+      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x' }",
+      "  cursor: { template: 'cursor --model {model} \"$(cat {prompt_file})\"', ready: 'x' }",
+      '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', ready: \'x\' }',
+    ]
+    assert.throws(() => load(lines), /backends\.cursor has no harness/)
+  })
+
+  // A provider with no usage-limit vocabulary spawns workers whose cap hits are
+  // invisible: nothing cools, and every dispatch burns a claim into a timeout.
+  test('a provider with no usage-limit vocabulary refuses the boot', () => {
+    const lines = BASE.map((l) => (l.startsWith('  gpt:')
+      ? '  gpt: { provider: mistral, backend: codex, id: gpt-5.5 }'
+      : l))
+    assert.throws(() => load(lines), /has no usage-limit vocabulary/)
+  })
+
+  // The id is substituted into a shell template, so it fails at BOOT naming the
+  // key rather than at dispatch with a claim already taken.
+  test('a model id that is not quote-free refuses the boot', () => {
+    const lines = BASE.map((l) => (l.startsWith('  gpt:')
+      ? '  gpt: { provider: openai, backend: codex, id: \'gpt"; rm -rf /\' }'
+      : l))
+    assert.throws(() => load(lines), /models\.gpt\.id must be a quote-free model name/)
   })
 })

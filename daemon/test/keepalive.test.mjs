@@ -114,6 +114,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       'backends:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+    "    ready: '\u23f5\u23f5|bypass permissions'",
       '',
     ].join('\n'))
 

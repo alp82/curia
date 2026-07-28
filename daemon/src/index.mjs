@@ -609,7 +609,13 @@ async function handleRequest(req, res) {
     if (decision?.terminal) {
       dispatcher.onWorkerDone(worker).catch((e) => log(`onWorkerDone ${worker} failed:`, e.message))
     }
-    return json(200, { ok: true })
+    // An EMPTY object, not `{ok:true}`. Both CLIs read "no decision" as allow,
+    // but codex validates this body against a closed schema and rejected the
+    // extra key outright — `Stop hook (failed): hook returned invalid stop hook
+    // JSON output`, printed in the worker's own pane on every clean ending
+    // (observed). It failed open, so nothing was trapped; what it cost was the
+    // signal, since a genuinely broken hook would have looked exactly the same.
+    return json(200, {})
   }
 
   // REST parity with the Discord slash verbs (agent-driven verification;

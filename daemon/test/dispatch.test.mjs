@@ -21,7 +21,7 @@ const ROUTING = {
   defaults: { untyped: 'sonnet' },
   models: { sonnet: { provider: 'anthropic', backend: 'claude' } },
   fallbacks: {},
-  backends: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"' } },
+  backends: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', readyRe: /⏵⏵|bypass permissions/ } },
 }
 
 const OPEN_ISSUE = {
@@ -1875,5 +1875,147 @@ describe('the gate the Stop hook cannot enforce', () => {
 
     await d.onResult('curia-42', { status: 'resolved', summary: 's' })
     assert.ok(events.some((e) => e.type === 'resolved_unreviewed'))
+  })
+})
+
+// ---- two backends (#39) ------------------------------------------------------
+
+const TWO_LANE = {
+  defaults: { untyped: 'sonnet', research: 'gpt' },
+  models: {
+    sonnet: { provider: 'anthropic', backend: 'claude' },
+    gpt: { provider: 'openai', backend: 'codex', id: 'gpt-5.5' },
+  },
+  fallbacks: { sonnet: ['gpt'], gpt: ['sonnet'] },
+  backends: {
+    claude: {
+      template: 'claude --model {model} "$(cat {prompt_file})"',
+      ready: '⏵⏵|bypass permissions', readyRe: /⏵⏵|bypass permissions/,
+    },
+    codex: {
+      template: 'codex --model {model} "$(cat {prompt_file})"',
+      ready: '·\\s[~/]', readyRe: /·\s[~/]/,
+    },
+  },
+}
+
+describe('dispatching across two backends (#39)', () => {
+  test('a research ticket seeds and spawns the codex lane end to end', async () => {
+    const seeded = []
+    const harnessed = []
+    let spawn = null
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      seedConfigDir: (cfg, wt, s, backend) => seeded.push(backend),
+      writeHarness: (opts) => harnessed.push(opts.backend),
+      newSession: async (opts) => { spawn = opts },
+    }, { routing: TWO_LANE })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.deepEqual(seeded, ['codex'])
+    assert.deepEqual(harnessed, ['codex'])
+    // the CLI model id, not the routing name
+    assert.match(spawn.shellCmd, /codex --model gpt-5\.5/)
+    // and the codex isolation variable, with no Claude one alongside it
+    assert.deepEqual(Object.keys(spawn.env), ['CODEX_HOME'])
+  })
+
+  // The bug this ordering fixes: `backend` used to be read off the REQUESTED
+  // model. With one backend that was invisible; with two it would seed a claude
+  // config dir and then spawn codex into it.
+  test('the backend follows the model actually spawned, not the one asked for', async () => {
+    const seeded = []
+    let spawn = null
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
+      seedConfigDir: (cfg, wt, s, backend) => seeded.push(backend),
+      newSession: async (opts) => { spawn = opts },
+    }, { routing: TWO_LANE })
+    // untyped → sonnet (claude), but anthropic is cooling, so gpt (codex) runs
+    d.cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.deepEqual(seeded, ['codex'])
+    assert.match(spawn.shellCmd, /codex --model gpt-5\.5/)
+  })
+
+  test('a codex composer is read as ready, and a claude pane is not read by the codex marker', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      capturePane: async () => 'working\n\n> Implement {feature}\n\n  gpt-5.5 low · ~/curia-work/repos/o__r/wt/42\n',
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await new Promise((r) => setTimeout(r, 2600))
+    assert.ok(events.some((e) => e.type === 'worker_ready' && e.model === 'gpt'))
+    assert.equal(events.some((e) => e.type === 'worker_ready_timeout'), false)
+  })
+
+  // A cap hit on one provider is now a hand-off, not exhaustion — and the
+  // hand-off changes lanes, so the config dir has to be rebuilt for the new one.
+  test('a codex cap hit re-seeds the claude harness before respawning on it', async () => {
+    const seeded = []
+    const harnessed = []
+    const spawns = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      seedConfigDir: (cfg, wt, s, backend) => seeded.push(backend),
+      writeHarness: (opts) => harnessed.push(opts.backend),
+      newSession: async (opts) => { spawns.push(opts) },
+      capturePane: async () => "You've hit your usage limit. Upgrade to Plus to continue using Codex\n",
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await new Promise((r) => setTimeout(r, 2600))
+
+    assert.deepEqual(seeded, ['codex', 'claude'])
+    assert.deepEqual(harnessed, ['codex', 'claude'])
+    assert.ok(events.some((e) => e.type === 'provider_cooling' && e.provider === 'openai'))
+    assert.match(spawns[1].shellCmd, /claude --model sonnet/)
+    assert.deepEqual(Object.keys(spawns[1].env).sort(), ['CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR'])
+    // and the watchdog that follows must read the NEW lane's marker
+    assert.ok(events.some((e) => e.type === 'worker_spawned' && e.backend === 'claude'))
+  })
+
+  // The codex lane spawns with hook trust bypassed, so a hook the repo carries
+  // would run unreviewed with no model in the loop.
+  test('a repo-planted .codex/hooks.json refuses the dispatch and releases the claim', async () => {
+    let unclaimed = false
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
+        fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+        fs.mkdirSync(path.join(wt, '.codex'), { recursive: true })
+        fs.writeFileSync(path.join(wt, '.codex', 'hooks.json'), '{"hooks":{"SessionStart":[]}}')
+        return wt
+      },
+      unclaim: async () => { unclaimed = true },
+      newSession: async () => { throw new Error('must never spawn') },
+    }, { routing: TWO_LANE })
+
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /hook file curia did not write/)
+    assert.equal(unclaimed, true)
+  })
+
+  test('the same repo dispatches fine on the claude lane, which passes no such flag', async () => {
+    let spawned = false
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
+        fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+        fs.mkdirSync(path.join(wt, '.codex'), { recursive: true })
+        fs.writeFileSync(path.join(wt, '.codex', 'hooks.json'), '{"hooks":{"SessionStart":[]}}')
+        return wt
+      },
+      newSession: async () => { spawned = true },
+    }, { routing: TWO_LANE })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.equal(spawned, true)
   })
 })

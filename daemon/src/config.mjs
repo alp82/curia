@@ -7,7 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
-import { DEFAULT_SKILLS, defaultSkillsRoot } from './workspace.mjs'
+import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_BACKENDS } from './workspace.mjs'
+import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
@@ -122,6 +123,20 @@ export function loadRoutingConfig(file) {
     if (!m || typeof m.provider !== 'string' || typeof m.backend !== 'string') {
       fail(file, `models.${name} needs \`provider\` and \`backend\``)
     }
+    if (!LIMIT_PATTERNS[m.provider]) {
+      // A provider with no usage-limit vocabulary would spawn workers whose cap
+      // hits are invisible: parseUsageLimit returns null for it, so the model
+      // never cools and every dispatch on it burns a claim into a ready-timeout.
+      // Adding a provider is a code change (the phrasings are classifiers, not
+      // settings), so refusing here names that.
+      fail(file, `models.${name}.provider "${m.provider}" has no usage-limit vocabulary in routing.mjs — known providers: ${Object.keys(LIMIT_PATTERNS).join(', ')}`)
+    }
+    // Optional CLI-facing model name. It is substituted into a shell template,
+    // so it passes the same whitelist buildSpawnCmd asserts at spawn — failing
+    // at boot naming the key beats failing at dispatch with a claim already taken.
+    if (m.id !== undefined && (typeof m.id !== 'string' || !SAFE_SUBSTITUTION.test(m.id))) {
+      fail(file, `models.${name}.id must be a quote-free model name (got ${JSON.stringify(m.id)})`)
+    }
   }
   for (const [type, model] of Object.entries(cfg.defaults)) {
     if (!cfg.models[model]) fail(file, `defaults.${type} names unknown model "${model}"`)
@@ -143,6 +158,21 @@ export function loadRoutingConfig(file) {
     if (!b || typeof b.template !== 'string') fail(file, `backends.${name} needs a \`template\` string`)
     for (const ph of ['{model}', '{prompt_file}']) {
       if (!b.template.includes(ph)) fail(file, `backends.${name}.template is missing the ${ph} placeholder`)
+    }
+    if (!HARNESS_BACKENDS.includes(name)) {
+      fail(file, `backends.${name} has no harness in workspace.mjs — a worker under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_BACKENDS.join(', ')}`)
+    }
+    // The readiness marker is per backend and REQUIRED, not defaulted (#57's
+    // precedent: silence by omission is the failure this refuses). #33 lost
+    // readiness live to a marker that matched nothing, and the symptom was
+    // silence — no worker_ready, and reactive cooling that could never fire.
+    if (typeof b.ready !== 'string' || !b.ready.trim()) {
+      fail(file, `backends.${name} needs a \`ready\` regex — the pane text that says this backend reached its composer`)
+    }
+    try {
+      b.readyRe = new RegExp(b.ready)
+    } catch (e) {
+      fail(file, `backends.${name}.ready is not a valid regex: ${e.message}`)
     }
   }
   for (const [name, m] of Object.entries(cfg.models)) {

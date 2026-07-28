@@ -1,9 +1,14 @@
 // Daemon-owned workspaces (#33 step 6). Layout under workspace_root:
 //   repos/<owner>__<repo>/base   — shared base clone (push-disabled)
 //   repos/<owner>__<repo>/wt/<n> — per-ticket worktrees
-//   cfg/curia-<n>                — per-worker CLAUDE_CONFIG_DIR (+ prompt file);
+//   cfg/curia-<n>                — per-worker agent config dir (+ prompt file);
 //                                  holds no credential of its own since #53
 // Never Alp's working tree; nothing here is authoritative state.
+//
+// The config dir is per BACKEND since #39: `CLAUDE_CONFIG_DIR` for the claude
+// lane, `CODEX_HOME` for the codex one. See the HARNESS table below — it is the
+// one place the two lanes differ on disk, and everything above it (worktrees,
+// branches, landing) is backend-blind.
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -182,41 +187,243 @@ export async function removeWorktree(base, wtPath) {
 // Full removal where the worktree is destroyed anyway (cancel, orphan sweep);
 // credentials-only where the workspace is kept for review (lifecycle close) so
 // prompt.md survives the post-mortem. Since #53 a worker's config dir holds no
-// credential of its own, so removeCredentials collects only pre-#53 leftovers —
-// kept because those copies are real host refresh tokens sitting on disk.
+// credential of its own, so removeCredentials collects only leftovers — kept
+// because a leftover is a real host refresh token sitting on disk.
 export function removeConfigDir(cfgDir) {
   fs.rmSync(cfgDir, { recursive: true, force: true })
 }
 
+// Every path a backend could leave a credential at, swept whatever the worker's
+// own backend was: a config dir is reused across dispatches and a re-seed onto
+// the other backend leaves the first one's files behind.
+//
+// `rmSync` unlinks a symlink rather than following it, so sweeping the codex
+// lane's `auth.json` link never touches the host file it points at.
 export function removeCredentials(cfgDir) {
-  fs.rmSync(path.join(cfgDir, '.credentials.json'), { force: true })
+  for (const name of ['.credentials.json', 'auth.json']) {
+    fs.rmSync(path.join(cfgDir, name), { force: true })
+  }
 }
 
-// Where the host's own credential store lives — the single file every worker
-// shares (#53).
-export function hostStorageDir() {
-  return path.join(os.homedir(), '.claude')
+// ---- per-backend harness -----------------------------------------------------
+//
+// One worker, two shapes on disk. The claude lane keeps its config dir and puts
+// curia's side channel in the WORKTREE (.mcp.json + .claude/settings.json,
+// git-excluded); the codex lane puts everything in the config dir and writes
+// nothing into the repo at all.
+//
+// The shared design across both, and the reason the codex lane cost harness work
+// rather than a config line (#33's stated deviation 3):
+//   * credentials are the HOST's file, shared and never snapshotted (#53);
+//   * the config dir isolates settings, skills and MCP from the host (#23/#29);
+//   * a blocking `ask_human` reaches the daemon over MCP;
+//   * a Stop hook posts to /worker_done and can BLOCK the stop, which is what
+//     enforces the merge-gated ending (#54). That last one is why codex earns a
+//     lane at all: `codex --version 0.145` ships Claude-compatible hooks, so the
+//     ending is enforced identically instead of degrading to session-exit
+//     detection as this ticket assumed it would have to.
+//
+// Verified live before it was written (see the ticket's resolution): codex
+// reaches an HTTP MCP server from `[mcp_servers]`, its Stop hook carries the
+// same payload keys and honours `{decision:"block", reason}`, and `stop_hook_active`
+// flips on the second stop exactly as Claude's does.
+
+export const HARNESS_BACKENDS = ['claude', 'codex']
+
+function harnessFor(backend) {
+  const h = HARNESS[backend]
+  if (!h) {
+    throw new Error(`no worker harness for backend "${backend}" — known harnesses: ${HARNESS_BACKENDS.join(', ')}`)
+  }
+  return h
+}
+
+// Where the host's own credential store lives for a backend — the single file
+// every worker of that backend shares (#53).
+export function hostStorageDir(backend = 'claude') {
+  return harnessFor(backend).hostStore()
 }
 
 // The whole per-worker env: config isolated, credentials shared.
+export function workerEnv(cfgDir, backend = 'claude') {
+  return harnessFor(backend).env(cfgDir)
+}
+
+// TOML basic string. The values here are daemon-generated paths and a loopback
+// URL, so this is belt rather than need — but an unescaped backslash or quote
+// in a config file the daemon writes would fail at codex startup, where the
+// symptom is a worker sitting at a parse error nobody reads.
+function toml(value) {
+  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+}
+
+function curiaMcpUrl(daemonPort, worker, ticket) {
+  return `http://127.0.0.1:${daemonPort}/mcp?worker=${worker}&ticket=${ticket}`
+}
+
+// The Stop hook, identical on both lanes: POST the hook's own stdin payload to
+// the daemon, which answers `{decision:"block", reason}` while a step of the
+// ending is outstanding (#54).
+function stopHookCommand(daemonPort, worker) {
+  return `curl -s -X POST 'http://127.0.0.1:${daemonPort}/worker_done?worker=${worker}' -H 'Content-Type: application/json' -d @-`
+}
+
+const HARNESS = {
+  claude: {
+    // CLAUDE_SECURESTORAGE_CONFIG_DIR is what separates config from credentials.
+    // Claude Code resolves its credential store through it and falls back to
+    // CLAUDE_CONFIG_DIR only when it is unset, so pointing it at the host's
+    // ~/.claude puts the worker on the host's *exact* credentials path — the
+    // same file, the same refresh lineage, the same atomic-rename write. That is
+    // precisely what a second host session does, which is why several host
+    // sessions coexist for days while a worker holding a frozen copy died at the
+    // first host-side refresh (#34). Everything else stays isolated by
+    // CLAUDE_CONFIG_DIR: settings, allowlist, permission mode, CLAUDE.md, MCP
+    // connectors, projects (#23/#29).
+    //
+    // An absolute path, not the empty string that also selects ~/.claude:
+    // explicit beats HOME-dependent, and `env K=` through tmux is a needless
+    // edge. Porting to macOS would want the empty form instead — a non-empty
+    // value also suffixes the keychain service name, which would break sharing
+    // where the keychain, not the plaintext file, is the store.
+    hostStore: () => path.join(os.homedir(), '.claude'),
+    env: (cfgDir) => ({
+      CLAUDE_CONFIG_DIR: cfgDir,
+      CLAUDE_SECURESTORAGE_CONFIG_DIR: path.join(os.homedir(), '.claude'),
+    }),
+
+    // Exact prototype.md §1 shape, verified live: no first-spawn dialog ever
+    // appears. The projects key MUST be the absolute worktree path (matched
+    // exactly).
+    seed: (cfgDir, wtPath) => {
+      fs.writeFileSync(path.join(cfgDir, '.claude.json'), JSON.stringify({
+        hasCompletedOnboarding: true,
+        installMethod: 'native',
+        autoUpdates: false,
+        theme: 'dark',
+        numStartups: 1,
+        projects: {
+          [wtPath]: {
+            hasTrustDialogAccepted: true,
+            hasCompletedProjectOnboarding: true,
+            hasClaudeMdExternalIncludesApproved: true,
+            hasClaudeMdExternalIncludesWarningShown: true,
+          },
+        },
+      }, null, 2))
+      fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({ skipDangerousModePermissionPrompt: true }, null, 2))
+    },
+
+    // .mcp.json (curia HTTP MCP side channel) + .claude/settings.json (all-project
+    // MCP on, bypass permissions, Stop hook → /worker_done) — spike #29 shapes
+    // with per-worker substitution. Both land in the worktree and are hidden from
+    // git by the base clone's info/exclude (see ensureBaseClone).
+    harness: ({ wtPath, worker, ticket, daemonPort }) => {
+      fs.writeFileSync(path.join(wtPath, '.mcp.json'), JSON.stringify({
+        mcpServers: { curia: { type: 'http', url: curiaMcpUrl(daemonPort, worker, ticket) } },
+      }, null, 2))
+      const dotClaude = path.join(wtPath, '.claude')
+      fs.mkdirSync(dotClaude, { recursive: true })
+      fs.writeFileSync(path.join(dotClaude, 'settings.json'), JSON.stringify({
+        enableAllProjectMcpServers: true,
+        permissions: { defaultMode: 'bypassPermissions' },
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker) }] }] },
+      }, null, 2))
+    },
+  },
+
+  codex: {
+    // CODEX_HOME is the whole config dir: settings, skills, sessions, logs AND
+    // the credential file, with no second variable to split them (Claude's
+    // CLAUDE_SECURESTORAGE_CONFIG_DIR has no codex equivalent). Sharing the
+    // host's credentials therefore has to happen inside the dir.
+    hostStore: () => path.join(os.homedir(), '.codex'),
+    env: (cfgDir) => ({ CODEX_HOME: cfgDir }),
+
+    // A SYMLINK to the host's auth.json, which is the same shared-store property
+    // #53 landed for Claude and — read this carefully — reached by the opposite
+    // mechanism. #53 found that a symlinked Claude credential file is REPLACED by
+    // a regular file on the worker's first refresh, because Claude writes
+    // temp-then-rename over an unresolved path, stranding the host on the
+    // rotated-away token. Codex does not: it opens the path
+    // O_WRONLY|O_CREAT|O_TRUNC, which follows the link and writes the host's own
+    // file (verified by strace, and by watching a write through the link land on
+    // the target while the link survived). So here the link is the fix, not the
+    // trap.
+    //
+    // Rebuilt on every seed, and any regular file at that path is removed first:
+    // a config dir reused from a run that somehow left a real credential behind
+    // must not keep it, because a stale copy that still parses is the silent
+    // return to the frozen-token failure.
+    //
+    // The cost is the same one #53 accepted: a worker can reach the host's real
+    // credential file, so it has a host session's blast radius there. The one
+    // difference worth stating is that codex's write is NOT atomic — a truncating
+    // in-place rewrite, where Claude's is a rename — so a refresh racing a read
+    // can be seen torn. The window is one small write and nothing in codex locks
+    // that file (its own locks live under $CODEX_HOME/tmp, which is per-worker
+    // and so shares nothing), and the failure re-dispatches (#11/#12).
+    seed: (cfgDir) => {
+      const link = path.join(cfgDir, 'auth.json')
+      fs.rmSync(link, { force: true })
+      fs.symlinkSync(path.join(os.homedir(), '.codex', 'auth.json'), link)
+    },
+
+    // Everything the codex lane needs is in the config dir, so nothing is written
+    // into the watched repo at all — no .mcp.json, no settings file, nothing to
+    // git-exclude.
+    //
+    // `[projects.<wt>] trust_level` is the codex analogue of Claude's
+    // hasTrustDialogAccepted: without it the first spawn stops at a "Do you trust
+    // the contents of this directory?" prompt and the worker never reaches its
+    // composer (observed, before this line existed).
+    harness: ({ wtPath, cfgDir, worker, ticket, daemonPort }) => {
+      fs.writeFileSync(path.join(cfgDir, 'config.toml'), [
+        '# Written by the curia daemon per worker. Never hand-edited.',
+        '',
+        '[features]',
+        'hooks = true',
+        '',
+        `[projects.${toml(wtPath)}]`,
+        'trust_level = "trusted"',
+        '',
+        '[mcp_servers.curia]',
+        `url = ${toml(curiaMcpUrl(daemonPort, worker, ticket))}`,
+        '',
+      ].join('\n'))
+      fs.writeFileSync(path.join(cfgDir, 'hooks.json'), JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker) }] }] },
+      }, null, 2))
+    },
+  },
+}
+
+// A hook file the WATCHED REPO carries, which curia does not write and cannot
+// vouch for. Returns the offending path, or null.
 //
-// CLAUDE_SECURESTORAGE_CONFIG_DIR is what separates the two. Claude Code
-// resolves its credential store through it and falls back to CLAUDE_CONFIG_DIR
-// only when it is unset, so pointing it at the host's ~/.claude puts the worker
-// on the host's *exact* credentials path — the same file, the same refresh
-// lineage, the same atomic-rename write. That is precisely what a second host
-// session does, which is why several host sessions coexist for days while a
-// worker holding a frozen copy died at the first host-side refresh (#34).
-// Everything else stays isolated by CLAUDE_CONFIG_DIR: settings, allowlist,
-// permission mode, CLAUDE.md, MCP connectors, projects (#23/#29).
+// This exists because the codex spawn template passes
+// `--dangerously-bypass-hook-trust`. That flag is right for the hook curia
+// authors — the daemon writes it into a config dir it owns, one step earlier,
+// and codex's alternative is an interactive "Hooks need review" prompt that
+// would stall a zero-keystroke spawn forever (observed). Reproducing codex's
+// trust hash instead would mean pinning an undocumented internal that can move
+// and stop guarding silently, which is the failure #56 refused.
 //
-// An absolute path, not the empty string that also selects ~/.claude: explicit
-// beats HOME-dependent, and `env K=` through tmux is a needless edge. Porting
-// to macOS would want the empty form instead — a non-empty value also suffixes
-// the keychain service name, which would break sharing where the keychain, not
-// the plaintext file, is the store.
-export function workerEnv(cfgDir) {
-  return { CLAUDE_CONFIG_DIR: cfgDir, CLAUDE_SECURESTORAGE_CONFIG_DIR: hostStorageDir() }
+// But the flag is not scoped to curia's hook: codex also loads
+// `<cwd>/.codex/hooks.json` from a trusted project, and under the flag it would
+// run that unreviewed, with no model in the loop (verified — a planted project
+// hook fired). A worker already runs with approvals bypassed in that worktree,
+// so this is not new capability so much as a new path to it that needs no
+// prompt at all. Refusing the dispatch puts a human on it.
+//
+// The claude lane has a sibling exposure this does NOT cover: curia overwrites
+// `<wt>/.claude/settings.json`, so a repo's own copy is neutralised, but a
+// planted `.claude/settings.local.json` would still be merged. That is older
+// than this ticket and is recorded on it rather than fixed here.
+export function untrustedProjectHooks(wtPath, backend) {
+  if (backend !== 'codex') return null
+  const planted = path.join(wtPath, '.codex', 'hooks.json')
+  return fs.existsSync(planted) ? planted : null
 }
 
 // The skill set a worker gets (#57, decision 1 of #49). Before this, a worker
@@ -275,68 +482,35 @@ export function installSkills(cfgDir, skills) {
   return names
 }
 
-// Pre-seed the per-worker CLAUDE_CONFIG_DIR so no first-spawn dialog ever
-// appears — exact prototype.md §1 shape, verified live. The projects key MUST
-// be the absolute worktree path (matched exactly).
+// Pre-seed the per-worker config dir so no first-spawn dialog ever appears.
+// Backend-specific settings come from the HARNESS table; the two things every
+// backend gets are the skill set and a swept credential file.
 //
 // `skills` is the validated config section ({ root, install }); omitting it
 // installs nothing, which is what every test double and every caller with no
 // skills configured gets.
-export function seedConfigDir(cfgDir, wtPath, skills = null) {
+export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude') {
+  const h = harnessFor(backend)
   fs.mkdirSync(cfgDir, { recursive: true })
-  const claudeJson = {
-    hasCompletedOnboarding: true,
-    installMethod: 'native',
-    autoUpdates: false,
-    theme: 'dark',
-    numStartups: 1,
-    projects: {
-      [wtPath]: {
-        hasTrustDialogAccepted: true,
-        hasCompletedProjectOnboarding: true,
-        hasClaudeMdExternalIncludesApproved: true,
-        hasClaudeMdExternalIncludesWarningShown: true,
-      },
-    },
-  }
-  fs.writeFileSync(path.join(cfgDir, '.claude.json'), JSON.stringify(claudeJson, null, 2))
-  fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({ skipDangerousModePermissionPrompt: true }, null, 2))
-  // No credential is written here — workerEnv shares the host store instead
-  // (#53). Unlink defensively: a cfg dir reused from before #53 could still
-  // hold a snapshot, and a stale copy that still parses is worse than none,
-  // because it would be a *silent* return to the frozen-token failure.
-  fs.rmSync(path.join(cfgDir, '.credentials.json'), { force: true })
+  // No credential is COPIED here — every lane shares the host's own store
+  // instead (#53). Sweep first: a cfg dir reused across dispatches, or from
+  // before #53, could hold a real snapshot, and a stale copy that still parses
+  // is worse than none because it is a *silent* return to the frozen-token
+  // failure. The codex seed then puts its symlink back.
+  removeCredentials(cfgDir)
+  h.seed(cfgDir, wtPath)
   // One read-only directory, and nothing else from the host: no CLAUDE.md, no
-  // allowlist, no MCP connectors, no saved permission mode (#23/#29).
+  // allowlist, no MCP connectors, no saved permission mode (#23/#29). Both
+  // CLIs read `<config dir>/skills/<name>/SKILL.md`, so #57's install is
+  // backend-blind — a curia skill loaded and ran under codex unchanged.
   installSkills(cfgDir, skills)
 }
 
-// Workspace harness: .mcp.json (curia HTTP MCP side channel) + .claude/settings.json
-// (all-project MCP on, bypass permissions, Stop hook → /worker_done) — spike
-// #29 shapes with per-worker substitution.
-export function writeHarness(wtPath, worker, ticket, daemonPort) {
-  fs.writeFileSync(path.join(wtPath, '.mcp.json'), JSON.stringify({
-    mcpServers: {
-      curia: {
-        type: 'http',
-        url: `http://127.0.0.1:${daemonPort}/mcp?worker=${worker}&ticket=${ticket}`,
-      },
-    },
-  }, null, 2))
-  const dotClaude = path.join(wtPath, '.claude')
-  fs.mkdirSync(dotClaude, { recursive: true })
-  fs.writeFileSync(path.join(dotClaude, 'settings.json'), JSON.stringify({
-    enableAllProjectMcpServers: true,
-    permissions: { defaultMode: 'bypassPermissions' },
-    hooks: {
-      Stop: [{
-        hooks: [{
-          type: 'command',
-          command: `curl -s -X POST 'http://127.0.0.1:${daemonPort}/worker_done?worker=${worker}' -H 'Content-Type: application/json' -d @-`,
-        }],
-      }],
-    },
-  }, null, 2))
+// The curia side channel: the MCP server the worker's tools come from, and the
+// Stop hook that enforces the ending (#54). Where it lands is the backend's
+// business — see the HARNESS table.
+export function writeHarness({ wtPath, cfgDir, worker, ticket, daemonPort, backend = 'claude' }) {
+  harnessFor(backend).harness({ wtPath, cfgDir, worker, ticket, daemonPort })
 }
 
 // Prompt file lives in the config dir, not the worktree.
