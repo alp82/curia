@@ -1573,9 +1573,9 @@ export class Dispatcher {
   // restarts, skipping assertServe alone does not withdraw a rule a previous
   // run asserted — so the unverified branch actively turns the rule off.
   async #assertAttachSurface() {
-    const { serve_port: servePort, ttyd_port: ttydPort } = this.config.attach
+    const { serve_port: servePort, ttyd_port: ttydPort, index } = this.config.attach
     try {
-      const { verified } = await this.deps.ensureTtyd({ ttydPort, log: this.log })
+      const { verified } = await this.deps.ensureTtyd({ ttydPort, index, log: this.log })
       if (!verified) {
         try {
           await this.deps.serveOff({ servePort, log: this.log })

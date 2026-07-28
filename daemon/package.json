@@ -6,7 +6,8 @@
   "description": "Curia daemon: worker-facing MCP surface + Discord bridge + durable escalation record",
   "scripts": {
     "start": "node src/index.mjs",
-    "test": "node --test 'test/*.test.mjs'"
+    "test": "node --test 'test/*.test.mjs'",
+    "build-attach-index": "node bin/build-attach-index.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.0",

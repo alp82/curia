@@ -6,6 +6,13 @@ ttyd, the real `curia-attach.sh` whitelist, the real Tailscale Serve rule.
 
 Throwaway. The winner gets rewritten as asserted config, not promoted as-is.
 
+> **Landed.** Variant A now ships as `daemon/assets/attach-chrome.html`, built
+> into `daemon/assets/attach-index.html` and asserted by the daemon on every
+> reconcile ([#70](https://github.com/alp82/curia/issues/70)). This directory is
+> kept as #69's record, not as anything that runs. `run.sh` still restarts the
+> shared ttyd with the prototype index — the daemon now classifies that as
+> "ours but not the asserted surface" and replaces it on the next reconcile.
+
 ## Run
 
 ```sh

@@ -25,6 +25,12 @@ dispatch:
 attach:
   ttyd_port: 7681
   serve_port: 8443
+  # #70, landing #69: the attach page is an owned, BUILT asset, not whatever
+  # index ttyd happens to ship. It carries the viewport meta (no flag can set
+  # one), #69's sizing rule and the touch key-bar. Relative to this file.
+  # Rebuild after editing daemon/assets/attach-chrome.html, or after upgrading
+  # ttyd: `npm run build-attach-index --prefix daemon`.
+  index: ../daemon/assets/attach-index.html
 
 preview:                                   # #40, implementing #8: one Serve port per preview
   port_from: 8500                          # must not contain attach.serve_port — the sweep

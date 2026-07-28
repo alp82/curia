@@ -9,6 +9,7 @@ import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_BACKENDS } from './workspace.mjs'
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
+import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
@@ -65,6 +66,22 @@ export function loadCuriaConfig(file) {
   if (!a || typeof a !== 'object') fail(file, '`attach` section missing')
   for (const key of ['ttyd_port', 'serve_port']) {
     if (!(Number.isInteger(a[key]) && a[key] > 0 && a[key] < 65536)) fail(file, `attach.${key} must be a port number`)
+  }
+  // The attach page (#70, landing #69's variant A). Optional with a default,
+  // which #57's "silence by omission is the failure" rule does NOT argue
+  // against here: omitting `skills.install` would have meant installing no
+  // skills — a real loss expressed by silence — while omitting this means the
+  // surface curia ships, which is the only value anyone wants. What it must
+  // never do is resolve to a file that is not there, so it is checked at boot,
+  // naming the path and the command that builds it.
+  if (a.index !== undefined && typeof a.index !== 'string') fail(file, 'attach.index must be a path')
+  // Relative to THIS file's directory, so the shipped config can name the
+  // asset portably instead of carrying one box's absolute path.
+  a.index = a.index === undefined
+    ? DEFAULT_INDEX
+    : path.resolve(path.dirname(path.resolve(file)), expandHome(a.index))
+  if (!fs.existsSync(a.index)) {
+    fail(file, `attach.index resolves to ${a.index}, which does not exist — build it with \`${REBUILD_CMD}\``)
   }
 
   // Preview port range (#40/#8). Optional with defaults — an existing config

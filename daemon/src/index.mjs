@@ -249,7 +249,7 @@ const attachApi = {
     // Same rule as reconcile's #assertAttachSurface: only a listener verified
     // as our hardened ttyd is ever published. Handing out a link would both
     // assert the serve rule over an unverified listener and point a human at it.
-    const { verified } = await ensureTtyd({ ttydPort: curiaConfig.attach.ttyd_port, log })
+    const { verified } = await ensureTtyd({ ttydPort: curiaConfig.attach.ttyd_port, index: curiaConfig.attach.index, log })
     if (!verified) {
       // Refusing alone withdraws nothing: /attach runs on every request, so
       // THIS is the path that detects a verified→unverified flip first (there

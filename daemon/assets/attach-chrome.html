@@ -1,0 +1,142 @@
+<!-- Curia attach surface (#70) — the shape #69 chose.
+
+     Variant A: the terminal full bleed, sized by rule, the touch key-bar on
+     coarse pointers, nothing else. No top bar, no settings puck, no
+     read/drive mode — all three lost on a real phone and a real desktop.
+
+     THIS FILE IS THE SOURCE. It is injected into ttyd's stock index by
+     bin/build-attach-index.mjs, which writes assets/attach-index.html. Editing
+     this file alone changes nothing that is served: the daemon compares a
+     digest of this file against the one stamped in the built index and refuses
+     to publish a surface built from a different chrome. Rebuild after editing:
+
+         npm run build-attach-index
+
+     What is NOT here, on purpose:
+       - `rendererType=dom` is a ttyd flag, not page script. xterm picks its
+         renderer while ttyd's bundle boots, long before this script runs, so
+         the page cannot correct it. It is pinned in ttydArgv (#69 defect 1:
+         ttyd's default `webgl` renders NOTHING in Vivaldi or Firefox).
+       - `<meta name="viewport">` is injected into <head> by the builder. ttyd
+         1.7.7 ships none, and it must be in <head> to be read (#69 defect 2).
+       - The theme. #69 decided sizing, the key-bar and the renderer; it did
+         not decide colors, so ttyd's own theme stands.
+-->
+<style>
+/* ttyd sizes #terminal-container at height:100%. Pin it against the key-bar
+   instead, so term.fit() recomputes the grid against what is actually left. */
+:root { --curia-keybar-h: 0px; }
+#terminal-container {
+  position: fixed !important; top: 0; left: 0; right: 0;
+  bottom: var(--curia-keybar-h);
+  height: auto !important; width: auto !important; margin: 0 !important;
+}
+
+/* Touch key-bar (spike #32, unchanged by #69's ruling). A phone has no Esc,
+   no Tab and no Ctrl, and the attach surface is a TUI. */
+#curia-keybar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 9999; display: none;
+  gap: 4px; padding: 4px 6px calc(4px + env(safe-area-inset-bottom));
+  background: #15181d; border-top: 1px solid #2b323c; font-family: monospace;
+}
+#curia-keybar.on { display: flex; }
+#curia-keybar button {
+  flex: 1; min-width: 0; min-height: 44px; padding: 10px 2px; font-size: 15px;
+  background: #232830; color: #dfe4ec; border: 1px solid #39414d;
+  border-radius: 8px; font-family: inherit; touch-action: manipulation;
+}
+#curia-keybar button.hit { background: #3d4650; }
+#curia-keybar button:focus-visible { outline: 2px solid #5aa2ff; outline-offset: -2px; }
+</style>
+
+<div id="curia-keybar" role="group" aria-label="terminal keys"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  var bar = document.getElementById('curia-keybar');
+
+  /* ttyd exposes the xterm Terminal as window.term and hangs its own fit() on
+     it, but only once the socket is up — hence the poll rather than a
+     one-shot read. */
+  function withTerm(cb) {
+    if (window.term && window.term.fit) return cb(window.term);
+    var t = setInterval(function () {
+      if (window.term && window.term.fit) { clearInterval(t); cb(window.term); }
+    }, 80);
+  }
+
+  function coarse() { return !window.matchMedia('(pointer:fine)').matches; }
+
+  /* #69's sizing rule, and the only home for it. One rule, not one number:
+     readability floor first, columns land where they land. Re-read on every
+     call rather than cached, so docking a mouse or rotating a phone lands. */
+  function fontSize() {
+    if (coarse()) return 15;                                   // ~26 cols, and that is the answer
+    return Math.max(15, Math.min(24, Math.round(window.innerWidth / 70)));
+  }
+
+  function apply() {
+    withTerm(function (t) {
+      var want = fontSize();
+      if (t.options.fontSize !== want) t.options.fontSize = want;
+      bar.classList.toggle('on', coarse());
+      document.documentElement.style.setProperty(
+        '--curia-keybar-h', (coarse() ? bar.offsetHeight : 0) + 'px');
+      requestAnimationFrame(function () { t.fit(); });
+    });
+  }
+
+  /* Spike #32's row, unchanged: label, key, keyCode, modifier. */
+  var KEYS = [
+    ['Esc', 'Escape', 27, ''], ['Tab', 'Tab', 9, ''], ['⇧Tab', 'Tab', 9, 'shift'],
+    ['↑', 'ArrowUp', 38, ''], ['↓', 'ArrowDown', 40, ''],
+    ['^C', 'c', 67, 'ctrl'], ['⏎', 'Enter', 13, '']
+  ];
+  KEYS.forEach(function (k) {
+    var b = document.createElement('button');
+    b.textContent = k[0];
+    b.setAttribute('aria-label', k[0]);
+    b.dataset.k = k[1] + ':' + k[2] + ':' + k[3];
+    bar.appendChild(b);
+  });
+
+  bar.addEventListener('pointerdown', function (e) {
+    e.preventDefault();                          // never take focus off the terminal
+    var b = e.target.closest('button');
+    if (b) { b.classList.add('hit'); setTimeout(function () { b.classList.remove('hit'); }, 150); }
+  }, true);
+
+  bar.addEventListener('click', function (e) {
+    var b = e.target.closest('button');
+    if (!b) return;
+    var p = b.dataset.k.split(':');
+    var t = document.querySelector('.xterm-helper-textarea');
+    if (!t) return;
+    t.focus();
+    t.dispatchEvent(new KeyboardEvent('keydown', {
+      key: p[0], keyCode: +p[1], which: +p[1],
+      shiftKey: p[2] === 'shift', ctrlKey: p[2] === 'ctrl',
+      bubbles: true, cancelable: true
+    }));
+  });
+
+  /* Keep the bar above the virtual keyboard: the layout viewport does not
+     shrink when it opens, the visual viewport does. */
+  if (window.visualViewport) {
+    var vv = window.visualViewport;
+    var lift = function () {
+      var off = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      bar.style.transform = 'translateY(-' + off + 'px)';
+    };
+    vv.addEventListener('resize', lift);
+    vv.addEventListener('scroll', lift);
+    lift();
+  }
+
+  window.addEventListener('resize', apply);
+  window.addEventListener('orientationchange', apply);
+  apply();
+})();
+</script>

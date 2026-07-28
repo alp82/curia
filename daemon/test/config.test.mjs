@@ -11,12 +11,13 @@ import path from 'node:path'
 
 import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
+ import { DEFAULT_INDEX } from '../src/attach.mjs'
 
 let tmp
 let root
 
 // Base config with every other section valid, so a failure names the skills.
-function writeConfig(skillsYaml) {
+function writeConfig(skillsYaml, attachExtra = '') {
   const file = path.join(tmp, `curia-${Math.random().toString(36).slice(2)}.yaml`)
   fs.writeFileSync(file, [
     'watch:',
@@ -31,6 +32,7 @@ function writeConfig(skillsYaml) {
     'attach:',
     '  ttyd_port: 7681',
     '  serve_port: 8443',
+    attachExtra,
     skillsYaml ?? '',
     '',
   ].join('\n'))
@@ -252,5 +254,50 @@ describe('reasoning effort is stated, not inherited (#39)', () => {
 
   test('a misspelled effort refuses the boot', () => {
     assert.throws(() => load('extreme'), /reasoning_effort must be one of/)
+  })
+})
+
+// #70. The attach page is an owned, built asset; the config states where it
+// is. The one thing this must never do is resolve to a file that is not there
+// — a ttyd spawned with a `-I` pointing at nothing serves no attach surface at
+// all, and the operator finds out from a browser rather than from the boot.
+describe('attach.index config (#70)', () => {
+  let dir
+  let asset
+
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-attach-cfg-'))
+    tmp = dir // writeConfig writes into `tmp`; the describes above tear theirs down
+    asset = path.join(dir, 'assets', 'attach-index.html')
+    fs.mkdirSync(path.dirname(asset), { recursive: true })
+    fs.writeFileSync(asset, '<!DOCTYPE html><html><head></head><body></body></html>')
+  })
+  after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  test('omitted, it takes the shipped asset — the only value anyone wants', () => {
+    assert.equal(loadCuriaConfig(writeConfig()).attach.index, DEFAULT_INDEX)
+    assert.ok(fs.existsSync(DEFAULT_INDEX), 'and the shipped asset is committed, not built on demand')
+  })
+
+  test('a relative path resolves against the config file, not the cwd', () => {
+    // The daemon may be started from any cwd, and the shipped config names the
+    // asset portably rather than carrying one box\'s absolute path.
+    const rel = path.relative(tmp, asset)
+    assert.equal(loadCuriaConfig(writeConfig(null, `  index: ${rel}`)).attach.index, asset)
+  })
+
+  test('an absolute path is taken as given', () => {
+    assert.equal(loadCuriaConfig(writeConfig(null, `  index: ${asset}`)).attach.index, asset)
+  })
+
+  test('a path that is not there refuses the boot, naming the path and the build command', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(null, '  index: ./no-such-index.html')),
+      /attach\.index resolves to .*no-such-index\.html, which does not exist.*build-attach-index/s,
+    )
+  })
+
+  test('a non-string refuses the boot', () => {
+    assert.throws(() => loadCuriaConfig(writeConfig(null, '  index: 7')), /attach\.index must be a path/)
   })
 })
