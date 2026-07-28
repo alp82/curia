@@ -134,11 +134,14 @@ worker's context as a real image block, not a file path.
 ### 5 — Preview, opened from the phone
 
 The worker starts `bun --bun vite dev` in its worktree and calls
-`publish_preview(<the port it actually bound>)`. Alp's own dev server holds `:3015`, so Vite will
-move to the next free port — which is the whole reason the tool takes the bound port (#40).
+`publish_preview(<the port it actually bound>, <the path of the page it changed>)`. Alp's own dev
+server holds `:3015`, so Vite will move to the next free port — which is the whole reason the tool
+takes the bound port (#40). The path is the other half (#68): without it every composed link opens
+the site root, which is how the last re-run sent three review gates to an untouched homepage.
 
 Expect a `🔗 preview` message in the thread carrying
-`https://alppc.tail3b99f1.ts.net:85xx/` — the daemon allocated the public port, not the worker.
+`https://alppc.tail3b99f1.ts.net:85xx/<path>` — the daemon allocated the public port, not the worker,
+and it composed the link from its own record rather than from anything the worker wrote.
 
 **Phone:** open the link. The subpage renders over the tailnet. This is the leg that makes the work
 reviewable from the phone rather than merely reported on.

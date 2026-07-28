@@ -354,19 +354,29 @@ function buildMcpServer(worker, ticket) {
   // #40: the worker runs its dev server on localhost and asks the daemon to
   // publish it. The worker never picks the public port — see preview.mjs for
   // why that separation is the whole point of the registry.
+  //
+  // #68: it also names the PAGE. The port is the only thing the worker knew how
+  // to say, so every composed link pointed at the site root; the path is where
+  // the worker declares what it changed, once, in the same call.
   server.tool(
     'publish_preview',
-    'Publish a dev server you have started on localhost as an HTTPS preview link the human can open from any device. Start the server FIRST (it must be listening), then call this with its port. Returns the URL — pass it to ask_human(kind: "preview-review") to get it reviewed. The link is withdrawn automatically when this ticket finishes.',
-    { dev_port: z.number().int() },
-    async ({ dev_port }) => {
+    'Publish a dev server you have started on localhost as an HTTPS preview link the human can open from any device. Start the server FIRST (it must be listening), then call this with its port and the path of the page you want looked at — without a path the link opens the site root, which is usually not what you changed. Call it again with a different path to move the link. Returns the URL; curia puts it in the review gate itself, so you never need to repeat it in your own text. The link is withdrawn automatically when this ticket finishes.',
+    {
+      dev_port: z.number().int(),
+      path: z.string().optional().describe('The path of the page to review, e.g. "/curia-check" or "/blog/post?draft=1". Defaults to "/". A path on this dev server only — never a host or a scheme.'),
+    },
+    async ({ dev_port, path }) => {
       let base
       try {
         base = await attachBase()
       } catch (e) {
         return { content: [{ type: 'text', text: `preview unavailable: could not resolve this box's tailnet name (${e.message})` }] }
       }
-      const r = await previews.publish(ticket, dev_port, { base })
-      store.logEvent('preview', { worker, ticket, dev_port, ok: r.ok, url: r.url ?? null, reason: r.reason ?? null })
+      const r = await previews.publish(ticket, dev_port, { base, path })
+      store.logEvent('preview', {
+        worker, ticket, dev_port, path: r.path ?? path ?? null,
+        ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,
+      })
       if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }] }
       if (bridge) bridge.notify(ticket, `🔗 preview for \`${worker}\`: ${r.url} (dev server on :${dev_port})`).catch(() => {})
       return { content: [{ type: 'text', text: r.url }] }
@@ -399,7 +409,7 @@ function buildMcpServer(worker, ticket) {
     'request_review',
     'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again.',
     {
-      summary: z.string().describe('What you did, in a few lines. The human reads this on a phone.'),
+      summary: z.string().describe('What you did, in a few lines. The human reads this on a phone. Do not paste links: curia composes every one of them — pull request, preview, ticket — from its own records, and a link you write is not evidence.'),
       charting: z.string().describe('CONCRETE map changes you propose: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
     },
     async ({ summary, charting }, extra) => {

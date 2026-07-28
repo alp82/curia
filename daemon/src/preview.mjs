@@ -2,9 +2,9 @@
 // preview, allocated by the DAEMON — not by the worker — from a configured
 // range, proxying a dev server the worker runs on localhost.
 //
-//   worker: npm run dev            (binds SOME localhost address — see localhostTarget)
-//   daemon: publish_preview(port)  -> tailscale serve --bg --https=<serve-port> http://<target>:<dev-port>
-//   human:  https://<box>.<tailnet>.ts.net:<serve-port>/
+//   worker: npm run dev                  (binds SOME localhost address — see localhostTarget)
+//   daemon: publish_preview(port, path)  -> tailscale serve --bg --https=<serve-port> http://<target>:<dev-port>
+//   human:  https://<box>.<tailnet>.ts.net:<serve-port><path>
 //
 // Why the daemon allocates: a worker choosing its own Serve port would collide
 // with other workers and with the attach rule, and — the sharper reason —
@@ -80,8 +80,58 @@ export async function localhostTarget(port, { timeout = 750 } = {}) {
   return null
 }
 
-export function previewUrl(base, servePort) {
-  return `https://${base}:${servePort}/`
+// The PAGE to look at, not just the site (#68). `publish_preview` used to take a
+// port and nothing else, so the only link curia could compose pointed at the dev
+// server's root — and in #65's re-run all three review gates sent Alp to an
+// untouched homepage while the work lived on `/curia-check`. He sent the ticket
+// back, and the worker then routed around curia by putting the real URL in its
+// own prose: exactly the worker-asserted string the gate exists so as not to
+// depend on (#54, #40).
+//
+// The path is a DISPLAY suffix on a rule that is already allocated. It grants no
+// reach the Serve rule does not already have — the rule proxies the whole dev
+// server either way — so it needs no new refusal for reach. It needs one for
+// what it must not smuggle: a host or a scheme would move the gate's own link
+// off this box, which is the one property that makes a daemon-composed link
+// worth more than a worker's word.
+//
+// Resolution decides that, rather than a pattern: anything that moves the origin
+// is refused whatever syntax it arrived in — `//evil.com/x` (protocol-relative),
+// `https://evil.com/x`, `\\evil.com` (a backslash is a slash to the URL parser),
+// and `box.ts.net:8500/x`, which parses as a SCHEME. Everything surviving that
+// is a path on this preview, and `..` in it can only ever resolve back to `/`.
+const PATH_ORIGIN = 'https://preview.invalid'
+const PATH_LIMIT = 512
+
+export function normalizePreviewPath(input) {
+  if (input === undefined || input === null || input === '') return { ok: true, path: '/' }
+  if (typeof input !== 'string') {
+    return { ok: false, reason: `path must be a string (got ${JSON.stringify(input)})` }
+  }
+  if (input.length > PATH_LIMIT) {
+    return { ok: false, reason: `path is longer than ${PATH_LIMIT} characters` }
+  }
+  if (/[\s\u0000-\u001f\u007f]/.test(input)) {
+    return { ok: false, reason: `path must hold no spaces or control characters — percent-encode them (got ${JSON.stringify(input)})` }
+  }
+  let url
+  try {
+    url = new URL(input, PATH_ORIGIN)
+  } catch {
+    return { ok: false, reason: `path is not a usable URL path (got ${JSON.stringify(input)})` }
+  }
+  if (url.origin !== PATH_ORIGIN) {
+    return {
+      ok: false,
+      reason: `path must be a path on this preview, not a host or a scheme (got ${JSON.stringify(input)}) — pass something like "/some/page"`,
+    }
+  }
+  return { ok: true, path: `${url.pathname}${url.search}${url.hash}` }
+}
+
+export function previewUrl(base, servePort, path = '/') {
+  const suffix = String(path ?? '/')
+  return `https://${base}:${servePort}${suffix.startsWith('/') ? suffix : `/${suffix}`}`
 }
 
 export class PreviewRegistry {
@@ -128,7 +178,7 @@ export class PreviewRegistry {
 
   // Allocate + publish. Idempotent per ticket: a repeat call for the same dev
   // port returns the existing allocation rather than burning a second port.
-  async publish(ticket, devPort, { base }) {
+  async publish(ticket, devPort, { base, path: rawPath } = {}) {
     const key = String(ticket)
     if (!Number.isInteger(devPort) || devPort < 1 || devPort > 65535) {
       return this.#refuse(`dev port must be a port number (got ${JSON.stringify(devPort)})`)
@@ -136,11 +186,18 @@ export class PreviewRegistry {
     if (this.reserved.has(devPort)) {
       return this.#refuse(`refusing to publish port ${devPort} — it is one of curia's own surfaces (daemon API, ttyd, attach), and publishing it would expose it to the whole tailnet`)
     }
+    const norm = normalizePreviewPath(rawPath)
+    if (!norm.ok) return this.#refuse(norm.reason)
+    const path = norm.path
+
+    // Re-publishing the same dev port reuses the allocation — but it MOVES the
+    // path, because correcting a wrong link is the whole reason a worker calls
+    // this twice. Returning the stale URL here would reinstate #68 one call in.
     const existing = this.byTicket.get(key)
     if (existing && existing.devPort === devPort) {
-      const url = previewUrl(base, existing.servePort)
-      this.byTicket.set(key, { ...existing, url })
-      return { ok: true, ...existing, url, reused: true }
+      const entry = { ...existing, path, url: previewUrl(base, existing.servePort, path) }
+      this.byTicket.set(key, entry)
+      return { ok: true, ...entry, reused: true }
     }
     const target = await this.isLive(devPort)
     if (!target) {
@@ -173,10 +230,10 @@ export class PreviewRegistry {
     // actually allocated rather than a string a worker handed over. Resolving
     // the tailnet name again there would mean a second `tailscale` call inside a
     // blocking tool.
-    const url = previewUrl(base, servePort)
-    this.byTicket.set(key, { servePort, devPort, target, url })
+    const url = previewUrl(base, servePort, path)
+    this.byTicket.set(key, { servePort, devPort, target, path, url })
     this.log(`preview for ticket ${key}: ${url} -> ${target}:${devPort}`)
-    return { ok: true, servePort, devPort, target, url, reused: false }
+    return { ok: true, servePort, devPort, target, path, url, reused: false }
   }
 
   // "handler does not exist" is POSITIVE ABSENCE, not a failed withdrawal —

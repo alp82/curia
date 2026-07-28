@@ -15,7 +15,9 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { PreviewRegistry, parseServedPorts, previewUrl, DEFAULT_RANGE } from '../src/preview.mjs'
+import {
+  PreviewRegistry, parseServedPorts, previewUrl, normalizePreviewPath, DEFAULT_RANGE,
+} from '../src/preview.mjs'
 
 // The exact shape `tailscale serve status --json` returned on the box.
 const REAL_STATUS = {
@@ -275,5 +277,92 @@ describe('sweep', () => {
 describe('previewUrl', () => {
   test('is the tailnet base with the allocated port', () => {
     assert.equal(previewUrl('box.ts.net', 8500), 'https://box.ts.net:8500/')
+  })
+
+  test('carries the path, so the link opens the page rather than the site', () => {
+    assert.equal(previewUrl('box.ts.net', 8500, '/curia-check'), 'https://box.ts.net:8500/curia-check')
+  })
+})
+
+// #68: the whole defect was that this argument did not exist. These pin the two
+// halves of it — the path reaches the composed link, and it can never move that
+// link off this box.
+describe('normalizePreviewPath', () => {
+  test('nothing given means the site root, as before', () => {
+    for (const empty of [undefined, null, '']) {
+      assert.deepEqual(normalizePreviewPath(empty), { ok: true, path: '/' })
+    }
+  })
+
+  test('a plain path, a query and a fragment all survive', () => {
+    assert.equal(normalizePreviewPath('/curia-check').path, '/curia-check')
+    assert.equal(normalizePreviewPath('/blog/post?draft=1').path, '/blog/post?draft=1')
+    assert.equal(normalizePreviewPath('/docs#anchor').path, '/docs#anchor')
+    assert.equal(normalizePreviewPath('curia-check').path, '/curia-check', 'a missing leading slash is a typo, not a refusal')
+  })
+
+  test('a path that would move the origin is refused, whatever syntax it arrives in', () => {
+    for (const smuggled of [
+      '//evil.com/x', // protocol-relative — the one that looks like a path
+      'https://evil.com/x',
+      'http://127.0.0.1:4271/answer',
+      '\\\\evil.com/x', // a backslash is a slash to the URL parser
+      'box.ts.net:8500/x', // parses as a SCHEME, not a host
+      'javascript:alert(1)',
+    ]) {
+      const r = normalizePreviewPath(smuggled)
+      assert.equal(r.ok, false, `${smuggled} must be refused`)
+      assert.match(r.reason, /not a host or a scheme|not a usable URL path/)
+    }
+  })
+
+  test('`..` can only ever climb back to the root of this preview', () => {
+    assert.equal(normalizePreviewPath('/a/../../../etc/passwd').path, '/etc/passwd')
+  })
+
+  test('spaces, control characters, a non-string and an overlong path are refused', () => {
+    assert.equal(normalizePreviewPath('/a page').ok, false)
+    assert.equal(normalizePreviewPath('/a\nb').ok, false)
+    assert.equal(normalizePreviewPath(7).ok, false)
+    assert.equal(normalizePreviewPath(`/${'x'.repeat(600)}`).ok, false)
+  })
+})
+
+describe('the published link points at the page, not the site root (#68)', () => {
+  test('the path reaches the URL the registry hands back and stores', async () => {
+    const { exec } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: alwaysLive, log: () => {} })
+    const r = await reg.publish('7', 4321, { base: BASE, path: '/curia-check' })
+    assert.equal(r.ok, true)
+    assert.equal(r.url, `https://${BASE}:${DEFAULT_RANGE.from}/curia-check`)
+    // The gate reads the STORED entry, not this return value (#54).
+    assert.equal(reg.get('7').url, r.url)
+  })
+
+  test('the Serve rule is unchanged by the path — it is a display suffix, not reach', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: alwaysLive, log: () => {} })
+    await reg.publish('7', 4321, { base: BASE, path: '/curia-check' })
+    assert.ok(calls.some((c) => c === `tailscale serve --bg --https=${DEFAULT_RANGE.from} http://127.0.0.1:4321`))
+  })
+
+  test('re-publishing the same port with a new path MOVES the link', async () => {
+    const { exec } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: alwaysLive, log: () => {} })
+    await reg.publish('7', 4321, { base: BASE })
+    const b = await reg.publish('7', 4321, { base: BASE, path: '/curia-check' })
+    assert.equal(b.reused, true, 'still one port')
+    assert.equal(b.url, `https://${BASE}:${DEFAULT_RANGE.from}/curia-check`)
+    assert.equal(reg.get('7').url, b.url, 'correcting a wrong link is why this call is made twice')
+    assert.equal(reg.list().length, 1)
+  })
+
+  test('a smuggled path refuses the publish outright — no rule, no link', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: alwaysLive, log: () => {} })
+    const r = await reg.publish('7', 4321, { base: BASE, path: '//evil.com/x' })
+    assert.equal(r.ok, false)
+    assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
+    assert.equal(reg.get('7'), null)
   })
 })

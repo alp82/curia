@@ -618,10 +618,13 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  takes.',
     '- `notify` — a status line for the human. Returns at once.',
     '- `publish_preview` — publish a dev server you have started on localhost as an HTTPS link. Start the',
-    '  server FIRST, then call this with the port it bound.',
+    '  server FIRST, then call this with the port it bound and the path of the page to look at.',
     '- `open_pull_request` — curia pushes your branch and opens or updates the pull request. You never push.',
     '- `request_review` — the one gate. curia shows the human the pull request, the preview, the ticket and',
-    '  your proposed charting, and blocks until they approve or reject.',
+    '  your proposed charting, and blocks until they approve or reject. **You never write a link yourself.**',
+    '  curia composes all three from its own records, which is what makes them evidence rather than your',
+    '  account of your own work. If the preview link points at the wrong page, fix it where it is made —',
+    '  call `publish_preview` again with the right path — not by pasting a URL into your summary.',
     '- `report_result` — exactly once, at the very end.',
   ]
 

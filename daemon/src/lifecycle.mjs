@@ -52,7 +52,9 @@ export const ENDING = [
   {
     key: 'preview',
     prose: () => [
-      'If there is something to look at, start the dev server and call `publish_preview` with its port.',
+      'If there is something to look at, start the dev server and call `publish_preview` with its port and',
+      'the path of the page you changed. The link curia shows the human is the one it composed from that',
+      'call, so a missing path sends them to the site root (#68).',
     ],
   },
   {
