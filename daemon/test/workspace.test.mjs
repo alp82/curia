@@ -257,6 +257,11 @@ describe('the codex worker harness (#39)', () => {
     assert.match(toml, /\[features\]\nhooks = true/)
     assert.match(toml, /\[mcp_servers\.curia\]\nurl = "http:\/\/127\.0\.0\.1:4271\/mcp\?worker=curia-6&ticket=6"/)
 
+    // codex's 300 s tool-call deadline is a HARD one, so #34's keepalive — which
+    // lifts Claude Code's identical abort — does nothing here. Without this line
+    // every blocking ask_human dies at five minutes (observed live, twice).
+    assert.match(toml, /tool_timeout_sec = 86400/)
+
     const hooks = JSON.parse(fs.readFileSync(path.join(cfgDir, 'hooks.json'), 'utf8'))
     assert.match(hooks.hooks.Stop[0].hooks[0].command, /worker_done\?worker=curia-6/)
 

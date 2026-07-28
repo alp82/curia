@@ -261,6 +261,22 @@ function curiaMcpUrl(daemonPort, worker, ticket) {
   return `http://127.0.0.1:${daemonPort}/mcp?worker=${worker}&ticket=${ticket}`
 }
 
+// How long codex may wait on one curia tool call. Its default is 300 s, and it
+// is a HARD deadline on the call, not an idle timer — so #34's MCP-stream
+// keepalive, which is what lifts Claude Code's identical 300 s abort, does
+// nothing here. That was found the way #34's was: a live worker held a
+// `request_review` open, the human took five minutes, and the call died with
+// `tool call error: timed out awaiting tools/call after 300s` — twice, because
+// the worker correctly retried it (#56's standing order) into a second deadline.
+//
+// A day, not a literal infinity: codex wants a number, and this is the one place
+// #11's "blocks for as long as the human takes" is bounded. It is ~3x the
+// longest real block on record (7 h 53 m, #56), the ~30-min re-nudge keeps
+// running underneath it, and a block that outlives it re-dispatches rather than
+// resolving anything (#11/#12). The keepalive stays on for the claude lane and
+// costs nothing here.
+const CODEX_TOOL_TIMEOUT_S = 86_400
+
 // The Stop hook, identical on both lanes: POST the hook's own stdin payload to
 // the daemon, which answers `{decision:"block", reason}` while a step of the
 // ending is outstanding (#54).
@@ -389,6 +405,7 @@ const HARNESS = {
         '',
         '[mcp_servers.curia]',
         `url = ${toml(curiaMcpUrl(daemonPort, worker, ticket))}`,
+        `tool_timeout_sec = ${CODEX_TOOL_TIMEOUT_S}`,
         '',
       ].join('\n'))
       fs.writeFileSync(path.join(cfgDir, 'hooks.json'), JSON.stringify({
