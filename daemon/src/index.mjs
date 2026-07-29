@@ -33,6 +33,8 @@ import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { hasSession } from './tmux.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
+import { TimelineSurface } from './timeline.mjs'
+import { detectBackend } from './transcript.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -271,18 +273,51 @@ const attachApi = {
     const base = await attachBase()
     return attachUrl(base, curiaConfig.attach.serve_port, ticket)
   },
+  // The timeline half of /attach (#74): same liveness gate, then the surface
+  // composes its own link — or refuses, independently of the terminal half.
+  async timelineLink(ticket) {
+    const session = `curia-${ticket}`
+    if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
+    if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
+    return timeline.link(session)
+  },
 }
 
 // Preview links (#40, implementing #8): the daemon owns allocation. `reserved`
 // is the containment that matters — publishing the daemon's own port would put
-// /answer, /command and /escalate on the tailnet unauthenticated, and
-// publishing the raw ttyd port would bypass the attach rule entirely.
+// /answer, /command and /escalate on the tailnet unauthenticated, publishing
+// the raw ttyd port would bypass the attach rule entirely, and publishing the
+// timeline's ports would double-publish its writable composer.
 const previews = new PreviewRegistry({
   range: curiaConfig.preview,
-  reserved: [PORT, curiaConfig.attach.ttyd_port, curiaConfig.attach.serve_port],
+  reserved: [
+    PORT, curiaConfig.attach.ttyd_port, curiaConfig.attach.serve_port,
+    curiaConfig.timeline.port, curiaConfig.timeline.serve_port,
+  ],
   log,
 })
 dispatcher.previews = previews // constructed after the dispatcher; teardown + sweep read it here
+
+// The timeline surface (#74, landing #73's pick). In-process, so it can read
+// the two things only the daemon has: which backend a session runs, and the
+// durable escalation record — the claude lane's transcript is SILENT while an
+// ask_human blocks (measured on #74), so open escalations are overlaid from
+// the store or the surface shows a working worker as idle at the exact moment
+// a human is needed.
+const timeline = new TimelineSurface({
+  port: curiaConfig.timeline.port,
+  servePort: curiaConfig.timeline.serve_port,
+  index: curiaConfig.timeline.index,
+  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  log,
+  deps: {
+    journal: (type, detail) => store.logEvent(type, detail),
+    backendFor: (session) => dispatcher.workers.get(session)?.backend
+      ?? detectBackend(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
+    escalationsFor: (session) => store.openEscalations().filter((r) => r.worker === session),
+  },
+})
+dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's
 
 const router = new CommandRouter({ dispatcher, attach: attachApi, log })
 
@@ -651,11 +686,16 @@ async function handleRequest(req, res) {
 
 httpServer.listen(PORT, '127.0.0.1', () => {
   log(`curia daemon listening on http://127.0.0.1:${PORT}`)
-  // boot reconcile (#33): re-derive live workers from GitHub + tmux + journal,
-  // sweep orphans, release dead claims, void restart-orphaned overseer
-  // confirms, assert the attach surface — then start the auto loop (a no-op
-  // while auto_dispatch is false). Not gated on the bridge.
-  dispatcher.reconcile({ boot: true })
+  // The timeline listener binds before boot reconcile so the reconcile's
+  // assert sees it up and publishes it — a bind failure leaves it down and the
+  // assert withdraws instead (never fatally: the daemon without a timeline is
+  // still a daemon).
+  timeline.start()
+    // boot reconcile (#33): re-derive live workers from GitHub + tmux + journal,
+    // sweep orphans, release dead claims, void restart-orphaned overseer
+    // confirms, assert the attach + timeline surfaces — then start the auto
+    // loop (a no-op while auto_dispatch is false). Not gated on the bridge.
+    .then(() => dispatcher.reconcile({ boot: true }))
     .then(() => {
       log('boot reconcile done')
       dispatcher.startAutoLoop()

@@ -12,6 +12,7 @@ import path from 'node:path'
 import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
  import { DEFAULT_INDEX } from '../src/attach.mjs'
+import { DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
 
 let tmp
 let root
@@ -299,5 +300,44 @@ describe('attach.index config (#70)', () => {
 
   test('a non-string refuses the boot', () => {
     assert.throws(() => loadCuriaConfig(writeConfig(null, '  index: 7')), /attach\.index must be a path/)
+  })
+})
+
+describe('timeline config (#74)', () => {
+  let dir
+
+  before(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-timeline-cfg-'))
+    tmp = dir
+  })
+  after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  test('omitted, it takes the shipped defaults — port 4272, serve 8444, the committed page', () => {
+    const cfg = loadCuriaConfig(writeConfig())
+    assert.equal(cfg.timeline.port, 4272)
+    assert.equal(cfg.timeline.serve_port, 8444)
+    assert.equal(cfg.timeline.index, DEFAULT_TIMELINE_INDEX)
+    assert.ok(fs.existsSync(DEFAULT_TIMELINE_INDEX), 'and the shipped page is committed')
+  })
+
+  test('a page that is not there refuses the boot naming the path', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['timeline:', '  index: ./no-such-page.html'].join('\n'))),
+      /timeline\.index resolves to .*no-such-page\.html, which does not exist/,
+    )
+  })
+
+  test('a port collision with attach refuses the boot — one surface must not shadow another', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['timeline:', '  serve_port: 8443'].join('\n'))),
+      /attach\.serve_port and timeline\.serve_port are both 8443/,
+    )
+  })
+
+  test('a preview range containing a timeline port refuses the boot — the sweep would withdraw it', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['preview:', '  port_from: 8444', '  port_to: 8460'].join('\n'))),
+      /preview range 8444-8460 contains timeline\.serve_port \(8444\)/,
+    )
   })
 })

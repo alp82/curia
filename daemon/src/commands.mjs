@@ -59,7 +59,7 @@ const USAGE = [
   '`status` — live workers',
   '`start <n>|owner/repo#<n> [model=x] [backend=y]` — claim + dispatch a worker',
   '`cancel <n>` — confirm-then-teardown',
-  '`attach <n>` — browser-terminal link for a live worker',
+  '`attach <n>` — timeline + browser-terminal links for a live worker',
 ].join('\n')
 
 export class CommandRouter {
@@ -126,14 +126,26 @@ export class CommandRouter {
     return lines.join('\n')
   }
 
+  // One verb, two handles (#74, #73's division of labor): the timeline is
+  // where you drive, the PTY is where you go when you need to see the terminal
+  // itself. A new verb would need the bridge's slash manifest re-registered on
+  // every device (#65 found a stale one is silently wrong), so the existing
+  // verb carries both — each composed from curia's own records, each failing
+  // independently so one surface being down never hides the other.
   async #attachReply(ticket) {
     const session = `curia-${ticket}`
     if (!validSessionName(session)) return `⛔ \`${session}\` is not a valid curia session name`
+    const lines = []
     try {
-      const url = await this.attach.link(ticket)
-      return `🔗 ${url}`
+      lines.push(`🧭 timeline ${await this.attach.timelineLink(ticket)}`)
     } catch (e) {
-      return `⛔ ${e.message}`
+      lines.push(`⛔ timeline: ${e.message}`)
     }
+    try {
+      lines.push(`🖥️ terminal ${await this.attach.link(ticket)}`)
+    } catch (e) {
+      lines.push(`⛔ terminal: ${e.message}`)
+    }
+    return lines.join('\n')
   }
 }

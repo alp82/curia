@@ -10,6 +10,7 @@ import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_BACKENDS } from './workspace.mjs'
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
+import { DEFAULT_TIMELINE_INDEX } from './timeline.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
@@ -84,10 +85,43 @@ export function loadCuriaConfig(file) {
     fail(file, `attach.index resolves to ${a.index}, which does not exist — build it with \`${REBUILD_CMD}\``)
   }
 
+  // The timeline surface (#74, landing #73's pick). Optional with defaults for
+  // the same reason attach.index is: omitting it means the surface curia
+  // ships, which is the only value anyone wants. Validated hard either way,
+  // and the page must exist at boot — the same refusal attach.index gets.
+  const t = cfg.timeline ?? {}
+  if (typeof t !== 'object' || Array.isArray(t)) fail(file, '`timeline` must be a mapping')
+  t.port = t.port ?? 4272
+  t.serve_port = t.serve_port ?? 8444
+  for (const key of ['port', 'serve_port']) {
+    if (!(Number.isInteger(t[key]) && t[key] > 0 && t[key] < 65536)) fail(file, `timeline.${key} must be a port number`)
+  }
+  if (t.index !== undefined && typeof t.index !== 'string') fail(file, 'timeline.index must be a path')
+  t.index = t.index === undefined
+    ? DEFAULT_TIMELINE_INDEX
+    : path.resolve(path.dirname(path.resolve(file)), expandHome(t.index))
+  if (!fs.existsSync(t.index)) {
+    fail(file, `timeline.index resolves to ${t.index}, which does not exist — it ships committed in daemon/assets/`)
+  }
+  // Four ports, one box: any collision means one surface silently shadows or
+  // sweeps another, so all of them must be pairwise distinct.
+  const ports = [
+    ['attach.ttyd_port', a.ttyd_port], ['attach.serve_port', a.serve_port],
+    ['timeline.port', t.port], ['timeline.serve_port', t.serve_port],
+  ]
+  for (let i = 0; i < ports.length; i++) {
+    for (let j = i + 1; j < ports.length; j++) {
+      if (ports[i][1] === ports[j][1]) {
+        fail(file, `${ports[i][0]} and ${ports[j][0]} are both ${ports[i][1]} — every surface needs its own port`)
+      }
+    }
+  }
+  cfg.timeline = t
+
   // Preview port range (#40/#8). Optional with defaults — an existing config
   // predating previews must still boot — but validated hard when present, and
-  // the range must not swallow the attach port: sweeping it would take /attach
-  // down tailnet-wide on the next reconcile.
+  // the range must not swallow the attach or timeline ports: sweeping it would
+  // take that surface down tailnet-wide on the next reconcile.
   const p = cfg.preview ?? {}
   if (typeof p !== 'object') fail(file, '`preview` must be a mapping')
   const range = { from: p.port_from ?? DEFAULT_PREVIEW_RANGE.from, to: p.port_to ?? DEFAULT_PREVIEW_RANGE.to }
@@ -95,7 +129,7 @@ export function loadCuriaConfig(file) {
     if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(file, `preview.${key} must be a port number`)
   }
   if (range.to < range.from) fail(file, `preview.port_to (${range.to}) must not be below preview.port_from (${range.from})`)
-  for (const [name, port] of [['attach.serve_port', a.serve_port], ['attach.ttyd_port', a.ttyd_port]]) {
+  for (const [name, port] of ports) {
     if (port >= range.from && port <= range.to) {
       fail(file, `preview range ${range.from}-${range.to} contains ${name} (${port}) — the preview sweep would withdraw it`)
     }

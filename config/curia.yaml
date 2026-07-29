@@ -32,6 +32,13 @@ attach:
   # ttyd: `npm run build-attach-index --prefix daemon`.
   index: ../daemon/assets/attach-index.html
 
+timeline:                                  # #74, landing #73: the grid-less attach surface —
+  port: 4272                               # daemon-hosted loopback listener (transcript tail + send-keys)
+  serve_port: 8444                         # its own Serve rule, beside attach's, never inside the preview range
+  # The page is a committed asset carrying a proto stamp; the daemon refuses to
+  # serve or publish a page whose proto is not the one it speaks (#70's rule).
+  index: ../daemon/assets/timeline.html
+
 preview:                                   # #40, implementing #8: one Serve port per preview
   port_from: 8500                          # must not contain attach.serve_port — the sweep
   port_to: 8599                            # withdraws every rule it finds in this range

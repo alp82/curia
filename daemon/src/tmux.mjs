@@ -92,3 +92,19 @@ export async function capturePane(name) {
 export async function killSession(name) {
   await tmux(['kill-session', '-t', `=${name}`])
 }
+
+// The timeline surface's write path (#74): send-keys drives a session with
+// ZERO attached clients, so no geometry is negotiated and the pane never
+// learns how many devices exist (#72 leg 3). Same pane-scoped `=name:` target
+// as capturePane, for the same window-rename reason.
+//
+// -l sends the text LITERALLY (no key-name interpretation); the separate
+// Enter submits it.
+export async function sendText(name, text) {
+  await tmux(['send-keys', '-t', `=${name}:`, '-l', text])
+  await tmux(['send-keys', '-t', `=${name}:`, 'Enter'])
+}
+
+export async function sendKey(name, key) {
+  await tmux(['send-keys', '-t', `=${name}:`, key])
+}

@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<!-- ttyd 1.7.7 ships no viewport meta and that cost #69 the phone. Not repeating it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- The protocol handshake with the daemon (#74, the #70 stamp one layer up):
+     the server refuses to serve or publish this page unless the proto here
+     matches its own constant. Bump BOTH when the SSE/POST protocol changes. -->
+<meta name="curia-timeline" content="proto=1">
+<title>curia timeline</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #1a1a1a; --dim: #6b6b6b; --line: #e3e3e3;
+    --card: #f6f6f6; --accent: #2b6cb0; --you: #e8f0fb; --warn: #b34a2a;
+    --esc: #8a6d00; --escbg: #fff7dd;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --fg: #e6e6e6; --dim: #9aa0a6; --line: #2a2e35;
+      --card: #1c1f25; --accent: #7ab6ff; --you: #22303f; --warn: #ff9c7a;
+      --esc: #ffd76b; --escbg: #2b2717;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+    /* the surface has no grid, so it simply fills whatever screen it is on */
+    height: 100dvh;
+  }
+
+  header {
+    display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap;
+    padding: .5rem .75rem; border-bottom: 1px solid var(--line);
+    font-size: .82rem; color: var(--dim);
+    padding-top: max(.5rem, env(safe-area-inset-top));
+  }
+  header b { color: var(--fg); font-size: .95rem; }
+  #conn.ok { color: #2f9e44; } #conn.bad { color: var(--warn); }
+
+  /* the ticket's item 4: an unreadable transcript must never read as "the
+     worker is quiet" — this banner stays up until the file rotates */
+  #parse {
+    display: none; background: var(--warn); color: var(--bg);
+    padding: .4rem .75rem; font-size: .85rem;
+  }
+  #parse.on { display: block; }
+
+  /* open escalations from the daemon's own record — the claude lane writes
+     nothing to its transcript while ask_human blocks (#74 item 5, measured) */
+  #escs { padding: 0 .75rem; }
+  .esc {
+    background: var(--escbg); border: 1px solid var(--esc); border-radius: .6rem;
+    padding: .5rem .7rem; margin: .45rem auto; max-width: 62rem;
+  }
+  .esc .kind { color: var(--esc); font-weight: 600; font-size: .8rem; }
+  .esc .q { white-space: pre-wrap; }
+  .esc .meta { color: var(--dim); font-size: .75rem; }
+
+  main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: .5rem .75rem 1rem; }
+  .wrap { max-width: 62rem; margin: 0 auto; }
+
+  .item { margin: .45rem 0; overflow-wrap: anywhere; }
+  .say { white-space: pre-wrap; }
+  .prompt, .queued {
+    white-space: pre-wrap; background: var(--you); border-radius: .6rem;
+    padding: .5rem .7rem; border: 1px solid var(--line);
+  }
+  .queued { opacity: .8; font-style: italic; }
+  .think { color: var(--dim); font-size: .9rem; white-space: pre-wrap; }
+  .tool {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem;
+    background: var(--card); border-left: 3px solid var(--accent);
+    border-radius: .3rem; padding: .35rem .5rem;
+  }
+  .tool .name { color: var(--accent); font-weight: 600; }
+  .tool .brief { color: var(--fg); opacity: .85; }
+  .tool .res { display: block; color: var(--dim); margin-top: .2rem; }
+  .tool .res.err { color: var(--warn); }
+  details > summary { cursor: pointer; color: var(--dim); font-size: .82rem; }
+  .at { color: var(--dim); font-size: .72rem; margin-right: .35rem; }
+  .note { color: var(--dim); font-size: .8rem; text-align: center; }
+
+  footer {
+    border-top: 1px solid var(--line); padding: .5rem .75rem;
+    padding-bottom: max(.5rem, env(safe-area-inset-bottom));
+    display: flex; gap: .5rem; align-items: flex-end;
+  }
+  textarea {
+    flex: 1; resize: none; font: inherit; font-size: 16px; /* 16px stops iOS zooming on focus */
+    background: var(--card); color: var(--fg); border: 1px solid var(--line);
+    border-radius: .6rem; padding: .5rem .6rem; min-height: 2.6rem; max-height: 30dvh;
+  }
+  button {
+    font: inherit; font-size: .9rem; padding: .55rem .8rem; border-radius: .6rem;
+    border: 1px solid var(--line); background: var(--card); color: var(--fg);
+    min-height: 2.6rem;
+  }
+  button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+  .mirror { color: var(--dim); font-size: .75rem; padding: 0 .75rem .3rem; }
+</style>
+</head>
+<body>
+<header>
+  <b id="sess">—</b>
+  <span id="conn" class="bad">connecting</span>
+  <span id="clients"></span>
+  <span id="file" style="flex:1; text-align:right; overflow:hidden; text-overflow:ellipsis; white-space:nowrap"></span>
+</header>
+
+<div id="parse"></div>
+<div id="escs"></div>
+
+<main id="main"><div class="wrap" id="log"></div></main>
+
+<div class="mirror" id="mirror"></div>
+<footer>
+  <textarea id="box" rows="1" placeholder="type here — shared box"></textarea>
+  <button id="esc" title="send Escape to the worker">esc</button>
+  <button id="send" class="primary">send</button>
+</footer>
+
+<script>
+const qs = new URLSearchParams(location.search)
+const SESSION = qs.get('session') || ''
+const CLIENT = Math.random().toString(36).slice(2, 8)
+const $ = (id) => document.getElementById(id)
+$('sess').textContent = SESSION || 'no session named'
+
+const log = $('log'), main = $('main'), box = $('box')
+const byToolId = new Map()
+let lastLocalEdit = 0
+let stick = true
+
+main.addEventListener('scroll', () => {
+  stick = main.scrollHeight - main.scrollTop - main.clientHeight < 80
+})
+function scroll() { if (stick) main.scrollTop = main.scrollHeight }
+
+const fmt = (at) => at ? new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
+
+function render(it) {
+  const el = document.createElement('div')
+  el.className = 'item ' + it.kind
+  if (it.kind === 'say') {
+    el.innerHTML = `<span class="at">${fmt(it.at)}</span>`
+    el.appendChild(document.createTextNode(it.text))
+  } else if (it.kind === 'prompt' || it.kind === 'queued') {
+    // the spawn prompt is enormous; nobody wants it unrolled on a phone
+    if (it.text.length > 400) {
+      const d = document.createElement('details')
+      const s = document.createElement('summary')
+      s.textContent = (it.kind === 'queued' ? 'queued: ' : 'sent: ') + it.text.slice(0, 90) + '…'
+      d.appendChild(s)
+      const p = document.createElement('div'); p.style.whiteSpace = 'pre-wrap'; p.textContent = it.text
+      d.appendChild(p); el.appendChild(d)
+    } else {
+      el.textContent = it.text
+    }
+  } else if (it.kind === 'think') {
+    const d = document.createElement('details')
+    const s = document.createElement('summary'); s.textContent = 'thinking…'
+    d.appendChild(s)
+    const p = document.createElement('div'); p.style.whiteSpace = 'pre-wrap'; p.textContent = it.text
+    d.appendChild(p); el.appendChild(d)
+  } else if (it.kind === 'tool') {
+    el.innerHTML = `<span class="at">${fmt(it.at)}</span><span class="name"></span> <span class="brief"></span><span class="res"></span>`
+    el.querySelector('.name').textContent = (it.name || '').replace('mcp__curia__', 'curia.')
+    el.querySelector('.brief').textContent = it.brief || ''
+    if (it.id) byToolId.set(it.id, el)
+  } else if (it.kind === 'result') {
+    const target = byToolId.get(it.forId)
+    if (target) {
+      const res = target.querySelector('.res')
+      res.textContent = (it.ok ? '→ ' : '✗ ') + it.brief + (it.lines > 1 ? `  (${it.lines} lines)` : '')
+      if (!it.ok) res.classList.add('err')
+      return null
+    }
+    el.className = 'item tool'
+    el.textContent = (it.ok ? '→ ' : '✗ ') + it.brief
+  } else {
+    el.className = 'item note'
+    el.textContent = it.text || ''
+  }
+  return el
+}
+
+function add(items) {
+  for (const it of items) {
+    const el = render(it)
+    if (el) log.appendChild(el)
+  }
+  scroll()
+}
+
+function renderEscalations(list) {
+  const escs = $('escs')
+  escs.innerHTML = ''
+  for (const r of list) {
+    const el = document.createElement('div')
+    el.className = 'esc'
+    const kind = document.createElement('div'); kind.className = 'kind'
+    kind.textContent = `⏳ waiting on a human — ${r.kind} (${r.id})`
+    const q = document.createElement('div'); q.className = 'q'; q.textContent = r.prompt || ''
+    const meta = document.createElement('div'); meta.className = 'meta'
+    const bits = [`since ${fmt(r.opened_at)}`]
+    if (r.options?.length) bits.push(`options: ${r.options.join(' | ')}`)
+    if (r.preview_url) bits.push(r.preview_url)
+    bits.push('answer on Discord — the composer below queues a message, it does not answer this')
+    meta.textContent = bits.join(' · ')
+    el.append(kind, q, meta)
+    escs.appendChild(el)
+  }
+}
+
+let es
+function connect() {
+  // `&once=1` closes the stream after the backlog, for headless checks only.
+  es = new EventSource(`/events?session=${encodeURIComponent(SESSION)}&client=${CLIENT}${qs.get('once') ? '&once=1' : ''}`)
+  es.addEventListener('hello', (e) => {
+    const d = JSON.parse(e.data)
+    $('conn').textContent = 'live'; $('conn').className = 'ok'
+    $('file').textContent = d.file ? d.file.split('/').pop() : 'no transcript yet'
+    if (d.draft && !box.value) box.value = d.draft
+  })
+  es.addEventListener('items', (e) => add(JSON.parse(e.data)))
+  es.addEventListener('reset', (e) => {
+    log.innerHTML = ''; byToolId.clear()
+    $('parse').className = ''; $('parse').textContent = ''
+    $('file').textContent = (JSON.parse(e.data).file || '').split('/').pop() || 'no transcript yet'
+  })
+  es.addEventListener('parse', (e) => {
+    const d = JSON.parse(e.data)
+    $('parse').className = 'on'
+    $('parse').textContent = `⚠ this timeline is INCOMPLETE — ${d.reason} (${d.dropped} line${d.dropped > 1 ? 's' : ''} dropped). The worker may not be quiet; check the terminal surface.`
+  })
+  es.addEventListener('escalations', (e) => renderEscalations(JSON.parse(e.data)))
+  es.addEventListener('clients', (e) => {
+    const n = JSON.parse(e.data).clients
+    $('clients').textContent = n > 1 ? `${n} devices watching` : '1 device'
+  })
+  es.addEventListener('draft', (e) => {
+    const d = JSON.parse(e.data)
+    if (d.by === CLIENT) return
+    // the other device is typing: mirror it unless this one is mid-word
+    if (Date.now() - lastLocalEdit < 1500) return
+    box.value = d.text
+    $('mirror').textContent = d.text ? 'the other device is typing…' : ''
+  })
+  es.addEventListener('sent', (e) => {
+    const d = JSON.parse(e.data)
+    $('mirror').textContent = ''
+    if (d.by !== CLIENT) {
+      const n = document.createElement('div')
+      n.className = 'item note'; n.textContent = `sent from the other device: ${d.text.slice(0, 80)}`
+      log.appendChild(n); scroll()
+    }
+  })
+  es.onerror = () => { $('conn').textContent = 'reconnecting'; $('conn').className = 'bad' }
+}
+connect()
+
+let draftTimer
+box.addEventListener('input', () => {
+  lastLocalEdit = Date.now()
+  $('mirror').textContent = ''
+  box.style.height = 'auto'
+  box.style.height = Math.min(box.scrollHeight, window.innerHeight * 0.3) + 'px'
+  clearTimeout(draftTimer)
+  draftTimer = setTimeout(() => post('/draft', { text: box.value }), 200)
+})
+
+function post(p, extra) {
+  return fetch(p, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ session: SESSION, client: CLIENT, ...extra }),
+  }).then((r) => r.json())
+}
+
+async function submit() {
+  const text = box.value
+  if (!text.trim()) return
+  box.value = ''; box.style.height = 'auto'
+  const r = await post('/send', { text })
+  if (r.error) {
+    const n = document.createElement('div')
+    n.className = 'item note'; n.style.color = 'var(--warn)'
+    n.textContent = 'send failed: ' + r.error
+    log.appendChild(n); scroll()
+    box.value = text
+  }
+}
+
+$('send').onclick = submit
+$('esc').onclick = () => post('/key', { key: 'escape' })
+box.addEventListener('keydown', (e) => {
+  // desktop: Enter sends, Shift+Enter newlines. On a phone the on-screen
+  // return key inserts a newline and the send button is the only submit.
+  if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) {
+    e.preventDefault(); submit()
+  }
+})
+</script>
+</body>
+</html>

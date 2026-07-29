@@ -1262,6 +1262,28 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
     assert.ok(!typesOf().includes('orphan_swept'))
   })
 
+  test('a config-dir rm that races the dying agent does not abort the pass (#74, found live)', async () => {
+    // The swept agent can still be flushing its transcript while rmSync walks
+    // the dir — ENOTEMPTY. The throw used to abort the whole reconcile,
+    // including the attach/timeline surface asserts that run at its end.
+    writeJournal([{ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' }])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
+      killSession: async () => {},
+      removeWorktree: async () => {},
+      removeConfigDir: () => { throw new Error('ENOTEMPTY, Directory not empty') },
+      hasUnpushedWork: async () => false,
+    })
+    let surfacesAsserted = false
+    d.timeline = { assert: async () => { surfacesAsserted = true; return { verified: true } } }
+
+    await d.reconcile({ boot: false })
+
+    assert.ok(typesOf().includes('orphan_swept'))
+    assert.ok(surfacesAsserted, 'the surface asserts at the end of the pass still ran')
+  })
+
   test('a genuine orphan whose branch holds unpushed commits keeps its worktree', async () => {
     writeJournal([{ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' }])
     const destroyed = []

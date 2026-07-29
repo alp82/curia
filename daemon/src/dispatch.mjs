@@ -1330,6 +1330,13 @@ export class Dispatcher {
 
     if (boot) this.#voidBootConfirms()
     await this.#assertAttachSurface()
+    // The timeline surface (#74) rides the same posture: asserted every
+    // reconcile, never fatally, withdrawn when it cannot be verified. The
+    // object owns its own verify-or-withdraw logic; this catch only keeps a
+    // tailscale failure from failing the whole pass.
+    if (this.timeline) {
+      await this.timeline.assert().catch((e) => this.log(`reconcile: timeline surface assertion failed (${e.message}) — the timeline may be unavailable`))
+    }
   }
 
   // Everything the passes share: the journal, the latest dispatch epoch per
@@ -1439,7 +1446,17 @@ export class Dispatcher {
       this.store.logEvent('orphan_swept', { worker: session, ticket: n })
       await this.deps.killSession(session).catch(() => {})
       if (sweepRepo) await this.#sweepWorktree(sweepRepo, n, session)
-      this.deps.removeConfigDir(cfgDirFor(this.root, session))
+      // Fail-soft like its two siblings above (found live on #74): the rm can
+      // race the just-killed agent's final transcript writes into ENOTEMPTY,
+      // and an uncaught throw here aborts the whole pass — including the
+      // attach/timeline surface asserts that run at its end. Leftovers are
+      // rubble, not risk (#53: a config dir holds no credential of its own);
+      // the next pass retries.
+      try {
+        this.deps.removeConfigDir(cfgDirFor(this.root, session))
+      } catch (e) {
+        this.log(`reconcile: could not remove the config dir of swept orphan ${session} (${e.message}) — leftovers stay for the next pass`)
+      }
       this.log(`reconcile: swept orphan ${session}`)
     }
   }
