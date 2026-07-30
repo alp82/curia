@@ -7,7 +7,7 @@
 <!-- The protocol handshake with the daemon (#74, the #70 stamp one layer up):
      the server refuses to serve or publish this page unless the proto here
      matches its own constant. Bump BOTH when the SSE/POST protocol changes. -->
-<meta name="curia-timeline" content="proto=1">
+<meta name="curia-timeline" content="proto=2">
 <title>curia timeline</title>
 <style>
   :root {
@@ -49,6 +49,15 @@
     padding: .4rem .75rem; font-size: .85rem;
   }
   #parse.on { display: block; }
+
+  /* #75: a native terminal dialog is invisible on this surface — the banner is
+     all the timeline may do about it (it must not render or answer the dialog) */
+  #dialog {
+    display: none; background: var(--escbg); color: var(--esc);
+    border-bottom: 1px solid var(--esc);
+    padding: .4rem .75rem; font-size: .85rem;
+  }
+  #dialog.on { display: block; }
 
   /* open escalations from the daemon's own record — the claude lane writes
      nothing to its transcript while ask_human blocks (#74 item 5, measured) */
@@ -113,6 +122,7 @@
 </header>
 
 <div id="parse"></div>
+<div id="dialog"></div>
 <div id="escs"></div>
 
 <main id="main"><div class="wrap" id="log"></div></main>
@@ -237,6 +247,14 @@ function connect() {
     const d = JSON.parse(e.data)
     $('parse').className = 'on'
     $('parse').textContent = `⚠ this timeline is INCOMPLETE — ${d.reason} (${d.dropped} line${d.dropped > 1 ? 's' : ''} dropped). The worker may not be quiet; check the terminal surface.`
+  })
+  es.addEventListener('dialog', (e) => {
+    const d = JSON.parse(e.data)
+    const el = $('dialog')
+    el.className = d.up ? 'on' : ''
+    el.textContent = d.up
+      ? `🖥 the worker is in a terminal dialog (“${d.hint}”) this page cannot show — open the terminal surface (/attach) to answer it. Sends are refused while it is up.`
+      : ''
   })
   es.addEventListener('escalations', (e) => renderEscalations(JSON.parse(e.data)))
   es.addEventListener('clients', (e) => {

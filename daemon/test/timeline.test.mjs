@@ -9,8 +9,35 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import http from 'node:http'
+
 import { detectBackend, findTranscript, parseLine } from '../src/transcript.mjs'
-import { TimelineSurface, pageRefusal, DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO } from '../src/timeline.mjs'
+import { TimelineSurface, pageRefusal, detectDialog, DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO } from '../src/timeline.mjs'
+
+// Real pane shapes, captured live on the deployment host (#75): the trust
+// prompt and the /model picker verbatim, the AskUserQuestion footer as the
+// ticket measured it. All three replace the composer — no ⏵⏵ marker.
+const PANE_TRUST = [
+  ' ❯ 1. Yes, I trust this folder',
+  '   2. No, exit',
+  '',
+  ' Enter to confirm · Esc to cancel',
+].join('\n')
+const PANE_MODEL_PICKER = '   Enter to set as default · s to use this session only · Esc to cancel'
+const PANE_ASK_QUESTION = '   Enter to select · ↑/↓ to navigate'
+const PANE_COMPOSER = [
+  '❯ ',
+  '────────',
+  '  ⏵⏵ accept edits on (shift+tab to cycle) · ← for agents',
+].join('\n')
+// The forgery (#33's lesson, and this ticket's own body quotes the footer):
+// dialog chrome in scrollback with the live composer below it.
+const PANE_FORGED = [
+  '● The ticket says: "Enter to select · ↑/↓ to navigate" while one is up.',
+  '❯ ',
+  '  ⏵⏵ accept edits on (shift+tab to cycle) · ← for agents',
+].join('\n')
+const COMPOSER_RE = /⏵⏵|bypass permissions/
 
 let tmp
 before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-timeline-')) })
@@ -173,6 +200,33 @@ describe('backend detection + transcript discovery', () => {
 // the page stamp (#70's rule, one layer up)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// the terminal-dialog detector (#75)
+// ---------------------------------------------------------------------------
+
+describe('detectDialog', () => {
+  test('every live-captured dialog footer is a dialog', () => {
+    assert.ok(detectDialog(PANE_TRUST, COMPOSER_RE))
+    assert.ok(detectDialog(PANE_MODEL_PICKER, COMPOSER_RE))
+    assert.ok(detectDialog(PANE_ASK_QUESTION, COMPOSER_RE))
+    assert.equal(detectDialog(PANE_ASK_QUESTION, COMPOSER_RE).hint, 'Enter to select')
+  })
+
+  test('a visible composer VETOES a footer phrase in scrollback — the forged-pane case', () => {
+    assert.equal(detectDialog(PANE_FORGED, COMPOSER_RE), null)
+  })
+
+  test('the composer alone is no dialog, with or without the veto regex', () => {
+    assert.equal(detectDialog(PANE_COMPOSER, COMPOSER_RE), null)
+    assert.equal(detectDialog(PANE_COMPOSER, null), null)
+  })
+
+  test('the classifier sees only the pane tail', () => {
+    const scrolledPast = PANE_ASK_QUESTION + '\n' + Array.from({ length: 25 }, (_, i) => `line ${i}`).join('\n')
+    assert.equal(detectDialog(scrolledPast, COMPOSER_RE), null)
+  })
+})
+
 describe('pageRefusal', () => {
   test('the shipped asset passes', () => {
     assert.equal(pageRefusal(DEFAULT_TIMELINE_INDEX), null)
@@ -212,6 +266,7 @@ describe('TimelineSurface', () => {
   const journal = []
   const sent = []
   let escalations = []
+  let pane = PANE_COMPOSER // what capturePane returns; a function to throw
   const workspaceRoot = () => path.join(tmp, 'work')
 
   before(async () => {
@@ -228,6 +283,8 @@ describe('TimelineSurface', () => {
         escalationsFor: () => escalations,
         sendText: async (session, text) => sent.push({ session, text }),
         sendKey: async (session, key) => sent.push({ session, key }),
+        capturePane: async () => (typeof pane === 'function' ? pane() : pane),
+        composerFor: () => COMPOSER_RE,
         assertServe: async () => {},
         serveOff: async () => {},
         attachBase: async () => 'box.tailnet.ts.net',
@@ -244,7 +301,7 @@ describe('TimelineSurface', () => {
     const res = await fetch(`http://127.0.0.1:${port}/`)
     assert.equal(res.status, 200)
     assert.equal(res.headers.get('cache-control'), 'no-store')
-    assert.match(await res.text(), /name="curia-timeline" content="proto=1"/)
+    assert.match(await res.text(), new RegExp(`name="curia-timeline" content="proto=${TIMELINE_PROTO}"`))
   })
 
   test('a session name outside the whitelist is refused on every route', async () => {
@@ -323,6 +380,106 @@ describe('TimelineSurface', () => {
     })
     assert.equal(esc.status, 200)
     assert.deepEqual(sent.at(-1), { session: 'curia-9', key: 'Escape' })
+  })
+
+  // ---- the #75 dialog guard over real HTTP ---------------------------------
+
+  const post = (route, body) => fetch(`http://127.0.0.1:${port}${route}`, {
+    method: 'POST', body: JSON.stringify(body),
+  })
+
+  test('a /send while a dialog owns the pane is refused, journalled, and pins the banner', async () => {
+    pane = PANE_ASK_QUESTION
+    try {
+      const before = sent.length
+      const r = await post('/send', { session: 'curia-9', text: 'looks good, approved' })
+      assert.equal(r.status, 409)
+      const body = await r.json()
+      assert.equal(body.dialog, true)
+      assert.match(body.error, /terminal dialog/)
+      assert.equal(sent.length, before, 'nothing reached send-keys')
+      const j = journal.findLast((x) => x.type === 'timeline_send')
+      assert.equal(j.outcome, 'refused_dialog')
+      assert.equal(j.text, 'looks good, approved')
+      assert.equal(j.hint, 'Enter to select')
+      assert.ok(journal.some((x) => x.type === 'timeline_dialog' && x.session === 'curia-9'))
+      // the banner reaches a late joiner in the backlog
+      const { events } = await sse(port, 'session=curia-9')
+      const d = events.find((e) => e.event === 'dialog')
+      assert.deepEqual(d.data, { up: true, hint: 'Enter to select' })
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('the next send after the dialog clears goes through and is journalled', async () => {
+    const r = await post('/send', { session: 'curia-9', text: 'now it can go' })
+    assert.equal(r.status, 200)
+    assert.deepEqual(sent.at(-1), { session: 'curia-9', text: 'now it can go' })
+    const j = journal.findLast((x) => x.type === 'timeline_send')
+    assert.equal(j.outcome, 'sent')
+    assert.equal(j.text, 'now it can go')
+    // the probe on the way in cleared the banner
+    const { events } = await sse(port, 'session=curia-9')
+    assert.equal(events.find((e) => e.event === 'dialog'), undefined)
+  })
+
+  test('during a dialog, Enter refuses and Escape passes — dismissing is not answering', async () => {
+    pane = PANE_TRUST
+    try {
+      const enter = await post('/key', { session: 'curia-9', key: 'enter' })
+      assert.equal(enter.status, 409)
+      assert.equal(journal.findLast((x) => x.type === 'timeline_key').outcome, 'refused_dialog')
+      const esc = await post('/key', { session: 'curia-9', key: 'escape' })
+      assert.equal(esc.status, 200)
+      assert.deepEqual(sent.at(-1), { session: 'curia-9', key: 'Escape' })
+      assert.equal(journal.findLast((x) => x.type === 'timeline_key').outcome, 'sent')
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('a forged footer under a visible composer does not refuse — #33\'s untrusted pane', async () => {
+    pane = PANE_FORGED
+    try {
+      const r = await post('/send', { session: 'curia-9', text: 'the ticket quotes the footer' })
+      assert.equal(r.status, 200)
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('a failed capture is not evidence: a session never read from falls through to send-keys', async () => {
+    pane = () => { throw new Error('no such session') }
+    try {
+      const r = await post('/send', { session: 'curia-88', text: 'still goes' })
+      assert.equal(r.status, 200)
+      assert.deepEqual(sent.at(-1), { session: 'curia-88', text: 'still goes' })
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('the tick pins the banner for a pure watcher — no write involved', async () => {
+    pane = PANE_MODEL_PICKER
+    try {
+      const d = await new Promise((resolve, reject) => {
+        const req = http.get(`http://127.0.0.1:${port}/events?session=curia-55`, (res) => {
+          let buf = ''
+          res.on('data', (c) => {
+            buf += c
+            const m = /event: dialog\ndata: (.+)/.exec(buf)
+            if (m) { req.destroy(); resolve(JSON.parse(m[1])) }
+          })
+        })
+        req.on('error', () => {}) // the destroy above surfaces as a socket error
+        setTimeout(() => { req.destroy(); reject(new Error('no dialog event from the tick')) }, 3000).unref()
+      })
+      assert.equal(d.up, true)
+      assert.match(d.hint, /Enter to set as default/)
+    } finally {
+      pane = PANE_COMPOSER
+    }
   })
 
   test('link composes from the surface\'s own config and refuses bad names', async () => {

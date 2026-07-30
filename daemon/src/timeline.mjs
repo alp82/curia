@@ -32,7 +32,8 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertServe, serveOff, attachBase, validSessionName } from './attach.mjs'
-import { sendText, sendKey } from './tmux.mjs'
+import { paneTail } from './dispatch.mjs'
+import { sendText, sendKey, capturePane } from './tmux.mjs'
 import { detectBackend, findTranscript, parseLine } from './transcript.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -50,7 +51,7 @@ export const DEFAULT_TIMELINE_INDEX = path.resolve(DIR, '..', 'assets', 'timelin
 // every request, and a mismatch refuses loudly rather than serving a surface
 // nobody agreed to. It also refuses an operator-pointed index that was never
 // written against this server at all.
-export const TIMELINE_PROTO = 1
+export const TIMELINE_PROTO = 2
 export const STAMP_NAME = 'curia-timeline'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -73,6 +74,53 @@ export function pageRefusal(indexFile) {
 
 const KEYS = { escape: 'Escape', 'ctrl-c': 'C-c', enter: 'Enter', up: 'Up', tab: 'Tab' }
 
+// ---------------------------------------------------------------------------
+// the terminal-dialog guard (#75)
+// ---------------------------------------------------------------------------
+//
+// A native dialog (AskUserQuestion, the folder-trust prompt) is the PTY's half
+// of #73's division of labor: it never reaches the transcript, so the timeline
+// is blind to it — and a /send while one owns the pane is typed INTO the
+// dialog, where the trailing Enter answers it blind, or is swallowed outright
+// (#75's live incident: the operator's own approval of #74 vanished this way,
+// with no trace on the page, the worker, or the journal). The surface must not
+// render or answer the dialog itself — only stop being silent about it.
+//
+// Detection is pane-text, the same evidence #25 recorded these prompts leave
+// (they read as false-`idle` to state probes, so text is all there is). Every
+// dialog footer verified live carries the same chrome — "Enter to <verb> ·":
+//   trust prompt        "Enter to confirm · Esc to cancel"
+//   /model picker       "Enter to set as default · s to use this session only …"
+//   AskUserQuestion     "Enter to select · ↑/↓ to navigate"   (#75's capture)
+// The pane is UNTRUSTED TEXT (#33's lesson: a ticket body can quote any
+// phrase, and this ticket's own body quotes the AskUserQuestion footer), so
+// two narrowings apply: the classifier sees only the pane TAIL, and a visible
+// composer VETOES the match — verified live: every dialog above replaces the
+// composer, so its per-backend ready marker (#39) and a real dialog never
+// share a tail; a footer phrase that scrolled by in worker output does.
+export const DIALOG_MARKERS = [
+  /Enter to [^·\n]{1,60}·/, // "Enter to <verb> …" joined to more chrome by a middot
+  /↑\/↓ to navigate/, // belt and braces should the select footer reword its verb
+]
+
+export function detectDialog(pane, composerRe = null) {
+  const tail = paneTail(pane)
+  const hit = DIALOG_MARKERS.map((re) => re.exec(tail)?.[0]).find(Boolean)
+  if (!hit) return null
+  if (composerRe && composerRe.test(tail)) return null
+  return { hint: hit.trim().replace(/·$/, '').trim() }
+}
+
+// While a dialog is up, Escape and Ctrl-C still pass — dismissing or
+// interrupting is how a phone gets unstuck, and neither answers the dialog.
+// Enter/Up/Tab would drive its selection blind, so they refuse like /send.
+const DIALOG_SAFE_KEYS = new Set(['Escape', 'C-c'])
+
+// What lands in the journal for a /send: enough text to identify the vanished
+// input by grep, without archiving a pasted novel.
+const JOURNAL_TEXT_MAX = 500
+const clip = (text) => (text.length > JOURNAL_TEXT_MAX ? `${text.slice(0, JOURNAL_TEXT_MAX)}…` : text)
+
 async function readBody(req) {
   const chunks = []
   for await (const c of req) chunks.push(c)
@@ -80,15 +128,21 @@ async function readBody(req) {
 }
 
 export class TimelineSurface {
-  constructor({ port, servePort, index, workspaceRoot, log = console.log, pollMs = 600, deps = {} }) {
+  constructor({ port, servePort, index, workspaceRoot, log = console.log, pollMs = 600, dialogProbeMs = 2000, deps = {} }) {
     this.port = port
     this.servePort = servePort
     this.index = index
     this.workspaceRoot = workspaceRoot
     this.log = log
     this.pollMs = pollMs
+    // The dialog probe is a tmux exec per watched session, so it runs at the
+    // watchdog's cadence (#33), not the transcript tick's.
+    this.dialogProbeMs = dialogProbeMs
     this.deps = {
-      assertServe, serveOff, attachBase, sendText, sendKey,
+      assertServe, serveOff, attachBase, sendText, sendKey, capturePane,
+      // composerFor(backend): the per-backend ready regex (#39) — the veto in
+      // detectDialog. Null skips the veto, never the marker match.
+      composerFor: () => null,
       // journal(type, detail): the store's logEvent, injected by index.mjs.
       journal: () => {},
       // backendFor(session): the dispatcher's word, with detectBackend as the
@@ -192,6 +246,9 @@ export class TimelineSurface {
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
         escalations: '[]', // last broadcast snapshot, serialized
+        dialog: null, // { hint } while a terminal dialog owns the pane (#75)
+        dialogAt: 0, // last probe, for the throttle
+        dialogProbing: false, // one in-flight capture at a time
       }
       this.sessions.set(name, s)
     }
@@ -307,12 +364,52 @@ export class TimelineSurface {
     }
   }
 
+  // The composer veto's regex, resolved through the same backend probe #pump
+  // uses (the dispatcher's word, on-disk evidence as fallback).
+  #composerRe(name, s) {
+    if (!s.backend) s.backend = this.deps.backendFor(name)
+    return s.backend ? this.deps.composerFor(s.backend) : null
+  }
+
+  #setDialog(name, s, dialog) {
+    if ((s.dialog?.hint ?? null) === (dialog?.hint ?? null)) return
+    s.dialog = dialog
+    // Journalled on the rising edge: #75's incident had nothing to grep
+    // anywhere, and the dialog's appearance is the first fact that went
+    // unrecorded.
+    if (dialog) this.deps.journal('timeline_dialog', { session: name, hint: dialog.hint })
+    this.#broadcast(s, 'dialog', dialog ? { up: true, hint: dialog.hint } : { up: false })
+  }
+
+  // Fresh pane evidence for a write, and the banner state as a side effect. A
+  // failed capture is NOT evidence (#33's rule, both directions): it neither
+  // pins a dialog nor clears one — the last read that succeeded stands, so a
+  // guard may still refuse on ≤2s-old knowledge, and a session nothing was
+  // ever read from falls through to send-keys, whose own failure is louder
+  // than a guess here would be.
+  async #probeDialog(name, s) {
+    try {
+      const pane = await this.deps.capturePane(name)
+      this.#setDialog(name, s, detectDialog(pane, this.#composerRe(name, s)))
+    } catch { /* indeterminate — keep the last known state */ }
+    return s.dialog
+  }
+
+  #pumpDialog(name, s) {
+    const now = Date.now()
+    if (s.dialogProbing || now - s.dialogAt < this.dialogProbeMs) return
+    s.dialogProbing = true
+    s.dialogAt = now
+    this.#probeDialog(name, s).finally(() => { s.dialogProbing = false })
+  }
+
   #tick() {
     for (const [name, s] of this.sessions) {
       if (!s.clients.size) continue // nobody watching; the file is replayable later
       try {
         this.#pump(name)
         this.#pumpEscalations(name)
+        this.#pumpDialog(name, s)
       } catch (e) {
         this.log(`timeline pump ${name} failed: ${e.message}`)
       }
@@ -378,6 +475,7 @@ export class TimelineSurface {
       this.#send(res, 'hello', { session, file: s.file, backend: s.backend, clients: s.clients.size, draft: s.draft })
       if (s.items.length) this.#send(res, 'items', s.items)
       if (s.parse) this.#send(res, 'parse', s.parse)
+      if (s.dialog) this.#send(res, 'dialog', { up: true, hint: s.dialog.hint })
       this.#send(res, 'escalations', JSON.parse(s.escalations))
       this.#pumpEscalations(session)
       this.#broadcast(s, 'clients', { clients: s.clients.size })
@@ -401,15 +499,29 @@ export class TimelineSurface {
       if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
       const text = String(b.text ?? '')
       if (!text.trim()) return json(400, { error: 'empty' })
+      const s = this.#state(b.session)
+      const by = b.client ?? null
+      // The #75 guard: fresh capture, positive evidence only. Typing into a
+      // dialog answers it blind or vanishes without a trace — refusing keeps
+      // the text in the composer, and the broadcast pins the banner on every
+      // device at the same moment.
+      const dialog = await this.#probeDialog(b.session, s)
+      if (dialog) {
+        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_dialog', hint: dialog.hint, text: clip(text) })
+        return json(409, { error: `the worker is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`, dialog: true })
+      }
       try {
         await this.deps.sendText(b.session, text)
       } catch (e) {
+        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
         return json(502, { error: e.message })
       }
-      const s = this.#state(b.session)
+      // The journal line #75 had to infer from four absences: whether the
+      // send even fired, one grep away.
+      this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })
       s.draft = ''
-      this.#broadcast(s, 'draft', { text: '', by: b.client ?? null })
-      this.#broadcast(s, 'sent', { text, by: b.client ?? null })
+      this.#broadcast(s, 'draft', { text: '', by })
+      this.#broadcast(s, 'sent', { text, by })
       return json(200, { ok: true })
     }
 
@@ -432,12 +544,23 @@ export class TimelineSurface {
       if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
       const key = KEYS[String(b.key ?? '').toLowerCase()]
       if (!key) return json(400, { error: 'unknown key' })
+      const s = this.#state(b.session)
+      const by = b.client ?? null
+      if (!DIALOG_SAFE_KEYS.has(key)) {
+        const dialog = await this.#probeDialog(b.session, s)
+        if (dialog) {
+          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_dialog', hint: dialog.hint })
+          return json(409, { error: `the worker is in a terminal dialog ("${dialog.hint}") — ${key} would drive its selection blind; open the terminal surface`, dialog: true })
+        }
+      }
       try {
         await this.deps.sendKey(b.session, key)
       } catch (e) {
+        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'failed', error: e.message })
         return json(502, { error: e.message })
       }
-      this.#broadcast(this.#state(b.session), 'sent', { text: `⌨ ${key}`, by: b.client ?? null })
+      this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'sent' })
+      this.#broadcast(s, 'sent', { text: `⌨ ${key}`, by })
       return json(200, { ok: true })
     }
 

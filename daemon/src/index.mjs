@@ -314,6 +314,10 @@ const timeline = new TimelineSurface({
     journal: (type, detail) => store.logEvent(type, detail),
     backendFor: (session) => dispatcher.workers.get(session)?.backend
       ?? detectBackend(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
+    // The dialog guard's composer veto (#75): a visible ready marker (#39)
+    // says the pane is at its composer, so a dialog-footer phrase in the tail
+    // is scrollback, not a dialog.
+    composerFor: (backend) => routingConfig.backends[backend]?.readyRe ?? null,
     escalationsFor: (session) => store.openEscalations().filter((r) => r.worker === session),
   },
 })
