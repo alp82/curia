@@ -26,7 +26,7 @@ Date: 2026-07-23. Method: **live execution, not source-reading** — installed t
 
 7. **Telemetry — no CLI opt-out surface found.** `cline config` only covers workflows/rules/skills/agents/plugins/hooks/mcp/tools; no telemetry command, no settings file materialized with `telemetryOptOut`. PostHog telemetry must be assumed on; a curia deploy should set the global setting by writing the settings store directly or block PostHog egress at the network layer. (Upstream issue-worthy.)
 
-## The live golden-thread rehearsal (OpenACP + Discord)
+## The live full-loop rehearsal (OpenACP + Discord)
 
 Setup: reused #22's from-source OpenACP build + instance root unchanged; registered Cline via `agents.json` as `distribution: "custom"` pointing at a 6-line bash wrapper (exports provider/model/key env, execs `cline --acp`). That's the entire integration.
 

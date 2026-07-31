@@ -254,8 +254,9 @@ Everything else is a cache that reconcile can rebuild.
 ## Docs
 
 - `docs/adr/`: one file per standing decision, indexed at `docs/adr/README.md`.
-- `docs/research/`: research notes, one per investigation.
+- `docs/research/`: research notes, one per investigation, indexed at `docs/research/README.md`.
 - `docs/live-checks/`: first-person worker evidence.
 - `docs/agents/`: tracker, triage, and domain-doc conventions for agents.
+- `docs/full-loop.md`: the rehearsal record of the PoC map. History, not a live procedure.
 
 The tracker holds history. The docs hold what still constrains work.

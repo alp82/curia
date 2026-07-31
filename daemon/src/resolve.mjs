@@ -1,4 +1,4 @@
-// The last third of the golden thread (#41): "the ticket resolves and the map
+// The last third of the full loop (#41): "the ticket resolves and the map
 // updates". `report_result` closes curia's DISPATCH lifecycle; this module is
 // what closes the TICKET.
 //

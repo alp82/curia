@@ -2,7 +2,7 @@
 
 Resolves [#29](https://github.com/alp82/curia/issues/29) — can one worker session be both **structurally driveable by the daemon** and **multi-client attachable by humans**, without the daemon ever parsing a terminal? Run 2026-07-24 on Alp's desktop (same Hetzner stand-in as #19/#24/#25). Spike code: [`spikes/worker-two-channels/`](../../spikes/worker-two-channels/).
 
-**Answer: yes — verified live on both substrate models, with one worker config that is substrate-independent.** The same Claude Code worker (identical workspace-scoped side-channel harness) ran the full golden-thread inner loop under **herdr** (PTY substrate) and under **Paseo** (message-level substrate): `notify` → blocking `ask_human` → REST answer → resume → real git commit → structured `report_result` → Stop-hook `worker_done`, while a second human client attached mid-run. The daemon's knowledge of the worker came entirely from its own side channels; scrollback was never parsed.
+**Answer: yes — verified live on both substrate models, with one worker config that is substrate-independent.** The same Claude Code worker (identical workspace-scoped side-channel harness) ran the complete inner loop under **herdr** (PTY substrate) and under **Paseo** (message-level substrate): `notify` → blocking `ask_human` → REST answer → resume → real git commit → structured `report_result` → Stop-hook `worker_done`, while a second human client attached mid-run. The daemon's knowledge of the worker came entirely from its own side channels; scrollback was never parsed.
 
 ## The harness
 

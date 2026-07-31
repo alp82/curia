@@ -1,4 +1,6 @@
-# Golden-thread rehearsal script
+# Full-loop rehearsal script
+
+> **Status**: rehearsal record of the PoC map. The run is complete. This file is history, not a live procedure.
 
 The scripted end-to-end demo for map [#1](https://github.com/alp82/curia/issues/1), ticket
 [#35](https://github.com/alp82/curia/issues/35). One pass proves the destination: phone → Discord →
