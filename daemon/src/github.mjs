@@ -97,6 +97,13 @@ export function issueComments(repo, n) {
   return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/comments?per_page=100`, '--jq', '.[]'])
 }
 
+// The open issues blocking one ticket — number and state per blocker, the
+// same native-dependency edge the tracker doc writes with POST. Only called
+// for tickets whose summary says blocked_by > 0.
+export function blockedByOf(repo, n) {
+  return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/dependencies/blocked_by`, '--jq', '.[]'])
+}
+
 // The sub-issue parent, straight off the issue payload — `parent_issue_url` is
 // present on children and absent on everything else (verified live). One read,
 // instead of scanning every map's sub_issues for this number.
@@ -171,6 +178,42 @@ export function selectLane(maps, mode = 'auto') {
   if (!maps.length) return { lane: 'flat', maps: [] }
   if (!active.length) return { lane: 'empty', maps: [] }
   return { lane: 'map', maps: active.map((m) => m.number) }
+}
+
+// The HITL-free chain count (#81's tickets view): how many open tickets an
+// agent could work through with no human in the loop — takeable now, or
+// unblocked purely by chains of other HITL-free tickets. `research` and `task`
+// are counted as HITL-free (a task ticket CAN need a human, but the type says
+// the agent drives it alone where it can — optimistic by design); `grilling`
+// and `prototype` are human-in-the-loop; an untyped map child counts as HITL
+// (conservative). Blocker edges come from `edges[number]` as
+// [{ number, state }]; an open item whose summary says blocked_by > 0 but has
+// no edge entry is treated as blocked (an unreadable edge is not an open way).
+export function agentOnlyChainCount({ items = [], edges = {} } = {}) {
+  const hitlFree = (i) => (i.labels ?? []).some((l) => {
+    const name = typeof l === 'string' ? l : l.name
+    return name === 'wayfinder:research' || name === 'wayfinder:task'
+  })
+  const candidates = items.filter((i) =>
+    i.state === 'open' && !i.pull_request && (i.assignees ?? []).length === 0 && hitlFree(i))
+  const reachable = new Set()
+  const satisfied = (n, blockers) => blockers.every((b) =>
+    b.state === 'closed' || reachable.has(b.number))
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const i of candidates) {
+      if (reachable.has(i.number)) continue
+      const blockedBy = i.issue_dependencies_summary?.blocked_by ?? 0
+      const blockers = edges[i.number]
+      if (blockedBy > 0 && !blockers) continue // edge unreadable ⇒ blocked
+      if (blockedBy === 0 || satisfied(i.number, blockers)) {
+        reachable.add(i.number)
+        grew = true
+      }
+    }
+  }
+  return reachable.size
 }
 
 // Composes selectLane + filterTakeable over pre-fetched data; returns the

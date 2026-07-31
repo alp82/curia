@@ -21,17 +21,22 @@ import { REVIEW_KIND } from './lifecycle.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
-// #18's five verbs — a static macro manifest; expansion only, never interpretation.
+// #81's grown catalogue — a static macro manifest; expansion only, never
+// interpretation. `tickets` renames `frontier` on the command surface.
 const SLASH_MANIFEST = [
-  new SlashCommandBuilder().setName('frontier').setDescription('List takeable tickets')
-    .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo')),
-  new SlashCommandBuilder().setName('status').setDescription('What is running right now'),
+  new SlashCommandBuilder().setName('tickets').setDescription('List takeable tickets')
+    .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
+  new SlashCommandBuilder().setName('next').setDescription('Dispatch the next takeable ticket')
+    .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
+  new SlashCommandBuilder().setName('status').setDescription('Workers running, waiting on input, and recent endings'),
   new SlashCommandBuilder().setName('start').setDescription('Dispatch a worker on a ticket')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true))
     .addStringOption((o) => o.setName('model').setDescription('Model override'))
     .addStringOption((o) => o.setName('backend').setDescription('Backend override')),
-  new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket')
-    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true)),
+  new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket, or all of them')
+    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
+  new SlashCommandBuilder().setName('resume').setDescription('Fresh worker on a ticket, inheriting its surviving worktree')
+    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
   new SlashCommandBuilder().setName('attach').setDescription('Get the attach handle for a live session')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true)),
 ]
@@ -53,7 +58,11 @@ function expandCommand(i) {
     return v == null || v === '' ? null : v
   }
   switch (i.commandName) {
-    case 'frontier': return `frontier${opt('repo') ? ' ' + opt('repo') : ''}`
+    // `frontier` is the pre-#81 name — a client with a stale manifest (#65)
+    // still sends it, and the expansion is the right layer to translate
+    case 'frontier':
+    case 'tickets': return `tickets${opt('repo') ? ' ' + opt('repo') : ''}`
+    case 'next': return `next${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'status': return 'status'
     case 'start': {
       const ticket = need('ticket')
@@ -61,6 +70,7 @@ function expandCommand(i) {
       return `start ${ticket}${opt('model') ? ' model=' + opt('model') : ''}${opt('backend') ? ' backend=' + opt('backend') : ''}`
     }
     case 'cancel':
+    case 'resume':
     case 'attach': {
       const ticket = need('ticket')
       if (!ticket) return { error: 'missing' }

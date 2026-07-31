@@ -4,7 +4,8 @@
 // Assumed contract:
 //
 //   parseCommand(text) -> object | null   (pure)
-//     'frontier [repo]'                -> { verb: 'frontier', repo?: string }
+//     'tickets [repo]'                 -> { verb: 'tickets', repo?: string }
+//     'next [repo]'                    -> { verb: 'next', repo?: string }
 //     'status'                         -> { verb: 'status' }
 //     'start <n> [model=x] [backend=y]'-> { verb: 'start', ticket, model?, backend? }
 //     'start <owner>/<repo>#<n> [model=x] [backend=y]'
@@ -12,7 +13,8 @@
 //       (field-notes contract 6: the repo-qualified form, needed so a user
 //       can satisfy the ambiguity-refusal path's recommended qualified
 //       `owner/repo#n` reply -- plan.md step 8's `start`.)
-//     'cancel <n>'                     -> { verb: 'cancel', ticket }
+//     'cancel <n>' | 'cancel all'      -> { verb: 'cancel', ticket } | { verb: 'cancel', all: true }
+//     'resume <n>' | 'resume all'      -> { verb: 'resume', ticket } | { verb: 'resume', all: true }
 //     'attach <n>'                     -> { verb: 'attach', ticket }
 //     anything else                    -> null
 //
@@ -43,16 +45,33 @@ const DIR = path.dirname(fileURLToPath(import.meta.url))
 const WRAPPER = path.join(DIR, '..', 'bin', 'curia-attach.sh')
 
 describe('parseCommand', () => {
-  test('frontier with no repo', () => {
-    const c = parseCommand('frontier')
-    assert.equal(c.verb, 'frontier')
+  test('tickets with no repo', () => {
+    const c = parseCommand('tickets')
+    assert.equal(c.verb, 'tickets')
     assert.equal(c.repo, undefined)
   })
 
-  test('frontier with a repo filter', () => {
-    const c = parseCommand('frontier alp82/curia')
-    assert.equal(c.verb, 'frontier')
-    assert.equal(c.repo, 'alp82/curia')
+  test('tickets with a repo argument, full or fuzzy', () => {
+    assert.deepEqual(parseCommand('tickets alp82/curia'), { verb: 'tickets', repo: 'alp82/curia' })
+    assert.deepEqual(parseCommand('tickets cur'), { verb: 'tickets', repo: 'cur' })
+  })
+
+  test('the old frontier verb no longer parses', () => {
+    assert.equal(parseCommand('frontier'), null)
+  })
+
+  test('next with and without a repo argument', () => {
+    assert.deepEqual(parseCommand('next'), { verb: 'next' })
+    assert.deepEqual(parseCommand('next cur'), { verb: 'next', repo: 'cur' })
+  })
+
+  test('cancel all and resume all parse as bulk verbs', () => {
+    assert.deepEqual(parseCommand('cancel all'), { verb: 'cancel', all: true })
+    assert.deepEqual(parseCommand('resume all'), { verb: 'resume', all: true })
+  })
+
+  test('resume with a ticket', () => {
+    assert.deepEqual(parseCommand('resume 42'), { verb: 'resume', ticket: '42' })
   })
 
   test('status', () => {
@@ -122,6 +141,93 @@ describe('CommandRouter backend refusal', () => {
 
     assert.equal(started, false)
     assert.match(reply, /claude/) // names the one configured backend
+  })
+})
+
+describe('CommandRouter grown verbs (#81)', () => {
+  const WATCH = { watch: [{ repo: 'alp82/curia' }, { repo: 'alp82/aistack' }] }
+
+  test('a fuzzy repo argument resolves on an unambiguous substring', async () => {
+    let seen = null
+    const dispatcher = {
+      config: WATCH,
+      frontier: async (repo) => { seen = repo; return [{ repo, lane: 'map', numbers: [], agentOnly: 0, items: [] }] },
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    await router.handle('tickets cur', 'u')
+    assert.equal(seen, 'alp82/curia')
+  })
+
+  test('an ambiguous repo argument asks instead of guessing', async () => {
+    let called = false
+    const dispatcher = { config: WATCH, frontier: async () => { called = true; return [] } }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('tickets alp82', 'u')
+    assert.equal(called, false)
+    assert.match(reply, /alp82\/curia/)
+    assert.match(reply, /alp82\/aistack/)
+  })
+
+  test('tickets renders the agent-only chain count and the ticket type', async () => {
+    const dispatcher = {
+      config: WATCH,
+      frontier: async () => [{
+        repo: 'alp82/curia', lane: 'map', numbers: [7], agentOnly: 3,
+        items: [{ number: 7, title: 'do a thing', labels: ['wayfinder:research'] }],
+      }],
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('tickets', 'u')
+    assert.match(reply, /3 agent-only runnable/)
+    assert.match(reply, /#7 do a thing/)
+    assert.match(reply, /research/)
+  })
+
+  test('next hands the resolved repo and the user to the dispatcher', async () => {
+    let got = null
+    const dispatcher = { config: WATCH, next: async (repo, opts) => { got = { repo, ...opts }; return 'ok' } }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    assert.equal(await router.handle('next aist', 'u1'), 'ok')
+    assert.deepEqual(got, { repo: 'alp82/aistack', by: 'u1' })
+  })
+
+  test('cancel all and resume all reach the bulk dispatcher verbs', async () => {
+    const calls = []
+    const dispatcher = {
+      config: WATCH,
+      cancelAll: async () => { calls.push('cancelAll'); return 'c' },
+      resumeAll: async () => { calls.push('resumeAll'); return 'r' },
+      cancel: () => { calls.push('cancel'); return '' },
+      resume: async () => { calls.push('resume'); return '' },
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    assert.equal(await router.handle('cancel all', 'u'), 'c')
+    assert.equal(await router.handle('resume all', 'u'), 'r')
+    await router.handle('resume 9', 'u')
+    assert.deepEqual(calls, ['cancelAll', 'resumeAll', 'resume'])
+  })
+
+  test('status renders waiting-where and the recent endings', async () => {
+    const dispatcher = {
+      config: WATCH,
+      status: async () => ({
+        workers: [{
+          session: 'curia-5', repo: 'alp82/curia', ticket: '5', model: 'sonnet', state: 'blocked',
+          uptime_s: 65, result_received: false, tmux_live: true,
+          waiting_on: [{ id: 'esc-1', kind: 'free-text' }],
+        }],
+        untracked: [],
+        recent: [
+          { kind: 'cancelled', repo: 'alp82/curia', ticket: '3' },
+          { kind: 'finished', repo: 'alp82/curia', ticket: '4' },
+        ],
+      }),
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('status', 'u')
+    assert.match(reply, /waiting on \*\*esc-1\*\* \(free-text\) in thread ticket-5/)
+    assert.match(reply, /🛑 cancelled alp82\/curia#3/)
+    assert.match(reply, /🏁 finished alp82\/curia#4/)
   })
 })
 

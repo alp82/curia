@@ -86,6 +86,7 @@ function makeDispatcher(deps = {}, {
     repoMaps: async () => [],
     mapFrontier: async () => [],
     flatFrontier: async () => [],
+    blockedByOf: async () => [],
     fetchIssue: async () => ({ ...OPEN_ISSUE }),
     claim: async () => {},
     unclaim: async () => {},
@@ -2039,5 +2040,110 @@ describe('dispatching across two backends (#39)', () => {
 
     await d.start('42', { repo: 'o/r', by: 'test' })
     assert.equal(spawned, true)
+  })
+})
+
+describe('the grown verbs (#81, wayfinder #91)', () => {
+  const MAP = [{ number: 1, state: 'open', labels: [{ name: 'wayfinder:map' }] }]
+  const child = (n) => ({
+    number: n, state: 'open', assignees: [], labels: [{ name: 'wayfinder:task' }],
+    issue_dependencies_summary: { blocked_by: 0 },
+  })
+
+  test('next dispatches the first takeable map-lane ticket', async () => {
+    const d = makeDispatcher({
+      repoMaps: async () => MAP,
+      mapFrontier: async () => [child(7), child(9)],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, number: 7 }),
+    })
+    const reply = await d.next(undefined, { by: 'test' })
+    assert.match(reply, /dispatched o\/r#7/)
+    assert.equal(d.workers.has('curia-7'), true)
+  })
+
+  test('next with nothing takeable says so instead of dispatching', async () => {
+    const d = makeDispatcher()
+    assert.match(await d.next(undefined, { by: 'test' }), /nothing takeable/)
+  })
+
+  test('resume inherits the surviving worktree instead of recreating it', async () => {
+    const surviving = path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42')
+    fs.mkdirSync(surviving, { recursive: true })
+    fs.writeFileSync(path.join(surviving, 'leftover.txt'), 'uncommitted work')
+    const d = makeDispatcher({
+      createWorktree: async () => { throw new Error('resume must not recreate the worktree') },
+    })
+    const reply = await d.resume('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /dispatched o\/r#42/)
+    assert.equal(d.workers.get('curia-42').wtPath, surviving)
+  })
+
+  test('resume without a surviving worktree degrades to an ordinary dispatch', async () => {
+    const d = makeDispatcher()
+    const reply = await d.resume('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /dispatched o\/r#42/)
+  })
+
+  test('resume refuses a live worker flat', async () => {
+    const d = makeDispatcher()
+    await d.start('42', { repo: 'o/r' })
+    const reply = await d.resume('42', { repo: 'o/r' })
+    assert.match(reply, /already running/)
+  })
+
+  test('cancel all lists the workers, then runs the same teardown on each after ONE confirm', async () => {
+    let confirms = 0
+    let prompt = null
+    const d = makeDispatcher({}, {
+      confirm: async (ticket, p) => { confirms += 1; prompt = p; return true },
+    })
+    await d.start('42', { repo: 'o/r' })
+    await d.start('43', { repo: 'o/r' })
+    const reply = await d.cancelAll({ by: 'test' })
+    assert.match(reply, /2 worker\(s\)/)
+    assert.match(reply, /curia-42/)
+    assert.match(reply, /curia-43/)
+    await waitFor(() => events.filter((e) => e.type === 'worker_cancelled').length === 2)
+    assert.equal(confirms, 1, 'bulk cancel must confirm exactly once')
+    assert.match(prompt, /curia-42/)
+    assert.match(prompt, /curia-43/)
+    assert.equal(d.workers.size, 0)
+  })
+
+  test('cancel all refuses on an indeterminate session list', async () => {
+    const d = makeDispatcher({ listSessions: async () => { throw new Error('tmux gone') } })
+    assert.match(await d.cancelAll({ by: 'test' }), /refused/)
+  })
+
+  test('resume all dispatches every surviving worktree behind one confirm with count and list', async () => {
+    for (const n of ['50', '51']) {
+      fs.mkdirSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', n), { recursive: true })
+    }
+    let confirms = 0
+    const d = makeDispatcher({}, { confirm: async () => { confirms += 1; return true } })
+    const reply = await d.resumeAll({ by: 'test' })
+    assert.match(reply, /2 ticket\(s\)/)
+    await waitFor(() => d.workers.has('curia-50') && d.workers.has('curia-51'))
+    assert.equal(confirms, 1)
+  })
+
+  test('resume all with nothing to resume says so', async () => {
+    const d = makeDispatcher()
+    assert.match(await d.resumeAll({ by: 'test' }), /nothing to resume/)
+  })
+
+  test('status carries waiting-where and the recent cancelled and finished', async () => {
+    const journal = path.join(tmp, 'data', 'events.jsonl')
+    fs.appendFileSync(journal, JSON.stringify({ type: 'worker_cancelled', repo: 'o/r', ticket: '3' }) + '\n')
+    fs.appendFileSync(journal, JSON.stringify({ type: 'lifecycle_closed', repo: 'o/r', ticket: '4' }) + '\n')
+    const d = makeDispatcher()
+    await d.start('42', { repo: 'o/r' })
+    escalations.push({ id: 'esc-9', kind: 'free-text', worker: 'curia-42', status: 'open' })
+    const { workers, recent } = await d.status()
+    assert.deepEqual(workers[0].waiting_on, [{ id: 'esc-9', kind: 'free-text' }])
+    assert.deepEqual(recent, [
+      { kind: 'cancelled', repo: 'o/r', ticket: '3' },
+      { kind: 'finished', repo: 'o/r', ticket: '4' },
+    ])
   })
 })

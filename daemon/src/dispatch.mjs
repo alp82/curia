@@ -17,8 +17,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
-  viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim,
-  selectLane, frontierForRepo, commentIssue, closeIssue, setIssueBody, issueComments,
+  viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
+  selectLane, frontierForRepo, agentOnlyChainCount, commentIssue, closeIssue, setIssueBody, issueComments,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch,
 } from './github.mjs'
@@ -56,7 +56,7 @@ const ISSUE_ABSENT_RE = /HTTP 404|Not Found/i
 const sleep = (ms) => sleepFor(ms, undefined, { ref: false })
 
 const DEFAULT_DEPS = {
-  viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim,
+  viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   hasSession, listSessions, newSession, capturePane, killSession,
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt,
@@ -168,6 +168,7 @@ export class Dispatcher {
       repo: entry.repo,
       lane,
       numbers,
+      agentOnly: await this.#agentOnlyCount(entry.repo, lane, mapItems, numbers),
       items: numbers.map((n) => {
         const i = index.get(n)
         return { number: n, title: i?.title ?? '', labels: (i?.labels ?? []).map((l) => l.name) }
@@ -175,9 +176,61 @@ export class Dispatcher {
     }
   }
 
+  // The HITL-free chain count for the tickets view (#81). Map lane: fetch the
+  // dependency edges of every open blocked child, then run the pure closure.
+  // Flat lane: every ready-for-agent ticket is by definition agent-ready, so
+  // the count is the takeable count. Fails soft to null — the tickets view
+  // must render even when an edge read does not.
+  async #agentOnlyCount(repo, lane, mapItems, numbers) {
+    if (lane === 'flat') return numbers.length
+    if (lane !== 'map') return 0
+    try {
+      const items = Object.values(mapItems).flat()
+      const edges = {}
+      for (const i of items) {
+        if (i.state !== 'open' || i.pull_request) continue
+        if ((i.issue_dependencies_summary?.blocked_by ?? 0) === 0) continue
+        edges[i.number] = (await this.deps.blockedByOf(repo, i.number))
+          .map((b) => ({ number: b.number, state: b.state }))
+      }
+      return agentOnlyChainCount({ items, edges })
+    } catch (e) {
+      this.log(`agent-only count for ${repo} failed (${e.message}) — omitting it`)
+      return null
+    }
+  }
+
+  // ---- next ------------------------------------------------------------------
+
+  // Dispatch the next takeable ticket (#81): first map-lane ticket in watch
+  // order, flat lane after — the same ordering the auto loop walks. A repo
+  // filter narrows to that repo's frontier.
+  async next(repoFilter, { by } = {}) {
+    const rows = await this.frontier(repoFilter)
+    if (!rows.length) return `❓ no watched repo matches \`${repoFilter}\``
+    for (const lane of ['map', 'flat']) {
+      for (const r of rows) {
+        if (r.error || r.lane !== lane) continue
+        for (const num of r.numbers) {
+          const session = `curia-${num}`
+          if (this.workers.has(session) || this.inFlight.has(session)) continue
+          if (await this.deps.hasSession(session)) continue
+          return (await this.start(String(num), { repo: r.repo, by })) ?? this.#exhaustedReply()
+        }
+      }
+    }
+    const failed = rows.filter((r) => r.error).map((r) => r.repo)
+    if (failed.length) {
+      return `⛔ nothing takeable, and the frontier read failed for ${failed.map((r) => `\`${r}\``).join(', ')} — there may be more there`
+    }
+    return '💤 nothing takeable right now'
+  }
+
   // ---- start -----------------------------------------------------------------
 
-  async start(ticketArg, { repo, model, backend, by } = {}) {
+  // `reuse` is the resume contract (#81): inherit the surviving worktree
+  // instead of recreating it — see #dispatch.
+  async start(ticketArg, { repo, model, backend, by, reuse = false } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -197,7 +250,7 @@ export class Dispatcher {
           await this.deps.killSession(session).catch(() => {})
           const resolved = await this.#resolveRepo(n, repo ?? w.repo)
           if (resolved.error) return resolved.error
-          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by })
+          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse })
         },
         { replacing: true },
       )
@@ -211,7 +264,7 @@ export class Dispatcher {
           await this.deps.killSession(session).catch(() => {})
           const resolved = await this.#resolveRepo(n, repo)
           if (resolved.error) return resolved.error
-          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by })
+          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse })
         })
         return `⚠️ \`${session}\` is already live — confirm the respawn in thread ticket-${n}`
       }
@@ -228,13 +281,13 @@ export class Dispatcher {
       if (blockedBy > 0) anomalies.push(`blocked by ${blockedBy} open issue(s)`)
       if (anomalies.length) {
         this.#confirmContinuation(n, `${theRepo}#${n} is ${anomalies.join(' and ')}. Approve to dispatch anyway?`, async () =>
-          this.#dispatch(theRepo, n, issue, { model, backend, by }))
+          this.#dispatch(theRepo, n, issue, { model, backend, by, reuse }))
         return `⚠️ ${theRepo}#${n} is ${anomalies.join(' and ')} — confirm in thread ticket-${n}`
       }
 
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
-      return (await this.#dispatch(theRepo, n, issue, { model, backend, by })) ?? this.#exhaustedReply()
+      return (await this.#dispatch(theRepo, n, issue, { model, backend, by, reuse })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
     }
@@ -328,7 +381,10 @@ export class Dispatcher {
   }
 
   // claim → prepare → spawn, in that order; any prepare/spawn failure unclaims.
-  async #dispatch(repo, n, issue, { model, backend, by }) {
+  // `reuse` (the resume contract, #81): a surviving worktree is inherited as it
+  // stands — uncommitted files and local commits included — instead of being
+  // recreated from origin; absent one, resume degrades to an ordinary dispatch.
+  async #dispatch(repo, n, issue, { model, backend, by, reuse = false }) {
     const session = `curia-${n}`
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     const modelName = resolveModel(this.routing, labels, model)
@@ -366,7 +422,10 @@ export class Dispatcher {
       // the body is always present
       const full = issue
       const base = await this.deps.ensureBaseClone(this.root, repo)
-      const wtPath = await this.deps.createWorktree(base, n)
+      const surviving = worktreePathFor(this.root, repo, n)
+      const wtPath = reuse && fs.existsSync(surviving)
+        ? surviving
+        : await this.deps.createWorktree(base, n)
       const mapNumber = await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
       this.#assertNoPlantedHooks(wtPath, backendName)
@@ -1204,54 +1263,158 @@ export class Dispatcher {
         this.notify(ticket, `🚫 cancel of \`${session}\` not confirmed — worker untouched`)
         return
       }
-      const w = this.workers.get(session)
-      await this.#withdrawPreview(ticket, 'ticket cancelled')
-      await this.deps.killSession(session).catch(() => {})
-      // The other half of #47: this is the one path that KNOWS the worker is
-      // gone. A worker cancelled while blocked leaves its ask_human asking —
-      // the record stays open, the thread keeps nudging every ~30 min, and an
-      // answer would settle a resolver whose worker no longer exists. Cancel
-      // them here, where the death is certain.
-      for (const r of this.#openEscalationsFor(session)) {
-        this.cancelEscalation(r.id, { by: 'cancel' })
-        this.store.logEvent('escalation_orphaned', { id: r.id, worker: session, ticket })
-      }
-      // The journal records what HAPPENED, not what was attempted (the W1
-      // rule): dispatch_unclaimed only after the unclaim returned; a failed or
-      // impossible unclaim journals unclaim_failed (which closedAfterEpoch
-      // does not match, so reconcile retries the release); and the untracked
-      // branch — whose own message says the GitHub claim was untouched —
-      // writes no unclaim event at all.
-      let released = false
-      let failure = null
-      if (w) {
-        await this.deps.removeWorktree(basePathFor(this.root, w.repo), w.wtPath).catch((e) => this.log(`worktree removal for ${session} failed:`, e.message))
-        const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
-        if (login) {
-          try {
-            await this.deps.unclaim(w.repo, ticket, login)
-            released = true
-          } catch (e) {
-            failure = e.message
-            this.log(`unclaim ${w.repo}#${ticket} failed:`, e.message)
-          }
-        }
-      }
-      this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
-      this.workers.delete(session)
-      if (w) {
-        if (released) {
-          this.store.logEvent('dispatch_unclaimed', { repo: w.repo, ticket, worker: session, reason: 'cancelled', by: by ?? 'unknown' })
-        } else {
-          this.store.logEvent('unclaim_failed', { repo: w.repo, ticket, worker: session, reason: 'cancelled', by: by ?? 'unknown', error: failure ?? 'no viewer login' })
-        }
-      }
-      const tail = w
-        ? (released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
-        : ' (was untracked; GitHub claim untouched)'
-      this.notify(ticket, `🛑 \`${session}\` cancelled — session killed${tail}`)
+      await this.#teardown(ticket, { by })
     }).catch((e) => this.log(`cancel confirm for ${session} failed:`, e.message))
     return `🛑 confirm the cancellation of \`${session}\` in thread ticket-${ticket}`
+  }
+
+  // The bulk verb (#81): ONE confirm carrying count and list, then the same
+  // teardown every single cancel runs, worker by worker. Sessions this process
+  // does not track are cancelled too — `cancel all` means all.
+  async cancelAll({ by } = {}) {
+    let live = []
+    try {
+      live = (await this.deps.listSessions()).filter((s) => SESSION_RE.test(s))
+    } catch (e) {
+      // an indeterminate list must not silently narrow "all" to the tracked set
+      return `⛔ cancel all refused — the tmux session list is indeterminate (${e.message}); retry, or cancel tickets one by one`
+    }
+    const sessions = [...new Set([...this.workers.keys(), ...live])].sort()
+    if (!sessions.length) return '💤 no live workers to cancel'
+    const rows = sessions.map((s) => {
+      const w = this.workers.get(s)
+      return w ? `• \`${s}\` ${w.repo}#${w.ticket} — **${w.state}**` : `• \`${s}\` — untracked`
+    })
+    this.confirm('all', `Cancel ALL ${sessions.length} worker(s)? Each session is killed, its worktree removed and its ticket re-frontiered:\n${rows.join('\n')}`).then(async (ok) => {
+      if (!ok) {
+        this.notify('all', '🚫 cancel all not confirmed — workers untouched')
+        return
+      }
+      for (const s of sessions) {
+        const ticket = s.match(SESSION_RE)?.[1] ?? s
+        await this.#teardown(ticket, { by }).catch((e) => this.log(`cancel of ${s} failed:`, e.message))
+      }
+    }).catch((e) => this.log('cancel all confirm failed:', e.message))
+    return `🛑 confirm the cancellation of ${sessions.length} worker(s) in thread ticket-all:\n${rows.join('\n')}`
+  }
+
+  // The teardown a confirmed cancel runs — shared verbatim by cancel and
+  // cancelAll, so the bulk verb can never drift from the single one.
+  async #teardown(ticket, { by } = {}) {
+    const session = `curia-${ticket}`
+    const w = this.workers.get(session)
+    await this.#withdrawPreview(ticket, 'ticket cancelled')
+    await this.deps.killSession(session).catch(() => {})
+    // The other half of #47: this is the one path that KNOWS the worker is
+    // gone. A worker cancelled while blocked leaves its ask_human asking —
+    // the record stays open, the thread keeps nudging every ~30 min, and an
+    // answer would settle a resolver whose worker no longer exists. Cancel
+    // them here, where the death is certain.
+    for (const r of this.#openEscalationsFor(session)) {
+      this.cancelEscalation(r.id, { by: 'cancel' })
+      this.store.logEvent('escalation_orphaned', { id: r.id, worker: session, ticket })
+    }
+    // The journal records what HAPPENED, not what was attempted (the W1
+    // rule): dispatch_unclaimed only after the unclaim returned; a failed or
+    // impossible unclaim journals unclaim_failed (which closedAfterEpoch
+    // does not match, so reconcile retries the release); and the untracked
+    // branch — whose own message says the GitHub claim was untouched —
+    // writes no unclaim event at all.
+    let released = false
+    let failure = null
+    if (w) {
+      await this.deps.removeWorktree(basePathFor(this.root, w.repo), w.wtPath).catch((e) => this.log(`worktree removal for ${session} failed:`, e.message))
+      const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
+      if (login) {
+        try {
+          await this.deps.unclaim(w.repo, ticket, login)
+          released = true
+        } catch (e) {
+          failure = e.message
+          this.log(`unclaim ${w.repo}#${ticket} failed:`, e.message)
+        }
+      }
+    }
+    this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
+    this.workers.delete(session)
+    if (w) {
+      if (released) {
+        this.store.logEvent('dispatch_unclaimed', { repo: w.repo, ticket, worker: session, reason: 'cancelled', by: by ?? 'unknown' })
+      } else {
+        this.store.logEvent('unclaim_failed', { repo: w.repo, ticket, worker: session, reason: 'cancelled', by: by ?? 'unknown', error: failure ?? 'no viewer login' })
+      }
+    }
+    // status's recent-cancelled view reads this event; the unclaim events
+    // above cannot carry it because an untracked cancel writes none.
+    this.store.logEvent('worker_cancelled', { repo: w?.repo, ticket, worker: session, by: by ?? 'unknown', tracked: Boolean(w) })
+    const tail = w
+      ? (released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
+      : ' (was untracked; GitHub claim untouched)'
+    this.notify(ticket, `🛑 \`${session}\` cancelled — session killed${tail}`)
+  }
+
+  // ---- resume --------------------------------------------------------------------
+
+  // The resume contract (#81): a fresh worker on the ticket, inheriting the
+  // surviving worktree, never the conversation. A live worker is refused flat —
+  // resume means "the worker is gone", and the teardown-and-redispatch offer
+  // already lives on `start`.
+  async resume(n, { repo, model, backend, by } = {}) {
+    const ticket = String(n)
+    const session = `curia-${ticket}`
+    if (this.workers.has(session) || this.inFlight.has(session) || await this.deps.hasSession(session).catch(() => false)) {
+      return `▶️ \`${session}\` is already running — \`cancel ${ticket}\` first, or \`attach ${ticket}\``
+    }
+    return this.start(ticket, { repo, model, backend, by, reuse: true })
+  }
+
+  // Bulk resume (#81): every surviving worktree without a live worker, behind
+  // ONE confirm carrying count and list. A closed ticket in the list refuses at
+  // dispatch and says so in its own thread.
+  async resumeAll({ by } = {}) {
+    let targets
+    try {
+      targets = await this.#resumable()
+    } catch (e) {
+      return `⛔ resume all refused — the tmux session list is indeterminate (${e.message}); retry, or resume tickets one by one`
+    }
+    if (!targets.length) return '💤 nothing to resume — no surviving worktree without a live worker'
+    const rows = targets.map((t) => `• ${t.repo}#${t.ticket}`)
+    this.confirm('all', `Resume ${targets.length} ticket(s)? Each gets a fresh worker inheriting its surviving worktree:\n${rows.join('\n')}`).then(async (ok) => {
+      if (!ok) {
+        this.notify('all', '🚫 resume all not confirmed — nothing dispatched')
+        return
+      }
+      for (const t of targets) {
+        const msg = await this.resume(t.ticket, { repo: t.repo, by }).catch((e) => `⚠️ resume of ${t.repo}#${t.ticket} failed: ${e.message}`)
+        if (msg) this.notify(t.ticket, msg)
+      }
+    }).catch((e) => this.log('resume all confirm failed:', e.message))
+    return `▶️ confirm the resume of ${targets.length} ticket(s) in thread ticket-all:\n${rows.join('\n')}`
+  }
+
+  // Surviving worktrees with no live worker, across the watch list. Throws on
+  // an indeterminate session list — "no sessions" would make every worktree
+  // look resumable and re-dispatch live workers' tickets.
+  async #resumable() {
+    const live = new Set((await this.deps.listSessions()).filter((s) => SESSION_RE.test(s)))
+    const out = []
+    for (const entry of this.config.watch) {
+      const wtRoot = path.dirname(worktreePathFor(this.root, entry.repo, '0'))
+      let dirs = []
+      try {
+        dirs = fs.readdirSync(wtRoot)
+      } catch {
+        continue // repo never dispatched — no worktrees to resume
+      }
+      for (const d of dirs.sort((a, b) => Number(a) - Number(b))) {
+        if (!/^\d+$/.test(d)) continue
+        const session = `curia-${d}`
+        if (live.has(session) || this.workers.has(session) || this.inFlight.has(session)) continue
+        out.push({ repo: entry.repo, ticket: d })
+      }
+    }
+    return out
   }
 
   // ---- status --------------------------------------------------------------------
@@ -1261,7 +1424,8 @@ export class Dispatcher {
     // #54 item 9: *awaiting review* is read off the open escalation record, not
     // off the worker record, so it is also right for a worker this process
     // adopted at reconcile and whose in-memory state is a guess.
-    const reviewing = new Set(this.store.openEscalations()
+    const open = this.store.openEscalations()
+    const reviewing = new Set(open
       .filter((r) => r.kind === REVIEW_KIND)
       .map((r) => r.worker))
     const workers = [...this.workers.values()].map((w) => ({
@@ -1274,9 +1438,29 @@ export class Dispatcher {
       uptime_s: w.spawnedAt ? Math.round((Date.now() - w.spawnedAt) / 1000) : null,
       result_received: w.resultReceived,
       tmux_live: live.includes(w.session),
+      // where a waiting worker waits (#81's grown status): the open escalation
+      // records bound to it — id and kind, enough to name the thread and ask
+      waiting_on: open.filter((r) => r.worker === w.session).map((r) => ({ id: r.id, kind: r.kind })),
     }))
     const untracked = live.filter((s) => !this.workers.has(s))
-    return { workers, untracked }
+    return { workers, untracked, recent: this.#recentOutcomes() }
+  }
+
+  // Recent cancelled and finished (#81's grown status), newest last, capped per
+  // kind. Journal-derived like everything else here — an unreadable journal
+  // costs the recents, never the whole status.
+  #recentOutcomes(cap = 5) {
+    let journal = []
+    try {
+      journal = this.#readJournal()
+    } catch {
+      return []
+    }
+    const of = (kinds) => journal
+      .filter((ev) => kinds[ev.type])
+      .map((ev) => ({ kind: kinds[ev.type], repo: ev.repo ?? null, ticket: String(ev.ticket ?? '') }))
+      .slice(-cap)
+    return [...of({ worker_cancelled: 'cancelled' }), ...of({ lifecycle_closed: 'finished' })]
   }
 
   // ---- reconcile -----------------------------------------------------------------

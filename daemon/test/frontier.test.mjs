@@ -48,7 +48,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { filterTakeable, selectLane, frontierForRepo } from '../src/github.mjs'
+import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount } from '../src/github.mjs'
 
 // Small fixture builder -- keeps the field-notes ground truth readable below.
 // assignees/labels use the real gh shape: arrays of objects, not strings.
@@ -242,5 +242,51 @@ describe('frontierForRepo', () => {
       flatItems: [mkIssue(38)],
     }
     assert.deepEqual(frontierForRepo(entry), [38])
+  })
+})
+
+// #81's tickets view: how many open tickets an agent can work through with no
+// human in the loop — takeable now, or unblocked purely by chains of other
+// HITL-free tickets. mkIssue labels are empty, so a type label is added here.
+function typed(issue, type) {
+  issue.labels = [{ name: `wayfinder:${type}` }]
+  return issue
+}
+
+describe('agentOnlyChainCount', () => {
+  test('counts a takeable research ticket and a task chained behind it', () => {
+    const items = [
+      typed(mkIssue(1), 'research'),
+      typed(mkIssue(2, { blockedBy: 1 }), 'task'),
+    ]
+    const edges = { 2: [{ number: 1, state: 'open' }] }
+    assert.equal(agentOnlyChainCount({ items, edges }), 2)
+  })
+
+  test('a HITL ticket breaks the chain behind it', () => {
+    const items = [
+      typed(mkIssue(1), 'grilling'),
+      typed(mkIssue(2, { blockedBy: 1 }), 'research'),
+    ]
+    const edges = { 2: [{ number: 1, state: 'open' }] }
+    assert.equal(agentOnlyChainCount({ items, edges }), 0)
+  })
+
+  test('a closed blocker satisfies its edge', () => {
+    const items = [
+      typed(mkIssue(1, { state: 'closed' }), 'grilling'),
+      typed(mkIssue(2, { blockedBy: 1 }), 'task'),
+    ]
+    const edges = { 2: [{ number: 1, state: 'closed' }] }
+    assert.equal(agentOnlyChainCount({ items, edges }), 1)
+  })
+
+  test('an untyped, assigned, or edge-less blocked ticket never counts', () => {
+    const items = [
+      mkIssue(1), // no wayfinder type ⇒ HITL by the conservative rule
+      typed(mkIssue(2, { assignees: [{ login: 'alp82' }] }), 'research'),
+      typed(mkIssue(3, { blockedBy: 1 }), 'research'), // no edge entry ⇒ blocked
+    ]
+    assert.equal(agentOnlyChainCount({ items, edges: {} }), 0)
   })
 })
