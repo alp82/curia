@@ -22,6 +22,7 @@ export class EscalationStore {
     this.log = path.join(dataDir, 'events.jsonl')
     fs.mkdirSync(dataDir, { recursive: true })
     this.escalations = new Map() // id -> record
+    this.overseerSessions = new Map() // thread id -> SDK session id (#92)
     this.seq = 0
     this._replay()
   }
@@ -80,6 +81,12 @@ export class EscalationStore {
       case 'esc_nudge': {
         const r = this.escalations.get(ev.id)
         if (r) r.nudges++
+        break
+      }
+      case 'overseer_session': {
+        // #92: `resume` mints a fresh session id per continued conversation,
+        // so last write wins — the map always points at the live tail.
+        this.overseerSessions.set(ev.thread_id, ev.session_id)
         break
       }
     }
@@ -154,6 +161,16 @@ export class EscalationStore {
 
   get(id) {
     return this.escalations.get(id)
+  }
+
+  // Thread → SDK-session map for the overseer host (#92). Journalled so a
+  // daemon restart replays every conversation's resume handle.
+  bindOverseerSession(threadId, sessionId) {
+    this._append({ type: 'overseer_session', thread_id: threadId, session_id: sessionId })
+  }
+
+  overseerSession(threadId) {
+    return this.overseerSessions.get(threadId)
   }
 
   // Generic operational events (notify, result, worker_done…) share the journal.

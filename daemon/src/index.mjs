@@ -31,6 +31,7 @@ import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
+import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
@@ -180,6 +181,9 @@ const gate = {
     log(`command: "${canonical}"`)
     return router.handle(canonical, userId)
   },
+  // #92: the bridge's overseer surface hands each operator message here; the
+  // host runs one SDK query per message and speaks back through `io.post`.
+  overseerTurn: (threadId, prompt, io) => overseer.runTurn(threadId, prompt, io),
 }
 
 // ---- dispatch loop (#33) ----------------------------------------------------
@@ -324,6 +328,16 @@ const timeline = new TimelineSurface({
 dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's
 
 const router = new CommandRouter({ dispatcher, attach: attachApi, log })
+
+// The overseer session host (#92): every effect goes through gate.command —
+// the same seam the slash verbs and REST use — so it is journalled, logged and
+// routed identically, and the tool surface is the containment boundary.
+const overseer = new OverseerHost({
+  store,
+  dataDir: DATA,
+  command: (text) => gate.command(text, 'overseer'),
+  log,
+})
 
 // ---- worker-facing MCP surface (#29 shape) ---------------------------------
 
@@ -764,6 +778,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
         allowedUsers: allowed,
         guildId: process.env.CURIA_GUILD_ID,
         channelName: process.env.CURIA_CHANNEL ?? 'curia',
+        overseerChannelName: process.env.OVERSEER_CHANNEL ?? 'curia-overseer',
         dataDir: DATA,
         handlers: gate,
         log,

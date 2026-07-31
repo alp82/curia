@@ -96,11 +96,12 @@ function missingOptionReply(commandName) {
 export class DiscordBridge {
   // onHealth({state, previous, down_ms, reason, error}) — the daemon journals it
   // and decides whether to say it out loud (#56).
-  constructor({ token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, log = console.log, onHealth = () => {} }) {
+  constructor({ token, allowedUsers, guildId, channelName = 'curia', overseerChannelName = 'curia-overseer', dataDir, handlers, log = console.log, onHealth = () => {} }) {
     this.token = token
     this.allowedUsers = allowedUsers // array of user-id strings; the auth gate
     this.guildId = guildId
     this.channelName = channelName
+    this.overseerChannelName = overseerChannelName // #92; #93 retires it into #curia
     this.dataDir = dataDir
     this.handlers = handlers
     this.log = log
@@ -133,7 +134,13 @@ export class DiscordBridge {
       ? await this.client.guilds.fetch(this.guildId)
       : this.client.guilds.cache.first()
     if (!this.guild) throw new Error('bot is in no guild')
-    this.channel = await this.#ensureChannel()
+    this.channel = await this.#ensureChannel(this.channelName)
+    // The overseer surface (#92) shares the bot token: safe, because this
+    // bridge reacts only inside its own channels and the overseer host only
+    // hears what #onMessage routes to it.
+    this.overseerChannel = this.handlers.overseerTurn
+      ? await this.#ensureChannel(this.overseerChannelName)
+      : null
     await this.#registerSlashCommands()
     this.client.on('interactionCreate', (i) => this.#onInteraction(i).catch((e) => this.log('interaction error', e)))
     this.client.on('messageCreate', (m) => this.#onMessage(m).catch((e) => this.log('message error', e)))
@@ -202,11 +209,11 @@ export class DiscordBridge {
 
   // Top-level channel, no category parent — dodges the permission-overwrite
   // quirk that hid threads from the bot in the pre-configured guild (#22).
-  async #ensureChannel() {
+  async #ensureChannel(name) {
     const channels = await this.guild.channels.fetch()
-    const existing = channels.find((c) => c?.type === ChannelType.GuildText && c.name === this.channelName && !c.parentId)
+    const existing = channels.find((c) => c?.type === ChannelType.GuildText && c.name === name && !c.parentId)
     if (existing) return existing
-    return this.guild.channels.create({ name: this.channelName, type: ChannelType.GuildText })
+    return this.guild.channels.create({ name, type: ChannelType.GuildText })
   }
 
   async #registerSlashCommands() {
@@ -388,9 +395,43 @@ export class DiscordBridge {
     }
   }
 
+  // The overseer surface (#92): the session model from #83 — a top-level
+  // message in the overseer channel opens a thread and a fresh session, a
+  // message in one of its threads revives that session with full memory. The
+  // bridge owns only the transport (thread, typing, the 2000-char cap);
+  // everything said comes from the host through `post`.
+  async #overseerTurn(thread, prompt) {
+    const typing = setInterval(() => thread.sendTyping().catch(() => {}), 8000)
+    thread.sendTyping().catch(() => {})
+    try {
+      await this.handlers.overseerTurn(thread.id, prompt, {
+        post: (text) => this.#sayChunked(thread, text),
+      })
+    } finally {
+      clearInterval(typing)
+    }
+  }
+
+  // Discord caps a message at 2000 chars.
+  async #sayChunked(thread, text) {
+    for (let i = 0; i < text.length; i += 1900) {
+      await thread.send(text.slice(i, i + 1900))
+    }
+  }
+
   async #onMessage(m) {
-    if (m.author.bot || !m.channel.isThread()) return
+    if (m.author.bot) return
     if (!this.authorized(m.author.id)) return
+    if (this.overseerChannel) {
+      if (m.channel.id === this.overseerChannel.id) {
+        const thread = await m.startThread({ name: m.content.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
+        return this.#overseerTurn(thread, m.content)
+      }
+      if (m.channel.isThread() && m.channel.parentId === this.overseerChannel.id) {
+        return this.#overseerTurn(m.channel, m.content)
+      }
+    }
+    if (!m.channel.isThread()) return
     const open = this.handlers.findOpenForThread(m.channel.id)
     if (!open) return
     let answer = m.content?.trim() ?? ''
