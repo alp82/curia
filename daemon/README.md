@@ -1,6 +1,6 @@
 # curia daemon
 
-The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): worker-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)). Substrate-agnostic — workers connect over streamable-HTTP MCP regardless of how they were spawned (#29).
+The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): worker-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)). Worker-host-agnostic — workers connect over streamable-HTTP MCP regardless of how they were spawned (#29).
 
 ## Run
 

@@ -6,10 +6,10 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 - [ADR-0001](0001-github-is-the-only-durable-state-home.md): GitHub is the only durable state home. The daemon holds no board, and the journal is its one artifact.
 
-## Daemon and substrate
+## Daemon and worker host
 
 - [ADR-0002](0002-thin-custom-daemon.md): A thin custom daemon owns the unique logic and drives commodity parts. No adopted platform.
-- [ADR-0003](0003-tmux-ttyd-tailscale-substrate.md): Workers live in bare tmux, attach is one shared ttyd behind Tailscale Serve, workspaces are per-ticket worktrees.
+- [ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md): Workers live in bare tmux, attach is one shared ttyd behind Tailscale Serve, workspaces are per-ticket worktrees.
 
 ## Dispatch and routing
 

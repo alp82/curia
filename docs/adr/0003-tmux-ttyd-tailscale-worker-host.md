@@ -1,11 +1,13 @@
-# ADR-0003: The substrate is bare tmux, one shared ttyd, Tailscale Serve
+# ADR-0003: The worker host is bare tmux, one shared ttyd, Tailscale Serve
 
 **Status**: accepted (2026-07)
 **Provenance**: [Pick the substrate (#30)](https://github.com/alp82/curia/issues/30), [Spike: browser-terminal phone attach (#32)](https://github.com/alp82/curia/issues/32)
 
+The tracker archive calls the worker host "the substrate". The docs avoid that term.
+
 ## Context
 
-The substrate candidates were Orca, Paseo, herdr, and a composed stack of standard tools. The phone-attach spike put the composed stack through a six-item pass bar on a real phone over Tailscale: stable URL attach, TUI input with slash commands, keyboard-mic dictation, concurrent clients, restart survival, and responsiveness. All six passed.
+The worker-host candidates were Orca, Paseo, herdr, and a composed stack of standard tools. The phone-attach spike put the composed stack through a six-item pass bar on a real phone over Tailscale: stable URL attach, TUI input with slash commands, keyboard-mic dictation, concurrent clients, restart survival, and responsiveness. All six passed.
 
 ## Decision
 
@@ -19,5 +21,5 @@ The substrate candidates were Orca, Paseo, herdr, and a composed stack of standa
 
 - The Serve rule lives in tailscaled and outlives the daemon. Reconcile asserts it and sweeps stale rules.
 - Auth is tailnet membership only. An identity-enforcing proxy in front of ttyd is a standing pre-production requirement, because basic auth alone does not close the WebSocket-Origin hole.
-- Lifecycle signals never come from the substrate. They ride curia's own side channels: the MCP tools and the Stop hook.
+- Lifecycle signals never come from the worker host. They ride curia's own side channels: the MCP tools and the Stop hook.
 - One tmux window has one size. That limit later produced the timeline surface, [ADR-0009](0009-timeline-beside-the-pty.md).

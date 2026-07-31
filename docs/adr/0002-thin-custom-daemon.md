@@ -5,7 +5,7 @@
 
 ## Context
 
-The daemon body could be hermes-agent adopted wholesale, or a thin custom core that drives commodity parts. The call waited on live evaluations of the borrowed parts (the OpenACP bridge and the substrate candidates).
+The daemon body could be hermes-agent adopted wholesale, or a thin custom core that drives commodity parts. The call waited on live evaluations of the borrowed parts (the OpenACP bridge and the worker-host candidates).
 
 ## Decision
 
@@ -22,4 +22,4 @@ Rejections, recorded:
 
 - One process is one deploy unit. The daemon, the bridge, the router, and the MCP surface ship together.
 - Every borrowed part is swappable, because curia owns the seams.
-- The worker and attach substrate was deliberately not settled here. [ADR-0003](0003-tmux-ttyd-tailscale-substrate.md) holds that pick.
+- The worker host was deliberately not settled here. [ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md) holds that pick.

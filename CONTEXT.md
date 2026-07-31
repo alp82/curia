@@ -94,6 +94,10 @@ _Avoid_: agent (that names the CLI product, not the process curia spawns).
 **Session**:
 The tmux session `curia-<n>`. The session name is the worker's identity everywhere.
 
+**Worker host**:
+The layer that hosts worker sessions and their attach: bare tmux, one shared ttyd, Tailscale Serve.
+_Avoid_: substrate (banned by the operator).
+
 **Worktree**:
 The worker's per-ticket git worktree, on branch `curia/<n>`, cut from a shared base clone.
 
