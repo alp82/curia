@@ -1,0 +1,4 @@
+node_modules/
+home/
+config/
+sessions.jsonl
