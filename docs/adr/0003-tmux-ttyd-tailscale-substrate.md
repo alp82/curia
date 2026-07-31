@@ -1,0 +1,23 @@
+# ADR-0003: The substrate is bare tmux, one shared ttyd, Tailscale Serve
+
+**Status**: accepted (2026-07)
+**Provenance**: [Pick the substrate (#30)](https://github.com/alp82/curia/issues/30), [Spike: browser-terminal phone attach (#32)](https://github.com/alp82/curia/issues/32)
+
+## Context
+
+The substrate candidates were Orca, Paseo, herdr, and a composed stack of standard tools. The phone-attach spike put the composed stack through a six-item pass bar on a real phone over Tailscale: stable URL attach, TUI input with slash commands, keyboard-mic dictation, concurrent clients, restart survival, and responsiveness. All six passed.
+
+## Decision
+
+- Workers run in bare tmux, one session per ticket, named `curia-<n>`. The session name is the worker's identity everywhere.
+- One shared ttyd page serves terminal attach, with URL-arg session picking. One Tailscale Serve port publishes it. A touch key-bar covers the keys phone keyboards lack.
+- Workspaces are per-ticket git worktrees on branch `curia/<n>`, cut from one daemon-owned base clone per repo.
+- Voice input is phone keyboard dictation into the browser terminal. Discord voice-memo STT stays a stretch goal, not a gate.
+- herdr and Paseo are dropped. Orca stays benched. Every distinctive capability they offered is either covered by a standing decision or broken by curia's own requirements. Resume-with-history loses to the re-dispatch posture of [ADR-0001](0001-github-is-the-only-durable-state-home.md).
+
+## Consequences
+
+- The Serve rule lives in tailscaled and outlives the daemon. Reconcile asserts it and sweeps stale rules.
+- Auth is tailnet membership only. An identity-enforcing proxy in front of ttyd is a standing pre-production requirement, because basic auth alone does not close the WebSocket-Origin hole.
+- Lifecycle signals never come from the substrate. They ride curia's own side channels: the MCP tools and the Stop hook.
+- One tmux window has one size. That limit later produced the timeline surface, [ADR-0009](0009-timeline-beside-the-pty.md).
