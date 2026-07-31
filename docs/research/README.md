@@ -20,6 +20,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [openacp-handson.md](openacp-handson.md) | Building and booting the OpenACP fork bridge | Superseded — refines [openacp.md](openacp.md); vendoring was rejected |
 | [orca.md](orca.md) | Orca as a multi-device attach worker host | Rejected — benched; ADR-0003 picks tmux + ttyd + Tailscale |
 | [orca-headless-verification.md](orca-headless-verification.md) | Empirical check of Orca's four headless claims | Superseded — verifies [orca.md](orca.md); Orca stayed benched |
+| [overseer-session-hosting.md](overseer-session-hosting.md) | Hosting, revival, and tool exposure for the overseer session | Informational — grounds the [#83](https://github.com/alp82/curia/issues/83) prototype |
 | [paperclip.md](paperclip.md) | Paperclip as an ACP-per-turn orchestrator candidate | Rejected — design reference; it did not reopen the worker-host call |
 | [paseo.md](paseo.md) | Paseo daemon as an always-on host and dispatcher | Rejected — ADR-0003 drops Paseo (AGPL, bus factor of one) |
 | [paseo-handson.md](paseo-handson.md) | Paseo re-run against the Orca rubric | Superseded — refines [paseo.md](paseo.md); Paseo dropped by ADR-0003 |
