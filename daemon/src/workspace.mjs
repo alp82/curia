@@ -303,9 +303,18 @@ const HARNESS = {
     // value also suffixes the keychain service name, which would break sharing
     // where the keychain, not the plaintext file, is the store.
     hostStore: () => path.join(os.homedir(), '.claude'),
+    // CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT (ms): Claude Code aborts an HTTP MCP
+    // call after 300 s with no response or progress notification, and ONLY a
+    // progress notification bound to the call's own progressToken resets that
+    // timer — the keepalive's logging branch never does (#104, the 314 s
+    // death). The keepalive covers a client that offered a token; this floor
+    // covers one that did not. One day, the same bound as
+    // CODEX_TOOL_TIMEOUT_S below; the 90 s transport-drop watchdog still
+    // aborts a call whose daemon actually died.
     env: (cfgDir) => ({
       CLAUDE_CONFIG_DIR: cfgDir,
       CLAUDE_SECURESTORAGE_CONFIG_DIR: path.join(os.homedir(), '.claude'),
+      CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(86_400_000),
     }),
 
     // Exact prototype.md §1 shape, verified live: no first-spawn dialog ever

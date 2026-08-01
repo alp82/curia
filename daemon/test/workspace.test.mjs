@@ -59,6 +59,13 @@ describe('per-worker config dir (#53)', () => {
     // an absolute path, not the empty-string form (see workerEnv's note)
     assert.ok(path.isAbsolute(env.CLAUDE_SECURESTORAGE_CONFIG_DIR))
   })
+
+  test('the worker env lifts the 300 s MCP idle abort (#104)', () => {
+    const env = workerEnv(path.join(tmp, 'cfg', 'curia-3'))
+    // ms, and at least the codex lane's one-day bound — a blocked ask_human
+    // must survive a human who takes hours, keepalive or no keepalive
+    assert.equal(env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, '86400000')
+  })
 })
 
 describe('the worker skill set (#57)', () => {

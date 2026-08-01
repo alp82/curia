@@ -2142,7 +2142,7 @@ describe('dispatching across two backends (#39)', () => {
     assert.deepEqual(harnessed, ['codex', 'claude'])
     assert.ok(events.some((e) => e.type === 'provider_cooling' && e.provider === 'openai'))
     assert.match(spawns[1].shellCmd, /claude --model sonnet/)
-    assert.deepEqual(Object.keys(spawns[1].env).sort(), ['CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR'])
+    assert.deepEqual(Object.keys(spawns[1].env).sort(), ['CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT', 'CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR'])
     // and the watchdog that follows must read the NEW lane's marker
     assert.ok(events.some((e) => e.type === 'worker_spawned' && e.backend === 'claude'))
   })
