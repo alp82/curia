@@ -96,6 +96,19 @@ export function textCarriesLimitPhrase(...parts) {
   return carriesLimitPhrase(parts.filter(Boolean).join('\n'))
 }
 
+// Workers name their ticket in whatever shape the model prefers — `66`, `#66`,
+// `owner/repo#66`, or the full issue URL (#103). Reduce a reported id to
+// {repo, number} so a semantically equal id is not journalled as a mismatch.
+// The spawn binding stays the only authority over which ticket is acted on.
+export function parseTicketRef(raw) {
+  const s = String(raw).trim()
+  const m = s.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)\/issues\/(\d+)(?:[#?].*)?$/)
+    ?? s.match(/^([^\s#]+\/[^\s#]+)#(\d+)$/)
+  if (m) return { repo: m[1], number: m[2] }
+  const n = s.match(/^#?(\d+)$/)
+  return { repo: null, number: n ? n[1] : null }
+}
+
 export class Dispatcher {
   // notify(ticket, msg) is injected by index.mjs (bridge-guarded). The button
   // confirm seams (#94) too: openConfirm opens + renders a `confirm`
@@ -949,9 +962,15 @@ export class Dispatcher {
       this.store.logEvent('resolve_skipped', { worker: workerName, reason: 'no ticket is bound to this worker' })
       return 'result recorded — no curia ticket is bound to this worker, so nothing on the tracker was touched'
     }
-    if (result.ticket != null && String(result.ticket) !== ticket) {
-      this.store.logEvent('result_ticket_mismatch', { worker: workerName, bound: ticket, reported: String(result.ticket) })
-      this.log(`WARNING: ${workerName} reported ticket ${result.ticket} but is bound to ${ticket} — acting on ${ticket}`)
+    if (result.ticket != null) {
+      const ref = parseTicketRef(result.ticket)
+      const boundRepo = w?.repo ?? null
+      const sameTicket = ref.number === ticket
+        && (!ref.repo || !boundRepo || ref.repo.toLowerCase() === boundRepo.toLowerCase())
+      if (!sameTicket) {
+        this.store.logEvent('result_ticket_mismatch', { worker: workerName, bound: ticket, reported: String(result.ticket) })
+        this.log(`WARNING: ${workerName} reported ticket ${result.ticket} but is bound to ${ticket} — acting on ${ticket}`)
+      }
     }
     const repo = w?.repo ?? this.#epochRepo(ticket)
     if (!repo) {

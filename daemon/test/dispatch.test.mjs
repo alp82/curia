@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Dispatcher, paneTail, textCarriesLimitPhrase } from '../src/dispatch.mjs'
+import { Dispatcher, paneTail, textCarriesLimitPhrase, parseTicketRef } from '../src/dispatch.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
 
 const ROUTING = {
@@ -1229,6 +1229,44 @@ describe('onResult acts on the SPAWN BINDING, never on the reported ticket numbe
     assert.ok(!events.some((e) => e.type === 'ticket_resolved' && e.ticket === '99'))
   })
 
+  // #103: every journalled mismatch to date was a worker naming ITS OWN ticket
+  // in a repo-qualified or URL shape. Those are equal ids, not disagreements.
+  test('a repo-qualified id for the bound ticket is not a mismatch', async () => {
+    const d = makeDispatcher({ closeIssue: async () => {} })
+    d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/nope/42', cfgDir: '/c', state: 'ready' })
+    await d.onResult('curia-42', { ticket: 'o/r#42', status: 'resolved', summary: 'done' })
+    assert.ok(!events.some((e) => e.type === 'result_ticket_mismatch'))
+  })
+
+  test('the full issue URL for the bound ticket is not a mismatch', async () => {
+    const d = makeDispatcher({ closeIssue: async () => {} })
+    d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/nope/42', cfgDir: '/c', state: 'ready' })
+    await d.onResult('curia-42', { ticket: 'https://github.com/o/r/issues/42', status: 'resolved', summary: 'done' })
+    assert.ok(!events.some((e) => e.type === 'result_ticket_mismatch'))
+  })
+
+  test('the same number in a DIFFERENT repo is still a mismatch', async () => {
+    const d = makeDispatcher({ closeIssue: async () => {} })
+    d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/nope/42', cfgDir: '/c', state: 'ready' })
+    await d.onResult('curia-42', { ticket: 'other/repo#42', status: 'resolved', summary: 'done' })
+    assert.ok(events.some((e) => e.type === 'result_ticket_mismatch' && e.reported === 'other/repo#42'))
+  })
+})
+
+describe('parseTicketRef', () => {
+  test('accepts every shape workers have journalled', () => {
+    assert.deepEqual(parseTicketRef('66'), { repo: null, number: '66' })
+    assert.deepEqual(parseTicketRef('#66'), { repo: null, number: '66' })
+    assert.deepEqual(parseTicketRef('alp82/curia#66'), { repo: 'alp82/curia', number: '66' })
+    assert.deepEqual(parseTicketRef('https://github.com/alp82/alperortac.com/issues/74'), { repo: 'alp82/alperortac.com', number: '74' })
+  })
+
+  test('an unparseable id yields no number, which reads as a mismatch', () => {
+    assert.deepEqual(parseTicketRef('the landing page ticket'), { repo: null, number: null })
+  })
+})
+
+describe('onResult falls back to the journal when the worker record is gone', () => {
   test('a worker whose record this process never held still resolves, via the journal epoch', async () => {
     fs.writeFileSync(
       path.join(tmp, 'data', 'events.jsonl'),

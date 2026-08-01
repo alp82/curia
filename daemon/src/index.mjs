@@ -562,7 +562,10 @@ function buildMcpServer(worker, ticket) {
     async (result, extra) => {
       const rec = store.logEvent('result', { worker, ...result })
       fs.writeFileSync(path.join(DATA, 'results', `${worker}.json`), JSON.stringify(rec, null, 2))
-      if (bridge) bridge.notify(result.ticket, `✅ \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
+      // Route by the BOUND ticket, not `result.ticket` — the worker-supplied id
+      // may be repo-qualified or a URL, which ensureThread would send to a
+      // stray named thread instead of the ticket's bound thread (#103).
+      if (bridge) bridge.notify(ticket || result.ticket, `✅ \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
       const stopKeepAlive = startKeepAlive(extra, `${worker}/result`)
       try {
         return { content: [{ type: 'text', text: await dispatcher.onResult(worker, result) }] }
