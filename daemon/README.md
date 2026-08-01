@@ -1,22 +1,36 @@
 # curia daemon
 
-The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): worker-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)). Worker-host-agnostic — workers connect over streamable-HTTP MCP regardless of how they were spawned (#29).
+The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): worker-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)) + the overseer session host ([#92](https://github.com/alp82/curia/issues/92)). Worker-host-agnostic — workers connect over streamable-HTTP MCP regardless of how they were spawned (#29).
 
-## Run
+## Setup
 
-```
-npm install
-npm start          # reads daemon/.env
-npm test           # unit tests (frontier / routing / commands)
-```
+The daemon expects these on the box before the first boot:
+
+- **Node 22+** with npm. The daemon is one Node process (`npm install`, then `npm start`).
+- **Claude Code, logged in.** Workers and the overseer share the host credential store at `~/.claude` (#53/#92). They have no login of their own. If the host is logged out, every worker and every overseer turn fails.
+- **`gh`, authenticated** for every watched repo. The daemon claims, comments, and closes tickets through it.
+- **`tmux`** — the worker host. **`ttyd`** at `TTYD_BIN` (default `~/.local/bin/ttyd`) for the browser terminal.
+- **Tailscale** with Serve available. Attach links and preview links publish through `tailscale serve`.
+- **A Discord bot** in one guild, with the message-content intent, and its token in `.env`.
 
 `.env` (never committed):
 
 - `DISCORD_BOT_TOKEN` — CuriaBot token. Omit to run REST-only (escalations stay answerable via `POST /answer`).
 - `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271), `NUDGE_MS` (default 30 min).
+- `OVERSEER_MODEL` (default `claude-haiku-4-5`) and `OVERSEER_FALLBACK_MODEL` (default `claude-sonnet-5`) — the overseer session models (#92).
 
 Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml` (watch list, dispatch settings — `auto_dispatch` ships `false` — attach ports, preview range, worker skill set) and `../config/routing.yaml` (label-only model routing, fallback chains, backend command templates). Override the directory with `CURIA_CONFIG_DIR`.
+
+## Run
+
+```
+npm install
+npm start          # reads daemon/.env
+npm test           # unit tests
+```
+
+One boot brings up everything: the HTTP surface, ttyd, the Discord bridge, the reconcile pass, and the overseer host. There is no second process. To verify a boot, look for `ready: guild=<guild> channel=#curia` in the log, then send a top-level message in `#curia` — a thread opens and the overseer answers in it.
 
 ## Surfaces
 
@@ -28,13 +42,31 @@ Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml`
 - `POST /command {text}` — canonical command text, REST parity with the Discord slash verbs.
 - `POST /reconcile` — on-demand reconcile (boot reconcile runs automatically).
 
-## The five verbs (Discord slash commands or `POST /command`)
+## The verb catalogue (Discord slash commands, `POST /command`, or overseer prose)
 
-- `frontier [owner/repo]` — takeable tickets per watched repo (map lane with deferred-map skip and multi-map union, or flat `ready-for-agent` lane per watch-entry `mode`).
-- `start <n>` / `start owner/repo#<n>` (`model=x backend=y` optional) — claim the GitHub issue, carve a worktree off the daemon-owned base clone under `workspace_root`, spawn a Claude Code worker in tmux `curia-<n>` with a pre-seeded `CLAUDE_CONFIG_DIR` (no first-run dialogs), watch for readiness. Anomalies (assigned/blocked/already-live) refuse with the way out — start never confirms (#89/#94).
+The catalogue grew on #91. A repo argument is fuzzy everywhere it appears: any unambiguous part of a watched repo name resolves (`cur` works for `alp82/curia`); an ambiguous part refuses with the candidates.
+
+- `tickets [repo]` — takeable tickets per watched repo (map lane with deferred-map skip and multi-map union, or flat `ready-for-agent` lane per watch-entry `mode`), plus the count of HITL-free tickets a worker can run alone. The slash/overseer name for the domain term "frontier".
+- `next [repo]` — dispatch a worker on the first takeable HITL-free ticket.
+- `start <n>` / `start [owner/]repo#<n>` (`model=x backend=y` optional) — claim the GitHub issue, carve a worktree off the daemon-owned base clone under `workspace_root`, spawn a Claude Code worker in tmux `curia-<n>` with a pre-seeded `CLAUDE_CONFIG_DIR` (no first-run dialogs), watch for readiness. Anomalies (assigned/blocked/already-live) refuse with the way out — start never confirms (#89/#94).
 - `status` — live workers + tmux cross-check.
-- `cancel <n>` — immediate teardown from a slash command or REST: kill session, remove worktree, unassign (re-frontier). The overseer's interpreted cancel instead posts a ✅/❌ button confirm (#94): instance-bound, no expiry clock, and it lapses the moment the worker exits. The button executes through the daemon, never through the model.
+- `resume <n>` / `resume all` — fresh worker on a ticket, inheriting its surviving worktree; `all` resumes every resumable ticket.
+- `cancel <n>` / `cancel all` — immediate teardown from a slash command or REST: kill session, remove worktree, unassign (re-frontier). The overseer's interpreted cancel instead posts a ✅/❌ button confirm (#94): instance-bound, no expiry clock, and it lapses the moment the worker exits. The button executes through the daemon, never through the model.
 - `attach <n>` — `https://<tailnet-dns>:<serve_port>/?arg=curia-<n>` via the shared ttyd; `bin/curia-attach.sh` whitelists `^curia-[A-Za-z0-9._-]+$` (hard requirement — ttyd `-a` would otherwise hand out attach to any tmux session). ttyd also runs with `-O` (`--check-origin`): without it any web page open on any tailnet-connected device could hijack a worker's terminal cross-origin, since the victim's browser supplies the network position. What `-O` actually enforces (verified in ttyd's `src/protocol.c`) is `Origin == Host` — a same-origin *browser* control, not an allowlist: a mismatched `Origin` is refused at the WebSocket upgrade, but a DNS-rebinding page whose Host and Origin match each other passes. Auth in front of ttyd (basic-auth / identity header) remains deferred.
+
+## Overseer sessions (#92/#93/#94/#95)
+
+Every `#curia` thread is a persistent overseer session. A top-level prose message opens a thread and a fresh session. A later message in any thread revives its session with full memory. Slash commands stay deterministic and never touch the model.
+
+The host (`overseer.mjs`) runs one Agent SDK `query()` per operator message, `OVERSEER_MODEL` first with one no-side-effect retry on `OVERSEER_FALLBACK_MODEL` (a failed turn that already made a tool call goes to the operator instead — a replay could double a dispatch). The thread→session map is a reduction over the journal, so a daemon restart loses no conversation. The session home lives under `data/overseer/` and holds no checkout.
+
+Containment is the tool surface: the session's only tools are the seven verbs as in-process MCP tools, and each tool posts canonical verb text through `gate.command` — the same seam the slash verbs and REST use, journalled and routed identically. The session has no shell, no files, and no process handles. It never answers an escalation or a review gate (the never-list in its system prompt).
+
+An interpreted `cancel`/`cancel all` does not execute: the daemon posts a ✅/❌ button confirm (#94) — instance-bound, no expiry clock, lapsing the moment the worker exits, a newer confirm superseding an older one. The button executes through the daemon, never through the model. Outcomes that resolve between turns come back to the session as journalled notes on its next revival, so its memory stays honest.
+
+Each turn posts exactly two messages (#95): one small-print status line, edited in place as tool calls land, and one short answer. `messaging.mjs` holds the standard — the seven signal emoji, `<>`-wrapped links, "N more" clamps — and its lint runs in the tests. Ticket↔thread bindings (#93) route a worker's escalations into the thread that started it, rename the thread with a display-only `🎫` prefix, and release on terminal states plus a reconcile sweep.
+
+The build was verified live by the full-loop rehearsal — `docs/live-checks/96-overseer-rehearsal.md` — including two daemon restarts mid-pass.
 
 ## Preview links (#40, implementing #8)
 
@@ -91,4 +123,4 @@ First-valid-wins (#11/#31) is verified live across two devices: Approve on the p
 
 Dispatch state follows the same posture (#33): the workers map is a disposable in-memory cache. Reconcile (boot + on demand) re-derives it from GitHub claims, `tmux ls` and the journal — epoch-scoped (journal events only count against a ticket's latest dispatch), orphan sessions swept and dead claims released only on positive gh evidence, open button confirms lapsed on boot (worker instances do not match across a restart). Provider/model cooling is in-memory only and expires at the provider's stated reset (or a journalled 1 h fallback).
 
-Deferred: voice-memo STT (text parity is the PoC floor, #31 scope note); the overseer NL agent session — canonical text currently routes to the deterministic in-daemon command router (stated #18 deviation); the gpt/codex backend lane (a config addition to `routing.yaml` once its follow-up ticket lands).
+Deferred: voice-memo STT (text parity is the PoC floor, #31 scope note); the gpt/codex backend lane (a config addition to `routing.yaml` once its follow-up ticket lands).

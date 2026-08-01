@@ -34,6 +34,6 @@ One box runs a single Node daemon plus tmux. The daemon carries the Discord brid
 
 ## Status
 
-Curia is a proof of concept, and it works. A scripted rehearsal proved the full loop end to end on real repos: a phone command dispatched a worker, the worker escalated, a preview opened on the phone, a rejection looped into new commits, an approval merged, and the map updated. The decision record lives in this repo's issue tracker and is distilled into `docs/adr/`. Agents get their vocabulary from `CONTEXT.md`.
+Curia is a proof of concept, and it works. A scripted rehearsal proved the full loop end to end on real repos: a phone command dispatched a worker, the worker escalated, a preview opened on the phone, a rejection looped into new commits, an approval merged, and the map updated. Since then the overseer moved into the daemon: every `#curia` thread is a persistent agent session that turns prose into the verb catalogue, and a second full-loop rehearsal (`docs/live-checks/96-overseer-rehearsal.md`) verified the build with two daemon restarts inside the pass. The decision record lives in this repo's issue tracker and is distilled into `docs/adr/`. Agents get their vocabulary from `CONTEXT.md`.
 
-Curia is not packaged for reuse. It runs on one person's box, accounts, and conventions, and several of them are baked in. There are no setup steps here on purpose. Read the code, the ADRs, and the research notes as a record of decisions.
+Curia is not packaged for reuse. It runs on one person's box, accounts, and conventions, and several of them are baked in. Setup and run instructions live in `daemon/README.md`, written for that box. Read the code, the ADRs, and the research notes as a record of decisions.
