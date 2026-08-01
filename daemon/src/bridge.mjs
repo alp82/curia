@@ -292,26 +292,57 @@ export class DiscordBridge {
     return thread
   }
 
+  // A thread's own URL, from ids the daemon already holds — the breadcrumb's
+  // whole payload (#108 item 10). Bare on purpose: attach-style tappable card.
+  static threadLink(guildId, threadId) {
+    return `https://discord.com/channels/${guildId}/${threadId}`
+  }
+
   // Bind a ticket to a thread (#93). With a threadId, the bind lands on that
   // thread — "start binds the thread it runs in" — and the rename prefixes the
   // label onto the conversation's own name. Without one, a fresh thread is
   // opened and bound (the autonomous-dispatch leg). A refused bind is returned
-  // as the store said it, holder included, and renames nothing.
+  // as the store said it, holder included, and renames nothing — EXCEPT the
+  // issuing thread already carrying another ticket (#108 item 10): thread-per-
+  // ticket then moves the work elsewhere, so a fresh thread is opened and
+  // breadcrumbs link both ways — the origin learns where the work went, the
+  // new thread names who sent it. Composition from ids the daemon holds at
+  // bind time; no new state.
   async bindTicket(ticket, { threadId = null, title = '' } = {}) {
     if (!this.bindings) return { ok: false, reason: 'no-bindings' }
     if (threadId) {
       const r = this.bindings.bind(ticket, threadId)
-      if (!r.ok) return r
-      const t = await this.client.channels.fetch(threadId).catch(() => null)
-      if (t && !t.name.startsWith('🎫')) {
-        await t.setName(DiscordBridge.labelName(ticket, t.name)).catch(() => {})
+      if (r.ok) {
+        const t = await this.client.channels.fetch(threadId).catch(() => null)
+        if (t && !t.name.startsWith('🎫')) {
+          await t.setName(DiscordBridge.labelName(ticket, t.name)).catch(() => {})
+        }
+        return r
       }
-      return r
+      if (r.reason !== 'thread-bound') return r
+      return this.#bindFreshThread(ticket, title, threadId)
     }
+    return this.#bindFreshThread(ticket, title, null)
+  }
+
+  async #bindFreshThread(ticket, title, originThreadId) {
     const thread = await this.channel.threads.create({
       name: DiscordBridge.labelName(ticket, title), autoArchiveDuration: 10080,
     })
-    return this.bindings.bind(ticket, thread.id)
+    const r = this.bindings.bind(ticket, thread.id)
+    if (r.ok && originThreadId) {
+      const origin = await this.client.channels.fetch(originThreadId).catch(() => null)
+      const originName = origin?.name ? `“${origin.name}”` : 'another thread'
+      await thread.send(smallPrint(
+        `🔗 dispatched from ${originName} — ${DiscordBridge.threadLink(this.guild.id, originThreadId)}`,
+      )).catch(() => {})
+      if (origin) {
+        await origin.send(smallPrint(
+          `🔗 ${DiscordBridge.labelName(ticket, title)} continues in its own thread — ${DiscordBridge.threadLink(this.guild.id, thread.id)}`,
+        )).catch(() => {})
+      }
+    }
+    return r
   }
 
   // Release is the label coming off (#93): journal first, then strip the

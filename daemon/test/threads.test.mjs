@@ -91,6 +91,96 @@ describe('DiscordBridge label helpers', () => {
     assert.equal(DiscordBridge.stripLabel('deploy talk'), 'deploy talk')
     assert.equal(DiscordBridge.stripLabel(DiscordBridge.labelName('85', 'roundtrip')), 'roundtrip')
   })
+
+  test('threadLink composes from the ids the daemon already holds', () => {
+    assert.equal(DiscordBridge.threadLink('G1', 'T9'), 'https://discord.com/channels/G1/T9')
+  })
+})
+
+// ---- cross-thread breadcrumbs (#108 item 10) --------------------------------
+
+describe('DiscordBridge cross-thread breadcrumbs', () => {
+  let store, bridge, created, sentTo
+
+  const makeThread = (id, name) => ({
+    id, name, sent: [],
+    send: async (text) => { sentTo.push({ id, text }) },
+    setName: async () => {},
+  })
+
+  beforeEach(() => {
+    store = new EscalationStore(tmp())
+    created = []
+    sentTo = []
+    const threads = new Map()
+    bridge = new DiscordBridge({
+      token: 'x', allowedUsers: [], dataDir: tmp(),
+      handlers: {}, log: () => {},
+      bindings: {
+        get: (t) => store.threadForTicket(t),
+        bind: (t, id) => store.bindTicketThread(t, id),
+        release: (t, r) => store.releaseTicketThread(t, r),
+      },
+    })
+    bridge.guild = { id: 'G' }
+    bridge.channel = {
+      id: 'C',
+      threads: {
+        create: async ({ name }) => {
+          const t = makeThread(`fresh-${created.length + 1}`, name)
+          created.push(t)
+          threads.set(t.id, t)
+          return t
+        },
+      },
+    }
+    bridge.client = { channels: { fetch: async (id) => threads.get(id) ?? null } }
+    bridge.registerThread = (t) => threads.set(t.id, t)
+  })
+
+  test('a dispatch from an already-bound thread opens a fresh thread and breadcrumbs both ways', async () => {
+    const origin = makeThread('t-origin', '🎫 106 · charting')
+    bridge.registerThread(origin)
+    store.bindTicketThread('106', 't-origin')
+
+    const r = await bridge.bindTicket('107', { threadId: 't-origin', title: 'Run the map' })
+    assert.equal(r.ok, true)
+    assert.equal(created.length, 1)
+    assert.equal(store.threadForTicket('107'), created[0].id)
+    // the new thread opens by naming the thread that sent it
+    const inFresh = sentTo.find((s) => s.id === created[0].id)
+    assert.match(inFresh.text, /dispatched from “🎫 106 · charting”/)
+    assert.match(inFresh.text, /discord\.com\/channels\/G\/t-origin/)
+    // and the origin learns where the work went
+    const inOrigin = sentTo.find((s) => s.id === 't-origin')
+    assert.match(inOrigin.text, /🎫 107 · Run the map/)
+    assert.match(inOrigin.text, new RegExp(`discord\\.com/channels/G/${created[0].id}`))
+  })
+
+  test('an autonomous dispatch (no issuing thread) opens a fresh thread with no breadcrumb', async () => {
+    const r = await bridge.bindTicket('108', { title: 'quiet start' })
+    assert.equal(r.ok, true)
+    assert.equal(created.length, 1)
+    assert.equal(sentTo.length, 0)
+  })
+
+  test('a bind onto an unbound issuing thread stays in place — no fresh thread, no breadcrumb', async () => {
+    const origin = makeThread('t-conv', 'deploy talk')
+    bridge.registerThread(origin)
+    const r = await bridge.bindTicket('109', { threadId: 't-conv', title: 'x' })
+    assert.equal(r.ok, true)
+    assert.equal(created.length, 0)
+    assert.equal(sentTo.length, 0)
+    assert.equal(store.threadForTicket('109'), 't-conv')
+  })
+
+  test('a ticket already bound elsewhere refuses as before — no thread churn', async () => {
+    store.bindTicketThread('110', 't-elsewhere')
+    const r = await bridge.bindTicket('110', { threadId: 't-other', title: 'x' })
+    assert.equal(r.ok, false)
+    assert.equal(r.reason, 'ticket-bound')
+    assert.equal(created.length, 0)
+  })
 })
 
 // ---- the thread context through the router (commands.mjs) --------------------
