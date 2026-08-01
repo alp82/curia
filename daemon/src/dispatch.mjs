@@ -115,7 +115,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
+  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, attachLinks, deps }) {
     this.config = config
     this.routing = routing
     this.store = store
@@ -148,6 +148,11 @@ export class Dispatcher {
     // Preview registry (#40) — optional so tests and any preview-less
     // deployment construct a Dispatcher unchanged. Every call site guards.
     this.previews = previews ?? null
+    // attachLinks(ticket) → multi-line "🔗 timeline …\n🔗 terminal …" (#118
+    // item 7): the ready message hands out both links by default, so nobody
+    // types /attach to see what just started. Optional; absent, the ready
+    // message falls back to naming the verb.
+    this.attachLinks = attachLinks ?? null
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.workers = new Map() // session -> worker record (disposable cache)
@@ -187,16 +192,29 @@ export class Dispatcher {
       flatItems = await this.deps.flatFrontier(entry.repo)
     }
     const numbers = frontierForRepo({ mode, maps, mapItems, flatItems })
+    // Map membership rides every item (#120): the tickets view groups by map,
+    // and the overseer resolves "the <topic> map" against these headers instead
+    // of flattening a map-shaped request to repo granularity (#108 item 9).
     const index = new Map()
-    for (const item of [...Object.values(mapItems).flat(), ...flatItems]) index.set(item.number, item)
+    for (const [m, items] of Object.entries(mapItems)) {
+      for (const item of items) index.set(item.number, { item, map: Number(m) })
+    }
+    for (const item of flatItems) index.set(item.number, { item, map: null })
+    const mapTitle = new Map(maps.map((m) => [m.number, m.title]))
     return {
       repo: entry.repo,
       lane,
       numbers,
       agentOnly: await this.#agentOnlyCount(entry.repo, lane, mapItems, numbers),
       items: numbers.map((n) => {
-        const i = index.get(n)
-        return { number: n, title: i?.title ?? '', labels: (i?.labels ?? []).map((l) => l.name) }
+        const e = index.get(n)
+        return {
+          number: n,
+          title: e?.item?.title ?? '',
+          labels: (e?.item?.labels ?? []).map((l) => l.name),
+          map: e?.map ?? null,
+          mapTitle: e?.map != null ? mapTitle.get(e.map) ?? '' : '',
+        }
       }),
     }
   }
@@ -603,7 +621,13 @@ export class Dispatcher {
       if (readyRe.test(tail)) {
         worker.state = 'ready'
         this.store.logEvent('worker_ready', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: worker.model })
-        this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${worker.model}** — \`/attach ${worker.ticket}\` to watch`)
+        // #118 item 7: both links land with readiness — /attach stays as the
+        // retrieve-later verb. Fail-soft: a link that cannot compose right now
+        // (surface still asserting) falls back to naming the verb.
+        const links = this.attachLinks
+          ? await Promise.resolve(this.attachLinks(worker.ticket)).catch(() => null)
+          : null
+        this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${worker.model}**${links ? `\n${links}` : ` — \`/attach ${worker.ticket}\` to watch`}`)
         return
       }
     }

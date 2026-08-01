@@ -25,6 +25,7 @@ import {
 import { safeLeaf } from './images.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
+import { chunkMessage, promptTitle, elapsedLabel, smallPrint } from './messaging.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
@@ -208,7 +209,7 @@ export class DiscordBridge {
   // about one ticket.
   async announce(text) {
     if (!this.channel) throw new Error('no channel yet')
-    await this.channel.send(text)
+    await this.#sendChunked(this.channel, { content: text })
   }
 
   // Top-level channel, no category parent — dodges the permission-overwrite
@@ -399,15 +400,35 @@ export class DiscordBridge {
     return this.ensureThread(record.ticket)
   }
 
+  // Long composed content becomes consecutive messages, split at paragraph
+  // boundaries (#119) — a gate message that silently clipped at Discord's cap
+  // lost exactly the charting the gate existed to judge. Components and files
+  // ride the LAST chunk, so buttons sit below everything they approve. Returns
+  // the last message — the one edits and marks target.
+  async #sendChunked(target, { content, components = [], files = [] }) {
+    const chunks = chunkMessage(content)
+    for (const chunk of chunks.slice(0, -1)) await target.send(chunk)
+    return target.send({ content: chunks.at(-1), components, files })
+  }
+
   // Render an escalation into its ticket thread; returns discord ids for the record.
   async renderEscalation(record, { files = [] } = {}) {
     const thread = await this.#threadFor(record)
-    const msg = await thread.send({
-      content: this.#escalationBody(record),
+    const msg = await this.#sendChunked(thread, {
+      content: await this.#escalationContent(record),
       components: this.#buttons(record),
       files,
     })
     return { channelId: this.channel.id, threadId: thread.id, messageId: msg.id }
+  }
+
+  // Body plus the timeline link (#118 item 4): the full-story surface rides
+  // every question, the way /attach already hands it out. Fail-soft — a dead
+  // session or an absent seam just leaves the line off.
+  async #escalationContent(record) {
+    const body = this.#escalationBody(record)
+    const url = await Promise.resolve(this.handlers.timelineLink?.(record.ticket)).catch(() => null)
+    return url ? `${body}\n${smallPrint(`🔗 timeline ${url}`)}` : body
   }
 
   async #editEscalationMessage(record, suffix) {
@@ -416,7 +437,10 @@ export class DiscordBridge {
     if (!thread) return
     const msg = await thread.messages.fetch(record.discord.messageId).catch(() => null)
     if (!msg) return
-    await msg.edit({ content: `${this.#escalationBody(record)}\n\n${suffix}`, components: [] })
+    // The record's message id is the LAST chunk (#119) — earlier chunks stand
+    // unchanged, and the mark lands where the buttons were, under everything.
+    const tail = chunkMessage(this.#escalationBody(record)).at(-1)
+    await msg.edit({ content: `${tail}\n\n${suffix}`, components: [] })
   }
 
   markAnswered(record) {
@@ -442,20 +466,23 @@ export class DiscordBridge {
   async notifyRecordThread(record, text) {
     if (!record.discord) return
     const thread = await this.client.channels.fetch(record.discord.threadId).catch(() => null)
-    if (thread) await thread.send(text)
+    if (thread) await this.#sendChunked(thread, { content: text })
   }
 
+  // The reminder never re-posts the question body (#108 item 13) — the full
+  // text is the message above it. Title plus wait time is the whole payload.
   async nudge(record) {
     if (!record.discord) return
     const thread = await this.client.channels.fetch(record.discord.threadId).catch(() => null)
     if (!thread) return
-    await thread.send(`⚠️ still waiting on **[${record.id}]**: ${record.prompt.slice(0, 150)}`)
+    const waited = elapsedLabel(record.opened_at)
+    await thread.send(`⚠️ still waiting on **[${record.id}]** — ${promptTitle(record.prompt)}${waited ? ` — ${waited}` : ''}`)
   }
 
   // Fire-and-forget status line into the ticket thread; files = outbound images.
   async notify(ticket, message, { files = [] } = {}) {
     const thread = await this.ensureThread(ticket)
-    await thread.send({ content: message, files })
+    await this.#sendChunked(thread, { content: message, files })
   }
 
   // Attachment names come from Discord, i.e. from outside — path.join with a
@@ -544,11 +571,9 @@ export class DiscordBridge {
     }
   }
 
-  // Discord caps a message at 2000 chars.
+  // Discord caps a message at 2000 chars; the split respects paragraphs (#119).
   async #sayChunked(thread, text) {
-    for (let i = 0; i < text.length; i += 1900) {
-      await thread.send(text.slice(i, i + 1900))
-    }
+    for (const chunk of chunkMessage(text)) await thread.send(chunk)
   }
 
   async #onMessage(m) {
@@ -566,6 +591,20 @@ export class DiscordBridge {
     // before the overseer ever hears the words.
     const open = this.handlers.findOpenForThread(m.channel.id)
     if (!open) {
+      // One listener per thread (#120): while a live worker is bound here, the
+      // overseer stays silent — it cannot see the worker's question, and its
+      // confident reply reads as if the words were delivered (#108 items 14/15).
+      // Until the worker-note queue exists, text outside an open escalation is
+      // told where it can land instead of being silently half-heard.
+      const owner = this.handlers.workerForThread?.(m.channel.id)
+      if (owner) {
+        await m.react('⚠️').catch(() => {})
+        await m.channel.send(smallPrint(
+          `this thread belongs to \`${owner}\` — text here reaches the worker only as a reply to an open escalation. `
+          + 'For commands or questions, write in #curia or another thread.',
+        )).catch(() => {})
+        return
+      }
       if (this.handlers.overseerTurn && m.content?.trim()) return this.#overseerTurn(m.channel, m.content)
       return
     }

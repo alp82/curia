@@ -37,6 +37,7 @@ import { hasSession } from './tmux.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { detectBackend } from './transcript.mjs'
+import { promptTitle, elapsedLabel } from './messaging.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -197,6 +198,18 @@ const gate = {
   // #92: the bridge's overseer surface hands each operator message here; the
   // host runs one SDK query per message and speaks back through `io.post`.
   overseerTurn: (threadId, prompt, io) => overseer.runTurn(threadId, prompt, io),
+  // #120: the live worker bound to a thread, if any — the bridge's one-listener
+  // guard reads it before letting the overseer near a message.
+  workerForThread(threadId) {
+    if (!threadId) return null
+    for (const w of dispatcher.workers.values()) {
+      if (w.ticket != null && store.threadForTicket(w.ticket) === threadId) return w.session
+    }
+    return null
+  },
+  // #118 item 4: the timeline link escalation messages carry. Throws on a dead
+  // session; the bridge fails soft and leaves the line off.
+  timelineLink: (ticket) => attachApi.timelineLink(ticket),
 }
 
 // ---- dispatch loop (#33) ----------------------------------------------------
@@ -283,6 +296,14 @@ const dispatcher = new Dispatcher({
   // POST /command inside the listen→boot-reconcile window has a live one) and
   // mark the Discord buttons.
   cancelEscalation: (id, opts) => gate.cancel(id, opts),
+  // #118 item 7: the ready message carries both attach handles, composed the
+  // same way /attach composes them — each half failing independently.
+  attachLinks: async (ticket) => {
+    const lines = []
+    try { lines.push(`🔗 timeline ${await attachApi.timelineLink(ticket)}`) } catch { /* half missing is fine */ }
+    try { lines.push(`🔗 terminal ${await attachApi.link(ticket)}`) } catch { /* half missing is fine */ }
+    return lines.length ? lines.join('\n') : null
+  },
   log,
   cooling: new Cooling(),
   dataDir: DATA,
@@ -412,20 +433,24 @@ function outboundImages(worker, images) {
 // notifications otherwise — either way, bytes flow and no idle timer fires.
 const KEEPALIVE_MS = Number(process.env.MCP_KEEPALIVE_MS ?? 60_000)
 
-function startKeepAlive(extra, id) {
+function startKeepAlive(extra, id, label = null) {
   const token = extra?._meta?.progressToken
+  const startedAt = new Date().toISOString()
   let n = 0
   log(`keepalive for ${id}: ${token ? `progress notifications (token ${token})` : 'logging notifications (client offered no progressToken)'} every ${KEEPALIVE_MS / 1000}s`)
   const tick = () => {
     n += 1
+    // #118 item 2: the progress line says WHAT it waits on, not just which id —
+    // in the worker pane this line is all an onlooker sees while the call blocks.
+    const what = `${id}${label ? ` — "${label}"` : ''} (${elapsedLabel(startedAt) ?? `${n}`})`
     const sent = token
       ? extra.sendNotification({
         method: 'notifications/progress',
-        params: { progressToken: token, progress: n, message: `curia: still waiting for a human on ${id}` },
+        params: { progressToken: token, progress: n, message: `curia: still waiting for a human on ${what}` },
       })
       : extra.sendNotification({
         method: 'notifications/message',
-        params: { level: 'info', logger: 'curia', data: `still waiting for a human on ${id} (${n})` },
+        params: { level: 'info', logger: 'curia', data: `still waiting for a human on ${what}` },
       })
     Promise.resolve(sent).catch((e) => log(`keepalive for ${id} failed: ${e.message}`))
   }
@@ -534,7 +559,7 @@ function buildMcpServer(worker, ticket) {
     async ({ images, ...payload }, extra) => {
       const { files, refusals } = outboundImages(worker, images)
       const { record, answered } = openEscalation({ worker, ticket, ...payload, files })
-      const stopKeepAlive = startKeepAlive(extra, record.id)
+      const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(payload.prompt))
       // Images the human replies with come back as real content blocks, so the
       // picture lands in this worker's context without a Read round-trip (#34).
       const { text, attachments } = await answered.finally(stopKeepAlive)

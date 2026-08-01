@@ -43,6 +43,64 @@ export function clampList(lines, max = 10) {
   return [...lines.slice(0, max), smallPrint(`… ${lines.length - max} more`)]
 }
 
+// Discord caps a message at 2000 chars. The chunk limit sits well under it so
+// an edit can append a suffix (answered/cancelled marks, ~250 chars max)
+// without crossing the cap (#119). Decision-bearing text is never silently
+// truncated: a long composed message becomes consecutive chunks, split at
+// paragraph boundaries first, then lines, then a hard slice as the last
+// resort (a single 1600-char line is code, not prose).
+export const CHUNK_LIMIT = 1600
+
+export function chunkMessage(text, limit = CHUNK_LIMIT) {
+  const s = String(text)
+  if (s.length <= limit) return [s]
+  const chunks = []
+  let current = ''
+  const push = () => { if (current) { chunks.push(current); current = '' } }
+  const add = (piece, sep) => {
+    if (current && current.length + sep.length + piece.length <= limit) {
+      current += sep + piece
+      return
+    }
+    push()
+    while (piece.length > limit) {
+      chunks.push(piece.slice(0, limit))
+      piece = piece.slice(limit)
+    }
+    current = piece
+  }
+  for (const para of s.split('\n\n')) {
+    if (para.length <= limit) {
+      add(para, '\n\n')
+    } else {
+      for (const line of para.split('\n')) add(line, '\n')
+    }
+  }
+  push()
+  return chunks
+}
+
+// The one-line handle on a long prompt (#118): the first non-empty line,
+// markdown emphasis stripped, cut at a word boundary — never mid-word, which
+// is how "frontier re" happened (#108 item 13).
+export function promptTitle(prompt, max = 80) {
+  const line = String(prompt).split('\n').map((l) => l.trim()).find(Boolean) ?? ''
+  const plain = line.replace(/[*_`#]+/g, '').trim()
+  if (plain.length <= max) return plain
+  const cut = plain.slice(0, max)
+  return `${(cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : cut).trimEnd()}…`
+}
+
+// "how long has this been waiting" for reminders and keepalives (#118).
+export function elapsedLabel(sinceIso, now = Date.now()) {
+  const ms = now - new Date(sinceIso).getTime()
+  if (!Number.isFinite(ms) || ms < 0) return null
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return 'under a minute'
+  if (min < 60) return `${min} min`
+  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`
+}
+
 // Variation selectors differ between source literals and runtime strings, so
 // membership compares with them stripped.
 const bare = (s) => s.replace(/️/g, '')

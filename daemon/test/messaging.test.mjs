@@ -4,7 +4,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { SIGNALS, smallPrint, link, clampList, lintReply } from '../src/messaging.mjs'
+import { SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel, CHUNK_LIMIT } from '../src/messaging.mjs'
 
 describe('smallPrint', () => {
   test('prefixes every line with the -# marker', () => {
@@ -61,5 +61,63 @@ describe('lintReply', () => {
   test('small print is exempt from the heading check, not from the emoji check', () => {
     assert.deepEqual(lintReply(smallPrint('meta line')), [])
     assert.equal(lintReply(smallPrint('🚀 meta')).length, 1)
+  })
+})
+
+// #119: long composed messages become consecutive chunks instead of a silent
+// clip at Discord's cap — the review gate lost its charting proposal to one.
+describe('chunkMessage', () => {
+  test('short text is one chunk, unchanged', () => {
+    assert.deepEqual(chunkMessage('hello\n\nworld'), ['hello\n\nworld'])
+  })
+
+  test('splits at paragraph boundaries and loses nothing', () => {
+    const paras = Array.from({ length: 12 }, (_, i) => `paragraph ${i} ${'x'.repeat(300)}`)
+    const text = paras.join('\n\n')
+    const chunks = chunkMessage(text)
+    assert.ok(chunks.length > 1)
+    for (const c of chunks) assert.ok(c.length <= CHUNK_LIMIT, `chunk of ${c.length} over the limit`)
+    // no paragraph is cut: every original paragraph appears whole in some chunk
+    for (const p of paras) assert.ok(chunks.some((c) => c.includes(p)), 'paragraph lost or split')
+  })
+
+  test('a paragraph over the limit falls back to line splits', () => {
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i} ${'y'.repeat(100)}`)
+    const chunks = chunkMessage(lines.join('\n'))
+    for (const c of chunks) assert.ok(c.length <= CHUNK_LIMIT)
+    for (const l of lines) assert.ok(chunks.some((c) => c.includes(l)))
+  })
+
+  test('a single line over the limit is hard-sliced, still complete', () => {
+    const text = 'z'.repeat(CHUNK_LIMIT * 2 + 10)
+    const chunks = chunkMessage(text)
+    for (const c of chunks) assert.ok(c.length <= CHUNK_LIMIT)
+    assert.equal(chunks.join(''), text)
+  })
+})
+
+// #118: the one-line handle on a prompt — never a mid-word cut, which is how
+// the reminder produced "frontier re" (#108 item 13).
+describe('promptTitle', () => {
+  test('takes the first non-empty line and strips emphasis', () => {
+    assert.equal(promptTitle('\n**Q2 — the one promise.**\n\nbody'), 'Q2 — the one promise.')
+  })
+
+  test('cuts at a word boundary with an ellipsis, never mid-word', () => {
+    assert.equal(promptTitle('alpha bravo charlie delta echo', 20), 'alpha bravo charlie…')
+    assert.equal(promptTitle('short enough', 20), 'short enough')
+  })
+})
+
+describe('elapsedLabel', () => {
+  test('minutes and hours read as waits', () => {
+    const now = Date.now()
+    assert.equal(elapsedLabel(new Date(now - 30_000).toISOString(), now), 'under a minute')
+    assert.equal(elapsedLabel(new Date(now - 56 * 60_000).toISOString(), now), '56 min')
+    assert.equal(elapsedLabel(new Date(now - 125 * 60_000).toISOString(), now), '2 h 05 min')
+  })
+
+  test('garbage input yields null, not NaN text', () => {
+    assert.equal(elapsedLabel('not a date'), null)
   })
 })

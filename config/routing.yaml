@@ -2,8 +2,12 @@
 # gpt/codex lane #33 shipped without.
 
 defaults:
-  grilling: fable
-  prototype: fable
+  # grilling and prototype ran on fable until 2026-08-02: an interactive-only
+  # "Fable 5 now uses usage credits" gate stalls every fresh-config-dir worker
+  # at a menu no one is there to answer (#108 item 12, dogfood run). opus until
+  # the gate is diagnosed; flip back when fable dispatches survive it.
+  grilling: opus
+  prototype: opus
   research: gpt          # #13: spread quota — research is the bulk lane
   task: opus
   untyped: opus

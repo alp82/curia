@@ -171,12 +171,23 @@ export class CommandRouter {
       // agent can work through with no human in the loop
       const chain = r.agentOnly == null ? '' : ` — ${r.agentOnly} agent-only runnable`
       if (!r.items.length) return `**${r.repo}** (${r.lane} lane) — nothing takeable${chain}`
-      // #95: one line per ticket, bold titles, and "N more" instead of a tail
-      const items = clampList(r.items.map((i) => {
+      // #95: one line per ticket, bold titles, and "N more" instead of a tail.
+      // #120: map-lane tickets sit under their map's header, so a map named in
+      // prose ("the landing page map") is resolvable against this output.
+      const ticketLine = (i) => {
         const type = i.labels.find((l) => l.startsWith('wayfinder:'))
         return `  • #${i.number} **${i.title}**${type ? ` \`${type.replace('wayfinder:', '')}\`` : ''}`
-      })).join('\n')
-      return `**${r.repo}** (${r.lane} lane)${chain}:\n${items}`
+      }
+      const lines = []
+      let currentMap
+      for (const i of r.items) {
+        if (i.map != null && i.map !== currentMap) {
+          lines.push(`  🎫 map #${i.map} **${i.mapTitle}**:`)
+        }
+        currentMap = i.map
+        lines.push(`${i.map != null ? '  ' : ''}${ticketLine(i)}`)
+      }
+      return `**${r.repo}** (${r.lane} lane)${chain}:\n${clampList(lines).join('\n')}`
     })
     return lines.join('\n')
   }
