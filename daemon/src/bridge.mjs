@@ -603,15 +603,23 @@ export class DiscordBridge {
       // One listener per thread (#120): while a live worker is bound here, the
       // overseer stays silent — it cannot see the worker's question, and its
       // confident reply reads as if the words were delivered (#108 items 14/15).
-      // Until the worker-note queue exists, text outside an open escalation is
-      // told where it can land instead of being silently half-heard.
+      // Text outside an open escalation queues as an operator note the daemon
+      // piggybacks on the worker's next tool result (#108 item 14) — the
+      // round-one refusal notice is gone.
       const owner = this.handlers.workerForThread?.(m.channel.id)
       if (owner) {
-        await m.react('⚠️').catch(() => {})
-        await m.channel.send(smallPrint(
-          `this thread belongs to \`${owner}\` — text here reaches the worker only as a reply to an open escalation. `
-          + 'For commands or questions, write in #curia or another thread.',
-        )).catch(() => {})
+        const q = this.handlers.queueWorkerNote?.(m.channel.id, m.content ?? '', m.author.id)
+        if (q) {
+          await m.react('📨').catch(() => {})
+          await m.channel.send(smallPrint(
+            `queued for \`${owner}\` — it reads this with its next tool result${q.after ? ` (noted as after ${q.after})` : ''}`,
+          )).catch(() => {})
+        } else {
+          await m.react('⚠️').catch(() => {})
+          await m.channel.send(smallPrint(
+            `this thread belongs to \`${owner}\` — text here reaches the worker only as a reply to an open escalation.`,
+          )).catch(() => {})
+        }
         return
       }
       if (this.handlers.overseerTurn && m.content?.trim()) return this.#overseerTurn(m.channel, m.content)

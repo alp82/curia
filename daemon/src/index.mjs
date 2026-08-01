@@ -221,6 +221,16 @@ const gate = {
   // #118 item 4: the timeline link escalation messages carry. Throws on a dead
   // session; the bridge fails soft and leaves the line off.
   timelineLink: (ticket) => attachApi.timelineLink(ticket),
+  // #108 item 14, positive half: text in a worker-bound thread outside an open
+  // escalation queues for the worker instead of being refused. Returns null
+  // when no worker owns the thread — the bridge falls back to the overseer.
+  queueWorkerNote(threadId, text, by) {
+    const worker = gate.workerForThread(threadId)
+    if (!worker || !text?.trim()) return null
+    const { after } = store.queueWorkerNote(worker, text.trim(), { by })
+    log(`worker note queued for ${worker}${after ? ` (after ${after})` : ''}`)
+    return { worker, after }
+  },
 }
 
 // ---- dispatch loop (#33) ----------------------------------------------------
@@ -474,6 +484,15 @@ function startKeepAlive(extra, id, label = null) {
 function buildMcpServer(worker, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
 
+  // Queued operator notes ride the worker's NEXT tool result (#108 item 14):
+  // every tool below appends the drain, so a note is never older than one
+  // round-trip. A note tagged `after esc-N` is the follow-up the operator
+  // typed just after answering that escalation.
+  const drainNotes = () => store.takeWorkerNotes(worker).map((n) => ({
+    type: 'text',
+    text: `[operator note${n.after ? `, after ${n.after}` : ''}] ${n.text}`,
+  }))
+
   server.tool(
     'notify',
     'Fire-and-forget status update to the human. Returns immediately. `images`: local file paths inside your workspace to show the human (screenshots, renders).',
@@ -482,7 +501,7 @@ function buildMcpServer(worker, ticket) {
       const { files, refusals } = outboundImages(worker, images)
       store.logEvent('notify', { worker, ticket, message, images: files.map((f) => f.attachment), refusals })
       if (bridge) bridge.notify(ticket, `⚙️ \`${worker}\`: ${message}`, { files }).catch(() => {})
-      return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }] }
+      return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
     },
   )
 
@@ -512,9 +531,9 @@ function buildMcpServer(worker, ticket) {
         worker, ticket, dev_port, path: r.path ?? path ?? null,
         ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,
       })
-      if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }] }
+      if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }, ...drainNotes()] }
       if (bridge) bridge.notify(ticket, `🔗 preview for \`${worker}\`: <${r.url}> (dev server on :${dev_port})`).catch(() => {})
-      return { content: [{ type: 'text', text: r.url }] }
+      return { content: [{ type: 'text', text: r.url }, ...drainNotes()] }
     },
   )
 
@@ -531,7 +550,7 @@ function buildMcpServer(worker, ticket) {
     async ({ summary }, extra) => {
       const stopKeepAlive = startKeepAlive(extra, `${worker}/pr`)
       try {
-        return { content: [{ type: 'text', text: await dispatcher.openPullRequest(worker, { summary }) }] }
+        return { content: [{ type: 'text', text: await dispatcher.openPullRequest(worker, { summary }) }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }
@@ -551,7 +570,7 @@ function buildMcpServer(worker, ticket) {
       const stopKeepAlive = startKeepAlive(extra, `${worker}/review`)
       try {
         const r = await dispatcher.requestReview(worker, { summary, charting })
-        return { content: [{ type: 'text', text: r.text }] }
+        return { content: [{ type: 'text', text: r.text }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }
@@ -576,7 +595,9 @@ function buildMcpServer(worker, ticket) {
       // picture lands in this worker's context without a Read round-trip (#34).
       const { text, attachments } = await answered.finally(stopKeepAlive)
       const refusalNote = refusals.length ? [{ type: 'text', text: `(curia refused ${refusals.length} outbound image(s): ${refusals.join('; ')})` }] : []
-      return { content: [...refusalNote, { type: 'text', text }, ...inboundContent(attachments)] }
+      // drainNotes runs AFTER the answer resolves: a note typed right behind a
+      // button press rides the answer itself — the grace window's best case.
+      return { content: [...refusalNote, { type: 'text', text }, ...inboundContent(attachments), ...drainNotes()] }
     },
   )
 
@@ -605,7 +626,7 @@ function buildMcpServer(worker, ticket) {
       if (bridge) bridge.notify(ticket || result.ticket, `✅ \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
       const stopKeepAlive = startKeepAlive(extra, `${worker}/result`)
       try {
-        return { content: [{ type: 'text', text: await dispatcher.onResult(worker, result) }] }
+        return { content: [{ type: 'text', text: await dispatcher.onResult(worker, result) }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }

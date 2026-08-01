@@ -29,6 +29,7 @@ export class EscalationStore {
     fs.mkdirSync(dataDir, { recursive: true })
     this.escalations = new Map() // id -> record
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
+    this.workerNotes = new Map() // worker session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
@@ -117,6 +118,17 @@ export class EscalationStore {
         const arr = this.overseerNotes.get(ev.thread_id) ?? []
         arr.push(ev.text)
         this.overseerNotes.set(ev.thread_id, arr)
+        break
+      }
+      case 'worker_note': {
+        const arr = this.workerNotes.get(ev.worker) ?? []
+        arr.push({ text: ev.text, after: ev.after ?? null })
+        this.workerNotes.set(ev.worker, arr)
+        break
+      }
+      case 'worker_notes_drained': {
+        const arr = this.workerNotes.get(ev.worker) ?? []
+        arr.splice(0, ev.count)
         break
       }
       case 'overseer_notes_drained': {
@@ -256,6 +268,30 @@ export class EscalationStore {
   takeOverseerNotes(threadId) {
     const notes = [...(this.overseerNotes.get(threadId) ?? [])]
     if (notes.length) this._append({ type: 'overseer_notes_drained', thread_id: threadId, count: notes.length })
+    return notes
+  }
+
+  // Late thread text bound for a worker (#108 item 14, positive half): while
+  // a worker owns a thread and no escalation is open, operator text queues
+  // here and the daemon piggybacks it on the worker's next tool result. A
+  // note that lands inside the grace window after an escalation closed is
+  // tagged with that escalation's id — "operator added, after esc-13" — the
+  // follow-up-to-a-button case the finding measured. Journalled, so a daemon
+  // restart keeps every undelivered note.
+  queueWorkerNote(worker, text, { by = null, graceMs = 120_000, now = Date.now() } = {}) {
+    const recent = [...this.escalations.values()]
+      .filter((r) => r.worker === worker && r.status !== 'open' && r.closed_at)
+      .sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)))
+      .at(-1)
+    const closedMs = recent ? now - Date.parse(recent.closed_at) : Infinity
+    const after = Number.isFinite(closedMs) && closedMs <= graceMs ? recent.id : null
+    this._append({ type: 'worker_note', worker, text, after, by })
+    return { after }
+  }
+
+  takeWorkerNotes(worker) {
+    const notes = [...(this.workerNotes.get(worker) ?? [])]
+    if (notes.length) this._append({ type: 'worker_notes_drained', worker, count: notes.length })
     return notes
   }
 
