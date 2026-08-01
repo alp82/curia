@@ -17,6 +17,7 @@
 import http from 'node:http'
 import path from 'node:path'
 import fs from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -779,6 +780,28 @@ const BRIDGE_NOTICE_MS = Number(process.env.BRIDGE_NOTICE_MS ?? 30_000)
 const BRIDGE_WEDGE_MS = Number(process.env.BRIDGE_WEDGE_MS ?? 5 * 60 * 1000)
 let bridgeDownSince = null
 
+// Startup announcement (#102): one small-print line in #curia per PROCESS, on
+// the first successful bridge start. Under systemd Restart=, a crash loop
+// prints one line per restart — visible where the operator already looks. A
+// wedge-watchdog relaunch is the same process, so it stays silent here; the
+// recovery notice above covers it.
+let startAnnounced = false
+const COMMIT = (() => {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT }).toString().trim()
+  } catch {
+    return 'unknown'
+  }
+})()
+
+function announceStart(b) {
+  if (startAnnounced) return
+  startAnnounced = true
+  const open = store.openEscalations().length
+  const line = `-# curia started · ${COMMIT} · ${open} open escalation${open === 1 ? '' : 's'} recovered`
+  b.announce(line).catch((e) => log(`startup announcement failed: ${e.message}`))
+}
+
 // The announcement can only ever be made AFTER the bridge is back, because
 // Discord is the surface being announced about — there is no second channel to
 // the phone. So the honest contract is: journal + /state while it is down, one
@@ -841,6 +864,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
         for (const r of store.openEscalations()) {
           if (!r.discord) renderEscalation(r)
         }
+        announceStart(b)
       }).catch((e) => {
         if (!bridgeDownSince) bridgeDownSince = Date.now()
         const delay = Math.min(60_000, 5_000 * attempt)
