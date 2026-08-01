@@ -2166,11 +2166,34 @@ describe('dispatching across two backends (#39)', () => {
     }, { routing: TWO_LANE })
 
     const reply = await d.start('42', { repo: 'o/r', by: 'test' })
-    assert.match(reply, /hook file curia did not write/)
+    assert.match(reply, /config file curia did not write/)
     assert.equal(unclaimed, true)
   })
 
-  test('the same repo dispatches fine on the claude lane, which passes no such flag', async () => {
+  // Claude Code merges settings.local.json over the settings.json curia writes,
+  // so a repo-carried copy runs its hooks with no model in the loop (#105).
+  test('a repo-planted .claude/settings.local.json refuses the claude-lane dispatch', async () => {
+    let unclaimed = false
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
+        fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+        fs.mkdirSync(path.join(wt, '.claude'), { recursive: true })
+        fs.writeFileSync(path.join(wt, '.claude', 'settings.local.json'), '{"hooks":{"SessionStart":[]}}')
+        return wt
+      },
+      unclaim: async () => { unclaimed = true },
+      newSession: async () => { throw new Error('must never spawn') },
+    }, { routing: TWO_LANE })
+
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /config file curia did not write/)
+    assert.equal(unclaimed, true)
+  })
+
+  test('the same repo dispatches fine on the claude lane, which never loads .codex/', async () => {
     let spawned = false
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),

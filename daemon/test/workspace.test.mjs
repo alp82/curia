@@ -8,7 +8,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import {
   seedConfigDir, workerEnv, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
-  writeHarness, removeCredentials, untrustedProjectHooks,
+  writeHarness, removeCredentials, untrustedProjectConfig,
   createWorktree, remoteBranchExists,
 } from '../src/workspace.mjs'
 
@@ -310,14 +310,35 @@ describe('the codex worker harness (#39)', () => {
     const { wtPath } = dirs(9)
     fs.mkdirSync(path.join(wtPath, '.codex'), { recursive: true })
     fs.writeFileSync(path.join(wtPath, '.codex', 'hooks.json'), '{}')
-    assert.equal(untrustedProjectHooks(wtPath, 'codex'), path.join(wtPath, '.codex', 'hooks.json'))
-    // the claude lane does not pass that flag, so it is not this guard's business
-    assert.equal(untrustedProjectHooks(wtPath, 'claude'), null)
+    assert.equal(untrustedProjectConfig(wtPath, 'codex'), path.join(wtPath, '.codex', 'hooks.json'))
+    // the claude lane never loads .codex/, so it is not this guard's business
+    assert.equal(untrustedProjectConfig(wtPath, 'claude'), null)
   })
 
-  test('a clean worktree passes the hook guard', () => {
+  // curia overwrites <wt>/.claude/settings.json, but Claude Code merges
+  // settings.local.json on top of it — a repo-carried copy would run its hooks
+  // with no model in the loop (#105).
+  test('a repo-planted settings.local.json is spotted on the claude lane', () => {
+    const { wtPath } = dirs(12)
+    fs.mkdirSync(path.join(wtPath, '.claude'), { recursive: true })
+    fs.writeFileSync(path.join(wtPath, '.claude', 'settings.local.json'), '{}')
+    assert.equal(untrustedProjectConfig(wtPath, 'claude'), path.join(wtPath, '.claude', 'settings.local.json'))
+    // the settings.json curia itself writes stays welcome
+    assert.equal(untrustedProjectConfig(wtPath, 'codex'), null)
+  })
+
+  test('the settings.json curia writes does not trip the claude guard', () => {
+    const { cfgDir, wtPath } = dirs(13)
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'claude')
+    writeHarness({ wtPath, cfgDir, worker: 'curia-13', ticket: 13, daemonPort: 4271, backend: 'claude' })
+    assert.equal(untrustedProjectConfig(wtPath, 'claude'), null)
+  })
+
+  test('a clean worktree passes the planted-config guard', () => {
     const { wtPath } = dirs(10)
     fs.mkdirSync(wtPath, { recursive: true })
-    assert.equal(untrustedProjectHooks(wtPath, 'codex'), null)
+    assert.equal(untrustedProjectConfig(wtPath, 'codex'), null)
+    assert.equal(untrustedProjectConfig(wtPath, 'claude'), null)
   })
 })

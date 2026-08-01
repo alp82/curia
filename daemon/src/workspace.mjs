@@ -430,31 +430,35 @@ const HARNESS = {
   },
 }
 
-// A hook file the WATCHED REPO carries, which curia does not write and cannot
-// vouch for. Returns the offending path, or null.
+// A config file the WATCHED REPO carries, which curia does not write and cannot
+// vouch for. Returns the offending path, or null. One exposure per lane, same
+// shape on both: a file the harness loads without a prompt, whose hooks would
+// run unreviewed, with no model in the loop. A worker already runs with
+// approvals bypassed in that worktree, so this is not new capability so much as
+// a new path to it that needs no prompt at all. Refusing the dispatch puts a
+// human on it.
 //
-// This exists because the codex spawn template passes
-// `--dangerously-bypass-hook-trust`. That flag is right for the hook curia
-// authors — the daemon writes it into a config dir it owns, one step earlier,
-// and codex's alternative is an interactive "Hooks need review" prompt that
-// would stall a zero-keystroke spawn forever (observed). Reproducing codex's
-// trust hash instead would mean pinning an undocumented internal that can move
-// and stop guarding silently, which is the failure #56 refused.
+// Codex: the spawn template passes `--dangerously-bypass-hook-trust`. That flag
+// is right for the hook curia authors — the daemon writes it into a config dir
+// it owns, one step earlier, and codex's alternative is an interactive "Hooks
+// need review" prompt that would stall a zero-keystroke spawn forever
+// (observed). Reproducing codex's trust hash instead would mean pinning an
+// undocumented internal that can move and stop guarding silently, which is the
+// failure #56 refused. But the flag is not scoped to curia's hook: codex also
+// loads `<cwd>/.codex/hooks.json` from a trusted project, and under the flag it
+// would run that unreviewed (verified — a planted project hook fired).
 //
-// But the flag is not scoped to curia's hook: codex also loads
-// `<cwd>/.codex/hooks.json` from a trusted project, and under the flag it would
-// run that unreviewed, with no model in the loop (verified — a planted project
-// hook fired). A worker already runs with approvals bypassed in that worktree,
-// so this is not new capability so much as a new path to it that needs no
-// prompt at all. Refusing the dispatch puts a human on it.
-//
-// The claude lane has a sibling exposure this does NOT cover: curia overwrites
-// `<wt>/.claude/settings.json`, so a repo's own copy is neutralised, but a
-// planted `.claude/settings.local.json` would still be merged. That is older
-// than this ticket and is recorded on it rather than fixed here.
-export function untrustedProjectHooks(wtPath, backend) {
-  if (backend !== 'codex') return null
-  const planted = path.join(wtPath, '.codex', 'hooks.json')
+// Claude: curia overwrites `<wt>/.claude/settings.json`, so a repo's own copy
+// is neutralised — but Claude Code merges `.claude/settings.local.json` ON TOP
+// of it, and curia never writes that file. Hooks merge additively across the
+// two, so a planted local file runs its commands beside curia's Stop hook, and
+// it can also carry command-shaped settings (apiKeyHelper, env). The file is
+// conventionally git-ignored, so a tracked copy in a watched repo is already a
+// flag (#105).
+export function untrustedProjectConfig(wtPath, backend) {
+  const planted = backend === 'codex'
+    ? path.join(wtPath, '.codex', 'hooks.json')
+    : path.join(wtPath, '.claude', 'settings.local.json')
   return fs.existsSync(planted) ? planted : null
 }
 

@@ -28,7 +28,7 @@ import {
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, workerEnv,
-  untrustedProjectHooks,
+  untrustedProjectConfig,
 } from './workspace.mjs'
 import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
@@ -414,7 +414,7 @@ export class Dispatcher {
         : await this.deps.createWorktree(base, n)
       const mapNumber = await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
-      this.#assertNoPlantedHooks(wtPath, backendName)
+      this.#assertNoPlantedConfig(wtPath, backendName)
       this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills, backendName)
       this.deps.writeHarness({
         wtPath, cfgDir, worker: session, ticket: n, daemonPort: this.daemonPort,
@@ -494,13 +494,14 @@ export class Dispatcher {
   }
 
   // Refuse before the config dir is seeded, so the ordinary prepare-failure path
-  // unclaims and tells the operator why. See untrustedProjectHooks: the codex
-  // spawn bypasses hook trust for the hook curia writes, and the same flag would
-  // run one the watched repo happens to carry.
-  #assertNoPlantedHooks(wtPath, backendName) {
-    const planted = untrustedProjectHooks(wtPath, backendName)
+  // unclaims and tells the operator why. See untrustedProjectConfig: each lane
+  // loads one repo-carried config file without a prompt (codex under its
+  // hook-trust bypass flag, claude by merging settings.local.json over the
+  // settings curia writes), and hooks in it would run with no model in the loop.
+  #assertNoPlantedConfig(wtPath, backendName) {
+    const planted = untrustedProjectConfig(wtPath, backendName)
     if (planted) {
-      throw new Error(`${planted} is a hook file curia did not write, and the ${backendName} lane spawns with hook trust bypassed — it would run unreviewed, with no model in the loop. Dispatch this ticket on another backend (\`/start <ticket> <model>\`) or remove the file from the repo`)
+      throw new Error(`${planted} is a config file curia did not write, and the ${backendName} lane loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. Remove the file from the repo, or dispatch on another backend if only one lane loads it (\`/start <ticket> <model>\`)`)
     }
   }
 
