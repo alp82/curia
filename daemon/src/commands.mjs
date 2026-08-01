@@ -7,6 +7,7 @@
 // router interprets — the stated deviation until the overseer session exists).
 
 import { validSessionName } from './attach.mjs'
+import { clampList } from './messaging.mjs'
 
 // A repo argument is any single non-numeric token — #81 resolves it fuzzily
 // against the watch list (see #matchRepo), so `cur` is as valid as `alp82/curia`.
@@ -95,7 +96,7 @@ export class CommandRouter {
   // interpreted destructive verbs go through the button confirm.
   async handle(canonical, userId, { threadId = null, interpreted = false } = {}) {
     const cmd = parseCommand(canonical)
-    if (!cmd) return `❓ could not parse \`${canonical}\`\n${USAGE}`
+    if (!cmd) return `❌ could not parse \`${canonical}\`\n${USAGE}`
     try {
       // `return await` is load-bearing throughout: a bare `return <promise>` is
       // adopted AFTER the try block exits, so the catch below would never see a
@@ -116,7 +117,7 @@ export class CommandRouter {
         case 'start': {
           if (cmd.backend && !this.dispatcher.routing.backends?.[cmd.backend]) {
             const configured = Object.keys(this.dispatcher.routing.backends ?? {}).map((b) => `\`${b}\``).join(', ')
-            return `⛔ backend \`${cmd.backend}\` is not configured — configured backends: ${configured}`
+            return `❌ backend \`${cmd.backend}\` is not configured — configured backends: ${configured}`
           }
           return await this.dispatcher.start(cmd.ticket, { repo: cmd.repo, model: cmd.model, backend: cmd.backend, by: userId, threadId })
         }
@@ -147,23 +148,24 @@ export class CommandRouter {
       ? [arg]
       : watched.filter((r) => r.toLowerCase().includes(arg.toLowerCase()))
     if (hits.length === 1) return { repo: hits[0] }
-    if (!hits.length) return { error: `❓ no watched repo matches \`${arg}\` — watched: ${watched.map((r) => `\`${r}\``).join(', ')}` }
-    return { error: `⛔ \`${arg}\` matches more than one watched repo (${hits.map((r) => `\`${r}\``).join(', ')}) — say more of the name` }
+    if (!hits.length) return { error: `❌ no watched repo matches \`${arg}\` — watched: ${watched.map((r) => `\`${r}\``).join(', ')}` }
+    return { error: `❌ \`${arg}\` matches more than one watched repo (${hits.map((r) => `\`${r}\``).join(', ')}) — say more of the name` }
   }
 
   async #tickets(repoFilter) {
     const rows = await this.dispatcher.frontier(repoFilter)
-    if (!rows.length) return `❓ no watched repo matches \`${repoFilter}\``
+    if (!rows.length) return `❌ no watched repo matches \`${repoFilter}\``
     const lines = rows.map((r) => {
       if (r.error) return `**${r.repo}** — ⚠️ ${r.error}`
       // #81: the count of HITL-free tickets per blocker chains — how many an
       // agent can work through with no human in the loop
       const chain = r.agentOnly == null ? '' : ` — ${r.agentOnly} agent-only runnable`
       if (!r.items.length) return `**${r.repo}** (${r.lane} lane) — nothing takeable${chain}`
-      const items = r.items.map((i) => {
+      // #95: one line per ticket, bold titles, and "N more" instead of a tail
+      const items = clampList(r.items.map((i) => {
         const type = i.labels.find((l) => l.startsWith('wayfinder:'))
-        return `  • #${i.number} ${i.title}${type ? ` \`${type.replace('wayfinder:', '')}\`` : ''}`
-      }).join('\n')
+        return `  • #${i.number} **${i.title}**${type ? ` \`${type.replace('wayfinder:', '')}\`` : ''}`
+      })).join('\n')
       return `**${r.repo}** (${r.lane} lane)${chain}:\n${items}`
     })
     return lines.join('\n')
@@ -173,7 +175,7 @@ export class CommandRouter {
   // recent cancelled and finished.
   async #status() {
     const { workers, untracked, recent = [] } = await this.dispatcher.status()
-    if (!workers.length && !untracked.length && !recent.length) return '💤 no live workers'
+    if (!workers.length && !untracked.length && !recent.length) return 'no live workers'
     const waitingStates = new Set(['blocked', 'awaiting-review'])
     const isWaiting = (w) => waitingStates.has(w.state) || (w.waiting_on ?? []).length > 0
     const line = (w) => {
@@ -189,7 +191,7 @@ export class CommandRouter {
     for (const w of workers.filter(isWaiting)) lines.push(line(w))
     for (const s of untracked) lines.push(`• \`${s}\` — ⚠️ live tmux session not tracked by the dispatcher (reconcile will adopt or sweep it)`)
     for (const r of recent) {
-      lines.push(`• ${r.kind === 'cancelled' ? '🛑 cancelled' : '🏁 finished'} ${r.repo ? `${r.repo}#${r.ticket}` : `#${r.ticket}`}`)
+      lines.push(`• ${r.kind === 'cancelled' ? '⚰️ cancelled' : '✅ finished'} ${r.repo ? `${r.repo}#${r.ticket}` : `#${r.ticket}`}`)
     }
     return lines.join('\n')
   }
@@ -202,17 +204,18 @@ export class CommandRouter {
   // independently so one surface being down never hides the other.
   async #attachReply(ticket) {
     const session = `curia-${ticket}`
-    if (!validSessionName(session)) return `⛔ \`${session}\` is not a valid curia session name`
+    if (!validSessionName(session)) return `❌ \`${session}\` is not a valid curia session name`
+    // #89: attach links stay bare — the one exception to the <> wrap.
     const lines = []
     try {
-      lines.push(`🧭 timeline ${await this.attach.timelineLink(ticket)}`)
+      lines.push(`🔗 timeline ${await this.attach.timelineLink(ticket)}`)
     } catch (e) {
-      lines.push(`⛔ timeline: ${e.message}`)
+      lines.push(`❌ timeline: ${e.message}`)
     }
     try {
-      lines.push(`🖥️ terminal ${await this.attach.link(ticket)}`)
+      lines.push(`🔗 terminal ${await this.attach.link(ticket)}`)
     } catch (e) {
-      lines.push(`⛔ terminal: ${e.message}`)
+      lines.push(`❌ terminal: ${e.message}`)
     }
     return lines.join('\n')
   }

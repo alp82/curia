@@ -443,7 +443,7 @@ function buildMcpServer(worker, ticket) {
     async ({ message, images }) => {
       const { files, refusals } = outboundImages(worker, images)
       store.logEvent('notify', { worker, ticket, message, images: files.map((f) => f.attachment), refusals })
-      if (bridge) bridge.notify(ticket, `📣 \`${worker}\`: ${message}`, { files }).catch(() => {})
+      if (bridge) bridge.notify(ticket, `⚙️ \`${worker}\`: ${message}`, { files }).catch(() => {})
       return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }] }
     },
   )
@@ -475,7 +475,7 @@ function buildMcpServer(worker, ticket) {
         ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,
       })
       if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }] }
-      if (bridge) bridge.notify(ticket, `🔗 preview for \`${worker}\`: ${r.url} (dev server on :${dev_port})`).catch(() => {})
+      if (bridge) bridge.notify(ticket, `🔗 preview for \`${worker}\`: <${r.url}> (dev server on :${dev_port})`).catch(() => {})
       return { content: [{ type: 'text', text: r.url }] }
     },
   )
@@ -561,7 +561,7 @@ function buildMcpServer(worker, ticket) {
     async (result, extra) => {
       const rec = store.logEvent('result', { worker, ...result })
       fs.writeFileSync(path.join(DATA, 'results', `${worker}.json`), JSON.stringify(rec, null, 2))
-      if (bridge) bridge.notify(result.ticket, `🏁 \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
+      if (bridge) bridge.notify(result.ticket, `✅ \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
       const stopKeepAlive = startKeepAlive(extra, `${worker}/result`)
       try {
         return { content: [{ type: 'text', text: await dispatcher.onResult(worker, result) }] }
@@ -799,7 +799,7 @@ function onBridgeHealth(ev) {
   const held = open.length
     ? `${open.length} open question${open.length > 1 ? 's' : ''} stayed answerable throughout (${open.map((r) => r.id).join(', ')}).`
     : 'No question was open at the time.'
-  const text = `🔌 Discord bridge was down for ${Math.round(downMs / 1000)}s and is back. ${held}`
+  const text = `⚠️ Discord bridge was down for ${Math.round(downMs / 1000)}s and is back. ${held}`
   store.logEvent('bridge_recovered', { down_ms: downMs, open: open.map((r) => r.id) })
   bridge?.announce(text).catch((e) => log(`bridge recovery notice failed: ${e.message}`))
 }

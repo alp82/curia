@@ -16,6 +16,7 @@ import path from 'node:path'
 import { query as sdkQuery, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { seedConfigDir, workerEnv } from './workspace.mjs'
+import { SIGNALS, smallPrint } from './messaging.mjs'
 
 // Haiku answers the verb catalogue reliably (measured on #83: fresh turn
 // 7-16 s at $0.01-0.03, revival 2.5 s at $0.009). Sonnet is the fallback.
@@ -111,6 +112,13 @@ Hard bounds (the never-list):
 - You have no shell, no files, no repo checkout, and no process handles. Do not offer them.
 - A failed tool call is not an answer. Report the failure as a failure.
 
+Message shape (the standard, #89 — every answer follows it):
+- One answer message per turn, under 10 lines. The daemon narrates your tool calls separately; do not repeat them.
+- No headings, no tables, no blockquotes. Bold for ticket titles, inline code for verbs, session names, and ids.
+- Lists are one line per item. Filter long tool replies to what the question asked, and end a truncated list with "N more".
+- Wrap links in <> — except attach links, which stay bare.
+- Emoji only as signals, only these: ⚙️ ✅ ❌ ⚠️ 🎫 ⚰️ 🔗.
+
 Keep replies short. One thread is one conversation; you will be revived with full memory when the operator writes again.`
 
 export class OverseerHost {
@@ -151,14 +159,23 @@ export class OverseerHost {
     })
   }
 
-  // One operator message → one turn. post(text) delivers every visible line
-  // (tool small-print, the answer, failures) — the caller owns the transport.
-  async runTurn(threadId, prompt, { post }) {
+  // One operator message → one turn, and one turn posts exactly two messages
+  // (#95, per #89): status(text) upserts the single small-print status line —
+  // the caller sends it once and edits it in place — and say(text) posts the
+  // answer. Failures land in the answer slot; everything meta lands in status.
+  async runTurn(threadId, prompt, { say, status }) {
     if (this.busy.has(threadId)) {
-      await post('⏳ still on your last message — one turn at a time per thread')
+      await say(smallPrint(`${SIGNALS.warn} still on your last message — one turn at a time per thread`))
       return { ok: false, busy: true }
     }
     this.busy.add(threadId)
+    // The status line accumulates across BOTH model attempts — the operator
+    // watches one message grow, never a trail of them.
+    const steps = []
+    const step = async (text) => {
+      steps.push(text)
+      await status(smallPrint(`${SIGNALS.work} ${steps.join(' · ')}`))
+    }
     try {
       // Confirm outcomes that resolved between turns (#94) ran button → daemon
       // with no model in the loop, so the session never heard them. The store
@@ -169,27 +186,27 @@ export class OverseerHost {
       const fullPrompt = notes.length
         ? `${notes.map((t) => `[curia: ${t}]`).join('\n')}\n\n${prompt}`
         : prompt
-      const first = await this.#turn(threadId, fullPrompt, this.model, post)
+      const first = await this.#turn(threadId, fullPrompt, this.model, { say, step })
       if (first.ok) return first
       // Sonnet fallback (#82) — but only when the failed turn executed
       // nothing: a turn that died after a tool call may already have
       // dispatched or cancelled, and replaying the prompt could double the
       // effect. That failure goes to the operator instead.
       if (first.toolCalls === 0 && this.fallbackModel && this.fallbackModel !== this.model) {
-        await post(`-# ⚠️ ${this.model} turn failed (${first.why}) — retrying on ${this.fallbackModel}`)
-        const second = await this.#turn(threadId, fullPrompt, this.fallbackModel, post)
+        await step(`${SIGNALS.warn} ${this.model} turn failed (${first.why}) — retrying on ${this.fallbackModel}`)
+        const second = await this.#turn(threadId, fullPrompt, this.fallbackModel, { say, step })
         if (second.ok) return second
-        await post(`⚠️ session ended without an answer (${second.why})`)
+        await say(`${SIGNALS.warn} session ended without an answer (${second.why})`)
         return second
       }
-      await post(`⚠️ session ended without an answer (${first.why})`)
+      await say(`${SIGNALS.warn} session ended without an answer (${first.why})`)
       return first
     } finally {
       this.busy.delete(threadId)
     }
   }
 
-  async #turn(threadId, prompt, model, post) {
+  async #turn(threadId, prompt, model, { say, step }) {
     const resume = this.store.overseerSession(threadId)
     this.log(`[overseer] turn thread=${threadId} resume=${resume ?? 'fresh'} model=${model}`)
     const t0 = Date.now()
@@ -221,8 +238,12 @@ export class OverseerHost {
           for (const block of msg.message?.content ?? []) {
             if (block.type === 'tool_use') {
               toolCalls += 1
-              const args = JSON.stringify(block.input ?? {})
-              await post(`-# 🔧 ${block.name.replace('mcp__curia__', '')}${args === '{}' ? '' : ' ' + args}`)
+              // The status line shows the canonical verb text — the same
+              // string the router receives — as inline code (#89).
+              const verb = block.name.replace('mcp__curia__', '')
+              let text
+              try { text = canonicalFor(verb, block.input ?? {}) } catch { text = verb }
+              await step(`\`${text}\``)
             }
           }
         }
@@ -238,7 +259,7 @@ export class OverseerHost {
       return { ok: false, why, toolCalls, secs }
     }
     this.log(`[overseer] done in ${secs}s — ${result.num_turns} turns, $${result.total_cost_usd?.toFixed(4) ?? '?'}`)
-    await post(result.result || '(empty answer)')
+    await say(result.result || '(empty answer)')
     return { ok: true, toolCalls, secs }
   }
 }

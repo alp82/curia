@@ -219,7 +219,7 @@ export class Dispatcher {
   // filter narrows to that repo's frontier.
   async next(repoFilter, { by, threadId } = {}) {
     const rows = await this.frontier(repoFilter)
-    if (!rows.length) return `❓ no watched repo matches \`${repoFilter}\``
+    if (!rows.length) return `❌ no watched repo matches \`${repoFilter}\``
     for (const lane of ['map', 'flat']) {
       for (const r of rows) {
         if (r.error || r.lane !== lane) continue
@@ -233,9 +233,9 @@ export class Dispatcher {
     }
     const failed = rows.filter((r) => r.error).map((r) => r.repo)
     if (failed.length) {
-      return `⛔ nothing takeable, and the frontier read failed for ${failed.map((r) => `\`${r}\``).join(', ')} — there may be more there`
+      return `❌ nothing takeable, and the frontier read failed for ${failed.map((r) => `\`${r}\``).join(', ')} — there may be more there`
     }
-    return '💤 nothing takeable right now'
+    return 'nothing takeable right now'
   }
 
   // ---- start -----------------------------------------------------------------
@@ -248,7 +248,7 @@ export class Dispatcher {
     // Admission guard: synchronous check + insert BEFORE the first await, so a
     // second /start, POST /command, or auto-poll tick interleaving during the
     // gh round-trips is refused as "already starting".
-    if (this.inFlight.has(session)) return `⏳ \`${session}\` is already starting`
+    if (this.inFlight.has(session)) return `⚙️ \`${session}\` is already starting`
     // `start` never confirms (#89): every anomaly below refuses with the way
     // out, instead of parking a destructive override behind a confirm. The
     // teardown path is `cancel` — which carries its own guard.
@@ -266,14 +266,14 @@ export class Dispatcher {
       if (resolved.error) return resolved.error
       const { repo: theRepo, issue } = resolved
 
-      if (issue.state !== 'open') return `⛔ ${theRepo}#${n} is ${issue.state} — nothing to dispatch`
+      if (issue.state !== 'open') return `❌ ${theRepo}#${n} is ${issue.state} — nothing to dispatch`
       const anomalies = []
       const assignees = (issue.assignees ?? []).map((a) => a.login)
       if (assignees.length) anomalies.push(`already assigned to ${assignees.join(', ')}`)
       const blockedBy = issue.issue_dependencies_summary?.blocked_by ?? 0
       if (blockedBy > 0) anomalies.push(`blocked by ${blockedBy} open issue(s)`)
       if (anomalies.length) {
-        return `⛔ ${theRepo}#${n} is ${anomalies.join(' and ')} — start never dispatches over an anomaly; clear it on GitHub, then start again`
+        return `❌ ${theRepo}#${n} is ${anomalies.join(' and ')} — start never dispatches over an anomaly; clear it on GitHub, then start again`
       }
 
       // #dispatch returns null only on exhaustion whose latched notify just
@@ -294,28 +294,28 @@ export class Dispatcher {
   async #resolveRepo(n, explicitRepo) {
     if (explicitRepo) {
       if (!this.config.watch.some((w) => w.repo === explicitRepo)) {
-        return { error: `⛔ \`${explicitRepo}\` is not on the watch list` }
+        return { error: `❌ \`${explicitRepo}\` is not on the watch list` }
       }
       try {
         return { repo: explicitRepo, issue: await this.deps.fetchIssue(explicitRepo, n) }
       } catch (e) {
         // no narrowing risk here (the repo is explicit), but "not found" must
         // still only be said on positive absence
-        if (ISSUE_ABSENT_RE.test(e.message)) return { error: `⛔ ${explicitRepo}#${n} not found` }
-        return { error: `⛔ could not read ${explicitRepo}#${n} (${e.message}) — try again` }
+        if (ISSUE_ABSENT_RE.test(e.message)) return { error: `❌ ${explicitRepo}#${n} not found` }
+        return { error: `❌ could not read ${explicitRepo}#${n} (${e.message}) — try again` }
       }
     }
     const frontier = await this.frontier()
     const hits = frontier.filter((r) => !r.error && r.numbers.includes(Number(n))).map((r) => r.repo)
     if (hits.length > 1) {
-      return { error: `⛔ #${n} is takeable in more than one watched repo — use the qualified form: ${hits.map((r) => `\`start ${r}#${n}\``).join(' or ')}` }
+      return { error: `❌ #${n} is takeable in more than one watched repo — use the qualified form: ${hits.map((r) => `\`start ${r}#${n}\``).join(' or ')}` }
     }
     // A failed per-repo frontier read means #n may be takeable THERE too —
     // the ambiguity guard above cannot be trusted, so refuse rather than
     // proceed on the repos that happened to answer.
     const failed = frontier.filter((r) => r.error).map((r) => r.repo)
     if (failed.length) {
-      return { error: `⛔ could not determine which repo owns #${n} — the frontier read failed for ${failed.map((r) => `\`${r}\``).join(', ')}; use the qualified form \`start owner/repo#${n}\` or retry` }
+      return { error: `❌ could not determine which repo owns #${n} — the frontier read failed for ${failed.map((r) => `\`${r}\``).join(', ')}; use the qualified form \`start owner/repo#${n}\` or retry` }
     }
     if (hits.length === 1) {
       return { repo: hits[0], issue: await this.deps.fetchIssue(hits[0], n) }
@@ -331,14 +331,14 @@ export class Dispatcher {
         // same classification as reconcile's getIssue: 404 ⇒ positively
         // absent here, keep probing; anything else ⇒ refuse, never narrow
         if (!ISSUE_ABSENT_RE.test(e.message)) {
-          return { error: `⛔ could not determine which repo owns #${n} — reading \`${w.repo}\` failed (${e.message}); use the qualified form \`start ${w.repo}#${n}\` or retry` }
+          return { error: `❌ could not determine which repo owns #${n} — reading \`${w.repo}\` failed (${e.message}); use the qualified form \`start ${w.repo}#${n}\` or retry` }
         }
       }
       if (issue && !issue.pull_request) existing.push({ repo: w.repo, issue })
     }
-    if (!existing.length) return { error: `⛔ #${n} not found in any watched repo` }
+    if (!existing.length) return { error: `❌ #${n} not found in any watched repo` }
     if (existing.length > 1) {
-      return { error: `⛔ #${n} exists in more than one watched repo — use the qualified form: ${existing.map((x) => `\`start ${x.repo}#${n}\``).join(' or ')}` }
+      return { error: `❌ #${n} exists in more than one watched repo — use the qualified form: ${existing.map((x) => `\`start ${x.repo}#${n}\``).join(' or ')}` }
     }
     return existing[0]
   }
@@ -352,7 +352,7 @@ export class Dispatcher {
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     const modelName = resolveModel(this.routing, labels, model)
     if (!this.routing.models[modelName]) {
-      return `⛔ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
+      return `❌ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
     }
     const cands = candidates(this.routing, modelName, this.cooling)
     if (!cands.length) {
@@ -372,7 +372,7 @@ export class Dispatcher {
     const useModel = cands[0]
     const backendName = backend ?? this.routing.models[useModel].backend
     if (!this.routing.backends[backendName]) {
-      return `⛔ unknown backend \`${backendName}\` — configured backends: ${Object.keys(this.routing.backends).join(', ')}`
+      return `❌ unknown backend \`${backendName}\` — configured backends: ${Object.keys(this.routing.backends).join(', ')}`
     }
 
     const login = await this.deps.viewerLogin()
@@ -435,7 +435,7 @@ export class Dispatcher {
       }
       this.workers.set(session, worker)
       this.#watchdog(worker).catch((e) => this.log(`watchdog ${session} failed:`, e.message))
-      return `🚀 dispatched ${repo}#${n} → \`${session}\` on **${useModel}** — watching for readiness`
+      return `⚙️ dispatched ${repo}#${n} → \`${session}\` on **${useModel}** — watching for readiness`
     } catch (e) {
       this.workers.delete(session)
       // No tmux session ever existed here, so no sweep would ever collect the
@@ -525,7 +525,7 @@ export class Dispatcher {
     this.store.logEvent('dispatch_exhausted', { repo, ticket, earliest_reset: when })
     if (this.exhaustionNotified) return this.#exhaustedReply()
     this.exhaustionNotified = true
-    this.notify(ticket, `🥶 every routing lane is cooling — no claim made. Earliest reset: ${when}`)
+    this.notify(ticket, `⚠️ every routing lane is cooling — no claim made. Earliest reset: ${when}`)
     const ms = Math.max(5_000, (reset?.getTime() ?? Date.now() + 3600_000) - Date.now())
     clearTimeout(this.wakeTimer)
     this.wakeTimer = setTimeout(() => {
@@ -538,7 +538,7 @@ export class Dispatcher {
 
   #exhaustedReply() {
     const reset = this.cooling.earliestReset()
-    return `🥶 all routing lanes are cooling (earliest reset ${reset ? reset.toISOString() : 'unknown'}) — nothing claimed`
+    return `⚠️ all routing lanes are cooling (earliest reset ${reset ? reset.toISOString() : 'unknown'}) — nothing claimed`
   }
 
   // ---- readiness watchdog ------------------------------------------------------
@@ -647,7 +647,7 @@ export class Dispatcher {
         worker.spawnedAt = Date.now()
         worker.state = 'spawning'
         this.store.logEvent('worker_spawned', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: next, backend: nextBackend, retry_after_limit: true })
-        this.notify(worker.ticket, `♻️ \`${worker.session}\` hit a ${limit.scope} usage limit — respawned on **${next}**`)
+        this.notify(worker.ticket, `⚙️ \`${worker.session}\` hit a ${limit.scope} usage limit — respawned on **${next}**`)
         this.#watchdog(worker).catch((e) => this.log(`watchdog ${worker.session} failed:`, e.message))
         return
       } catch (e) {
@@ -739,9 +739,9 @@ export class Dispatcher {
   // is unchanged, only its timing.
   async openPullRequest(workerName, { summary = '' } = {}) {
     const b = this.#bindingFor(workerName)
-    if (b.error) return `⛔ ${b.error} — nothing was pushed`
+    if (b.error) return `❌ ${b.error} — nothing was pushed`
     const { w, ticket, repo, wtPath, branch, basePath } = b
-    if (!fs.existsSync(wtPath)) return `⛔ the worktree ${wtPath} is gone — nothing was pushed`
+    if (!fs.existsSync(wtPath)) return `❌ the worktree ${wtPath} is gone — nothing was pushed`
 
     let title = w?.title
     if (!title) {
@@ -757,16 +757,16 @@ export class Dispatcher {
     } catch (e) {
       this.store.logEvent('land_failed', { repo, ticket, worker: workerName, branch, error: e.message })
       this.notify(ticket, `⚠️ \`${workerName}\`: opening the pull request FAILED — ${e.message}`)
-      return `⛔ curia could not land \`${branch}\`: ${e.message}. Your commits are safe in the worktree; fix what you can and call this again.`
+      return `❌ curia could not land \`${branch}\`: ${e.message}. Your commits are safe in the worktree; fix what you can and call this again.`
     }
     if (!out.ok) {
-      return `⛔ nothing to open a pull request from — \`${branch}\` carries no commits. Commit your work first.`
+      return `❌ nothing to open a pull request from — \`${branch}\` carries no commits. Commit your work first.`
     }
     if (w) w.prUrl = out.url
     await this.deps.commentIssue(repo, ticket, prLinkComment({
       branch, commits: out.commits, url: out.url, state: out.state,
     })).catch((e) => this.log(`pull-request comment on ${repo}#${ticket} failed: ${e.message}`))
-    this.notify(ticket, `🔀 \`${workerName}\` ${out.state === 'updated' ? 'updated' : 'opened'} ${out.url} (${out.commits} commit${out.commits === 1 ? '' : 's'} on \`${branch}\`)`)
+    this.notify(ticket, `🔗 \`${workerName}\` ${out.state === 'updated' ? 'updated' : 'opened'} <${out.url}> (${out.commits} commit${out.commits === 1 ? '' : 's'} on \`${branch}\`)`)
     return `${out.state === 'updated' ? 'updated' : 'opened'} ${out.url} — ${out.commits} commit${out.commits === 1 ? '' : 's'} pushed on \`${branch}\`. Next: request_review.`
   }
 
@@ -778,7 +778,7 @@ export class Dispatcher {
   // limit: a worker can hand ask_human any `preview_url` string it likes.
   async requestReview(workerName, { summary = '', charting = '' } = {}) {
     const b = this.#bindingFor(workerName)
-    if (b.error) return { ok: false, text: `⛔ ${b.error} — no review was requested` }
+    if (b.error) return { ok: false, text: `❌ ${b.error} — no review was requested` }
     const { w, ticket, repo, branch } = b
 
     const title = w?.title ?? `#${ticket}`
@@ -916,7 +916,7 @@ export class Dispatcher {
       this.store.logEvent('stop_budget_exhausted', {
         worker: workerName, ticket: state.ticket, repo: state.repo, blocks: state.blocks, outstanding: items,
       })
-      this.notify(state.ticket, `🚧 \`${workerName}\` stopped with ${items.length} step(s) of the ending outstanding after ${state.blocks} nudge(s) — curia is no longer holding it:\n${items.map((t) => `• ${t}`).join('\n')}`)
+      this.notify(state.ticket, `⚠️ \`${workerName}\` stopped with ${items.length} step(s) of the ending outstanding after ${state.blocks} nudge(s) — curia is no longer holding it:\n${items.map((t) => `• ${t}`).join('\n')}`)
       return { allow: true, terminal: true }
     }
     this.store.logEvent('stop_blocked', {
@@ -1162,7 +1162,7 @@ export class Dispatcher {
       // already happened, so "kept for review" no longer means anything; what
       // decides now is whether the code is in.
       const lease = await this.#endWorkspaceLease(workerName, ticket, w?.repo ?? this.#epochRepo(ticket))
-      this.notify(ticket, `🏁 \`${workerName}\` finished with a recorded result — session closed; ${lease}`)
+      this.notify(ticket, `✅ \`${workerName}\` finished with a recorded result — session closed; ${lease}`)
       this.lapseConfirmsFor(workerName, `\`${workerName}\` finished`)
       // terminal state ⇒ the ticket label comes off the thread (#93)
       await this.threads.release(ticket, 'finished').catch(() => {})
@@ -1170,7 +1170,7 @@ export class Dispatcher {
       // result-less exit: the pane is the post-mortem evidence — keep it
       if (w) w.state = 'failed'
       this.store.logEvent('worker_abnormal_exit', { worker: workerName, ticket, repo: w?.repo })
-      this.notify(ticket, `🚨 \`${workerName}\` stopped WITHOUT reporting a result — session kept for post-mortem (\`/attach ${ticket}\`)`)
+      this.notify(ticket, `⚠️ \`${workerName}\` stopped WITHOUT reporting a result — session kept for post-mortem (\`/attach ${ticket}\`)`)
       // the worker the confirm described has exited, whatever the pane holds (#94)
       this.lapseConfirmsFor(workerName, `\`${workerName}\` stopped without a result`)
     }
@@ -1249,7 +1249,7 @@ export class Dispatcher {
     const ticket = String(n)
     const session = `curia-${ticket}`
     if (!this.workers.has(session) && !(await this.deps.hasSession(session).catch(() => false))) {
-      return `💤 nothing to cancel — no live worker on #${ticket}`
+      return `nothing to cancel — no live worker on #${ticket}`
     }
     return this.#teardown(ticket, { by })
   }
@@ -1261,11 +1261,11 @@ export class Dispatcher {
     const listed = await this.#liveTargets()
     if (listed.error) return listed.error
     const { targets, rows } = listed
-    if (!targets.length) return '💤 no live workers to cancel'
+    if (!targets.length) return 'no live workers to cancel'
     for (const t of targets) {
       await this.#teardown(t.ticket, { by }).catch((e) => this.log(`cancel of ${t.session} failed:`, e.message))
     }
-    return `🛑 cancelled ${targets.length} worker(s):\n${rows.join('\n')}`
+    return `⚰️ cancelled ${targets.length} worker(s):\n${rows.join('\n')}`
   }
 
   // Every live curia session as a confirm target: tracked ones carry their
@@ -1277,7 +1277,7 @@ export class Dispatcher {
     try {
       live = (await this.deps.listSessions()).filter((s) => SESSION_RE.test(s))
     } catch (e) {
-      return { error: `⛔ cancel all refused — the tmux session list is indeterminate (${e.message}); retry, or cancel tickets one by one` }
+      return { error: `❌ cancel all refused — the tmux session list is indeterminate (${e.message}); retry, or cancel tickets one by one` }
     }
     const sessions = [...new Set([...this.workers.keys(), ...live])].sort()
     const targets = sessions.map((s) => this.#targetFor(s))
@@ -1303,7 +1303,7 @@ export class Dispatcher {
     let target = null
     if (this.workers.has(session)) target = this.#targetFor(session)
     else if (await this.deps.hasSession(session).catch(() => false)) target = this.#targetFor(session)
-    if (!target) return `💤 nothing to cancel — no live worker on #${ticket}`
+    if (!target) return `nothing to cancel — no live worker on #${ticket}`
     const desc = target.state ? `(${target.repo}#${ticket}, **${target.state}**)` : '(untracked)'
     const record = this.openConfirm({
       ticket,
@@ -1312,14 +1312,14 @@ export class Dispatcher {
       originThreadId: threadId,
     })
     if (!record) return '⚠️ could not open the confirm — nothing was cancelled'
-    return `🛑 posted confirm **${record.id}** with ✅/❌ buttons in the ticket thread — nothing happens until ✅, and it lapses if the worker exits first`
+    return `⚙️ posted confirm **${record.id}** with ✅/❌ buttons in the ticket thread — nothing happens until ✅, and it lapses if the worker exits first`
   }
 
   async requestCancelAll({ threadId = null } = {}) {
     const listed = await this.#liveTargets()
     if (listed.error) return listed.error
     const { targets, rows } = listed
-    if (!targets.length) return '💤 no live workers to cancel'
+    if (!targets.length) return 'no live workers to cancel'
     const record = this.openConfirm({
       ticket: 'all',
       prompt: `Cancel ALL ${targets.length} worker(s)? Each session is killed, its worktree removed and its ticket re-frontiered:\n${rows.join('\n')}`,
@@ -1327,7 +1327,7 @@ export class Dispatcher {
       originThreadId: threadId,
     })
     if (!record) return '⚠️ could not open the confirm — nothing was cancelled'
-    return `🛑 posted confirm **${record.id}** for ${targets.length} worker(s) — nothing happens until ✅:\n${rows.join('\n')}`
+    return `⚙️ posted confirm **${record.id}** for ${targets.length} worker(s) — nothing happens until ✅:\n${rows.join('\n')}`
   }
 
   // The executing path (#94): button → daemon. gate.answer calls this after
@@ -1343,7 +1343,7 @@ export class Dispatcher {
     }
     const name = targets.length === 1 ? `\`${targets[0].session}\`` : `${targets.length} worker(s)`
     if (record.answer !== 'approve') {
-      this.confirmNote(record, `🚫 not confirmed — ${name} untouched`)
+      this.confirmNote(record, `❌ not confirmed — ${name} untouched`)
       this.#noteOrigin(record, `confirm ${record.id} declined — ${name} untouched`)
       return
     }
@@ -1445,7 +1445,7 @@ export class Dispatcher {
     const tail = w
       ? (released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
       : ' (was untracked; GitHub claim untouched)'
-    const msg = `🛑 \`${session}\` cancelled — session killed${tail}`
+    const msg = `⚰️ \`${session}\` cancelled — session killed${tail}`
     this.notify(ticket, msg)
     // the worker is positively gone ⇒ any OTHER open confirm on it lapses (#94)
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
@@ -1477,9 +1477,9 @@ export class Dispatcher {
     try {
       targets = await this.#resumable()
     } catch (e) {
-      return `⛔ resume all refused — the tmux session list is indeterminate (${e.message}); retry, or resume tickets one by one`
+      return `❌ resume all refused — the tmux session list is indeterminate (${e.message}); retry, or resume tickets one by one`
     }
-    if (!targets.length) return '💤 nothing to resume — no surviving worktree without a live worker'
+    if (!targets.length) return 'nothing to resume — no surviving worktree without a live worker'
     const rows = targets.map((t) => `• ${t.repo}#${t.ticket}`)
     // resume is not destructive, so the bulk verb runs at once (#89: only
     // interpreted destructive actions confirm); the dispatches continue in
@@ -1889,7 +1889,7 @@ export class Dispatcher {
       if (r.worker !== 'overseer') continue
       this.cancelEscalation(r.id, { by: 'reconcile' })
       this.store.logEvent('confirm_voided', { id: r.id, ticket: r.ticket })
-      this.notify(r.ticket, `♻️ confirm **${r.id}** was voided by a daemon restart — please re-issue the command`)
+      this.notify(r.ticket, `⚠️ confirm **${r.id}** was voided by a daemon restart — please re-issue the command`)
     }
   }
 

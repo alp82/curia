@@ -40,6 +40,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseCommand, CommandRouter } from '../src/commands.mjs'
 import { validSessionName } from '../src/attach.mjs'
+import { lintReply } from '../src/messaging.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const WRAPPER = path.join(DIR, '..', 'bin', 'curia-attach.sh')
@@ -179,8 +180,20 @@ describe('CommandRouter grown verbs (#81)', () => {
     const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
     const reply = await router.handle('tickets', 'u')
     assert.match(reply, /3 agent-only runnable/)
-    assert.match(reply, /#7 do a thing/)
+    assert.match(reply, /#7 \*\*do a thing\*\*/, 'ticket titles render bold (#95)')
     assert.match(reply, /research/)
+  })
+
+  test('a long tickets list clamps to one line per item plus "N more" (#95)', async () => {
+    const items = Array.from({ length: 14 }, (_, i) => ({ number: i + 1, title: `t${i + 1}`, labels: [] }))
+    const dispatcher = {
+      config: WATCH,
+      frontier: async () => [{ repo: 'alp82/curia', lane: 'map', numbers: [], agentOnly: 0, items }],
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('tickets', 'u')
+    assert.match(reply, /-# … 4 more/)
+    assert.ok(!reply.includes('t11'), 'the tail is cut, not listed')
   })
 
   test('next hands the resolved repo and the user to the dispatcher', async () => {
@@ -243,8 +256,29 @@ describe('CommandRouter grown verbs (#81)', () => {
     const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
     const reply = await router.handle('status', 'u')
     assert.match(reply, /waiting on \*\*esc-1\*\* \(free-text\) in the ticket thread/)
-    assert.match(reply, /🛑 cancelled alp82\/curia#3/)
-    assert.match(reply, /🏁 finished alp82\/curia#4/)
+    assert.match(reply, /⚰️ cancelled alp82\/curia#3/)
+    assert.match(reply, /✅ finished alp82\/curia#4/)
+  })
+
+  test('router replies conform to the messaging standard (#95)', async () => {
+    const dispatcher = {
+      config: WATCH,
+      frontier: async () => [{
+        repo: 'alp82/curia', lane: 'map', numbers: [7], agentOnly: 3,
+        items: [{ number: 7, title: 'do a thing', labels: ['wayfinder:research'] }],
+      }],
+      status: async () => ({
+        workers: [{ session: 'curia-5', repo: 'alp82/curia', ticket: '5', model: 'sonnet', state: 'working', uptime_s: 65, tmux_live: true }],
+        untracked: ['curia-9'],
+        recent: [{ kind: 'cancelled', repo: 'alp82/curia', ticket: '3' }],
+      }),
+    }
+    const attach = { timelineLink: async () => 'https://t.example/5', link: async () => 'https://a.example/5' }
+    const router = new CommandRouter({ dispatcher, attach, log: () => {} })
+    for (const cmd of ['tickets', 'status', 'attach 5', 'garbage in', 'tickets nomatch']) {
+      const reply = await router.handle(cmd, 'u')
+      assert.deepEqual(lintReply(reply), [], `\`${cmd}\` reply violates the standard: ${reply}`)
+    }
   })
 })
 

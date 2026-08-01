@@ -48,9 +48,20 @@ function makeHost({ dir = tmp(), queryFn, command = async () => 'ok', store } = 
   return { host, store: s, dir }
 }
 
+// #95's io contract: say() posts (the answer slot), status() upserts the one
+// small-print status message. statuses records every upsert — the last entry
+// is what the operator ends up reading.
 function collector() {
   const posts = []
-  return { posts, io: { post: async (t) => { posts.push(t) } } }
+  const statuses = []
+  return {
+    posts,
+    statuses,
+    io: {
+      say: async (t) => { posts.push(t) },
+      status: async (t) => { statuses.push(t) },
+    },
+  }
 }
 
 // ---- the tool → router contract ---------------------------------------------
@@ -105,18 +116,36 @@ describe('buildVerbTools', () => {
 // ---- the session host ---------------------------------------------------------
 
 describe('OverseerHost turns', () => {
-  test('a fresh turn journals the session, narrates tool calls, posts the answer', async () => {
+  test('a fresh turn journals the session, narrates tool calls in status, says the answer', async () => {
     const queryFn = scriptedQuery([
       init('sess-1'),
       toolUse('mcp__curia__status'),
       success('all quiet'),
     ])
     const { host, store } = makeHost({ queryFn })
-    const { posts, io } = collector()
+    const { posts, statuses, io } = collector()
     const r = await host.runTurn('thread-1', 'what runs?', io)
     assert.equal(r.ok, true)
     assert.equal(store.overseerSession('thread-1'), 'sess-1')
-    assert.deepEqual(posts, ['-# 🔧 status', 'all quiet'])
+    assert.deepEqual(statuses, ['-# ⚙️ `status`'])
+    assert.deepEqual(posts, ['all quiet'], 'exactly one answer message')
+  })
+
+  test('the status line accumulates canonical verb text across tool calls (#95)', async () => {
+    const queryFn = scriptedQuery([
+      init('sess-1'),
+      toolUse('mcp__curia__tickets'),
+      toolUse('mcp__curia__start', { ticket: '85', repo: 'alp82/curia' }),
+      success('started'),
+    ])
+    const { host } = makeHost({ queryFn })
+    const { posts, statuses, io } = collector()
+    await host.runTurn('thread-1', 'start 85', io)
+    assert.deepEqual(statuses, [
+      '-# ⚙️ `tickets`',
+      '-# ⚙️ `tickets` · `start alp82/curia#85`',
+    ])
+    assert.deepEqual(posts, ['started'])
   })
 
   test('the next turn in the same thread resumes the journalled session', async () => {
@@ -248,13 +277,14 @@ describe('OverseerHost turns', () => {
       [init('s2'), success('recovered')],
     )
     const { host } = makeHost({ queryFn })
-    const { posts, io } = collector()
+    const { posts, statuses, io } = collector()
     const r = await host.runTurn('t', 'hi', io)
     assert.equal(r.ok, true)
     assert.equal(queryFn.calls.length, 2)
     assert.equal(queryFn.calls[1].options.model, 'model-b')
-    assert.ok(posts.some((p) => p.includes('retrying on model-b')))
-    assert.equal(posts.at(-1), 'recovered')
+    // the retry warning rides the status line, not a message of its own (#95)
+    assert.ok(statuses.some((p) => p.includes('retrying on model-b')))
+    assert.deepEqual(posts, ['recovered'])
   })
 
   test('a query that throws mid-stream also falls back, carrying the error', async () => {
@@ -263,10 +293,11 @@ describe('OverseerHost turns', () => {
       [init('s2'), success('recovered')],
     )
     const { host } = makeHost({ queryFn })
-    const { posts, io } = collector()
+    const { posts, statuses, io } = collector()
     const r = await host.runTurn('t', 'hi', io)
     assert.equal(r.ok, true)
-    assert.ok(posts.some((p) => p.includes('boom')))
+    assert.ok(statuses.some((p) => p.includes('boom')))
+    assert.deepEqual(posts, ['recovered'])
   })
 
   test('a turn that failed AFTER a tool call is never replayed — the effect may have landed', async () => {

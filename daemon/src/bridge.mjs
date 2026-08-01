@@ -89,7 +89,7 @@ function expandCommand(i) {
 
 function missingOptionReply(commandName) {
   return [
-    `⛔ \`/${commandName}\` arrived with no **ticket** — the option is required, so your Discord client is`,
+    `❌ \`/${commandName}\` arrived with no **ticket** — the option is required, so your Discord client is`,
     'using a stale copy of the command list.',
     '',
     `Fix: fully close and reopen Discord (mobile: swipe the app away), then run \`/${commandName}\` again — the`,
@@ -375,7 +375,8 @@ export class DiscordBridge {
         '_✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the worker gets your words)._',
       ].join('\n')
     }
-    const head = `**[${record.id}]** \`${record.worker}\` asks (*${record.kind}*):\n> ${record.prompt}`
+    // No blockquote (#95's markdown standard) — the prompt stands on its own line.
+    const head = `**[${record.id}]** \`${record.worker}\` asks (*${record.kind}*):\n${record.prompt}`
     const parts = [head]
     if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {
       parts.push(record.options.map((o, i) => `**${i + 1}.** ${o}`).join('\n'), '_Reply in this thread with a number._')
@@ -423,11 +424,11 @@ export class DiscordBridge {
   }
 
   markCancelled(record) {
-    return this.#editEscalationMessage(record, `🛑 **cancelled** by <@${record.cancelled_by}> — worker gets an "aborted" result, ticket re-frontiers`)
+    return this.#editEscalationMessage(record, `❌ **cancelled** by <@${record.cancelled_by}> — worker gets an "aborted" result, ticket re-frontiers`)
   }
 
   markSuperseded(record) {
-    return this.#editEscalationMessage(record, `♻️ **superseded** by **${record.successor}** (the worker re-issued this question) — answer the newer message`)
+    return this.#editEscalationMessage(record, `⚠️ **superseded** by **${record.successor}** (the worker re-issued this question) — answer the newer message`)
   }
 
   // A confirm whose worker exited (#94): buttons off, and the message says why
@@ -448,7 +449,7 @@ export class DiscordBridge {
     if (!record.discord) return
     const thread = await this.client.channels.fetch(record.discord.threadId).catch(() => null)
     if (!thread) return
-    await thread.send(`⏰ still waiting on **[${record.id}]**: ${record.prompt.slice(0, 150)}`)
+    await thread.send(`⚠️ still waiting on **[${record.id}]**: ${record.prompt.slice(0, 150)}`)
   }
 
   // Fire-and-forget status line into the ticket thread; files = outbound images.
@@ -502,7 +503,7 @@ export class DiscordBridge {
       if (action === 'cancel') {
         const result = this.handlers.cancel(id, { by: i.user.id })
         await i.reply(result.ok
-          ? { content: `🛑 cancelled **${result.record.id}**` }
+          ? { content: `❌ cancelled **${result.record.id}**` }
           : { content: `already closed (${result.reason})`, ephemeral: true })
         return
       }
@@ -521,14 +522,22 @@ export class DiscordBridge {
   // The overseer surface (#92, moved into #curia by #93): a top-level prose
   // message opens a thread and a fresh session, a message in any thread
   // revives that thread's session with full memory. The bridge owns only the
-  // transport (thread, typing, the 2000-char cap); everything said comes from
-  // the host through `post`.
+  // transport (thread, typing, the 2000-char cap, and #95's one edited status
+  // message); everything said comes from the host through `say`/`status`.
   async #overseerTurn(thread, prompt) {
     const typing = setInterval(() => thread.sendTyping().catch(() => {}), 8000)
     thread.sendTyping().catch(() => {})
+    // #95: one status message per turn — sent on the first status(), edited in
+    // place after. An edit that fails is dropped, not resent: a second status
+    // message is exactly what the discipline forbids.
+    let statusMsg = null
     try {
       await this.handlers.overseerTurn(thread.id, prompt, {
-        post: (text) => this.#sayChunked(thread, text),
+        say: (text) => this.#sayChunked(thread, text),
+        status: async (text) => {
+          if (statusMsg) return statusMsg.edit(text.slice(0, 1900)).catch(() => {})
+          statusMsg = await thread.send(text.slice(0, 1900)).catch(() => null)
+        },
       })
     } finally {
       clearInterval(typing)
