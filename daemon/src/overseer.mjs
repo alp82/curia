@@ -114,8 +114,9 @@ Hard bounds (the never-list):
 Keep replies short. One thread is one conversation; you will be revived with full memory when the operator writes again.`
 
 export class OverseerHost {
-  // command: async (canonicalText) -> reply string — gate.command in the
-  // daemon, a stub in tests. queryFn: the SDK's query, injectable for tests.
+  // command: async (canonicalText, {threadId}) -> reply string — gate.command
+  // in the daemon, a stub in tests. queryFn: the SDK's query, injectable for
+  // tests.
   constructor({ store, command, dataDir, log = console.log, model, fallbackModel, maxTurns = 12, queryFn = sdkQuery }) {
     this.store = store
     this.command = command
@@ -135,10 +136,16 @@ export class OverseerHost {
     // to run them against.
     seedConfigDir(this.configDir, this.home)
     this.busy = new Set() // thread ids with a turn in flight
-    this.mcp = createSdkMcpServer({
+  }
+
+  // One in-process MCP server per turn, so the verb tools carry the thread
+  // they run in (#93): the router binds `start` to that thread. Cheap — the
+  // server is a plain object over the same seven handlers.
+  #mcpFor(threadId) {
+    return createSdkMcpServer({
       name: 'curia',
       version: '0.1.0',
-      tools: buildVerbTools((text) => this.command(text)),
+      tools: buildVerbTools((text) => this.command(text, { threadId })),
     })
   }
 
@@ -187,7 +194,7 @@ export class OverseerHost {
           model,
           resume,
           systemPrompt: SYSTEM_PROMPT,
-          mcpServers: { curia: this.mcp },
+          mcpServers: { curia: this.#mcpFor(threadId) },
           allowedTools: ALLOWED_TOOLS,
           disallowedTools: DISALLOWED_TOOLS,
           maxTurns: this.maxTurns,

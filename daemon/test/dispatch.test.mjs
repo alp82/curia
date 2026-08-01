@@ -723,7 +723,7 @@ describe('exactly one notify per exhaustion window (B7/R5)', () => {
     d.cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
 
     const reply = await d.start('42', { repo: 'o/r' })
-    assert.match(reply, /confirm in thread/)
+    assert.match(reply, /confirm in the ticket thread/)
     await waitFor(() => events.some((e) => e.type === 'dispatch_exhausted'))
     // drain the continuation's trailing microtasks before counting
     await new Promise((r) => setTimeout(r, 100))

@@ -1,9 +1,15 @@
 // Discord bridge module (#31) — thin rendering + capture, no interpretation (#18).
 //
-// Owns: gateway connection, Alp-user-ID auth gate, thread-per-ticket rendering,
+// Owns: gateway connection, Alp-user-ID auth gate, ticket-thread rendering,
 // button/reply capture, image passthrough both directions, the static
-// slash-command manifest. Owns NO state: the ticket→thread map is a rebuildable
-// ephemeral cache (#9); escalation truth lives in the daemon's EscalationStore.
+// slash-command manifest. Owns NO state: escalation truth and the
+// ticket→thread bindings (#93) live in the daemon's EscalationStore, reached
+// through the injected `bindings` seam — the thread rename is display only.
+//
+// The one-channel discipline (#89, built by #93): #curia holds everything.
+// Slash commands and daemon announcements stay top-level; top-level prose
+// opens a fresh thread, and every thread is one persistent overseer session.
+// A reply in a thread feeds an open escalation first, otherwise the session.
 //
 // The daemon hands in a `handlers` object and calls back into the bridge to
 // render; answers flow bridge → handlers.answer → store (first-valid-wins).
@@ -96,17 +102,20 @@ function missingOptionReply(commandName) {
 export class DiscordBridge {
   // onHealth({state, previous, down_ms, reason, error}) — the daemon journals it
   // and decides whether to say it out loud (#56).
-  constructor({ token, allowedUsers, guildId, channelName = 'curia', overseerChannelName = 'curia-overseer', dataDir, handlers, log = console.log, onHealth = () => {} }) {
+  // bindings: { get(ticket), bind(ticket, threadId), release(ticket, reason) }
+  // — the store's journalled ticket↔thread map (#93). Absent (tests), threads
+  // fall back to the name-based lookup only.
+  constructor({ token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, bindings = null, log = console.log, onHealth = () => {} }) {
     this.token = token
     this.allowedUsers = allowedUsers // array of user-id strings; the auth gate
     this.guildId = guildId
     this.channelName = channelName
-    this.overseerChannelName = overseerChannelName // #92; #93 retires it into #curia
     this.dataDir = dataDir
     this.handlers = handlers
+    this.bindings = bindings
     this.log = log
     this.onHealth = onHealth
-    this.threadByTicket = new Map() // ephemeral cache, rebuilt from Discord on demand
+    this.threadByName = new Map() // ephemeral cache for UNBOUND threads ('all'), rebuilt on demand
     // Bridge health (#56). Ephemeral like every other cache here: the journal
     // holds the transitions, this holds only what is true right now.
     this.health = { state: 'down', since: Date.now(), last_error: null }
@@ -135,12 +144,6 @@ export class DiscordBridge {
       : this.client.guilds.cache.first()
     if (!this.guild) throw new Error('bot is in no guild')
     this.channel = await this.#ensureChannel(this.channelName)
-    // The overseer surface (#92) shares the bot token: safe, because this
-    // bridge reacts only inside its own channels and the overseer host only
-    // hears what #onMessage routes to it.
-    this.overseerChannel = this.handlers.overseerTurn
-      ? await this.#ensureChannel(this.overseerChannelName)
-      : null
     await this.#registerSlashCommands()
     this.client.on('interactionCreate', (i) => this.#onInteraction(i).catch((e) => this.log('interaction error', e)))
     this.client.on('messageCreate', (m) => this.#onMessage(m).catch((e) => this.log('message error', e)))
@@ -224,13 +227,54 @@ export class DiscordBridge {
     )
   }
 
+  // The ticket label as a thread rename (#93): `🎫 85 · <rest>`. Display only —
+  // the journal binding is the truth — so both halves tolerate a rename that
+  // never landed or that someone edited by hand.
+  static labelName(ticket, rest = '') {
+    return `🎫 ${ticket}${rest ? ` · ${rest}` : ''}`.slice(0, 100)
+  }
+
+  static stripLabel(name) {
+    return name.replace(/^🎫\s*\S+(\s*·\s*|\s*$)/, '')
+  }
+
+  // The thread a ticket's traffic lands in (#93): the journalled binding first.
+  // An unbound ticket gets a fresh thread, bound on creation — that is the
+  // "autonomous dispatch opens and binds a fresh thread" leg of #89, reached
+  // lazily by whichever notify or escalation speaks first. Pseudo-tickets with
+  // no binding seam ('all', tests without `bindings`) keep the old name-based
+  // lookup so bulk confirms still share one thread.
   async ensureThread(ticket) {
-    const name = `ticket-${ticket}`
-    const cached = this.threadByTicket.get(ticket)
+    if (!this.bindings || !/^\d+$/.test(String(ticket))) return this.#namedThread(`ticket-${ticket}`)
+    const bound = this.bindings.get(ticket)
+    if (bound) {
+      const t = await this.client.channels.fetch(bound).catch(() => null)
+      if (t) {
+        if (t.archived) await t.setArchived(false).catch(() => {})
+        return t
+      }
+      // The bound thread is gone from Discord. The journal is the truth, but a
+      // deleted thread can carry no traffic — release and fall through.
+      this.bindings.release(ticket, 'thread-gone')
+    }
+    const thread = await this.channel.threads.create({
+      name: DiscordBridge.labelName(ticket), autoArchiveDuration: 10080,
+    })
+    const r = this.bindings.bind(ticket, thread.id)
+    if (!r.ok && r.threadId) {
+      // lost a race: another path bound this ticket between the read and here
+      const winner = await this.client.channels.fetch(r.threadId).catch(() => null)
+      if (winner) return winner
+    }
+    return thread
+  }
+
+  async #namedThread(name) {
+    const cached = this.threadByName.get(name)
     if (cached) {
       const t = await this.client.channels.fetch(cached).catch(() => null)
       if (t) return t
-      this.threadByTicket.delete(ticket)
+      this.threadByName.delete(name)
     }
     const active = await this.channel.threads.fetchActive()
     let thread = active.threads.find((t) => t.name === name)
@@ -242,8 +286,43 @@ export class DiscordBridge {
     if (!thread) {
       thread = await this.channel.threads.create({ name, autoArchiveDuration: 10080 })
     }
-    this.threadByTicket.set(ticket, thread.id)
+    this.threadByName.set(name, thread.id)
     return thread
+  }
+
+  // Bind a ticket to a thread (#93). With a threadId, the bind lands on that
+  // thread — "start binds the thread it runs in" — and the rename prefixes the
+  // label onto the conversation's own name. Without one, a fresh thread is
+  // opened and bound (the autonomous-dispatch leg). A refused bind is returned
+  // as the store said it, holder included, and renames nothing.
+  async bindTicket(ticket, { threadId = null, title = '' } = {}) {
+    if (!this.bindings) return { ok: false, reason: 'no-bindings' }
+    if (threadId) {
+      const r = this.bindings.bind(ticket, threadId)
+      if (!r.ok) return r
+      const t = await this.client.channels.fetch(threadId).catch(() => null)
+      if (t && !t.name.startsWith('🎫')) {
+        await t.setName(DiscordBridge.labelName(ticket, t.name)).catch(() => {})
+      }
+      return r
+    }
+    const thread = await this.channel.threads.create({
+      name: DiscordBridge.labelName(ticket, title), autoArchiveDuration: 10080,
+    })
+    return this.bindings.bind(ticket, thread.id)
+  }
+
+  // Release is the label coming off (#93): journal first, then strip the
+  // rename. Idempotent, and safe when the thread is already gone.
+  async releaseTicket(ticket, reason) {
+    if (!this.bindings) return
+    const bound = this.bindings.get(ticket)
+    this.bindings.release(ticket, reason)
+    if (!bound) return
+    const t = await this.client.channels.fetch(bound).catch(() => null)
+    if (!t || !t.name.startsWith('🎫')) return
+    const stripped = DiscordBridge.stripLabel(t.name)
+    await t.setName(stripped || `ticket-${ticket}`).catch(() => {})
   }
 
   #buttons(record) {
@@ -369,7 +448,11 @@ export class DiscordBridge {
         return
       }
       await i.deferReply()
-      const reply = await this.handlers.command(canonical, i.user.id)
+      // A slash command issued inside a thread carries that thread as context,
+      // so `start` binds the thread it runs in (#93) — same rule as the
+      // overseer's verb tools. Top-level slash commands carry none.
+      const threadId = i.channel?.isThread() ? i.channel.id : null
+      const reply = await this.handlers.command(canonical, i.user.id, { threadId })
       await i.editReply(reply ?? `relayed: \`${canonical}\``)
       return
     }
@@ -395,11 +478,11 @@ export class DiscordBridge {
     }
   }
 
-  // The overseer surface (#92): the session model from #83 — a top-level
-  // message in the overseer channel opens a thread and a fresh session, a
-  // message in one of its threads revives that session with full memory. The
-  // bridge owns only the transport (thread, typing, the 2000-char cap);
-  // everything said comes from the host through `post`.
+  // The overseer surface (#92, moved into #curia by #93): a top-level prose
+  // message opens a thread and a fresh session, a message in any thread
+  // revives that thread's session with full memory. The bridge owns only the
+  // transport (thread, typing, the 2000-char cap); everything said comes from
+  // the host through `post`.
   async #overseerTurn(thread, prompt) {
     const typing = setInterval(() => thread.sendTyping().catch(() => {}), 8000)
     thread.sendTyping().catch(() => {})
@@ -422,18 +505,21 @@ export class DiscordBridge {
   async #onMessage(m) {
     if (m.author.bot) return
     if (!this.authorized(m.author.id)) return
-    if (this.overseerChannel) {
-      if (m.channel.id === this.overseerChannel.id) {
-        const thread = await m.startThread({ name: m.content.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
-        return this.#overseerTurn(thread, m.content)
-      }
-      if (m.channel.isThread() && m.channel.parentId === this.overseerChannel.id) {
-        return this.#overseerTurn(m.channel, m.content)
-      }
+    // Top-level prose in #curia always opens a fresh conversation thread (#89).
+    if (m.channel.id === this.channel.id) {
+      if (!this.handlers.overseerTurn) return
+      const thread = await m.startThread({ name: m.content.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
+      return this.#overseerTurn(thread, m.content)
     }
-    if (!m.channel.isThread()) return
+    if (!m.channel.isThread() || m.channel.parentId !== this.channel.id) return
+    // A reply in a thread feeds an open escalation first, otherwise the
+    // session (#89) — so a labeled ticket thread answers its worker's question
+    // before the overseer ever hears the words.
     const open = this.handlers.findOpenForThread(m.channel.id)
-    if (!open) return
+    if (!open) {
+      if (this.handlers.overseerTurn && m.content?.trim()) return this.#overseerTurn(m.channel, m.content)
+      return
+    }
     let answer = m.content?.trim() ?? ''
     // numbered reply against a degraded long choice list
     if (open.kind === 'choice' && /^\d+$/.test(answer)) {

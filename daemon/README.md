@@ -60,7 +60,7 @@ Dispatch also asserts the tracker prerequisite: a **map child** whose worktree c
 
 ## State posture
 
-`data/events.jsonl` is the only durable artifact — an append-only journal; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map and ticket→thread cache are ephemeral (#9); a restart loses only the in-process worker call (accepted re-dispatch posture, #11/#12).
+`data/events.jsonl` is the only durable artifact — an append-only journal; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map is ephemeral (#9); ticket→thread bindings live in the journal (#93); a restart loses only the in-process worker call (accepted re-dispatch posture, #11/#12).
 
 Supersede (#29): a re-issued `ask_human` (same worker + same payload while an older escalation is open) closes the old record, strips its buttons in Discord, and routes late answers to the live successor.
 

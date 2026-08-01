@@ -166,6 +166,17 @@ describe('OverseerHost turns', () => {
     assert.ok(options.mcpServers.curia)
   })
 
+  test('each turn gets its own MCP server, so the verb tools carry their thread (#93)', async () => {
+    const queryFn = scriptedQuery([init('s1'), success('a')], [init('s2'), success('b')])
+    const { host } = makeHost({ queryFn })
+    const { io } = collector()
+    await host.runTurn('thread-1', 'hi', io)
+    await host.runTurn('thread-2', 'hi', io)
+    const [a, b] = queryFn.calls.map((c) => c.options.mcpServers.curia)
+    assert.ok(a && b)
+    assert.notEqual(a, b, 'a shared server could not tell the router which thread start ran in')
+  })
+
   test('the config dir is seeded so no first-run dialog ever appears', () => {
     const { dir } = makeHost({ queryFn: scriptedQuery() })
     const seeded = JSON.parse(fs.readFileSync(path.join(dir, 'overseer', 'config', '.claude.json'), 'utf8'))

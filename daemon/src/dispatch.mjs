@@ -99,7 +99,7 @@ export class Dispatcher {
   // notify(ticket, msg) and confirm(ticket, prompt) → Promise<boolean> are
   // injected by index.mjs (bridge-guarded notify; approve-reject escalation
   // confirm with first-valid-confirm-wins + bounded TTL).
-  constructor({ config, routing, store, notify, confirm, askReview, cancelEscalation, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
+  constructor({ config, routing, store, notify, confirm, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
     this.config = config
     this.routing = routing
     this.store = store
@@ -116,6 +116,12 @@ export class Dispatcher {
     // reconcile) is released and the Discord buttons get marked — a bare
     // store.cancel would leave the resolver hanging in `pending` forever.
     this.cancelEscalation = cancelEscalation ?? ((id, opts) => this.store.cancel(id, opts))
+    // Ticket-thread bindings (#93), injected by index.mjs over the bridge and
+    // the journal. bind(ticket, {threadId, title}) puts the label on (an
+    // explicit thread, or a fresh one); release(ticket, reason) takes it off —
+    // called on every terminal state. Inert by default so tests and a
+    // bridgeless daemon run unchanged.
+    this.threads = threads ?? { bind: async () => ({ ok: true }), release: async () => {} }
     this.log = log
     this.cooling = cooling ?? new Cooling()
     this.dataDir = dataDir
@@ -205,7 +211,7 @@ export class Dispatcher {
   // Dispatch the next takeable ticket (#81): first map-lane ticket in watch
   // order, flat lane after — the same ordering the auto loop walks. A repo
   // filter narrows to that repo's frontier.
-  async next(repoFilter, { by } = {}) {
+  async next(repoFilter, { by, threadId } = {}) {
     const rows = await this.frontier(repoFilter)
     if (!rows.length) return `❓ no watched repo matches \`${repoFilter}\``
     for (const lane of ['map', 'flat']) {
@@ -215,7 +221,7 @@ export class Dispatcher {
           const session = `curia-${num}`
           if (this.workers.has(session) || this.inFlight.has(session)) continue
           if (await this.deps.hasSession(session)) continue
-          return (await this.start(String(num), { repo: r.repo, by })) ?? this.#exhaustedReply()
+          return (await this.start(String(num), { repo: r.repo, by, threadId })) ?? this.#exhaustedReply()
         }
       }
     }
@@ -230,7 +236,7 @@ export class Dispatcher {
 
   // `reuse` is the resume contract (#81): inherit the surviving worktree
   // instead of recreating it — see #dispatch.
-  async start(ticketArg, { repo, model, backend, by, reuse = false } = {}) {
+  async start(ticketArg, { repo, model, backend, by, reuse = false, threadId = null } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -250,11 +256,11 @@ export class Dispatcher {
           await this.deps.killSession(session).catch(() => {})
           const resolved = await this.#resolveRepo(n, repo ?? w.repo)
           if (resolved.error) return resolved.error
-          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse })
+          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse, threadId })
         },
         { replacing: true },
       )
-      return `▶️ \`${session}\` is already running — confirm the re-dispatch in thread ticket-${n}, or \`/attach ${n}\` / \`/cancel ${n}\``
+      return `▶️ \`${session}\` is already running — confirm the re-dispatch in the ticket thread, or \`/attach ${n}\` / \`/cancel ${n}\``
     }
     this.inFlight.add(session)
     try {
@@ -264,9 +270,9 @@ export class Dispatcher {
           await this.deps.killSession(session).catch(() => {})
           const resolved = await this.#resolveRepo(n, repo)
           if (resolved.error) return resolved.error
-          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse })
+          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse, threadId })
         })
-        return `⚠️ \`${session}\` is already live — confirm the respawn in thread ticket-${n}`
+        return `⚠️ \`${session}\` is already live — confirm the respawn in the ticket thread`
       }
 
       const resolved = await this.#resolveRepo(n, repo)
@@ -281,13 +287,13 @@ export class Dispatcher {
       if (blockedBy > 0) anomalies.push(`blocked by ${blockedBy} open issue(s)`)
       if (anomalies.length) {
         this.#confirmContinuation(n, `${theRepo}#${n} is ${anomalies.join(' and ')}. Approve to dispatch anyway?`, async () =>
-          this.#dispatch(theRepo, n, issue, { model, backend, by, reuse }))
-        return `⚠️ ${theRepo}#${n} is ${anomalies.join(' and ')} — confirm in thread ticket-${n}`
+          this.#dispatch(theRepo, n, issue, { model, backend, by, reuse, threadId }))
+        return `⚠️ ${theRepo}#${n} is ${anomalies.join(' and ')} — confirm in the ticket thread`
       }
 
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
-      return (await this.#dispatch(theRepo, n, issue, { model, backend, by, reuse })) ?? this.#exhaustedReply()
+      return (await this.#dispatch(theRepo, n, issue, { model, backend, by, reuse, threadId })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
     }
@@ -384,7 +390,7 @@ export class Dispatcher {
   // `reuse` (the resume contract, #81): a surviving worktree is inherited as it
   // stands — uncommitted files and local commits included — instead of being
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
-  async #dispatch(repo, n, issue, { model, backend, by, reuse = false }) {
+  async #dispatch(repo, n, issue, { model, backend, by, reuse = false, threadId = null }) {
     const session = `curia-${n}`
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     const modelName = resolveModel(this.routing, labels, model)
@@ -415,6 +421,16 @@ export class Dispatcher {
     const login = await this.deps.viewerLogin()
     await this.deps.claim(repo, n, login)
     this.store.logEvent('dispatch_claimed', { repo, ticket: n, worker: session, by: by ?? 'unknown' })
+
+    // The ticket label goes on at the claim (#93): `start` binds the thread it
+    // ran in, an autonomous dispatch opens and binds a fresh one — so every
+    // notify from here on lands in the labeled thread. Never fatal: with the
+    // bridge down the first notify binds lazily instead.
+    try {
+      await this.threads.bind(n, { threadId, title: issue.title })
+    } catch (e) {
+      this.log(`thread bind for ${repo}#${n} failed (${e.message}) — the first notify will bind lazily`)
+    }
 
     const cfgDir = cfgDirFor(this.root, session)
     try {
@@ -479,6 +495,8 @@ export class Dispatcher {
       } catch (unclaimErr) {
         this.store.logEvent('unclaim_failed', { repo, ticket: n, worker: session, reason: e.message, error: unclaimErr.message })
       }
+      // no worker ever ran, so the dispatch that put the label on is over
+      await this.threads.release(n, 'dispatch-failed').catch(() => {})
       return `⚠️ dispatch of ${repo}#${n} failed before the worker could run: ${e.message} — ${released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'}`
     }
   }
@@ -679,6 +697,7 @@ export class Dispatcher {
         this.log(`respawn of ${worker.session} on ${next} failed:`, e.message)
         const released = await this.#releaseClaim(worker, `respawn after ${limit.scope} usage limit failed: ${e.message}`)
         this.notify(worker.ticket, `⚠️ \`${worker.session}\` hit a ${limit.scope} usage limit and the respawn on **${next}** failed: ${e.message} — ${released ? 'claim released, ticket re-frontiered' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
+        await this.threads.release(worker.ticket, 'respawn-failed').catch(() => {})
         return
       }
     }
@@ -694,6 +713,7 @@ export class Dispatcher {
     const suppressed = this.#exhausted(worker.ticket, worker.repo)
     if (suppressed) this.notify(worker.ticket, suppressed)
     if (!released) this.notify(worker.ticket, `⚠️ \`${worker.session}\`: claim release FAILED: the issue is still assigned; reconcile will retry`)
+    await this.threads.release(worker.ticket, 'exhausted').catch(() => {})
   }
 
   // Drop the worker record and hand the ticket back to the frontier. Returns
@@ -1182,6 +1202,8 @@ export class Dispatcher {
       // decides now is whether the code is in.
       const lease = await this.#endWorkspaceLease(workerName, ticket, w?.repo ?? this.#epochRepo(ticket))
       this.notify(ticket, `🏁 \`${workerName}\` finished with a recorded result — session closed; ${lease}`)
+      // terminal state ⇒ the ticket label comes off the thread (#93)
+      await this.threads.release(ticket, 'finished').catch(() => {})
     } else {
       // result-less exit: the pane is the post-mortem evidence — keep it
       if (w) w.state = 'failed'
@@ -1351,6 +1373,8 @@ export class Dispatcher {
       ? (released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
       : ' (was untracked; GitHub claim untouched)'
     this.notify(ticket, `🛑 \`${session}\` cancelled — session killed${tail}`)
+    // terminal state ⇒ the ticket label comes off the thread (#93)
+    await this.threads.release(ticket, 'cancelled').catch(() => {})
   }
 
   // ---- resume --------------------------------------------------------------------
@@ -1359,13 +1383,13 @@ export class Dispatcher {
   // surviving worktree, never the conversation. A live worker is refused flat —
   // resume means "the worker is gone", and the teardown-and-redispatch offer
   // already lives on `start`.
-  async resume(n, { repo, model, backend, by } = {}) {
+  async resume(n, { repo, model, backend, by, threadId } = {}) {
     const ticket = String(n)
     const session = `curia-${ticket}`
     if (this.workers.has(session) || this.inFlight.has(session) || await this.deps.hasSession(session).catch(() => false)) {
       return `▶️ \`${session}\` is already running — \`cancel ${ticket}\` first, or \`attach ${ticket}\``
     }
-    return this.start(ticket, { repo, model, backend, by, reuse: true })
+    return this.start(ticket, { repo, model, backend, by, reuse: true, threadId })
   }
 
   // Bulk resume (#81): every surviving worktree without a live worker, behind
@@ -1500,6 +1524,24 @@ export class Dispatcher {
     // viewer identity: a cfg dir whose session is gone belongs to no live
     // worker whoever owns the ticket.
     if (ctx.sessions) this.#sweepAbandonedCredentials(ctx.sessions)
+
+    // Ticket-label sweep (#93): a bound ticket with no live session, no
+    // tracked worker and no in-flight start hit its terminal state while this
+    // process was not looking (a restart) — take the label off now. Same
+    // evidence rule as every sweep: only a determinate session list. An open
+    // escalation on the ticket keeps the label — a human is still being asked
+    // there (awaiting review across a reboot), and its traffic must keep
+    // landing in the labeled thread.
+    if (ctx.sessions && typeof this.store.boundTickets === 'function') {
+      const asked = new Set(this.store.openEscalations().map((r) => String(r.ticket)))
+      for (const ticket of this.store.boundTickets()) {
+        const session = `curia-${ticket}`
+        if (ctx.sessions.includes(session) || this.workers.has(session) || this.inFlight.has(session)) continue
+        if (asked.has(String(ticket))) continue
+        await this.threads.release(ticket, 'reconcile')
+          .catch((e) => this.log(`reconcile: thread release for #${ticket} failed (${e.message})`))
+      }
+    }
 
     // Preview sweep (#40) rides the same evidence rule: a determinate session
     // list is enough (a live session is a live ticket whoever owns it), and an

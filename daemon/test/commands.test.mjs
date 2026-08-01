@@ -188,7 +188,7 @@ describe('CommandRouter grown verbs (#81)', () => {
     const dispatcher = { config: WATCH, next: async (repo, opts) => { got = { repo, ...opts }; return 'ok' } }
     const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
     assert.equal(await router.handle('next aist', 'u1'), 'ok')
-    assert.deepEqual(got, { repo: 'alp82/aistack', by: 'u1' })
+    assert.deepEqual(got, { repo: 'alp82/aistack', by: 'u1', threadId: null })
   })
 
   test('cancel all and resume all reach the bulk dispatcher verbs', async () => {
@@ -225,7 +225,7 @@ describe('CommandRouter grown verbs (#81)', () => {
     }
     const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
     const reply = await router.handle('status', 'u')
-    assert.match(reply, /waiting on \*\*esc-1\*\* \(free-text\) in thread ticket-5/)
+    assert.match(reply, /waiting on \*\*esc-1\*\* \(free-text\) in the ticket thread/)
     assert.match(reply, /🛑 cancelled alp82\/curia#3/)
     assert.match(reply, /🏁 finished alp82\/curia#4/)
   })

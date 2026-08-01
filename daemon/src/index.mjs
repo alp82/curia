@@ -173,13 +173,15 @@ const gate = {
     }
     return result
   },
-  async command(canonical, userId) {
+  // ctx.threadId (#93): the thread the command was issued in, so `start`
+  // binds the thread it runs in. Slash verbs at top level and REST carry none.
+  async command(canonical, userId, ctx = {}) {
     // #18 seam unchanged: the bridge only macro-expands; the far side is now
     // the deterministic command router (stated deviation — the overseer agent
     // session is a later ticket).
     store.logEvent('command', { canonical, by: userId })
     log(`command: "${canonical}"`)
-    return router.handle(canonical, userId)
+    return router.handle(canonical, userId, ctx)
   },
   // #92: the bridge's overseer surface hands each operator message here; the
   // host runs one SDK query per message and speaks back through `io.post`.
@@ -227,6 +229,22 @@ function askReview(worker, ticket, promptText) {
   return answered.then(({ text }) => ({ text, status: store.get(record.id)?.status ?? 'answered' }))
 }
 
+// Ticket-thread bindings (#93): the store journals the truth, the bridge does
+// the display (thread creation, the 🎫 rename). With the bridge down, bind
+// journals nothing — the first notify after it returns binds lazily — and
+// release still journals, so a terminal state is never missed for want of a
+// rename.
+const threads = {
+  async bind(ticket, opts) {
+    if (!bridge) return { ok: false, reason: 'bridge-down' }
+    return bridge.bindTicket(ticket, opts)
+  },
+  async release(ticket, reason) {
+    if (bridge) return bridge.releaseTicket(ticket, reason)
+    store.releaseTicketThread(ticket, reason)
+  },
+}
+
 const dispatcher = new Dispatcher({
   config: curiaConfig,
   routing: routingConfig,
@@ -234,6 +252,7 @@ const dispatcher = new Dispatcher({
   notify: notifyThread,
   confirm: overseerConfirm,
   askReview,
+  threads,
   // gate.cancel, not store.cancel: voiding a boot-orphaned confirm must also
   // settle it — release any pending resolver (a confirm opened via
   // POST /command inside the listen→boot-reconcile window has a live one) and
@@ -335,7 +354,8 @@ const router = new CommandRouter({ dispatcher, attach: attachApi, log })
 const overseer = new OverseerHost({
   store,
   dataDir: DATA,
-  command: (text) => gate.command(text, 'overseer'),
+  // ctx carries the thread the verb tool ran in (#93), so `start` binds it
+  command: (text, ctx) => gate.command(text, 'overseer', ctx),
   log,
 })
 
@@ -778,9 +798,14 @@ if (process.env.DISCORD_BOT_TOKEN) {
         allowedUsers: allowed,
         guildId: process.env.CURIA_GUILD_ID,
         channelName: process.env.CURIA_CHANNEL ?? 'curia',
-        overseerChannelName: process.env.OVERSEER_CHANNEL ?? 'curia-overseer',
         dataDir: DATA,
         handlers: gate,
+        // the journalled ticket↔thread map (#93) — the bridge holds no state
+        bindings: {
+          get: (ticket) => store.threadForTicket(ticket),
+          bind: (ticket, threadId) => store.bindTicketThread(ticket, threadId),
+          release: (ticket, reason) => store.releaseTicketThread(ticket, reason),
+        },
         log,
         onHealth: onBridgeHealth,
       })

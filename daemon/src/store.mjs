@@ -23,6 +23,8 @@ export class EscalationStore {
     fs.mkdirSync(dataDir, { recursive: true })
     this.escalations = new Map() // id -> record
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
+    this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
+    this.threadTickets = new Map() // Discord thread id -> ticket (#93)
     this.seq = 0
     this._replay()
   }
@@ -81,6 +83,16 @@ export class EscalationStore {
       case 'esc_nudge': {
         const r = this.escalations.get(ev.id)
         if (r) r.nudges++
+        break
+      }
+      case 'thread_bound': {
+        this.ticketThreads.set(String(ev.ticket), ev.thread_id)
+        this.threadTickets.set(ev.thread_id, String(ev.ticket))
+        break
+      }
+      case 'thread_released': {
+        this.ticketThreads.delete(String(ev.ticket))
+        this.threadTickets.delete(ev.thread_id)
         break
       }
       case 'overseer_session': {
@@ -171,6 +183,45 @@ export class EscalationStore {
 
   overseerSession(threadId) {
     return this.overseerSessions.get(threadId)
+  }
+
+  // Ticket-label bindings (#93, per the #89 discipline): a thread carries at
+  // most one ticket, a ticket lives on at most one thread. The journal is the
+  // truth — the thread rename is display only — so a daemon restart replays
+  // every live binding. Both refusal shapes name the holder, because the
+  // discipline's answer to a double-bind is "refuse and link the holding
+  // thread". Binding the same pair again is a no-op, not an event.
+  bindTicketThread(ticket, threadId) {
+    const t = String(ticket)
+    const current = this.ticketThreads.get(t)
+    if (current === threadId) return { ok: true, threadId }
+    if (current) return { ok: false, reason: 'ticket-bound', threadId: current }
+    const holding = this.threadTickets.get(threadId)
+    if (holding) return { ok: false, reason: 'thread-bound', ticket: holding }
+    this._append({ type: 'thread_bound', ticket: t, thread_id: threadId })
+    return { ok: true, threadId }
+  }
+
+  // Returns the released thread id, or null when nothing was bound (then no
+  // event is written — release is idempotent).
+  releaseTicketThread(ticket, reason) {
+    const t = String(ticket)
+    const threadId = this.ticketThreads.get(t)
+    if (!threadId) return null
+    this._append({ type: 'thread_released', ticket: t, thread_id: threadId, reason })
+    return threadId
+  }
+
+  threadForTicket(ticket) {
+    return this.ticketThreads.get(String(ticket))
+  }
+
+  ticketForThread(threadId) {
+    return this.threadTickets.get(threadId)
+  }
+
+  boundTickets() {
+    return [...this.ticketThreads.keys()]
   }
 
   // Generic operational events (notify, result, worker_done…) share the journal.

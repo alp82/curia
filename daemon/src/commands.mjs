@@ -87,7 +87,10 @@ export class CommandRouter {
     this.log = log
   }
 
-  async handle(canonical, userId) {
+  // ctx.threadId: the Discord thread the command was issued in, if any (#93) —
+  // dispatch verbs bind the ticket to that thread ("start binds the thread it
+  // runs in"); absent one, the dispatcher's first notify opens a fresh thread.
+  async handle(canonical, userId, { threadId = null } = {}) {
     const cmd = parseCommand(canonical)
     if (!cmd) return `❓ could not parse \`${canonical}\`\n${USAGE}`
     try {
@@ -103,7 +106,7 @@ export class CommandRouter {
         case 'next': {
           const repo = cmd.repo ? this.#matchRepo(cmd.repo) : {}
           if (repo.error) return repo.error
-          return await this.dispatcher.next(repo.repo, { by: userId })
+          return await this.dispatcher.next(repo.repo, { by: userId, threadId })
         }
         case 'status':
           return await this.#status()
@@ -112,14 +115,14 @@ export class CommandRouter {
             const configured = Object.keys(this.dispatcher.routing.backends ?? {}).map((b) => `\`${b}\``).join(', ')
             return `⛔ backend \`${cmd.backend}\` is not configured — configured backends: ${configured}`
           }
-          return await this.dispatcher.start(cmd.ticket, { repo: cmd.repo, model: cmd.model, backend: cmd.backend, by: userId })
+          return await this.dispatcher.start(cmd.ticket, { repo: cmd.repo, model: cmd.model, backend: cmd.backend, by: userId, threadId })
         }
         case 'cancel':
           if (cmd.all) return await this.dispatcher.cancelAll({ by: userId })
           return this.dispatcher.cancel(cmd.ticket, { by: userId })
         case 'resume':
           if (cmd.all) return await this.dispatcher.resumeAll({ by: userId })
-          return await this.dispatcher.resume(cmd.ticket, { by: userId })
+          return await this.dispatcher.resume(cmd.ticket, { by: userId, threadId })
         case 'attach':
           return await this.#attachReply(cmd.ticket)
       }
@@ -170,7 +173,7 @@ export class CommandRouter {
       const uptime = w.uptime_s != null ? `${Math.floor(w.uptime_s / 60)}m${w.uptime_s % 60}s` : '—'
       const liveness = w.tmux_live ? '' : ' ⚠️ tmux session GONE'
       const where = (w.waiting_on ?? []).length
-        ? ` — waiting on ${w.waiting_on.map((e) => `**${e.id}** (${e.kind})`).join(', ')} in thread ticket-${w.ticket}`
+        ? ` — waiting on ${w.waiting_on.map((e) => `**${e.id}** (${e.kind})`).join(', ')} in the ticket thread`
         : ''
       return `• \`${w.session}\` ${w.repo}#${w.ticket} — ${w.model ?? '?'} — **${w.state}** — up ${uptime}${w.result_received ? ' — result in' : ''}${where}${liveness} — \`/attach ${w.ticket}\``
     }
