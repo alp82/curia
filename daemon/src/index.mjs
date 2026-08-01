@@ -38,6 +38,7 @@ import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionN
 import { TimelineSurface } from './timeline.mjs'
 import { detectBackend } from './transcript.mjs'
 import { promptTitle, elapsedLabel } from './messaging.mjs'
+import { StatusLine } from './statusline.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -65,6 +66,17 @@ const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
 const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
 
 const store = new EscalationStore(DATA)
+
+// Per-worker status line (#108 item 8): one Discord message per worker
+// thread, edited in place through the journal's own lifecycle events. With
+// the bridge down, post returns null and the next transition retries.
+const statusLine = new StatusLine({
+  post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
+  edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
+  get: (id) => store.get(id),
+  log,
+})
+store.onEvent = (ev) => statusLine.onEvent(ev)
 const pending = new Map() // escalation id -> resolve(answerText) — ephemeral, dies with the process
 const nudgeTimers = new Map() // escalation id -> interval handle — ephemeral, rebuilt on boot
 
@@ -94,12 +106,11 @@ function scheduleNudge(record) {
   const t = setInterval(() => {
     const r = store.get(record.id)
     if (!r || r.status !== 'open') return clearNudge(record.id)
+    // esc_nudge refreshes the status line's elapsed time in place (#108 items
+    // 8/13) — the separate still-waiting reminder message is gone.
     store.nudge(r.id)
-    if (bridge) {
-      // a record that never rendered (bridge was down, #22) gets re-rendered here
-      const action = r.discord ? bridge.nudge(r) : renderEscalation(r)
-      action.catch((e) => log('nudge/render failed', e.message))
-    }
+    // a record that never rendered (bridge was down, #22) gets re-rendered here
+    if (bridge && !r.discord) renderEscalation(r).catch((e) => log('nudge render failed', e.message))
   }, NUDGE_MS)
   t.unref()
   nudgeTimers.set(record.id, t)

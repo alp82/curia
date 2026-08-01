@@ -25,7 +25,7 @@ import {
 import { safeLeaf } from './images.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
-import { chunkMessage, promptTitle, elapsedLabel, smallPrint } from './messaging.mjs'
+import { chunkMessage, smallPrint } from './messaging.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
@@ -469,14 +469,23 @@ export class DiscordBridge {
     if (thread) await this.#sendChunked(thread, { content: text })
   }
 
-  // The reminder never re-posts the question body (#108 item 13) — the full
-  // text is the message above it. Title plus wait time is the whole payload.
-  async nudge(record) {
-    if (!record.discord) return
-    const thread = await this.client.channels.fetch(record.discord.threadId).catch(() => null)
-    if (!thread) return
-    const waited = elapsedLabel(record.opened_at)
-    await thread.send(`⚠️ still waiting on **[${record.id}]** — ${promptTitle(record.prompt)}${waited ? ` — ${waited}` : ''}`)
+  // The per-worker status line (#108 item 8): one message per worker thread,
+  // edited in place. The daemon composes the text; this is transport only.
+  // editStatus returns false when the message is gone, so the caller reposts
+  // rather than losing the line.
+  async postStatus(ticket, text) {
+    const thread = await this.ensureThread(ticket)
+    const msg = await thread.send(text.slice(0, 1900))
+    return { threadId: thread.id, messageId: msg.id }
+  }
+
+  async editStatus(ids, text) {
+    const thread = await this.client.channels.fetch(ids.threadId).catch(() => null)
+    if (!thread) return false
+    const msg = await thread.messages.fetch(ids.messageId).catch(() => null)
+    if (!msg) return false
+    await msg.edit(text.slice(0, 1900))
+    return true
   }
 
   // Fire-and-forget status line into the ticket thread; files = outbound images.

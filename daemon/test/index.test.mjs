@@ -208,9 +208,15 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
     fs.writeFileSync(path.join(shim, 'tailscale'), `#!/bin/sh\necho "$@" >> ${tsLog}\nexit 0\n`)
     for (const bin of ['gh', 'tmux', 'tailscale']) fs.chmodSync(path.join(shim, bin), 0o755)
 
-    const [daemonPort, ttydPort, sPort] = [await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, sPort, tlPort, tlServePort] = [
+      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
+    ]
     port = daemonPort
     servePort = sPort
+    // timeline ports pinned so the surface never lands on its defaults — with
+    // the default port free, the timeline binds, `attach` composes its link
+    // (#118 item 7) and legitimately asserts the TIMELINE serve rule; the
+    // assertion below is about the attach rule only.
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
       '  - repo: example/fixture',
@@ -225,6 +231,9 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       'attach:',
       `  ttyd_port: ${ttydPort}`,
       `  serve_port: ${servePort}`,
+      'timeline:',
+      `  port: ${tlPort}`,
+      `  serve_port: ${tlServePort}`,
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -281,6 +290,11 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       withdrawn.some((l) => l.trim() === `serve --https=${servePort} off`),
       `the refusal path must run \`tailscale serve --https=${servePort} off\` — got: ${JSON.stringify(withdrawn)}`,
     )
-    assert.ok(!withdrawn.some((l) => /--bg/.test(l)), 'and must never assert the rule')
+    // scoped to the ATTACH rule: the timeline surface is genuinely ours and
+    // verified, so its own serve rule may be asserted by the same command
+    assert.ok(
+      !withdrawn.some((l) => /--bg/.test(l) && l.includes(`--https=${servePort}`)),
+      'and must never assert the attach rule',
+    )
   })
 })

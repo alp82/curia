@@ -48,6 +48,11 @@ export class EscalationStore {
     const rec = { ts: new Date().toISOString(), ...event }
     fs.appendFileSync(this.log, JSON.stringify(rec) + '\n')
     this._apply(rec, { replay: false })
+    // Live-event tap (#108 item 8): the status line watches the journal
+    // instead of threading callbacks through the dispatcher. Never on replay —
+    // a rebooted daemon must not re-announce history. An observer failure must
+    // not fail the append: the journal write already happened and is the truth.
+    try { this.onEvent?.(rec) } catch { /* observer errors never poison the record */ }
     return rec
   }
 
