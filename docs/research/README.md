@@ -9,6 +9,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [cline.md](cline.md) | Cline CLI as a native-ACP worker lane candidate | Superseded — source read only; [cline-worker-lane.md](cline-worker-lane.md) ran it |
 | [cline-worker-lane.md](cline-worker-lane.md) | Cline hands-on worker lane via the OpenACP seam | Rejected — no ACP lane in the ADR-0003 tmux host |
 | [dual-geometry-attach.md](dual-geometry-attach.md) | Per-device geometry on one live worker | Adopted — grounds ADR-0009's grid-free timeline surface |
+| [headless-worker-auth.md](headless-worker-auth.md) | Claude Code worker auth on a headless server: subscription OAuth token vs API key | Informational — grounds the worker-auth choice for the Hetzner box |
 | [herdr.md](herdr.md) | herdr as a tmux-for-agents worker host | Rejected — ADR-0003 picks bare tmux over herdr |
 | [herdr-handson.md](herdr-handson.md) | herdr booted against the Orca rubric | Superseded — refines [herdr.md](herdr.md); herdr dropped by ADR-0003 |
 | [hermes-agent.md](hermes-agent.md) | Hermes Agent as an adoptable dispatcher platform | Rejected — ADR-0002 keeps the daemon thin, ADR-0001 forbids a second tracker |
