@@ -4,7 +4,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel, CHUNK_LIMIT } from '../src/messaging.mjs'
+import { SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel, speakerName, CHUNK_LIMIT } from '../src/messaging.mjs'
 
 describe('smallPrint', () => {
   test('prefixes every line with the -# marker', () => {
@@ -106,6 +106,25 @@ describe('promptTitle', () => {
   test('cuts at a word boundary with an ellipsis, never mid-word', () => {
     assert.equal(promptTitle('alpha bravo charlie delta echo', 20), 'alpha bravo charlie…')
     assert.equal(promptTitle('short enough', 20), 'short enough')
+  })
+})
+
+describe('speakerName (#108 item 15)', () => {
+  test('worker plus ticket title, middot-joined', () => {
+    assert.equal(speakerName('curia-9', 'Pin the landing page pitch'), 'curia-9 · Pin the landing page pitch')
+  })
+
+  test('no title means the bare session name', () => {
+    assert.equal(speakerName('curia-9'), 'curia-9')
+    assert.equal(speakerName('curia-9', ''), 'curia-9')
+  })
+
+  test('the whole name stays under Discord\'s 80-char username cap, cut at a word boundary', () => {
+    const long = 'A very long ticket title that goes on and on about the landing page charting effort and more'
+    const name = speakerName('curia-121', long)
+    assert.ok(name.length <= 80, `${name.length} chars`)
+    assert.match(name, /^curia-121 · A very long/)
+    assert.ok(!/\w…\w/.test(name), 'never cut mid-word')
   })
 })
 

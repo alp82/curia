@@ -91,6 +91,14 @@ export function promptTitle(prompt, max = 80) {
   return `${(cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : cut).trimEnd()}…`
 }
 
+// Webhook speaker name (#108 item 15): `curia-9 · <ticket title>` — the
+// multi-agent shape moves from the prose into the speaker label. Discord caps
+// webhook usernames at 80 chars, so the title cuts at a word boundary.
+export function speakerName(worker, title = '') {
+  if (!title) return worker
+  return `${worker} · ${promptTitle(title, 80 - worker.length - 3)}`
+}
+
 // "how long has this been waiting" for reminders and keepalives (#118).
 export function elapsedLabel(sinceIso, now = Date.now()) {
   const ms = now - new Date(sinceIso).getTime()

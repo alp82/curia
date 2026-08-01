@@ -37,7 +37,7 @@ import { hasSession } from './tmux.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { detectBackend } from './transcript.mjs'
-import { promptTitle, elapsedLabel } from './messaging.mjs'
+import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -484,6 +484,10 @@ function startKeepAlive(extra, id, label = null) {
 function buildMcpServer(worker, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
 
+  // The worker's speaker identity (#108 item 15): its own words post under
+  // "curia-<n> · <ticket title>", so the prose no longer says "the worker".
+  const speaker = () => speakerName(worker, dispatcher.workers.get(worker)?.title ?? '')
+
   // Queued operator notes ride the worker's NEXT tool result (#108 item 14):
   // every tool below appends the drain, so a note is never older than one
   // round-trip. A note tagged `after esc-N` is the follow-up the operator
@@ -500,7 +504,7 @@ function buildMcpServer(worker, ticket) {
     async ({ message, images }) => {
       const { files, refusals } = outboundImages(worker, images)
       store.logEvent('notify', { worker, ticket, message, images: files.map((f) => f.attachment), refusals })
-      if (bridge) bridge.notify(ticket, `⚙️ \`${worker}\`: ${message}`, { files }).catch(() => {})
+      if (bridge) bridge.notify(ticket, `⚙️ ${message}`, { files, as: speaker() }).catch(() => {})
       return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
     },
   )
@@ -532,7 +536,7 @@ function buildMcpServer(worker, ticket) {
         ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,
       })
       if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }, ...drainNotes()] }
-      if (bridge) bridge.notify(ticket, `🔗 preview for \`${worker}\`: <${r.url}> (dev server on :${dev_port})`).catch(() => {})
+      if (bridge) bridge.notify(ticket, `🔗 preview: <${r.url}> (dev server on :${dev_port})`, { as: speaker() }).catch(() => {})
       return { content: [{ type: 'text', text: r.url }, ...drainNotes()] }
     },
   )
@@ -623,7 +627,7 @@ function buildMcpServer(worker, ticket) {
       // Route by the BOUND ticket, not `result.ticket` — the worker-supplied id
       // may be repo-qualified or a URL, which ensureThread would send to a
       // stray named thread instead of the ticket's bound thread (#103).
-      if (bridge) bridge.notify(ticket || result.ticket, `✅ \`${worker}\` reports **${result.status}**: ${result.summary}`).catch(() => {})
+      if (bridge) bridge.notify(ticket || result.ticket, `✅ reports **${result.status}**: ${result.summary}`, { as: speaker() }).catch(() => {})
       const stopKeepAlive = startKeepAlive(extra, `${worker}/result`)
       try {
         return { content: [{ type: 'text', text: await dispatcher.onResult(worker, result) }, ...drainNotes()] }

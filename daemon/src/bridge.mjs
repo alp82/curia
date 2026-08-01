@@ -400,6 +400,43 @@ export class DiscordBridge {
     return this.ensureThread(record.ticket)
   }
 
+  // Speaker identities (#108 item 15): worker prose posts under a webhook
+  // identity ("curia-9 · <ticket title>", own identicon avatar), overseer
+  // prose as "curia" with the bot's avatar — one thread, one voice, and "the
+  // worker" moves from the prose into the speaker label. One channel webhook
+  // serves every identity (username set per send). CONSTRAINT, verified
+  // against Discord's API: interactive components require an
+  // application-owned webhook, which createWebhook does not mint — so
+  // escalation messages, the ones with buttons, stay bot-posted.
+  async #webhook() {
+    if (this.hook) return this.hook
+    const hooks = await this.channel.fetchWebhooks()
+    this.hook = hooks.find((h) => h.token && h.name === 'curia-speakers')
+      ?? await this.channel.createWebhook({ name: 'curia-speakers' })
+    return this.hook
+  }
+
+  #avatarFor(as) {
+    if (as === 'curia') return this.client.user?.displayAvatarURL?.() ?? undefined
+    // deterministic per-worker identicon, no asset hosting on our side
+    return `https://github.com/identicons/${encodeURIComponent(as.split(' ')[0])}.png`
+  }
+
+  // Chunked like every composed send; files ride the last chunk. Any webhook
+  // failure falls back to the bot voice — the words always land.
+  async #sendAs(as, thread, { content, files = [] }) {
+    try {
+      const hook = await this.#webhook()
+      const chunks = chunkMessage(content)
+      const base = { username: as, avatarURL: this.#avatarFor(as), threadId: thread.id }
+      for (const chunk of chunks.slice(0, -1)) await hook.send({ ...base, content: chunk })
+      return await hook.send({ ...base, content: chunks.at(-1), files })
+    } catch (e) {
+      this.log(`webhook send as "${as}" failed (${e.message}) — falling back to the bot voice`)
+      return this.#sendChunked(thread, { content, files })
+    }
+  }
+
   // Long composed content becomes consecutive messages, split at paragraph
   // boundaries (#119) — a gate message that silently clipped at Discord's cap
   // lost exactly the charting the gate existed to judge. Components and files
@@ -488,9 +525,15 @@ export class DiscordBridge {
     return true
   }
 
-  // Fire-and-forget status line into the ticket thread; files = outbound images.
-  async notify(ticket, message, { files = [] } = {}) {
+  // Fire-and-forget status line into the ticket thread; files = outbound
+  // images. `as` picks the speaker identity (#108 item 15): a worker's own
+  // words post under its name; absent, the bot voice stands.
+  async notify(ticket, message, { files = [], as = null } = {}) {
     const thread = await this.ensureThread(ticket)
+    if (as) {
+      await this.#sendAs(as, thread, { content: message, files })
+      return
+    }
     await this.#sendChunked(thread, { content: message, files })
   }
 
@@ -581,8 +624,10 @@ export class DiscordBridge {
   }
 
   // Discord caps a message at 2000 chars; the split respects paragraphs (#119).
+  // The overseer speaks as "curia" (#108 item 15) — the webhook identity, so a
+  // ticket thread's worker name and the overseer are visibly two speakers.
   async #sayChunked(thread, text) {
-    for (const chunk of chunkMessage(text)) await thread.send(chunk)
+    await this.#sendAs('curia', thread, { content: text })
   }
 
   async #onMessage(m) {
