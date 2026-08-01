@@ -72,9 +72,12 @@ One unbroken pass, 09:45–10:13 UTC, with two daemon restarts inside it:
 
 - **Slash interactions.** A synthetic Wayland keyboard cannot engage Discord's command picker, so
   `/status` landed as prose three times (each time handled correctly as an overseer turn). The
-  slash-interaction ack path was not exercised live; button interactions cover the
-  `interactionCreate` gate, and REST covers verb parity. The registered guild commands were
-  verified to include the grown catalogue (`tickets`, `next`, `resume`).
+  registered guild commands were verified to include the grown catalogue (`tickets`, `next`,
+  `resume`). **Addendum, same day:** the operator ran the slash path by hand — `/status`,
+  `/tickets repo:alperortac`, `/tickets repo:alp` (ambiguity refusal across all three watched
+  repos), and `/attach ticket:90` (no-live-worker refusal) all arrived as real interactions,
+  journalled under the operator's user id with no overseer turn and no stray thread. The slash
+  `/cancel` refusal (immediate, no ✅/❌ buttons) stays open for the next real-ticket run.
 - `next` was not run live: the fixture repo carries a real open map whose prototype tickets `next`
   would have dispatched. Unit tests cover it.
 - `attach` links were rendered in replies but no browser attached to a worker during this run.
