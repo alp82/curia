@@ -40,6 +40,11 @@ export function parseCommand(text) {
         // refusal recommends must itself parse
         cmd.repo = m[1]
         cmd.ticket = m[2]
+      } else if ((m = rest[0].match(/^([\w.-]+)#(\d+)$/))) {
+        // the fuzzy form `tickets`/`next` accept — the overseer reuses it on
+        // start, so an unslashed repo resolves through the same matcher
+        cmd.repoArg = m[1]
+        cmd.ticket = m[2]
       } else {
         return null
       }
@@ -71,7 +76,7 @@ const USAGE = [
   '`tickets [repo]` — takeable tickets across the watch list (repo: any unambiguous part of the name)',
   '`next [repo]` — dispatch the next takeable ticket',
   '`status` — workers running, workers waiting on input, recent cancelled and finished',
-  '`start <n>|owner/repo#<n> [model=x] [backend=y]` — claim + dispatch a worker',
+  '`start <n>|repo#<n> [model=x] [backend=y]` — claim + dispatch a worker (repo: any unambiguous part of the name)',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n>|all` — fresh worker on a ticket, inheriting its surviving worktree',
   '`attach <n>` — timeline + browser-terminal links for a live worker',
@@ -115,6 +120,11 @@ export class CommandRouter {
         case 'status':
           return await this.#status()
         case 'start': {
+          if (cmd.repoArg) {
+            const repo = this.#matchRepo(cmd.repoArg)
+            if (repo.error) return repo.error
+            cmd.repo = repo.repo
+          }
           if (cmd.backend && !this.dispatcher.routing.backends?.[cmd.backend]) {
             const configured = Object.keys(this.dispatcher.routing.backends ?? {}).map((b) => `\`${b}\``).join(', ')
             return `❌ backend \`${cmd.backend}\` is not configured — configured backends: ${configured}`

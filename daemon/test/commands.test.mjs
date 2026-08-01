@@ -105,6 +105,23 @@ describe('parseCommand', () => {
     assert.equal(c.ticket, '42')
   })
 
+  // the overseer's start tool composes `start <repo>#<n>` from its fuzzy repo
+  // field (canonicalFor), so the parser must accept the unslashed form too --
+  // found live in the #96 rehearsal, where `start alperortac#91` was refused.
+  test('start with a fuzzy repo-qualified ticket', () => {
+    const c = parseCommand('start alperortac#42')
+    assert.equal(c.verb, 'start')
+    assert.equal(c.repoArg, 'alperortac')
+    assert.equal(c.repo, undefined)
+    assert.equal(c.ticket, '42')
+  })
+
+  test('start with a fuzzy repo keeps model and backend options', () => {
+    const c = parseCommand('start alperortac#42 model=opus')
+    assert.equal(c.repoArg, 'alperortac')
+    assert.equal(c.model, 'opus')
+  })
+
   test('cancel', () => {
     const c = parseCommand('cancel 42')
     assert.equal(c.verb, 'cancel')
@@ -142,6 +159,42 @@ describe('CommandRouter backend refusal', () => {
 
     assert.equal(started, false)
     assert.match(reply, /claude/) // names the one configured backend
+  })
+})
+
+describe('CommandRouter fuzzy repo on start (#96)', () => {
+  const makeDispatcher = () => {
+    const calls = []
+    return {
+      calls,
+      config: { watch: [{ repo: 'alp82/curia' }, { repo: 'alp82/alperortac.com' }] },
+      routing: { backends: {} },
+      start: async (ticket, opts) => { calls.push({ ticket, repo: opts.repo }); return 'started' },
+    }
+  }
+
+  test('an unambiguous fuzzy repo resolves to the watched repo before dispatch', async () => {
+    const dispatcher = makeDispatcher()
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('start alperortac#42', 'user-1')
+    assert.equal(reply, 'started')
+    assert.deepEqual(dispatcher.calls, [{ ticket: '42', repo: 'alp82/alperortac.com' }])
+  })
+
+  test('an ambiguous fuzzy repo refuses without dispatching', async () => {
+    const dispatcher = makeDispatcher()
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('start alp82#42', 'user-1')
+    assert.match(reply, /more than one watched repo/)
+    assert.equal(dispatcher.calls.length, 0)
+  })
+
+  test('a fuzzy repo matching nothing refuses without dispatching', async () => {
+    const dispatcher = makeDispatcher()
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('start nosuch#42', 'user-1')
+    assert.match(reply, /no watched repo matches/)
+    assert.equal(dispatcher.calls.length, 0)
   })
 })
 
