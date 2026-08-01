@@ -1,0 +1,16 @@
+[Unit]
+Description=curia daemon
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=alp
+WorkingDirectory=/home/alp/curia/daemon
+EnvironmentFile=/home/alp/curia/daemon/.env
+Environment=PATH=/home/alp/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/bin/npm start
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
