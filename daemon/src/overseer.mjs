@@ -72,7 +72,7 @@ export function buildVerbTools(command) {
       model: z.string().optional().describe('model override'),
       backend: z.string().optional().describe('backend override (claude | codex)'),
     }, run('start')),
-    tool('cancel', 'Cancel the worker on a ticket, or "all" for every worker. Destructive: confirm with the operator in conversation before this call.', {
+    tool('cancel', 'Cancel the worker on a ticket, or "all" for every worker. Destructive, so the daemon posts ✅/❌ buttons and executes ONLY after the operator presses ✅. Call this directly when asked — never seek confirmation in conversation first, and never report the cancel as done: report that the confirm was posted.', {
       ticket: bulkArg,
     }, run('cancel')),
     tool('resume', 'Fresh worker on a ticket, inheriting its surviving worktree. "all" resumes every resumable ticket.', {
@@ -107,7 +107,7 @@ What you do:
 
 Hard bounds (the never-list):
 - Never answer an escalation or a review gate for the operator. If asked to, refuse and say why.
-- Cancel is destructive, and "cancel all" doubly so. Confirm in conversation first: state what will be torn down, ask, and call the tool only after the operator says yes in this thread.
+- Cancel executes nothing by itself: the daemon posts a ✅/❌ button confirm and tears down only after the operator presses ✅. Call the tool directly when asked — do not ask for confirmation in conversation, and never report a cancel as done; say the confirm was posted and where.
 - You have no shell, no files, no repo checkout, and no process handles. Do not offer them.
 - A failed tool call is not an answer. Report the failure as a failure.
 
@@ -140,12 +140,14 @@ export class OverseerHost {
 
   // One in-process MCP server per turn, so the verb tools carry the thread
   // they run in (#93): the router binds `start` to that thread. Cheap — the
-  // server is a plain object over the same seven handlers.
+  // server is a plain object over the same seven handlers. `interpreted`
+  // marks the text as model-produced (#94): the router routes interpreted
+  // destructive verbs through the button confirm instead of executing.
   #mcpFor(threadId) {
     return createSdkMcpServer({
       name: 'curia',
       version: '0.1.0',
-      tools: buildVerbTools((text) => this.command(text, { threadId })),
+      tools: buildVerbTools((text) => this.command(text, { threadId, interpreted: true })),
     })
   }
 
@@ -158,7 +160,16 @@ export class OverseerHost {
     }
     this.busy.add(threadId)
     try {
-      const first = await this.#turn(threadId, prompt, this.model, post)
+      // Confirm outcomes that resolved between turns (#94) ran button → daemon
+      // with no model in the loop, so the session never heard them. The store
+      // holds one journalled line per outcome; prefixing them here keeps
+      // revival memory honest. Drained once — both model attempts below carry
+      // the same augmented prompt.
+      const notes = this.store.takeOverseerNotes?.(threadId) ?? []
+      const fullPrompt = notes.length
+        ? `${notes.map((t) => `[curia: ${t}]`).join('\n')}\n\n${prompt}`
+        : prompt
+      const first = await this.#turn(threadId, fullPrompt, this.model, post)
       if (first.ok) return first
       // Sonnet fallback (#82) — but only when the failed turn executed
       // nothing: a turn that died after a tool call may already have
@@ -166,7 +177,7 @@ export class OverseerHost {
       // effect. That failure goes to the operator instead.
       if (first.toolCalls === 0 && this.fallbackModel && this.fallbackModel !== this.model) {
         await post(`-# ⚠️ ${this.model} turn failed (${first.why}) — retrying on ${this.fallbackModel}`)
-        const second = await this.#turn(threadId, prompt, this.fallbackModel, post)
+        const second = await this.#turn(threadId, fullPrompt, this.fallbackModel, post)
         if (second.ok) return second
         await post(`⚠️ session ended without an answer (${second.why})`)
         return second

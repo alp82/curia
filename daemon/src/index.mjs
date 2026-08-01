@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
-import { EscalationStore } from './store.mjs'
+import { EscalationStore, CONFIRM_KIND } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
@@ -85,6 +85,9 @@ installCrashGuard({
 // ---- escalation lifecycle -------------------------------------------------
 
 function scheduleNudge(record) {
+  // #94: a confirm has no nudge and no expiry — it waits silently and lapses
+  // with its worker.
+  if (record.kind === CONFIRM_KIND) return
   if (nudgeTimers.has(record.id)) return
   const t = setInterval(() => {
     const r = store.get(record.id)
@@ -161,6 +164,13 @@ const gate = {
       log(`escalation ${result.record.id} answered via ${via}${attachments.length ? ` (+${attachments.length} attachment${attachments.length > 1 ? 's' : ''})` : ''}${result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''}`)
       settle(result.record, answer, attachments)
       if (bridge) bridge.markAnswered(result.record).catch(() => {})
+      // The executing path of a button confirm (#94): button → HERE → the
+      // dispatcher, never through the model. The record is already closed
+      // (first-valid-wins above), so a second press can never execute twice.
+      if (result.record.kind === CONFIRM_KIND) {
+        dispatcher.onConfirmAnswered(result.record)
+          .catch((e) => log(`confirm ${result.record.id} execution failed: ${e.message}`))
+      }
     }
     return result
   },
@@ -195,24 +205,29 @@ function notifyThread(ticket, message) {
   else log(`[notify ticket-${ticket}] ${message}`)
 }
 
-// Overseer confirm: a plain approve-reject escalation (first-valid-confirm-wins
-// and Discord buttons come free from the reused gate). Bounded life: an
-// in-process timer auto-cancels after confirm_ttl_h, and the resolver does NOT
-// survive restart — boot reconcile voids open overseer confirms instead.
-function overseerConfirm(ticket, prompt) {
-  const { record, answered } = openEscalation({ worker: 'overseer', ticket, kind: 'approve-reject', prompt })
-  const ttl = setTimeout(() => {
-    const r = store.get(record.id)
-    if (r?.status !== 'open') return
-    gate.cancel(record.id, { by: 'ttl' })
-    store.logEvent('confirm_expired', { id: record.id, ticket })
-    notifyThread(ticket, `⌛ confirm **${record.id}** expired unanswered after ${curiaConfig.dispatch.confirm_ttl_h}h`)
-  }, curiaConfig.dispatch.confirm_ttl_h * 3600_000)
-  ttl.unref()
-  return answered.then(({ text }) => {
-    clearTimeout(ttl)
-    return text === 'approve'
+// Button confirms (#94, per #89): the interpreted cancel path opens a
+// `confirm` escalation — rendered with ✅/❌ through the same machinery as
+// every other escalation, journalled, answerable after a bridge outage — and
+// NOTHING waits on it: no resolver, no nudge, no TTL. The executing path is
+// button → gate.answer → dispatcher.onConfirmAnswered, and the record lapses
+// the moment its worker exits.
+function openConfirm({ ticket, prompt, action, originThreadId }) {
+  const { record, superseded } = store.open({
+    worker: 'overseer', ticket, kind: CONFIRM_KIND, prompt, action, origin_thread_id: originThreadId ?? null,
   })
+  log(`confirm ${record.id} open (${action.verb}) ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
+  if (superseded && bridge) bridge.markSuperseded(store.get(superseded.id)).catch(() => {})
+  renderEscalation(record)
+  return record
+}
+
+function lapseEscalation(id, reason) {
+  const r = store.lapse(id, reason)
+  if (r.ok) {
+    log(`confirm ${id} lapsed (${reason})`)
+    if (bridge) bridge.markLapsed(store.get(id)).catch(() => {})
+  }
+  return r
 }
 
 // The review gate (#54 item 2). The same escalation machinery every ask_human
@@ -250,7 +265,16 @@ const dispatcher = new Dispatcher({
   routing: routingConfig,
   store,
   notify: notifyThread,
-  confirm: overseerConfirm,
+  openConfirm,
+  lapseEscalation,
+  // a confirm outcome lands next to its own buttons, whatever thread they are in
+  confirmNote: (record, text) => {
+    if (bridge) bridge.notifyRecordThread(record, text).catch((e) => log(`confirm note for ${record.id} failed: ${e.message}`))
+    else log(`[confirm ${record.id}] ${text}`)
+  },
+  // the synthetic line for the issuing thread's session (#94) — journalled,
+  // drained into the next prompt by the overseer host
+  overseerNote: (threadId, text) => store.addOverseerNote(threadId, text),
   askReview,
   threads,
   // gate.cancel, not store.cancel: voiding a boot-orphaned confirm must also

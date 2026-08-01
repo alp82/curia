@@ -16,12 +16,19 @@ import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
+// The button-confirm kind (#94, per #89's messaging discipline). Its own kind
+// because a confirm behaves unlike every other escalation: no nudge timer, no
+// pending resolver — the executing path is button → daemon — and it closes by
+// LAPSING when the worker instance it is bound to exits.
+export const CONFIRM_KIND = 'confirm'
+
 export class EscalationStore {
   constructor(dataDir) {
     this.dir = dataDir
     this.log = path.join(dataDir, 'events.jsonl')
     fs.mkdirSync(dataDir, { recursive: true })
     this.escalations = new Map() // id -> record
+    this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
@@ -53,6 +60,7 @@ export class EscalationStore {
           id: ev.id, worker: ev.worker, ticket: ev.ticket, kind: ev.kind,
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
           payload_hash: ev.payload_hash, status: 'open', opened_at: ev.ts,
+          action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
           discord: null, successor: null, nudges: 0,
         })
         break
@@ -75,6 +83,11 @@ export class EscalationStore {
         if (r) { r.status = 'cancelled'; r.cancelled_by = ev.by; r.closed_at = ev.ts }
         break
       }
+      case 'esc_lapse': {
+        const r = this.escalations.get(ev.id)
+        if (r) { r.status = 'lapsed'; r.lapse_reason = ev.reason; r.closed_at = ev.ts }
+        break
+      }
       case 'esc_supersede': {
         const r = this.escalations.get(ev.id)
         if (r) { r.status = 'superseded'; r.successor = ev.successor; r.closed_at = ev.ts }
@@ -95,6 +108,17 @@ export class EscalationStore {
         this.threadTickets.delete(ev.thread_id)
         break
       }
+      case 'overseer_note': {
+        const arr = this.overseerNotes.get(ev.thread_id) ?? []
+        arr.push(ev.text)
+        this.overseerNotes.set(ev.thread_id, arr)
+        break
+      }
+      case 'overseer_notes_drained': {
+        const arr = this.overseerNotes.get(ev.thread_id) ?? []
+        arr.splice(0, ev.count)
+        break
+      }
       case 'overseer_session': {
         // #92: `resume` mints a fresh session id per continued conversation,
         // so last write wins — the map always points at the live tail.
@@ -113,17 +137,28 @@ export class EscalationStore {
   // Open a new escalation. If the same worker already has an OPEN escalation with
   // the same payload, that record is a corpse from an aborted tool call (#29):
   // supersede it and chain answers forward.
-  open({ worker, ticket, kind, prompt, options, preview_url }) {
+  //
+  // A confirm (#94) supersedes on a different key: any open confirm sharing a
+  // target INSTANCE — a newer confirm on the same worker replaces the older one
+  // whatever its wording, so at most one set of live buttons ever points at a
+  // given worker.
+  open({ worker, ticket, kind, prompt, options, preview_url, action, origin_thread_id }) {
     const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
+    const sharesInstance = (r) => (r.action?.targets ?? [])
+      .some((t) => (action?.targets ?? []).some((u) => u.instance === t.instance))
     let superseded = null
     for (const r of this.escalations.values()) {
-      if (r.status === 'open' && r.worker === worker && r.payload_hash === payload_hash) {
+      if (r.status !== 'open') continue
+      const match = kind === CONFIRM_KIND
+        ? r.kind === CONFIRM_KIND && sharesInstance(r)
+        : r.worker === worker && r.payload_hash === payload_hash
+      if (match) {
         superseded = r
         break
       }
     }
-    this._append({ type: 'esc_open', id, worker, ticket, kind, prompt, options, preview_url, payload_hash })
+    this._append({ type: 'esc_open', id, worker, ticket, kind, prompt, options, preview_url, payload_hash, action, origin_thread_id })
     if (superseded) this._append({ type: 'esc_supersede', id: superseded.id, successor: id })
     return { record: this.escalations.get(id), superseded }
   }
@@ -163,6 +198,16 @@ export class EscalationStore {
     return { ok: true, record }
   }
 
+  // A confirm whose worker exited closes by LAPSING (#94) — distinct from
+  // cancelled, because nobody chose it and the rendered message says so.
+  lapse(id, reason) {
+    const r = this.escalations.get(id)
+    if (!r) return { ok: false, reason: 'unknown' }
+    if (r.status !== 'open') return { ok: false, reason: r.status, record: r }
+    this._append({ type: 'esc_lapse', id, reason })
+    return { ok: true, record: r }
+  }
+
   nudge(id) {
     this._append({ type: 'esc_nudge', id })
   }
@@ -183,6 +228,21 @@ export class EscalationStore {
 
   overseerSession(threadId) {
     return this.overseerSessions.get(threadId)
+  }
+
+  // Synthetic lines for a thread's overseer session (#94): a confirm resolves
+  // between turns — button → daemon, no model in the loop — so the outcome is
+  // journalled here and the host prefixes it to the thread's next prompt.
+  // Revival memory stays honest across a daemon restart because both the note
+  // and its drain are journal events.
+  addOverseerNote(threadId, text) {
+    this._append({ type: 'overseer_note', thread_id: threadId, text })
+  }
+
+  takeOverseerNotes(threadId) {
+    const notes = [...(this.overseerNotes.get(threadId) ?? [])]
+    if (notes.length) this._append({ type: 'overseer_notes_drained', thread_id: threadId, count: notes.length })
+    return notes
   }
 
   // Ticket-label bindings (#93, per the #89 discipline): a thread carries at

@@ -18,7 +18,6 @@ dispatch:
   poll_interval_s: 60
   workspace_root: /home/alp/curia-work     # daemon-owned; never Alp's working tree
   ready_timeout_s: 45
-  confirm_ttl_h: 4                         # overseer confirms auto-expire (bounded life)
   stop_nudge_budget: 3                     # #54: how often the Stop hook may hold a worker
                                            # at the ending before curia stops holding it
 

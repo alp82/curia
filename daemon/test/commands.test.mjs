@@ -191,6 +191,23 @@ describe('CommandRouter grown verbs (#81)', () => {
     assert.deepEqual(got, { repo: 'alp82/aistack', by: 'u1', threadId: null })
   })
 
+  test('interpreted cancel routes to the confirm path; typed cancel executes (#94)', async () => {
+    const calls = []
+    const dispatcher = {
+      config: WATCH,
+      cancel: async () => { calls.push('cancel'); return 'gone' },
+      cancelAll: async () => { calls.push('cancelAll'); return 'all gone' },
+      requestCancel: async (ticket, { threadId }) => { calls.push(`request:${ticket}@${threadId}`); return 'confirm posted' },
+      requestCancelAll: async ({ threadId }) => { calls.push(`requestAll@${threadId}`); return 'bulk confirm posted' },
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    assert.equal(await router.handle('cancel 9', 'overseer', { threadId: 't1', interpreted: true }), 'confirm posted')
+    assert.equal(await router.handle('cancel all', 'overseer', { threadId: 't1', interpreted: true }), 'bulk confirm posted')
+    assert.equal(await router.handle('cancel 9', 'u'), 'gone')
+    assert.equal(await router.handle('cancel all', 'u'), 'all gone')
+    assert.deepEqual(calls, ['request:9@t1', 'requestAll@t1', 'cancel', 'cancelAll'])
+  })
+
   test('cancel all and resume all reach the bulk dispatcher verbs', async () => {
     const calls = []
     const dispatcher = {

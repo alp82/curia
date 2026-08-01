@@ -56,7 +56,9 @@ export function loadCuriaConfig(file) {
   // zero would disable the Stop-hook enforcement silently, and turning the
   // enforcement off is not a thing a number should express by accident.
   d.stop_nudge_budget = d.stop_nudge_budget ?? 3
-  for (const key of ['max_concurrent', 'poll_interval_s', 'ready_timeout_s', 'confirm_ttl_h', 'stop_nudge_budget']) {
+  // confirm_ttl_h is gone (#94): confirms have no expiry clock — they lapse
+  // with their worker. A yaml still carrying the key loads fine; it is ignored.
+  for (const key of ['max_concurrent', 'poll_interval_s', 'ready_timeout_s', 'stop_nudge_budget']) {
     if (!(typeof d[key] === 'number' && d[key] > 0)) fail(file, `dispatch.${key} must be a positive number`)
   }
   if (typeof d.workspace_root !== 'string' || !path.isAbsolute(d.workspace_root)) {

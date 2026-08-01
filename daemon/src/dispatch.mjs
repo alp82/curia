@@ -32,6 +32,7 @@ import {
 } from './workspace.mjs'
 import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
+import { CONFIRM_KIND } from './store.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 
 const SESSION_RE = /^curia-(\d+)$/
@@ -96,15 +97,20 @@ export function textCarriesLimitPhrase(...parts) {
 }
 
 export class Dispatcher {
-  // notify(ticket, msg) and confirm(ticket, prompt) → Promise<boolean> are
-  // injected by index.mjs (bridge-guarded notify; approve-reject escalation
-  // confirm with first-valid-confirm-wins + bounded TTL).
-  constructor({ config, routing, store, notify, confirm, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
+  // notify(ticket, msg) is injected by index.mjs (bridge-guarded). The button
+  // confirm seams (#94) too: openConfirm opens + renders a `confirm`
+  // escalation and returns its record; lapseEscalation closes one as lapsed
+  // (journal + message edit); confirmNote posts a line next to a record's
+  // buttons; overseerNote journals a synthetic line for a thread's session.
+  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, deps }) {
     this.config = config
     this.routing = routing
     this.store = store
     this.notify = notify
-    this.confirm = confirm
+    this.openConfirm = openConfirm ?? (() => null)
+    this.lapseEscalation = lapseEscalation ?? ((id, reason) => this.store.lapse?.(id, reason))
+    this.confirmNote = confirmNote ?? (() => {})
+    this.overseerNote = overseerNote ?? (() => {})
     // askReview(worker, ticket, promptText) → { text, status } — the review gate
     // (#54 item 2), injected by index.mjs on the same escalation machinery every
     // ask_human uses, so first-valid-wins, the ~30-min re-nudge, the MCP
@@ -243,36 +249,17 @@ export class Dispatcher {
     // second /start, POST /command, or auto-poll tick interleaving during the
     // gh round-trips is refused as "already starting".
     if (this.inFlight.has(session)) return `⏳ \`${session}\` is already starting`
+    // `start` never confirms (#89): every anomaly below refuses with the way
+    // out, instead of parking a destructive override behind a confirm. The
+    // teardown path is `cancel` — which carries its own guard.
     if (this.workers.has(session)) {
-      // already-live anomaly, TRACKED case: plan step 8 / decision #18 name
-      // "already live" as an anomaly where confirming IS the override — the
-      // same offer the untracked-tmux case gets below, not a flat refusal.
       const w = this.workers.get(session)
-      this.#confirmContinuation(
-        n,
-        `\`${session}\` is already running (${w.repo ?? '?'}#${w.ticket ?? n}, state **${w.state ?? '?'}**). Approve to tear it down and re-dispatch #${n}?`,
-        async () => {
-          this.workers.delete(session)
-          await this.deps.killSession(session).catch(() => {})
-          const resolved = await this.#resolveRepo(n, repo ?? w.repo)
-          if (resolved.error) return resolved.error
-          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse, threadId })
-        },
-        { replacing: true },
-      )
-      return `▶️ \`${session}\` is already running — confirm the re-dispatch in the ticket thread, or \`/attach ${n}\` / \`/cancel ${n}\``
+      return `▶️ \`${session}\` is already running (${w.repo ?? '?'}#${w.ticket ?? n}, state **${w.state ?? '?'}**) — \`cancel ${n}\` first, or \`attach ${n}\``
     }
     this.inFlight.add(session)
     try {
       if (await this.deps.hasSession(session)) {
-        // already-live anomaly, UNTRACKED case: same override shape
-        this.#confirmContinuation(n, `tmux session \`${session}\` is already live but untracked. Approve to tear it down and re-dispatch #${n}?`, async () => {
-          await this.deps.killSession(session).catch(() => {})
-          const resolved = await this.#resolveRepo(n, repo)
-          if (resolved.error) return resolved.error
-          return this.#dispatch(resolved.repo, n, resolved.issue, { model, backend, by, reuse, threadId })
-        })
-        return `⚠️ \`${session}\` is already live — confirm the respawn in the ticket thread`
+        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${n}\` tears it down, then start again`
       }
 
       const resolved = await this.#resolveRepo(n, repo)
@@ -286,9 +273,7 @@ export class Dispatcher {
       const blockedBy = issue.issue_dependencies_summary?.blocked_by ?? 0
       if (blockedBy > 0) anomalies.push(`blocked by ${blockedBy} open issue(s)`)
       if (anomalies.length) {
-        this.#confirmContinuation(n, `${theRepo}#${n} is ${anomalies.join(' and ')}. Approve to dispatch anyway?`, async () =>
-          this.#dispatch(theRepo, n, issue, { model, backend, by, reuse, threadId }))
-        return `⚠️ ${theRepo}#${n} is ${anomalies.join(' and ')} — confirm in the ticket thread`
+        return `⛔ ${theRepo}#${n} is ${anomalies.join(' and ')} — start never dispatches over an anomaly; clear it on GitHub, then start again`
       }
 
       // #dispatch returns null only on exhaustion whose latched notify just
@@ -297,34 +282,6 @@ export class Dispatcher {
     } finally {
       this.inFlight.delete(session)
     }
-  }
-
-  // Long-running confirms continue in the ticket thread so the slash reply
-  // stays fast. The continuation re-takes the admission guard itself.
-  // `replacing` is the already-live override: the continuation's own first act
-  // is to drop the tracked worker, so the workers-map half of the guard would
-  // otherwise refuse the very path it was asked to approve.
-  #confirmContinuation(ticket, prompt, fn, { replacing = false } = {}) {
-    this.confirm(ticket, prompt).then(async (ok) => {
-      if (!ok) {
-        this.notify(ticket, `🚫 not confirmed — nothing dispatched for #${ticket}`)
-        return
-      }
-      const session = `curia-${ticket}`
-      if (this.inFlight.has(session) || (!replacing && this.workers.has(session))) {
-        this.notify(ticket, `⏳ \`${session}\` is already in flight — confirm ignored`)
-        return
-      }
-      this.inFlight.add(session)
-      try {
-        const msg = await fn()
-        if (msg) this.notify(ticket, msg)
-      } catch (e) {
-        this.notify(ticket, `⚠️ dispatch of #${ticket} failed after confirm: ${e.message}`)
-      } finally {
-        this.inFlight.delete(session)
-      }
-    }).catch((e) => this.log(`confirm continuation for #${ticket} failed:`, e.message))
   }
 
   // Resolve which watched repo a bare ticket number belongs to. A number
@@ -461,10 +418,14 @@ export class Dispatcher {
 
       const cmd = buildSpawnCmd(this.routing, backendName, useModel, promptFile)
       await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir, backendName), shellCmd: cmd })
-      this.store.logEvent('worker_spawned', { repo, ticket: n, worker: session, model: useModel, backend: backendName })
+      // The instance id (#94): what a button confirm binds to. Unique per
+      // DISPATCH, not per ticket, so a confirm can never outlive the worker
+      // the operator read about and hit its successor.
+      const instance = `${session}@${Date.now()}`
+      this.store.logEvent('worker_spawned', { repo, ticket: n, worker: session, instance, model: useModel, backend: backendName })
 
       const worker = {
-        repo, ticket: n, title: full.title, session, wtPath, cfgDir, promptFile,
+        repo, ticket: n, title: full.title, session, instance, wtPath, cfgDir, promptFile,
         model: useModel, requestedModel: modelName, backend: backendName,
         provider: this.routing.models[useModel].provider,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
@@ -1202,6 +1163,7 @@ export class Dispatcher {
       // decides now is whether the code is in.
       const lease = await this.#endWorkspaceLease(workerName, ticket, w?.repo ?? this.#epochRepo(ticket))
       this.notify(ticket, `🏁 \`${workerName}\` finished with a recorded result — session closed; ${lease}`)
+      this.lapseConfirmsFor(workerName, `\`${workerName}\` finished`)
       // terminal state ⇒ the ticket label comes off the thread (#93)
       await this.threads.release(ticket, 'finished').catch(() => {})
     } else {
@@ -1209,6 +1171,8 @@ export class Dispatcher {
       if (w) w.state = 'failed'
       this.store.logEvent('worker_abnormal_exit', { worker: workerName, ticket, repo: w?.repo })
       this.notify(ticket, `🚨 \`${workerName}\` stopped WITHOUT reporting a result — session kept for post-mortem (\`/attach ${ticket}\`)`)
+      // the worker the confirm described has exited, whatever the pane holds (#94)
+      this.lapseConfirmsFor(workerName, `\`${workerName}\` stopped without a result`)
     }
   }
 
@@ -1274,50 +1238,159 @@ export class Dispatcher {
   }
 
   // ---- cancel --------------------------------------------------------------------
+  //
+  // Two paths since #94, per #89's discipline: slash and REST cancel execute AT
+  // ONCE (a typed /cancel is its own confirmation); the overseer's interpreted
+  // cancel never executes — requestCancel* opens a `confirm` escalation with
+  // ✅/❌ buttons and the model's turn ends. The executing path is button →
+  // gate.answer → onConfirmAnswered, never through the model.
 
-  cancel(n, { by } = {}) {
+  async cancel(n, { by } = {}) {
     const ticket = String(n)
     const session = `curia-${ticket}`
-    // reads never confirm; destruction always does (reused escalation gate,
-    // first-valid-confirm-wins)
-    this.confirm(ticket, `Cancel \`${session}\`? This kills the session, removes the worktree and re-frontiers the ticket.`).then(async (ok) => {
-      if (!ok) {
-        this.notify(ticket, `🚫 cancel of \`${session}\` not confirmed — worker untouched`)
-        return
-      }
-      await this.#teardown(ticket, { by })
-    }).catch((e) => this.log(`cancel confirm for ${session} failed:`, e.message))
-    return `🛑 confirm the cancellation of \`${session}\` in thread ticket-${ticket}`
+    if (!this.workers.has(session) && !(await this.deps.hasSession(session).catch(() => false))) {
+      return `💤 nothing to cancel — no live worker on #${ticket}`
+    }
+    return this.#teardown(ticket, { by })
   }
 
-  // The bulk verb (#81): ONE confirm carrying count and list, then the same
-  // teardown every single cancel runs, worker by worker. Sessions this process
-  // does not track are cancelled too — `cancel all` means all.
+  // The bulk verb (#81), immediate like the single one: the same teardown,
+  // worker by worker. Sessions this process does not track are cancelled too —
+  // `cancel all` means all.
   async cancelAll({ by } = {}) {
+    const listed = await this.#liveTargets()
+    if (listed.error) return listed.error
+    const { targets, rows } = listed
+    if (!targets.length) return '💤 no live workers to cancel'
+    for (const t of targets) {
+      await this.#teardown(t.ticket, { by }).catch((e) => this.log(`cancel of ${t.session} failed:`, e.message))
+    }
+    return `🛑 cancelled ${targets.length} worker(s):\n${rows.join('\n')}`
+  }
+
+  // Every live curia session as a confirm target: tracked ones carry their
+  // instance id, untracked ones a sentinel the executing path re-checks
+  // against tmux. An indeterminate session list refuses — "all" must never
+  // silently narrow to the tracked set.
+  async #liveTargets() {
     let live = []
     try {
       live = (await this.deps.listSessions()).filter((s) => SESSION_RE.test(s))
     } catch (e) {
-      // an indeterminate list must not silently narrow "all" to the tracked set
-      return `⛔ cancel all refused — the tmux session list is indeterminate (${e.message}); retry, or cancel tickets one by one`
+      return { error: `⛔ cancel all refused — the tmux session list is indeterminate (${e.message}); retry, or cancel tickets one by one` }
     }
     const sessions = [...new Set([...this.workers.keys(), ...live])].sort()
-    if (!sessions.length) return '💤 no live workers to cancel'
-    const rows = sessions.map((s) => {
-      const w = this.workers.get(s)
-      return w ? `• \`${s}\` ${w.repo}#${w.ticket} — **${w.state}**` : `• \`${s}\` — untracked`
+    const targets = sessions.map((s) => this.#targetFor(s))
+    const rows = targets.map((t) => (t.state ? `• \`${t.session}\` ${t.repo}#${t.ticket} — **${t.state}**` : `• \`${t.session}\` — untracked`))
+    return { targets, rows }
+  }
+
+  #targetFor(session) {
+    const ticket = session.match(SESSION_RE)?.[1] ?? session
+    const w = this.workers.get(session)
+    return w
+      ? { session, ticket, repo: w.repo, state: w.state, instance: w.instance }
+      : { session, ticket, repo: null, state: null, instance: `${session}@untracked` }
+  }
+
+  // The interpreted cancel (#94): open the confirm, execute nothing. The
+  // confirm is INSTANCE-bound and lapses when its worker exits; no expiry
+  // clock. A newer confirm on the same instance supersedes the older
+  // (store.open).
+  async requestCancel(n, { threadId = null } = {}) {
+    const ticket = String(n)
+    const session = `curia-${ticket}`
+    let target = null
+    if (this.workers.has(session)) target = this.#targetFor(session)
+    else if (await this.deps.hasSession(session).catch(() => false)) target = this.#targetFor(session)
+    if (!target) return `💤 nothing to cancel — no live worker on #${ticket}`
+    const desc = target.state ? `(${target.repo}#${ticket}, **${target.state}**)` : '(untracked)'
+    const record = this.openConfirm({
+      ticket,
+      prompt: `Cancel \`${session}\` ${desc}? This kills the session, removes the worktree and re-frontiers the ticket.`,
+      action: { verb: 'cancel', targets: [target] },
+      originThreadId: threadId,
     })
-    this.confirm('all', `Cancel ALL ${sessions.length} worker(s)? Each session is killed, its worktree removed and its ticket re-frontiered:\n${rows.join('\n')}`).then(async (ok) => {
-      if (!ok) {
-        this.notify('all', '🚫 cancel all not confirmed — workers untouched')
-        return
+    if (!record) return '⚠️ could not open the confirm — nothing was cancelled'
+    return `🛑 posted confirm **${record.id}** with ✅/❌ buttons in the ticket thread — nothing happens until ✅, and it lapses if the worker exits first`
+  }
+
+  async requestCancelAll({ threadId = null } = {}) {
+    const listed = await this.#liveTargets()
+    if (listed.error) return listed.error
+    const { targets, rows } = listed
+    if (!targets.length) return '💤 no live workers to cancel'
+    const record = this.openConfirm({
+      ticket: 'all',
+      prompt: `Cancel ALL ${targets.length} worker(s)? Each session is killed, its worktree removed and its ticket re-frontiered:\n${rows.join('\n')}`,
+      action: { verb: 'cancel', targets },
+      originThreadId: threadId,
+    })
+    if (!record) return '⚠️ could not open the confirm — nothing was cancelled'
+    return `🛑 posted confirm **${record.id}** for ${targets.length} worker(s) — nothing happens until ✅:\n${rows.join('\n')}`
+  }
+
+  // The executing path (#94): button → daemon. gate.answer calls this after
+  // the record closed (first-valid-wins already decided who spoke). Approve
+  // tears down every target whose instance is STILL the live one; a target
+  // whose worker exited or was replaced since the confirm was posted is
+  // skipped, never guessed at.
+  async onConfirmAnswered(record) {
+    const { verb, targets = [] } = record.action ?? {}
+    if (verb !== 'cancel') {
+      this.log(`confirm ${record.id} carries unknown verb "${verb}" — nothing executed`)
+      return
+    }
+    const name = targets.length === 1 ? `\`${targets[0].session}\`` : `${targets.length} worker(s)`
+    if (record.answer !== 'approve') {
+      this.confirmNote(record, `🚫 not confirmed — ${name} untouched`)
+      this.#noteOrigin(record, `confirm ${record.id} declined — ${name} untouched`)
+      return
+    }
+    const done = []
+    const skipped = []
+    for (const t of targets) {
+      if (!(await this.#instanceLive(t))) {
+        skipped.push(t.session)
+        continue
       }
-      for (const s of sessions) {
-        const ticket = s.match(SESSION_RE)?.[1] ?? s
-        await this.#teardown(ticket, { by }).catch((e) => this.log(`cancel of ${s} failed:`, e.message))
+      try {
+        await this.#teardown(t.ticket, { by: record.answered_by })
+        done.push(t.session)
+      } catch (e) {
+        this.log(`confirmed cancel of ${t.session} failed:`, e.message)
+        skipped.push(t.session)
       }
-    }).catch((e) => this.log('cancel all confirm failed:', e.message))
-    return `🛑 confirm the cancellation of ${sessions.length} worker(s) in thread ticket-all:\n${rows.join('\n')}`
+    }
+    if (skipped.length) {
+      this.confirmNote(record, `⚰️ skipped ${skipped.map((s) => `\`${s}\``).join(', ')} — gone, replaced, or the teardown failed (see the log)`)
+    }
+    this.#noteOrigin(record, `confirm ${record.id} approved — cancelled ${done.length ? done.join(', ') : 'nothing'}${skipped.length ? `; skipped ${skipped.join(', ')} (gone or replaced)` : ''}`)
+  }
+
+  async #instanceLive(t) {
+    const w = this.workers.get(t.session)
+    if (w) return w.instance === t.instance
+    if (!String(t.instance).endsWith('@untracked')) return false
+    return this.deps.hasSession(t.session).catch(() => false)
+  }
+
+  #noteOrigin(record, text) {
+    if (record.origin_thread_id) this.overseerNote(record.origin_thread_id, text)
+  }
+
+  // Confirms lapse the moment their worker exits (#89): every exit path calls
+  // this with the dying session, so a stale confirm can never hit a successor
+  // worker. Session-name match suffices — an open confirm can only describe
+  // the current instance, because the previous exit lapsed the previous one.
+  lapseConfirmsFor(session, why) {
+    for (const r of this.store.openEscalations()) {
+      if (r.kind !== CONFIRM_KIND) continue
+      if (!(r.action?.targets ?? []).some((t) => t.session === session)) continue
+      this.lapseEscalation(r.id, why)
+      this.store.logEvent('confirm_lapsed', { id: r.id, session, reason: why })
+      this.#noteOrigin(r, `confirm ${r.id} lapsed — ${why}; nothing was executed`)
+    }
   }
 
   // The teardown a confirmed cancel runs — shared verbatim by cancel and
@@ -1372,9 +1445,13 @@ export class Dispatcher {
     const tail = w
       ? (released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
       : ' (was untracked; GitHub claim untouched)'
-    this.notify(ticket, `🛑 \`${session}\` cancelled — session killed${tail}`)
+    const msg = `🛑 \`${session}\` cancelled — session killed${tail}`
+    this.notify(ticket, msg)
+    // the worker is positively gone ⇒ any OTHER open confirm on it lapses (#94)
+    this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
     // terminal state ⇒ the ticket label comes off the thread (#93)
     await this.threads.release(ticket, 'cancelled').catch(() => {})
+    return msg
   }
 
   // ---- resume --------------------------------------------------------------------
@@ -1404,17 +1481,16 @@ export class Dispatcher {
     }
     if (!targets.length) return '💤 nothing to resume — no surviving worktree without a live worker'
     const rows = targets.map((t) => `• ${t.repo}#${t.ticket}`)
-    this.confirm('all', `Resume ${targets.length} ticket(s)? Each gets a fresh worker inheriting its surviving worktree:\n${rows.join('\n')}`).then(async (ok) => {
-      if (!ok) {
-        this.notify('all', '🚫 resume all not confirmed — nothing dispatched')
-        return
-      }
+    // resume is not destructive, so the bulk verb runs at once (#89: only
+    // interpreted destructive actions confirm); the dispatches continue in
+    // their ticket threads so this reply stays fast
+    ;(async () => {
       for (const t of targets) {
         const msg = await this.resume(t.ticket, { repo: t.repo, by }).catch((e) => `⚠️ resume of ${t.repo}#${t.ticket} failed: ${e.message}`)
         if (msg) this.notify(t.ticket, msg)
       }
-    }).catch((e) => this.log('resume all confirm failed:', e.message))
-    return `▶️ confirm the resume of ${targets.length} ticket(s) in thread ticket-all:\n${rows.join('\n')}`
+    })().catch((e) => this.log('resume all failed:', e.message))
+    return `▶️ resuming ${targets.length} ticket(s):\n${rows.join('\n')}`
   }
 
   // Surviving worktrees with no live worker, across the watch list. Throws on
@@ -1640,7 +1716,9 @@ export class Dispatcher {
         if (issue && issue.state === 'open' && (issue.assignees ?? []).some((a) => a.login === login)) {
           const wtPath = worktreePathFor(this.root, repo, n)
           this.workers.set(session, {
-            repo, ticket: n, title: issue.title, session,
+            // a FRESH instance id: any confirm bound before the restart lapses
+            // at boot rather than matching an adopted worker it never described
+            repo, ticket: n, title: issue.title, session, instance: `${session}@adopted-${Date.now()}`,
             wtPath, cfgDir: cfgDirFor(this.root, session), promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
             model: null, requestedModel: null, backend: null, provider: null,
             spawnedAt: null, state: 'ready',
@@ -1794,12 +1872,20 @@ export class Dispatcher {
     }
   }
 
-  // Boot only: void open overseer confirms — the resolver died with the old
-  // process, so leaving them answerable-but-inert would be a lie. An on-demand
-  // POST /reconcile must NOT void confirms whose resolver is live
-  // (challenge.md correctness concern).
+  // Boot only. A restart mints fresh instance ids at adopt (#94), so no open
+  // confirm can name a live instance any more — lapse them, message edited,
+  // rather than leaving buttons whose targets can no longer be matched.
+  // Legacy pre-#94 overseer approve-reject confirms lost their resolver with
+  // the old process and are voided as before. An on-demand POST /reconcile
+  // must NOT touch confirms — their instances are still matchable live.
   #voidBootConfirms() {
     for (const r of this.store.openEscalations()) {
+      if (r.kind === CONFIRM_KIND) {
+        this.lapseEscalation(r.id, 'the daemon restarted, and worker instances do not match across a restart')
+        this.store.logEvent('confirm_lapsed', { id: r.id, reason: 'boot' })
+        this.#noteOrigin(r, `confirm ${r.id} lapsed — the daemon restarted; re-issue the command if you still want it`)
+        continue
+      }
       if (r.worker !== 'overseer') continue
       this.cancelEscalation(r.id, { by: 'reconcile' })
       this.store.logEvent('confirm_voided', { id: r.id, ticket: r.ticket })

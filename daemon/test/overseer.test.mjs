@@ -134,6 +134,39 @@ describe('OverseerHost turns', () => {
     assert.equal(store.overseerSession('thread-1'), 'sess-2')
   })
 
+  test('pending confirm notes prefix the next prompt and drain exactly once (#94)', async () => {
+    const queryFn = scriptedQuery(
+      [init('s1'), success('noted')],
+      [init('s2'), success('clean')],
+    )
+    const { host, store } = makeHost({ queryFn })
+    store.addOverseerNote('thread-1', 'confirm esc-3 approved — cancelled curia-42')
+    const { io } = collector()
+
+    await host.runTurn('thread-1', 'what happened?', io)
+    assert.equal(
+      queryFn.calls[0].prompt,
+      '[curia: confirm esc-3 approved — cancelled curia-42]\n\nwhat happened?',
+    )
+
+    await host.runTurn('thread-1', 'and now?', io)
+    assert.equal(queryFn.calls[1].prompt, 'and now?', 'a drained note never replays')
+  })
+
+  test('the fallback retry carries the same note-augmented prompt (#94)', async () => {
+    const queryFn = scriptedQuery(
+      [init('s1'), failure('error_during_execution')],
+      [init('s2'), success('recovered')],
+    )
+    const { host, store } = makeHost({ queryFn })
+    store.addOverseerNote('t', 'confirm esc-9 lapsed — `curia-7` finished; nothing was executed')
+    const { io } = collector()
+    const r = await host.runTurn('t', 'hi', io)
+    assert.equal(r.ok, true)
+    assert.equal(queryFn.calls[0].prompt, queryFn.calls[1].prompt, 'the note must not vanish between the two attempts')
+    assert.match(queryFn.calls[1].prompt, /confirm esc-9 lapsed/)
+  })
+
   test('the thread map survives a restart: a new store over the same dir replays it', async () => {
     const dir = tmp()
     const { host } = makeHost({ dir, queryFn: scriptedQuery([init('sess-1'), success('hi')]) })

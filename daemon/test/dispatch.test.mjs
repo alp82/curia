@@ -34,6 +34,10 @@ let notifies
 let events
 let escalations // open escalation records the store double reports (#47)
 let cancelled // ids the dispatcher cancelled through the injected gate
+let confirms // confirm records opened through the injected openConfirm (#94)
+let lapses // {id, reason} lapsed through the injected lapseEscalation (#94)
+let confirmNotes // {id, text} posted next to a confirm's buttons (#94)
+let overseerNotes // {threadId, text} synthetic session lines (#94)
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-dispatch-test-'))
@@ -42,6 +46,10 @@ beforeEach(() => {
   events = []
   escalations = []
   cancelled = []
+  confirms = []
+  lapses = []
+  confirmNotes = []
+  overseerNotes = []
 })
 
 afterEach(() => {
@@ -62,7 +70,7 @@ async function waitFor(cond, ms = 8000) {
 // Deps default to inert doubles; each test overrides only what it asserts on.
 function makeDispatcher(deps = {}, {
   watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING,
-  confirm = async () => false, skills = null, stopNudgeBudget = 3,
+  skills = null, stopNudgeBudget = 3,
   askReview = async () => ({ text: 'approve', status: 'answered' }),
 } = {}) {
   const root = path.join(tmp, 'work')
@@ -70,7 +78,7 @@ function makeDispatcher(deps = {}, {
     watch,
     dispatch: {
       auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60,
-      workspace_root: root, ready_timeout_s: readyTimeoutS, confirm_ttl_h: 4,
+      workspace_root: root, ready_timeout_s: readyTimeoutS,
       stop_nudge_budget: stopNudgeBudget,
     },
     attach: { ttyd_port: 7681, serve_port: 8443 },
@@ -78,7 +86,7 @@ function makeDispatcher(deps = {}, {
   }
   const store = {
     logEvent: (type, data) => { const rec = { type, ...data }; events.push(rec); return rec },
-    openEscalations: () => escalations,
+    openEscalations: () => escalations.filter((r) => r.status === 'open'),
     cancel: () => ({ ok: true }),
   }
   const base = {
@@ -132,7 +140,25 @@ function makeDispatcher(deps = {}, {
     routing,
     store,
     notify: (ticket, message) => notifies.push({ ticket, message }),
-    confirm,
+    // the #94 confirm seams: records land in `escalations` so the dispatcher's
+    // own openEscalations() reads find them (lapse-on-exit walks that list)
+    openConfirm: ({ ticket, prompt, action, originThreadId }) => {
+      const rec = {
+        id: `esc-${escalations.length + confirms.length + 1}`, status: 'open', kind: 'confirm',
+        worker: 'overseer', ticket, prompt, action, origin_thread_id: originThreadId ?? null,
+      }
+      confirms.push(rec)
+      escalations.push(rec)
+      return rec
+    },
+    lapseEscalation: (id, reason) => {
+      lapses.push({ id, reason })
+      const r = escalations.find((x) => x.id === id)
+      if (r) r.status = 'lapsed'
+      return { ok: true }
+    },
+    confirmNote: (record, text) => confirmNotes.push({ id: record.id, text }),
+    overseerNote: (threadId, text) => overseerNotes.push({ threadId, text }),
     askReview,
     cancelEscalation: (id, opts) => { cancelled.push({ id, ...opts }); return { ok: true } },
     log: () => {},
@@ -530,50 +556,51 @@ describe('reconcile with an indeterminate tmux session list (the B1 hole through
   })
 })
 
-describe('already-live tracked worker: confirming IS the override (B8)', () => {
-  test('approve: record dropped, killSession once, re-dispatch claims and spawns', async () => {
-    let kills = 0
-    let claims = 0
-    let spawns = 0
-    let confirmPrompt = null
-    const d = makeDispatcher({
-      killSession: async () => { kills += 1 },
-      claim: async () => { claims += 1 },
-      newSession: async () => { spawns += 1 },
-    }, { readyTimeoutS: 0, confirm: async (ticket, prompt) => { confirmPrompt = prompt; return true } })
-    d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', state: 'ready' })
-
-    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
-
-    assert.match(reply, /already running — confirm the re-dispatch/)
-    assert.match(confirmPrompt, /tear it down and re-dispatch/)
-    await waitFor(() => spawns === 1)
-    assert.equal(kills, 1, 'the old session is killed exactly once')
-    assert.equal(claims, 1, 'the re-dispatch claims the ticket')
-    assert.ok(typesOf().includes('dispatch_claimed'))
-    assert.ok(typesOf().includes('worker_spawned'))
-    assert.ok(d.workers.has('curia-42'), 'the re-dispatched worker is tracked')
-    // let the zero-timeout watchdog finish so nothing leaks into later tests
-    await waitFor(() => notifies.some((n) => /did not reach a composer/.test(n.message)))
-  })
-
-  test('reject: nothing is torn down', async () => {
+describe('start never confirms (#89, built by #94)', () => {
+  test('a tracked already-running worker refuses with the way out and destroys nothing', async () => {
     let kills = 0
     let claims = 0
     const original = { repo: 'o/r', ticket: '42', session: 'curia-42', state: 'ready' }
     const d = makeDispatcher({
       killSession: async () => { kills += 1 },
       claim: async () => { claims += 1 },
-    }) // default confirm: reject
+    })
     d.workers.set('curia-42', original)
 
     const reply = await d.start('42', { repo: 'o/r', by: 'test' })
 
     assert.match(reply, /already running/)
-    await waitFor(() => notifies.some((n) => /not confirmed/.test(n.message)))
-    assert.equal(kills, 0, 'a rejected override must not kill the session')
+    assert.match(reply, /cancel 42/)
+    assert.equal(kills, 0, 'start must never tear down a live worker')
     assert.equal(claims, 0)
     assert.equal(d.workers.get('curia-42'), original, 'the tracked record is untouched')
+    assert.deepEqual(confirms, [], 'no confirm is ever opened for start')
+  })
+
+  test('an untracked live tmux session refuses the same way', async () => {
+    let kills = 0
+    const d = makeDispatcher({
+      hasSession: async () => true,
+      killSession: async () => { kills += 1 },
+    })
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /already live but untracked/)
+    assert.match(reply, /cancel 42/)
+    assert.equal(kills, 0)
+    assert.deepEqual(confirms, [])
+  })
+
+  test('an assigned or blocked ticket refuses instead of offering a dispatch-anyway confirm', async () => {
+    let claims = 0
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: [{ login: 'somebody' }] }),
+      claim: async () => { claims += 1 },
+    })
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /already assigned to somebody/)
+    assert.match(reply, /start never dispatches over an anomaly/)
+    assert.equal(claims, 0)
+    assert.deepEqual(confirms, [])
   })
 })
 
@@ -714,51 +741,19 @@ describe('exactly one notify per exhaustion window (B7/R5)', () => {
     assert.equal(notifies.length, 1, 'the latch allows exactly one notify per window')
   })
 
-  test('a CONFIRMED dispatch that lands on exhaustion does not echo the notify', async () => {
-    // the anomaly-confirm continuation notifies whatever #dispatch returns —
-    // exhaustion must return nothing notifiable, in and after the latch window
+  test('an anomaly refusal on a latched exhaustion window stays a refusal — no confirm, no echo', async () => {
+    // pre-#94 this path parked a dispatch-anyway confirm whose continuation
+    // could land on exhaustion; start refuses flat now, so the anomaly reply
+    // is the whole story and the latch stays untouched
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: [{ login: 'somebody' }] }),
-    }, { confirm: async () => true })
+    })
     d.cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
 
     const reply = await d.start('42', { repo: 'o/r' })
-    assert.match(reply, /confirm in the ticket thread/)
-    await waitFor(() => events.some((e) => e.type === 'dispatch_exhausted'))
-    // drain the continuation's trailing microtasks before counting
-    await new Promise((r) => setTimeout(r, 100))
-    assert.equal(notifies.filter((n) => /cooling/.test(n.message)).length, 1, 'the latched notify, and nothing from the continuation')
-
-    // a SECOND confirmed dispatch in the same window says exactly ONE thing —
-    // the latch suppressed its notify, so #dispatch hands the continuation the
-    // sentinel reply instead; total silence after an approved action is the
-    // W2 over-correction, not the R5 fix
-    await d.start('42', { repo: 'o/r' })
-    await waitFor(() => events.filter((e) => e.type === 'dispatch_exhausted').length === 2)
-    await new Promise((r) => setTimeout(r, 100))
-    assert.equal(notifies.filter((n) => /cooling/.test(n.message)).length, 2, 'exactly one message per exhaustion — never an echo, never silence')
-  })
-
-  test('an approved tear-down-and-re-dispatch landing on a latched exhaustion is NEVER silent (W2)', async () => {
-    // the worst shape: the operator approves "tear it down and re-dispatch",
-    // the continuation's first acts kill the live worker, and exhaustion lands
-    // inside an already-latched cooling window — the old always-null #exhausted
-    // meant nothing was dispatched and nothing was ever said
-    let kills = 0
-    const d = makeDispatcher({ killSession: async () => { kills += 1 } }, { confirm: async () => true })
-    d.cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
-    d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', state: 'ready' })
-
-    // latch the window first (a direct dispatch of another ticket exhausts)
-    await d.start('43', { repo: 'o/r' })
-    assert.equal(notifies.filter((n) => /cooling/.test(n.message)).length, 1, 'the latch notify')
-
-    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
-    assert.match(reply, /already running/)
-    await waitFor(() => kills === 1)
-    await waitFor(() => notifies.some((n) => n.ticket === '42' && /cooling/.test(n.message)))
-    assert.equal(notifies.filter((n) => n.ticket === '42' && /cooling/.test(n.message)).length, 1,
-      'the live worker died on an approval — the thread must hear exactly one message about it')
+    assert.match(reply, /start never dispatches over an anomaly/)
+    assert.deepEqual(confirms, [])
+    assert.equal(notifies.filter((n) => /cooling/.test(n.message)).length, 0, 'a refusal never reaches #dispatch, so the latch never fires')
   })
 })
 
@@ -780,65 +775,179 @@ describe('an indeterminate hasSession answer never authorises a claim (W1)', () 
   })
 })
 
-describe('Dispatcher.cancel (criterion 6, the destructive half — W8)', () => {
-  test('approve: session killed, worktree removed, unclaimed, config dir removed, record dropped, journalled', async () => {
+describe('Dispatcher.cancel (criterion 6, the destructive half — W8; immediate since #94)', () => {
+  test('slash cancel executes at once: session killed, worktree removed, unclaimed, config dir removed, record dropped, journalled', async () => {
     const acts = []
     const d = makeDispatcher({
       killSession: async (n) => acts.push(`kill:${n}`),
       removeWorktree: async (base, wt) => acts.push(`worktree:${wt}`),
       unclaim: async (repo, t) => acts.push(`unclaim:${repo}#${t}`),
       removeConfigDir: (dir) => acts.push(`cfg:${path.basename(dir)}`),
-    }, { confirm: async () => true })
+    })
     d.workers.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready' })
 
-    const reply = d.cancel('42', { by: 'test' })
-    assert.match(reply, /confirm the cancellation/)
+    const reply = await d.cancel('42', { by: 'test' })
 
-    await waitFor(() => notifies.some((n) => /cancelled/.test(n.message)))
+    assert.match(reply, /cancelled/)
+    assert.match(reply, /worktree removed, ticket re-frontiered/)
     assert.deepEqual(acts, ['kill:curia-42', 'worktree:/w/42', 'unclaim:o/r#42', 'cfg:curia-42'])
     assert.equal(d.workers.has('curia-42'), false)
     assert.ok(events.some((e) => e.type === 'dispatch_unclaimed' && e.reason === 'cancelled' && e.by === 'test'))
-    assert.match(notifies.at(-1).message, /worktree removed, ticket re-frontiered/)
+    assert.deepEqual(confirms, [], 'a typed cancel is its own confirmation — no buttons (#89)')
   })
 
-  test('reject: nothing is torn down', async () => {
+  test('cancel with nothing live says so and destroys nothing', async () => {
     const acts = []
-    const original = { repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready' }
     const d = makeDispatcher({
-      killSession: async (n) => acts.push(`kill:${n}`),
-      removeWorktree: async () => acts.push('worktree'),
-      unclaim: async () => acts.push('unclaim'),
+      killSession: async () => acts.push('kill'),
       removeConfigDir: () => acts.push('cfg'),
-    }) // default confirm: reject
-    d.workers.set('curia-42', original)
-
-    d.cancel('42', { by: 'test' })
-
-    await waitFor(() => notifies.some((n) => /not confirmed/.test(n.message)))
-    assert.deepEqual(acts, [], 'a rejected cancel must destroy nothing')
-    assert.equal(d.workers.get('curia-42'), original)
-    assert.ok(!typesOf().includes('dispatch_unclaimed'))
+    })
+    const reply = await d.cancel('42', { by: 'test' })
+    assert.match(reply, /nothing to cancel/)
+    assert.deepEqual(acts, [])
+    assert.ok(!typesOf().includes('worker_cancelled'))
   })
 
   test('untracked cancel: session and config dir go, the GitHub claim is left alone', async () => {
     const acts = []
     const d = makeDispatcher({
+      hasSession: async () => true,
       killSession: async (n) => acts.push(`kill:${n}`),
       removeWorktree: async () => acts.push('worktree'),
       unclaim: async () => acts.push('unclaim'),
       removeConfigDir: (dir) => acts.push(`cfg:${path.basename(dir)}`),
-    }, { confirm: async () => true })
+    })
 
-    d.cancel('42', { by: 'test' })
+    const reply = await d.cancel('42', { by: 'test' })
 
-    await waitFor(() => notifies.some((n) => /cancelled/.test(n.message)))
+    assert.match(reply, /cancelled/)
     assert.deepEqual(acts, ['kill:curia-42', 'cfg:curia-42'], 'no tracked record ⇒ no worktree removal, no unclaim')
-    assert.match(notifies.at(-1).message, /GitHub claim untouched/)
+    assert.match(reply, /GitHub claim untouched/)
     // F1: the message admits the claim was untouched, so the journal must not
     // record an unclaim that never happened — closedAfterEpoch reads
     // dispatch_unclaimed as "this ticket is settled" and would skip it forever
     assert.ok(!typesOf().includes('dispatch_unclaimed'), 'no unclaim happened ⇒ none may be journalled')
     assert.ok(!typesOf().includes('unclaim_failed'), 'no unclaim was even attempted ⇒ no event at all')
+  })
+})
+
+describe('button confirms: the interpreted cancel path (#94)', () => {
+  const liveWorker = (instance = 'curia-42@1') => ({
+    repo: 'o/r', ticket: '42', session: 'curia-42', instance,
+    wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready',
+  })
+
+  test('requestCancel opens an instance-bound confirm and executes NOTHING', async () => {
+    const acts = []
+    const d = makeDispatcher({ killSession: async () => acts.push('kill') })
+    d.workers.set('curia-42', liveWorker())
+
+    const reply = await d.requestCancel('42', { threadId: 'thread-9' })
+
+    assert.match(reply, /confirm \*\*esc-1\*\*/)
+    assert.match(reply, /nothing happens until ✅/)
+    assert.equal(confirms.length, 1)
+    assert.deepEqual(confirms[0].action, {
+      verb: 'cancel',
+      targets: [{ session: 'curia-42', ticket: '42', repo: 'o/r', state: 'ready', instance: 'curia-42@1' }],
+    })
+    assert.equal(confirms[0].origin_thread_id, 'thread-9')
+    assert.deepEqual(acts, [], 'the tool handler never executes (#89)')
+    assert.ok(d.workers.has('curia-42'))
+  })
+
+  test('requestCancel with nothing live refuses without opening a confirm', async () => {
+    const d = makeDispatcher()
+    assert.match(await d.requestCancel('42', {}), /nothing to cancel/)
+    assert.deepEqual(confirms, [])
+  })
+
+  test('approve executes button → daemon: teardown runs, outcome noted for the issuing session', async () => {
+    const acts = []
+    const d = makeDispatcher({
+      killSession: async (n) => acts.push(`kill:${n}`),
+      removeWorktree: async () => acts.push('worktree'),
+      unclaim: async (repo, t) => acts.push(`unclaim:${repo}#${t}`),
+      removeConfigDir: () => acts.push('cfg'),
+    })
+    d.workers.set('curia-42', liveWorker())
+    await d.requestCancel('42', { threadId: 'thread-9' })
+
+    Object.assign(confirms[0], { status: 'answered', answer: 'approve', answered_by: 'alp' })
+    await d.onConfirmAnswered(confirms[0])
+
+    assert.deepEqual(acts, ['kill:curia-42', 'worktree', 'unclaim:o/r#42', 'cfg'])
+    assert.equal(d.workers.has('curia-42'), false)
+    assert.ok(overseerNotes.some((n) => n.threadId === 'thread-9' && /approved — cancelled curia-42/.test(n.text)))
+  })
+
+  test('decline executes nothing and says so next to the buttons and to the issuing session', async () => {
+    const acts = []
+    const d = makeDispatcher({ killSession: async () => acts.push('kill') })
+    d.workers.set('curia-42', liveWorker())
+    await d.requestCancel('42', { threadId: 'thread-9' })
+
+    Object.assign(confirms[0], { status: 'answered', answer: 'reject', answered_by: 'alp' })
+    await d.onConfirmAnswered(confirms[0])
+
+    assert.deepEqual(acts, [])
+    assert.ok(d.workers.has('curia-42'))
+    assert.ok(confirmNotes.some((n) => /not confirmed/.test(n.text)))
+    assert.ok(overseerNotes.some((n) => /declined/.test(n.text)))
+  })
+
+  test('instance mismatch: an approved confirm never hits a replacement worker', async () => {
+    const acts = []
+    const d = makeDispatcher({ killSession: async (n) => acts.push(`kill:${n}`) })
+    d.workers.set('curia-42', liveWorker('curia-42@1'))
+    await d.requestCancel('42', { threadId: 'thread-9' })
+    // the described worker exits and a NEW dispatch takes the session name
+    d.workers.set('curia-42', liveWorker('curia-42@2'))
+
+    Object.assign(confirms[0], { status: 'answered', answer: 'approve', answered_by: 'alp' })
+    await d.onConfirmAnswered(confirms[0])
+
+    assert.deepEqual(acts, [], 'the confirm was bound to instance @1 — @2 must survive')
+    assert.ok(d.workers.has('curia-42'))
+    assert.ok(confirmNotes.some((n) => /skipped/.test(n.text)))
+  })
+
+  test('a worker exit lapses its open confirm — message, journal, session note', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.workers.set('curia-42', liveWorker())
+    await d.requestCancel('42', { threadId: 'thread-9' })
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{}')
+
+    await d.onWorkerDone('curia-42')
+
+    assert.equal(lapses.length, 1)
+    assert.equal(lapses[0].id, confirms[0].id)
+    assert.ok(events.some((e) => e.type === 'confirm_lapsed' && e.id === confirms[0].id))
+    assert.ok(overseerNotes.some((n) => /lapsed/.test(n.text)))
+  })
+
+  test('requestCancelAll lists tracked and untracked targets, approve tears down each', async () => {
+    const acts = []
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42', 'curia-77'],
+      hasSession: async (s) => s === 'curia-77',
+      killSession: async (n) => acts.push(`kill:${n}`),
+      removeWorktree: async () => {},
+      unclaim: async () => {},
+      removeConfigDir: () => {},
+    })
+    d.workers.set('curia-42', liveWorker())
+
+    const reply = await d.requestCancelAll({ threadId: 'thread-9' })
+    assert.match(reply, /2 worker\(s\)/)
+    assert.match(reply, /curia-77.*untracked/)
+    assert.deepEqual(acts, [])
+    assert.equal(confirms[0].action.targets.length, 2)
+    assert.equal(confirms[0].action.targets[1].instance, 'curia-77@untracked')
+
+    Object.assign(confirms[0], { status: 'answered', answer: 'approve', answered_by: 'alp' })
+    await d.onConfirmAnswered(confirms[0])
+    assert.deepEqual(acts, ['kill:curia-42', 'kill:curia-77'])
   })
 })
 
@@ -2091,22 +2200,16 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
     assert.match(reply, /already running/)
   })
 
-  test('cancel all lists the workers, then runs the same teardown on each after ONE confirm', async () => {
-    let confirms = 0
-    let prompt = null
-    const d = makeDispatcher({}, {
-      confirm: async (ticket, p) => { confirms += 1; prompt = p; return true },
-    })
+  test('cancel all runs the same teardown on each worker at once — a typed bulk cancel never confirms (#94)', async () => {
+    const d = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
     await d.start('43', { repo: 'o/r' })
     const reply = await d.cancelAll({ by: 'test' })
     assert.match(reply, /2 worker\(s\)/)
     assert.match(reply, /curia-42/)
     assert.match(reply, /curia-43/)
-    await waitFor(() => events.filter((e) => e.type === 'worker_cancelled').length === 2)
-    assert.equal(confirms, 1, 'bulk cancel must confirm exactly once')
-    assert.match(prompt, /curia-42/)
-    assert.match(prompt, /curia-43/)
+    assert.equal(events.filter((e) => e.type === 'worker_cancelled').length, 2)
+    assert.deepEqual(confirms, [], 'no confirm on the slash path')
     assert.equal(d.workers.size, 0)
   })
 
@@ -2115,16 +2218,15 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
     assert.match(await d.cancelAll({ by: 'test' }), /refused/)
   })
 
-  test('resume all dispatches every surviving worktree behind one confirm with count and list', async () => {
+  test('resume all dispatches every surviving worktree at once with count and list — not destructive, no confirm (#89)', async () => {
     for (const n of ['50', '51']) {
       fs.mkdirSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', n), { recursive: true })
     }
-    let confirms = 0
-    const d = makeDispatcher({}, { confirm: async () => { confirms += 1; return true } })
+    const d = makeDispatcher()
     const reply = await d.resumeAll({ by: 'test' })
-    assert.match(reply, /2 ticket\(s\)/)
+    assert.match(reply, /resuming 2 ticket\(s\)/)
     await waitFor(() => d.workers.has('curia-50') && d.workers.has('curia-51'))
-    assert.equal(confirms, 1)
+    assert.deepEqual(confirms, [])
   })
 
   test('resume all with nothing to resume says so', async () => {

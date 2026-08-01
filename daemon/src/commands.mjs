@@ -71,7 +71,7 @@ const USAGE = [
   '`next [repo]` — dispatch the next takeable ticket',
   '`status` — workers running, workers waiting on input, recent cancelled and finished',
   '`start <n>|owner/repo#<n> [model=x] [backend=y]` — claim + dispatch a worker',
-  '`cancel <n>|all` — confirm-then-teardown',
+  '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n>|all` — fresh worker on a ticket, inheriting its surviving worktree',
   '`attach <n>` — timeline + browser-terminal links for a live worker',
 ].join('\n')
@@ -90,7 +90,10 @@ export class CommandRouter {
   // ctx.threadId: the Discord thread the command was issued in, if any (#93) —
   // dispatch verbs bind the ticket to that thread ("start binds the thread it
   // runs in"); absent one, the dispatcher's first notify opens a fresh thread.
-  async handle(canonical, userId, { threadId = null } = {}) {
+  // ctx.interpreted (#94): true when the text came out of a model (the
+  // overseer's verb tools) rather than a typed slash command or REST call —
+  // interpreted destructive verbs go through the button confirm.
+  async handle(canonical, userId, { threadId = null, interpreted = false } = {}) {
     const cmd = parseCommand(canonical)
     if (!cmd) return `❓ could not parse \`${canonical}\`\n${USAGE}`
     try {
@@ -118,8 +121,12 @@ export class CommandRouter {
           return await this.dispatcher.start(cmd.ticket, { repo: cmd.repo, model: cmd.model, backend: cmd.backend, by: userId, threadId })
         }
         case 'cancel':
+          if (interpreted) {
+            if (cmd.all) return await this.dispatcher.requestCancelAll({ threadId })
+            return await this.dispatcher.requestCancel(cmd.ticket, { threadId })
+          }
           if (cmd.all) return await this.dispatcher.cancelAll({ by: userId })
-          return this.dispatcher.cancel(cmd.ticket, { by: userId })
+          return await this.dispatcher.cancel(cmd.ticket, { by: userId })
         case 'resume':
           if (cmd.all) return await this.dispatcher.resumeAll({ by: userId })
           return await this.dispatcher.resume(cmd.ticket, { by: userId, threadId })

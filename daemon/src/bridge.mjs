@@ -24,6 +24,7 @@ import {
 } from 'discord.js'
 import { safeLeaf } from './images.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
+import { CONFIRM_KIND } from './store.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
@@ -332,6 +333,14 @@ export class DiscordBridge {
       if (row.components.length === 5) { rows.push(row); row = new ActionRowBuilder() }
       row.addComponents(b)
     }
+    // A confirm (#94) gets ✅/❌ and nothing else: declining IS the safe exit,
+    // and the record closes by lapsing with its worker, never by 🛑 Cancel.
+    if (record.kind === CONFIRM_KIND) {
+      push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|approve`).setLabel('✅ Approve').setStyle(ButtonStyle.Danger))
+      push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|reject`).setLabel('❌ Decline').setStyle(ButtonStyle.Secondary))
+      rows.push(row)
+      return rows
+    }
     if (record.kind === 'approve-reject' || record.kind === 'preview-review' || record.kind === REVIEW_KIND) {
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|approve`).setLabel('✅ Approve').setStyle(ButtonStyle.Success))
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|reject`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger))
@@ -348,6 +357,12 @@ export class DiscordBridge {
   }
 
   #escalationBody(record) {
+    if (record.kind === CONFIRM_KIND) {
+      return [
+        `**[${record.id}]** ${record.prompt}`,
+        '-# ✅ executes, ❌ declines. No expiry — but this confirm lapses the moment its worker exits.',
+      ].join('\n')
+    }
     // The review gate (#54) is the one kind whose prompt is a multi-line block
     // the daemon composed — summary, proposed charting, the links to look at. A
     // blockquote would mark only its first line, so it is printed as it stands.
@@ -372,9 +387,20 @@ export class DiscordBridge {
     return parts.join('\n')
   }
 
+  // Where a record renders: the labeled ticket thread — except a confirm on a
+  // pseudo-ticket ('all', #94), which has no labeled thread and lands in the
+  // conversation that asked for it.
+  async #threadFor(record) {
+    if (record.origin_thread_id && !/^\d+$/.test(String(record.ticket))) {
+      const t = await this.client.channels.fetch(record.origin_thread_id).catch(() => null)
+      if (t) return t
+    }
+    return this.ensureThread(record.ticket)
+  }
+
   // Render an escalation into its ticket thread; returns discord ids for the record.
   async renderEscalation(record, { files = [] } = {}) {
-    const thread = await this.ensureThread(record.ticket)
+    const thread = await this.#threadFor(record)
     const msg = await thread.send({
       content: this.#escalationBody(record),
       components: this.#buttons(record),
@@ -402,6 +428,20 @@ export class DiscordBridge {
 
   markSuperseded(record) {
     return this.#editEscalationMessage(record, `♻️ **superseded** by **${record.successor}** (the worker re-issued this question) — answer the newer message`)
+  }
+
+  // A confirm whose worker exited (#94): buttons off, and the message says why
+  // nothing will ever execute from it.
+  markLapsed(record) {
+    return this.#editEscalationMessage(record, `⚰️ **lapsed** — ${record.lapse_reason ?? 'its worker exited'}. Nothing was executed; re-issue the command if you still want it.`)
+  }
+
+  // A line into the thread a record was rendered in — confirm outcomes (#94)
+  // land next to their buttons, whatever thread that was.
+  async notifyRecordThread(record, text) {
+    if (!record.discord) return
+    const thread = await this.client.channels.fetch(record.discord.threadId).catch(() => null)
+    if (thread) await thread.send(text)
   }
 
   async nudge(record) {
