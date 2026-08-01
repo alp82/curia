@@ -4,8 +4,8 @@
 watch:
   - repo: getalfredo/landing-page          # mode auto (default): map-if-present
   - repo: alp82/alperortac.com
-  - repo: alp82/curia
-    mode: ready-for-agent                  # settled answer 3 — exercises the flat lane
+  - repo: alp82/curia                      # mode auto since the repo hosts the dogfood map (#109);
+                                           # the flat-lane pin from settled answer 3 hid it
 
 dispatch:
   auto_dispatch: false                     # shipped OFF (settled answer 1)
