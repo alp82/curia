@@ -119,6 +119,15 @@ function claudeToolBrief(name, input = {}) {
   return firstLine(JSON.stringify(input), 160)
 }
 
+// The full operator-facing text of a curia surface call (#108 item 1): notify
+// and its siblings carry prose written FOR the timeline's reader, so the
+// one-line brief must not be all that survives. ask_human keeps only the brief
+// here — its full body renders from the daemon's own escalation record.
+function curiaToolText(input = {}) {
+  const t = input.prompt ?? input.message ?? input.summary
+  return typeof t === 'string' && t.trim() ? t : null
+}
+
 function claudeResultText(content) {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -138,7 +147,12 @@ function claudeItems(e) {
       // transcript that DOES carry text should show it.
       else if (c.type === 'thinking' && c.thinking?.trim()) out.push({ kind: 'think', at, text: c.thinking })
       else if (c.type === 'tool_use') {
-        out.push({ kind: 'tool', at, id: c.id, name: c.name, brief: claudeToolBrief(c.name, c.input) })
+        const item = { kind: 'tool', at, id: c.id, name: c.name, brief: claudeToolBrief(c.name, c.input) }
+        if (c.name?.startsWith('mcp__curia__')) {
+          const text = curiaToolText(c.input)
+          if (text) item.text = text
+        }
+        out.push(item)
       }
     }
     return out
@@ -238,11 +252,16 @@ function codexItems(e) {
     }
     if (p.type === 'function_call') {
       const args = codexArgs(p.arguments)
-      return [{
+      const item = {
         kind: 'tool', at, id: p.call_id ?? p.id,
         name: codexDisplayName(p.name, p.namespace),
         brief: codexToolBrief(p.name, args),
-      }]
+      }
+      if (String(p.namespace ?? '').startsWith('mcp__curia')) {
+        const text = curiaToolText(args)
+        if (text) item.text = text
+      }
+      return [item]
     }
     if (p.type === 'function_call_output') {
       const text = codexResultText(p.output)

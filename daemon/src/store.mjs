@@ -216,6 +216,15 @@ export class EscalationStore {
     return [...this.escalations.values()].filter((r) => r.status === 'open')
   }
 
+  // Every record for one worker, oldest first — the timeline's full-fidelity
+  // feed (#108 item 1). The transcript clips what this record holds whole:
+  // question, kind, options, answer, who answered.
+  escalationsForWorker(worker) {
+    return [...this.escalations.values()]
+      .filter((r) => r.worker === worker)
+      .sort((a, b) => String(a.opened_at).localeCompare(String(b.opened_at)))
+  }
+
   get(id) {
     return this.escalations.get(id)
   }

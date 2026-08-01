@@ -74,6 +74,22 @@ describe('claude reader', () => {
     assert.equal(items[0].brief, 'which one?')
   })
 
+  test('a curia notify carries its full text unclipped — #108 item 1', () => {
+    const message = 'first line of a long update\nsecond line the brief would drop\nthird line'
+    const { items } = parseLine('claude', JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 'n1', name: 'mcp__curia__notify', input: { message } }] },
+    }))
+    assert.equal(items[0].text, message)
+    assert.equal(items[0].brief, 'first line of a long update')
+    // a non-curia tool never grows a text field
+    const bash = parseLine('claude', JSON.stringify({
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', id: 'b1', name: 'Bash', input: { command: 'ls\npwd' } }] },
+    }))
+    assert.equal(bash.items[0].text, undefined)
+  })
+
   test('tool_result becomes result keyed to its call, is_error flips ok', () => {
     const { items } = parseLine('claude', JSON.stringify({
       type: 'user',
@@ -114,6 +130,20 @@ describe('codex reader', () => {
     assert.equal(items[0].name, 'curia.ask_human')
     assert.equal(items[0].brief, 'item5 probe')
     assert.equal(items[0].id, 'call_1')
+  })
+
+  test('a namespaced curia call carries its full text unclipped — #108 item 1', () => {
+    const message = 'progress line one\nprogress line two'
+    const { items } = parseLine('codex', JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'function_call', call_id: 'c9', name: 'notify', namespace: 'mcp__curia', arguments: JSON.stringify({ message }) },
+    }))
+    assert.equal(items[0].text, message)
+    const plain = parseLine('codex', JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'function_call', call_id: 'c10', name: 'exec_command', arguments: '{"cmd":"ls"}' },
+    }))
+    assert.equal(plain.items[0].text, undefined)
   })
 
   test('exec_command briefs on the command; its output strips the bookkeeping preamble', () => {
@@ -266,6 +296,7 @@ describe('TimelineSurface', () => {
   const journal = []
   const sent = []
   let escalations = []
+  let escHistory = []
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
   const workspaceRoot = () => path.join(tmp, 'work')
 
@@ -281,6 +312,7 @@ describe('TimelineSurface', () => {
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
         escalationsFor: () => escalations,
+        escalationHistoryFor: () => escHistory,
         sendText: async (session, text) => sent.push({ session, text }),
         sendKey: async (session, key) => sent.push({ session, key }),
         capturePane: async () => (typeof pane === 'function' ? pane() : pane),
@@ -351,6 +383,31 @@ describe('TimelineSurface', () => {
       assert.equal(esc.data[0].id, 'esc-7')
     } finally {
       escalations = []
+    }
+  })
+
+  test('the full escalation history reaches the page — question, options, answer, who answered (#108 item 1)', async () => {
+    escHistory = [{
+      id: 'esc-3', worker: 'curia-9', kind: 'choice',
+      prompt: 'a long question body\nwith a second line the transcript brief drops',
+      options: ['red', 'blue'], opened_at: 'T1', closed_at: 'T2',
+      status: 'answered', answer: 'blue, because contrast', answered_by: 'alp',
+      answered_via: 'button', nudges: 0,
+    }]
+    try {
+      const { events } = await sse(port, 'session=curia-9')
+      const h = events.filter((e) => e.event === 'esc_history').at(-1)
+      assert.equal(h.data.length, 1)
+      const r = h.data[0]
+      assert.match(r.prompt, /second line/)
+      assert.deepEqual(r.options, ['red', 'blue'])
+      assert.equal(r.status, 'answered')
+      assert.equal(r.answer, 'blue, because contrast')
+      assert.equal(r.answered_by, 'alp')
+      assert.equal(r.answered_via, 'button')
+      assert.equal(r.closed_at, 'T2')
+    } finally {
+      escHistory = []
     }
   })
 

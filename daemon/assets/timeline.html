@@ -7,7 +7,7 @@
 <!-- The protocol handshake with the daemon (#74, the #70 stamp one layer up):
      the server refuses to serve or publish this page unless the proto here
      matches its own constant. Bump BOTH when the SSE/POST protocol changes. -->
-<meta name="curia-timeline" content="proto=2">
+<meta name="curia-timeline" content="proto=3">
 <title>curia timeline</title>
 <style>
   :root {
@@ -90,6 +90,16 @@
   .tool .brief { color: var(--fg); opacity: .85; }
   .tool .res { display: block; color: var(--dim); margin-top: .2rem; }
   .tool .res.err { color: var(--warn); }
+  /* full curia prose on a tool call — notify text is written FOR this reader
+     and must never clip to its first line (#108 item 1) */
+  .tool .full {
+    display: block; white-space: pre-wrap; margin-top: .25rem;
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  /* escalation history cards, interleaved with the transcript (#108 item 1):
+     the daemon's record keeps the full question, answer and who answered */
+  .item.esc { max-width: none; margin: .45rem 0; }
+  .esc .ans { white-space: pre-wrap; border-top: 1px solid var(--esc); margin-top: .35rem; padding-top: .35rem; }
   details > summary { cursor: pointer; color: var(--dim); font-size: .82rem; }
   .at { color: var(--dim); font-size: .72rem; margin-right: .35rem; }
   .note { color: var(--dim); font-size: .8rem; text-align: center; }
@@ -180,7 +190,15 @@ function render(it) {
   } else if (it.kind === 'tool') {
     el.innerHTML = `<span class="at">${fmt(it.at)}</span><span class="name"></span> <span class="brief"></span><span class="res"></span>`
     el.querySelector('.name').textContent = (it.name || '').replace('mcp__curia__', 'curia.')
-    el.querySelector('.brief').textContent = it.brief || ''
+    // full curia prose replaces the one-line brief (#108 item 1); ask_human
+    // stays a brief here — its escalation card below carries the full body
+    if (it.text && !/ask_human$/.test(it.name || '')) {
+      const full = document.createElement('span'); full.className = 'full'
+      full.textContent = it.text
+      el.querySelector('.brief').replaceWith(full)
+    } else {
+      el.querySelector('.brief').textContent = it.brief || ''
+    }
     if (it.id) byToolId.set(it.id, el)
   } else if (it.kind === 'result') {
     const target = byToolId.get(it.forId)
@@ -202,7 +220,64 @@ function render(it) {
 function add(items) {
   for (const it of items) {
     const el = render(it)
-    if (el) log.appendChild(el)
+    if (!el) continue
+    if (it.at) el.dataset.at = it.at
+    log.appendChild(el)
+  }
+  scroll()
+}
+
+// Insert an element among the items by timestamp — escalation cards arrive on
+// their own stream and must land where they happened, not at the tail.
+function insertByAt(el) {
+  const at = el.dataset.at
+  let ref = null
+  if (at) {
+    for (const child of log.children) {
+      if (child.dataset.at && child.dataset.at > at) { ref = child; break }
+    }
+  }
+  log.insertBefore(el, ref)
+}
+
+// The daemon's own escalation record, full fidelity (#108 item 1): question,
+// kind, options, answer, who answered. Cards update in place as records close.
+let lastHistory = []
+function upsertEscCards(list) {
+  lastHistory = list
+  for (const r of list) {
+    let el = document.getElementById('esc-h-' + r.id)
+    if (!el) {
+      el = document.createElement('div')
+      el.id = 'esc-h-' + r.id
+      el.className = 'item esc'
+      if (r.opened_at) el.dataset.at = r.opened_at
+      insertByAt(el)
+    }
+    el.innerHTML = ''
+    const kind = document.createElement('div'); kind.className = 'kind'
+    kind.textContent = `${r.status === 'open' ? '⏳' : '❓'} ${r.kind} (${r.id}) · asked ${fmt(r.opened_at)}`
+    const q = document.createElement('div'); q.className = 'q'; q.textContent = r.prompt || ''
+    el.append(kind, q)
+    if (r.options?.length) {
+      const o = document.createElement('div'); o.className = 'meta'
+      o.textContent = 'options: ' + r.options.join(' | ')
+      el.appendChild(o)
+    }
+    const ans = document.createElement('div')
+    if (r.status === 'answered') {
+      ans.className = 'ans'
+      const who = r.answered_by ? ` by ${r.answered_by}` : ''
+      const via = r.answered_via ? ` (${r.answered_via})` : ''
+      ans.textContent = `✔ answered${who}${via} ${fmt(r.closed_at)}: ${r.answer ?? ''}`
+    } else if (r.status === 'open') {
+      ans.className = 'meta'
+      ans.textContent = 'waiting on a human — answer on Discord'
+    } else {
+      ans.className = 'meta'
+      ans.textContent = `${r.status} ${fmt(r.closed_at)}`
+    }
+    el.appendChild(ans)
   }
   scroll()
 }
@@ -242,6 +317,8 @@ function connect() {
     log.innerHTML = ''; byToolId.clear()
     $('parse').className = ''; $('parse').textContent = ''
     $('file').textContent = (JSON.parse(e.data).file || '').split('/').pop() || 'no transcript yet'
+    // escalation history outlives a transcript rotation — replay the cards
+    if (lastHistory.length) upsertEscCards(lastHistory)
   })
   es.addEventListener('parse', (e) => {
     const d = JSON.parse(e.data)
@@ -257,6 +334,7 @@ function connect() {
       : ''
   })
   es.addEventListener('escalations', (e) => renderEscalations(JSON.parse(e.data)))
+  es.addEventListener('esc_history', (e) => upsertEscCards(JSON.parse(e.data)))
   es.addEventListener('clients', (e) => {
     const n = JSON.parse(e.data).clients
     $('clients').textContent = n > 1 ? `${n} devices watching` : '1 device'

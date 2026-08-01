@@ -51,7 +51,7 @@ export const DEFAULT_TIMELINE_INDEX = path.resolve(DIR, '..', 'assets', 'timelin
 // every request, and a mismatch refuses loudly rather than serving a surface
 // nobody agreed to. It also refuses an operator-pointed index that was never
 // written against this server at all.
-export const TIMELINE_PROTO = 2
+export const TIMELINE_PROTO = 3
 export const STAMP_NAME = 'curia-timeline'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -150,6 +150,9 @@ export class TimelineSurface {
       backendFor: (session) => detectBackend(this.#cfgDir(session)),
       // escalationsFor(session): open escalation records for this worker.
       escalationsFor: () => [],
+      // escalationHistoryFor(session): every escalation record for this
+      // worker, any status — the full-fidelity interleave (#108 item 1).
+      escalationHistoryFor: () => [],
       ...deps,
     }
     this.sessions = new Map() // name -> tail state
@@ -246,6 +249,7 @@ export class TimelineSurface {
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
         escalations: '[]', // last broadcast snapshot, serialized
+        escHistory: '[]', // last full-history snapshot, serialized (#108 item 1)
         dialog: null, // { hint } while a terminal dialog owns the pane (#75)
         dialogAt: 0, // last probe, for the throttle
         dialogProbing: false, // one in-flight capture at a time
@@ -362,6 +366,22 @@ export class TimelineSurface {
       s.escalations = snapshot
       this.#broadcast(s, 'escalations', open)
     }
+    // The full history, closed records included, from the daemon's own record
+    // (#108 item 1): the page interleaves these with the transcript tail, so
+    // an answered question keeps its full body, its answer and who gave it —
+    // the transcript's tool line is a clipped brief on both lanes.
+    const history = this.deps.escalationHistoryFor(name).map((r) => ({
+      id: r.id, kind: r.kind, prompt: r.prompt, options: r.options ?? null,
+      preview_url: r.preview_url ?? null, opened_at: r.opened_at,
+      closed_at: r.closed_at ?? null, status: r.status,
+      answer: r.answer ?? null, answered_by: r.answered_by ?? null,
+      answered_via: r.answered_via ?? null, nudges: r.nudges,
+    }))
+    const hsnap = JSON.stringify(history)
+    if (hsnap !== s.escHistory) {
+      s.escHistory = hsnap
+      this.#broadcast(s, 'esc_history', history)
+    }
   }
 
   // The composer veto's regex, resolved through the same backend probe #pump
@@ -477,6 +497,7 @@ export class TimelineSurface {
       if (s.parse) this.#send(res, 'parse', s.parse)
       if (s.dialog) this.#send(res, 'dialog', { up: true, hint: s.dialog.hint })
       this.#send(res, 'escalations', JSON.parse(s.escalations))
+      this.#send(res, 'esc_history', JSON.parse(s.escHistory))
       this.#pumpEscalations(session)
       this.#broadcast(s, 'clients', { clients: s.clients.size })
       // `once` closes the stream after the backlog — a page holding an open

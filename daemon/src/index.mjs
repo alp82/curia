@@ -388,6 +388,7 @@ const timeline = new TimelineSurface({
     // is scrollback, not a dialog.
     composerFor: (backend) => routingConfig.backends[backend]?.readyRe ?? null,
     escalationsFor: (session) => store.openEscalations().filter((r) => r.worker === session),
+    escalationHistoryFor: (session) => store.escalationsForWorker(session),
   },
 })
 dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's
