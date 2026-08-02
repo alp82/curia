@@ -73,6 +73,7 @@ const store = new EscalationStore(DATA)
 const statusLine = new StatusLine({
   post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
   edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
+  remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
   get: (id) => store.get(id),
   log,
 })
@@ -567,8 +568,8 @@ function buildMcpServer(worker, ticket) {
     'request_review',
     'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again.',
     {
-      summary: z.string().describe('What you did, in a few lines. The human reads this on a phone. Do not paste links: curia composes every one of them — pull request, preview, ticket — from its own records, and a link you write is not evidence.'),
-      charting: z.string().describe('CONCRETE map changes you propose: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
+      summary: z.string().describe('What you did — under ten SHORT lines, plain words. The human reads this on a phone and judges the diff itself through the links, so say what changed and stop: no methodology, no justifications, no restating the ticket. Do not paste links: curia composes every one of them — pull request, preview, ticket — from its own records, and a link you write is not evidence.'),
+      charting: z.string().describe('CONCRETE map changes you propose, as a numbered list — one line per change: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. Name each change; put full ticket bodies and long Decisions-so-far lines in the work you do AFTER approval, not here. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
     },
     async ({ summary, charting }, extra) => {
       const stopKeepAlive = startKeepAlive(extra, `${worker}/review`)

@@ -1,5 +1,8 @@
-// The per-worker status line (#108 item 8): one message per worker thread,
-// edited in place through daemon-witnessed states. Events are fed straight to
+// The per-worker status line (#108 item 8): one message per worker thread
+// through daemon-witnessed states. A state CHANGE repositions the line to the
+// thread bottom — delete + repost (#108 item 17) — because an edit-in-place
+// stays where the line was born, screens above where the operator reads. Only
+// the same-state elapsed refresh edits in place. Events are fed straight to
 // onEvent — the same records the store's append hook delivers live.
 
 import { test, describe, beforeEach } from 'node:test'
@@ -9,11 +12,12 @@ import { REVIEW_KIND } from '../src/lifecycle.mjs'
 import { CONFIRM_KIND } from '../src/store.mjs'
 
 describe('StatusLine', () => {
-  let posts, edits, records, line
+  let posts, edits, removals, records, line
 
   beforeEach(() => {
     posts = []
     edits = []
+    removals = []
     records = new Map()
     let n = 0
     line = new StatusLine({
@@ -25,6 +29,7 @@ describe('StatusLine', () => {
         edits.push({ ids, text })
         return true
       },
+      remove: async (ids) => { removals.push(ids.messageId) },
       get: (id) => records.get(id),
       log: () => {},
     })
@@ -32,7 +37,7 @@ describe('StatusLine', () => {
 
   const drain = () => Promise.all([...line.workers.values()].map((w) => w.chain))
 
-  test('the full lifecycle is ONE message, edited through every state', async () => {
+  test('every state change repositions: delete + repost at the bottom (#108 item 17)', async () => {
     line.onEvent({ type: 'worker_spawned', worker: 'curia-9', ticket: '9', model: 'opus' })
     line.onEvent({ type: 'worker_ready', worker: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
     records.set('esc-1', { id: 'esc-1', worker: 'curia-9', ticket: '9', kind: 'choice' })
@@ -45,17 +50,18 @@ describe('StatusLine', () => {
     line.onEvent({ type: 'worker_done', worker: 'curia-9' })
     await drain()
 
-    assert.equal(posts.length, 1, 'exactly one message posted')
-    assert.match(posts[0].text, /dispatched on \*\*opus\*\*/)
-    const texts = edits.map((e) => e.text)
-    assert.match(texts[0], /working on \*\*opus\*\*/)
-    assert.match(texts[1], /waiting on \*\*\[esc-1\]\*\* — Which shade of blue\?/)
-    assert.match(texts[2], /working/)
-    assert.match(texts[3], /awaiting review — \*\*\[esc-2\]\*\*/)
-    assert.match(texts[4], /executing approved writes/)
-    assert.match(texts[5], /result received \(\*\*resolved\*\*\)/)
+    const texts = posts.map((p) => p.text)
+    assert.equal(posts.length, 8, 'one post per state change')
+    assert.match(texts[0], /dispatched on \*\*opus\*\*/)
+    assert.match(texts[1], /working on \*\*opus\*\*/)
+    assert.match(texts[2], /waiting on \*\*\[esc-1\]\*\* — Which shade of blue\?/)
+    assert.match(texts[3], /working/)
+    assert.match(texts[4], /awaiting review — \*\*\[esc-2\]\*\*/)
+    assert.match(texts[5], /executing approved writes/)
+    assert.match(texts[6], /result received \(\*\*resolved\*\*\)/)
     assert.match(texts.at(-1), /🏁 .* done/)
-    for (const e of edits) assert.equal(e.ids.messageId, 'm1', 'every edit targets the one message')
+    assert.equal(edits.length, 0, 'a state change never edits in place')
+    assert.deepEqual(removals, ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'each repost deletes its predecessor — one live line at any moment')
   })
 
   test('a nudge refreshes the waiting line in place — no reminder message (#108 item 13)', async () => {
@@ -95,13 +101,15 @@ describe('StatusLine', () => {
     assert.match(posts[1].text, /working/)
   })
 
-  test('a respawn after done starts a fresh message; the old line stands as history', async () => {
+  test('a respawn after done starts a fresh message; the 🏁 line stands as history', async () => {
     line.onEvent({ type: 'worker_spawned', worker: 'curia-2', ticket: '2', model: 'opus' })
     line.onEvent({ type: 'worker_done', worker: 'curia-2' })
     line.onEvent({ type: 'worker_spawned', worker: 'curia-2', ticket: '2', model: 'sonnet' })
     await drain()
-    assert.equal(posts.length, 2)
-    assert.match(posts[1].text, /dispatched on \*\*sonnet\*\*/)
+    assert.equal(posts.length, 3)
+    assert.match(posts[1].text, /🏁 .* done/)
+    assert.match(posts[2].text, /dispatched on \*\*sonnet\*\*/)
+    assert.ok(!removals.includes('m2'), 'the done line of the finished run is never deleted')
   })
 
   test('a bridge that is down loses nothing: the next transition posts', async () => {

@@ -1,7 +1,9 @@
 // Per-worker live status line (#108 item 8, absorbing the Discord side of
-// items 2/3/13): one message per worker thread, edited in place through
-// daemon-witnessed states — dispatched → working → waiting on esc-N ("title",
-// elapsed) → awaiting review → executing approved writes → 🏁 done.
+// items 2/3/13): one message per worker thread through daemon-witnessed
+// states — dispatched → working → waiting on esc-N ("title", elapsed) →
+// awaiting review → executing approved writes → 🏁 done. A state change
+// repositions the message to the thread bottom (item 17); only the
+// elapsed-time refresh edits in place.
 //
 // Every transition is a journal event the daemon already writes, so this
 // module subscribes to the store's append hook rather than threading a
@@ -16,10 +18,12 @@ import { promptTitle, elapsedLabel } from './messaging.mjs'
 export class StatusLine {
   // post(ticket, text) -> {threadId, messageId} | null (bridge down)
   // edit(ids, text) -> boolean — false means the message is gone; repost
+  // remove(ids) — delete before a repositioning repost (#108 item 17)
   // get(id) -> escalation record (esc_* events carry only the id)
-  constructor({ post, edit, get, log = console.log }) {
+  constructor({ post, edit, remove = async () => {}, get, log = console.log }) {
     this.post = post
     this.edit = edit
+    this.remove = remove
     this.get = get
     this.log = log
     this.workers = new Map() // session -> { ticket, state, detail, ids, chain }
@@ -115,18 +119,28 @@ export class StatusLine {
     }
     // a respawn after done is a new run: leave the old line as history
     const fresh = state === 'dispatched' && w.state === 'done'
+    // #108 item 17: a state CHANGE repositions the line to the thread bottom
+    // (delete + repost) — an edit-in-place stays where the line was born,
+    // screens above where the operator reads. Same-state refreshes (the
+    // elapsed-time tick) keep editing in place.
+    const move = state !== w.state
     w.ticket = ticket ?? w.ticket
     w.state = state
     w.detail = detail
     const text = this.#text(session, state, detail)
-    w.chain = w.chain.then(() => this.#apply(w, text, fresh)).catch((e) => {
+    w.chain = w.chain.then(() => this.#apply(w, text, { fresh, move })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
     })
     return w.chain
   }
 
-  async #apply(w, text, fresh) {
-    if (fresh) w.ids = null // inside the chain, or a queued edit re-targets the old line
+  async #apply(w, text, { fresh, move }) {
+    if (fresh) {
+      w.ids = null // inside the chain, or a queued edit re-targets the old line
+    } else if (move && w.ids) {
+      await this.remove(w.ids)
+      w.ids = null
+    }
     if (w.ids && await this.edit(w.ids, text)) return
     w.ids = (await this.post(w.ticket, text)) ?? null
   }

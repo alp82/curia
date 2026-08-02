@@ -556,6 +556,17 @@ export class DiscordBridge {
     return true
   }
 
+  // A state TRANSITION repositions the line to the thread bottom (#108 item
+  // 17): an edited message stays where it was born — three screens above the
+  // silence it exists to cover. Deleting loses nothing; the journal holds the
+  // history and the thread's own messages tell the story.
+  async deleteStatus(ids) {
+    const thread = await this.client.channels.fetch(ids.threadId).catch(() => null)
+    if (!thread) return
+    const msg = await thread.messages.fetch(ids.messageId).catch(() => null)
+    if (msg) await msg.delete().catch(() => {})
+  }
+
   // Fire-and-forget status line into the ticket thread; files = outbound
   // images. `as` picks the speaker identity (#108 item 15): a worker's own
   // words post under its name; absent, the bot voice stands.

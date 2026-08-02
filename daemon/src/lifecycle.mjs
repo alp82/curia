@@ -53,9 +53,11 @@ export const ENDING = [
   {
     key: 'review',
     prose: () => [
-      'Call `request_review`: a summary of what you did, plus the charting you propose for the map. It',
-      'blocks until a human answers. A rejection comes back as their own words — make the changes, commit,',
-      'call `open_pull_request` again, then `request_review` again. The loop has no limit.',
+      'Call `request_review`: a summary of what you did, plus the charting you propose for the map. Keep',
+      'both SHORT — the human reads them on a phone and judges the work through the links, so a gate that',
+      'scrolls for screens hides its own approve button. It blocks until a human answers. A rejection comes',
+      'back as their own words — make the changes, commit, call `open_pull_request` again, then',
+      '`request_review` again. The loop has no limit.',
     ],
     todo: (s) => (s.reviewApproved
       ? null
