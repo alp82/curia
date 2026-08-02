@@ -94,15 +94,25 @@ it.
 
 ## Held back as proof, not claims
 
-These are evidence, and where they appear is decided in
-[Decide what proof of curia working goes on the page](https://github.com/alp82/curia/issues/114):
+Settled in [Decide what proof of curia working goes on the page](https://github.com/alp82/curia/issues/114).
+The proof brief is [`proof.md`](proof.md); what follows is what became of each item.
 
-- The rehearsal survived two daemon restarts inside one pass — one while a worker's question was
-  open, one while the review gate was open. Both recovered.
-- A question held open for almost eight hours resumed cleanly. Recorded in `README.md`; the proof
-  ticket verifies it against the journal before it goes on the page.
-- This page was charted, decided and written by curia itself: workers dispatched from a Discord
-  thread, grilling the operator, opening pull requests, and merging on approval.
+- **This page was charted, decided and written by curia itself** — workers dispatched from a Discord
+  thread, grilling the operator, opening pull requests, and merging on approval. **On the page**, as
+  a line pointing at the merged pull requests, each stamped by the daemon with its session and model.
+- **The rehearsal survived two daemon restarts inside one pass** — one while a worker's question was
+  open, one while the review gate was open. Both recovered. **Not on the page.** It stays where it is
+  above, backing claim 2.
+- **A question held open for almost eight hours resumed cleanly.** Recorded in
+  [`docs/live-checks/56-gateway-crash.md`](../live-checks/56-gateway-crash.md), not `README.md` as
+  this brief previously said. **Not on the page**, and not because it is untrue: the same file
+  records a `request_review` that dropped after about 4 hours 22 minutes in the same run, and the
+  journal no longer reaches 27 July, so neither figure can be re-verified. The pull-request trail
+  carries endurance instead.
+
+The page shows, besides those: **four frames of one real ticket** on a repo other than this one,
+captured by the operator on a phone, in a strip after the three claims; and **a dated stats line** a
+worker regenerates from GitHub and the journal. `proof.md` holds the detail.
 
 ## What the page is honest about
 
