@@ -95,8 +95,10 @@ describe('the worker skill set (#57)', () => {
     assert.equal(fs.readlinkSync(path.join(skillsDir, 'wayfinder')), path.join(root, 'wayfinder'))
     assert.equal(fs.readFileSync(path.join(skillsDir, 'wayfinder', 'SKILL.md'), 'utf8'), '# wayfinder\n')
 
-    // the bound: one read-only skills directory and NOTHING else from the host
-    assert.deepEqual(fs.readdirSync(cfgDir).sort(), ['.claude.json', 'settings.json', 'skills'])
+    // the bound: one read-only skills directory, the curia-owned voice file
+    // (#133 — the one deliberate narrowing), and NOTHING else from the host
+    assert.deepEqual(fs.readdirSync(cfgDir).sort(), ['.claude.json', 'CLAUDE.md', 'settings.json', 'skills'])
+    assert.match(fs.readFileSync(path.join(cfgDir, 'CLAUDE.md'), 'utf8'), /Simplified Technical English/)
   })
 
   test('no skills configured installs none — the seam every test double takes', () => {

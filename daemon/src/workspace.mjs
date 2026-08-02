@@ -13,8 +13,16 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
 import { endingProse } from './lifecycle.mjs'
+
+// The mandatory communication rules (#133): a curia-owned copy of the
+// operator's STE writing standard, seeded into every config dir as the CLI's
+// global-memory file so the overseer and every worker load it. Committed in
+// the repo, not read from the operator's dotfiles — the box does not carry
+// those, and committed config is versioned.
+const VOICE_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'voice.md')
 
 // Local git plumbing is fast; a fetch over the network is not, and a clone is
 // slower still — but all three still need a ceiling so a wedged child can
@@ -535,10 +543,15 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude')
   // failure. The codex seed then puts its symlink back.
   removeCredentials(cfgDir)
   h.seed(cfgDir, wtPath)
-  // One read-only directory, and nothing else from the host: no CLAUDE.md, no
-  // allowlist, no MCP connectors, no saved permission mode (#23/#29). Both
-  // CLIs read `<config dir>/skills/<name>/SKILL.md`, so #57's install is
-  // backend-blind — a curia skill loaded and ran under codex unchanged.
+  // The one deliberate narrowing of the no-host-config stance below (#133):
+  // the operator's communication rules are mandatory for every agent, so a
+  // curia-owned copy lands as the CLI's global-memory file. `CLAUDE.md` for
+  // the claude lane, `AGENTS.md` for codex — each CLI's own name for it.
+  fs.copyFileSync(VOICE_FILE, path.join(cfgDir, backend === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'))
+  // One read-only directory, and nothing else from the host: no allowlist, no
+  // MCP connectors, no saved permission mode (#23/#29). Both CLIs read
+  // `<config dir>/skills/<name>/SKILL.md`, so #57's install is backend-blind —
+  // a curia skill loaded and ran under codex unchanged.
   installSkills(cfgDir, skills)
 }
 

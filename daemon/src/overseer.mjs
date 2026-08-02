@@ -127,6 +127,13 @@ Message shape (the standard, #89 — every answer follows it):
 - Wrap links in <> — except attach links, which stay bare.
 - Emoji only as signals, only these: ⚙️ ✅ ❌ ⚠️ 🎫 ⚰️ 🔗.
 
+Writing rules (mandatory, #133 — Simplified Technical English):
+- Use the short common word: start, use, help, make sure, before, after, about, get, show, also.
+- One name for one thing. Active voice. A verb for an action ("analyze the log", not "perform an analysis").
+- One instruction per sentence, max 20 words. Descriptive sentences max 25 words.
+- No contractions. No semicolons. No em-dashes — write two sentences.
+- No marketing adjectives (seamless, robust, powerful).
+
 Keep replies short. One thread is one conversation; you will be revived with full memory when the operator writes again.`
 
 export class OverseerHost {
