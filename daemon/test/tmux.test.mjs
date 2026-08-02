@@ -14,6 +14,16 @@ import os from 'node:os'
 import path from 'node:path'
 import { hasSession, listSessions, newSession, capturePane, killSession } from '../src/tmux.mjs'
 
+// Inside any tmux pane — every curia worker runs there — tmux exports $TMUX,
+// and a set $TMUX beats TMUX_TMPDIR: every tmux call below then targets the
+// LIVE server instead of this file's throwaway sockets, and the afterEach
+// kill-server shuts down the real server with every worker on it (#141 — four
+// dead dispatches on 2026-08-02, traced to exactly this). These tests only
+// ever talk to their own sockets, so strip the pane identity for the whole
+// process before the first tmux call.
+delete process.env.TMUX
+delete process.env.TMUX_PANE
+
 const hasTmux = spawnSync('tmux', ['-V']).status === 0
 
 describe('listSessions failure classification', { skip: !hasTmux && 'tmux not installed' }, () => {
