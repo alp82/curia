@@ -77,9 +77,15 @@ if they ever change, that page is the source of truth, not this one.
 to 2026-10-31 and renewed automatically. The setting stays greyed out until that certificate exists,
 which is why it is the last step rather than part of the same visit to the settings page.
 
-Enforcement does not take effect the moment it is ticked — the plain-HTTP edge keeps answering 200
-for a few minutes before it starts 301ing. A `http://curia.sh` that has not flipped yet is a stale
-edge, not a failed setting; check `https_enforced` on the API before believing otherwise.
+**Enforcement lags the setting.** With `https_enforced: true` on the API, all four edges still
+answered plain `http://curia.sh` with a 200 rather than a 301 — checked repeatedly over the ten
+minutes after it was ticked, and against each of the four addresses directly. `http://www.curia.sh`
+301s correctly in the same window, because the `www`-to-apex redirect is a different mechanism from
+the HTTP-to-HTTPS one.
+
+This is propagation, not a broken setting. The API is the authority on whether enforcement is on;
+the edge catches up on its own. If plain HTTP is still serving 200 a day later, that is worth
+chasing — before then it is not.
 
 ## Verifying it
 
@@ -93,9 +99,10 @@ dig +short A curia.sh                       # the four 185.199.x.153 addresses
 gh api repos/alp82/curia/pages --jq '{cname,status,https_enforced,source}'
 ```
 
-Checked 2026-08-02, all passing: `https://curia.sh/` serves 200; `www.curia.sh` and
-`alp82.github.io/curia` both 301 to the apex; the API reports `status: built`, `cname: curia.sh`,
-source `main` `/docs`, `https_enforced: true`.
+Checked 2026-08-02: `https://curia.sh/` serves 200; `www.curia.sh` and `alp82.github.io/curia` both
+301 to the apex; the API reports `status: built`, `cname: curia.sh`, source `main` `/docs`,
+`https_enforced: true`. The one line not yet true at that moment is the plain-HTTP apex redirect —
+see the note above.
 
 A fresh push to `main` takes about a minute to appear. If the site 404s after a push, check that
 `docs/.nojekyll` and `docs/index.html` are both still in the tree — those two files are the whole
