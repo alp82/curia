@@ -31,13 +31,14 @@ The layout:
 
 ```
 docs/
-  index.html      the page — alp82.github.io/curia/
+  index.html      the page — https://curia.sh/
   .nojekyll       serve the tree as-is, no Jekyll build
+  CNAME           the custom domain, written by GitHub when it was set in repo settings
   adr/ agents/ research/ live-checks/ deploy.md   the repo's own docs, unchanged
 ```
 
 **Known and accepted: everything under `docs/` becomes part of the site.** `docs/adr/0001-....md`
-is reachable at `alp82.github.io/curia/adr/0001-....md` as raw markdown. The repo is public, so
+is reachable at `https://curia.sh/adr/0001-....md` as raw markdown. The repo is public, so
 those files were already readable on GitHub — Pages changes the URL they answer on, not who can read
 them. Nothing secret lives here. Anything that must not be published does not go in `docs/`.
 
@@ -97,8 +98,9 @@ Agreement is on framing — who curia is for, what state it is in. Not on wordin
 ## What this hands the next tickets
 
 - [Provision GitHub Pages and fix the public URL](https://github.com/alp82/curia/issues/113):
-  the source is branch `main`, folder `/docs`. The URL question and HTTPS enforcement are still that
-  ticket's to answer.
+  **answered** — the site is live at `https://curia.sh`, served from branch `main` folder `/docs`,
+  with HTTPS enforced. The URL, the DNS records and how to verify them are in
+  [`pages.md`](pages.md).
 - [Prototype the landing page](https://github.com/alp82/curia/issues/115) and every later build
   ticket: write `docs/index.html` and any CSS beside it, preview with the command above.
 
