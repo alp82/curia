@@ -4,9 +4,8 @@ The always-on daemon from map decision [#9](https://github.com/alp82/curia/issue
 
 ## Setup
 
-This section is the operator's box. For a setup path on **your own** machine — generic paths, the
-Discord bot from scratch, and what is hard about it today — read
-[`docs/self-hosting.md`](../docs/self-hosting.md).
+This section is the operator's box. To set curia up on your own machine, read the
+[root README](../README.md).
 
 The daemon expects these on the box before the first boot:
 

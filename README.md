@@ -1,39 +1,200 @@
 # Curia
 
-Curia is a personal orchestration daemon. It watches GitHub issue trackers, dispatches AI coding agents on tickets, and keeps the human in the loop from any device, a phone included.
+**Many repos, one queue, driven from a phone.**
 
-## The problem
-
-Coding agents can now work alone for an hour. The human is still the bottleneck, but the bottleneck moved. It is no longer typing code. It is presence: answering the one question that blocks a worker, judging a preview, approving a merge. Each of those moments takes a minute. Each of them normally demands a desk and a terminal, so the whole pipeline waits until you are back at one.
-
-Curia removes the desk. The tracker holds the work. A daemon watches the tracker, sends workers, and routes every human moment to wherever you are.
-
-## The shape
-
-Five ideas carry the design.
-
-1. **The tracker is the only brain.** GitHub issues hold every ticket, claim, decision, and dependency edge. The daemon owns no authoritative state. It can die at any moment and re-derive everything from GitHub, tmux, and an append-only journal.
-2. **Dispatch is a rule, not a model.** A routing table maps ticket labels to models. No intelligence sits in the dispatch path, so dispatch is cheap, predictable, and auditable.
-3. **Workers are disposable, questions are durable.** A worker is one agent CLI process in one git worktree. If the box reboots, curia re-dispatches. An open question to the human is a durable record that survives crashes and waits for hours.
-4. **Resolved means merged.** A worker cannot finish by talking. It opens a pull request, publishes a live preview, and asks one gate question: is this done? A rejection loops the human's own words back into new commits on the same pull request. An approval merges. Only then does the ticket close and the map update.
-5. **Any device is a full seat.** Discord carries commands and questions. Two attach surfaces carry live sessions. Previews carry results. Everything travels over a private tailnet, and everything works on a phone.
+Curia watches your GitHub issues, sends a coding agent at the ones that are ready, and brings
+everything that needs you — a question, a preview, an approval — to whatever device you are holding.
+Your box, your subscription, your repos.
 
 ## What it does
 
-- **Frontier awareness.** Curia reads what is takeable across watched repos, in dependency order, straight from GitHub.
-- **One-command dispatch.** `start` claims the ticket, cuts a worktree, picks the model by rule, and spawns a worker that runs the same skills a hand session runs.
-- **Blocking escalations.** A worker asks a human over a Discord thread and stays blocked until the answer arrives: buttons for choices, replies for free text, images in both directions. A question held open for almost eight hours has resumed cleanly.
-- **Merge-gated endings.** Commit, pull request, preview, review gate, merge, resolution, map update. A stop hook refuses a worker that tries to stop early.
-- **Live previews.** A worker's dev server becomes a per-ticket HTTPS link on the tailnet, so the result is judged on your screen, not described.
-- **Two attach surfaces.** A timeline that a phone and a desktop can drive at the same time, each at its own width, and a raw terminal for the TUI itself.
-- **Two backends.** Claude Code and Codex CLI workers run under one contract: same tools, same stop hook, same ending.
+- Reads what is takeable across every watched repo, in dependency order.
+- Sends a worker with one command: claims the issue, cuts a worktree, picks the model by label.
+- Runs each worker in its own tmux session and git worktree. Six at once fits in 8 GB.
+- Asks you questions in Discord and waits. Buttons, text, and images both ways.
+- Publishes a worker's dev server as an HTTPS link on your tailnet, so you see the result.
+- Puts a live worker's terminal in your browser, phone or desktop, at the same time.
+- Ends every ticket the same way: commit, pull request, preview, your approval, merge.
+- Survives restarts. GitHub holds the truth and the daemon rebuilds the rest.
+- Runs Claude Code or Codex CLI under one contract.
 
-## What runs where
+## Where it stands
 
-One box runs a single Node daemon plus tmux. The daemon carries the Discord bridge, the command router, the escalation store, and the dispatch loop. Workers are agent CLI processes in per-ticket git worktrees. A shared ttyd serves the terminal, and the daemon serves the timeline. Tailscale Serve publishes both, plus every preview. GitHub stores the truth. Phones, laptops, and PCs are pure clients.
+- Proof of concept. First commit 2026-07-21. One person runs it.
+- Setup is manual and takes an evening. It gets simpler. There is no package yet.
+- Tailscale and Discord are required. There is no web UI.
+- Attach and preview links are open to anything on your tailnet.
+- Workers use your agent login, so a worker can do what you can do with it.
 
-## Status
+# Setup
 
-Curia is a proof of concept, and it works. A scripted rehearsal proved the full loop end to end on real repos: a phone command dispatched a worker, the worker escalated, a preview opened on the phone, a rejection looped into new commits, an approval merged, and the map updated. Since then the overseer moved into the daemon: every `#curia` thread is a persistent agent session that turns prose into the verb catalogue, and a second full-loop rehearsal (`docs/live-checks/96-overseer-rehearsal.md`) verified the build with two daemon restarts inside the pass. The decision record lives in this repo's issue tracker and is distilled into `docs/adr/`. Agents get their vocabulary from `CONTEXT.md`.
+## 1. The box
 
-Curia is not packaged for reuse. It runs on one person's box, accounts, and conventions, and several of them are baked in. `docs/self-hosting.md` is the setup path for your own machine, honest about the manual parts; `daemon/README.md` and `docs/deploy.md` describe the operator's box. Read the code, the ADRs, and the research notes as a record of decisions.
+Linux, always on. Node 22 or newer, tmux, ttyd, Tailscale. About 0.5 GB per running worker.
+
+## 2. Tailscale
+
+Install it on the box and on your phone. Turn on HTTPS certificates for your tailnet in the admin
+console. Then let the daemon publish links without root:
+
+```
+tailscale set --operator=$USER
+```
+
+Every attach and preview link is a Tailscale link. Skip this and none of them work.
+
+## 3. GitHub
+
+```
+gh auth login
+gh auth setup-git
+```
+
+The account needs write access to every repo you watch.
+
+## 4. Your agent CLI
+
+Log in as the user that runs the daemon:
+
+```
+claude
+```
+
+Workers use this login. Log out and every worker fails.
+
+Codex CLI is optional. Install it only if you want the `gpt` lane in `config/routing.yaml`.
+
+## 5. The Discord bot
+
+1. Create an application at <https://discord.com/developers/applications>.
+2. Open **Bot**, add a bot, copy the token. Discord shows it once.
+3. Turn on **MESSAGE CONTENT INTENT**. Without it your replies arrive empty and no question is ever
+   answered.
+4. Open **OAuth2 → URL Generator**. Scopes: `bot`, `applications.commands`. Permissions: Manage
+   Channels, Manage Webhooks, Send Messages, Create Public Threads, Send Messages in Threads, Read
+   Message History, Embed Links, Attach Files.
+5. Open the generated URL and add the bot to your server.
+6. Turn on Developer Mode in Discord, right-click your name, Copy User ID.
+
+The bot creates the `#curia` channel itself on its first boot.
+
+## 6. The code
+
+```
+git clone https://github.com/alp82/curia.git
+cd curia/daemon
+npm install
+```
+
+## 7. `daemon/.env`
+
+```
+DISCORD_BOT_TOKEN=<the bot token>
+DISCORD_ALLOWED_USERS=<your Discord user id>
+TTYD_BIN=/home/<you>/.local/bin/ttyd
+```
+
+- `DISCORD_ALLOWED_USERS` is the whole access check. Everyone on it can send agents at your repos.
+- **Set `TTYD_BIN`.** It defaults to `/home/alp/.local/bin/ttyd`. Leave it and attach is dead.
+
+Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271), `NUDGE_MS` (30 min),
+`OVERSEER_MODEL`, `OVERSEER_FALLBACK_MODEL`.
+
+Run one daemon per bot token.
+
+## 8. `config/curia.yaml`
+
+Change two things:
+
+```yaml
+watch:
+  - repo: you/your-repo
+
+dispatch:
+  workspace_root: /home/<you>/curia-work
+```
+
+`workspace_root` is where curia keeps its own clones and worktrees. It ships as `/home/alp/curia-work`.
+Do not point it at a checkout you work in.
+
+`auto_dispatch` is `false`, so nothing starts without you. The ports work as they ship; the daemon
+checks them at boot and names any clash.
+
+## 9. The skills
+
+The nine skills in `skills.install` are not in this repo. They come from the public
+`mattpocock/skills` collection, installed into `~/.claude/skills`. The daemon refuses to boot if one
+of them is missing, and names the path it looked for.
+
+Pick one:
+
+- Install them.
+- Cut the list down to the ones you have.
+- Turn them off with an empty list — not a missing key:
+
+  ```yaml
+  skills:
+    install: []
+  ```
+
+## 10. `config/routing.yaml`
+
+Maps a ticket label to a model, and a model to a CLI. If you did not install Codex, delete the `gpt`
+model, the `codex` backend, and every `gpt` under `defaults` and `fallbacks`.
+
+## 11. The repos you watch
+
+- **Flat**: label an issue `ready-for-agent`. Curia takes open, unassigned, unblocked issues.
+- **Map**: the repo needs a `wayfinder:map` issue with child issues, and a
+  `docs/agents/issue-tracker.md` file. Dispatch refuses without that file.
+
+Blocking uses GitHub's own issue dependencies.
+
+## 12. Run it
+
+```
+cd daemon
+npm start
+```
+
+A good boot logs `[bridge] ready: guild=<your guild> channel=#curia`.
+
+Test it: send a normal message in `#curia`. A thread opens and answers you.
+
+Then use the commands, as Discord slash commands or as plain English in a thread:
+
+- `tickets` — what is takeable
+- `start <n>` — send a worker
+- `status` — who is running
+- `attach <n>` — that worker's terminal in your browser
+- `resume <n>` / `cancel <n>`
+
+## 13. Keep it running
+
+`deploy/curia.service` is a systemd unit. Replace the user and the paths. Keep the `PATH=` line:
+systemd's default path does not find `gh`, `tmux`, `tailscale` or `ttyd` under `~/.local/bin`.
+
+Restarting is safe. `daemon/data/events.jsonl` is the record; everything else is rebuilt from GitHub,
+tmux and Tailscale on boot. Open questions keep their Discord buttons across a restart.
+
+## If it does not start
+
+| Message | Fix |
+| --- | --- |
+| `bad config config/curia.yaml: ...` | The key it names. Config is checked before anything starts. |
+| `skills.install names "x", but ... does not exist` | Step 9. |
+| `preview range ... contains attach.serve_port` | Move one of the ports. |
+| `attach index ... does not exist`, or a stamp mismatch | `npm run build-attach-index --prefix daemon` |
+| `bot is in no guild` | The invite did not finish, or `CURIA_GUILD_ID` is wrong. |
+| The bridge refuses to start | `DISCORD_ALLOWED_USERS` is empty. |
+| Replies in a thread do nothing | The message content intent is off. |
+| `spawned ttyd ... but no listener came up` | `TTYD_BIN` points at nothing. |
+| Attach and preview links never appear | Tailscale HTTPS certificates are off, or `--operator` was never set. |
+
+Logs are the daemon's output. Under systemd: `journalctl -u curia -f`.
+
+## Where things are
+
+- `CONTEXT.md` — the words curia uses.
+- `docs/adr/` — the decisions behind the design.
+- `daemon/README.md` and `docs/deploy.md` — the operator's own box, not yours.
