@@ -482,21 +482,34 @@ export class DiscordBridge {
   // Render an escalation into its ticket thread; returns discord ids for the record.
   async renderEscalation(record, { files = [] } = {}) {
     const thread = await this.#threadFor(record)
+    const rows = this.#buttons(record)
+    // Surface buttons (#108 item 22, generalizing #118 item 4): preview,
+    // timeline and terminal ride EVERY question as link buttons, so the live
+    // preview is always at the bottom where the operator reads — never a
+    // scroll-back hunt. Each link fails soft and independently; a message can
+    // hold five rows, and the answer buttons always win the space.
+    if (rows.length < 5) {
+      const links = await this.#surfaceLinks(record)
+      rows.push(...DiscordBridge.linkRow(links))
+    }
     const msg = await this.#sendChunked(thread, {
-      content: await this.#escalationContent(record),
-      components: this.#buttons(record),
+      content: this.#escalationBody(record),
+      components: rows,
       files,
     })
     return { channelId: this.channel.id, threadId: thread.id, messageId: msg.id }
   }
 
-  // Body plus the timeline link (#118 item 4): the full-story surface rides
-  // every question, the way /attach already hands it out. Fail-soft — a dead
-  // session or an absent seam just leaves the line off.
-  async #escalationContent(record) {
-    const body = this.#escalationBody(record)
-    const url = await Promise.resolve(this.handlers.timelineLink?.(record.ticket)).catch(() => null)
-    return url ? `${body}\n${smallPrint(`🔗 timeline ${url}`)}` : body
+  async #surfaceLinks(record) {
+    const get = (fn) => Promise.resolve(fn?.(record.ticket)).catch(() => null)
+    const preview = record.preview_url ?? await get(this.handlers.previewUrl)
+    const timeline = await get(this.handlers.timelineLink)
+    const terminal = await get(this.handlers.terminalLink)
+    return [
+      preview && { label: '🔗 preview', url: preview },
+      timeline && { label: 'timeline', url: timeline },
+      terminal && { label: 'terminal', url: terminal },
+    ].filter(Boolean)
   }
 
   async #editEscalationMessage(record, suffix) {
@@ -567,16 +580,32 @@ export class DiscordBridge {
     if (msg) await msg.delete().catch(() => {})
   }
 
+  // Link buttons (#108 item 22): preview, timeline and terminal ride messages
+  // as tappable buttons instead of prose URLs. Link-style buttons are still
+  // components, so they share the webhook constraint above — bot-posted
+  // messages only.
+  static linkRow(links) {
+    if (!links?.length) return []
+    const row = new ActionRowBuilder()
+    for (const l of links.slice(0, 5)) {
+      row.addComponents(new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel(l.label.slice(0, 80)).setURL(l.url))
+    }
+    return [row]
+  }
+
   // Fire-and-forget status line into the ticket thread; files = outbound
   // images. `as` picks the speaker identity (#108 item 15): a worker's own
-  // words post under its name; absent, the bot voice stands.
-  async notify(ticket, message, { files = [], as = null } = {}) {
+  // words post under its name; absent, the bot voice stands. `links` become
+  // buttons — bot voice only (see linkRow), so a worker-voice send with links
+  // appends them as plain lines instead of dropping them.
+  async notify(ticket, message, { files = [], as = null, links = [] } = {}) {
     const thread = await this.ensureThread(ticket)
     if (as) {
-      await this.#sendAs(as, thread, { content: message, files })
+      const tail = links.length ? `\n${links.map((l) => `🔗 ${l.label} ${l.url}`).join('\n')}` : ''
+      await this.#sendAs(as, thread, { content: `${message}${tail}`, files })
       return
     }
-    await this.#sendChunked(thread, { content: message, files })
+    await this.#sendChunked(thread, { content: message, files, components: DiscordBridge.linkRow(links) })
   }
 
   // Attachment names come from Discord, i.e. from outside — path.join with a

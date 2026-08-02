@@ -219,9 +219,12 @@ const gate = {
     }
     return null
   },
-  // #118 item 4: the timeline link escalation messages carry. Throws on a dead
-  // session; the bridge fails soft and leaves the line off.
+  // #118 item 4 / #108 item 22: the surface links escalation messages carry as
+  // buttons. Each throws or returns null on a dead surface; the bridge fails
+  // soft per button.
   timelineLink: (ticket) => attachApi.timelineLink(ticket),
+  terminalLink: (ticket) => attachApi.link(ticket),
+  previewUrl: (ticket) => previews.get(String(ticket))?.url ?? null,
   // #108 item 14, positive half: text in a worker-bound thread outside an open
   // escalation queues for the worker instead of being refused. Returns null
   // when no worker owns the thread — the bridge falls back to the overseer.
@@ -236,8 +239,8 @@ const gate = {
 
 // ---- dispatch loop (#33) ----------------------------------------------------
 
-function notifyThread(ticket, message) {
-  if (bridge) bridge.notify(ticket, message).catch((e) => log(`notify ticket-${ticket} failed:`, e.message))
+function notifyThread(ticket, message, opts = {}) {
+  if (bridge) bridge.notify(ticket, message, opts).catch((e) => log(`notify ticket-${ticket} failed:`, e.message))
   else log(`[notify ticket-${ticket}] ${message}`)
 }
 
@@ -318,13 +321,14 @@ const dispatcher = new Dispatcher({
   // POST /command inside the listen→boot-reconcile window has a live one) and
   // mark the Discord buttons.
   cancelEscalation: (id, opts) => gate.cancel(id, opts),
-  // #118 item 7: the ready message carries both attach handles, composed the
-  // same way /attach composes them — each half failing independently.
+  // #118 item 7 / #108 item 22: the ready message carries both attach handles
+  // as link BUTTONS, composed the same way /attach composes them — each half
+  // failing independently.
   attachLinks: async (ticket) => {
-    const lines = []
-    try { lines.push(`🔗 timeline ${await attachApi.timelineLink(ticket)}`) } catch { /* half missing is fine */ }
-    try { lines.push(`🔗 terminal ${await attachApi.link(ticket)}`) } catch { /* half missing is fine */ }
-    return lines.length ? lines.join('\n') : null
+    const links = []
+    try { links.push({ label: 'timeline', url: await attachApi.timelineLink(ticket) }) } catch { /* half missing is fine */ }
+    try { links.push({ label: 'terminal', url: await attachApi.link(ticket) }) } catch { /* half missing is fine */ }
+    return links.length ? links : null
   },
   log,
   cooling: new Cooling(),
@@ -537,7 +541,16 @@ function buildMcpServer(worker, ticket) {
         ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,
       })
       if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }, ...drainNotes()] }
-      if (bridge) bridge.notify(ticket, `🔗 preview: <${r.url}> (dev server on :${dev_port})`, { as: speaker() }).catch(() => {})
+      // #108 item 22: the preview is a BUTTON, and every publish posts a fresh
+      // message, so an updated preview lands at the thread bottom instead of a
+      // scroll-back hunt. Bot voice on purpose: link buttons are components,
+      // which the speaker webhook cannot carry — and the composed link is
+      // curia's record, not the worker's prose.
+      if (bridge) {
+        bridge.notify(ticket, `🔗 \`${worker}\` ${r.reused ? 'updated the' : 'published a'} preview (dev server on :${dev_port})`, {
+          links: [{ label: '🔗 open preview', url: r.url }],
+        }).catch(() => {})
+      }
       return { content: [{ type: 'text', text: r.url }, ...drainNotes()] }
     },
   )

@@ -148,7 +148,7 @@ export class Dispatcher {
     // Preview registry (#40) — optional so tests and any preview-less
     // deployment construct a Dispatcher unchanged. Every call site guards.
     this.previews = previews ?? null
-    // attachLinks(ticket) → multi-line "🔗 timeline …\n🔗 terminal …" (#118
+    // attachLinks(ticket) → [{label, url}, …] link buttons (#118
     // item 7): the ready message hands out both links by default, so nobody
     // types /attach to see what just started. Optional; absent, the ready
     // message falls back to naming the verb.
@@ -625,13 +625,14 @@ export class Dispatcher {
       if (readyRe.test(tail)) {
         worker.state = 'ready'
         this.store.logEvent('worker_ready', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: worker.model })
-        // #118 item 7: both links land with readiness — /attach stays as the
-        // retrieve-later verb. Fail-soft: a link that cannot compose right now
-        // (surface still asserting) falls back to naming the verb.
+        // #118 item 7 / #108 item 22: both links land with readiness as
+        // buttons — /attach stays as the retrieve-later verb. Fail-soft: a
+        // link that cannot compose right now (surface still asserting) falls
+        // back to naming the verb.
         const links = this.attachLinks
           ? await Promise.resolve(this.attachLinks(worker.ticket)).catch(() => null)
           : null
-        this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${worker.model}**${links ? `\n${links}` : ` — \`/attach ${worker.ticket}\` to watch`}`)
+        this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${worker.model}**${links ? '' : ` — \`/attach ${worker.ticket}\` to watch`}`, links ? { links } : {})
         return
       }
     }
