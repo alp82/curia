@@ -1,5 +1,8 @@
 # Deployment: the Hetzner box
 
+This file records one specific machine. To run curia on your own, read
+[`self-hosting.md`](self-hosting.md) instead.
+
 Curia runs as a systemd service on `coinmatica.net`, a Hetzner Cloud box (Ubuntu 20.04, 30 GB RAM). The box also runs the coinmatica Docker stack. Curia stays inside the `alp` user and its own systemd unit. Ticket: [#101](https://github.com/alp82/curia/issues/101).
 
 ## Layout on the box
