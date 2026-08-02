@@ -25,13 +25,6 @@
 // hand-rolled ask_human.
 export const REVIEW_KIND = 'review-gate'
 
-// What a human is shown when the gate opens. Capped because Discord refuses a
-// message over 2000 characters, and the durable record must hold what was
-// actually shown rather than what was meant to be. The budget is the cap plus
-// the bridge's own wrapper (a heading and the approve/reject instruction), which
-// is why it is well under 2000 rather than just under it.
-const GATE_LIMIT = 1600
-
 export const ENDING = [
   {
     key: 'commit',
@@ -156,12 +149,12 @@ export function reviewGateText({ repo, ticket, title, summary, charting, links }
     '**Look at**',
     ...links.map((l) => `- ${l}`),
   ]
-  const text = parts.join('\n')
-  if (text.length <= GATE_LIMIT) return { text, truncated: false }
-  return {
-    text: `${text.slice(0, GATE_LIMIT)}\n…(cut: this did not fit in one Discord message)`,
-    truncated: true,
-  }
+  // No length cap (#108 item 16 follow-through): the pre-#119 self-truncation
+  // cut exactly the charting the gate exists to judge. The bridge chunks long
+  // messages at paragraph boundaries now, buttons on the last chunk — so the
+  // gate hands over the whole payload and the durable record matches what the
+  // human was shown, in full.
+  return { text: parts.join('\n') }
 }
 
 // Approval is a narrow set on purpose. The ✅ button sends the literal

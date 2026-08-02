@@ -96,8 +96,7 @@ describe('the review gate payload', () => {
   }
 
   test('it carries the question, both worker statements, and every link', () => {
-    const { text, truncated } = reviewGateText(base)
-    assert.equal(truncated, false)
+    const { text } = reviewGateText(base)
     assert.match(text, /\*\*Is o\/r#42 done\?\*\* — a ticket/)
     assert.match(text, /did the thing/)
     assert.match(text, /remove the fog line about X/)
@@ -110,11 +109,10 @@ describe('the review gate payload', () => {
     assert.equal(text.match(/\(nothing said\)/g).length, 2)
   })
 
-  test('an over-long payload is cut, and the cut is reported so the worker can re-ask shorter', () => {
-    const { text, truncated } = reviewGateText({ ...base, charting: 'x'.repeat(4000) })
-    assert.equal(truncated, true)
-    assert.ok(text.length < 2000, 'Discord refuses a message over 2000 characters')
-    assert.match(text, /did not fit in one Discord message/)
+  test('an over-long payload is handed over whole — the bridge chunks it (#119)', () => {
+    const { text } = reviewGateText({ ...base, charting: 'x'.repeat(4000) })
+    assert.ok(text.includes('x'.repeat(4000)), 'nothing may be cut from the charting the gate exists to judge')
+    assert.doesNotMatch(text, /did not fit/)
   })
 })
 

@@ -837,10 +837,10 @@ export class Dispatcher {
     const preview = this.previews?.get(ticket)
     if (preview?.url) links.push(`Preview: ${preview.url}`)
 
-    const { text, truncated } = reviewGateText({ repo, ticket, title, summary, charting, links })
+    const { text } = reviewGateText({ repo, ticket, title, summary, charting, links })
     this.store.logEvent('review_requested', {
       repo, ticket, worker: workerName, pr: pr?.url ?? w?.prUrl ?? null,
-      preview: preview?.url ?? null, truncated,
+      preview: preview?.url ?? null,
     })
     if (w) w.state = 'awaiting-review'
     const { text: answer, status } = await this.askReview(workerName, ticket, text)
@@ -856,7 +856,7 @@ export class Dispatcher {
       return {
         ok: true,
         approved: true,
-        text: `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.${truncated ? '\n(note: your gate text was too long for one Discord message and was cut — keep the next one shorter)' : ''}`,
+        text: `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.`,
       }
     }
     return {
