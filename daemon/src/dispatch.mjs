@@ -22,7 +22,7 @@ import {
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch,
 } from './github.mjs'
-import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, carriesLimitPhrase, Cooling } from './routing.mjs'
+import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, Cooling } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
 import {
   ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
@@ -600,7 +600,11 @@ export class Dispatcher {
       // must no more forge readiness than "usage limit reached" may forge a
       // cap hit. The composer marker is a bottom-of-pane signal anyway.
       const tail = paneTail(pane)
-      const limit = parseUsageLimit(tail, worker.provider)
+      // The credit-gate parse rides beside the limit parse (#126): the dialog
+      // holds the pane while the status footer still renders under it, so
+      // checking it HERE — before the ready marker — is what stops a modal-
+      // blocked spawn from reading as a healthy worker (#108 item 12).
+      const limit = parseUsageLimit(tail, worker.provider) ?? parseCreditGate(tail, worker.provider)
       if (limit && worker.promptCarriesLimitText) {
         // the ticket's own text can produce this match — refuse to cool a model
         // or kill a session on it; the ready-timeout path surfaces a genuine
@@ -685,7 +689,7 @@ export class Dispatcher {
         worker.spawnedAt = Date.now()
         worker.state = 'spawning'
         this.store.logEvent('worker_spawned', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: next, backend: nextBackend, retry_after_limit: true })
-        this.notify(worker.ticket, `⚙️ \`${worker.session}\` hit a ${limit.scope} usage limit — respawned on **${next}**`)
+        this.notify(worker.ticket, `⚙️ \`${worker.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} — respawned on **${next}**`)
         this.#watchdog(worker).catch((e) => this.log(`watchdog ${worker.session} failed:`, e.message))
         return
       } catch (e) {
@@ -695,7 +699,7 @@ export class Dispatcher {
         // release path true exhaustion takes.
         this.log(`respawn of ${worker.session} on ${next} failed:`, e.message)
         const released = await this.#releaseClaim(worker, `respawn after ${limit.scope} usage limit failed: ${e.message}`)
-        this.notify(worker.ticket, `⚠️ \`${worker.session}\` hit a ${limit.scope} usage limit and the respawn on **${next}** failed: ${e.message} — ${released ? 'claim released, ticket re-frontiered' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
+        this.notify(worker.ticket, `⚠️ \`${worker.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} and the respawn on **${next}** failed: ${e.message} — ${released ? 'claim released, ticket re-frontiered' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
         await this.threads.release(worker.ticket, 'respawn-failed').catch(() => {})
         return
       }

@@ -643,6 +643,51 @@ describe('usage-limit respawn failure releases the claim (B3)', () => {
   })
 })
 
+describe('the usage-credits dialog gates the model (#126, #108 item 12)', () => {
+  test('the dialog cools fable, vetoes the ready marker under it, and respawns down the chain', async () => {
+    const routing = {
+      defaults: { untyped: 'fable' },
+      models: {
+        fable: { provider: 'anthropic', backend: 'claude' },
+        opus: { provider: 'anthropic', backend: 'claude' },
+      },
+      fallbacks: { fable: ['opus'] },
+      backends: ROUTING.backends,
+    }
+    // The dialog verbatim from the deployment box (2026-08-02), with the
+    // status footer under it: the dogfood run's ready marker matched through
+    // the modal, so the credit parse has to win before the readiness test.
+    const DIALOG = [
+      '  Fable 5 now uses usage credits',
+      '  Fable 5 runs on usage credits, purchased separately from your plan.',
+      "  You don't have usage credits yet.",
+      '    1. Request usage credits from your admin',
+      '  ❯ 2. Switch to Sonnet 5 and continue',
+      '  Enter to confirm · Esc to cancel',
+      '  ⏵⏵ bypass permissions on',
+    ].join('\n')
+    let spawnCalls = 0
+    const d = makeDispatcher({
+      newSession: async () => { spawnCalls += 1 },
+      capturePane: async () => (spawnCalls > 1 ? '⏵⏵ bypass permissions on' : DIALOG),
+    }, { routing })
+
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /dispatched/)
+
+    await waitFor(() => typesOf().includes('worker_ready'))
+    // the dialog never read as a healthy fable worker
+    const ready = events.find((e) => e.type === 'worker_ready')
+    assert.equal(ready.model, 'opus')
+    const cooled = events.find((e) => e.type === 'model_cooling')
+    assert.equal(cooled.model, 'fable')
+    assert.ok(events.some((e) => e.type === 'worker_spawned' && e.model === 'opus' && e.retry_after_limit))
+    assert.ok(notifies.some((n) => /usage-credits dialog/.test(n.message) && /respawned on \*\*opus\*\*/.test(n.message)))
+
+    d.workers.delete('curia-42') // retire the watchdog
+  })
+})
+
 describe('every spawn path shares the host credential store (#53)', () => {
   // The frozen-copy failure (#34) came back on the *respawn* path in an earlier
   // shape of this code, so both paths are asserted: a worker that survives its

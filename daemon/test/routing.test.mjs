@@ -53,7 +53,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit, carriesLimitPhrase } from '../src/routing.mjs'
+import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase } from '../src/routing.mjs'
 
 const routing = {
   defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
@@ -263,6 +263,42 @@ describe('parseUsageLimit', () => {
 
   test('pane text with no usage-limit language does not match', () => {
     assert.equal(parseUsageLimit('⏵⏵ bypass permissions on'), null)
+  })
+})
+
+describe('parseCreditGate (#126, #108 item 12)', () => {
+  // The dialog verbatim, captured on the deployment box (2026-08-02) from a
+  // spawn seeded exactly like a worker: same .claude.json, same env, same
+  // daemon token. ASCII apostrophe as the pane renders it.
+  const DIALOG = [
+    '  Fable 5 now uses usage credits',
+    '  Fable 5 runs on usage credits, purchased separately from your plan.',
+    "  You don't have usage credits yet.",
+    '    1. Request usage credits from your admin',
+    '  ❯ 2. Switch to Sonnet 5 and continue',
+    '  Enter to confirm · Esc to cancel',
+  ].join('\n')
+
+  test('the live dialog classifies as a model-scoped gate with a reason', () => {
+    const r = parseCreditGate(DIALOG)
+    assert.equal(r.scope, 'model')
+    assert.equal(r.resetAt, null)
+    assert.equal(r.reason, 'usage-credits dialog')
+    // a TUI is free to render a typographic apostrophe; both match
+    assert.ok(parseCreditGate('You don’t have usage credits yet'))
+  })
+
+  test('the informational "now uses usage credits" line alone never matches — promo text appears in healthy panes', () => {
+    assert.equal(parseCreditGate('Fable 5 now uses usage credits. See the docs.'), null)
+    assert.equal(parseCreditGate('⏵⏵ bypass permissions on'), null)
+  })
+
+  test('the credit vocabulary counts as a forgeable limit phrase', () => {
+    assert.equal(carriesLimitPhrase("the CLI says You don't have usage credits yet"), true)
+  })
+
+  test('no vocabulary for the openai lane — codex words credits as a usage limit', () => {
+    assert.equal(parseCreditGate("You don't have usage credits yet", 'openai'), null)
   })
 })
 

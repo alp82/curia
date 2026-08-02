@@ -158,6 +158,28 @@ export const LIMIT_PATTERNS = {
   },
 }
 
+// The usage-credits dialog family (#108 item 12 / #126): a fresh fable spawn
+// past its weekly threshold gets a modal — "Fable 5 now uses usage credits /
+// You don't have usage credits yet / 1. Request credits 2. Switch to Sonnet" —
+// instead of the composer. parseUsageLimit keys on reached-phrasing and
+// misses it, and the ready marker matched anyway because the status footer
+// renders UNDER the modal. This classifier runs beside the limit parse in the
+// watchdog, so a match both cools the model and vetoes readiness. Keyed on
+// the definitive no-credits statement, not the informational "now uses usage
+// credits" line — promotional text appears in healthy panes (field-notes
+// contract 4) and must never match. Model-scoped: the dialog gates one
+// model's credits; every other lane stays warm.
+export const CREDIT_GATE_PATTERNS = {
+  anthropic: new RegExp(`you don${AP}t have usage credits`, 'i'),
+}
+
+export function parseCreditGate(paneText, provider = 'anthropic') {
+  if (!paneText) return null
+  const p = CREDIT_GATE_PATTERNS[provider]
+  if (!p?.test(paneText)) return null
+  return { scope: 'model', resetAt: null, reason: 'usage-credits dialog' }
+}
+
 export function parseUsageLimit(paneText, provider = 'anthropic') {
   if (!paneText) return null
   const p = LIMIT_PATTERNS[provider]
@@ -177,4 +199,5 @@ export function parseUsageLimit(paneText, provider = 'anthropic') {
 // direction (see paneTail in dispatch.mjs).
 export function carriesLimitPhrase(text) {
   return Object.values(LIMIT_PATTERNS).some((p) => p.reached.test(text))
+    || Object.values(CREDIT_GATE_PATTERNS).some((re) => re.test(text))
 }
