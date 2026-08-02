@@ -233,7 +233,9 @@ const gate = {
     if (!worker || !text?.trim()) return null
     const { after } = store.queueWorkerNote(worker, text.trim(), { by })
     log(`worker note queued for ${worker}${after ? ` (after ${after})` : ''}`)
-    return { worker, after }
+    // the ticket rides along so the bridge can spell out `cancel <n>` when the
+    // note is a bare command verb (#108 item 23)
+    return { worker, after, ticket: store.ticketForThread(threadId) ?? null }
   },
 }
 

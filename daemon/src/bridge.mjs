@@ -29,6 +29,12 @@ import { chunkMessage, smallPrint } from './messaging.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
+// #108 item 23: a message that is nothing but a command verb, typed at a
+// worker thread — the shape that reads as "cancel the worker" but queues as
+// prose. Trailing punctuation forgiven; any surrounding words mean it is a
+// real note.
+export const BARE_COMMAND_VERB = /^\s*(cancel|stop|pause|resume|status)\s*[.!?]*\s*$/i
+
 // #81's grown catalogue — a static macro manifest; expansion only, never
 // interpretation. `tickets` renames `frontier` on the command surface.
 const SLASH_MANIFEST = [
@@ -727,9 +733,16 @@ export class DiscordBridge {
         const q = this.handlers.queueWorkerNote?.(m.channel.id, m.content ?? '', m.author.id)
         if (q) {
           await m.react('📨').catch(() => {})
-          await m.channel.send(smallPrint(
+          // A bare command verb still queues — the operator may mean the word
+          // for the worker — but the reply names the way out, so "Cancel"
+          // typed at a worker never dies silently as a note (#108 item 23).
+          const lines = [
             `queued for \`${owner}\` — it reads this with its next tool result${q.after ? ` (noted as after ${q.after})` : ''}`,
-          )).catch(() => {})
+          ]
+          if (BARE_COMMAND_VERB.test(m.content ?? '')) {
+            lines.push(`to cancel the worker itself, press its 🛑 button or say \`cancel ${q.ticket ?? '<n>'}\` in <#${this.channel.id}>`)
+          }
+          await m.channel.send(smallPrint(lines.join('\n'))).catch(() => {})
         } else {
           await m.react('⚠️').catch(() => {})
           await m.channel.send(smallPrint(

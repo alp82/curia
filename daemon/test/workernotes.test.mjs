@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EscalationStore } from '../src/store.mjs'
+import { BARE_COMMAND_VERB } from '../src/bridge.mjs'
 
 describe('worker-note queue', () => {
   let dir, store
@@ -58,6 +59,21 @@ describe('worker-note queue', () => {
     store.open({ worker: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'still open' })
     const { after } = store.queueWorkerNote('curia-9', 'note while open', {})
     assert.equal(after, null)
+  })
+
+  // #108 item 23: "Cancel" typed at a worker thread queues as prose, so the
+  // bridge's reply must name the way out. The detection is this regex — a
+  // message that is nothing but a command verb.
+  test('a bare command verb is detected, with case and punctuation forgiven', () => {
+    for (const s of ['cancel', 'Cancel', 'STOP', 'pause', 'resume', 'status', 'cancel!', ' stop. ', 'status?']) {
+      assert.ok(BARE_COMMAND_VERB.test(s), `"${s}" should read as a bare command verb`)
+    }
+  })
+
+  test('a verb inside a sentence is a real note, not a swallowed command', () => {
+    for (const s of ['cancel the deploy', 'please stop', 'status of the tests?', 'do not pause here', 'ok']) {
+      assert.ok(!BARE_COMMAND_VERB.test(s), `"${s}" should read as prose`)
+    }
   })
 
   test('the queue survives a daemon restart — journal, not memory', () => {
