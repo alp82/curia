@@ -8,9 +8,18 @@ User=alp
 WorkingDirectory=/home/alp/curia/daemon
 EnvironmentFile=/home/alp/curia/daemon/.env
 Environment=PATH=/home/alp/.local/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/local/bin/npm start
+# node directly, not `npm start`: KillMode=process kills only the MAIN pid,
+# so the main pid must BE the daemon — killing npm alone would orphan node
+# and leave two daemons fighting over the port and the Discord token.
+ExecStart=/usr/local/bin/node src/index.mjs
 Restart=on-failure
 RestartSec=5
+# Workers live in a tmux server the daemon spawns, INSIDE this service's
+# cgroup. The default (control-group) kill reaped that server on every
+# restart — a deploy at 10:54 on 2026-08-02 killed a live worker mid-ticket
+# (wayfinder #132). `process` kills only the daemon; tmux and its workers
+# survive the restart, and boot reconcile re-adopts them.
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target
