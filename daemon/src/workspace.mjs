@@ -604,8 +604,18 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  worktree on disk.',
     "- Leave the assignee alone, and do not rewrite anyone else's text. That claim is curia's record of who",
     '  did this work.',
-    '- **You have no browser and must not build one** — no headless Chrome, no Playwright, no screenshot',
-    '  driver. `publish_preview` is how a human looks at a page.',
+    // #131 (operator ruling, 2026-08-02): the browser bound is about JUDGMENT,
+    // not tooling. A worker that "looks at" its own page and approves what it
+    // sees has bypassed the human the review gate exists for — but a renderer
+    // that happens to embed Chrome (remotion, a screenshot committed as a page
+    // asset, HTML-to-PDF) is a build step writing a file, no different from a
+    // compiler. The #114 worker was blocked from producing a demo video by the
+    // old absolute wording.
+    '- **A browser is a build tool, never a judge.** Headless browser use that renders an ARTIFACT is',
+    '  allowed: `remotion render`, a screenshot committed as an asset, HTML-to-PDF. Using a browser to',
+    '  view, verify or approve your own work is forbidden — you never judge rendered output by looking',
+    '  at it. `publish_preview` is how a HUMAN looks at a page, and their eyes are the only ones that',
+    '  pass it.',
     '- A HITL ticket is many `ask_human` calls, one question at a time. **Never answer for the human.**',
     // #56: a daemon crash took an in-flight ask_human down with it, and the worker
     // read the transport error as permission to decide the question itself. A

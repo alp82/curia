@@ -88,11 +88,16 @@ describe('bounds', () => {
     assert.match(p, /the one merge a human has just approved/)
   })
 
-  test('the claim is left alone and the browser prohibition is explicit', () => {
+  // #131: the bound is judgment, not tooling — a renderer that embeds Chrome
+  // (remotion, screenshot assets, HTML-to-PDF) is a build step; viewing or
+  // approving the worker's own output stays forbidden.
+  test('the claim is left alone, and the browser is a build tool never a judge', () => {
     const p = write({ mapNumber: 1 })
     assert.match(p, /Leave the assignee alone/)
-    assert.match(p, /\*\*You have no browser and must not build one\*\*/)
-    assert.match(p, /no headless Chrome, no Playwright/)
+    assert.match(p, /\*\*A browser is a build tool, never a judge\.\*\*/)
+    assert.match(p, /renders an ARTIFACT is\n\s*allowed/)
+    assert.match(p, /view, verify or approve your own work is forbidden/)
+    assert.match(p, /`publish_preview` is how a HUMAN looks at a page/)
   })
 
   // #56: the daemon died and took a worker's ask_human with it; the worker read
