@@ -71,7 +71,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort] = [await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
@@ -87,6 +87,9 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       'attach:',
       `  ttyd_port: ${ttydPort}`,
       `  serve_port: ${servePort}`,
+      'identity:',
+      '  allow: [tester@example.com]',
+      `  proxy_port: ${proxyPort}`,
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -229,7 +232,7 @@ describe('an answer with no live resolver queues for the resumed worker (#139, r
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort] = [await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
@@ -245,6 +248,9 @@ describe('an answer with no live resolver queues for the resumed worker (#139, r
       'attach:',
       `  ttyd_port: ${ttydPort}`,
       `  serve_port: ${servePort}`,
+      'identity:',
+      '  allow: [tester@example.com]',
+      `  proxy_port: ${proxyPort}`,
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -332,8 +338,8 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
     fs.writeFileSync(path.join(shim, 'tailscale'), `#!/bin/sh\necho "$@" >> ${tsLog}\nexit 0\n`)
     for (const bin of ['gh', 'tmux', 'tailscale']) fs.chmodSync(path.join(shim, bin), 0o755)
 
-    const [daemonPort, ttydPort, sPort, tlPort, tlServePort] = [
-      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
+    const [daemonPort, ttydPort, sPort, tlPort, tlServePort, proxyPort] = [
+      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
     ]
     port = daemonPort
     servePort = sPort
@@ -355,6 +361,9 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       'attach:',
       `  ttyd_port: ${ttydPort}`,
       `  serve_port: ${servePort}`,
+      'identity:',
+      '  allow: [tester@example.com]',
+      `  proxy_port: ${proxyPort}`,
       'timeline:',
       `  port: ${tlPort}`,
       `  serve_port: ${tlServePort}`,

@@ -88,7 +88,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort] = [await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
@@ -104,6 +104,9 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       'attach:',
       `  ttyd_port: ${ttydPort}`,
       `  serve_port: ${servePort}`,
+      'identity:',
+      '  allow: [tester@example.com]',
+      `  proxy_port: ${proxyPort}`,
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [

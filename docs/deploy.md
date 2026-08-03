@@ -20,6 +20,14 @@ Curia runs as a systemd service on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 
 The committed config (`config/curia.yaml`) hardcodes `/home/alp/...` paths. The box mirrors the dev box username, so the committed config works unchanged.
 
+**The `identity:` section is required** (#151, [ADR-0011](adr/0011-tailscale-identity-in-front-of-every-attach-surface.md)). The daemon refuses to boot without it, naming the key. `identity.allow` lists the tailscale logins that may reach the attach and timeline surfaces — the `Tailscale-User-Login` that Serve stamps, which is the account login, not the node name. Read yours with:
+
+```
+tailscale status --json | jq -r '.User[].LoginName'
+```
+
+Getting it wrong 403s every attach. Fixing it is an edit plus a restart, over ssh, so a wrong list locks nobody out of the box.
+
 ## The env file
 
 Three keys:

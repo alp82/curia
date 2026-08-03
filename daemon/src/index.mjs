@@ -36,6 +36,7 @@ import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
+import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './identity.mjs'
 import { detectBackend } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
@@ -379,6 +380,54 @@ const dispatcher = new Dispatcher({
   daemonPort: PORT,
 })
 
+// ---- the identity check (#151) ----------------------------------------------
+//
+// One policy, both attach surfaces: the allowlist from config, and the set of
+// host names this box legitimately answers to on each serve port. The two host
+// sets are created EMPTY and filled in place, so the proxy and the timeline
+// hold live references and pick up a resolution that arrives after they start.
+// Empty means refuse (identityRefusal treats an empty set as "cannot verify my
+// own name"), which is the right posture during the window before tailscale has
+// answered: a surface that does not yet know its own name cannot admit anyone.
+const identityAllow = new Set(curiaConfig.identity.allow)
+const attachHosts = new Set()
+const timelineHosts = new Set()
+
+async function resolveServeHosts() {
+  const self = await tailnetSelf()
+  for (const [set, servePort] of [
+    [attachHosts, curiaConfig.attach.serve_port],
+    [timelineHosts, curiaConfig.timeline.serve_port],
+  ]) {
+    set.clear()
+    for (const h of serveHosts({ ...self, servePort })) set.add(h)
+  }
+  return self
+}
+
+// Retried rather than resolved once: the daemon must boot with tailscale down
+// (it is not fatal to anything but attach), and every path that hands out a
+// link is async and passes through here first.
+async function ensureServeHosts() {
+  if (attachHosts.size && timelineHosts.size) return
+  await resolveServeHosts()
+}
+
+const timelineIdentityCheck = (headers) =>
+  identityRefusal(headers, { allow: identityAllow, hosts: timelineHosts })
+
+// The terminal surface's half. ttyd is a C process with nowhere to put a
+// check, so the rule published to the tailnet points HERE and this reaches
+// ttyd on loopback.
+const identityProxy = new IdentityProxy({
+  port: curiaConfig.identity.proxy_port,
+  targetPort: curiaConfig.attach.ttyd_port,
+  allow: identityAllow,
+  hosts: attachHosts,
+  log,
+  journal: (type, detail) => store.logEvent(type, detail),
+})
+
 // /attach continuation: daemon-side whitelist refusal + liveness check, then
 // the runtime-derived tailnet URL (never hardcoded).
 const attachApi = {
@@ -389,7 +438,13 @@ const attachApi = {
     // Same rule as reconcile's #assertAttachSurface: only a listener verified
     // as our hardened ttyd is ever published. Handing out a link would both
     // assert the serve rule over an unverified listener and point a human at it.
-    const { verified } = await ensureTtyd({ ttydPort: curiaConfig.attach.ttyd_port, index: curiaConfig.attach.index, log })
+    // The #151 identity proxy is what the serve rule points at, so a proxy that
+    // is not up is exactly as disqualifying as an unverified ttyd — publishing
+    // ttyd directly would hand the tailnet the un-gated terminal this ticket
+    // closed.
+    const { verified } = identityProxy.listening
+      ? await ensureTtyd({ ttydPort: curiaConfig.attach.ttyd_port, index: curiaConfig.attach.index, log })
+      : { verified: false }
     if (!verified) {
       // Refusing alone withdraws nothing: /attach runs on every request, so
       // THIS is the path that detects a verified→unverified flip first (there
@@ -405,9 +460,17 @@ const attachApi = {
       } catch (e) {
         log(`WARNING: ttyd listener on port ${curiaConfig.attach.ttyd_port} is UNVERIFIED and withdrawing the serve rule failed (${e.message}) — if a rule for :${curiaConfig.attach.serve_port} exists, the unverified listener REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${curiaConfig.attach.serve_port} off\` by hand`)
       }
-      throw new Error(`the listener on ttyd port ${curiaConfig.attach.ttyd_port} could not be verified as curia's hardened ttyd — refusing to publish it; kill it and re-run reconcile`)
+      throw new Error(identityProxy.listening
+        ? `the listener on ttyd port ${curiaConfig.attach.ttyd_port} could not be verified as curia's hardened ttyd — refusing to publish it; kill it and re-run reconcile`
+        : `the attach identity proxy is not up on port ${curiaConfig.identity.proxy_port} — refusing to publish the terminal surface without its identity check; see the daemon log for the bind failure`)
     }
-    await assertServe({ servePort: curiaConfig.attach.serve_port, ttydPort: curiaConfig.attach.ttyd_port })
+    // Resolved before the rule goes up, not before the verification: the proxy
+    // refuses every caller until it knows which host names it answers to, so
+    // publishing first would put a surface on the tailnet that 403s the
+    // operator. A failure here throws without withdrawing — an unresolved proxy
+    // is closed, not open, so nothing is exposed by leaving the rule alone.
+    await ensureServeHosts()
+    await assertServe({ servePort: curiaConfig.attach.serve_port, targetPort: curiaConfig.identity.proxy_port })
     const base = await attachBase()
     return attachUrl(base, curiaConfig.attach.serve_port, ticket)
   },
@@ -417,6 +480,10 @@ const attachApi = {
     const session = `curia-${ticket}`
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
     if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
+    // Same invariant the terminal half holds: never hand out a link to a
+    // surface whose identity check does not yet know the names it serves, or
+    // the operator opens it and gets a 403 from their own daemon.
+    await ensureServeHosts()
     return timeline.link(session)
   },
 }
@@ -430,6 +497,10 @@ const previews = new PreviewRegistry({
   range: curiaConfig.preview,
   reserved: [
     PORT, curiaConfig.attach.ttyd_port, curiaConfig.attach.serve_port,
+    // #151: publishing the identity proxy under a preview rule would put the
+    // terminal on a SECOND tailnet port whose Host is not in the proxy's own
+    // allowlist — every caller refused, and the surface silently double-listed.
+    curiaConfig.identity.proxy_port,
     curiaConfig.timeline.port, curiaConfig.timeline.serve_port,
   ],
   log,
@@ -458,9 +529,13 @@ const timeline = new TimelineSurface({
     composerFor: (backend) => routingConfig.backends[backend]?.readyRe ?? null,
     escalationsFor: (session) => store.openEscalations().filter((r) => r.worker === session),
     escalationHistoryFor: (session) => store.escalationsForWorker(session),
+    // The #151 identity check. The timeline is the daemon's own server, so it
+    // carries the same predicate the terminal's proxy does, in-process.
+    identityCheck: timelineIdentityCheck,
   },
 })
 dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's
+dispatcher.identityProxy = identityProxy // #151: reconcile publishes the proxy, never ttyd itself
 
 const router = new CommandRouter({ dispatcher, attach: attachApi, log })
 
@@ -871,11 +946,18 @@ async function handleRequest(req, res) {
 
 httpServer.listen(PORT, '127.0.0.1', () => {
   log(`curia daemon listening on http://127.0.0.1:${PORT}`)
-  // The timeline listener binds before boot reconcile so the reconcile's
-  // assert sees it up and publishes it — a bind failure leaves it down and the
-  // assert withdraws instead (never fatally: the daemon without a timeline is
-  // still a daemon).
-  timeline.start()
+  // The timeline listener and the #151 identity proxy bind before boot
+  // reconcile so the reconcile's assert sees them up and publishes them — a
+  // bind failure leaves that surface down and the assert withdraws instead
+  // (never fatally: the daemon without an attach surface is still a daemon).
+  //
+  // The host sets resolve first, and a failure here is logged rather than
+  // thrown: tailscale being down must not stop the daemon booting. Both
+  // surfaces then refuse every caller until a later /attach retries the
+  // resolution, which is the fail-closed direction.
+  resolveServeHosts()
+    .catch((e) => log(`WARNING: could not resolve this box's tailnet names (${e.message}) — both attach surfaces refuse every caller until this succeeds`))
+    .then(() => Promise.all([timeline.start(), identityProxy.start()]))
     // boot reconcile (#33): re-derive live workers from GitHub + tmux + journal,
     // sweep orphans, release dead claims, void restart-orphaned overseer
     // confirms, assert the attach + timeline surfaces — then start the auto
