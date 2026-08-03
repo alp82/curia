@@ -212,7 +212,9 @@ export class CommandRouter {
     for (const w of workers.filter(isWaiting)) lines.push(line(w))
     for (const s of untracked) lines.push(`• \`${s}\` — ⚠️ live tmux session not tracked by the dispatcher (reconcile will adopt or sweep it)`)
     for (const r of recent) {
-      lines.push(`• ${r.kind === 'cancelled' ? '⚰️ cancelled' : '✅ finished'} ${r.repo ? `${r.repo}#${r.ticket}` : `#${r.ticket}`}`)
+      const label = { cancelled: '⚰️ cancelled', finished: '✅ finished', died: '⚰️ died' }[r.kind] ?? r.kind
+      const hint = r.kind === 'died' ? ` — \`resume ${r.ticket}\`` : ''
+      lines.push(`• ${label} ${r.repo ? `${r.repo}#${r.ticket}` : `#${r.ticket}`}${hint}`)
     }
     return lines.join('\n')
   }

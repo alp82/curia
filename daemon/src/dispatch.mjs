@@ -157,6 +157,17 @@ export class Dispatcher {
     this.root = config.dispatch.workspace_root
     this.workers = new Map() // session -> worker record (disposable cache)
     this.inFlight = new Set() // admission guard: sessions mid-start, pre-spawn
+    // Teardowns this dispatcher ordered (#138). killSession is wrapped so
+    // EVERY ordered kill — cancel, finish, limit respawn, orphan sweep —
+    // registers before the tmux call, and the liveness sweep can tell an
+    // expected absence from a death. newSession is wrapped for the inverse:
+    // a fresh spawn under the same name is a new life, and a stale entry here
+    // would blind the sweep to that successor's real death forever.
+    this.orderedKills = new Set()
+    const realKill = this.deps.killSession
+    const realSpawn = this.deps.newSession
+    this.deps.killSession = (name) => { this.orderedKills.add(name); return realKill(name) }
+    this.deps.newSession = (opts) => { this.orderedKills.delete(opts.name); return realSpawn(opts) }
     this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
     this.autoTimer = null
@@ -1609,7 +1620,83 @@ export class Dispatcher {
       .filter((ev) => kinds[ev.type])
       .map((ev) => ({ kind: kinds[ev.type], repo: ev.repo ?? null, ticket: String(ev.ticket ?? '') }))
       .slice(-cap)
-    return [...of({ worker_cancelled: 'cancelled' }), ...of({ lifecycle_closed: 'finished' })]
+    return [...of({ worker_cancelled: 'cancelled' }), ...of({ lifecycle_closed: 'finished' }), ...of({ worker_died: 'died' })]
+  }
+
+  // ---- liveness sweep (#138) -------------------------------------------------------
+
+  // #108 items 19/20: worker death used to be discovered only at boot
+  // reconcile or when a human read /status — between those, every surface
+  // trusted the last journal event, and the status line said "working" about
+  // a killed worker. Every dispatch tick, ask tmux about each tracked worker;
+  // a session that is gone WITHOUT a teardown order is a death. One
+  // `worker_died` event flips every surface at once. Same evidence rule as
+  // reconcile: an indeterminate hasSession is not absence — skip the worker
+  // this pass. In-pane wedge detection is out of scope on purpose (item 8's
+  // heartbeat layer): session-exists is the only question asked here.
+  async livenessSweep() {
+    for (const w of [...this.workers.values()]) {
+      if (this.orderedKills.has(w.session)) continue
+      let present
+      try {
+        present = await this.deps.hasSession(w.session)
+      } catch {
+        continue
+      }
+      if (present) continue
+      // re-judge after the await: a teardown or replacement that started while
+      // tmux was being asked makes this absence an ordered one after all
+      if (this.workers.get(w.session) !== w || this.orderedKills.has(w.session)) continue
+      await this.#onWorkerDied(w).catch((e) => this.log(`worker_died handling for ${w.session} failed:`, e.message))
+    }
+  }
+
+  async #onWorkerDied(w) {
+    const { session, ticket, repo } = w
+    // A dead session WITH a recorded result is a finishing worker whose Stop
+    // hook never landed — the normal close, not a death. onWorkerDone already
+    // handles exactly that shape.
+    if (w.resultReceived || fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`))) {
+      return this.onWorkerDone(session)
+    }
+    this.workers.delete(session)
+    this.store.logEvent('worker_died', { repo, ticket, worker: session })
+    this.log(`liveness sweep: ${session} is gone with no teardown order`)
+
+    // The surface half of item 19: the worker's open questions STAY open and
+    // answerable — unlike the ordered-teardown paths, nothing here cancels
+    // them, because the ticket continues and the answer has a place to go.
+    // (#139 hands the recorded answer to the resumed worker.) The journal
+    // line per record is the durable fact that hand-off will read.
+    const open = this.#openEscalationsFor(session)
+    for (const r of open) {
+      this.store.logEvent('escalation_worker_died', { id: r.id, worker: session, ticket })
+    }
+    // a dead worker's dev server died with it — never publish a dead port
+    await this.#withdrawPreview(ticket, 'worker died')
+    // an open confirm describes an instance that no longer exists (#94)
+    this.lapseConfirmsFor(session, `\`${session}\` died`)
+    // the session is positively gone, so nothing later collects the copy
+    this.deps.removeCredentials(w.cfgDir ?? cfgDirFor(this.root, session))
+
+    // The claim decision is boot reconcile's, shared verbatim: an open pull
+    // request keeps the claim (awaiting review), anything else releases it.
+    // Unreadable evidence decides nothing — reconcile retries.
+    let claimLine
+    try {
+      const outcome = await this.#settleDeadClaim({ repo, ticket, session })
+      claimLine = {
+        kept: 'its pull request is open and awaiting review, so the claim stays',
+        released: 'claim released, ticket re-frontiered',
+        'not-ours': 'the ticket is no longer claimed by curia',
+      }[outcome]
+    } catch (e) {
+      claimLine = `the claim decision failed (${e.message}) — reconcile will retry`
+    }
+    const escLine = open.length
+      ? ` ${open.length} open question(s) — ${open.map((r) => `**${r.id}**`).join(', ')} — stay answerable: an answer there is recorded and handed to the resumed worker.`
+      : ''
+    this.notify(ticket, `⚰️ \`${session}\` is gone without a teardown order — ${claimLine}.${escLine} \`resume ${ticket}\` starts a fresh worker on the surviving worktree`)
   }
 
   // ---- reconcile -----------------------------------------------------------------
@@ -1852,41 +1939,44 @@ export class Dispatcher {
         && (ev.type === 'result' || ev.type === 'lifecycle_closed' || ev.type === 'dispatch_unclaimed')
         && (ev.worker === session || String(ev.ticket ?? '') === ticket))
       if (closedAfterEpoch) continue
-      let issue
       try {
-        issue = await getIssue(repo, ticket)
+        await this.#settleDeadClaim({ repo, ticket, session, login, getIssue })
       } catch (e) {
         skipRepo(repo, e)
-        continue
-      }
-      if (issue && issue.state === 'open' && (issue.assignees ?? []).some((a) => a.login === login)) {
-        // #54 item 5: open + assigned + no live session + no result is ALSO the
-        // shape of *awaiting review* — a worker whose box rebooted while a human
-        // sat on the gate. An open pull request from `curia/<n>` says the work is
-        // real and waiting on a person, so the claim is not dead and re-dispatch
-        // is not the answer. An unreadable pull-request state is indeterminate
-        // and keeps the claim too, the same rule the rest of reconcile runs on.
-        let pr
-        try {
-          pr = await this.deps.findPullRequest(repo, branchFor(ticket))
-        } catch (e) {
-          skipRepo(repo, e)
-          continue
-        }
-        if (pr && pr.state === 'OPEN') {
-          this.store.logEvent('dead_claim_kept_awaiting_review', { repo, ticket, worker: session, pr: pr.url })
-          this.log(`reconcile: keeping the claim on ${repo}#${ticket} — ${pr.url} is open and awaiting review`)
-          continue
-        }
-        try {
-          await this.deps.unclaim(repo, ticket, login)
-          this.store.logEvent('dead_claim_released', { repo, ticket, worker: session })
-          this.log(`reconcile: released dead claim ${repo}#${ticket}`)
-        } catch (e) {
-          skipRepo(repo, e)
-        }
       }
     }
+  }
+
+  // The one dead-claim decision, shared by reconcile and the liveness sweep
+  // (#138). #54 item 5: open + assigned + no live session + no result is ALSO
+  // the shape of *awaiting review* — a worker whose box rebooted while a human
+  // sat on the gate. An open pull request from `curia/<n>` says the work is
+  // real and waiting on a person, so the claim is not dead and re-dispatch is
+  // not the answer. Positive evidence only: an unreadable viewer identity,
+  // issue or pull-request state THROWS, and the caller skips the pass — the
+  // same rule the rest of reconcile runs on. A failed unclaim throws too;
+  // nothing here journals dispatch_unclaimed, so reconcile keeps retrying.
+  async #settleDeadClaim({ repo, ticket, session, login = null, getIssue = null }) {
+    const viewer = login ?? await this.deps.viewerLogin()
+    const issue = getIssue
+      ? await getIssue(repo, ticket)
+      : await this.deps.fetchIssue(repo, ticket).catch((e) => {
+        if (ISSUE_ABSENT_RE.test(e.message)) return null // positively absent
+        throw e
+      })
+    if (!(issue && issue.state === 'open' && (issue.assignees ?? []).some((a) => a.login === viewer))) {
+      return 'not-ours'
+    }
+    const pr = await this.deps.findPullRequest(repo, branchFor(ticket))
+    if (pr && pr.state === 'OPEN') {
+      this.store.logEvent('dead_claim_kept_awaiting_review', { repo, ticket, worker: session, pr: pr.url })
+      this.log(`keeping the claim on ${repo}#${ticket} — ${pr.url} is open and awaiting review`)
+      return 'kept'
+    }
+    await this.deps.unclaim(repo, ticket, viewer)
+    this.store.logEvent('dead_claim_released', { repo, ticket, worker: session })
+    this.log(`released dead claim ${repo}#${ticket}`)
+    return 'released'
   }
 
   // Abandoned credential collection — a pre-#53 leftover collector now.
@@ -1995,17 +2085,26 @@ export class Dispatcher {
 
   // ---- auto loop -----------------------------------------------------------------
 
+  // The tick runs whatever auto_dispatch says (#138): the liveness sweep needs
+  // it, and auto_dispatch is shipped OFF. Only the dispatch half of #autoTick
+  // is gated on the flag.
   startAutoLoop() {
-    if (!this.config.dispatch.auto_dispatch) return
     const ms = this.config.dispatch.poll_interval_s * 1000
     this.autoTimer = setInterval(() => {
       this.#autoTick().catch((e) => this.log('auto tick failed:', e.message))
     }, ms)
     this.autoTimer.unref()
-    this.log(`auto-dispatch ON: polling every ${this.config.dispatch.poll_interval_s}s, max_concurrent=${this.config.dispatch.max_concurrent}`)
+    if (this.config.dispatch.auto_dispatch) {
+      this.log(`auto-dispatch ON: polling every ${this.config.dispatch.poll_interval_s}s, max_concurrent=${this.config.dispatch.max_concurrent}`)
+    } else {
+      this.log(`auto-dispatch OFF — the ${this.config.dispatch.poll_interval_s}s tick still runs the worker-liveness sweep`)
+    }
   }
 
   async #autoTick() {
+    // #138: the liveness sweep rides the dispatch tick — dead workers stop
+    // lying on every surface before anything new is dispatched.
+    await this.livenessSweep().catch((e) => this.log('liveness sweep failed:', e.message))
     if (!this.config.dispatch.auto_dispatch) return
     const max = this.config.dispatch.max_concurrent
     const liveCount = () => this.workers.size + this.inFlight.size

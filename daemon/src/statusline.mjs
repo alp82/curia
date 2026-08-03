@@ -72,6 +72,10 @@ export class StatusLine {
       }
       case 'result':
         return this.#set(ev.worker, ev.ticket, 'resolving', { status: ev.status })
+      case 'worker_died':
+        // the liveness sweep's event (#138) — the line stops saying "working"
+        // about a killed worker and names the way out
+        return this.#set(ev.worker, ev.ticket, 'gone', { ticket: ev.ticket })
       case 'worker_done': {
         // carries no ticket — only a session this line already tracks can end
         const w = this.workers.get(ev.worker)
@@ -104,6 +108,8 @@ export class StatusLine {
         return `📦 \`${session}\` · result received (**${detail.status}**) — resolving the ticket`
       case 'done':
         return `🏁 \`${session}\` · done`
+      case 'gone':
+        return `⚰️ \`${session}\` · worker gone — \`resume ${detail.ticket}\``
       default:
         return `\`${session}\` · ${state}`
     }

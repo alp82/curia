@@ -112,6 +112,14 @@ describe('StatusLine', () => {
     assert.ok(!removals.includes('m2'), 'the done line of the finished run is never deleted')
   })
 
+  test('worker_died flips a working line to ⚰️ gone with the resume verb (#138, #108 item 20)', async () => {
+    line.onEvent({ type: 'worker_spawned', worker: 'curia-9', ticket: '9', model: 'opus' })
+    line.onEvent({ type: 'worker_ready', worker: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    line.onEvent({ type: 'worker_died', worker: 'curia-9', ticket: '9', repo: 'o/r' })
+    await drain()
+    assert.match(posts.at(-1).text, /⚰️ `curia-9` · worker gone — `resume 9`/)
+  })
+
   test('a bridge that is down loses nothing: the next transition posts', async () => {
     let up = false
     const l3 = new StatusLine({

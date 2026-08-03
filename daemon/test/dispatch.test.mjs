@@ -2355,3 +2355,153 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
     ])
   })
 })
+
+// The periodic worker-liveness sweep (#138, #108 items 19/20): a tracked
+// worker whose tmux session is gone WITHOUT a teardown order is a death —
+// one worker_died event, every surface stops lying at once. Ordered kills,
+// indeterminate reads and live sessions all stay silent.
+describe('worker-liveness sweep (#138)', () => {
+  // start() must see an unassigned ticket and no session; the sweep must see
+  // the claim and the absence. Both doubles flip after the dispatch.
+  function makeSwept(deps = {}) {
+    const state = { assigned: false, session: async () => false }
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: state.assigned ? [{ login: 'me' }] : [] }),
+      hasSession: (name) => state.session(name),
+      ...deps,
+    })
+    return { d, state }
+  }
+
+  test('a vanished session journals worker_died, releases the claim, and names the way out', async () => {
+    let unclaims = 0
+    const { d, state } = makeSwept({ unclaim: async () => { unclaims += 1 } })
+    await d.start('42', { repo: 'o/r' })
+    state.assigned = true
+
+    await d.livenessSweep()
+
+    assert.ok(events.some((e) => e.type === 'worker_died' && e.worker === 'curia-42'))
+    assert.ok(events.some((e) => e.type === 'dead_claim_released' && e.ticket === '42'))
+    assert.equal(unclaims, 1)
+    assert.ok(!d.workers.has('curia-42'), 'the dead record is dropped so `resume` is takeable')
+    const n = notifies.find((x) => /gone without a teardown order/.test(x.message))
+    assert.ok(n, 'the thread hears about the death')
+    assert.match(n.message, /claim released, ticket re-frontiered/)
+    assert.match(n.message, /`resume 42`/)
+  })
+
+  test('an ordered kill is an expected absence — no worker_died', async () => {
+    const { d } = makeSwept()
+    await d.start('42', { repo: 'o/r' })
+    // mid-teardown shape: the kill is ordered, the record not yet dropped
+    await d.deps.killSession('curia-42')
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'worker_died'))
+  })
+
+  test('a fresh spawn under the same name clears the ordered-kill memory', async () => {
+    const { d, state } = makeSwept()
+    await d.start('42', { repo: 'o/r' })
+    await d.deps.killSession('curia-42')
+    d.workers.delete('curia-42')
+    await d.start('42', { repo: 'o/r' })
+    state.assigned = true
+
+    await d.livenessSweep()
+
+    assert.ok(events.some((e) => e.type === 'worker_died' && e.worker === 'curia-42'),
+      'the successor is watched — a stale ordered-kill entry must not blind the sweep')
+  })
+
+  test('an indeterminate hasSession is not evidence of death', async () => {
+    const { d, state } = makeSwept()
+    await d.start('42', { repo: 'o/r' })
+    state.session = async () => { throw new Error('tmux wedged') }
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'worker_died'))
+    assert.ok(d.workers.has('curia-42'), 'the record stays for the next pass')
+  })
+
+  test('a live session is left alone', async () => {
+    const { d, state } = makeSwept()
+    await d.start('42', { repo: 'o/r' })
+    state.session = async () => true
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'worker_died'))
+    assert.ok(d.workers.has('curia-42'))
+  })
+
+  test('an open pull request keeps the claim — death while awaiting review', async () => {
+    let unclaims = 0
+    const { d, state } = makeSwept({
+      unclaim: async () => { unclaims += 1 },
+      findPullRequest: async () => ({ state: 'OPEN', url: 'https://github.com/o/r/pull/9' }),
+    })
+    await d.start('42', { repo: 'o/r' })
+    state.assigned = true
+
+    await d.livenessSweep()
+
+    assert.ok(events.some((e) => e.type === 'worker_died'))
+    assert.ok(events.some((e) => e.type === 'dead_claim_kept_awaiting_review'))
+    assert.equal(unclaims, 0, 'the reviewable claim is not dead')
+    assert.ok(notifies.some((x) => /awaiting review, so the claim stays/.test(x.message)))
+  })
+
+  test('open escalations stay answerable: marked in-thread and journalled, never cancelled', async () => {
+    const { d, state } = makeSwept()
+    await d.start('42', { repo: 'o/r' })
+    state.assigned = true
+    escalations.push({ id: 'esc-5', kind: 'free-text', worker: 'curia-42', ticket: '42', status: 'open' })
+
+    await d.livenessSweep()
+
+    assert.deepEqual(cancelled, [], 'the surface half of item 19: the question survives its worker')
+    assert.ok(events.some((e) => e.type === 'escalation_worker_died' && e.id === 'esc-5'))
+    const n = notifies.find((x) => /gone without a teardown order/.test(x.message))
+    assert.match(n.message, /\*\*esc-5\*\*/)
+    assert.match(n.message, /recorded and handed to the resumed worker/)
+  })
+
+  test('an open confirm on the dead worker lapses — it described an instance that no longer exists', async () => {
+    const { d, state } = makeSwept()
+    await d.start('42', { repo: 'o/r' })
+    state.assigned = true
+    const rec = {
+      id: 'esc-c1', kind: 'confirm', worker: 'overseer', ticket: '42', status: 'open',
+      action: { targets: [{ session: 'curia-42' }] },
+    }
+    escalations.push(rec)
+
+    await d.livenessSweep()
+
+    assert.ok(lapses.some((l) => l.id === 'esc-c1'))
+  })
+
+  test('a dead session WITH a recorded result is the normal close, not a death', async () => {
+    const { d, state } = makeSwept()
+    await d.start('42', { repo: 'o/r' })
+    state.assigned = true
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), JSON.stringify({ status: 'resolved' }))
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'worker_died'))
+    assert.ok(events.some((e) => e.type === 'lifecycle_closed'))
+  })
+
+  test('status recents carry the death, with the resume hint riding the journal event', async () => {
+    fs.appendFileSync(path.join(tmp, 'data', 'events.jsonl'),
+      JSON.stringify({ type: 'worker_died', repo: 'o/r', ticket: '7', worker: 'curia-7' }) + '\n')
+    const d = makeDispatcher()
+    const { recent } = await d.status()
+    assert.deepEqual(recent, [{ kind: 'died', repo: 'o/r', ticket: '7' }])
+  })
+})

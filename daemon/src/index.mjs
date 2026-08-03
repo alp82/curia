@@ -352,8 +352,8 @@ const attachApi = {
     if (!verified) {
       // Refusing alone withdraws nothing: /attach runs on every request, so
       // THIS is the path that detects a verified→unverified flip first (there
-      // is no periodic reconcile — startAutoLoop only schedules dispatch
-      // ticks), and the persisted serve rule still points at
+      // is no periodic reconcile — startAutoLoop's tick only dispatches and
+      // sweeps worker liveness), and the persisted serve rule still points at
       // 127.0.0.1:<ttyd_port> — a foreign listener that took the port would
       // stay live tailnet-wide at a URL already sitting in the Discord
       // thread. Same posture as reconcile's #assertAttachSurface: actively
