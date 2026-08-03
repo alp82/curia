@@ -32,3 +32,4 @@ One file per standing decision. A decision earns an ADR when it still constrains
 ## Attach surfaces
 
 - [ADR-0009](0009-timeline-beside-the-pty.md): The grid-free timeline is the everyday driving surface. The PTY stays for the raw TUI and native dialogs.
+- [ADR-0011](0011-tailscale-identity-in-front-of-every-attach-surface.md): Tailscale identity gates every attach surface, reads included. Tailnet membership is no longer the control.

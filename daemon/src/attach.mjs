@@ -390,8 +390,13 @@ export async function ensureTtyd({ ttydPort, index = DEFAULT_INDEX, log = consol
 
 // Idempotent (prototype.md §3, verified twice-in-a-row) — asserted on every
 // reconcile rather than read-then-write, but ONLY over a verified listener.
-export async function assertServe({ servePort, ttydPort }) {
-  await execFileP('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://127.0.0.1:${ttydPort}`])
+//
+// `targetPort` is the loopback port the rule points at, which since #151 is no
+// longer ttyd's own: the terminal surface publishes the identity proxy, and the
+// proxy is what reaches ttyd. The timeline has always passed its own port here,
+// so the old `ttydPort` name was already telling two stories.
+export async function assertServe({ servePort, targetPort }) {
+  await execFileP('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://127.0.0.1:${targetPort}`])
 }
 
 // Withdraw the serve rule. Load-bearing counterpart to the verified:false

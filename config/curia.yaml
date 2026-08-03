@@ -31,6 +31,21 @@ attach:
   # ttyd: `npm run build-attach-index --prefix daemon`.
   index: ../daemon/assets/attach-index.html
 
+identity:                                  # #151: the identity check in front of BOTH attach surfaces,
+                                           # closing the deferral ADR-0003 booked and #74 restated.
+  # Tailscale Serve stamps `Tailscale-User-Login` on every request it proxies,
+  # including the WebSocket upgrade, and OVERWRITES the header when a client
+  # forges it (measured — docs/live-checks/151-attach-surface-auth.md). That is
+  # what makes it an identity rather than a client assertion like Origin.
+  # A caller who is not on this list gets a 403, on the terminal and on the
+  # timeline alike. Required: there is no safe default for this key.
+  allow:
+    - alportac@gmail.com
+  # The loopback proxy that carries the check for ttyd, which is a C process
+  # with nowhere to put one: Serve(:8443) → proxy → ttyd(:7681). The timeline is
+  # the daemon's own server, so it applies the same check in-process.
+  proxy_port: 7682
+
 timeline:                                  # #74, landing #73: the grid-less attach surface —
   port: 4272                               # daemon-hosted loopback listener (transcript tail + send-keys)
   serve_port: 8444                         # its own Serve rule, beside attach's, never inside the preview range

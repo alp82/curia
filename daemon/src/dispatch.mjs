@@ -2061,20 +2061,34 @@ export class Dispatcher {
   // `tailscale serve --bg` config persists in tailscaled across daemon
   // restarts, skipping assertServe alone does not withdraw a rule a previous
   // run asserted — so the unverified branch actively turns the rule off.
+  // #151 added a second thing that must be positively up before the rule is
+  // asserted: the identity proxy the rule now POINTS AT. ttyd verified but the
+  // proxy down would mean publishing 127.0.0.1:<ttyd_port> directly — the
+  // un-gated terminal this ticket exists to close — so it is refused exactly
+  // like an unverified ttyd, and the persisted rule is withdrawn.
   async #assertAttachSurface() {
     const { serve_port: servePort, ttyd_port: ttydPort, index } = this.config.attach
+    const proxyPort = this.config.identity?.proxy_port
+    const proxyUp = this.identityProxy?.listening ?? false
     try {
-      const { verified } = await this.deps.ensureTtyd({ ttydPort, index, log: this.log })
+      const { verified } = proxyUp
+        ? await this.deps.ensureTtyd({ ttydPort, index, log: this.log })
+        : { verified: false }
       if (!verified) {
+        // Name the ACTUAL cause: a withdrawal blamed on the wrong half sends
+        // the operator to kill a ttyd that was never the problem.
+        const cause = proxyUp
+          ? `ttyd listener on port ${ttydPort} is UNVERIFIED`
+          : `the attach identity proxy is not up on port ${proxyPort}, so the rule has nothing gated to point at`
         try {
           await this.deps.serveOff({ servePort, log: this.log })
-          this.log(`reconcile: ttyd listener on port ${ttydPort} is UNVERIFIED — serve rule for :${servePort} withdrawn; /attach stays down until the listener is replaced (kill it and re-run reconcile)`)
+          this.log(`reconcile: ${cause} — serve rule for :${servePort} withdrawn; /attach stays down until it is fixed (kill the listener and re-run reconcile, or restart the daemon)`)
         } catch (e) {
-          this.log(`WARNING: ttyd listener on port ${ttydPort} is UNVERIFIED and withdrawing the serve rule failed (${e.message}) — if a rule for :${servePort} exists, the unverified listener REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${servePort} off\` by hand`)
+          this.log(`WARNING: ${cause} and withdrawing the serve rule failed (${e.message}) — if a rule for :${servePort} exists, an UNGATED listener REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${servePort} off\` by hand`)
         }
         return
       }
-      await this.deps.assertServe({ servePort, ttydPort })
+      await this.deps.assertServe({ servePort, targetPort: proxyPort })
     } catch (e) {
       this.log(`reconcile: attach surface assertion failed (${e.message}) — /attach may be unavailable`)
     }

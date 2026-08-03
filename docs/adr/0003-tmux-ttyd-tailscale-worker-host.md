@@ -20,6 +20,6 @@ The worker-host candidates were Orca, Paseo, herdr, and a composed stack of stan
 ## Consequences
 
 - The Serve rule lives in tailscaled and outlives the daemon. Reconcile asserts it and sweeps stale rules.
-- Auth is tailnet membership only. An identity-enforcing proxy in front of ttyd is a standing pre-production requirement, because basic auth alone does not close the WebSocket-Origin hole.
+- Auth was tailnet membership only. That standing pre-production requirement is now met: [ADR-0011](0011-tailscale-identity-in-front-of-every-attach-surface.md) puts a Tailscale identity check in front of ttyd, and `-O` alone is no longer the control.
 - Lifecycle signals never come from the worker host. They ride curia's own side channels: the MCP tools and the Stop hook.
 - One tmux window has one size. That limit later produced the timeline surface, [ADR-0009](0009-timeline-beside-the-pty.md).

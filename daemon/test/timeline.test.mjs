@@ -311,6 +311,9 @@ describe('TimelineSurface', () => {
       pollMs: 50,
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
+        // #151's check has its own suite (identity.test.mjs); these tests drive
+        // the surface over bare loopback, so the predicate is out of their way.
+        identityCheck: () => null,
         escalationsFor: () => escalations,
         escalationHistoryFor: () => escHistory,
         sendText: async (session, text) => sent.push({ session, text }),
@@ -552,6 +555,9 @@ describe('TimelineSurface', () => {
       port: 0, servePort: 8445, index: stale, workspaceRoot: workspaceRoot(), log: () => {},
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
+        // #151's check has its own suite (identity.test.mjs); these tests drive
+        // the surface over bare loopback, so the predicate is out of their way.
+        identityCheck: () => null,
         serveOff: async ({ servePort }) => offs.push(servePort),
         assertServe: async () => { throw new Error('must not assert over a stale page') },
         attachBase: async () => 'box.tailnet.ts.net',
@@ -578,6 +584,9 @@ describe('TimelineSurface', () => {
       servePort: 8446, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
+        // #151's check has its own suite (identity.test.mjs); these tests drive
+        // the surface over bare loopback, so the predicate is out of their way.
+        identityCheck: () => null,
         serveOff: async () => {},
         assertServe: async () => { throw new Error('must not assert over a dead listener') },
       },

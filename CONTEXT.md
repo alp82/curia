@@ -205,6 +205,12 @@ A tailnet HTTPS link to a worker's running dev server. The daemon allocates the 
 **Serve rule**:
 One `tailscale serve` handler. It lives in tailscaled and outlives the daemon, so reconcile sweeps stale rules.
 
+**Identity check**:
+The rule both attach surfaces admit a caller by: not a Funnel request, a Host this box serves, and a `Tailscale-User-Login` on the allowlist. Tailscale Serve stamps that login and overwrites a forged one, so a tailnet client cannot fake it. It fails closed.
+
+**Identity proxy**:
+The daemon's loopback proxy that carries the identity check for ttyd, which has nowhere to put one. The terminal's Serve rule points at the proxy, never at ttyd. The timeline applies the same check in-process.
+
 **Escalation overlay**:
 Open escalations shown on the timeline from the daemon's record, because a transcript is silent while a question blocks.
 

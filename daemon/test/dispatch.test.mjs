@@ -72,6 +72,7 @@ function makeDispatcher(deps = {}, {
   watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING,
   skills = null, stopNudgeBudget = 3,
   askReview = async () => ({ text: 'approve', status: 'answered' }),
+  identityProxy = { listening: true },
 } = {}) {
   const root = path.join(tmp, 'work')
   const config = {
@@ -82,6 +83,7 @@ function makeDispatcher(deps = {}, {
       stop_nudge_budget: stopNudgeBudget,
     },
     attach: { ttyd_port: 7681, serve_port: 8443 },
+    identity: { allow: ['tester@example.com'], proxy_port: 7682 },
     skills,
   }
   const store = {
@@ -135,7 +137,7 @@ function makeDispatcher(deps = {}, {
     setPullRequestBody: async () => {},
     deleteRemoteBranch: async () => ({ deleted: true }),
   }
-  return new Dispatcher({
+  const d = new Dispatcher({
     config,
     routing,
     store,
@@ -166,6 +168,11 @@ function makeDispatcher(deps = {}, {
     daemonPort: 4271,
     deps: { ...base, ...deps },
   })
+  // #151: index.mjs hangs the identity proxy on the dispatcher the way it hangs
+  // the timeline. Reconcile refuses to publish the terminal surface while the
+  // proxy is down, so the default here is up — the down case gets its own test.
+  d.identityProxy = identityProxy
+  return d
 }
 
 const typesOf = () => events.map((e) => e.type)
