@@ -188,6 +188,7 @@ tmux and Tailscale on boot. Open questions keep their Discord buttons across a r
 | `bot is in no guild` | The invite did not finish, or `CURIA_GUILD_ID` is wrong. |
 | The bridge refuses to start | `DISCORD_ALLOWED_USERS` is empty. |
 | Replies in a thread do nothing | The message content intent is off. |
+| `Speaker identities are off` in `#curia` | The bot role lacks Manage Webhooks. Grant it on the role, or as a `#curia` channel override. Worker prose keeps posting under the bot voice until you do. |
 | `spawned ttyd ... but no listener came up` | `TTYD_BIN` points at nothing. |
 | Attach and preview links never appear | Tailscale HTTPS certificates are off, or `--operator` was never set. |
 

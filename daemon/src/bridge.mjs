@@ -164,6 +164,9 @@ export class DiscordBridge {
     // holds the transitions, this holds only what is true right now.
     this.health = { state: 'down', since: Date.now(), last_error: null }
     this.unhealthySince = null
+    // Speaker identities (#143): `ok` is null until the start probe answers.
+    this.speakers = { ok: null, reason: null }
+    this.speakerNoticed = false
     this.client = new Client({
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     })
@@ -194,6 +197,9 @@ export class DiscordBridge {
     this.#watchGateway()
     this.#setHealth('up', { reason: 'ready' })
     this.log(`[bridge] ready: guild=${this.guild.name} channel=#${this.channel.name}`)
+    // Last, and after health is up: the probe announces in the channel, which
+    // needs a bridge that works. It never fails a start.
+    await this.probeSpeakers()
   }
 
   async stop() {
@@ -244,6 +250,8 @@ export class DiscordBridge {
       since: new Date(this.health.since).toISOString(),
       unhealthy_for_s: this.unhealthySince ? Math.round((Date.now() - this.unhealthySince) / 1000) : 0,
       last_error: this.health.last_error,
+      // #143: the channel says it once, `/state` says it whenever asked.
+      speakers: this.speakers,
     }
   }
 
@@ -521,6 +529,56 @@ export class DiscordBridge {
     return this.hook
   }
 
+  // #143: both webhook calls above need Manage Webhooks. Without the grant
+  // every speaker send raises `Missing Permissions` and falls back to the bot
+  // voice — correct, and silent outside the daemon log, so the identities were
+  // off for a day and nothing on the phone said so. The fallback stays (the
+  // words always land) and the degradation now reaches the channel.
+  //
+  // Probed at START rather than left to the first send, because startup is when
+  // the operator can act on it. The probe is the real path, not a permission
+  // read, so it also warms the hook for the first worker send. Public because
+  // `start()` needs a live gateway and the tests do not.
+  async probeSpeakers() {
+    try {
+      await this.#webhook()
+      this.speakers = { ok: true, reason: null }
+    } catch (e) {
+      await this.#speakerFault(e)
+    }
+  }
+
+  // One notice per bridge instance, either way. The probe carries the usual
+  // case; the send-time fallback carries a grant withdrawn while the daemon
+  // runs, which no probe can see. Recovery clears the latch, so the same
+  // permission lost again is announced again.
+  static speakerNotice(e) {
+    const missing = e?.code === 50013 || /missing permissions/i.test(e?.message ?? '')
+    const why = missing
+      ? 'the bot lacks **Manage Webhooks** on this channel'
+      : `the channel webhook failed (${e?.message ?? e})`
+    return `⚠️ Speaker identities are off: ${why}. Worker prose posts under the bot voice. Grant the permission to the bot role, or as a #curia channel override.`
+  }
+
+  static SPEAKERS_BACK = '✅ Speaker identities are on. Worker prose posts under its own name again.'
+
+  async #speakerFault(e) {
+    this.speakers = { ok: false, reason: e?.message ?? String(e) }
+    if (this.speakerNoticed) return
+    this.speakerNoticed = true
+    const notice = DiscordBridge.speakerNotice(e)
+    this.log(`[bridge] ${notice}`)
+    await this.announce(notice).catch((err) => this.log(`speaker notice failed: ${err.message}`))
+  }
+
+  async #speakersBack() {
+    this.speakers = { ok: true, reason: null }
+    if (!this.speakerNoticed) return
+    this.speakerNoticed = false
+    this.log('[bridge] speaker identities are back')
+    await this.announce(DiscordBridge.SPEAKERS_BACK).catch((err) => this.log(`speaker notice failed: ${err.message}`))
+  }
+
   #avatarFor(as) {
     if (as === 'curia') return this.client.user?.displayAvatarURL?.() ?? undefined
     // deterministic per-worker identicon, no asset hosting on our side
@@ -535,9 +593,14 @@ export class DiscordBridge {
       const chunks = chunkMessage(content)
       const base = { username: as, avatarURL: this.#avatarFor(as), threadId: thread.id }
       for (const chunk of chunks.slice(0, -1)) await hook.send({ ...base, content: chunk })
-      return await hook.send({ ...base, content: chunks.at(-1), files })
+      const msg = await hook.send({ ...base, content: chunks.at(-1), files })
+      // A grant that lands while the daemon runs heals here: the send path is
+      // never disabled, so the next one simply works and says so (#143).
+      if (this.speakers.ok === false) await this.#speakersBack()
+      return msg
     } catch (e) {
       this.log(`webhook send as "${as}" failed (${e.message}) — falling back to the bot voice`)
+      await this.#speakerFault(e)
       return this.#sendChunked(thread, { content, files })
     }
   }
