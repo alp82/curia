@@ -15,7 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
-import { endingProse } from './lifecycle.mjs'
+import { endingProse, CHARTING_NEVER } from './lifecycle.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
 // operator's STE writing standard, seeded into every config dir as the CLI's
@@ -583,7 +583,22 @@ export function writeHarness({ wtPath, cfgDir, worker, ticket, daemonPort, backe
 // tool at all — told to invoke it in prose the call comes back "cannot be used
 // with Skill tool". A prompt whose first line is `/wayfinder` loads the full
 // skill text. That is the only working form, verified both directions.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null }) {
+// `charting` (#160) is the map dispatch: the issue in hand IS the map, and the
+// worker's job is to change it rather than to resolve a ticket under it. Three
+// things move — the `/wayfinder` invocation carries no ticket, the params say
+// what this dispatch is and what the operator asked for, and the ending is the
+// charting one (lifecycle.mjs). Everything else — bounds, tools, the tracker
+// line — is the same worker.
+//
+// `instruction` is the operator's own sentence, delivered HERE rather than on
+// the worker-note queue. #149 called it "the worker's first note"; a note is
+// drained by the next curia tool call, and a charting worker can read the whole
+// map and start editing before it makes one. The prompt is the only channel
+// that is guaranteed to arrive BEFORE the first turn, which is what "first"
+// has to mean for an instruction that decides what the whole session does.
+// The text is never shell-substituted — the spawn template reads this file with
+// `$(cat …)` — so it needs no quoting rules of its own.
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, instruction = null }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
   const n = issue.number
   const branch = branchFor(n)
@@ -593,11 +608,38 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   // A mapless ticket gets no `/wayfinder` line: the skill works THROUGH a map,
   // and invoking it with nothing to work through would invent one. The flat
   // ready-for-agent lane (#10) is exactly this case.
-  const invocation = mapNumber ? [`/wayfinder ${mapUrl} ticket #${n}`, ''] : []
+  //
+  // A map dispatch names the map and NO ticket. That is the skill's "work
+  // through the map" invocation, whose step 2 would pick a frontier ticket — so
+  // the params below cancel that step in the same breath, under the standing
+  // rule that curia's bounds beat the skill where they disagree. The skill is
+  // still what has to load: fog of war, out of scope, ticket types, the map
+  // body's shape and refer-by-name are all doctrine a charting worker needs and
+  // curia does not restate.
+  const invocation = mapNumber ? [`/wayfinder ${mapUrl}${charting ? '' : ` ticket #${n}`}`, ''] : []
 
-  const params = [
-    `- The tracker is **GitHub**, repo \`${repo}\`, reached with the \`gh\` CLI. Do not fall back to a`,
-    '  local-markdown tracker: this repo carries `docs/agents/issue-tracker.md`.',
+  const chartingParams = [
+    `- **This is a MAP DISPATCH.** ${repo}#${n} is the map itself, not a ticket under it. Your job is to`,
+    '  CHANGE THE MAP: its body sections, and its child tickets. Do not choose a frontier ticket, and do',
+    '  not resolve one. The skill\'s step "choose the ticket" does not apply to this session.',
+    `- The map is ${repo}#${n} — ${ticketUrl}. curia has loaded it for you, and has assigned it to`,
+    '  you while you work, so a second charting worker cannot edit it under you.',
+    ...(instruction
+      ? [
+        '- **What the operator asked for**, in their own words:',
+        '',
+        `  > ${instruction}`,
+        '',
+        '  This is the whole brief. Do that, and no more than that. If it is unclear, or if doing it well',
+        '  needs a decision that is theirs, use `ask_human` — one question at a time.',
+      ]
+      : [
+        '- **No instruction rode this dispatch.** Do not guess what should change. Your FIRST act is one',
+        '  `ask_human` call: what should change on this map? Then work from the answer.',
+      ]),
+  ]
+
+  const params = charting ? chartingParams : [
     ...(mapNumber
       ? [`- The map is ${repo}#${mapNumber} — ${mapUrl}. curia has loaded it for you.`]
       : ['- This ticket belongs to no map, so there is no map to work through and no map line to append.']),
@@ -606,17 +648,32 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     ...(type
       ? [`- Ticket type: \`${type}\`. The skill's Ticket Types section says what that means for how you work it.`]
       : ['- This ticket carries no `wayfinder:` type label.']),
+  ]
+
+  const allParams = [
+    `- The tracker is **GitHub**, repo \`${repo}\`, reached with the \`gh\` CLI. Do not fall back to a`,
+    '  local-markdown tracker: this repo carries `docs/agents/issue-tracker.md`.',
+    ...params,
     `- Your worktree is ${wtPath}, on branch \`${branch}\`.`,
   ]
 
   const bounds = [
     '- **Read anything.** Zoom into any issue, map, sibling or closed ticket you need. Nothing here limits',
     '  reading.',
-    `- **Write only:** files inside ${wtPath}; this ticket;${mapNumber ? ` the map ${repo}#${mapNumber} and its children;` : ''}`,
-    '  and the one merge a human has just approved. Nothing else on the tracker, and nothing outside the',
-    '  worktree on disk.',
-    "- Leave the assignee alone, and do not rewrite anyone else's text. That claim is curia's record of who",
-    '  did this work.',
+    ...(charting
+      ? [
+        `- **Write only:** the map ${repo}#${n} and its child tickets. Nothing else on the tracker, and`,
+        `  nothing on disk: ${wtPath} is a read-only checkout to you. A map dispatch produces no code, no`,
+        '  commit and no branch.',
+        "- Do not rewrite anyone else's text. A section you did not write is edited, not replaced.",
+      ]
+      : [
+        `- **Write only:** files inside ${wtPath}; this ticket;${mapNumber ? ` the map ${repo}#${mapNumber} and its children;` : ''}`,
+        '  and the one merge a human has just approved. Nothing else on the tracker, and nothing outside the',
+        '  worktree on disk.',
+        "- Leave the assignee alone, and do not rewrite anyone else's text. That claim is curia's record of who",
+        '  did this work.',
+      ]),
     // #131 (operator ruling, 2026-08-02): the browser bound is about JUDGMENT,
     // not tooling. A worker that "looks at" its own page and approves what it
     // sees has bypassed the human the review gate exists for — but a renderer
@@ -649,7 +706,14 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '- Where a skill and these bounds disagree, these win.',
   ]
 
-  const tools = [
+  const tools = charting ? [
+    '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
+    '  takes. This is how you reach the operator who dispatched you.',
+    '- `notify` — a status line for the human. Returns at once.',
+    '- `report_result` — exactly once, at the very end. Its summary becomes curia\'s comment on the map.',
+    '- `open_pull_request`, `request_review` and `publish_preview` belong to a ticket dispatch. curia',
+    '  refuses the first two on a map dispatch, and there is nothing here to preview.',
+  ] : [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes.',
     '- `notify` — a status line for the human. Returns at once.',
@@ -674,7 +738,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '',
     '## What curia already did (parameters, not procedure)',
     '',
-    ...params,
+    ...allParams,
     '',
     '## Bounds (curia daemon)',
     '',
@@ -686,13 +750,23 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '',
     '## How this ends',
     '',
-    ...endingProse({ repo, ticket: n, branch, mapNumber }),
+    ...endingProse({ repo, ticket: n, branch, mapNumber, charting }),
     '',
-    '- If you cannot finish, call `report_result` with status `blocked` and say why. Never comment-and-close',
-    '  a ticket you did not resolve.',
-    '- curia holds you at this ending: its Stop hook refuses your stop while a step is outstanding, and',
-    '  tells you which one. It also verifies the resolution afterwards and repairs what is missing, so an',
-    '  honest `report_result` matters more than a perfect run.',
+    ...(charting
+      ? [
+        ...CHARTING_NEVER.flatMap(([first, ...rest]) => [`- ${first}`, ...rest.map((l) => `  ${l}`)]),
+        '- If you cannot finish, call `report_result` with status `blocked` and say why. A half-charted map',
+        '  is worse than an unchanged one, so say which part you left alone.',
+        '- curia holds you at this ending: its Stop hook refuses your stop while a step is outstanding, and',
+        '  tells you which one.',
+      ]
+      : [
+        '- If you cannot finish, call `report_result` with status `blocked` and say why. Never comment-and-close',
+        '  a ticket you did not resolve.',
+        '- curia holds you at this ending: its Stop hook refuses your stop while a step is outstanding, and',
+        '  tells you which one. It also verifies the resolution afterwards and repairs what is missing, so an',
+        '  honest `report_result` matters more than a perfect run.',
+      ]),
     '',
   ].join('\n')
   fs.writeFileSync(promptFile, body)

@@ -80,10 +80,14 @@ const SLASH_MANIFEST = [
   new SlashCommandBuilder().setName('next').setDescription('Dispatch the next takeable ticket')
     .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
   new SlashCommandBuilder().setName('status').setDescription('Workers running, waiting on input, and recent endings'),
-  new SlashCommandBuilder().setName('start').setDescription('Dispatch a worker on a ticket')
-    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true))
+  new SlashCommandBuilder().setName('start').setDescription('Dispatch a worker on a ticket, or a charting worker on a map')
+    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or a map number').setRequired(true))
     .addStringOption((o) => o.setName('model').setDescription('Model override'))
-    .addStringOption((o) => o.setName('backend').setDescription('Backend override')),
+    .addStringOption((o) => o.setName('backend').setDescription('Backend override'))
+    // #160. Optional, so an old client-side manifest still sends a valid
+    // `/start` — it just cannot carry a sentence, and the charting worker then
+    // asks what should change, which is the right degradation.
+    .addStringOption((o) => o.setName('instruction').setDescription('MAP ONLY: what should change on the map')),
   new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket, or all of them')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
   new SlashCommandBuilder().setName('resume').setDescription('Fresh worker on a ticket, inheriting its surviving worktree')
@@ -102,7 +106,10 @@ const SLASH_MANIFEST = [
 // register (a stale client-side manifest, verified live from the phone), and
 // that deserves to be said out loud rather than turned into a fake ticket id.
 // Same rule as everywhere else in the daemon: a missing read is not a value.
-function expandCommand(i) {
+// Exported for the same reason queuedNoteReply is: this is the phone's only
+// command surface (see missingOptionReply), and a pure expansion deserves a
+// test that does not need a live gateway.
+export function expandCommand(i) {
   const opt = (name) => i.options.getString(name)
   const need = (name) => {
     const v = opt(name)
@@ -118,7 +125,16 @@ function expandCommand(i) {
     case 'start': {
       const ticket = need('ticket')
       if (!ticket) return { error: 'missing' }
-      return `start ${ticket}${opt('model') ? ' model=' + opt('model') : ''}${opt('backend') ? ' backend=' + opt('backend') : ''}`
+      // The instruction rides LAST, after a bare `--` (#160), and its
+      // whitespace is collapsed for the same reason canonicalFor collapses it:
+      // this line is one line, and the router splits it on whitespace. This is
+      // still expansion, not interpretation — the text is passed through, and
+      // whether a map may carry it is the dispatcher's ruling.
+      const instruction = (need('instruction') ?? '').replace(/\s+/g, ' ').trim()
+      return `start ${ticket}`
+        + (opt('model') ? ' model=' + opt('model') : '')
+        + (opt('backend') ? ' backend=' + opt('backend') : '')
+        + (instruction ? ` -- ${instruction}` : '')
     }
     case 'cancel':
     case 'resume':

@@ -32,7 +32,16 @@ A ticket whose parent issue is a map.
 The map section "Not yet specified": work that is coming but not yet sharp enough to state as a ticket.
 
 **Charting**:
-The map changes a worker proposes at the review gate: new tickets, graduated fog, blocking edges, scope rulings.
+The map changes: new tickets, graduated fog, blocking edges, scope rulings. They land two ways. A ticket worker proposes them at the review gate and writes them after the approval. A charting worker writes them as its whole job.
+
+**Map dispatch**:
+`start` on a map's own issue. The daemon spawns a charting worker instead of a ticket worker.
+
+**Charting worker**:
+The worker of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate.
+
+**Instruction**:
+The operator's sentence on a map dispatch, in their own words. It rides the dispatch and reaches the charting worker as the first thing it reads. With no instruction, the worker asks what should change.
 
 **Frontier**:
 The takeable tickets of a watched repo, in map order.
@@ -44,7 +53,7 @@ Open, not a pull request, no open blockers, no assignee.
 The rule that computes a repo's frontier. The map lane takes the children of open maps. The flat lane takes open `ready-for-agent` issues. A repo whose maps are all closed or deferred gets an empty frontier, never the flat fallback.
 
 **Claim**:
-The assignee on a ticket. A claim removes the ticket from every frontier. The daemon claims before it spawns.
+The assignee on a ticket. A claim removes the ticket from every frontier. The daemon claims before it spawns. A claim on a map takes nothing off a frontier, because a map is never on one. It stops a second charting worker from editing the same body.
 
 **Watched repo**:
 A repo on the watch list in `config/curia.yaml`. Curia dispatches only against watched repos.
@@ -67,7 +76,7 @@ Merged. A ticket counts as resolved only when a human approved the work and the 
 The ordered act: claim, prepare, spawn. A failure before the spawn releases the claim.
 
 **Routing rule**:
-The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<type>` default table. No intelligence sits in the dispatch path.
+The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<type>` default table. No intelligence sits in the dispatch path. `wayfinder:map` is a row in that table like any other type.
 
 **Backend**:
 The agent CLI a worker runs under: claude or codex.
@@ -181,6 +190,9 @@ _Avoid_: status line (that names the daemon's own line, below).
 
 **Ending**:
 The ordered close-out of a ticket: commit, pull request, preview, review gate, merge, resolve, result. One structure drives both the prompt and the Stop hook checklist.
+
+**Charting ending**:
+The ending of a map dispatch: edit the map, then report the result. Curia posts the summary on the map and unassigns it. No pull request, no review gate, no close.
 
 **Stop hook**:
 The enforcement hook that fires at the end of every worker turn. It refuses a stop that leaves ending steps open, up to the stop budget, then lets go and reports the ticket unfinished.

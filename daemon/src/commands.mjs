@@ -13,8 +13,20 @@ import { clampList } from './messaging.mjs'
 // against the watch list (see #matchRepo), so `cur` is as valid as `alp82/curia`.
 const REPOISH_RE = /^[\w./-]+$/
 
+// The instruction separator on `start` (#160). Every other argument on this
+// seam is one whitespace-free token, because the seam itself is one line of
+// text that gets split on whitespace — and a map dispatch has to carry a whole
+// operator sentence ("update the landing page map so that X").
+//
+// A bare `--` is the boundary: everything before it parses as before, and
+// everything after it is the instruction, joined back with single spaces. The
+// round trip is stable — the instruction is taken from the FIRST `--` onward,
+// so a sentence that itself contains ` -- ` survives canonicalFor → parseCommand
+// unchanged.
+const INSTRUCTION_SEP = '--'
+
 // 'tickets [repo]' | 'next [repo]' | 'status'
-// | 'start <n>|<owner/repo#n> [model=x] [backend=y]'
+// | 'start <n>|<owner/repo#n> [model=x] [backend=y] [-- <instruction>]'
 // | 'cancel <n>|all' | 'resume <n>|all' | 'attach <n>'  — anything else ⇒ null.
 export function parseCommand(text) {
   const parts = (text ?? '').trim().split(/\s+/).filter(Boolean)
@@ -48,10 +60,20 @@ export function parseCommand(text) {
       } else {
         return null
       }
-      for (const opt of rest.slice(1)) {
+      const sep = rest.indexOf(INSTRUCTION_SEP)
+      const opts = sep === -1 ? rest.slice(1) : rest.slice(1, sep)
+      for (const opt of opts) {
         const om = opt.match(/^(model|backend)=([\w.-]+)$/)
         if (!om) return null
         cmd[om[1]] = om[2]
+      }
+      if (sep !== -1) {
+        // `--` with nothing after it is a typo, not an empty instruction: it
+        // would dispatch the "what should change?" escalation the operator was
+        // trying to skip.
+        const instruction = rest.slice(sep + 1).join(' ').trim()
+        if (!instruction) return null
+        cmd.instruction = instruction
       }
       return cmd
     }
@@ -77,6 +99,7 @@ const USAGE = [
   '`next [repo]` — dispatch the next takeable ticket',
   '`status` — workers running, workers waiting on input, recent cancelled and finished',
   '`start <n>|repo#<n> [model=x] [backend=y]` — claim + dispatch a worker (repo: any unambiguous part of the name)',
+  '`start <map> -- <instruction>` — dispatch a charting worker on a `wayfinder:map` issue; the sentence after `--` is what it should change',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n>|all` — fresh worker on a ticket, inheriting its surviving worktree',
   '`attach <n>` — timeline + browser-terminal links for a live worker',
@@ -129,7 +152,10 @@ export class CommandRouter {
             const configured = Object.keys(this.dispatcher.routing.backends ?? {}).map((b) => `\`${b}\``).join(', ')
             return `❌ backend \`${cmd.backend}\` is not configured — configured backends: ${configured}`
           }
-          return await this.dispatcher.start(cmd.ticket, { repo: cmd.repo, model: cmd.model, backend: cmd.backend, by: userId, threadId })
+          return await this.dispatcher.start(cmd.ticket, {
+            repo: cmd.repo, model: cmd.model, backend: cmd.backend, instruction: cmd.instruction,
+            by: userId, threadId,
+          })
         }
         case 'cancel':
           if (interpreted) {

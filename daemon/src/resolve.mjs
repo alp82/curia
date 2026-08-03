@@ -143,6 +143,36 @@ export function nonCleanComment({ worker, result, released }) {
   ])
 }
 
+// ---- the map dispatch (#160) --------------------------------------------------
+
+// What a charting worker leaves on the map. The DAEMON posts it, from the
+// `report_result` summary — the same division of labour as the review gate's
+// links (#40): a record curia writes from what it knows is evidence, and one
+// the worker writes about itself is an account. It also makes the summary
+// arrive exactly once, whatever the worker did with `gh` on its own.
+//
+// No MACHINE_MARKER: this is the substantive record of a charting session, not
+// plumbing for a later check to skip over.
+//
+// The map is never closed and its `## Decisions so far` is never touched here.
+// That section indexes the route walked — one line per RESOLVED ticket — and a
+// charting session walks no step of it.
+export function chartingComment({ worker, model, instruction, result }) {
+  const clean = result.status === 'resolved'
+  return [
+    `## ${clean ? 'Charting' : `Charting — **${result.status}**`} (curia session \`${worker}\`)`,
+    '',
+    ...(instruction ? ['The operator asked for:', '', `> ${instruction}`, ''] : ['Dispatched with no instruction.', '']),
+    result.summary ?? '(no summary)',
+    '',
+    '---',
+    '',
+    clean
+      ? `_A map dispatch: this session edited the map and its tickets. It opened no pull request and closed nothing. Model \`${model ?? '?'}\`._`
+      : `_The charting worker stopped with status **${result.status}**. Whatever it had already written to the map STANDS — read the changes above before you dispatch another one. Model \`${model ?? '?'}\`._`,
+  ].join('\n')
+}
+
 export function prLinkComment({ branch, commits, url, state }) {
   return machine([
     `🔗 curia pushed \`${branch}\` (${commits} commit${commits === 1 ? '' : 's'}) and ${state === 'updated' ? 'updated' : 'opened'} ${url}`,
