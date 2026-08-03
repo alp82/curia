@@ -100,7 +100,11 @@ is the failure that hides until a worker hits it.
 The CLI layer is a single native binary each — claude ships one 275 MB `claude.exe`, codex one
 platform package — so there is nothing to prune there. The box has 132 GB free.
 
-## 6. The one thing not closed: the daemon user cannot reach docker
+## 6. The daemon user could not reach docker
+
+**Closed the same day** by [#181](https://github.com/alp82/curia/issues/181). What follows is
+what this check found, kept as the record of why the grant was needed.
+
 
 ```
 $ ssh alp@coinmatica.net docker ps
@@ -129,3 +133,28 @@ does map to `alp` is the one user Claude Code refuses to run as.
 
 The worker never reaches the socket either way. It is denied inside the container, which is what
 the boundary is for.
+
+### The grant, and what it proved
+
+The operator approved it in session. After the grant and a service restart, the daemon process
+carries the group:
+
+```
+$ grep ^Groups /proc/$(systemctl show -p MainPID --value curia)/status
+Groups: 101 998 1000
+```
+
+Then the check worth having. Run as `alp`, not as root:
+
+```
+$ npm run build-worker-image --prefix daemon
+image       curia-worker:2.1.220-0.146.0-c6c38f36
+already built — nothing to do (use --force to rebuild it anyway)
+```
+
+The tag the daemon derives from `config/curia.yaml` is the tag root's build produced. So the
+content address agrees across two machines, two docker versions and two builders — which is the
+property the whole rebuild rule rests on.
+
+The restart was taken with `curia-160` live. `KillMode=process` left it standing and boot
+reconcile re-adopted it: `reconcile: re-adopted live worker curia-160 (alp82/curia#160)`.

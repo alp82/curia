@@ -60,11 +60,13 @@ The image tag is a content address over the Dockerfile and the pins in `config/c
 
 A cold build takes about four minutes and the image is about 1.6 GB. Two Docker volumes hold what stays out of it: the npm cache and the Playwright browsers.
 
-**The daemon user must be in the `docker` group.** The Docker socket is root-owned, and `alp` holds no sudo right that reaches it:
+**The daemon user must be in the `docker` group.** The Docker socket is root-owned, and `alp` holds no sudo right that reaches it. Done on 2026-08-03 ([#181](https://github.com/alp82/curia/issues/181)):
 
 ```
 sudo usermod -aG docker alp     # as root, once
 ```
+
+The service picks the group up at start, so it needs a restart after the grant.
 
 This grants `alp` root on the box, because anyone who can reach the socket can mount `/` into a container. That is the accepted cost of rootful Docker. Rootless Docker does not replace it here: it maps a container uid to a subordinate host uid, so an agent running as uid 1000 could not write the clone the daemon bind-mounts, and the container-root that does map to `alp` is the one user Claude Code refuses to run as.
 
