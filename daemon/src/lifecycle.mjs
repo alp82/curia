@@ -16,6 +16,10 @@
 // `todo` is prose only: the resolve step is daemon-invisible (#49 — there is no
 // expected value to compare a charting proposal against), and committing is not
 // required at all, since a grilling ticket resolves with a comment and no code.
+//
+// Since #160 there are TWO endings, read the same two ways: `ENDING` for a
+// ticket dispatch and `CHARTING_ENDING` for a map one. `state.charting` picks,
+// in the one function each caller already goes through.
 
 // The kind the review gate opens under (#54 item 2). Its own kind rather than a
 // plain approve-reject, for three reasons: /status must read *awaiting review*
@@ -94,10 +98,66 @@ export const ENDING = [
   },
 ]
 
+// ---- the charting ending (#160) ----------------------------------------------
+//
+// A map dispatch has a different ending, because it produces a different thing.
+// A ticket worker's output is CODE, so the ending is the merge gate: pull
+// request → review → merge → resolve. A charting worker's output is the MAP
+// ITSELF — issue bodies and child issues on the tracker — which is inside a
+// worker's ordinary write bounds and cannot be staged in a branch at all. There
+// is nothing to push, so there is nothing for a review gate to show, and #149
+// settled the trade: no gate, an operator in the loop, and the strongest model.
+//
+// So four steps of ENDING are not merely skipped here — they are refused
+// (dispatch.mjs turns `open_pull_request` and `request_review` down for a
+// charting worker). What is left is the map edit, and the one call that ends
+// every dispatch.
+//
+// The summary comment is deliberately NOT a step. The daemon posts it from the
+// `report_result` summary (see chartingComment in resolve.mjs), for the same
+// reason the review gate composes its own links: a record curia writes from its
+// own knowledge of what happened is evidence, and one the worker writes about
+// itself is an account. It also keeps the Stop-hook checklist off a `gh` read
+// at the end of every turn.
+export const CHARTING_ENDING = [
+  {
+    key: 'chart',
+    prose: ({ repo, ticket }) => [
+      `Update the map: edit ${repo}#${ticket}'s body, and create, edit or close its child tickets.`,
+      'Those tracker writes ARE the work. Nothing here is staged, reviewed or merged.',
+    ],
+  },
+  {
+    key: 'report',
+    prose: () => [
+      'Call `report_result` exactly once, with `resolved` and a summary of what you changed on the map.',
+      'curia posts that summary as a comment on the map. It never closes the map.',
+    ],
+    todo: (s) => (s.hasResult ? null : 'call `report_result` exactly once'),
+  },
+]
+
+// What a charting worker must NOT do — one bullet per entry, its own lines.
+// Prose only: the refusals themselves live in dispatch.mjs, and this is the
+// copy the model reads.
+export const CHARTING_NEVER = [
+  ['Never close the map. It is the standing artifact, not a ticket you resolve.'],
+  [
+    'Never call `open_pull_request` or `request_review`, and never merge anything. curia refuses both',
+    'calls on a map dispatch. There is no review gate here: the operator who dispatched you is the check.',
+  ],
+  [
+    'The resolve protocol — resolution comment, close, Decisions-so-far line — belongs to a TICKET',
+    "worker. Do not run it, and do not resolve any of the map's children yourself.",
+  ],
+]
+
+const listFor = (state) => (state.charting ? CHARTING_ENDING : ENDING)
+
 // The prose block for the spawn prompt: a numbered list, in order.
 export function endingProse(ctx) {
   const out = []
-  ENDING.forEach((step, i) => {
+  listFor(ctx).forEach((step, i) => {
     const lines = step.prose(ctx).map((l) => l.replace('#{n}', `#${ctx.ticket}`))
     out.push(`${i + 1}. ${lines[0]}`)
     for (const l of lines.slice(1)) out.push(`   ${l}`)
@@ -111,7 +171,7 @@ export function endingProse(ctx) {
 // cannot comply — the loop #48 refused.
 export function outstanding(state) {
   if (state.hasResult) return []
-  return ENDING.map((s) => (s.todo ? s.todo(state) : null)).filter(Boolean)
+  return listFor(state).map((s) => (s.todo ? s.todo(state) : null)).filter(Boolean)
 }
 
 // The `reason` a blocked Stop hands back to the worker. It is the only text the

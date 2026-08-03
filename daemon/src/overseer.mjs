@@ -37,6 +37,14 @@ export function canonicalFor(verb, args = {}) {
       let text = `start ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
       if (args.model) text += ` model=${args.model}`
       if (args.backend) text += ` backend=${args.backend}`
+      // The map instruction (#160) rides LAST, after a bare `--`, because it is
+      // the one argument that is a whole sentence. Whitespace is collapsed here:
+      // the seam is one line of text, and the router splits it on whitespace, so
+      // a newline the model wrote would otherwise come back as a space anyway —
+      // collapsing it makes the canonical text the operator sees and the text
+      // the router parses the same string.
+      const instruction = String(args.instruction ?? '').replace(/\s+/g, ' ').trim()
+      if (instruction) text += ` -- ${instruction}`
       return text
     }
     case 'cancel':
@@ -67,11 +75,12 @@ export function buildVerbTools(command) {
       repo: repoArg,
     }, run('next')),
     tool('status', 'Show the live workers: ticket, model, state, uptime, and who is waiting on input.', {}, run('status')),
-    tool('start', 'Claim a ticket and dispatch a worker on it. Use the repo field when the ticket number alone is ambiguous.', {
+    tool('start', 'Claim a ticket and dispatch a worker on it. Use the repo field when the ticket number alone is ambiguous. Started on a MAP issue, this dispatches a charting worker that updates the map instead — pass the operator\'s sentence as the instruction.', {
       ticket: ticketArg,
       repo: repoArg,
       model: z.string().optional().describe('model override'),
       backend: z.string().optional().describe('backend override (claude | codex)'),
+      instruction: z.string().optional().describe('MAP DISPATCHES ONLY: what the operator wants changed on the map, in their own words ("update the landing page map so that X"). The charting worker reads it as its first input. Leave it out and the worker asks the operator what should change. A ticket dispatch refuses it.'),
     }, run('start')),
     tool('cancel', 'Cancel the worker on a ticket, or "all" for every worker. Destructive, so the daemon posts ✅/❌ buttons and executes ONLY after the operator presses ✅. Call this directly when asked — never seek confirmation in conversation first, and never report the cancel as done: report that the confirm was posted.', {
       ticket: bulkArg,
@@ -110,6 +119,7 @@ Vocabulary the operator uses:
 - A "map" is a wayfinder map: a GitHub issue whose child tickets chart one effort. The operator names maps by topic ("the landing page map"). The \`tickets\` output groups tickets under their map's header line ("map #109 **The curia landing page**").
 - A map named in prose resolves to that map's header, never to repo-wide order: "continue with <map>" means \`start\` the FIRST ticket listed under that map's header. A repo can hold several maps — picking the repo's first takeable when the operator named a map dispatches the wrong ticket.
 - When a phrase names no repo or map you know, call \`tickets\` with no filter and match the phrase against the headers that come back before saying you cannot.
+- \`start\` on the MAP's own number is a map dispatch: a charting worker updates the map itself. Use it when the operator asks to CHANGE a map ("update the landing page map so that X", "add a ticket for Y", "the map is wrong about Z"). Put their sentence in the \`instruction\` field, in their own words — do not rewrite it and do not summarize it. "Continue with <map>" is not this: that starts the map's first ticket.
 
 Your memory goes stale:
 - Tool output from an earlier turn may be minutes or hours old, and the daemon, the trackers, and the operator all change state between your turns. Re-run \`tickets\` or \`status\` before you refuse, recommend, or report state. Never answer from a previous turn's tool output.

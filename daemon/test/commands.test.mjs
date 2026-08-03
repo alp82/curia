@@ -122,6 +122,59 @@ describe('parseCommand', () => {
     assert.equal(c.model, 'opus')
   })
 
+  // #160: the map instruction. Every other argument on this seam is one
+  // whitespace-free token, because the seam is a line that gets split on
+  // whitespace — a whole operator sentence needs a boundary, and `--` is it.
+  test('start carries a free-text instruction after a bare --', () => {
+    const c = parseCommand('start 147 -- update the landing page map so that X')
+    assert.equal(c.verb, 'start')
+    assert.equal(c.ticket, '147')
+    assert.equal(c.instruction, 'update the landing page map so that X')
+  })
+
+  test('the instruction sits after the options, and takes everything to the end', () => {
+    const c = parseCommand('start cur#147 model=opus -- add a ticket, then wire it -- and say so')
+    assert.equal(c.repoArg, 'cur')
+    assert.equal(c.model, 'opus')
+    // from the FIRST `--` onward, so a sentence carrying one survives the round
+    // trip through canonicalFor unchanged
+    assert.equal(c.instruction, 'add a ticket, then wire it -- and say so')
+  })
+
+  test('a start with no -- carries no instruction at all', () => {
+    assert.equal(parseCommand('start 147').instruction, undefined)
+    assert.equal(parseCommand('start 147 model=opus').instruction, undefined)
+  })
+
+  test('a bare -- with nothing after it is refused, not read as an empty instruction', () => {
+    // It would silently dispatch the "what should change?" escalation the
+    // operator was trying to skip.
+    assert.equal(parseCommand('start 147 --'), null)
+    assert.equal(parseCommand('start 147 --   '), null)
+  })
+
+  test('an option AFTER the -- is instruction text, not a refused option', () => {
+    const c = parseCommand('start 147 -- use model=opus wording in the note')
+    assert.equal(c.model, undefined)
+    assert.equal(c.instruction, 'use model=opus wording in the note')
+  })
+
+  test('the instruction reaches the dispatcher', async () => {
+    const seen = []
+    const router = new CommandRouter({
+      dispatcher: {
+        routing: { backends: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }] },
+        start: async (ticket, opts) => { seen.push({ ticket, ...opts }); return 'ok' },
+      },
+      attach: {},
+      log: () => {},
+    })
+    await router.handle('start 147 -- chart the cooling signal', 'user-1')
+    assert.equal(seen[0].ticket, '147')
+    assert.equal(seen[0].instruction, 'chart the cooling signal')
+  })
+
   test('cancel', () => {
     const c = parseCommand('cancel 42')
     assert.equal(c.verb, 'cancel')

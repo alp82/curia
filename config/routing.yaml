@@ -14,6 +14,19 @@ defaults:
   research: gpt          # #13: spread quota — research is the bulk lane
   task: opus
   untyped: opus
+  # A map dispatch (#160): `start curia#<map>` on a `wayfinder:map` issue spawns
+  # a CHARTING worker, which rewrites the map every later worker reads. #149
+  # pinned it to the strongest claude-backend model, because no gate checks a
+  # charting worker: the operator in the loop is the whole check.
+  #
+  # That model is fable, and fable is entitlement-blocked on this account
+  # (#126 — the same reason grilling and prototype sit on opus above). A `fable`
+  # row here would burn one spawn per map dispatch and then fall to opus down
+  # the chain, so opus stands. This row flips back to fable with the other
+  # three, once the account holds fable usage credits.
+  #
+  # A `model:<x>` label on the map still beats this row (resolveModel).
+  map: opus
 
 # `context_window` feeds the status line's context % (#146), and it is the LAST
 # resort for it since #178. It used to say 200000 for the three anthropic models

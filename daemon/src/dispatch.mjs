@@ -31,12 +31,19 @@ import {
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, workerEnv,
   untrustedProjectConfig,
 } from './workspace.mjs'
-import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment } from './resolve.mjs'
+import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 
 const SESSION_RE = /^curia-(\d+)$/
+
+// The label that makes a dispatch a CHARTING one (#160): `start curia#<map>` on
+// the map's own issue spawns a worker that updates the map, not one that
+// resolves a ticket under it. Everything that branches on it reads this
+// constant, and the journal records the answer per spawn so a restarted daemon
+// still knows which kind of worker it adopted.
+const MAP_LABEL = 'wayfinder:map'
 
 // The tracker doc every watched repo is meant to carry (#57 step 3). The
 // wayfinder skill reads it to learn how this repo expresses maps and tickets;
@@ -320,7 +327,7 @@ export class Dispatcher {
 
   // `reuse` is the resume contract (#81): inherit the surviving worktree
   // instead of recreating it — see #dispatch.
-  async start(ticketArg, { repo, model, backend, by, reuse = false, threadId = null } = {}) {
+  async start(ticketArg, { repo, model, backend, instruction = null, by, reuse = false, threadId = null } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -345,6 +352,21 @@ export class Dispatcher {
       const { repo: theRepo, issue } = resolved
 
       if (issue.state !== 'open') return `❌ ${theRepo}#${n} is ${issue.state} — nothing to dispatch`
+      // An instruction rides a MAP dispatch and nothing else (#160/#149). A
+      // ticket worker's brief is its ticket body, which a human wrote and other
+      // sessions can read — an operator sentence that only exists in one spawn
+      // prompt would steer the work with no durable record of it. Refuse rather
+      // than drop it silently, and name where the sentence does belong.
+      //
+      // `!reuse` scopes it to an instruction a human actually typed. A resume
+      // carries the previous dispatch's instruction forward from the journal,
+      // and a map that has lost its label since then must degrade to an ordinary
+      // dispatch — not refuse a verb the operator typed no instruction on. The
+      // stale sentence is dropped rather than used: writePrompt renders one only
+      // on a charting dispatch.
+      if (instruction && !reuse && !hasLabel(issue, MAP_LABEL)) {
+        return `❌ ${theRepo}#${n} is not a \`${MAP_LABEL}\` issue, and an instruction rides a map dispatch only — put it in the ticket body, or send it as a note in the ticket's thread once the worker is up`
+      }
       const anomalies = []
       const assignees = (issue.assignees ?? []).map((a) => a.login)
       if (assignees.length) anomalies.push(`already assigned to ${assignees.join(', ')}`)
@@ -356,7 +378,7 @@ export class Dispatcher {
 
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
-      return (await this.#dispatch(theRepo, n, issue, { model, backend, by, reuse, threadId })) ?? this.#exhaustedReply()
+      return (await this.#dispatch(theRepo, n, issue, { model, backend, instruction, by, reuse, threadId })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
     }
@@ -425,13 +447,18 @@ export class Dispatcher {
   // `reuse` (the resume contract, #81): a surviving worktree is inherited as it
   // stands — uncommitted files and local commits included — instead of being
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
-  async #dispatch(repo, n, issue, { model, backend, by, reuse = false, threadId = null }) {
+  async #dispatch(repo, n, issue, { model, backend, instruction = null, by, reuse = false, threadId = null }) {
     const session = `curia-${n}`
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     // The type label, read once and used twice: it names the thread (#93) and
     // it reaches the worker prompt (#49 decision 2). One read, so the thread a
     // human reads and the prompt the worker reads can never say different kinds.
     const typeLabel = labels.find((l) => l.startsWith('wayfinder:')) ?? null
+    // A map dispatch (#160). `wayfinder:map` is a type label like any other for
+    // ROUTING — resolveModel reads `defaults.map` off the same loop — and unlike
+    // any other for everything downstream of it: the prompt, the ending, the
+    // tools curia will answer, and what report_result does.
+    const charting = typeLabel === MAP_LABEL
     const modelName = resolveModel(this.routing, labels, model)
     if (!this.routing.models[modelName]) {
       return `❌ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
@@ -458,8 +485,13 @@ export class Dispatcher {
     }
 
     const login = await this.deps.viewerLogin()
+    // The claim on a MAP is not a claim on a ticket — nothing takes a map off a
+    // frontier, because a map is never on one. What it buys is the serialisation
+    // the map body needs: `start`'s own "already assigned" anomaly refuses a
+    // second charting worker on the same map, and #withMapLock cannot help here
+    // because the worker, not the daemon, does the writing.
     await this.deps.claim(repo, n, login)
-    this.store.logEvent('dispatch_claimed', { repo, ticket: n, worker: session, by: by ?? 'unknown' })
+    this.store.logEvent('dispatch_claimed', { repo, ticket: n, worker: session, by: by ?? 'unknown', kind: charting ? 'charting' : 'ticket' })
 
     // The ticket label goes on at the claim (#93): `start` binds the thread it
     // ran in, an autonomous dispatch opens and binds a fresh one — so every
@@ -481,7 +513,11 @@ export class Dispatcher {
       const wtPath = reuse && fs.existsSync(surviving)
         ? surviving
         : await this.deps.createWorktree(base, n)
-      const mapNumber = await this.#mapNumberFor(repo, full)
+      // A charting worker's map is the issue in hand. Naming it as the map (and
+      // not asking #mapNumberFor for a parent) is what puts the `/wayfinder`
+      // line on the prompt and arms #assertTracker: a charting worker without
+      // the tracker doc is exactly the worker that would chart into `.scratch/`.
+      const mapNumber = charting ? Number(n) : await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
       this.#assertNoPlantedConfig(wtPath, backendName)
       this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills, backendName)
@@ -493,7 +529,7 @@ export class Dispatcher {
       // that stops a dispatched `wayfinder:grilling` worker from standing in for
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
-        repo, wtPath, mapNumber, type: typeLabel,
+        repo, wtPath, mapNumber, type: typeLabel, charting, instruction,
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
@@ -504,13 +540,20 @@ export class Dispatcher {
       // DISPATCH, not per ticket, so a confirm can never outlive the worker
       // the operator read about and hit its successor.
       const instance = `${session}@${Date.now()}`
-      this.store.logEvent('worker_spawned', { repo, ticket: n, worker: session, instance, model: useModel, backend: backendName })
+      this.store.logEvent('worker_spawned', {
+        repo, ticket: n, worker: session, instance, model: useModel, backend: backendName,
+        kind: charting ? 'charting' : 'ticket', instruction: charting ? instruction : null,
+      })
 
       const worker = {
         repo, ticket: n, title: full.title, session, instance, wtPath, cfgDir, promptFile,
         model: useModel, requestedModel: modelName, backend: backendName,
         provider: this.routing.models[useModel].provider,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
+        // #160: which ending this worker is held to, and what the operator
+        // asked for. Journalled beside it (worker_spawned above) so a daemon
+        // restart re-derives both — see #epochCharting.
+        charting, instruction: charting ? instruction : null,
         // this spawn's exit marker (#169) — the watchdog's fail-fast signal
         exitMarker,
         // this ticket's own text can forge the usage-limit signal ⇒ the
@@ -519,6 +562,9 @@ export class Dispatcher {
       }
       this.workers.set(session, worker)
       this.#watchdog(worker).catch((e) => this.log(`watchdog ${session} failed:`, e.message))
+      if (charting) {
+        return `⚙️ charting worker on map ${repo}#${n} → \`${session}\` on **${useModel}**${instruction ? '' : ' — no instruction rode this dispatch, so it will ask what should change'} — watching for readiness`
+      }
       return `⚙️ dispatched ${repo}#${n} → \`${session}\` on **${useModel}** — watching for readiness`
     } catch (e) {
       this.workers.delete(session)
@@ -550,16 +596,18 @@ export class Dispatcher {
   // Throws before the config dir is seeded, so the ordinary prepare-failure
   // path unclaims and tells the operator why.
   //
-  // Only a MAP CHILD is refused: that is the ticket whose worker invokes the
-  // wayfinder skill, and the one whose resolution the fallback would silently
-  // send to `.scratch/` instead of GitHub. A plain ready-for-agent ticket
-  // invokes no such skill, and #10 watches ANY plain repo through the flat
-  // lane — refusing those for a missing doc would take that lane away. It gets
-  // a journal line instead, so the absence is on the record either way.
+  // Only work THROUGH A MAP is refused: a map child, or since #160 a charting
+  // worker on the map itself. Those are the workers that invoke the wayfinder
+  // skill, and whose writes the fallback would silently send to `.scratch/`
+  // instead of GitHub. A plain ready-for-agent ticket invokes no such skill,
+  // and #10 watches ANY plain repo through the flat lane — refusing those for a
+  // missing doc would take that lane away. It gets a journal line instead, so
+  // the absence is on the record either way.
   #assertTracker(repo, n, session, wtPath, mapNumber) {
     if (fs.existsSync(path.join(wtPath, TRACKER_DOC))) return
     if (mapNumber) {
-      throw new Error(`${repo} has no ${TRACKER_DOC}, so a worker on map child #${n} would fall back to the local-markdown tracker and write .scratch/ files instead of resolving on GitHub — run \`/setup-matt-pocock-skills\` in ${repo} first`)
+      const what = String(mapNumber) === String(n) ? `map #${n}` : `map child #${n}`
+      throw new Error(`${repo} has no ${TRACKER_DOC}, so a worker on ${what} would fall back to the local-markdown tracker and write .scratch/ files instead of resolving on GitHub — run \`/setup-matt-pocock-skills\` in ${repo} first`)
     }
     this.store.logEvent('tracker_doc_missing', { repo, ticket: n, worker: session })
   }
@@ -874,6 +922,14 @@ export class Dispatcher {
     const b = this.#bindingFor(workerName)
     if (b.error) return `❌ ${b.error} — nothing was pushed`
     const { w, ticket, repo, wtPath, branch, basePath } = b
+    // #160: a map dispatch produces tracker writes, not code. Refused rather
+    // than left to the prompt, because this call PUSHES — and a charting worker
+    // that has misread its own kind must not be one tool call away from putting
+    // a branch on the remote.
+    if (this.#epochCharting(ticket, workerName).charting) {
+      this.store.logEvent('charting_tool_refused', { repo, ticket, worker: workerName, tool: 'open_pull_request' })
+      return `❌ \`${workerName}\` is a CHARTING worker on map ${repo}#${ticket}. A map dispatch opens no pull request: your work is the map itself, and it is already written. Update the map, then call report_result.`
+    }
     if (!fs.existsSync(wtPath)) return `❌ the worktree ${wtPath} is gone — nothing was pushed`
 
     let title = w?.title
@@ -913,6 +969,17 @@ export class Dispatcher {
     const b = this.#bindingFor(workerName)
     if (b.error) return { ok: false, text: `❌ ${b.error} — no review was requested` }
     const { w, ticket, repo, branch } = b
+    // #160/#149: no review gate on a map dispatch. The gate exists to put a
+    // human in front of a DIFF before it merges; a charting worker has no diff,
+    // and the operator who dispatched it is the check. Opening one here would
+    // block the worker on a question with nothing to look at.
+    if (this.#epochCharting(ticket, workerName).charting) {
+      this.store.logEvent('charting_tool_refused', { repo, ticket, worker: workerName, tool: 'request_review' })
+      return {
+        ok: false,
+        text: `❌ \`${workerName}\` is a CHARTING worker on map ${repo}#${ticket}, and a map dispatch has no review gate — there is no pull request to show and nothing to merge. The operator who dispatched you is the check. Finish the map edits and call report_result; ask_human is how you reach them with a question.`,
+      }
+    }
 
     const title = w?.title ?? `#${ticket}`
     const links = [`Ticket: https://github.com/${repo}/issues/${ticket}`]
@@ -1001,7 +1068,16 @@ export class Dispatcher {
       ...this.#epochScan(ticket, workerName),
       hasCommits: false,
       prState: null,
+      // #160: which of the two endings this worker is held to. `outstanding`
+      // picks the checklist off it, so a charting worker is never nudged toward
+      // a pull request, a review or a merge it is forbidden to reach.
+      charting: this.#epochCharting(ticket, workerName).charting,
     }
+    // A charting worker has one daemon-visible step, and it is not in git or on
+    // GitHub — so the reads below are skipped whole. The Stop hook fires at the
+    // end of every turn, and a `git log` against a checkout that will never
+    // carry a commit is pure cost.
+    if (state.charting) return state
     try {
       const commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(basePath))
       state.hasCommits = commits.length > 0
@@ -1099,6 +1175,12 @@ export class Dispatcher {
     }
 
     try {
+      // #160: a map dispatch never runs the resolve protocol. resolveAndLand
+      // would close the map, append a Decisions-so-far pointer to whatever the
+      // map's own parent is, and open a pull request for a session that wrote no
+      // code — three wrong acts on the one issue every later worker reads.
+      const { charting, instruction } = this.#epochCharting(ticket, workerName)
+      if (charting) return await this.#finishCharting(workerName, repo, ticket, result, w, instruction)
       return result.status === 'resolved'
         ? await this.#resolveTicket(workerName, repo, ticket, result, w)
         : await this.#noteNonClean(workerName, repo, ticket, result, w)
@@ -1118,6 +1200,28 @@ export class Dispatcher {
         && String(ev.ticket ?? '') === String(ticket) && ev.repo) repo = ev.repo
     }
     return repo
+  }
+
+  // Was this ticket's latest dispatch a charting one, and what rode it (#160)?
+  // Same journal reduction as #epochRepo, for a worker record this process never
+  // held: a restart mid-session, or a reconcile-adopted worker. The in-memory
+  // record wins where there is one — the journal is the fallback, not a second
+  // opinion.
+  //
+  // The failure direction matters: `charting: false` on a real map worker sends
+  // it to the ticket ending, which would try to close the map. So the reduction
+  // reads `worker_spawned` only, which is the event that states the kind, and a
+  // number with no such event at all is a ticket — nothing was ever charted
+  // under it, so there is no map to protect.
+  #epochCharting(ticket, workerName) {
+    const w = this.workers.get(workerName)
+    if (w) return { charting: Boolean(w.charting), instruction: w.instruction ?? null }
+    let out = { charting: false, instruction: null }
+    for (const ev of this.#readJournal()) {
+      if (ev.type !== 'worker_spawned' || String(ev.ticket ?? '') !== String(ticket)) continue
+      out = { charting: ev.kind === 'charting', instruction: ev.instruction ?? null }
+    }
+    return out
   }
 
   async #resolveTicket(workerName, repo, ticket, result, w) {
@@ -1155,6 +1259,50 @@ export class Dispatcher {
     const text = summariseOutcome(out)
     this.notify(ticket, `✅ ${repo}#${ticket} resolved — ${text}`)
     return text
+  }
+
+  // The map dispatch's whole ending (#160). Three acts, and each one is the
+  // opposite of the ticket path's:
+  //
+  //   1. COMMENT — curia posts the worker's summary on the map, so the change
+  //      has a dated record beside the body it changed. The ticket path only
+  //      comments as a repair; here it is the point.
+  //   2. UNCLAIM — the map goes back to unassigned. The ticket path closes; a
+  //      map is the standing artifact and closing it would take the whole effort
+  //      off every frontier.
+  //   3. Nothing else. No close, no Decisions-so-far line, no branch, no
+  //      merge check.
+  //
+  // The map edits themselves are NOT verified or repaired here, and cannot be:
+  // curia has no expected value for a charting session, which is the same reason
+  // #49 gave for having no verification gate at all. What the daemon can do is
+  // say plainly what it did and did not check.
+  async #finishCharting(workerName, repo, ticket, result, w, instruction) {
+    const record = w ?? { repo, ticket, session: workerName }
+    // The worker is still alive at report_result, so its credential copy stays
+    // until the session is positively gone — the #noteNonClean rule, same
+    // reason (#34's snapshot bound).
+    const released = await this.#releaseClaim(record, 'charting worker reported in', { keepCredentials: true })
+    let noted = false
+    try {
+      await this.deps.commentIssue(repo, ticket, chartingComment({
+        worker: workerName, model: w?.model ?? null, instruction, result,
+      }))
+      noted = true
+    } catch (e) {
+      this.log(`could not post the charting summary on ${repo}#${ticket}: ${e.message}`)
+    }
+    this.store.logEvent('charting_finished', {
+      repo, map: ticket, ticket, worker: workerName, status: result.status, commented: noted, released,
+    })
+    const clean = result.status === 'resolved'
+    const bits = [
+      noted ? 'summary posted on the map' : '⚠️ the summary comment could NOT be posted',
+      released ? 'map unassigned' : '⚠️ the map is still assigned to the bot; reconcile will retry',
+      'the map stays open',
+    ]
+    this.notify(ticket, `${clean ? '🗺️' : '↩️'} ${repo}#${ticket} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`)
+    return `charting recorded — ${bits.join('; ')}. Nothing was closed, resolved or pushed.`
   }
 
   // A non-clean result resolves NOTHING — and the ticket has to actually come
@@ -1607,7 +1755,14 @@ export class Dispatcher {
     if (this.workers.has(session) || this.inFlight.has(session) || await this.deps.hasSession(session).catch(() => false)) {
       return `▶️ \`${session}\` is already running — \`cancel ${ticket}\` first, or \`attach ${ticket}\``
     }
-    return this.start(ticket, { repo, model, backend, by, reuse: true, threadId })
+    // A resumed map dispatch inherits the instruction that rode the original
+    // one (#160). Without it the fresh charting worker would open by asking what
+    // should change — a question the operator already answered, into a session
+    // that is gone. `start` re-reads the label and decides again, so an issue
+    // that is no longer a map degrades to an ordinary dispatch and the inherited
+    // sentence is dropped, never refused (the `!reuse` clause in start).
+    const { instruction } = this.#epochCharting(ticket, session)
+    return this.start(ticket, { repo, model, backend, instruction, by, reuse: true, threadId })
   }
 
   // Bulk resume (#81): every surviving worktree without a live worker, behind

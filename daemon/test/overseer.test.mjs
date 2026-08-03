@@ -9,6 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EscalationStore } from '../src/store.mjs'
+import { parseCommand } from '../src/commands.mjs'
 import {
   OverseerHost, canonicalFor, buildVerbTools, ALLOWED_TOOLS, DISALLOWED_TOOLS,
 } from '../src/overseer.mjs'
@@ -88,6 +89,39 @@ describe('canonicalFor', () => {
 
   test('an unknown verb throws instead of posting garbage to /command', () => {
     assert.throws(() => canonicalFor('reboot', {}))
+  })
+
+  // #160: the map instruction crosses the same canonical-text seam as every
+  // other argument, so the two ends are pinned against each other here and in
+  // commands.test.mjs.
+  test('a map instruction rides start last, after a bare --', () => {
+    assert.equal(
+      canonicalFor('start', { ticket: '147', instruction: 'update the map so that X' }),
+      'start 147 -- update the map so that X',
+    )
+    assert.equal(
+      canonicalFor('start', { ticket: '147', repo: 'cur', model: 'opus', instruction: 'add a ticket' }),
+      'start cur#147 model=opus -- add a ticket',
+    )
+  })
+
+  test('the instruction is collapsed to one line — the seam is one line of text', () => {
+    assert.equal(
+      canonicalFor('start', { ticket: '147', instruction: '  add a ticket\nthen wire it  ' }),
+      'start 147 -- add a ticket then wire it',
+    )
+  })
+
+  test('an empty instruction posts no -- at all', () => {
+    assert.equal(canonicalFor('start', { ticket: '147', instruction: '' }), 'start 147')
+    assert.equal(canonicalFor('start', { ticket: '147', instruction: '   ' }), 'start 147')
+  })
+
+  test('what canonicalFor writes, parseCommand reads back', () => {
+    const text = canonicalFor('start', { ticket: '147', model: 'opus', instruction: 'chart the fog -- all of it' })
+    assert.deepEqual(parseCommand(text), {
+      verb: 'start', ticket: '147', model: 'opus', instruction: 'chart the fog -- all of it',
+    })
   })
 })
 
