@@ -117,6 +117,10 @@ export class StatusLine {
         return this.#set(ev.worker, ev.ticket, 'working', { model: ev.model, at: ev.ts })
       case 'worker_ready_timeout':
         return this.#set(ev.worker, ev.ticket, 'stalled', {})
+      case 'worker_exited_early':
+        // same terminal state as the timeout, but the line says WHICH kind of
+        // failure it was (#169) — a dead command reads nothing like a slow one
+        return this.#set(ev.worker, ev.ticket, 'stalled', { exit: ev.status })
       case 'esc_open': {
         if (ev.kind === CONFIRM_KIND) return
         const state = ev.kind === REVIEW_KIND ? 'awaiting-review' : 'waiting'
@@ -176,6 +180,9 @@ export class StatusLine {
       case 'working':
         return `▶️ \`${session}\`${GROUP_SEP}working`
       case 'stalled':
+        if (detail.exit !== undefined) {
+          return `⚠️ \`${session}\`${GROUP_SEP}the backend command exited (status ${detail.exit}) before the composer — session kept for inspection`
+        }
         return `⚠️ \`${session}\`${GROUP_SEP}never reached a composer — session kept for inspection`
       case 'waiting': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())

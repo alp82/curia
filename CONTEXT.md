@@ -125,6 +125,9 @@ The daemon's structured channel to a worker: the MCP tools and the Stop hook. Cu
 **Spawn binding**:
 The rule that a worker's repo and ticket come from the spawn record, never from the worker's own account.
 
+**Exit marker**:
+The nonce line the spawn wrapper echoes into the pane when the backend command ends, with its status. It is what tells a dead spawn apart from a slow one.
+
 ### Human in the loop
 
 **Escalation**:

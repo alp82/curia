@@ -60,13 +60,31 @@ export async function listSessions() {
   }
 }
 
+// An exit marker is echoed between the backend command and the `exec bash`
+// below, so the pane itself records that the command ENDED and with what
+// status. The value is nested inside `bash -c`, so it must be quote-free by
+// construction — same discipline as SAFE_SUBSTITUTION in routing.mjs, asserted
+// here rather than trusted.
+const SAFE_MARKER = /^[A-Za-z0-9_-]+$/
+
 // Detached session running `env K=V… bash -c '<shellCmd>; exec bash'` — the
 // trailing `exec bash` keeps the pane alive after the command exits, so the
 // pane content stays inspectable (spike #32 pattern).
-export async function newSession({ name, cwd, env = {}, shellCmd }) {
+//
+// `exitMarker` is what makes that death READABLE (#169): without it the pane
+// after a missing binary looks exactly like a slow start, and the watchdog can
+// only wait out its whole timeout. The echo is the last thing before the
+// shell, so it always sits inside the pane tail the classifiers read.
+export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = null }) {
+  if (exitMarker && !SAFE_MARKER.test(exitMarker)) {
+    throw new Error(`refusing to use exit marker "${exitMarker}": it is not quote-free/shell-safe`)
+  }
   const args = ['new-session', '-d', '-s', name, '-c', cwd, 'env']
   for (const [k, v] of Object.entries(env)) args.push(`${k}=${v}`)
-  args.push('bash', '-c', `${shellCmd}; exec bash`)
+  const wrapped = exitMarker
+    ? `${shellCmd}; echo "[curia] the backend command exited — ${exitMarker} $?"; exec bash`
+    : `${shellCmd}; exec bash`
+  args.push('bash', '-c', wrapped)
   await tmux(args)
 }
 

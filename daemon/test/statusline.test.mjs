@@ -102,6 +102,22 @@ describe('StatusLine', () => {
     assert.equal(edits.length, 0)
   })
 
+  // #169: both failures keep the session for inspection, but the operator acts
+  // on them differently — a stalled start is worth a look at the pane, a dead
+  // command is a broken lane.
+  test('a stalled line says WHICH failure it was', async () => {
+    line.onEvent({ type: 'worker_spawned', worker: 'curia-8', ticket: '8', model: 'opus' })
+    line.onEvent({ type: 'worker_ready_timeout', worker: 'curia-8', ticket: '8', timeout_s: 45 })
+    line.onEvent({ type: 'worker_spawned', worker: 'curia-6', ticket: '6', model: 'gpt' })
+    line.onEvent({ type: 'worker_exited_early', worker: 'curia-6', ticket: '6', status: 127 })
+    await drain()
+
+    const last = (session) => posts.filter((p) => p.text.includes(session)).at(-1).text
+    assert.match(last('curia-8'), /never reached a composer/)
+    assert.match(last('curia-6'), /the backend command exited \(status 127\)/)
+    assert.match(last('curia-6'), /kept for inspection/)
+  })
+
   test('a gone message reposts instead of losing the line', async () => {
     let alive = true
     const l2 = new StatusLine({

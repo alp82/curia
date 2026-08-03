@@ -15,6 +15,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import crypto from 'node:crypto'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
@@ -94,6 +95,41 @@ export function paneTail(pane, lines = PANE_TAIL_LINES) {
 
 export function textCarriesLimitPhrase(...parts) {
   return carriesLimitPhrase(parts.filter(Boolean).join('\n'))
+}
+
+// The exit marker the spawn wrapper echoes when the backend command ends
+// (#169). A NONCE per spawn, not a fixed string, for the same reason the
+// limit parse needs promptCarriesLimitText: the pane renders attacker-
+// controlled ticket text, and a fixed marker would let a body spell out
+// "the worker exited" and stop a healthy worker's watchdog. Nothing outside
+// this process knows the nonce, so the line can only come from the wrapper.
+// Quote-free by construction — tmux.newSession asserts that again.
+export function newExitMarker() {
+  return `curia-exit-${crypto.randomBytes(6).toString('hex')}`
+}
+
+// The status the marker line carries, or null while the command still runs.
+export function parseExitMarker(tail, marker) {
+  if (!marker) return null
+  const m = new RegExp(`${marker} (\\d+)`).exec(String(tail ?? ''))
+  return m ? Number(m[1]) : null
+}
+
+// The last few pane lines above the exit marker — what the operator needs to
+// see, quoted into the notify so the CAUSE arrives with the failure instead of
+// waiting behind an `/attach`. The text is untrusted (see paneTail), so strip
+// backticks: the message wraps it in a code fence, and a body carrying one
+// would otherwise break out of it. Bounded in both lines and characters.
+const EXCERPT_LINES = 4
+const EXCERPT_CHARS = 400
+export function paneExcerpt(tail, marker) {
+  let rows = String(tail ?? '').split('\n')
+  if (marker) {
+    const at = rows.findIndex((r) => r.includes(marker))
+    if (at >= 0) rows = rows.slice(0, at)
+  }
+  const kept = rows.map((r) => r.replace(/`/g, "'").trimEnd()).filter((r) => r.trim())
+  return kept.slice(-EXCERPT_LINES).join('\n').slice(-EXCERPT_CHARS)
 }
 
 // Workers name their ticket in whatever shape the model prefers — `66`, `#66`,
@@ -462,7 +498,8 @@ export class Dispatcher {
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
       const cmd = buildSpawnCmd(this.routing, backendName, useModel, promptFile)
-      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir, backendName), shellCmd: cmd })
+      const exitMarker = newExitMarker()
+      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir, backendName), shellCmd: cmd, exitMarker })
       // The instance id (#94): what a button confirm binds to. Unique per
       // DISPATCH, not per ticket, so a confirm can never outlive the worker
       // the operator read about and hit its successor.
@@ -474,6 +511,8 @@ export class Dispatcher {
         model: useModel, requestedModel: modelName, backend: backendName,
         provider: this.routing.models[useModel].provider,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
+        // this spawn's exit marker (#169) — the watchdog's fail-fast signal
+        exitMarker,
         // this ticket's own text can forge the usage-limit signal ⇒ the
         // watchdog must not act on it (see paneTail)
         promptCarriesLimitText: textCarriesLimitPhrase(full.title, full.body),
@@ -590,7 +629,8 @@ export class Dispatcher {
   // ---- readiness watchdog ------------------------------------------------------
 
   // Poll the pane every 2 s up to ready_timeout_s. Composer marker ⇒ ready;
-  // usage-limit reached text ⇒ cool + next candidate; timeout ⇒ record and
+  // usage-limit reached text ⇒ cool + next candidate; exit marker ⇒ the backend
+  // command is already dead, so stop waiting for it; timeout ⇒ record and
   // surface, keep claim + session for inspection (never guess keystrokes).
   async #watchdog(worker) {
     // Resolved once, and loudly: readiness that silently never matches is #33's
@@ -634,6 +674,22 @@ export class Dispatcher {
         await this.#handleLimit(worker, limit)
         return
       }
+      // The command EXITED before it ever drew a composer (#169): a missing
+      // binary, a rejected flag, an instant crash. Checked before the ready
+      // marker, because a dead command is not ready whatever else the pane
+      // still shows. Nothing is retried here — a spawn that dies on its own
+      // command line dies the same way every time, and re-running it would
+      // only burn the claim. Report, and keep the session for inspection.
+      const status = parseExitMarker(tail, worker.exitMarker)
+      if (status !== null) {
+        this.#watchdogGaveUp(worker, {
+          event: 'worker_exited_early',
+          data: { status, elapsed_s: Math.round((Date.now() - worker.spawnedAt) / 1000) },
+          headline: `the **${worker.backend}** command exited with status ${status} before reaching a composer`,
+          excerpt: paneExcerpt(tail, worker.exitMarker),
+        })
+        return
+      }
       // Per backend (#39): the claude composer's `⏵⏵` marker never appears in a
       // codex pane, whose composer says `<model> <effort> · <cwd>`.
       if (readyRe.test(tail)) {
@@ -650,16 +706,31 @@ export class Dispatcher {
         return
       }
     }
+    this.#watchdogGaveUp(worker, {
+      event: 'worker_ready_timeout',
+      data: { timeout_s: this.config.dispatch.ready_timeout_s },
+      headline: `did not reach a composer within ${this.config.dispatch.ready_timeout_s}s`,
+    })
+  }
+
+  // The one way out of #watchdog that keeps the session and the claim: the
+  // worker failed, a human decides what happens next. Both callers land here so
+  // the journal event and the message stay in step — and so the ignored-limit
+  // note cannot go missing on one path (see below).
+  #watchdogGaveUp(worker, { event, data, headline, excerpt = '' }) {
     worker.state = 'failed'
-    this.store.logEvent('worker_ready_timeout', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, timeout_s: this.config.dispatch.ready_timeout_s })
+    this.store.logEvent(event, { repo: worker.repo, ticket: worker.ticket, worker: worker.session, ...data })
     // If an ambiguous usage-limit signal was refused above, the operator must
     // hear about it HERE — this notify is the human surface the refusal leans
-    // on, and "did not reach a composer" alone gives no reason to suspect a
-    // cap hit.
+    // on, and the failure headline alone gives no reason to suspect a cap hit.
     const ignored = worker.limitAmbiguityLogged
       ? ' (a usage-limit signal was seen but IGNORED because the ticket text itself carries the phrase — check the pane for a real cap hit)'
       : ''
-    this.notify(worker.ticket, `⚠️ \`${worker.session}\` did not reach a composer within ${this.config.dispatch.ready_timeout_s}s${ignored} — session and claim kept for inspection (\`/attach ${worker.ticket}\`)`)
+    // The pane excerpt is what turns "it failed" into "it failed BECAUSE": the
+    // `codex: command not found` line #169 hid behind a bare timeout was in the
+    // pane the whole time. Fenced, and stripped of backticks by paneExcerpt.
+    const why = excerpt ? `\n\`\`\`\n${excerpt}\n\`\`\`` : ''
+    this.notify(worker.ticket, `⚠️ \`${worker.session}\` ${headline}${ignored} — session and claim kept for inspection (\`/attach ${worker.ticket}\`)${why}`)
   }
 
   async #handleLimit(worker, limit) {
@@ -697,7 +768,12 @@ export class Dispatcher {
           reasoningEffort: this.routing.models[next].reasoning_effort ?? null,
         })
         const cmd = buildSpawnCmd(this.routing, nextBackend, next, worker.promptFile)
-        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir, nextBackend), shellCmd: cmd })
+        // A fresh marker per spawn: the old session is dead, and reusing its
+        // nonce would let the previous life's exit line — still on screen for
+        // a moment — read as the successor's death.
+        const exitMarker = newExitMarker()
+        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir, nextBackend), shellCmd: cmd, exitMarker })
+        worker.exitMarker = exitMarker
         worker.model = next
         worker.backend = nextBackend
         worker.provider = this.routing.models[next].provider

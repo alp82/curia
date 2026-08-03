@@ -165,4 +165,31 @@ describe('tmux targets survive a renamed window', { skip: !hasTmux && 'tmux not 
     assert.equal(await hasSession(session), false)
     assert.equal(await hasSession(`${session}-keepalive`), true, 'kill-session must hit only its target')
   })
+
+  // #169: a lane whose binary is not installed died in a millisecond and left a
+  // pane that looked exactly like a slow start, so the watchdog waited out its
+  // whole 45 s and then reported nothing but "did not reach a composer". Only a
+  // real bash can prove the wrapper actually echoes the status.
+  test('the exit marker records the backend command death, with its status', async () => {
+    const marker = 'curia-exit-testnonce'
+    await newSession({
+      name: session, cwd: os.tmpdir(), shellCmd: 'definitely-not-a-real-binary --model x', exitMarker: marker,
+    })
+    let pane = ''
+    for (let i = 0; i < 50 && !pane.includes(marker); i++) {
+      await new Promise((r) => setTimeout(r, 100))
+      pane = await capturePane(session)
+    }
+    assert.match(pane, new RegExp(`${marker} 127`), 'a missing binary must land in the pane as status 127')
+    assert.match(pane, /command not found/, 'the reason must stay above the marker, for the excerpt to quote')
+    assert.equal(await hasSession(session), true, 'the pane still has to survive the death, for inspection')
+  })
+
+  test('a marker that is not quote-free is refused rather than nested into bash -c', async () => {
+    await assert.rejects(
+      () => newSession({ name: session, cwd: os.tmpdir(), shellCmd: 'true', exitMarker: 'x"; rm -rf /; #' }),
+      /not quote-free/,
+    )
+    assert.equal(await hasSession(session), false, 'a refused marker must spawn nothing at all')
+  })
 })
