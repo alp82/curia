@@ -67,7 +67,7 @@ Containment is the tool surface: the session's only tools are the seven verbs as
 
 An interpreted `cancel`/`cancel all` does not execute: the daemon posts a ✅/❌ button confirm (#94) — instance-bound, no expiry clock, lapsing the moment the worker exits, a newer confirm superseding an older one. The button executes through the daemon, never through the model. Outcomes that resolve between turns come back to the session as journalled notes on its next revival, so its memory stays honest.
 
-Each turn posts exactly two messages (#95): one small-print progress line, edited in place as tool calls land, and one short answer. `messaging.mjs` holds the standard — the seven signal emoji, `<>`-wrapped links, "N more" clamps — and its lint runs in the tests. Ticket↔thread bindings (#93) route a worker's escalations into the thread that started it, rename the thread with a display-only `🎫` prefix, and release on terminal states plus a reconcile sweep.
+Each turn posts exactly two messages (#95): one small-print progress line, edited in place as tool calls land, and one short answer. `messaging.mjs` holds the standard — the seven signal emoji, `<>`-wrapped links, "N more" clamps — and its lint runs in the tests. Ticket↔thread bindings (#93) route a worker's escalations into the thread that started it, rename the thread to a display-only `🎫 <ticket> · <type>` — the `wayfinder:` type replaces the old thread name — and release on terminal states plus a reconcile sweep. A release swaps `🎫` for `✅` and keeps the rest, so a finished ticket still reads as itself in the thread list.
 
 The build was verified live by the full-loop rehearsal — `docs/live-checks/96-overseer-rehearsal.md` — including two daemon restarts mid-pass.
 

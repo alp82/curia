@@ -327,10 +327,10 @@ function askReview(worker, ticket, promptText) {
 }
 
 // Ticket-thread bindings (#93): the store journals the truth, the bridge does
-// the display (thread creation, the 🎫 rename). With the bridge down, bind
-// journals nothing — the first notify after it returns binds lazily — and
-// release still journals, so a terminal state is never missed for want of a
-// rename.
+// the display (thread creation, the 🎫 rename, the ✅ swap on release). With
+// the bridge down, bind journals nothing — the first notify after it returns
+// binds lazily — and release still journals, so a terminal state is never
+// missed for want of a rename.
 const threads = {
   async bind(ticket, opts) {
     if (!bridge) return { ok: false, reason: 'bridge-down' }

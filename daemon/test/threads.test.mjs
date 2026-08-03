@@ -94,17 +94,17 @@ describe('EscalationStore ticket-thread bindings', () => {
 // ---- the display-only label (bridge.mjs) ------------------------------------
 
 describe('DiscordBridge label helpers', () => {
-  test('labelName renders the 🎫 rename, with and without a title, capped at 100', () => {
+  test('labelName renders the 🎫 rename, with and without a type, capped at 100', () => {
     assert.equal(DiscordBridge.labelName('85'), '🎫 85')
-    assert.equal(DiscordBridge.labelName('85', 'Fix the parser'), '🎫 85 · Fix the parser')
+    assert.equal(DiscordBridge.labelName('85', 'grilling'), '🎫 85 · grilling')
     assert.equal(DiscordBridge.labelName('85', 'x'.repeat(200)).length, 100)
   })
 
-  test('stripLabel removes the label and leaves everything else alone', () => {
-    assert.equal(DiscordBridge.stripLabel('🎫 85 · deploy talk'), 'deploy talk')
-    assert.equal(DiscordBridge.stripLabel('🎫 85'), '')
-    assert.equal(DiscordBridge.stripLabel('deploy talk'), 'deploy talk')
-    assert.equal(DiscordBridge.stripLabel(DiscordBridge.labelName('85', 'roundtrip')), 'roundtrip')
+  test('doneName swaps the ticket signal for the checkmark and keeps the rest', () => {
+    assert.equal(DiscordBridge.doneName('🎫 85 · grilling'), '✅ 85 · grilling')
+    assert.equal(DiscordBridge.doneName('🎫 85'), '✅ 85')
+    assert.equal(DiscordBridge.doneName(DiscordBridge.labelName('85', 'task')), '✅ 85 · task')
+    assert.equal(DiscordBridge.doneName('deploy talk'), 'deploy talk')
   })
 
   test('threadLink composes from the ids the daemon already holds', () => {
@@ -159,40 +159,51 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     bridge.registerThread(origin)
     store.bindTicketThread('106', 't-origin')
 
-    const r = await bridge.bindTicket('107', { threadId: 't-origin', title: 'Run the map' })
+    const r = await bridge.bindTicket('107', { threadId: 't-origin', type: 'research' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 1)
     assert.equal(store.threadForTicket('107'), created[0].id)
+    assert.equal(created[0].name, '🎫 107 · research', 'the type names the fresh thread')
     // the new thread opens by naming the thread that sent it
     const inFresh = sentTo.find((s) => s.id === created[0].id)
     assert.match(inFresh.text, /dispatched from “🎫 106 · charting”/)
     assert.match(inFresh.text, /discord\.com\/channels\/G\/t-origin/)
     // and the origin learns where the work went
     const inOrigin = sentTo.find((s) => s.id === 't-origin')
-    assert.match(inOrigin.text, /🎫 107 · Run the map/)
+    assert.match(inOrigin.text, /🎫 107 · research/)
     assert.match(inOrigin.text, new RegExp(`discord\\.com/channels/G/${created[0].id}`))
   })
 
   test('an autonomous dispatch (no issuing thread) opens a fresh thread with no breadcrumb', async () => {
-    const r = await bridge.bindTicket('108', { title: 'quiet start' })
+    const r = await bridge.bindTicket('108', { type: 'prototype' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 1)
+    assert.equal(created[0].name, '🎫 108 · prototype')
     assert.equal(sentTo.length, 0)
   })
 
-  test('a bind onto an unbound issuing thread stays in place — no fresh thread, no breadcrumb', async () => {
+  test('an untyped ticket names its thread with the number alone', async () => {
+    const r = await bridge.bindTicket('115', {})
+    assert.equal(r.ok, true)
+    assert.equal(created[0].name, '🎫 115')
+  })
+
+  test('a bind onto an unbound issuing thread stays in place and takes the label as its name', async () => {
     const origin = makeThread('t-conv', 'deploy talk')
+    const renames = []
+    origin.setName = async (n) => { renames.push(n) }
     bridge.registerThread(origin)
-    const r = await bridge.bindTicket('109', { threadId: 't-conv', title: 'x' })
+    const r = await bridge.bindTicket('109', { threadId: 't-conv', type: 'task' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 0)
     assert.equal(sentTo.length, 0)
     assert.equal(store.threadForTicket('109'), 't-conv')
+    assert.deepEqual(renames, ['🎫 109 · task'], 'the old conversation name is replaced, not kept')
   })
 
   test('a ticket already bound elsewhere refuses as before — no thread churn', async () => {
     store.bindTicketThread('110', 't-elsewhere')
-    const r = await bridge.bindTicket('110', { threadId: 't-other', title: 'x' })
+    const r = await bridge.bindTicket('110', { threadId: 't-other', type: 'task' })
     assert.equal(r.ok, false)
     assert.equal(r.reason, 'ticket-bound')
     assert.equal(created.length, 0)
@@ -208,12 +219,26 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     old.setName = async (n) => { renames.push(n) }
 
-    const r = await bridge.bindTicket('111', { title: 'Run the map' })
+    const r = await bridge.bindTicket('111', { type: 'research' })
     assert.equal(r.ok, true)
     assert.equal(r.threadId, 't-old', 'the old thread is rebound, not replaced')
     assert.equal(created.length, 0, 'no fresh thread')
     assert.equal(store.threadForTicket('111'), 't-old')
-    assert.deepEqual(renames, ['🎫 111 · Run the map'], 'the label goes back on')
+    assert.deepEqual(renames, ['🎫 111 · research'], 'the label goes back on')
+  })
+
+  test('a revived thread that finished once goes from ✅ back to 🎫', async () => {
+    const old = makeThread('t-done', '✅ 116 · task')
+    const renames = []
+    old.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(old)
+    store.bindTicketThread('116', 't-done')
+    store.releaseTicketThread('116', 'finished')
+
+    const r = await bridge.bindTicket('116', { type: 'task' })
+    assert.equal(r.ok, true)
+    assert.equal(r.threadId, 't-done')
+    assert.deepEqual(renames, ['🎫 116 · task'], 'reopened work reads as open again')
   })
 
   test('the backstop unarchives a revived thread', async () => {
@@ -225,7 +250,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     store.bindTicketThread('112', 't-old')
     store.releaseTicketThread('112', 'reconcile')
 
-    const r = await bridge.bindTicket('112', { title: 'sleepy' })
+    const r = await bridge.bindTicket('112', { type: 'grilling' })
     assert.equal(r.ok, true)
     assert.deepEqual(unarchived, [false])
   })
@@ -233,7 +258,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   test('a journal-last thread gone from Discord falls back to a fresh one', async () => {
     store.bindTicketThread('113', 't-deleted') // never registered ⇒ fetch misses
     store.releaseTicketThread('113', 'reconcile')
-    const r = await bridge.bindTicket('113', { title: 'fresh start' })
+    const r = await bridge.bindTicket('113', { type: 'task' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 1)
     assert.equal(store.threadForTicket('113'), created[0].id)
@@ -246,11 +271,39 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     store.releaseTicketThread('114', 'reconcile')
     store.bindTicketThread('200', 't-taken') // another ticket moved in
 
-    const r = await bridge.bindTicket('114', { title: 'x' })
+    const r = await bridge.bindTicket('114', { type: 'task' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 1, 'a fresh thread instead')
     assert.equal(store.threadForTicket('114'), created[0].id)
     assert.equal(store.threadForTicket('200'), 't-taken', 'the squatter keeps its thread')
+  })
+
+  // ---- release keeps the name and changes the signal --------------------------
+
+  test('release swaps 🎫 for ✅ and keeps the ticket and its type', async () => {
+    const t = makeThread('t-fin', '🎫 117 · grilling')
+    const renames = []
+    t.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(t)
+    store.bindTicketThread('117', 't-fin')
+
+    await bridge.releaseTicket('117', 'finished')
+    assert.deepEqual(renames, ['✅ 117 · grilling'])
+    assert.equal(store.threadForTicket('117'), undefined, 'the journal releases either way')
+  })
+
+  test('release leaves an unlabeled thread alone and survives a deleted one', async () => {
+    const t = makeThread('t-plain', 'deploy talk')
+    const renames = []
+    t.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(t)
+    store.bindTicketThread('118', 't-plain')
+    await bridge.releaseTicket('118', 'finished')
+    assert.deepEqual(renames, [])
+
+    store.bindTicketThread('119', 't-gone') // never registered ⇒ fetch misses
+    await bridge.releaseTicket('119', 'finished')
+    assert.equal(store.threadForTicket('119'), undefined)
   })
 })
 
@@ -375,16 +428,24 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
 }
 
 describe('Dispatcher thread binding (#93)', () => {
-  test('start binds the thread it ran in, at the claim, with the ticket title', async () => {
-    const d = makeDispatcher()
+  test('start binds the thread it ran in, at the claim, with the ticket type', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:grilling' }] }),
+    })
     assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /dispatched/)
-    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', title: 'a ticket' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: 'grilling' }])
+  })
+
+  test('an untyped ticket binds with an empty type — the number names the thread', async () => {
+    const d = makeDispatcher()
+    await d.start('42', { repo: 'o/r', threadId: 't-7' })
+    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: '' }])
   })
 
   test('a dispatch with no issuing thread asks for a fresh bound thread (threadId null)', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', by: 'auto' })
-    assert.deepEqual(binds, [{ ticket: '42', threadId: null, title: 'a ticket' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: null, type: '' }])
   })
 
   test('a prepare failure keeps the label — a claim release is not ticket-terminal (#140)', async () => {

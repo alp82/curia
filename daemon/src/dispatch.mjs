@@ -392,6 +392,10 @@ export class Dispatcher {
   async #dispatch(repo, n, issue, { model, backend, by, reuse = false, threadId = null }) {
     const session = `curia-${n}`
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
+    // The type label, read once and used twice: it names the thread (#93) and
+    // it reaches the worker prompt (#49 decision 2). One read, so the thread a
+    // human reads and the prompt the worker reads can never say different kinds.
+    const typeLabel = labels.find((l) => l.startsWith('wayfinder:')) ?? null
     const modelName = resolveModel(this.routing, labels, model)
     if (!this.routing.models[modelName]) {
       return `❌ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
@@ -426,7 +430,7 @@ export class Dispatcher {
     // notify from here on lands in the labeled thread. Never fatal: with the
     // bridge down the first notify binds lazily instead.
     try {
-      await this.threads.bind(n, { threadId, title: issue.title })
+      await this.threads.bind(n, { threadId, type: typeLabel?.slice('wayfinder:'.length) ?? '' })
     } catch (e) {
       this.log(`thread bind for ${repo}#${n} failed (${e.message}) — the first notify will bind lazily`)
     }
@@ -449,12 +453,11 @@ export class Dispatcher {
         wtPath, cfgDir, worker: session, ticket: n, daemonPort: this.daemonPort,
         backend: backendName, reasoningEffort: this.routing.models[useModel].reasoning_effort ?? null,
       })
-      // The type label reaches the prompt (#49 decision 2): it was already
-      // parsed above for model routing and thrown away, and it is the only thing
+      // The type label reaches the prompt (#49 decision 2): it is the only thing
       // that stops a dispatched `wayfinder:grilling` worker from standing in for
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
-        repo, wtPath, mapNumber, type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
+        repo, wtPath, mapNumber, type: typeLabel,
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
