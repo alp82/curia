@@ -15,29 +15,30 @@ defaults:
   task: opus
   untyped: opus
 
-# `context_window` feeds the status line's context % (#146). It is stated here
-# because the claude transcript states it NOWHERE — the lane writes token counts
-# and no denominator — while the codex transcript carries its own
-# `model_context_window`, which wins over anything written here. A model with no
-# window configured shows no context figure at all: a guessed denominator is a
-# wrong percentage on a line built to be trusted.
+# `context_window` feeds the status line's context % (#146), and it is the LAST
+# resort for it since #178. It used to say 200000 for the three anthropic models
+# here; the real window is 1000000, so every context figure the claude lane ever
+# showed was five times too large and nothing on the box could notice.
 #
-# 200000 is the standard window for these three. The 1M variants are a separate
-# model id (`claude-opus-5[1m]`), so routing them means a new entry here with
-# its own `id` and `context_window`.
+# A hand-written denominator has nothing to correct it. So the daemon now takes
+# the claude lane's window from two live facts instead: the model id the
+# transcript states on every turn, and `max_input_tokens` from
+# `GET /v1/models/<id>`. The codex transcript states its own
+# `model_context_window`, which beats both.
+#
+# Set this only for a model no live source can reach. A model with no window
+# from any source shows no context figure at all, which is the right failure:
+# a guessed denominator is a wrong percentage on a line built to be trusted.
 models:
   fable:
     provider: anthropic
     backend: claude
-    context_window: 200000
   opus:
     provider: anthropic
     backend: claude
-    context_window: 200000
   sonnet:
     provider: anthropic
     backend: claude
-    context_window: 200000
   # `gpt` is the label vocabulary (`model:gpt` on a ticket); `id` is what the
   # CLI is actually asked for, because `codex --model gpt` is not a model.
   #
@@ -55,8 +56,9 @@ models:
     backend: codex
     id: gpt-5.6-sol
     reasoning_effort: high
-    # Stated only as the fallback before the first turn. Every token_count event
-    # this lane writes carries the real window, and that wins.
+    # Stated only as the fallback before the first turn — this is the one lane
+    # where the config value is safe, because every token_count event the lane
+    # writes carries the real window and overrides it within one turn.
     context_window: 258400
 
 # Chains are explicit config, so two #13 rules stay STRUCTURAL rather than

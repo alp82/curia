@@ -24,8 +24,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  AccountUsage, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
-  readTranscriptMeters, windowLabel, workerMeters, USAGE_ATTEMPT_MS, USAGE_STALE_MS,
+  AccountUsage, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
+  readTranscriptMeters, windowFromModel, windowLabel, workerMeters,
+  USAGE_ATTEMPT_MS, USAGE_STALE_MS, WINDOW_STALE_MS,
 } from '../src/usage.mjs'
 
 const NOW = Date.parse('2026-08-03T12:00:00Z')
@@ -107,7 +108,9 @@ describe('transcript meters', () => {
       { type: 'file-history-snapshot' },
     ])
     const { ctx, windows } = readTranscriptMeters('claude', file, NOW)
-    assert.deepEqual(ctx, { tokens: 88922, window: null })
+    // The model rides along (#178): the lane states no window, but it does
+    // state which model produced the counts, and that is the lookup key.
+    assert.deepEqual(ctx, { tokens: 88922, window: null, model: 'claude-opus-5' })
     assert.equal(windows, null, 'this lane states no account limits anywhere')
   })
 
@@ -183,38 +186,182 @@ describe('transcript meters', () => {
   })
 })
 
+describe('ModelWindows', () => {
+  // The response shape below is copied from a live `GET /v1/models/claude-opus-5`
+  // taken on the deployment box against its own CLAUDE_CODE_OAUTH_TOKEN — the
+  // credential shape #162 found the usage endpoint refuses. This one answers it,
+  // which is the whole reason #178 can use it.
+  const OPUS_5 = {
+    type: 'model',
+    id: 'claude-opus-5',
+    display_name: 'Claude Opus 5',
+    created_at: '2026-07-24T00:00:00Z',
+    max_input_tokens: 1000000,
+    max_tokens: 128000,
+  }
+  const ok = (body) => ({ ok: true, status: 200, json: async () => body })
+  const status = (code) => ({ ok: false, status: code, json: async () => ({}) })
+
+  const make = (fetchImpl, over = {}) => new ModelWindows({
+    home: dir, fetchImpl, now: () => NOW, env: { CLAUDE_CODE_OAUTH_TOKEN: 'tok' }, ...over,
+  })
+
+  test('the window is `max_input_tokens` — there is no `context_window` field', () => {
+    assert.equal(windowFromModel(OPUS_5), 1000000)
+    assert.equal(windowFromModel({ context_window: 200000 }), null)
+    assert.equal(windowFromModel({ max_input_tokens: 0 }), null)
+    assert.equal(windowFromModel(null), null)
+  })
+
+  test('a miss returns null now and answers on the next read', async () => {
+    // The lookup never blocks the status line: the first tick shows no figure,
+    // the tick after it shows the right one.
+    const calls = []
+    const w = make(async (url) => { calls.push(url); return ok(OPUS_5) })
+    assert.equal(w.windowFor('claude-opus-5'), null)
+    await w.pending
+    assert.deepEqual(calls, ['https://api.anthropic.com/v1/models/claude-opus-5'])
+    assert.equal(w.windowFor('claude-opus-5'), 1000000)
+  })
+
+  test('a fresh entry is served from cache without a second request', async () => {
+    let n = 0
+    const w = make(async () => { n += 1; return ok(OPUS_5) })
+    w.windowFor('claude-opus-5')
+    await w.pending
+    for (let i = 0; i < 5; i += 1) w.windowFor('claude-opus-5')
+    assert.equal(n, 1)
+  })
+
+  test('a stale entry keeps answering while its refresh runs', async () => {
+    let n = 0
+    let clock = NOW
+    const w = make(async () => { n += 1; return ok(OPUS_5) }, { now: () => clock })
+    w.windowFor('claude-opus-5')
+    await w.pending
+    clock = NOW + WINDOW_STALE_MS + 1
+    // A day-old window is still right; a missing one is not.
+    assert.equal(w.windowFor('claude-opus-5'), 1000000)
+    await w.pending
+    assert.equal(n, 2)
+  })
+
+  test('the cache survives a restart', async () => {
+    const w = make(async () => ok(OPUS_5))
+    w.windowFor('claude-opus-5')
+    await w.pending
+    const fresh = make(() => { throw new Error('must not fetch') })
+    assert.equal(fresh.windowFor('claude-opus-5'), 1000000)
+  })
+
+  test('a refused credential is never retried — the daemon does not refresh one', async () => {
+    // ADR-0007's first rule, the same one that binds the account probe.
+    let n = 0
+    const w = make(async () => { n += 1; return status(401) })
+    w.windowFor('claude-opus-5')
+    await w.pending
+    w.windowFor('claude-opus-5')
+    w.windowFor('claude-sonnet-5')
+    assert.equal(n, 1)
+  })
+
+  test('a 404 is an answer: remembered as no window, not asked again', async () => {
+    let n = 0
+    const w = make(async () => { n += 1; return status(404) })
+    w.windowFor('claude-made-up')
+    await w.pending
+    assert.equal(w.windowFor('claude-made-up'), null)
+    assert.equal(n, 1, 'an account that cannot see a model will not see it a minute later either')
+  })
+
+  test('no credential means no request at all', () => {
+    const w = make(() => { throw new Error('must not fetch') }, { env: {} })
+    assert.equal(w.windowFor('claude-opus-5'), null)
+  })
+
+  test('an id that is not a model id never reaches a URL', () => {
+    const w = make(() => { throw new Error('must not fetch') })
+    assert.equal(w.windowFor('../../v1/messages'), null)
+    assert.equal(w.windowFor(null), null)
+    assert.equal(w.windowFor(''), null)
+  })
+})
+
 describe('workerMeters', () => {
   const routing = {
     models: {
-      opus: { provider: 'anthropic', backend: 'claude', context_window: 200000 },
+      opus: { provider: 'anthropic', backend: 'claude' },
+      stale: { provider: 'anthropic', backend: 'claude', context_window: 200000 },
       gpt: { provider: 'openai', backend: 'codex', reasoning_effort: 'high', context_window: 258400 },
-      nowindow: { provider: 'anthropic', backend: 'claude' },
     },
   }
+  // The live lookup, stubbed at the shape workerMeters uses it through. The
+  // real number: measured against `GET /v1/models/claude-opus-5` on the
+  // deployment box, which is where #146's 200000 came apart.
+  const lookup = (table) => ({ windowFor: (id) => table[id] ?? null })
   const cfgDir = () => {
     const d = path.join(dir, 'cfg', 'curia-1')
     fs.mkdirSync(d, { recursive: true })
     return d
   }
 
-  test('the claude lane takes its denominator from config and its bars from the account', () => {
+  test('the claude lane looks its denominator up by the model the TRANSCRIPT names', () => {
+    // Not by the routing label: the label is `opus`, the model is
+    // `claude-opus-5`, and only the second one has a window (#178).
     const d = cfgDir()
-    write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 399998, 0)])
     const account = { windows: () => [{ label: '5h', pct: 18, elapsedPct: 99 }] }
-    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'opus', routing, account, now: NOW })
+    const models = lookup({ 'claude-opus-5': 1000000 })
+    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'opus', routing, account, models, now: NOW })
     assert.equal(m.ctxPct, 40)
+    assert.equal(m.ctxOver, false)
     assert.equal(m.effort, null)
     assert.deepEqual(m.windows, [{ label: '5h', pct: 18, elapsedPct: 99 }])
   })
 
-  test('a model with no configured window shows NO context figure', () => {
+  test('the live window beats a config value that has gone stale', () => {
+    // This is #146's exact fault, now inverted into a guard: the same 400,000
+    // tokens read 200% under the configured 200000 and 40% under the real one.
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 399998, 0)])
+    const models = lookup({ 'claude-opus-5': 1000000 })
+    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'stale', routing, account: null, models, now: NOW })
+    assert.equal(m.ctxPct, 40)
+  })
+
+  test('config is the last resort, and is used when no live window is known yet', () => {
+    // A cold cache on the first tick after boot: the lookup misses, so the
+    // figure falls back rather than vanishing.
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
+    const models = lookup({})
+    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'stale', routing, account: null, models, now: NOW })
+    assert.equal(m.ctxPct, 40)
+  })
+
+  test('a model with no window from ANY source shows no context figure', () => {
     // The wrong denominator is worse than the missing number: it renders as a
     // confident percentage that is simply false.
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
-    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'nowindow', routing, account: null, now: NOW })
+    const m = workerMeters({
+      backend: 'claude', cfgDir: d, model: 'opus', routing, account: null, models: lookup({}), now: NOW,
+    })
     assert.equal(m.ctxPct, null)
-    assert.equal(m.model, 'nowindow')
+    assert.equal(m.model, 'opus')
+  })
+
+  test('an over-window request is reported at its real size, never clamped', () => {
+    // Session 151 sent 248,003 tokens against a stated 200,000 and the line
+    // said `ctx 100%`. A request cannot exceed its own window, so the excess is
+    // proof the denominator is wrong and the meter now says so.
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(3, 248000, 0)])
+    const m = workerMeters({
+      backend: 'claude', cfgDir: d, model: 'stale', routing, account: null, models: lookup({}), now: NOW,
+    })
+    assert.equal(m.ctxPct, 124)
+    assert.equal(m.ctxOver, true)
   })
 
   test('the codex lane never consults the account reading — its transcript is the source', () => {
@@ -235,7 +382,7 @@ describe('workerMeters', () => {
 
   test('the effort and the model survive a worker with no transcript yet', () => {
     const m = workerMeters({ backend: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
-    assert.deepEqual(m, { model: 'gpt', effort: 'high', ctxPct: null, windows: null })
+    assert.deepEqual(m, { model: 'gpt', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
   })
 })
 
@@ -289,6 +436,13 @@ describe('rendering', () => {
     )
     assert.deepEqual(meterParts({ model: 'opus', effort: null, ctxPct: null, windows: null }), ['**opus**'])
     assert.deepEqual(meterParts(null), [])
+  })
+
+  test('an over-window context figure is marked, not passed off as nearly full', () => {
+    // 100% and 124% must not look alike: the first is a worker, the second is a
+    // broken denominator (#178).
+    assert.deepEqual(meterParts({ ctxPct: 100, ctxOver: false }), ['ctx 100%'])
+    assert.deepEqual(meterParts({ ctxPct: 124, ctxOver: true }), ['ctx 124% ⚠️'])
   })
 
   test('a window with no clock keeps its bar and loses only its mark', () => {

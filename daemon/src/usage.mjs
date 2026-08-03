@@ -10,11 +10,37 @@
 //
 //   context %       the worker's own transcript tail, the same file the
 //                   timeline (#74) reads. Both lanes state their last request's
-//                   input tokens; only the codex lane also states the window,
-//                   so the claude lane takes it from `models.<name>.context_window`.
-//                   A model with no configured window shows NO context figure —
-//                   a guessed denominator is a wrong percentage, and this line
-//                   exists to be trusted.
+//                   input tokens; only the codex lane also states the window.
+//                   The claude lane looks its window up LIVE — see the next
+//                   block. A model with no window from any source shows NO
+//                   context figure: a guessed denominator is a wrong
+//                   percentage, and this line exists to be trusted.
+//
+// WHERE THE CLAUDE DENOMINATOR COMES FROM (#178 settled this, and #146 had it
+// wrong). #146 wrote the window into `models.<name>.context_window` because the
+// claude transcript states none. That number was 200000 and the real window is
+// 1000000, so every context figure that lane ever showed was five times too
+// large — and the clamp hid it, rendering a 248,003-token request against a
+// stated 200,000 as a plausible `ctx 100%`.
+//
+// Config was the fault, not the value in it: a hand-written denominator has
+// nothing to correct it and goes stale silently. So the denominator now comes
+// from two things the box already has, and neither can drift:
+//
+//   * WHICH model ran — the claude transcript states it on every assistant
+//     line (`message.model`, measured: `"claude-opus-5"`). That is the model
+//     the CLI actually resolved, not the routing label, so an alias moving
+//     under us corrects itself on the next turn.
+//   * HOW BIG that model's window is — `GET /v1/models/<id>` answers
+//     `max_input_tokens`. Measured on the deployment box against its own
+//     `CLAUDE_CODE_OAUTH_TOKEN`: 200, and 1000000 for `claude-opus-5`. This is
+//     the endpoint #162's does not resemble — it is metadata, it carries no
+//     `anthropic-ratelimit-*` header at all, and it costs no quota, so it needs
+//     none of the probe's throttling.
+//
+// `models.<name>.context_window` survives as the LAST resort, for a box that
+// cannot reach the API and for the codex lane's pre-first-turn fallback. It is
+// no longer set for any anthropic model.
 //
 //   5 h / 7 d bars  ACCOUNT-level, not per worker: every worker on a provider
 //                   shares one quota, so this is one reading rendered on every
@@ -71,6 +97,7 @@ import { findTranscript } from './transcript.mjs'
 const TAIL_BYTES = 512 * 1024
 
 export const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+export const MODELS_URL = 'https://api.anthropic.com/v1/models'
 // The cheapest completion Anthropic sells, asked for one token. Overridable so
 // a box whose plan drops this model still has a probe (`usage.probe_model`).
 export const PROBE_MODEL = 'claude-haiku-4-5-20251001'
@@ -80,6 +107,10 @@ const ANTHROPIC_VERSION = '2023-06-01'
 export const USAGE_STALE_MS = 30 * 60 * 1000
 // And never more often than this, counted across every fetcher on the box.
 export const USAGE_ATTEMPT_MS = 10 * 60 * 1000
+// A model's window is a property of the model, so it moves only when Anthropic
+// ships one. A day is short enough to catch that and long enough that the
+// lookup is invisible.
+export const WINDOW_STALE_MS = 24 * 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 5000
 
 // ---------------------------------------------------------------------------
@@ -112,8 +143,13 @@ export function tailLines(file) {
 
 // Context is everything the last request SENT, cached or not: a cache read
 // occupies the window exactly like a fresh token does. Measured on real worker
-// transcripts on this box — the claude lane states no window anywhere, so the
-// caller supplies it.
+// transcripts on this box — the lane states no window anywhere, so the caller
+// supplies it.
+//
+// It does state the MODEL, though, on the same line as the counts (#178). That
+// is the concrete id the CLI resolved (`claude-opus-5`), not the routing label
+// the daemon asked for (`opus`), which makes it the right key to look the
+// window up by: it follows the alias instead of guessing where it points.
 function claudeTail(lines) {
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i]
@@ -125,7 +161,8 @@ function claudeTail(lines) {
     const tokens = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0)
       + (u.cache_creation_input_tokens ?? 0)
     if (!tokens) continue
-    return { ctx: { tokens, window: null }, windows: null }
+    const model = typeof e.message.model === 'string' ? e.message.model : null
+    return { ctx: { tokens, window: null, model }, windows: null }
   }
   return { ctx: null, windows: null }
 }
@@ -212,12 +249,139 @@ export function readTranscriptMeters(backend, file, now = Date.now()) {
 }
 
 // ---------------------------------------------------------------------------
-// the anthropic account reading
+// the shared anthropic credential
 // ---------------------------------------------------------------------------
 
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')) } catch { return null }
 }
+
+// A credential never goes near a log or an error, so a refusal remembers a
+// digest of it rather than the thing itself.
+function fingerprint(secret) {
+  return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16)
+}
+
+// Whatever this box authenticates with, in the CLI's own precedence order —
+// #100's trap is that an API key outranks the OAuth token, so a box carrying
+// both is already using the key and a reader must use it too. The stored
+// credential comes last: it is the one shape a headless box does not have.
+//
+// Read only, and never written back. That is ADR-0007's first rule, and it
+// binds every reader here, not just the usage probe.
+export function anthropicCredential(env, credFile) {
+  const key = env.ANTHROPIC_API_KEY
+  if (key) return { secret: key, headers: { 'x-api-key': key } }
+  const oauth = env.CLAUDE_CODE_OAUTH_TOKEN ?? readJson(credFile)?.claudeAiOauth?.accessToken
+  if (oauth) {
+    return { secret: oauth, headers: { authorization: `Bearer ${oauth}`, 'anthropic-beta': OAUTH_BETA } }
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
+// the model window lookup (#178)
+// ---------------------------------------------------------------------------
+
+// The id goes into a URL path, so it is checked before it gets there rather
+// than escaped after. Every model id Anthropic ships matches this; a transcript
+// carrying anything else is not something to go asking the API about.
+const SAFE_MODEL_ID = /^[A-Za-z0-9._-]{1,128}$/
+
+// `max_input_tokens` is the context window. The field is NOT called
+// `context_window` — there is no such field on this endpoint (measured).
+export function windowFromModel(payload) {
+  const n = payload?.max_input_tokens
+  return Number.isInteger(n) && n > 0 ? n : null
+}
+
+// The live denominator for the claude lane, keyed by the model id the
+// transcript states. One entry per model, fetched once and kept for a day.
+//
+// This is deliberately not the account probe: `GET /v1/models/<id>` is metadata,
+// it spends no quota and carries no rate-limit header, so it needs no
+// cooperative stamp and no `account_bars` switch. What it does share is the
+// credential and its first rule — read it, never rewrite it, and stop asking
+// once it has been refused.
+export class ModelWindows {
+  constructor({
+    home = os.homedir(), log = () => {}, now = () => Date.now(),
+    fetchImpl = globalThis.fetch, version = '2.1.211', env = process.env,
+  } = {}) {
+    this.log = log
+    this.now = now
+    this.fetchImpl = fetchImpl
+    this.version = version
+    this.env = env
+    this.credFile = path.join(home, '.claude', '.credentials.json')
+    this.cacheFile = path.join(home, '.claude', 'cache', 'model-windows.json')
+    this.entries = readJson(this.cacheFile) ?? {} // id -> { window: number|null, at: ms }
+    this.inFlight = new Set()
+    this.refusedFor = null
+    this.pending = Promise.resolve() // the in-flight lookup, for the tests to await
+  }
+
+  // number | null — never blocks. A miss returns null and schedules the fetch;
+  // the figure appears on a later tick. A STALE entry is still returned while
+  // its refresh runs, because a day-old window is right and a missing one is
+  // not.
+  windowFor(id) {
+    if (!id || !SAFE_MODEL_ID.test(id)) return null
+    const hit = this.entries[id]
+    if (!hit || this.now() - hit.at >= WINDOW_STALE_MS) this.#fetch(id)
+    return hit?.window ?? null
+  }
+
+  #fetch(id) {
+    if (!this.fetchImpl || this.inFlight.has(id)) return
+    const cred = anthropicCredential(this.env, this.credFile)
+    if (!cred) return
+    const credId = fingerprint(cred.secret)
+    if (this.refusedFor === credId) return
+    this.inFlight.add(id)
+    this.pending = this.#get(id, cred, credId)
+      .catch((e) => this.log(`model window lookup for ${id} failed: ${e.message}`))
+      .finally(() => this.inFlight.delete(id))
+  }
+
+  async #get(id, cred, credId) {
+    const res = await this.fetchImpl(`${MODELS_URL}/${id}`, {
+      headers: {
+        ...cred.headers,
+        'anthropic-version': ANTHROPIC_VERSION,
+        'user-agent': `claude-cli/${this.version} (external, cli)`,
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+    if (res.status === 401 || res.status === 403) {
+      this.refusedFor = credId
+      this.log(`model windows: the credential was refused (${res.status}) — the daemon does not refresh it, so the context % stays off until the credential changes`)
+      return
+    }
+    // A 404 is an answer too: this box's account cannot see that model, and
+    // asking again every minute would not change it. Remembering the null keeps
+    // the meter off and the request rate at one a day.
+    const window = res.status === 404 ? null : windowFromModel(await res.json())
+    if (res.ok || res.status === 404) this.#remember(id, window)
+    else throw new Error(`HTTP ${res.status}`)
+  }
+
+  #remember(id, window) {
+    this.entries = { ...this.entries, [id]: { window, at: this.now() } }
+    try {
+      const tmp = `${this.cacheFile}.tmp`
+      fs.mkdirSync(path.dirname(this.cacheFile), { recursive: true })
+      fs.writeFileSync(tmp, JSON.stringify(this.entries))
+      fs.renameSync(tmp, this.cacheFile)
+    } catch (e) {
+      this.log(`model windows: could not cache ${id}: ${e.message}`)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// the anthropic account reading
+// ---------------------------------------------------------------------------
 
 // Both the endpoint's response and the CLI's persisted copy carry the same two
 // top-level windows. Percentages only — the dollar fields are null on a
@@ -256,12 +420,6 @@ export function payloadFromHeaders(headers) {
     }
   }
   return Object.keys(out).length ? out : null
-}
-
-// A credential never goes near a log or an error, so the refusal remembers a
-// digest of it rather than the thing itself.
-function fingerprint(secret) {
-  return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16)
 }
 
 export function accountWindows(payload, now = Date.now()) {
@@ -304,23 +462,6 @@ export class AccountUsage {
     this.pending = Promise.resolve() // the in-flight probe, for the tests to await
   }
 
-  // Whatever this box authenticates with, in the CLI's own precedence order —
-  // #100's trap is that an API key outranks the OAuth token, so a box carrying
-  // both is already using the key and the probe must use it too. The stored
-  // credential comes last: it is the one shape a headless box does not have.
-  //
-  // Read only, and never written back. That is ADR-0007's first rule.
-  #credential() {
-    const key = this.env.ANTHROPIC_API_KEY
-    if (key) return { secret: key, headers: { 'x-api-key': key } }
-    const oauth = this.env.CLAUDE_CODE_OAUTH_TOKEN
-      ?? readJson(this.credFile)?.claudeAiOauth?.accessToken
-    if (oauth) {
-      return { secret: oauth, headers: { authorization: `Bearer ${oauth}`, 'anthropic-beta': OAUTH_BETA } }
-    }
-    return null
-  }
-
   // The freshest of the two readings on disk. The CLI's own copy states when it
   // was fetched; the cooperative cache file dates by mtime.
   #best() {
@@ -356,7 +497,7 @@ export class AccountUsage {
     // fetcher a window was spent when it was not (#162: measured on the
     // deployment box, which carries no credential file at all, so the daemon
     // touched the lock every ten minutes for nothing).
-    const cred = this.#credential()
+    const cred = anthropicCredential(this.env, this.credFile)
     if (!cred) return
     const credId = fingerprint(cred.secret)
     // A refused credential stays refused until the credential itself changes.
@@ -461,14 +602,27 @@ export function bar(pct, elapsedPct = null, width = BAR_WIDTH) {
 // Everything the status line can say about one worker beyond its state. Every
 // field is independently nullable — a missing source drops its meter, never the
 // line.
-export function workerMeters({ backend, cfgDir, model, routing, account, now = Date.now() }) {
+export function workerMeters({ backend, cfgDir, model, routing, account, models, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
-  const out = { model: model ?? null, effort: spec?.reasoning_effort ?? null, ctxPct: null, windows: null }
+  const out = {
+    model: model ?? null, effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
+  }
   if (!backend || !cfgDir) return out
 
   const { ctx, windows } = readTranscriptMeters(backend, findTranscript(backend, cfgDir), now)
-  const window = ctx?.window ?? spec?.context_window ?? null
-  if (ctx && window > 0) out.ctxPct = Math.min(100, Math.round((ctx.tokens / window) * 100))
+  // Best evidence first (#178). What the transcript states about ITSELF beats
+  // what the API says about the model, which beats what a human wrote in a file
+  // months ago and cannot be corrected by anything.
+  const window = ctx?.window ?? models?.windowFor(ctx?.model) ?? spec?.context_window ?? null
+  if (ctx && window > 0) {
+    // NOT clamped. A request larger than its own window is impossible, so a
+    // figure above 100% is proof the denominator is wrong — which is exactly
+    // what #146's `Math.min(100, ...)` hid for the whole life of that meter.
+    // Rendering it flat turns evidence into a plausible reading, so it goes out
+    // at its real size and `meterParts` marks it.
+    out.ctxPct = Math.round((ctx.tokens / window) * 100)
+    out.ctxOver = out.ctxPct > 100
+  }
 
   // The transcript's own limits win — they are this provider's numbers,
   // measured at the worker's last turn. Only the anthropic lane needs the
@@ -486,7 +640,10 @@ export function meterParts(m) {
   if (!m) return []
   const parts = []
   if (m.model) parts.push(m.effort ? `**${m.model}** ${m.effort}` : `**${m.model}**`)
-  if (m.ctxPct != null) parts.push(`ctx ${m.ctxPct}%`)
+  // The mark is the whole point of not clamping: over 100% the number is not a
+  // reading about the worker, it is a complaint about the denominator, and it
+  // has to look different from a worker that is merely nearly full.
+  if (m.ctxPct != null) parts.push(m.ctxOver ? `ctx ${m.ctxPct}% ⚠️` : `ctx ${m.ctxPct}%`)
   for (const w of m.windows ?? []) {
     const mark = paceMark(w.pct, w.elapsedPct)
     parts.push(`**${w.label}** ${mark ? `${mark} ` : ''}${bar(w.pct, w.elapsedPct)} ${w.pct}%`)

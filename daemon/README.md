@@ -95,9 +95,11 @@ Since #146 the line also carries **meters** beside the state:
 | context percent | the worker's own transcript tail, over the model's context window |
 | 5 h / 7 d usage bars | the codex transcript's `rate_limits`, or the anthropic rate-limit response headers |
 
-Each meter has its own source and drops alone when that source is silent. A model with no `context_window` in `config/routing.yaml` shows no context figure at all. A guessed denominator would render as a confident wrong percentage, which is worse than a missing number.
+Each meter has its own source and drops alone when that source is silent. A model with no window from any source shows no context figure at all. A guessed denominator would render as a confident wrong percentage, which is worse than a missing number.
 
-The codex lane states all three numbers itself, on the `token_count` event it writes after every turn. The claude lane states only the token counts, so the window comes from config and the usage bars come from the account.
+The codex lane states all three numbers itself, on the `token_count` event it writes after every turn. The claude lane states the token counts and the model, so the window is looked up and the usage bars come from the account.
+
+The context denominator takes the best source that has one (#178): the window the transcript states, then `max_input_tokens` from `GET /v1/models/<id>` for the model id the claude transcript names on every turn, then `models.<name>.context_window` in `config/routing.yaml`. Config comes last because it is the source that goes stale — #146 wrote 200000 there for a lane whose real window is 1000000, and nothing on the box could notice. The lookup is metadata, spends no quota, and is cached for a day per model id. The figure is never clamped: above 100% it renders at its real size with a ⚠️, because a request cannot exceed its own window and the excess is proof the denominator is wrong.
 
 Getting the claude account numbers takes one small trick (#162). The OAuth usage endpoint answers only a credential from an interactive `claude /login`, which a server does not have, so the daemon reads the same two windows off the `anthropic-ratelimit-unified-*` headers that ride every accepted completion. It takes one minimal completion for those headers, at most once every ten minutes, using whatever credential the box already authenticates with. See ADR-0007 for the rules that bound the probe, and `usage.account_bars` in `config/curia.yaml` for the switch that stops it.
 

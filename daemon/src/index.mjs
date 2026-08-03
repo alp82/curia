@@ -40,7 +40,7 @@ import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './ident
 import { detectBackend } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
-import { AccountUsage, workerMeters } from './usage.mjs'
+import { AccountUsage, ModelWindows, workerMeters } from './usage.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -79,6 +79,10 @@ const accountUsage = new AccountUsage({
   probeModel: curiaConfig.usage.probe_model,
   log,
 })
+// The context %'s denominator, looked up live per model id (#178). Not gated by
+// `account_bars`: that switch exists because the account probe spends quota,
+// and this lookup spends none.
+const modelWindows = new ModelWindows({ log })
 const statusLine = new StatusLine({
   post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
   edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
@@ -94,6 +98,7 @@ const statusLine = new StatusLine({
     model,
     routing: routingConfig,
     account: accountUsage,
+    models: modelWindows,
   }),
 })
 statusLine.start()

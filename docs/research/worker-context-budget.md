@@ -139,3 +139,10 @@ Two guards are cheap and were missing:
   plausible reading. Over-window should say so.
 - **The number belongs beside its measurement.** `1m` is what the CLI itself prints; a live check
   of one `/context` line is enough to confirm or refute the config, and takes one probe.
+
+**What shipped** ([#178](https://github.com/alp82/curia/issues/178)): both guards, and config
+stopped being the source. The transcript states the model id on the same line as the counts, and
+`GET /v1/models/<id>` states its `max_input_tokens` — so the denominator is now two live facts
+neither of which a human maintains. The meter no longer clamps: over 100% it renders at its real
+size with a ⚠️. Measurements in
+[docs/live-checks/178-context-window-source.md](../live-checks/178-context-window-source.md).

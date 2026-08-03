@@ -245,9 +245,11 @@ export function loadRoutingConfig(file) {
     if (m.reasoning_effort !== undefined && !REASONING_EFFORTS.includes(m.reasoning_effort)) {
       fail(file, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
     }
-    // Optional (#146): the denominator of the status line's context %. Omitting
-    // it hides the figure, which is the right failure — a wrong denominator
-    // would show a confident wrong percentage instead.
+    // Optional (#146), and since #178 the LAST resort for the status line's
+    // context %: the transcript's own window wins, then the live
+    // `GET /v1/models/<id>` lookup, then this. Omitting it everywhere is the
+    // normal case — a hand-written denominator is the thing #178 found wrong,
+    // and no figure at all beats a confident wrong percentage.
     if (m.context_window !== undefined
       && (!Number.isInteger(m.context_window) || m.context_window <= 0)) {
       fail(file, `models.${name}.context_window must be a positive integer of tokens (got ${JSON.stringify(m.context_window)})`)

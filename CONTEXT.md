@@ -234,7 +234,7 @@ Usage measured against the time already gone from its window. A bar shows the wi
 _Avoid_: usage (that is the raw percent, which says nothing about speed).
 
 **Context percent**:
-How full a worker's context window is. The numerator is the last request's input tokens from the transcript. The denominator is the window the codex transcript states, or `models.<name>.context_window` for the claude lane.
+How full a worker's context window is. The numerator is the last request's input tokens from the transcript. The denominator comes from the best source that has one: the window the codex transcript states, then `max_input_tokens` from `GET /v1/models/<id>` for the model id the claude transcript names, then `models.<name>.context_window`. It is never clamped — a figure above 100% says the denominator is wrong, not that the worker is full.
 
 ### State and evidence
 
