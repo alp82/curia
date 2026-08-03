@@ -152,7 +152,8 @@ The Discord module. It renders and captures. It never interprets.
 One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the worker: it releases only when the ticket itself closes, so a resumed worker lands back in the same thread.
 
 **Notify**:
-A fire-and-forget status line into the ticket thread.
+A fire-and-forget line of worker prose into the ticket thread.
+_Avoid_: status line (that names the daemon's own line, below).
 
 ### The ending
 
@@ -199,6 +200,18 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 
 **Dialog guard**:
 The timeline's refusal to send text while a native terminal dialog holds the pane.
+
+**Status line**:
+One Discord message per worker, written by the daemon, that says what the worker is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
+
+**Meter**:
+A number the status line carries beside the state: the model, its reasoning effort, the context percent, and the account usage bars. Each meter has its own source and drops alone when that source is silent.
+
+**Account bars**:
+The 5-hour and 7-day usage windows. They are an account fact, not a worker fact, so every worker on a provider shows the same reading.
+
+**Context percent**:
+How full a worker's context window is. The numerator is the last request's input tokens from the transcript. The denominator is the window the codex transcript states, or `models.<name>.context_window` for the claude lane.
 
 ### State and evidence
 

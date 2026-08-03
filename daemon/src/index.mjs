@@ -39,6 +39,7 @@ import { TimelineSurface } from './timeline.mjs'
 import { detectBackend } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
+import { AccountUsage, workerMeters } from './usage.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -70,13 +71,27 @@ const store = new EscalationStore(DATA)
 // Per-worker status line (#108 item 8): one Discord message per worker
 // thread, edited in place through the journal's own lifecycle events. With
 // the bridge down, post returns null and the next transition retries.
+// One account reading for every anthropic worker (#146): the 5 h / 7 d windows
+// are an account fact, not a worker fact.
+const accountUsage = new AccountUsage({ enabled: curiaConfig.usage.account_bars, log })
 const statusLine = new StatusLine({
   post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
   edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
   remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
   get: (id) => store.get(id),
   log,
+  // Same backend resolution the timeline uses: the dispatcher's word on what it
+  // spawned, on-disk evidence for re-adopted and lab sessions.
+  meters: (session, model) => workerMeters({
+    backend: dispatcher?.workers.get(session)?.backend
+      ?? detectBackend(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
+    cfgDir: path.join(curiaConfig.dispatch.workspace_root, 'cfg', session),
+    model,
+    routing: routingConfig,
+    account: accountUsage,
+  }),
 })
+statusLine.start()
 store.onEvent = (ev) => statusLine.onEvent(ev)
 const pending = new Map() // escalation id -> resolve(answerText) — ephemeral, dies with the process
 const nudgeTimers = new Map() // escalation id -> interval handle — ephemeral, rebuilt on boot

@@ -67,9 +67,27 @@ Containment is the tool surface: the session's only tools are the seven verbs as
 
 An interpreted `cancel`/`cancel all` does not execute: the daemon posts a ✅/❌ button confirm (#94) — instance-bound, no expiry clock, lapsing the moment the worker exits, a newer confirm superseding an older one. The button executes through the daemon, never through the model. Outcomes that resolve between turns come back to the session as journalled notes on its next revival, so its memory stays honest.
 
-Each turn posts exactly two messages (#95): one small-print status line, edited in place as tool calls land, and one short answer. `messaging.mjs` holds the standard — the seven signal emoji, `<>`-wrapped links, "N more" clamps — and its lint runs in the tests. Ticket↔thread bindings (#93) route a worker's escalations into the thread that started it, rename the thread with a display-only `🎫` prefix, and release on terminal states plus a reconcile sweep.
+Each turn posts exactly two messages (#95): one small-print progress line, edited in place as tool calls land, and one short answer. `messaging.mjs` holds the standard — the seven signal emoji, `<>`-wrapped links, "N more" clamps — and its lint runs in the tests. Ticket↔thread bindings (#93) route a worker's escalations into the thread that started it, rename the thread with a display-only `🎫` prefix, and release on terminal states plus a reconcile sweep.
 
 The build was verified live by the full-loop rehearsal — `docs/live-checks/96-overseer-rehearsal.md` — including two daemon restarts mid-pass.
+
+## The per-worker status line (#108 item 8, #146)
+
+Each worker gets one Discord message in its ticket thread that says what it is doing now: dispatched, working, waiting on an escalation, awaiting review, executing approved writes, done, or gone. `statusline.mjs` builds it from the journal's own events through the store's append hook, so no transition needs a callback threaded through the dispatcher. The daemon composes every string. Worker text never lands here as it was written. A state change deletes the message and reposts it at the thread bottom (item 17). Everything else edits it in place.
+
+Since #146 the line also carries **meters** beside the state:
+
+| Meter | Source |
+| --- | --- |
+| model and reasoning effort | the routing pick, and `models.<name>.reasoning_effort` |
+| context percent | the worker's own transcript tail, over the model's context window |
+| 5 h / 7 d usage bars | the codex transcript's `rate_limits`, or the anthropic account usage endpoint |
+
+Each meter has its own source and drops alone when that source is silent. A model with no `context_window` in `config/routing.yaml` shows no context figure at all. A guessed denominator would render as a confident wrong percentage, which is worse than a missing number.
+
+The codex lane states all three numbers itself, on the `token_count` event it writes after every turn. The claude lane states only the token counts, so the window comes from config and the usage bars come from the account endpoint. See ADR-0007 for what the daemon may do with the shared credential that endpoint needs, and `usage.account_bars` in `config/curia.yaml` for the switch that keeps it off the network.
+
+A meter tick refreshes the live lines once a minute and edits only when a number moved, so a quiet worker costs no Discord call. Meters yield to the state and to the escalation title: the line is composed against a width budget, and the meters drop from the tail until it fits.
 
 ## Preview links (#40, implementing #8)
 

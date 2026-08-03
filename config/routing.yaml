@@ -15,16 +15,29 @@ defaults:
   task: opus
   untyped: opus
 
+# `context_window` feeds the status line's context % (#146). It is stated here
+# because the claude transcript states it NOWHERE — the lane writes token counts
+# and no denominator — while the codex transcript carries its own
+# `model_context_window`, which wins over anything written here. A model with no
+# window configured shows no context figure at all: a guessed denominator is a
+# wrong percentage on a line built to be trusted.
+#
+# 200000 is the standard window for these three. The 1M variants are a separate
+# model id (`claude-opus-5[1m]`), so routing them means a new entry here with
+# its own `id` and `context_window`.
 models:
   fable:
     provider: anthropic
     backend: claude
+    context_window: 200000
   opus:
     provider: anthropic
     backend: claude
+    context_window: 200000
   sonnet:
     provider: anthropic
     backend: claude
+    context_window: 200000
   # `gpt` is the label vocabulary (`model:gpt` on a ticket); `id` is what the
   # CLI is actually asked for, because `codex --model gpt` is not a model.
   #
@@ -42,6 +55,9 @@ models:
     backend: codex
     id: gpt-5.6-sol
     reasoning_effort: high
+    # Stated only as the fallback before the first turn. Every token_count event
+    # this lane writes carries the real window, and that wins.
+    context_window: 258400
 
 # Chains are explicit config, so two #13 rules stay STRUCTURAL rather than
 # remembered: cross-provider first (a cooling provider must not strand a

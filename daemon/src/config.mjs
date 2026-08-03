@@ -162,6 +162,18 @@ export function loadCuriaConfig(file) {
   }
   cfg.skills = { root: skillsRoot, install }
 
+  // Status-line meters (#146). Only the anthropic account bars are switchable,
+  // because only they leave the box: the model, the effort and the context %
+  // are computed from the daemon's own records and the worker's own transcript.
+  // Turning this off keeps the reading the CLI already cached on disk and stops
+  // the daemon refreshing it — the bars then age instead of vanishing.
+  const u = cfg.usage ?? {}
+  if (typeof u !== 'object' || Array.isArray(u)) fail(file, '`usage` must be a mapping')
+  if (u.account_bars !== undefined && typeof u.account_bars !== 'boolean') {
+    fail(file, 'usage.account_bars must be true or false')
+  }
+  cfg.usage = { account_bars: u.account_bars ?? true }
+
   return cfg
 }
 
@@ -199,6 +211,13 @@ export function loadRoutingConfig(file) {
     // This catches the typo, which is the failure worth catching at boot.
     if (m.reasoning_effort !== undefined && !REASONING_EFFORTS.includes(m.reasoning_effort)) {
       fail(file, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
+    }
+    // Optional (#146): the denominator of the status line's context %. Omitting
+    // it hides the figure, which is the right failure — a wrong denominator
+    // would show a confident wrong percentage instead.
+    if (m.context_window !== undefined
+      && (!Number.isInteger(m.context_window) || m.context_window <= 0)) {
+      fail(file, `models.${name}.context_window must be a positive integer of tokens (got ${JSON.stringify(m.context_window)})`)
     }
   }
   for (const [type, model] of Object.entries(cfg.defaults)) {

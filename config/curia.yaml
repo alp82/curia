@@ -38,6 +38,16 @@ timeline:                                  # #74, landing #73: the grid-less att
   # serve or publish a page whose proto is not the one it speaks (#70's rule).
   index: ../daemon/assets/timeline.html
 
+usage:                                     # #146: the per-worker status-line meters
+  # The 5 h / 7 d bars are ACCOUNT-level, and the claude transcript states them
+  # nowhere — the only source is the usage endpoint the CLI itself polls,
+  # reached with the CLI's own OAuth token. The daemon reads that token and
+  # never rewrites it, and it shares the attempt stamp beside the cache with the
+  # operator's statusline.sh, so the two throttle each other. Set false to keep
+  # the daemon off the endpoint entirely: the bars then show whatever reading is
+  # already cached on disk, and age.
+  account_bars: true
+
 preview:                                   # #40, implementing #8: one Serve port per preview
   port_from: 8500                          # must not contain attach.serve_port — the sweep
   port_to: 8599                            # withdraws every rule it finds in this range

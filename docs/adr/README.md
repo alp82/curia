@@ -18,7 +18,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 ## Workers
 
 - [ADR-0006](0006-worker-containment-and-standing-orders.md): The worker resolves in the tracker's idiom, bounded by standing orders. The daemon verifies, repairs, and lands.
-- [ADR-0007](0007-shared-credential-store.md): Workers share the host credential store. Nothing is snapshotted, so nothing goes stale.
+- [ADR-0007](0007-shared-credential-store.md): Workers share the host credential store. Nothing is snapshotted, so nothing goes stale. The daemon reads that store for the account usage bars, and never writes it.
 
 ## Human in the loop
 

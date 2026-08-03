@@ -2,31 +2,81 @@
 // items 2/3/13): one message per worker thread through daemon-witnessed
 // states — dispatched → working → waiting on esc-N ("title", elapsed) →
 // awaiting review → executing approved writes → 🏁 done. A state change
-// repositions the message to the thread bottom (item 17); only the
-// elapsed-time refresh edits in place.
+// repositions the message to the thread bottom (item 17); every other refresh
+// edits in place.
 //
 // Every transition is a journal event the daemon already writes, so this
 // module subscribes to the store's append hook rather than threading a
 // callback through the dispatcher. The daemon composes every string; worker
 // text never lands here verbatim. State is ephemeral — after a daemon restart
 // the next transition posts a fresh line, and the journal remains the truth.
+//
+// #146 adds the METERS — model, reasoning effort, context %, and the account
+// usage bars — appended to whatever the state says. Every number they carry is
+// computed in usage.mjs; this module only decides how much of it fits and when
+// the line is worth an edit. The split matters: a meter source going quiet
+// (no transcript yet, no configured window, an account reading the daemon may
+// not refresh) drops that one meter and never the line.
 
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
 import { promptTitle, elapsedLabel } from './messaging.mjs'
+import { meterParts } from './usage.mjs'
+
+// How wide the composed line may get before meters start dropping (#146). One
+// line stays one line: a phone wraps rather than truncates, so the budget is
+// what keeps a status line from becoming a paragraph. Meters are appended in
+// value order and the first one that will not fit ends the run.
+export const LINE_BUDGET = 150
+
+// The states a meter says anything true about. A finished, stalled or dead
+// worker has no live context and no reason to carry account bars.
+const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 'executing'])
 
 export class StatusLine {
   // post(ticket, text) -> {threadId, messageId} | null (bridge down)
   // edit(ids, text) -> boolean — false means the message is gone; repost
   // remove(ids) — delete before a repositioning repost (#108 item 17)
   // get(id) -> escalation record (esc_* events carry only the id)
-  constructor({ post, edit, remove = async () => {}, get, log = console.log }) {
+  // meters(session, model) -> see usage.workerMeters; null drops every meter
+  constructor({
+    post, edit, remove = async () => {}, get, log = console.log,
+    meters = () => null, refreshMs = 60_000, now = () => Date.now(),
+  }) {
     this.post = post
     this.edit = edit
     this.remove = remove
     this.get = get
     this.log = log
-    this.workers = new Map() // session -> { ticket, state, detail, ids, chain }
+    this.meters = meters
+    this.now = now
+    this.refreshMs = refreshMs
+    this.timer = null
+    this.workers = new Map() // session -> { ticket, model, state, detail, text, ids, chain }
+  }
+
+  // The meter tick (#146). The elapsed time only refreshes while an escalation
+  // nudges, so context % and the usage bars would otherwise stand still through
+  // a whole working turn — a percentage that stops moving is a lie on a surface
+  // built to be trusted. Same message, edited in place, and #apply drops the
+  // edit when the composed text did not actually change, so a quiet worker
+  // costs no Discord call at all.
+  start() {
+    if (this.timer) return
+    this.timer = setInterval(() => this.refresh(), this.refreshMs)
+    this.timer.unref?.()
+  }
+
+  stop() {
+    if (this.timer) clearInterval(this.timer)
+    this.timer = null
+  }
+
+  refresh() {
+    for (const [session, w] of this.workers) {
+      if (!METERED.has(w.state)) continue
+      this.#set(session, w.ticket, w.state, w.detail)
+    }
   }
 
   onEvent(ev) {
@@ -86,20 +136,25 @@ export class StatusLine {
     }
   }
 
-  #text(session, state, detail) {
+  // The state's own sentence, meters excluded. The model moved OUT of the
+  // working line and into the meter run (#146): it is the same fact on every
+  // state now, so it reads once, in one place, beside the effort it was picked
+  // with. `dispatched` keeps it inline — there is no transcript yet, so the
+  // model IS the dispatch news.
+  #base(session, state, detail) {
     switch (state) {
       case 'dispatched':
         return `⚙️ \`${session}\` · dispatched on **${detail.model}** — waiting for the composer`
       case 'working':
-        return `▶️ \`${session}\` · working${detail.model ? ` on **${detail.model}**` : ''}`
+        return `▶️ \`${session}\` · working`
       case 'stalled':
         return `⚠️ \`${session}\` · never reached a composer — session kept for inspection`
       case 'waiting': {
-        const waited = elapsedLabel(detail.esc.opened_at)
+        const waited = elapsedLabel(detail.esc.opened_at, this.now())
         return `⏳ \`${session}\` · waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`
       }
       case 'awaiting-review': {
-        const waited = elapsedLabel(detail.esc.opened_at)
+        const waited = elapsedLabel(detail.esc.opened_at, this.now())
         return `🔎 \`${session}\` · awaiting review — **[${detail.esc.id}]**${waited ? ` — ${waited}` : ''}`
       }
       case 'executing':
@@ -115,12 +170,33 @@ export class StatusLine {
     }
   }
 
+  #text(session, state, detail, model) {
+    const base = this.#base(session, state, detail)
+    if (!METERED.has(state)) return base
+    let parts
+    try {
+      parts = meterParts(this.meters(session, model))
+    } catch (e) {
+      this.log(`status line meters for ${session} failed: ${e.message}`)
+      return base
+    }
+    // `dispatched` already names the model in its own sentence.
+    if (state === 'dispatched') parts = parts.filter((p) => !p.startsWith('**'))
+    let text = base
+    for (const part of parts) {
+      const next = `${text} · ${part}`
+      if (next.length > LINE_BUDGET) break // value order: the tail goes first
+      text = next
+    }
+    return text
+  }
+
   // One line per worker, edits serialized per worker so a fast transition
   // never lands under a slower one's edit.
   #set(session, ticket, state, detail) {
     let w = this.workers.get(session)
     if (!w) {
-      w = { ticket, state, detail, ids: null, chain: Promise.resolve() }
+      w = { ticket, model: null, state, detail, text: null, ids: null, chain: Promise.resolve() }
       this.workers.set(session, w)
     }
     // a respawn after done is a new run: leave the old line as history
@@ -133,7 +209,11 @@ export class StatusLine {
     w.ticket = ticket ?? w.ticket
     w.state = state
     w.detail = detail
-    const text = this.#text(session, state, detail)
+    // The model is sticky: only the spawn events carry it, and every state
+    // after them still wants to say which model is running. A retry down the
+    // fallback chain reposts `dispatched` with the new one (#13).
+    if (detail.model) w.model = detail.model
+    const text = this.#text(session, state, detail, w.model)
     w.chain = w.chain.then(() => this.#apply(w, text, { fresh, move })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
     })
@@ -146,7 +226,13 @@ export class StatusLine {
     } else if (move && w.ids) {
       await this.remove(w.ids)
       w.ids = null
+    } else if (w.ids && text === w.text) {
+      // The meter tick runs every minute against numbers that move in single
+      // digits per hour. An edit that changes nothing is a Discord call for
+      // nothing, so identical text is the tick's normal outcome (#146).
+      return
     }
+    w.text = text
     if (w.ids && await this.edit(w.ids, text)) return
     w.ids = (await this.post(w.ticket, text)) ?? null
   }
