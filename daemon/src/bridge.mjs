@@ -14,6 +14,7 @@
 // The daemon hands in a `handlers` object and calls back into the bridge to
 // render; answers flow bridge → handlers.answer → store (first-valid-wins).
 
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -579,10 +580,17 @@ export class DiscordBridge {
     await this.announce(DiscordBridge.SPEAKERS_BACK).catch((err) => this.log(`speaker notice failed: ${err.message}`))
   }
 
+  // The face beside the name. `github.com/identicons/<name>.png` was the first
+  // scheme (#108 item 15) and it answers for REAL GitHub accounts only —
+  // measured 404 for `curia-9`, `curia-143` and every other worker name, 200
+  // for `alp82`. So Discord had nothing to fetch and every worker wore the
+  // default avatar (#143). Gravatar generates one from any hash, `f=y` forces
+  // the generated face even when the hash happens to be a real account, and
+  // curia still hosts no asset. md5 is Gravatar's key, not a security choice.
   #avatarFor(as) {
     if (as === 'curia') return this.client.user?.displayAvatarURL?.() ?? undefined
-    // deterministic per-worker identicon, no asset hosting on our side
-    return `https://github.com/identicons/${encodeURIComponent(as.split(' ')[0])}.png`
+    const seed = createHash('md5').update(as.split(' ')[0]).digest('hex')
+    return `https://www.gravatar.com/avatar/${seed}?d=identicon&f=y&s=128`
   }
 
   // Chunked like every composed send; files ride the last chunk. Any webhook
