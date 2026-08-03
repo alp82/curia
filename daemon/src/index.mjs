@@ -274,10 +274,16 @@ const gate = {
     const worker = gate.workerForThread(threadId)
     if (!worker || !text?.trim()) return null
     const { after } = store.queueWorkerNote(worker, text.trim(), { by })
-    log(`worker note queued for ${worker}${after ? ` (after ${after})` : ''}`)
+    // `reads` is what the bridge promises the operator (#170). A `failed`
+    // worker — the early exit (#169), the ready timeout, the result-less exit
+    // — calls no more tools, so "it reads this with its next tool result" is a
+    // promise nothing can keep. The note still queues: the session-keyed queue
+    // hands it to whatever resumes on this session.
+    const reads = dispatcher.workers.get(worker)?.state !== 'failed'
+    log(`worker note queued for ${worker}${after ? ` (after ${after})` : ''}${reads ? '' : ' — that worker is not running'}`)
     // the ticket rides along so the bridge can spell out `cancel <n>` when the
-    // note is a bare command verb (#108 item 23)
-    return { worker, after, ticket: store.ticketForThread(threadId) ?? null }
+    // note is command-shaped (#108 item 23, #170)
+    return { worker, after, reads, ticket: store.ticketForThread(threadId) ?? null }
   },
 }
 

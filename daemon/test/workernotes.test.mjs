@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EscalationStore } from '../src/store.mjs'
-import { BARE_COMMAND_VERB } from '../src/bridge.mjs'
+import { COMMAND_SHAPED, commandHint, queuedNoteReply } from '../src/bridge.mjs'
 
 describe('worker-note queue', () => {
   let dir, store
@@ -63,17 +63,70 @@ describe('worker-note queue', () => {
 
   // #108 item 23: "Cancel" typed at a worker thread queues as prose, so the
   // bridge's reply must name the way out. The detection is this regex — a
-  // message that is nothing but a command verb.
+  // message that is nothing but a command.
   test('a bare command verb is detected, with case and punctuation forgiven', () => {
     for (const s of ['cancel', 'Cancel', 'STOP', 'pause', 'resume', 'status', 'cancel!', ' stop. ', 'status?']) {
-      assert.ok(BARE_COMMAND_VERB.test(s), `"${s}" should read as a bare command verb`)
+      assert.ok(COMMAND_SHAPED.test(s), `"${s}" should read as a command`)
+    }
+  })
+
+  // #170: the verb WITH its ticket is the surface's own syntax, and the more
+  // natural thing to type. It was the one shape that got no hint at all — an
+  // operator waited an hour on a `cancel 166` that had queued as prose.
+  test('a verb with its ticket is detected too — the shape that cost an hour', () => {
+    for (const s of ['cancel 166', 'Cancel #166', 'resume 12', 'start 166', 'attach 166', 'cancel all', 'resume all.']) {
+      assert.ok(COMMAND_SHAPED.test(s), `"${s}" should read as a command`)
     }
   })
 
   test('a verb inside a sentence is a real note, not a swallowed command', () => {
-    for (const s of ['cancel the deploy', 'please stop', 'status of the tests?', 'do not pause here', 'ok']) {
-      assert.ok(!BARE_COMMAND_VERB.test(s), `"${s}" should read as prose`)
+    for (const s of ['cancel the deploy', 'please stop', 'status of the tests?', 'do not pause here', 'ok', 'cancel 166 once the tests pass']) {
+      assert.ok(!COMMAND_SHAPED.test(s), `"${s}" should read as prose`)
     }
+  })
+
+  // The hint names the channel, because that is the whole difference between
+  // the words working and the words queueing.
+  test('the hint names the command the operator meant, and where it runs', () => {
+    assert.equal(commandHint('cancel 166', '166', 'C1'), 'commands run in <#C1>, never in a ticket thread — say `cancel 166` there')
+    // stop and pause are not verbs the surface has; at a worker they mean cancel
+    assert.match(commandHint('stop', '166', 'C1'), /say `cancel 166` there/)
+    assert.match(commandHint('pause', '166', 'C1'), /say `cancel 166` there/)
+    // status is the one verb that takes no ticket
+    assert.match(commandHint('status', '166', 'C1'), /say `status` there/)
+    assert.match(commandHint('resume', null, 'C1'), /say `resume <n>` there/)
+  })
+
+  // #170: the reply promised "it reads this with its next tool result" for a
+  // worker that had already died on its own command line. An hour of waiting
+  // came out of that one sentence.
+  test('the reply refuses to promise a delivery a dead worker cannot make', () => {
+    const dead = queuedNoteReply({ owner: 'curia-166', q: { reads: false, ticket: '166' }, text: 'look at the logs', channelId: 'C1' })
+    assert.equal(dead.length, 1, 'prose gets no command hint')
+    assert.match(dead[0], /NOT running/)
+    assert.match(dead[0], /resume 166/)
+    assert.ok(!dead[0].includes('next tool result'), 'the promise must not survive on a dead worker')
+
+    const live = queuedNoteReply({ owner: 'curia-9', q: { reads: true, ticket: '9' }, text: 'look at the logs', channelId: 'C1' })
+    assert.match(live[0], /reads this with its next tool result/)
+  })
+
+  test('an unknown liveness keeps the old promise — only positive evidence demotes it', () => {
+    const [line] = queuedNoteReply({ owner: 'curia-9', q: { ticket: '9' }, text: 'hi', channelId: 'C1' })
+    assert.match(line, /next tool result/)
+  })
+
+  test('a command at a dead worker says BOTH — nothing reads it, and where it runs', () => {
+    const lines = queuedNoteReply({ owner: 'curia-166', q: { reads: false, ticket: '166' }, text: 'cancel 166', channelId: 'C1' })
+    assert.equal(lines.length, 2)
+    assert.match(lines[0], /NOT running/)
+    assert.match(lines[1], /commands run in <#C1>/)
+    assert.match(lines[1], /`cancel 166`/)
+  })
+
+  test('the grace-window tag still rides the live line', () => {
+    const [line] = queuedNoteReply({ owner: 'curia-9', q: { reads: true, ticket: '9', after: 'esc-13' }, text: 'and one more thing', channelId: 'C1' })
+    assert.match(line, /noted as after esc-13/)
   })
 
   // The recorded-answer hand-off (#139): an answer nothing live received is

@@ -29,11 +29,47 @@ import { chunkMessage, smallPrint } from './messaging.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
-// #108 item 23: a message that is nothing but a command verb, typed at a
-// worker thread — the shape that reads as "cancel the worker" but queues as
-// prose. Trailing punctuation forgiven; any surrounding words mean it is a
-// real note.
-export const BARE_COMMAND_VERB = /^\s*(cancel|stop|pause|resume|status)\s*[.!?]*\s*$/i
+// #108 item 23, widened by #170: a message that is nothing but a command,
+// typed at a worker thread — the shape that reads as "cancel the worker" but
+// queues as prose. Trailing punctuation forgiven; any surrounding words mean
+// it is a real note.
+//
+// The argument is what #170 added. A bare `cancel` was detected and
+// `cancel 166` was not, so the operator who typed the surface's OWN syntax got
+// no hint at all and waited an hour. A false positive here costs one extra
+// line under a queued note, so the shape is drawn wide on purpose.
+export const COMMAND_SHAPED = /^\s*(cancel|stop|pause|resume|status|start|attach)(\s+(#?\d+|all))?\s*[.!?]*\s*$/i
+
+// The command the operator meant. `stop` and `pause` are not verbs the surface
+// has — at a worker, cancel is what they ask for. `status` is the only one
+// that takes no ticket.
+const MEANT_VERB = { cancel: 'cancel', stop: 'cancel', pause: 'cancel', resume: 'resume', status: 'status', start: 'start', attach: 'attach' }
+
+// What to say under a note whose text was a command. The channel is the whole
+// point: commands are interpreted there and nowhere else.
+export function commandHint(text, ticket, channelId) {
+  const verb = MEANT_VERB[/^\s*([a-z]+)/i.exec(text ?? '')?.[1]?.toLowerCase()] ?? 'cancel'
+  const arg = verb === 'status' ? '' : ` ${ticket ?? '<n>'}`
+  return `commands run in <#${channelId}>, never in a ticket thread — say \`${verb}${arg}\` there`
+}
+
+// The whole reply under a queued note, as lines. Pure, and exported, because
+// the two facts it carries are the ones #170 got wrong: WHETHER anything reads
+// the note, and where the operator's words would have been a command.
+//
+// `q.reads === false` is positive evidence the worker is not running — the
+// early exit (#169), the ready timeout, the result-less exit. The note still
+// queues: the queue is session-keyed, so whatever resumes on this session gets
+// it (see store.queueRecordedAnswer). Anything else keeps the old promise.
+export function queuedNoteReply({ owner, q, text, channelId }) {
+  const lines = [
+    q.reads === false
+      ? `queued for \`${owner}\`, which is NOT running — nothing reads this until \`resume ${q.ticket ?? '<n>'}\``
+      : `queued for \`${owner}\` — it reads this with its next tool result${q.after ? ` (noted as after ${q.after})` : ''}`,
+  ]
+  if (COMMAND_SHAPED.test(text ?? '')) lines.push(commandHint(text, q.ticket, channelId))
+  return lines
+}
 
 // #81's grown catalogue — a static macro manifest; expansion only, never
 // interpretation. `tickets` renames `frontier` on the command surface.
@@ -765,15 +801,10 @@ export class DiscordBridge {
         const q = this.handlers.queueWorkerNote?.(m.channel.id, m.content ?? '', m.author.id)
         if (q) {
           await m.react('📨').catch(() => {})
-          // A bare command verb still queues — the operator may mean the word
-          // for the worker — but the reply names the way out, so "Cancel"
-          // typed at a worker never dies silently as a note (#108 item 23).
-          const lines = [
-            `queued for \`${owner}\` — it reads this with its next tool result${q.after ? ` (noted as after ${q.after})` : ''}`,
-          ]
-          if (BARE_COMMAND_VERB.test(m.content ?? '')) {
-            lines.push(`to cancel the worker itself, press its 🛑 button or say \`cancel ${q.ticket ?? '<n>'}\` in <#${this.channel.id}>`)
-          }
+          // A command still queues — the operator may mean the word for the
+          // worker — but the reply names the way out, so `cancel 166` typed at
+          // a worker never dies silently as a note (#108 item 23, #170).
+          const lines = queuedNoteReply({ owner, q, text: m.content, channelId: this.channel.id })
           await m.channel.send(smallPrint(lines.join('\n'))).catch(() => {})
         } else {
           await m.react('⚠️').catch(() => {})
