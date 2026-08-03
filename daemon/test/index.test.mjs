@@ -175,6 +175,130 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
   })
 })
 
+// The recorded-answer hand-off (#139) lives in index.mjs glue (settle's
+// return value → handOffAnswer) — like the CSRF gate, nothing but a real boot
+// pair exercises the shipped path: the escalation opens under daemon A, the
+// answer lands under daemon B, whose `pending` map never held the resolver.
+describe('an answer with no live resolver queues for the resumed worker (#139, real boot pair)', () => {
+  let tmp
+  let child
+  let port
+  let childLog = ''
+
+  const bootDaemon = async () => {
+    childLog = ''
+    child = spawn(process.execPath, [DAEMON], {
+      env: {
+        ...process.env,
+        PORT: String(port),
+        CURIA_CONFIG_DIR: path.join(tmp, 'config'),
+        CURIA_DATA_DIR: path.join(tmp, 'data'),
+        PATH: `${path.join(tmp, 'shim')}:${process.env.PATH}`,
+        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
+        DISCORD_BOT_TOKEN: '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    child.stdout.on('data', (c) => { childLog += c })
+    child.stderr.on('data', (c) => { childLog += c })
+    const deadline = Date.now() + 10_000
+    for (;;) {
+      try {
+        const res = await request(port, 'GET', '/state')
+        if (res.status === 200) return
+      } catch { /* not listening yet */ }
+      if (Date.now() > deadline) throw new Error(`daemon did not come up in time; log:\n${childLog}`)
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+
+  const killDaemon = () => new Promise((resolve) => {
+    if (!child || child.exitCode !== null) return resolve()
+    child.once('exit', resolve)
+    child.kill('SIGKILL')
+  })
+
+  before(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-index-139-test-'))
+    const cfgDir = path.join(tmp, 'config')
+    const shim = path.join(tmp, 'shim')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.mkdirSync(shim, { recursive: true })
+    for (const bin of ['gh', 'tmux', 'tailscale']) {
+      const p = path.join(shim, bin)
+      fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
+      fs.chmodSync(p, 0o755)
+    }
+    const [daemonPort, ttydPort, servePort] = [await freePort(), await freePort(), await freePort()]
+    port = daemonPort
+    fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
+      'watch:',
+      '  - repo: example/fixture',
+      '    mode: ready-for-agent',
+      'dispatch:',
+      '  auto_dispatch: false',
+      '  max_concurrent: 1',
+      '  poll_interval_s: 60',
+      `  workspace_root: ${path.join(tmp, 'work')}`,
+      '  ready_timeout_s: 5',
+      '  confirm_ttl_h: 1',
+      'attach:',
+      `  ttyd_port: ${ttydPort}`,
+      `  serve_port: ${servePort}`,
+      '',
+    ].join('\n'))
+    fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
+      'defaults:',
+      '  untyped: sonnet',
+      'models:',
+      '  sonnet: { provider: anthropic, backend: claude }',
+      'backends:',
+      '  claude:',
+      '    template: claude --model {model} "$(cat {prompt_file})"',
+      "    ready: '⏵⏵|bypass permissions'",
+      '',
+    ].join('\n'))
+  })
+
+  after(async () => {
+    await killDaemon()
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  test('the answer is recorded, the note queues, and the thread names the resume verb', async () => {
+    await bootDaemon()
+    const esc = await request(port, 'POST', '/escalate', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ worker: 'curia-7', ticket: '7', kind: 'free-text', prompt: 'pick A or B' }),
+    })
+    const { id } = JSON.parse(esc.body)
+    assert.ok(id)
+    await killDaemon()
+
+    // daemon B: the escalation is recovered open, but `pending` is empty
+    await bootDaemon()
+    const res = await request(port, 'POST', '/answer', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, answer: 'B' }),
+    })
+    assert.equal(res.status, 200)
+    assert.equal(JSON.parse(res.body).ok, true, 'the answer is recorded, not rejected')
+
+    // the hand-off: question + answer sit on the worker-note queue, journalled
+    const events = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const note = events.find((e) => e.type === 'worker_note' && e.worker === 'curia-7')
+    assert.ok(note, 'a worker note is queued for the resumed worker')
+    assert.match(note.text, /pick A or B/)
+    assert.match(note.text, /answer: B/)
+    assert.equal(note.after, id, 'tagged with the escalation it answers')
+
+    // the surface half: the thread hears where the answer went (bridge down ⇒ log)
+    assert.match(childLog, /`curia-7` is not running/)
+    assert.match(childLog, /resume 7/)
+  })
+})
+
 // attachApi.link is inline in index.mjs behind gate.command — like the CSRF
 // gate, nothing but a real boot exercises it. This boot pins residual 2: the
 // /attach refusal path must WITHDRAW the persisted serve rule, not just

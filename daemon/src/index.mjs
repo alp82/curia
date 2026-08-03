@@ -152,12 +152,30 @@ function openEscalation({ worker, ticket, kind, prompt, options, preview_url, fi
 }
 
 // Resolves with { text, attachments } — the answer's images travel with it all
-// the way to the worker's tool result (#34).
+// the way to the worker's tool result (#34). Returns whether a resolver was
+// actually waiting: false means the blocked call died with a previous daemon
+// process, and the answer needs the #139 hand-off instead.
 function settle(record, text, attachments = []) {
   clearNudge(record.id)
   const resolve = pending.get(record.id)
   pending.delete(record.id)
   if (resolve) resolve({ text, attachments })
+  return Boolean(resolve)
+}
+
+// #139: the answer is recorded, but nothing live received it — no resolver
+// (a daemon restart emptied `pending`), or the worker died mid-ask (#138's
+// sweep marked the record). Queue question + answer as a worker note — the
+// journalled channel a resumed worker drains on its first tool result — and
+// say in the thread where the answer went.
+function handOffAnswer(record) {
+  if (!/^curia-\d+$/.test(record.worker)) return // synthetic/lab callers have no resume
+  store.queueRecordedAnswer(record)
+  const live = dispatcher.workers.has(record.worker)
+  notifyThread(record.ticket, live
+    ? `✅ recorded — \`${record.worker}\` gets this answer with its next tool result`
+    : `✅ recorded — \`${record.worker}\` is not running; \`resume ${record.ticket}\` hands it over`)
+  log(`escalation ${record.id} answered with no live receiver — hand-off note queued for ${record.worker}`)
 }
 
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
@@ -176,7 +194,7 @@ const gate = {
     const result = store.answer(id, { answer, attachments, by, via })
     if (result.ok) {
       log(`escalation ${result.record.id} answered via ${via}${attachments.length ? ` (+${attachments.length} attachment${attachments.length > 1 ? 's' : ''})` : ''}${result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''}`)
-      settle(result.record, answer, attachments)
+      const delivered = settle(result.record, answer, attachments)
       if (bridge) bridge.markAnswered(result.record).catch(() => {})
       // The executing path of a button confirm (#94): button → HERE → the
       // dispatcher, never through the model. The record is already closed
@@ -184,6 +202,10 @@ const gate = {
       if (result.record.kind === CONFIRM_KIND) {
         dispatcher.onConfirmAnswered(result.record)
           .catch((e) => log(`confirm ${result.record.id} execution failed: ${e.message}`))
+      } else if (!delivered || result.record.worker_died) {
+        // A resolver on a dead worker's record "delivered" into a closed
+        // transport — the worker_died mark, not the resolver, is the truth.
+        handOffAnswer(result.record)
       }
     }
     return result

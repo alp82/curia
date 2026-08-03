@@ -67,8 +67,16 @@ export class EscalationStore {
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
           payload_hash: ev.payload_hash, status: 'open', opened_at: ev.ts,
           action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
-          discord: null, successor: null, nudges: 0,
+          discord: null, successor: null, nudges: 0, worker_died: false,
         })
+        break
+      }
+      case 'escalation_worker_died': {
+        // The liveness sweep's mark (#138): the worker died but its question
+        // stays open and answerable. Reduced onto the record so the answer
+        // path (#139) can see, across restarts, that nothing live waits here.
+        const r = this.escalations.get(ev.id)
+        if (r) r.worker_died = true
         break
       }
       case 'esc_render': {
@@ -287,6 +295,21 @@ export class EscalationStore {
     const after = Number.isFinite(closedMs) && closedMs <= graceMs ? recent.id : null
     this._append({ type: 'worker_note', worker, text, after, by })
     return { after }
+  }
+
+  // The hand-off half of #139: an answer that settled an escalation nothing
+  // was waiting on (the resolver died with a previous daemon process, or the
+  // worker itself is gone) re-queues as a worker note, so the next worker on
+  // the session — resumed or surviving — gets question and answer on its
+  // first tool result. The guarantee is this journal, not the model's memory
+  // of a thread it cannot read.
+  queueRecordedAnswer(record) {
+    const att = (record.attachments ?? []).length
+      ? `\nattachments on disk, read them if you need them: ${record.attachments.join(', ')}`
+      : ''
+    const text = `a human answered ${record.id}, a question asked on this ticket that no live worker could receive.`
+      + `\nquestion: ${record.prompt}\nanswer: ${record.answer}${att}`
+    return this.queueWorkerNote(record.worker, text, { by: record.answered_by ?? null })
   }
 
   takeWorkerNotes(worker) {

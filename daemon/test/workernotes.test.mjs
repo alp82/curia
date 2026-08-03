@@ -76,6 +76,35 @@ describe('worker-note queue', () => {
     }
   })
 
+  // The recorded-answer hand-off (#139): an answer nothing live received is
+  // re-queued as a worker note, so the resumed worker gets question and answer
+  // on its first tool result.
+  test('escalation_worker_died marks the record, and the mark survives a restart', () => {
+    const { record } = store.open({ worker: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
+    store.logEvent('escalation_worker_died', { id: record.id, worker: 'curia-9', ticket: '9' })
+    assert.equal(store.get(record.id).worker_died, true)
+    const reborn = new EscalationStore(dir)
+    assert.equal(reborn.get(record.id).worker_died, true)
+  })
+
+  test('queueRecordedAnswer queues question and answer, tagged with the escalation id', () => {
+    const { record } = store.open({ worker: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'deploy to staging first?' })
+    store.answer(record.id, { answer: 'yes, staging first', by: 'alp', via: 'button' })
+    store.queueRecordedAnswer(store.get(record.id))
+    const [note] = store.takeWorkerNotes('curia-9')
+    assert.equal(note.after, record.id)
+    assert.match(note.text, /deploy to staging first\?/)
+    assert.match(note.text, /yes, staging first/)
+  })
+
+  test('the hand-off note names attachment paths so a fresh worker can read them', () => {
+    const { record } = store.open({ worker: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
+    store.answer(record.id, { answer: 'see the screenshot', attachments: ['/data/attachments/esc-1/image.png'], by: 'alp', via: 'thread' })
+    store.queueRecordedAnswer(store.get(record.id))
+    const [note] = store.takeWorkerNotes('curia-9')
+    assert.match(note.text, /\/data\/attachments\/esc-1\/image\.png/)
+  })
+
   test('the queue survives a daemon restart — journal, not memory', () => {
     store.queueWorkerNote('curia-9', 'undelivered', {})
     const reborn = new EscalationStore(dir)
