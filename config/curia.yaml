@@ -70,6 +70,35 @@ usage:                                     # #146: the per-worker status-line me
   # another only if a plan stops serving this one.
   probe_model: claude-haiku-4-5-20251001
 
+sandbox:                                   # #154, building the decision at #148: one shared
+                                           # worker image, one container per worker.
+  # Every version here is a PIN, and the pins feed the image tag together with
+  # the Dockerfile's own bytes (daemon/src/image.mjs). So a bump on any line
+  # below names a tag that is not on the box, and the daemon rebuilds on the
+  # next dispatch that wants a container. Nothing else needs touching.
+  #
+  # There is no default for any of them: an unpinned CLI inside a worker image
+  # is a worker running whatever npm served that minute, which is the thing
+  # this section exists to stop. Build it by hand ahead of a dispatch with
+  # `npm run build-worker-image --prefix daemon`.
+  image: curia-worker
+  # Both pins track what the box itself runs, so a worker and a hand session
+  # meet the same CLI. Read them off the box with `claude --version` and
+  # `codex --version` before bumping.
+  claude_version: 2.1.220
+  codex_version: 0.146.0
+  # Debian 12 ships gh 2.23 (2023). Pinned from the upstream release instead,
+  # for the same reason: one tracker CLI, one version of it.
+  gh_version: 2.97.0
+  # Only chromium's OS libraries go in the image. The browsers themselves
+  # install on demand into the shared volume (#148), and this is the version
+  # whose dependency list the build installs.
+  playwright_version: 1.62.1
+  # The uid inside the container. It must equal the uid of the host user that
+  # owns the mounted clone and cfg dir — the daemon runs as `alp` (1000) on
+  # the box — or the worker cannot write its own worktree.
+  agent_uid: 1000
+
 preview:                                   # #40, implementing #8: one Serve port per preview
   port_from: 8500                          # must not contain attach.serve_port — the sweep
   port_to: 8599                            # withdraws every rule it finds in this range

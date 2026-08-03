@@ -12,6 +12,7 @@ import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 import { PROBE_MODEL } from './usage.mjs'
 import { DEFAULT_TIMELINE_INDEX } from './timeline.mjs'
+import { DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS } from './image.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
@@ -22,6 +23,14 @@ const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 // also refuses "..", "a/b" and any other way of pointing the worker's skills
 // dir outside the configured root.
 const SKILL_NAME_RE = /^[\w.-]+$/
+
+// A pinned version as npm and the gh releases page write one. Deliberately
+// narrow: `latest`, `^2.1`, and an empty string are all things a human might
+// type on a version line, and every one of them un-pins the image.
+const VERSION_RE = /^\d+(\.\d+)*(-[\w.]+)?$/
+// A docker repository name. No tag and no digest — the tag is derived, never
+// written by hand (daemon/src/image.mjs).
+const IMAGE_NAME_RE = /^[a-z0-9]+([._/-][a-z0-9]+)*$/
 
 function fail(file, msg) {
   throw new Error(`bad config ${file}: ${msg}`)
@@ -206,6 +215,43 @@ export function loadCuriaConfig(file) {
     fail(file, 'usage.probe_model must be a model name')
   }
   cfg.usage = { account_bars: u.account_bars ?? true, probe_model: u.probe_model ?? PROBE_MODEL }
+
+  // The worker sandbox image (#154, from #148). The section as a whole is
+  // OPTIONAL, because the sandbox ships behind a per-backend switch that is
+  // off by default and a box running no containers needs no pins. Every key
+  // inside it is REQUIRED, for the reason #57 gives: the value silence would
+  // pick here is "whatever npm serves this minute", which is a worker running
+  // an unreviewed CLI. There is no safe default for a pin.
+  if (cfg.sandbox !== undefined) {
+    const sb = cfg.sandbox
+    if (!sb || typeof sb !== 'object' || Array.isArray(sb)) fail(file, '`sandbox` must be a mapping')
+    sb.image = sb.image ?? DEFAULT_IMAGE
+    if (typeof sb.image !== 'string' || !IMAGE_NAME_RE.test(sb.image)) {
+      fail(file, `sandbox.image must be a docker repository name (got ${JSON.stringify(sb.image)})`)
+    }
+    for (const key of Object.keys(SANDBOX_KEYS)) {
+      if (key === 'agent_uid') continue
+      // YAML reads `1.62` as a number and `1.62.1` as a string, and both are
+      // plausible things to type on a version line — so a number is coerced
+      // rather than refused, and only an empty or exotic value fails.
+      if (typeof sb[key] === 'number') sb[key] = String(sb[key])
+      if (typeof sb[key] !== 'string' || !VERSION_RE.test(sb[key])) {
+        fail(file, `sandbox.${key} must be a pinned version string, e.g. "1.2.3" (got ${JSON.stringify(sb[key])})`)
+      }
+    }
+    // Not cosmetic: the container writes the clone the daemon prepared on the
+    // host, so a uid that is not the host user's makes every worker fail on
+    // its first write. Defaulted to the daemon's own uid, which is the only
+    // value that can be right by construction.
+    sb.agent_uid = sb.agent_uid ?? process.getuid?.()
+    if (!(Number.isInteger(sb.agent_uid) && sb.agent_uid >= 0 && sb.agent_uid < 2 ** 31)) {
+      fail(file, `sandbox.agent_uid must be a uid (got ${JSON.stringify(sb.agent_uid)})`)
+    }
+    if (!fs.existsSync(DOCKERFILE)) {
+      fail(file, `sandbox is configured but ${DOCKERFILE} is missing — the image has no recipe`)
+    }
+    cfg.sandbox = sb
+  }
 
   return cfg
 }

@@ -119,6 +119,15 @@ The hard limits in the standing orders. Read anything. Write only inside the wor
 **Harness**:
 The per-backend files curia writes so a worker reaches the side channel and the Stop hook.
 
+**Sandbox**:
+The boundary around a worker: one Docker container per worker, holding its own clone and cfg dir and nothing else of the box. It denies host HOME, the daemon's secrets and state, sibling worktrees, and the tmux socket. The network stays open.
+
+**Worker image**:
+The one image every worker container runs. It carries both agent CLIs at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
+
+**Cache volume**:
+A Docker volume shared by every worker for what is too heavy to bake into the image: the npm cache and the Playwright browsers. Cross-worker poisoning is an accepted risk.
+
 **Side channel**:
 The daemon's structured channel to a worker: the MCP tools and the Stop hook. Curia never parses the terminal to learn worker state.
 

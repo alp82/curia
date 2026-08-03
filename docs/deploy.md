@@ -17,6 +17,7 @@ Curia runs as a systemd service on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 | Node 22 | `/usr/local/bin/node` (tarball in `/opt`) |
 | ttyd | `/home/alp/.local/bin/ttyd` |
 | Claude Code | `/home/alp/.local/bin/claude` |
+| Codex | `/home/alp/.local/bin/codex` |
 
 The committed config (`config/curia.yaml`) hardcodes `/home/alp/...` paths. The box mirrors the dev box username, so the committed config works unchanged.
 
@@ -46,6 +47,28 @@ bin/deploy.sh
 The script connects over ssh, pulls `main`, installs daemon dependencies, copies the unit file, and restarts the service. It prints `active` on success. Override the target with `CURIA_DEPLOY_HOST`.
 
 The `alp` user holds narrow sudo rights (`/etc/sudoers.d/curia`): copy the unit file, `daemon-reload`, and `start`/`stop`/`restart` of `curia` only.
+
+## The worker sandbox image
+
+Workers run in one Docker container each ([#148](https://github.com/alp82/curia/issues/148)). They share one image, built on the box from `deploy/worker/Dockerfile`:
+
+```
+ssh alp@coinmatica.net 'cd curia && npm run build-worker-image --prefix daemon'
+```
+
+The image tag is a content address over the Dockerfile and the pins in `config/curia.yaml` (`sandbox:`), so the command is a no-op when the image is already there. The daemon runs the same build itself when a dispatch wants a container and the tag is missing, which is what makes a version bump in that config enough on its own. Pass `--force` to rebuild against today's apt and npm without changing a pin.
+
+A cold build takes about four minutes and the image is about 1.6 GB. Two Docker volumes hold what stays out of it: the npm cache and the Playwright browsers.
+
+**The daemon user must be in the `docker` group.** The Docker socket is root-owned, and `alp` holds no sudo right that reaches it:
+
+```
+sudo usermod -aG docker alp     # as root, once
+```
+
+This grants `alp` root on the box, because anyone who can reach the socket can mount `/` into a container. That is the accepted cost of rootful Docker. Rootless Docker does not replace it here: it maps a container uid to a subordinate host uid, so an agent running as uid 1000 could not write the clone the daemon bind-mounts, and the container-root that does map to `alp` is the one user Claude Code refuses to run as.
+
+The worker itself never reaches the socket. It is denied inside the container, which is the whole point of the boundary.
 
 ## Logs
 
