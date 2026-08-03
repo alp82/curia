@@ -19,30 +19,48 @@
 //   5 h / 7 d bars  ACCOUNT-level, not per worker: every worker on a provider
 //                   shares one quota, so this is one reading rendered on every
 //                   line. The codex lane gets it free — its transcript carries
-//                   `rate_limits` beside every token count. The claude lane has
-//                   no such line anywhere in its transcript, so the only source
-//                   is the account usage endpoint the CLI itself polls, reached
-//                   through the shared credential store.
+//                   `rate_limits` beside every token count. The claude lane
+//                   states them nowhere: not in the transcript, and not in any
+//                   file the CLI writes on a headless box.
 //
-// WHAT THE DAEMON MAY DO WITH THAT CREDENTIAL (the ticket's open question).
-// Reading the token and issuing the same read-only GET the CLI issues does not
-// touch any worker's session. Two rules keep it that way, and both are load
-// bearing:
+// WHERE THE CLAUDE NUMBERS COME FROM (#162 settled this, and it is not where
+// #146 thought). `GET /api/oauth/usage` only answers a credential carrying the
+// `user:profile` scope, which only an interactive `claude /login` records. A
+// server authenticated by `CLAUDE_CODE_OAUTH_TOKEN` — the `claude setup-token`
+// credential a headless box is meant to use — is refused, and so is an API key.
+// Measured against the live endpoint: it answers such a token exactly as it
+// answers no credential at all.
 //
-//   1. The daemon NEVER refreshes the token and never writes
-//      `.credentials.json`. A refresh rotates the refresh token, and every
-//      live CLI session on the box holds the old one. So a 401 is terminal
-//      here: fetching stops until the CLI rewrites the file itself, which the
-//      mtime reports.
-//   2. The endpoint's budget is shared with every status line on the box, so
-//      the attempt stamp beside the cache is a cooperative lock. The operator's
-//      own statusline.sh writes the same two files under the same rules, so the
-//      two throttle each other instead of racing, and each one's fetch keeps
-//      the other fresh.
+// The same two windows ride the response headers of any ACCEPTED completion, as
+// `anthropic-ratelimit-unified-{5h,7d}-{utilization,reset}`. Every credential
+// shape gets them, and they carry the identical numbers and reset instants the
+// endpoint states — verified side by side. So the daemon reads its own windows
+// the way every caller already does: it issues one minimal completion and keeps
+// the headers.
 //
-// The read path costs nothing and always runs; the fetch is what
+// FOUR RULES BOUND THAT PROBE, and all four are load bearing:
+//
+//   1. The daemon NEVER writes a credential and never refreshes one. A refresh
+//      rotates the refresh token, and every live CLI session on the box holds
+//      the old one. So a 401 or 403 is terminal here: probing stops until the
+//      credential itself changes.
+//   2. The headers ARE the reading, whatever the status code. A window that is
+//      spent still states itself on the rejection, which is the moment the bars
+//      matter most.
+//   3. The probe is the cheapest completion there is, on the cheapest model,
+//      and never more often than the shared attempt stamp allows. It spends
+//      account quota to measure account quota, which is only honest at this
+//      size: about two dozen tokens per half hour, against a worker turn that
+//      spends thousands.
+//   4. The attempt stamp beside the cache stays a cooperative lock. The
+//      operator's own statusline.sh writes the same two files in the same
+//      shape, so a reading either one takes serves both, and neither probes
+//      while the other's attempt is fresh.
+//
+// The read path costs nothing and always runs; the probe is what
 // `usage.account_bars` turns off.
 
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -52,7 +70,12 @@ import { findTranscript } from './transcript.mjs'
 // Generous enough that one very large final record still lands whole.
 const TAIL_BYTES = 512 * 1024
 
-export const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
+export const MESSAGES_URL = 'https://api.anthropic.com/v1/messages'
+// The cheapest completion Anthropic sells, asked for one token. Overridable so
+// a box whose plan drops this model still has a probe (`usage.probe_model`).
+export const PROBE_MODEL = 'claude-haiku-4-5-20251001'
+const OAUTH_BETA = 'oauth-2025-04-20'
+const ANTHROPIC_VERSION = '2023-06-01'
 // Past this age the reading is refetched, if fetching is on at all.
 export const USAGE_STALE_MS = 30 * 60 * 1000
 // And never more often than this, counted across every fetcher on the box.
@@ -205,6 +228,42 @@ const ANTHROPIC_WINDOWS = [
   { key: 'seven_day', label: '7d', ms: 7 * 24 * 60 * 60 * 1000 },
 ]
 
+// The response headers state the same two windows the endpoint states, under
+// their own names and in their own units: a 0-1 fraction, and an epoch-seconds
+// reset. This maps them onto the payload shape above, so the cache file keeps
+// ONE schema whichever way the reading was taken — which is what lets the
+// daemon and the operator's statusline.sh go on sharing the file.
+const UNIFIED = [
+  { tag: '5h', key: 'five_hour' },
+  { tag: '7d', key: 'seven_day' },
+]
+
+export function payloadFromHeaders(headers) {
+  const get = (name) => headers?.get?.(name) ?? null
+  const out = {}
+  for (const w of UNIFIED) {
+    const raw = get(`anthropic-ratelimit-unified-${w.tag}-utilization`)
+    if (raw === null || raw === '') continue
+    const utilization = Number(raw)
+    if (!Number.isFinite(utilization)) continue
+    const reset = Number(get(`anthropic-ratelimit-unified-${w.tag}-reset`))
+    out[w.key] = {
+      // One decimal, which is what the endpoint itself states. Scaling a
+      // fraction by 100 otherwise leaves float dust in a file the operator's
+      // statusline.sh also reads.
+      utilization: Math.round(utilization * 1000) / 10,
+      resets_at: Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000).toISOString() : null,
+    }
+  }
+  return Object.keys(out).length ? out : null
+}
+
+// A credential never goes near a log or an error, so the refusal remembers a
+// digest of it rather than the thing itself.
+function fingerprint(secret) {
+  return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16)
+}
+
 export function accountWindows(payload, now = Date.now()) {
   const out = []
   for (const w of ANTHROPIC_WINDOWS) {
@@ -220,11 +279,13 @@ export function accountWindows(payload, now = Date.now()) {
 export class AccountUsage {
   // `fetch` is injected so the test never reaches the network. `home` is the
   // DAEMON's home — never a worker config dir: workers run headless and their
-  // own `.claude.json` carries no usage copy (measured: every worker cfg dir on
-  // this box has `cachedUsageUtilization: null`).
+  // own `.claude.json` carries no usage copy (measured on the deployment box:
+  // every worker cfg dir there lacks `cachedUsageUtilization` entirely, because
+  // the CLI never polls for it under an env-var credential — see #162).
   constructor({
     home = os.homedir(), enabled = true, log = () => {},
     now = () => Date.now(), fetchImpl = globalThis.fetch, version = '2.1.211',
+    env = process.env, probeModel = PROBE_MODEL,
   } = {}) {
     this.home = home
     this.enabled = enabled
@@ -232,13 +293,32 @@ export class AccountUsage {
     this.now = now
     this.fetchImpl = fetchImpl
     this.version = version
+    this.env = env
+    this.probeModel = probeModel
     this.cliFile = path.join(home, '.claude.json')
     this.credFile = path.join(home, '.claude', '.credentials.json')
     this.cacheFile = path.join(home, '.claude', 'cache', 'oauth-usage.json')
     this.stampFile = path.join(home, '.claude', 'cache', 'oauth-usage.attempt')
     this.fetching = false
-    this.refusedFor = null // the credential mtime a 401 was measured against
-    this.pending = Promise.resolve() // the in-flight refresh, for the tests to await
+    this.refusedFor = null // fingerprint of the credential a refusal was measured against
+    this.pending = Promise.resolve() // the in-flight probe, for the tests to await
+  }
+
+  // Whatever this box authenticates with, in the CLI's own precedence order —
+  // #100's trap is that an API key outranks the OAuth token, so a box carrying
+  // both is already using the key and the probe must use it too. The stored
+  // credential comes last: it is the one shape a headless box does not have.
+  //
+  // Read only, and never written back. That is ADR-0007's first rule.
+  #credential() {
+    const key = this.env.ANTHROPIC_API_KEY
+    if (key) return { secret: key, headers: { 'x-api-key': key } }
+    const oauth = this.env.CLAUDE_CODE_OAUTH_TOKEN
+      ?? readJson(this.credFile)?.claudeAiOauth?.accessToken
+    if (oauth) {
+      return { secret: oauth, headers: { authorization: `Bearer ${oauth}`, 'anthropic-beta': OAUTH_BETA } }
+    }
+    return null
   }
 
   // The freshest of the two readings on disk. The CLI's own copy states when it
@@ -271,42 +351,61 @@ export class AccountUsage {
     // The shared throttle: whoever touched the stamp last owns this window,
     // daemon or statusline.sh.
     if (now - mtimeMs(this.stampFile) < USAGE_ATTEMPT_MS) return
-    const cred = mtimeMs(this.credFile)
-    // A refused token stays refused until the CLI writes a new one. The daemon
-    // does not refresh it — see the module header.
-    if (this.refusedFor && this.refusedFor === cred) return
+    // No credential, no attempt — and so no stamp. The stamp is a cooperative
+    // lock, and taking it for a probe that never happens tells the other
+    // fetcher a window was spent when it was not (#162: measured on the
+    // deployment box, which carries no credential file at all, so the daemon
+    // touched the lock every ten minutes for nothing).
+    const cred = this.#credential()
+    if (!cred) return
+    const credId = fingerprint(cred.secret)
+    // A refused credential stays refused until the credential itself changes.
+    // The daemon does not refresh it — see the module header.
+    if (this.refusedFor === credId) return
     try {
       fs.mkdirSync(path.dirname(this.stampFile), { recursive: true })
       fs.writeFileSync(this.stampFile, '')
     } catch {
-      return // cannot take the lock; do not fetch unthrottled
+      return // cannot take the lock; do not probe unthrottled
     }
     this.fetching = true
-    this.pending = this.#fetch(cred)
-      .catch((e) => this.log(`account usage fetch failed: ${e.message}`))
+    this.pending = this.#fetch(cred, credId)
+      .catch((e) => this.log(`account usage probe failed: ${e.message}`))
       .finally(() => { this.fetching = false })
   }
 
-  async #fetch(credMtime) {
-    const token = readJson(this.credFile)?.claudeAiOauth?.accessToken
-    if (!token) return
-    const res = await this.fetchImpl(USAGE_URL, {
+  // One minimal completion, kept for its headers. The body is read only far
+  // enough to be discarded — the numbers never travel in it.
+  async #fetch(cred, credId) {
+    const res = await this.fetchImpl(MESSAGES_URL, {
+      method: 'POST',
       headers: {
-        authorization: `Bearer ${token}`,
-        'anthropic-beta': 'oauth-2025-04-20',
+        ...cred.headers,
+        'anthropic-version': ANTHROPIC_VERSION,
         'content-type': 'application/json',
         'user-agent': `claude-cli/${this.version} (external, cli)`,
       },
+      // The system prompt is what an OAuth credential is entitled to send, so
+      // it rides along and the probe stays a Claude Code call like any other.
+      body: JSON.stringify({
+        model: this.probeModel,
+        max_tokens: 1,
+        system: [{ type: 'text', text: "You are Claude Code, Anthropic's official CLI for Claude." }],
+        messages: [{ role: 'user', content: 'hi' }],
+      }),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
-    if (res.status === 401 || res.status === 403) {
-      this.refusedFor = credMtime
-      this.log(`account usage: the CLI credential was refused (${res.status}) — the daemon does not refresh it; the bars stay at their last reading until a CLI session writes a new token`)
-      return
+    // Rule 2: the headers are the reading, whatever the status. A window spent
+    // to its limit still states itself on the rejection that proves it.
+    const payload = payloadFromHeaders(res.headers)
+    if (!payload) {
+      if (res.status === 401 || res.status === 403) {
+        this.refusedFor = credId
+        this.log(`account usage: the credential was refused (${res.status}) — the daemon does not refresh it; the bars stay at their last reading until the credential changes`)
+        return
+      }
+      throw new Error(`HTTP ${res.status} carried no usage headers`)
     }
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const payload = await res.json()
-    if (!accountWindows(payload)) throw new Error('response carries no usage windows')
     const tmp = `${this.cacheFile}.tmp`
     fs.mkdirSync(path.dirname(this.cacheFile), { recursive: true })
     fs.writeFileSync(tmp, JSON.stringify(payload))

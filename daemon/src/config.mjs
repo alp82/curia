@@ -10,6 +10,7 @@ import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_BACKENDS } from './workspace.mjs'
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
+import { PROBE_MODEL } from './usage.mjs'
 import { DEFAULT_TIMELINE_INDEX } from './timeline.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
@@ -172,7 +173,10 @@ export function loadCuriaConfig(file) {
   if (u.account_bars !== undefined && typeof u.account_bars !== 'boolean') {
     fail(file, 'usage.account_bars must be true or false')
   }
-  cfg.usage = { account_bars: u.account_bars ?? true }
+  if (u.probe_model !== undefined && (typeof u.probe_model !== 'string' || !u.probe_model.trim())) {
+    fail(file, 'usage.probe_model must be a model name')
+  }
+  cfg.usage = { account_bars: u.account_bars ?? true, probe_model: u.probe_model ?? PROBE_MODEL }
 
   return cfg
 }

@@ -73,7 +73,11 @@ const store = new EscalationStore(DATA)
 // the bridge down, post returns null and the next transition retries.
 // One account reading for every anthropic worker (#146): the 5 h / 7 d windows
 // are an account fact, not a worker fact.
-const accountUsage = new AccountUsage({ enabled: curiaConfig.usage.account_bars, log })
+const accountUsage = new AccountUsage({
+  enabled: curiaConfig.usage.account_bars,
+  probeModel: curiaConfig.usage.probe_model,
+  log,
+})
 const statusLine = new StatusLine({
   post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
   edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),

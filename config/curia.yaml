@@ -39,14 +39,21 @@ timeline:                                  # #74, landing #73: the grid-less att
   index: ../daemon/assets/timeline.html
 
 usage:                                     # #146: the per-worker status-line meters
-  # The 5 h / 7 d bars are ACCOUNT-level, and the claude transcript states them
-  # nowhere — the only source is the usage endpoint the CLI itself polls,
-  # reached with the CLI's own OAuth token. The daemon reads that token and
-  # never rewrites it, and it shares the attempt stamp beside the cache with the
-  # operator's statusline.sh, so the two throttle each other. Set false to keep
-  # the daemon off the endpoint entirely: the bars then show whatever reading is
-  # already cached on disk, and age.
+  # The 5 h / 7 d bars are ACCOUNT-level, and the claude lane states them in no
+  # file and no transcript. They ride the response headers of any accepted
+  # completion, so the daemon takes one minimal completion for its headers and
+  # caches the reading (#162 — the OAuth usage endpoint answers only a `claude
+  # /login` credential, which a headless box does not have). The probe uses
+  # whatever credential the box already authenticates with, reads it and never
+  # rewrites it, and shares the attempt stamp beside the cache with the
+  # operator's statusline.sh, so the two throttle each other.
+  #
+  # Set false to stop the daemon spending anything on this: the bars then show
+  # whatever reading is already cached on disk, and age.
   account_bars: true
+  # The probe rides the cheapest model there is, asked for one token. Name
+  # another only if a plan stops serving this one.
+  probe_model: claude-haiku-4-5-20251001
 
 preview:                                   # #40, implementing #8: one Serve port per preview
   port_from: 8500                          # must not contain attach.serve_port — the sweep

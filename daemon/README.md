@@ -85,11 +85,13 @@ Since #146 the line also carries **meters** beside the state:
 | --- | --- |
 | model and reasoning effort | the routing pick, and `models.<name>.reasoning_effort` |
 | context percent | the worker's own transcript tail, over the model's context window |
-| 5 h / 7 d usage bars | the codex transcript's `rate_limits`, or the anthropic account usage endpoint |
+| 5 h / 7 d usage bars | the codex transcript's `rate_limits`, or the anthropic rate-limit response headers |
 
 Each meter has its own source and drops alone when that source is silent. A model with no `context_window` in `config/routing.yaml` shows no context figure at all. A guessed denominator would render as a confident wrong percentage, which is worse than a missing number.
 
-The codex lane states all three numbers itself, on the `token_count` event it writes after every turn. The claude lane states only the token counts, so the window comes from config and the usage bars come from the account endpoint. See ADR-0007 for what the daemon may do with the shared credential that endpoint needs, and `usage.account_bars` in `config/curia.yaml` for the switch that keeps it off the network.
+The codex lane states all three numbers itself, on the `token_count` event it writes after every turn. The claude lane states only the token counts, so the window comes from config and the usage bars come from the account.
+
+Getting the claude account numbers takes one small trick (#162). The OAuth usage endpoint answers only a credential from an interactive `claude /login`, which a server does not have, so the daemon reads the same two windows off the `anthropic-ratelimit-unified-*` headers that ride every accepted completion. It takes one minimal completion for those headers, at most once every ten minutes, using whatever credential the box already authenticates with. See ADR-0007 for the rules that bound the probe, and `usage.account_bars` in `config/curia.yaml` for the switch that stops it.
 
 ### Reading a usage bar
 
