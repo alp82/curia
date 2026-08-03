@@ -136,6 +136,16 @@ The blocking tool a worker calls to ask a question. Kinds: free-text, choice, ap
 **Review gate**:
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records.
 
+**Cross-check**:
+The operator's third choice at the review gate. Curia spawns a reviewer on the other provider, and the verdict returns to the builder.
+
+**Reviewer**:
+The worker a cross-check spawns. It reads the diff, the ticket, and a checkout it can run. It writes nothing and it ends with its verdict.
+_Avoid_: checker.
+
+**Verdict**:
+The reviewer's findings on one diff. It reaches the builder, and it lands as a pull-request comment.
+
 **First-valid-wins**:
 The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal.
 

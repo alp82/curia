@@ -27,6 +27,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 ## Resolution
 
 - [ADR-0008](0008-resolved-means-merged.md): Resolved means merged. The worker stays alive through the review, and the Stop hook enforces the ending.
+- [ADR-0010](0010-the-cross-check.md): The cross-check is a button on the review gate. A reviewer on the other provider returns a verdict, and the builder answers it before the operator decides.
 
 ## Attach surfaces
 
