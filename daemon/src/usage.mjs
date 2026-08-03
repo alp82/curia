@@ -107,6 +107,27 @@ function claudeTail(lines) {
   return { ctx: null, windows: null }
 }
 
+// How far into a usage window the clock has got, 0-100 — the second number
+// every bar needs, because usage alone cannot say whether it is being spent too
+// fast. `resetsAt` is an epoch-seconds number on the codex lane and an ISO
+// string on the anthropic one; both are absolute, so a stale reading still
+// dates itself correctly.
+//
+// Three outcomes, and they are genuinely different:
+//   {elapsedPct}       the pace signal — how far through the window we are
+//   {elapsedPct: null} no reset stated: keep the reading, show a flat bar
+//   {expired: true}    the window already reset, so the percentage beside it
+//                      belongs to a window that no longer exists. Drop it.
+export function paceOf(resetsAt, windowMs, now = Date.now()) {
+  const at = typeof resetsAt === 'number' ? resetsAt * 1000 : Date.parse(resetsAt ?? '')
+  if (!Number.isFinite(at) || !Number.isFinite(windowMs) || windowMs <= 0) return { elapsedPct: null }
+  const remaining = at - now
+  if (remaining <= 0) return { expired: true }
+  // A reset further out than the window itself is not this window's reset.
+  if (remaining > windowMs) return { elapsedPct: null }
+  return { elapsedPct: Math.max(0, Math.min(100, Math.round(((windowMs - remaining) / windowMs) * 100))) }
+}
+
 // 300 -> "5h", 10080 -> "7d". The label is derived, never assumed: codex calls
 // its windows primary/secondary and which one is the short one depends on the
 // plan (a plus account was measured with a WEEKLY primary and no secondary).
@@ -121,7 +142,7 @@ export function windowLabel(minutes) {
 // writes after every turn: the last request's input tokens, the model's own
 // context window, and the account rate limits. Context and limits are taken
 // from the newest line that carries each — not every token_count carries both.
-function codexTail(lines) {
+function codexTail(lines, now) {
   let ctx = null
   let windows = null
   for (let i = lines.length - 1; i >= 0; i -= 1) {
@@ -143,7 +164,13 @@ function codexTail(lines) {
         const r = p.rate_limits?.[slot]
         if (!r || !Number.isFinite(r.used_percent)) continue
         const label = windowLabel(r.window_minutes)
-        if (label) found.push({ label, pct: Math.round(r.used_percent) })
+        if (!label) continue
+        // A worker that has been idle for hours may hold a reading whose window
+        // has since reset. The percentage beside it is then about a window that
+        // no longer exists, so the entry goes rather than lying.
+        const pace = paceOf(r.resets_at, r.window_minutes * 60 * 1000, now)
+        if (pace.expired) continue
+        found.push({ label, pct: Math.round(r.used_percent), elapsedPct: pace.elapsedPct })
       }
       if (found.length) windows = found
     }
@@ -154,11 +181,11 @@ function codexTail(lines) {
 
 const TAILS = { claude: claudeTail, codex: codexTail }
 
-// { ctx: {tokens, window} | null, windows: [{label, pct}] | null }
-export function readTranscriptMeters(backend, file) {
+// { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct}] | null }
+export function readTranscriptMeters(backend, file, now = Date.now()) {
   const tail = TAILS[backend]
   if (!tail || !file) return { ctx: null, windows: null }
-  return tail(tailLines(file))
+  return tail(tailLines(file), now)
 }
 
 // ---------------------------------------------------------------------------
@@ -171,13 +198,22 @@ function readJson(file) {
 
 // Both the endpoint's response and the CLI's persisted copy carry the same two
 // top-level windows. Percentages only — the dollar fields are null on a
-// subscription account.
-export function accountWindows(payload) {
-  const five = payload?.five_hour?.utilization
-  const seven = payload?.seven_day?.utilization
+// subscription account. The window lengths are not stated, so they are named
+// here: they are what `five_hour` and `seven_day` mean.
+const ANTHROPIC_WINDOWS = [
+  { key: 'five_hour', label: '5h', ms: 5 * 60 * 60 * 1000 },
+  { key: 'seven_day', label: '7d', ms: 7 * 24 * 60 * 60 * 1000 },
+]
+
+export function accountWindows(payload, now = Date.now()) {
   const out = []
-  if (Number.isFinite(five)) out.push({ label: '5h', pct: Math.round(five) })
-  if (Number.isFinite(seven)) out.push({ label: '7d', pct: Math.round(seven) })
+  for (const w of ANTHROPIC_WINDOWS) {
+    const v = payload?.[w.key]
+    if (!Number.isFinite(v?.utilization)) continue
+    const p = paceOf(v.resets_at, w.ms, now)
+    if (p.expired) continue
+    out.push({ label: w.label, pct: Math.round(v.utilization), elapsedPct: p.elapsedPct })
+  }
   return out.length ? out : null
 }
 
@@ -209,12 +245,13 @@ export class AccountUsage {
   // was fetched; the cooperative cache file dates by mtime.
   #best() {
     const found = []
+    const now = this.now()
     const cli = readJson(this.cliFile)?.cachedUsageUtilization
     if (cli?.utilization && Number.isFinite(cli.fetchedAtMs)) {
-      found.push({ at: cli.fetchedAtMs, windows: accountWindows(cli.utilization) })
+      found.push({ at: cli.fetchedAtMs, windows: accountWindows(cli.utilization, now) })
     }
     const cached = readJson(this.cacheFile)
-    if (cached) found.push({ at: mtimeMs(this.cacheFile), windows: accountWindows(cached) })
+    if (cached) found.push({ at: mtimeMs(this.cacheFile), windows: accountWindows(cached, now) })
     const best = found.filter((f) => f.windows).sort((a, b) => b.at - a.at)[0]
     return best ?? null
   }
@@ -281,20 +318,56 @@ export class AccountUsage {
 // composition
 // ---------------------------------------------------------------------------
 
-export function bar(pct, width = 5) {
-  const filled = Math.max(0, Math.min(width, Math.round((pct / 100) * width)))
-  return '▓'.repeat(filled) + '░'.repeat(width - filled)
+export const BAR_WIDTH = 10
+
+// The pace thresholds, lifted from the operator's own statusline.sh so the two
+// surfaces agree on what "burning too fast" means. Half a cell either way of
+// the clock counts as on pace.
+const AHEAD = 5
+const BEHIND = -5
+
+// The status light. Pace, not raw usage: 92% spent with the window nearly over
+// is fine, and 40% spent in the first hour is not. Squares rather than circles
+// (the operator picked them off a live phone). Null when no reset time is
+// stated, because pace is unknowable then.
+export function paceMark(usedPct, elapsedPct) {
+  if (elapsedPct == null) return null
+  const diff = usedPct - elapsedPct
+  if (diff > AHEAD) return '🟥'
+  if (diff >= BEHIND) return '🟨'
+  return '🟩'
+}
+
+// The bar carries what the operator's terminal carries in two rows of colour,
+// in one row of text: `┃` sits where the window's clock has got to, and every
+// filled cell PAST it is overshoot — spending not yet earned — so it renders
+// solid instead of shaded. The divider sits between cells rather than replacing
+// one, so the bar keeps all `width` steps of resolution.
+//
+// With no elapsed percentage there is no clock and no overshoot, so it falls
+// back to the plain fill.
+export function bar(pct, elapsedPct = null, width = BAR_WIDTH) {
+  const cells = (p) => Math.max(p > 0 ? 1 : 0, Math.min(width, Math.round((p / 100) * width)))
+  const used = cells(pct)
+  if (elapsedPct == null) return '▓'.repeat(used) + '░'.repeat(width - used)
+  const clock = cells(elapsedPct)
+  let out = ''
+  for (let i = 0; i < width; i += 1) {
+    if (i === clock) out += '┃'
+    out += i < used ? (i < clock ? '▓' : '█') : '░'
+  }
+  return clock >= width ? `${out}┃` : out
 }
 
 // Everything the status line can say about one worker beyond its state. Every
 // field is independently nullable — a missing source drops its meter, never the
 // line.
-export function workerMeters({ backend, cfgDir, model, routing, account }) {
+export function workerMeters({ backend, cfgDir, model, routing, account, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = { model: model ?? null, effort: spec?.reasoning_effort ?? null, ctxPct: null, windows: null }
   if (!backend || !cfgDir) return out
 
-  const { ctx, windows } = readTranscriptMeters(backend, findTranscript(backend, cfgDir))
+  const { ctx, windows } = readTranscriptMeters(backend, findTranscript(backend, cfgDir), now)
   const window = ctx?.window ?? spec?.context_window ?? null
   if (ctx && window > 0) out.ctxPct = Math.min(100, Math.round((ctx.tokens / window) * 100))
 
@@ -308,11 +381,16 @@ export function workerMeters({ backend, cfgDir, model, routing, account }) {
 
 // Ordered most valuable first: the status line appends what fits and drops the
 // rest from the tail (#146 — state and escalation title win over the meters).
+// The window label carries bold because it is the thing the eye lands on when
+// scanning a column of workers, and the mark leads the bar for the same reason.
 export function meterParts(m) {
   if (!m) return []
   const parts = []
   if (m.model) parts.push(m.effort ? `**${m.model}** ${m.effort}` : `**${m.model}**`)
   if (m.ctxPct != null) parts.push(`ctx ${m.ctxPct}%`)
-  for (const w of m.windows ?? []) parts.push(`${w.label} ${bar(w.pct)} ${w.pct}%`)
+  for (const w of m.windows ?? []) {
+    const mark = paceMark(w.pct, w.elapsedPct)
+    parts.push(`**${w.label}** ${mark ? `${mark} ` : ''}${bar(w.pct, w.elapsedPct)} ${w.pct}%`)
+  }
   return parts
 }

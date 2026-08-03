@@ -77,6 +77,10 @@ Each worker gets one Discord message in its ticket thread that says what it is d
 
 Since #146 the line also carries **meters** beside the state:
 
+```
+▶️ `curia-49` · working · **opus** · ctx 88% · **5h** 🟥 ▓▓▓┃███░░░░ 62% · **7d** 🟩 ▓▓▓▓░░░░┃░░ 41%
+```
+
 | Meter | Source |
 | --- | --- |
 | model and reasoning effort | the routing pick, and `models.<name>.reasoning_effort` |
@@ -87,7 +91,21 @@ Each meter has its own source and drops alone when that source is silent. A mode
 
 The codex lane states all three numbers itself, on the `token_count` event it writes after every turn. The claude lane states only the token counts, so the window comes from config and the usage bars come from the account endpoint. See ADR-0007 for what the daemon may do with the shared credential that endpoint needs, and `usage.account_bars` in `config/curia.yaml` for the switch that keeps it off the network.
 
-A meter tick refreshes the live lines once a minute and edits only when a number moved, so a quiet worker costs no Discord call. Meters yield to the state and to the escalation title: the line is composed against a width budget, and the meters drop from the tail until it fits.
+### Reading a usage bar
+
+A usage bar carries two numbers, not one. `┃` marks how far the window's own clock has got. Every filled cell **left** of it is spending already earned. Every filled cell **right** of it renders solid `█` — that is overshoot, spending the window has not paid for yet.
+
+The square is the same fact as a status light: 🟩 behind the clock, 🟨 on it, 🟥 ahead. It reads **pace**, not raw usage, because raw usage cannot tell 92% with the window nearly over from 40% in the first hour. The thresholds match the operator's own `statusline.sh`, so the terminal and Discord agree on what burning too fast means.
+
+Both need a reset time. Without one there is no clock, so the bar falls back to a plain fill and the square is dropped. A window whose reset has already passed is dropped whole, because the percentage beside it describes a window that no longer exists.
+
+### Fitting one line
+
+Groups are separated by `U+2003 EM SPACE`, not two plain spaces — Discord collapses a run of ASCII spaces.
+
+The line is composed against a budget counted in **rendered columns**, so markdown syntax costs nothing and an emoji costs two. Meters append in value order and the first that will not fit ends the run, so they drop from the tail. A full working line measures 86 columns and always survives whole. A `waiting` line carrying a long escalation title loses the bars first, which is the right thing to lose: a worker blocked on a question is burning no quota.
+
+A meter tick refreshes the live lines once a minute and edits only when a number moved, so a quiet worker costs no Discord call.
 
 ## Preview links (#40, implementing #8)
 

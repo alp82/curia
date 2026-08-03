@@ -210,6 +210,10 @@ A number the status line carries beside the state: the model, its reasoning effo
 **Account bars**:
 The 5-hour and 7-day usage windows. They are an account fact, not a worker fact, so every worker on a provider shows the same reading.
 
+**Pace**:
+Usage measured against the time already gone from its window. A bar shows the window's clock as `┃` and renders spending past it as overshoot. The square before the bar states the same fact at a glance: 🟩 behind the clock, 🟨 on it, 🟥 ahead.
+_Avoid_: usage (that is the raw percent, which says nothing about speed).
+
 **Context percent**:
 How full a worker's context window is. The numerator is the last request's input tokens from the transcript. The denominator is the window the codex transcript states, or `models.<name>.context_window` for the claude lane.
 

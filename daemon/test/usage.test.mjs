@@ -6,6 +6,10 @@
 // daemon read the shared credential store? — so its tests pin the two rules
 // that make the answer yes: never refresh a refused token, and never fetch
 // outside the stamp the operator's own statusline.sh shares.
+//
+// The clock is fixed throughout. Every bar carries a pace signal now, and pace
+// is a fact about time, so a fixture without a stated `now` would assert
+// nothing stable.
 
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -13,9 +17,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  AccountUsage, accountWindows, bar, meterParts, readTranscriptMeters,
-  windowLabel, workerMeters, USAGE_ATTEMPT_MS, USAGE_STALE_MS,
+  AccountUsage, accountWindows, bar, meterParts, paceMark, paceOf,
+  readTranscriptMeters, windowLabel, workerMeters, USAGE_ATTEMPT_MS, USAGE_STALE_MS,
 } from '../src/usage.mjs'
+
+const NOW = Date.parse('2026-08-03T12:00:00Z')
+const MIN = 60 * 1000
+// A reset `m` minutes out, in each lane's own vocabulary.
+const resetsInSec = (m) => Math.round(NOW / 1000) + m * 60
+const resetsInIso = (m) => new Date(NOW + m * MIN).toISOString()
 
 let dir
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-usage-')) })
@@ -58,6 +68,29 @@ const codexCount = ({ input, window, primary = null, secondary = null }) => ({
   },
 })
 
+describe('paceOf', () => {
+  test('elapsed is measured back from the reset, in either lane vocabulary', () => {
+    // 300-minute window, 210 minutes left -> 30% elapsed. Epoch seconds (codex)
+    // and an ISO string (anthropic) must agree.
+    assert.deepEqual(paceOf(resetsInSec(210), 300 * MIN, NOW), { elapsedPct: 30 })
+    assert.deepEqual(paceOf(resetsInIso(210), 300 * MIN, NOW), { elapsedPct: 30 })
+  })
+
+  test('a window that already reset is expired, not 100% elapsed', () => {
+    // The percentage beside it belongs to a window that no longer exists. The
+    // caller drops the reading rather than showing a full, stale bar.
+    assert.deepEqual(paceOf(resetsInSec(-1), 300 * MIN, NOW), { expired: true })
+  })
+
+  test('an unstated or nonsense reset yields no pace, and keeps the reading', () => {
+    assert.deepEqual(paceOf(null, 300 * MIN, NOW), { elapsedPct: null })
+    assert.deepEqual(paceOf('not a date', 300 * MIN, NOW), { elapsedPct: null })
+    assert.deepEqual(paceOf(resetsInSec(60), 0, NOW), { elapsedPct: null })
+    // A reset further out than the window is not this window's reset.
+    assert.deepEqual(paceOf(resetsInSec(600), 300 * MIN, NOW), { elapsedPct: null })
+  })
+})
+
 describe('transcript meters', () => {
   test('the claude lane: context is everything the request SENT, cached or not', () => {
     const file = write('c.jsonl', [
@@ -66,22 +99,22 @@ describe('transcript meters', () => {
       claudeTurn(2, 88567, 353), // the newest line wins
       { type: 'file-history-snapshot' },
     ])
-    const { ctx, windows } = readTranscriptMeters('claude', file)
+    const { ctx, windows } = readTranscriptMeters('claude', file, NOW)
     assert.deepEqual(ctx, { tokens: 88922, window: null })
     assert.equal(windows, null, 'this lane states no account limits anywhere')
   })
 
-  test('the codex lane states its own window and its own account limits', () => {
+  test('the codex lane states its own window, its own limits, and its own clock', () => {
     const file = write('x.jsonl', [
       codexCount({
         input: 47481,
         window: 258400,
-        primary: { used_percent: 1.0, window_minutes: 10080, resets_at: 1785827411 },
+        primary: { used_percent: 1.0, window_minutes: 10080, resets_at: resetsInSec(10080 * 0.4) },
       }),
     ])
-    const { ctx, windows } = readTranscriptMeters('codex', file)
+    const { ctx, windows } = readTranscriptMeters('codex', file, NOW)
     assert.deepEqual(ctx, { tokens: 47481, window: 258400 })
-    assert.deepEqual(windows, [{ label: '7d', pct: 1 }])
+    assert.deepEqual(windows, [{ label: '7d', pct: 1, elapsedPct: 60 }])
   })
 
   test('the codex window label is derived, never assumed from the slot name', () => {
@@ -96,12 +129,28 @@ describe('transcript meters', () => {
       codexCount({
         input: 10,
         window: 100,
-        primary: { used_percent: 62.4, window_minutes: 300 },
-        secondary: { used_percent: 41, window_minutes: 10080 },
+        primary: { used_percent: 62.4, window_minutes: 300, resets_at: resetsInSec(210) },
+        secondary: { used_percent: 41, window_minutes: 10080, resets_at: resetsInSec(10080 * 0.5) },
       }),
     ])
-    assert.deepEqual(readTranscriptMeters('codex', file).windows, [
-      { label: '5h', pct: 62 }, { label: '7d', pct: 41 },
+    assert.deepEqual(readTranscriptMeters('codex', file, NOW).windows, [
+      { label: '5h', pct: 62, elapsedPct: 30 },
+      { label: '7d', pct: 41, elapsedPct: 50 },
+    ])
+  })
+
+  test('a window whose reset has passed is dropped, not shown stale', () => {
+    // An idle worker holds a reading from a window that has since reset.
+    const file = write('x.jsonl', [
+      codexCount({
+        input: 10,
+        window: 100,
+        primary: { used_percent: 88, window_minutes: 300, resets_at: resetsInSec(-30) },
+        secondary: { used_percent: 41, window_minutes: 10080, resets_at: resetsInSec(1000) },
+      }),
+    ])
+    assert.deepEqual(readTranscriptMeters('codex', file, NOW).windows, [
+      { label: '7d', pct: 41, elapsedPct: 90 },
     ])
   })
 
@@ -109,12 +158,12 @@ describe('transcript meters', () => {
     // Not every token_count carries rate limits; taking both from one line
     // would drop the limits every time the newest event omits them.
     const file = write('x.jsonl', [
-      codexCount({ input: 1, window: 100, primary: { used_percent: 5, window_minutes: 300 } }),
+      codexCount({ input: 1, window: 100, primary: { used_percent: 5, window_minutes: 300, resets_at: resetsInSec(210) } }),
       codexCount({ input: 900, window: 100 }),
     ])
-    const { ctx, windows } = readTranscriptMeters('codex', file)
+    const { ctx, windows } = readTranscriptMeters('codex', file, NOW)
     assert.equal(ctx.tokens, 900)
-    assert.deepEqual(windows, [{ label: '5h', pct: 5 }])
+    assert.deepEqual(windows, [{ label: '5h', pct: 5, elapsedPct: 30 }])
   })
 
   test('a missing, empty or unreadable transcript reads as no meters, never as a throw', () => {
@@ -144,11 +193,11 @@ describe('workerMeters', () => {
   test('the claude lane takes its denominator from config and its bars from the account', () => {
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
-    const account = { windows: () => [{ label: '5h', pct: 18 }, { label: '7d', pct: 57 }] }
-    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'opus', routing, account })
+    const account = { windows: () => [{ label: '5h', pct: 18, elapsedPct: 99 }] }
+    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'opus', routing, account, now: NOW })
     assert.equal(m.ctxPct, 40)
     assert.equal(m.effort, null)
-    assert.deepEqual(m.windows, [{ label: '5h', pct: 18 }, { label: '7d', pct: 57 }])
+    assert.deepEqual(m.windows, [{ label: '5h', pct: 18, elapsedPct: 99 }])
   })
 
   test('a model with no configured window shows NO context figure', () => {
@@ -156,7 +205,7 @@ describe('workerMeters', () => {
     // confident percentage that is simply false.
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
-    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'nowindow', routing, account: null })
+    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'nowindow', routing, account: null, now: NOW })
     assert.equal(m.ctxPct, null)
     assert.equal(m.model, 'nowindow')
   })
@@ -164,44 +213,91 @@ describe('workerMeters', () => {
   test('the codex lane never consults the account reading — its transcript is the source', () => {
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'sessions', '2026', '08', '03', 'rollout-a.jsonl'), [
-      codexCount({ input: 129200, window: 258400, primary: { used_percent: 3, window_minutes: 300 } }),
+      codexCount({
+        input: 129200,
+        window: 258400,
+        primary: { used_percent: 3, window_minutes: 300, resets_at: resetsInSec(150) },
+      }),
     ])
     const account = { windows: () => { throw new Error('must not be called') } }
-    const m = workerMeters({ backend: 'codex', cfgDir: d, model: 'gpt', routing, account })
+    const m = workerMeters({ backend: 'codex', cfgDir: d, model: 'gpt', routing, account, now: NOW })
     assert.equal(m.ctxPct, 50)
     assert.equal(m.effort, 'high')
-    assert.deepEqual(m.windows, [{ label: '5h', pct: 3 }])
+    assert.deepEqual(m.windows, [{ label: '5h', pct: 3, elapsedPct: 50 }])
   })
 
   test('the effort and the model survive a worker with no transcript yet', () => {
-    const m = workerMeters({ backend: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null })
+    const m = workerMeters({ backend: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
     assert.deepEqual(m, { model: 'gpt', effort: 'high', ctxPct: null, windows: null })
   })
 })
 
 describe('rendering', () => {
-  test('the bar fills in fifths and never overflows its track', () => {
-    assert.equal(bar(0), '░░░░░')
-    assert.equal(bar(41), '▓▓░░░')
-    assert.equal(bar(62), '▓▓▓░░')
-    assert.equal(bar(100), '▓▓▓▓▓')
-    assert.equal(bar(140), '▓▓▓▓▓', 'a limit past its cap still renders a full bar')
+  test('the mark reads PACE, not raw usage', () => {
+    // 92% spent with the window nearly over is fine; 40% spent in the first
+    // hour is not. Raw usage cannot tell those apart, which is the whole reason
+    // the clock is on the bar.
+    assert.equal(paceMark(92, 99), '🟩')
+    assert.equal(paceMark(40, 10), '🟥')
+    assert.equal(paceMark(50, 50), '🟨')
+    assert.equal(paceMark(55, 50), '🟨', 'half a cell either way is on pace')
+    assert.equal(paceMark(45, 50), '🟨')
+    assert.equal(paceMark(56, 50), '🟥', 'and one point past the band flips it')
+    assert.equal(paceMark(44, 50), '🟩')
+    assert.equal(paceMark(62, 30), '🟥')
+    assert.equal(paceMark(18, 99), '🟩')
+    assert.equal(paceMark(50, null), null, 'no clock, no pace')
+  })
+
+  test('everything past the clock is overshoot, and the divider costs no cell', () => {
+    // ┃ marks where the window's clock has got to. ▓ is spending already
+    // earned, █ is spending that is not.
+    assert.equal(bar(62, 30), '▓▓▓┃███░░░░')
+    assert.equal(bar(92, 60), '▓▓▓▓▓▓┃███░')
+    assert.equal(bar(18, 99), '▓▓░░░░░░░░┃', 'the clock at the end still renders')
+    assert.equal(bar(55, 50), '▓▓▓▓▓┃█░░░░')
+    assert.equal(bar(0, 50), '░░░░░┃░░░░░')
+    // 10 cells plus one divider, always — the divider sits BETWEEN cells, so
+    // the bar never loses a step of resolution to it.
+    for (const [u, t] of [[62, 30], [92, 60], [18, 99], [0, 0], [100, 100]]) {
+      assert.equal([...bar(u, t)].length, 11, `bar(${u}, ${t}) lost a cell`)
+    }
+  })
+
+  test('with no clock the bar falls back to a plain fill', () => {
+    assert.equal(bar(0), '░░░░░░░░░░')
+    assert.equal(bar(41), '▓▓▓▓░░░░░░')
+    assert.equal(bar(100), '▓▓▓▓▓▓▓▓▓▓')
+    assert.equal(bar(140), '▓▓▓▓▓▓▓▓▓▓', 'a limit past its cap still renders a full bar')
+    assert.equal(bar(1), '▓░░░░░░░░░', 'a touched window never renders as untouched')
   })
 
   test('meters render in value order, and every one of them is optional', () => {
     assert.deepEqual(
-      meterParts({ model: 'gpt', effort: 'high', ctxPct: 41, windows: [{ label: '5h', pct: 62 }] }),
-      ['**gpt** high', 'ctx 41%', '5h ▓▓▓░░ 62%'],
+      meterParts({
+        model: 'gpt', effort: 'high', ctxPct: 41,
+        windows: [{ label: '5h', pct: 62, elapsedPct: 30 }],
+      }),
+      ['**gpt** high', 'ctx 41%', '**5h** 🟥 ▓▓▓┃███░░░░ 62%'],
     )
     assert.deepEqual(meterParts({ model: 'opus', effort: null, ctxPct: null, windows: null }), ['**opus**'])
     assert.deepEqual(meterParts(null), [])
   })
+
+  test('a window with no clock keeps its bar and loses only its mark', () => {
+    assert.deepEqual(
+      meterParts({ model: null, ctxPct: null, windows: [{ label: '7d', pct: 57, elapsedPct: null }] }),
+      ['**7d** ▓▓▓▓▓▓░░░░ 57%'],
+    )
+  })
 })
 
 describe('AccountUsage', () => {
-  const payload = (five, seven) => ({
-    five_hour: { utilization: five, resets_at: '2026-08-03T10:39:59Z' },
-    seven_day: { utilization: seven, resets_at: '2026-08-05T01:59:59Z' },
+  // resets_at is what makes the pace signal possible, and the endpoint states
+  // it on both windows.
+  const payload = (five, seven, { fiveIn = 150, sevenIn = 10080 * 0.4 } = {}) => ({
+    five_hour: { utilization: five, resets_at: resetsInIso(fiveIn) },
+    seven_day: { utilization: seven, resets_at: resetsInIso(sevenIn) },
   })
   const home = () => {
     fs.mkdirSync(path.join(dir, '.claude', 'cache'), { recursive: true })
@@ -210,50 +306,77 @@ describe('AccountUsage', () => {
   const cache = (obj) => fs.writeFileSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), JSON.stringify(obj))
   const creds = (token) => fs.writeFileSync(path.join(dir, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: token } }))
   const never = () => { throw new Error('the network must not be reached') }
+  const at = (offset = 0) => () => NOW + offset
+
+  test('the five-hour and seven-day window lengths are known, so both carry pace', () => {
+    // 150 minutes left of 300 -> 50% elapsed. 60% of a week left -> 40%.
+    assert.deepEqual(accountWindows(payload(18, 57), NOW), [
+      { label: '5h', pct: 18, elapsedPct: 50 },
+      { label: '7d', pct: 57, elapsedPct: 60 },
+    ])
+  })
 
   test('both sources are read, and the fresher reading wins', () => {
     home()
-    cache(payload(18, 57))
-    fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({
-      cachedUsageUtilization: { fetchedAtMs: Date.now() + 60_000, utilization: payload(4, 9) },
+    // Both timestamps are pinned. The cache file dates by mtime and the CLI's
+    // own copy states its own fetch time, so a test that let either default to
+    // the wall clock would decide the winner by how fast the suite ran.
+    const stamp = (ms) => fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), ms / 1000, ms / 1000)
+    const cli = (ms, five, seven) => fs.writeFileSync(path.join(dir, '.claude.json'), JSON.stringify({
+      cachedUsageUtilization: { fetchedAtMs: ms, utilization: payload(five, seven) },
     }))
-    const u = new AccountUsage({ home: dir, enabled: false })
-    assert.deepEqual(u.windows(), [{ label: '5h', pct: 4 }, { label: '7d', pct: 9 }])
+    const u = new AccountUsage({ home: dir, enabled: false, now: at() })
+
+    cache(payload(18, 57))
+    stamp(NOW - 60_000)
+    cli(NOW, 4, 9)
+    assert.deepEqual(u.windows().map((w) => w.pct), [4, 9], 'the CLI copy is newer')
+
+    stamp(NOW)
+    cli(NOW - 60_000, 4, 9)
+    assert.deepEqual(u.windows().map((w) => w.pct), [18, 57], 'the cache file is newer')
   })
 
   test('a reading with no windows in it is not a reading', () => {
     home()
     cache({ five_hour: null, seven_day: null, limits: [] })
-    assert.equal(accountWindows({ five_hour: null }), null)
-    assert.equal(new AccountUsage({ home: dir, enabled: false }).windows(), null)
+    assert.equal(accountWindows({ five_hour: null }, NOW), null)
+    assert.equal(new AccountUsage({ home: dir, enabled: false, now: at() }).windows(), null)
   })
 
-  test('a fresh reading is never refetched', async () => {
+  test('a window that already reset is dropped from the account reading too', () => {
+    assert.deepEqual(accountWindows(payload(18, 57, { fiveIn: -5 }), NOW), [
+      { label: '7d', pct: 57, elapsedPct: 60 },
+    ])
+  })
+
+  test('a fresh reading is never refetched', () => {
     home()
     cache(payload(18, 57))
-    const u = new AccountUsage({ home: dir, fetchImpl: never })
-    assert.deepEqual(u.windows(), [{ label: '5h', pct: 18 }, { label: '7d', pct: 57 }])
+    const u = new AccountUsage({ home: dir, fetchImpl: never, now: at() })
+    assert.deepEqual(u.windows().map((w) => w.pct), [18, 57])
   })
 
   test('a stale reading is refetched, and the refresh lands in the shared cache file', async () => {
     home()
     creds('tok-1')
     cache(payload(18, 57))
-    const old = Date.now() - USAGE_STALE_MS - 1000
-    fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), old / 1000, old / 1000)
+    const old = (NOW - USAGE_STALE_MS - 1000) / 1000
+    fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), old, old)
     let seen = null
     const u = new AccountUsage({
       home: dir,
+      now: at(),
       fetchImpl: async (url, opts) => {
         seen = { url, auth: opts.headers.authorization }
         return { ok: true, status: 200, json: async () => payload(31, 60) }
       },
     })
-    assert.deepEqual(u.windows(), [{ label: '5h', pct: 18 }, { label: '7d', pct: 57 }], 'the stale reading still serves while the refresh runs')
+    assert.deepEqual(u.windows().map((w) => w.pct), [18, 57], 'the stale reading still serves while the refresh runs')
     await u.pending
     assert.equal(seen.auth, 'Bearer tok-1')
     assert.match(seen.url, /\/api\/oauth\/usage$/)
-    assert.deepEqual(u.windows(), [{ label: '5h', pct: 31 }, { label: '7d', pct: 60 }])
+    assert.deepEqual(u.windows().map((w) => w.pct), [31, 60])
   })
 
   test('the attempt stamp is a shared lock: a recent attempt by anyone blocks the fetch', () => {
@@ -262,7 +385,7 @@ describe('AccountUsage', () => {
     // No cache at all — the most stale state there is — but statusline.sh
     // touched the stamp a minute ago, so this fetcher stands down.
     fs.writeFileSync(path.join(dir, '.claude', 'cache', 'oauth-usage.attempt'), '')
-    const u = new AccountUsage({ home: dir, fetchImpl: never, now: () => Date.now() + USAGE_ATTEMPT_MS - 60_000 })
+    const u = new AccountUsage({ home: dir, fetchImpl: never, now: at(USAGE_ATTEMPT_MS - 60_000) })
     assert.equal(u.windows(), null)
   })
 
@@ -273,6 +396,7 @@ describe('AccountUsage', () => {
     const u = new AccountUsage({
       home: dir,
       log: () => {},
+      now: at(),
       fetchImpl: async () => { calls += 1; return { ok: false, status: 401, json: async () => ({}) } },
     })
     u.windows()
@@ -281,8 +405,7 @@ describe('AccountUsage', () => {
 
     // A later tick, well past every throttle: still refused, because nothing
     // about the credential changed.
-    const later = Date.now() + 10 * USAGE_ATTEMPT_MS
-    u.now = () => later
+    u.now = at(10 * USAGE_ATTEMPT_MS)
     fs.rmSync(path.join(dir, '.claude', 'cache', 'oauth-usage.attempt'), { force: true })
     u.windows()
     await u.pending
@@ -302,9 +425,9 @@ describe('AccountUsage', () => {
   test('account_bars off keeps reading the cached copy and never touches the endpoint', () => {
     home()
     cache(payload(18, 57))
-    const old = Date.now() - USAGE_STALE_MS - 1000
-    fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), old / 1000, old / 1000)
-    const u = new AccountUsage({ home: dir, enabled: false, fetchImpl: never })
-    assert.deepEqual(u.windows(), [{ label: '5h', pct: 18 }, { label: '7d', pct: 57 }])
+    const old = (NOW - USAGE_STALE_MS - 1000) / 1000
+    fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), old, old)
+    const u = new AccountUsage({ home: dir, enabled: false, fetchImpl: never, now: at() })
+    assert.deepEqual(u.windows().map((w) => w.pct), [18, 57])
   })
 })

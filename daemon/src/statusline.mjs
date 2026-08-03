@@ -23,11 +23,39 @@ import { CONFIRM_KIND } from './store.mjs'
 import { promptTitle, elapsedLabel } from './messaging.mjs'
 import { meterParts } from './usage.mjs'
 
-// How wide the composed line may get before meters start dropping (#146). One
-// line stays one line: a phone wraps rather than truncates, so the budget is
-// what keeps a status line from becoming a paragraph. Meters are appended in
-// value order and the first one that will not fit ends the run.
-export const LINE_BUDGET = 150
+// The gap between groups on the line (#146). U+2003 EM SPACE, not two plain
+// spaces: Discord collapses a run of ASCII spaces, and the line needs real air
+// between the state, the model, the context and each usage window.
+export const GROUP_SEP = ' · '
+
+// How wide the composed line may get before meters start dropping (#146),
+// counted in rendered columns. One line stays one line: a phone wraps rather
+// than truncates, so the budget is what keeps a status line from becoming a
+// paragraph. Meters are appended in value order and the first one that will not
+// fit ends the run.
+//
+// Set against the two real shapes. A full working line measures 86 columns and
+// always survives whole. A `waiting` line carrying an 80-character escalation
+// title starts at 116, so it keeps the model and the context and loses the
+// usage bars — which is the right thing to lose, because a worker blocked on a
+// question is burning no quota at all.
+export const LINE_BUDGET = 130
+
+// What the line costs a reader, not what it costs a string. Markdown syntax
+// renders to nothing, and an emoji renders about two columns wide, so
+// `String.length` over-counts the first and under-counts the second — and the
+// budget exists to answer a question about columns.
+export function visibleWidth(text) {
+  let width = 0
+  for (const ch of String(text).replace(/\*\*|`/g, '')) {
+    const cp = ch.codePointAt(0)
+    // A variation selector renders nothing itself, but it promotes the
+    // character before it to emoji width — so counting it as 1 makes the pair
+    // come to 2, which is what `▶️` actually occupies.
+    width += cp >= 0x1F000 ? 2 : 1
+  }
+  return width
+}
 
 // The states a meter says anything true about. A finished, stalled or dead
 // worker has no live context and no reason to carry account bars.
@@ -144,29 +172,29 @@ export class StatusLine {
   #base(session, state, detail) {
     switch (state) {
       case 'dispatched':
-        return `⚙️ \`${session}\` · dispatched on **${detail.model}** — waiting for the composer`
+        return `⚙️ \`${session}\`${GROUP_SEP}dispatched on **${detail.model}** — waiting for the composer`
       case 'working':
-        return `▶️ \`${session}\` · working`
+        return `▶️ \`${session}\`${GROUP_SEP}working`
       case 'stalled':
-        return `⚠️ \`${session}\` · never reached a composer — session kept for inspection`
+        return `⚠️ \`${session}\`${GROUP_SEP}never reached a composer — session kept for inspection`
       case 'waiting': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
-        return `⏳ \`${session}\` · waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`
+        return `⏳ \`${session}\`${GROUP_SEP}waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`
       }
       case 'awaiting-review': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
-        return `🔎 \`${session}\` · awaiting review — **[${detail.esc.id}]**${waited ? ` — ${waited}` : ''}`
+        return `🔎 \`${session}\`${GROUP_SEP}awaiting review — **[${detail.esc.id}]**${waited ? ` — ${waited}` : ''}`
       }
       case 'executing':
-        return `🚀 \`${session}\` · executing approved writes`
+        return `🚀 \`${session}\`${GROUP_SEP}executing approved writes`
       case 'resolving':
-        return `📦 \`${session}\` · result received (**${detail.status}**) — resolving the ticket`
+        return `📦 \`${session}\`${GROUP_SEP}result received (**${detail.status}**) — resolving the ticket`
       case 'done':
-        return `🏁 \`${session}\` · done`
+        return `🏁 \`${session}\`${GROUP_SEP}done`
       case 'gone':
-        return `⚰️ \`${session}\` · worker gone — \`resume ${detail.ticket}\``
+        return `⚰️ \`${session}\`${GROUP_SEP}worker gone — \`resume ${detail.ticket}\``
       default:
-        return `\`${session}\` · ${state}`
+        return `\`${session}\`${GROUP_SEP}${state}`
     }
   }
 
@@ -181,11 +209,11 @@ export class StatusLine {
       return base
     }
     // `dispatched` already names the model in its own sentence.
-    if (state === 'dispatched') parts = parts.filter((p) => !p.startsWith('**'))
+    if (state === 'dispatched') parts = parts.filter((p) => !p.startsWith(`**${model}**`))
     let text = base
     for (const part of parts) {
-      const next = `${text} · ${part}`
-      if (next.length > LINE_BUDGET) break // value order: the tail goes first
+      const next = `${text}${GROUP_SEP}${part}`
+      if (visibleWidth(next) > LINE_BUDGET) break // value order: the tail goes first
       text = next
     }
     return text
