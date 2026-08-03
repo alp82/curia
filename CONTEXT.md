@@ -149,7 +149,7 @@ The half-hour re-post of an open escalation into its thread.
 The Discord module. It renders and captures. It never interprets.
 
 **Thread-per-ticket**:
-One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers.
+One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the worker: it releases only when the ticket itself closes, so a resumed worker lands back in the same thread.
 
 **Notify**:
 A fire-and-forget status line into the ticket thread.

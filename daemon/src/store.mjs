@@ -33,6 +33,7 @@ export class EscalationStore {
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
+    this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
     this.seq = 0
     this._replay()
   }
@@ -115,6 +116,7 @@ export class EscalationStore {
       case 'thread_bound': {
         this.ticketThreads.set(String(ev.ticket), ev.thread_id)
         this.threadTickets.set(ev.thread_id, String(ev.ticket))
+        this.lastTicketThreads.set(String(ev.ticket), ev.thread_id)
         break
       }
       case 'thread_released': {
@@ -351,6 +353,13 @@ export class EscalationStore {
 
   ticketForThread(threadId) {
     return this.threadTickets.get(threadId)
+  }
+
+  // The journal's last binding for a ticket, released or not (#140). The
+  // dispatch backstop reads it so a resumed worker lands back in the thread
+  // its predecessor's history, breadcrumbs and recorded answers live in.
+  lastThreadForTicket(ticket) {
+    return this.lastTicketThreads.get(String(ticket))
   }
 
   boundTickets() {

@@ -74,6 +74,21 @@ describe('EscalationStore ticket-thread bindings', () => {
     assert.equal(reborn.threadForTicket('86'), 't-2')
     assert.deepEqual(reborn.boundTickets(), ['86'])
   })
+
+  test('lastThreadForTicket survives a release and a restart (#140)', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    store.bindTicketThread('85', 't-1')
+    store.releaseTicketThread('85', 'reconcile')
+    assert.equal(store.threadForTicket('85'), undefined)
+    assert.equal(store.lastThreadForTicket('85'), 't-1', 'the release does not erase the journal history')
+    const reborn = new EscalationStore(dir)
+    assert.equal(reborn.lastThreadForTicket('85'), 't-1')
+    assert.equal(reborn.lastThreadForTicket(85), 't-1', 'numeric and string tickets are the same key')
+    // a later rebind moves the pointer
+    store.bindTicketThread('85', 't-9')
+    assert.equal(store.lastThreadForTicket('85'), 't-9')
+  })
 })
 
 // ---- the display-only label (bridge.mjs) ------------------------------------
@@ -120,6 +135,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
         get: (t) => store.threadForTicket(t),
         bind: (t, id) => store.bindTicketThread(t, id),
         release: (t, r) => store.releaseTicketThread(t, r),
+        last: (t) => store.lastThreadForTicket(t),
       },
     })
     bridge.guild = { id: 'G' }
@@ -180,6 +196,61 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(r.ok, false)
     assert.equal(r.reason, 'ticket-bound')
     assert.equal(created.length, 0)
+  })
+
+  // ---- the dispatch backstop (#140) ------------------------------------------
+
+  test('an unbound ticket goes back to the journal-last thread when it still exists', async () => {
+    const old = makeThread('t-old', 'Run the map')
+    bridge.registerThread(old)
+    store.bindTicketThread('111', 't-old')
+    store.releaseTicketThread('111', 'reconcile') // the pre-#140 sweep struck
+    const renames = []
+    old.setName = async (n) => { renames.push(n) }
+
+    const r = await bridge.bindTicket('111', { title: 'Run the map' })
+    assert.equal(r.ok, true)
+    assert.equal(r.threadId, 't-old', 'the old thread is rebound, not replaced')
+    assert.equal(created.length, 0, 'no fresh thread')
+    assert.equal(store.threadForTicket('111'), 't-old')
+    assert.deepEqual(renames, ['🎫 111 · Run the map'], 'the label goes back on')
+  })
+
+  test('the backstop unarchives a revived thread', async () => {
+    const old = makeThread('t-old', '🎫 112 · sleepy')
+    old.archived = true
+    const unarchived = []
+    old.setArchived = async (v) => { unarchived.push(v) }
+    bridge.registerThread(old)
+    store.bindTicketThread('112', 't-old')
+    store.releaseTicketThread('112', 'reconcile')
+
+    const r = await bridge.bindTicket('112', { title: 'sleepy' })
+    assert.equal(r.ok, true)
+    assert.deepEqual(unarchived, [false])
+  })
+
+  test('a journal-last thread gone from Discord falls back to a fresh one', async () => {
+    store.bindTicketThread('113', 't-deleted') // never registered ⇒ fetch misses
+    store.releaseTicketThread('113', 'reconcile')
+    const r = await bridge.bindTicket('113', { title: 'fresh start' })
+    assert.equal(r.ok, true)
+    assert.equal(created.length, 1)
+    assert.equal(store.threadForTicket('113'), created[0].id)
+  })
+
+  test('a journal-last thread re-bound to another ticket is not taken back', async () => {
+    const old = makeThread('t-taken', '🎫 200 · new owner')
+    bridge.registerThread(old)
+    store.bindTicketThread('114', 't-taken')
+    store.releaseTicketThread('114', 'reconcile')
+    store.bindTicketThread('200', 't-taken') // another ticket moved in
+
+    const r = await bridge.bindTicket('114', { title: 'x' })
+    assert.equal(r.ok, true)
+    assert.equal(created.length, 1, 'a fresh thread instead')
+    assert.equal(store.threadForTicket('114'), created[0].id)
+    assert.equal(store.threadForTicket('200'), 't-taken', 'the squatter keeps its thread')
   })
 })
 
@@ -316,18 +387,17 @@ describe('Dispatcher thread binding (#93)', () => {
     assert.deepEqual(binds, [{ ticket: '42', threadId: null, title: 'a ticket' }])
   })
 
-  test('a prepare failure releases the label it just put on', async () => {
+  test('a prepare failure keeps the label — a claim release is not ticket-terminal (#140)', async () => {
     const d = makeDispatcher({ createWorktree: async () => { throw new Error('disk full') } })
     assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /failed before the worker could run/)
-    assert.deepEqual(releases, [{ ticket: '42', reason: 'dispatch-failed' }])
+    assert.deepEqual(releases, [], 'the retry belongs in the same thread')
   })
 
-  test('a confirmed cancel releases the label after the teardown', async () => {
+  test('a confirmed cancel keeps the label — the ticket goes back to the frontier (#140)', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
-    d.cancel('42', { by: 'test' })
-    await waitFor(() => releases.length > 0)
-    assert.deepEqual(releases, [{ ticket: '42', reason: 'cancelled' }])
+    assert.match(await d.cancel('42', { by: 'test' }), /cancelled/)
+    assert.deepEqual(releases, [], 'a later dispatch belongs in the thread its history lives in')
   })
 
   test('a finished worker (result recorded) releases the label; an abnormal exit keeps it', async () => {
@@ -343,12 +413,48 @@ describe('Dispatcher thread binding (#93)', () => {
     assert.deepEqual(releases, [], 'post-mortem traffic still belongs in the labeled thread')
   })
 
-  test('reconcile releases a binding whose dispatch is positively over, and keeps one with an open escalation', async () => {
-    const d = makeDispatcher({}, { bound: ['42', '43'] })
-    escalations.push({ id: 'esc-1', worker: 'curia-43', ticket: '43', status: 'open', kind: 'review-gate' })
+  test('reconcile releases a binding only when the issue is positively closed (#140)', async () => {
+    const d = makeDispatcher(
+      { fetchIssue: async (repo, n) => ({ ...OPEN_ISSUE, number: Number(n), state: String(n) === '42' ? 'closed' : 'open' }) },
+      { bound: ['42', '44'] },
+    )
     await d.reconcile({ boot: false })
     assert.deepEqual(releases, [{ ticket: '42', reason: 'reconcile' }],
-      'no session + no worker ⇒ released; the ticket a human is still being asked about keeps its label')
+      'the closed ticket loses its label; the open one keeps it for the resumed worker')
+  })
+
+  test('reconcile keeps the binding of a dead worker on an open ticket, even with no escalation (#140)', async () => {
+    const d = makeDispatcher({}, { bound: ['42'] }) // fetchIssue default: state open
+    await d.reconcile({ boot: false })
+    assert.deepEqual(releases, [], 'worker death is not a ticket-terminal state')
+  })
+
+  test('reconcile keeps the label of a closed ticket while a human is still being asked', async () => {
+    const d = makeDispatcher(
+      { fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed' }) },
+      { bound: ['43'] },
+    )
+    escalations.push({ id: 'esc-1', worker: 'curia-43', ticket: '43', status: 'open', kind: 'review-gate' })
+    await d.reconcile({ boot: false })
+    assert.deepEqual(releases, [], 'the open escalation traffic must keep landing in the labeled thread')
+  })
+
+  test('reconcile releases a binding whose issue is positively absent everywhere', async () => {
+    const d = makeDispatcher(
+      { fetchIssue: async () => { throw new Error('gh: Not Found (HTTP 404)') } },
+      { bound: ['42'] },
+    )
+    await d.reconcile({ boot: false })
+    assert.deepEqual(releases, [{ ticket: '42', reason: 'reconcile' }])
+  })
+
+  test('reconcile keeps every binding when the issue read fails', async () => {
+    const d = makeDispatcher(
+      { fetchIssue: async () => { throw new Error('network is down') } },
+      { bound: ['42'] },
+    )
+    await d.reconcile({ boot: false })
+    assert.deepEqual(releases, [], 'an unreadable issue is not evidence — the next pass retries')
   })
 
   test('reconcile with an indeterminate session list releases nothing', async () => {

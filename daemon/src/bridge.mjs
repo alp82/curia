@@ -332,10 +332,19 @@ export class DiscordBridge {
   }
 
   async #bindFreshThread(ticket, title, originThreadId) {
-    const thread = await this.channel.threads.create({
-      name: DiscordBridge.labelName(ticket, title), autoArchiveDuration: 10080,
-    })
-    const r = this.bindings.bind(ticket, thread.id)
+    // The dispatch backstop (#140): an unbound ticket goes back to the thread
+    // its journal last bound — that is where its history, breadcrumbs and
+    // recorded answers live — and only opens a fresh thread when the old one
+    // is gone from Discord or now carries another ticket.
+    const revived = await this.#reviveLastThread(ticket)
+    let thread = revived
+    let r = revived ? { ok: true, threadId: revived.id } : null
+    if (!thread) {
+      thread = await this.channel.threads.create({
+        name: DiscordBridge.labelName(ticket, title), autoArchiveDuration: 10080,
+      })
+      r = this.bindings.bind(ticket, thread.id)
+    }
     if (r.ok && originThreadId) {
       const origin = await this.client.channels.fetch(originThreadId).catch(() => null)
       const originName = origin?.name ? `“${origin.name}”` : 'another thread'
@@ -349,6 +358,24 @@ export class DiscordBridge {
       }
     }
     return r
+  }
+
+  // The journal's last thread for a ticket, when it still exists on Discord
+  // and is still free to take back (#140). Rebinds it — unarchived, relabeled
+  // — or returns null so the caller opens a fresh thread instead.
+  async #reviveLastThread(ticket) {
+    const last = this.bindings.last?.(ticket)
+    if (!last) return null
+    const t = await this.client.channels.fetch(last).catch(() => null)
+    if (!t) return null
+    // a refusal here means the old thread was re-bound to another ticket in
+    // the meantime — it is not this ticket's to take back
+    if (!this.bindings.bind(ticket, t.id).ok) return null
+    if (t.archived) await t.setArchived(false).catch(() => {})
+    if (!t.name.startsWith('🎫')) {
+      await t.setName(DiscordBridge.labelName(ticket, t.name)).catch(() => {})
+    }
+    return t
   }
 
   // Release is the label coming off (#93): journal first, then strip the

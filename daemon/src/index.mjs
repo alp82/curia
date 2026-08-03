@@ -955,6 +955,8 @@ if (process.env.DISCORD_BOT_TOKEN) {
           get: (ticket) => store.threadForTicket(ticket),
           bind: (ticket, threadId) => store.bindTicketThread(ticket, threadId),
           release: (ticket, reason) => store.releaseTicketThread(ticket, reason),
+          // the dispatch backstop (#140): the last binding, released or not
+          last: (ticket) => store.lastThreadForTicket(ticket),
         },
         log,
         onHealth: onBridgeHealth,

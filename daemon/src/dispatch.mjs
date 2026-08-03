@@ -498,8 +498,8 @@ export class Dispatcher {
       } catch (unclaimErr) {
         this.store.logEvent('unclaim_failed', { repo, ticket: n, worker: session, reason: e.message, error: unclaimErr.message })
       }
-      // no worker ever ran, so the dispatch that put the label on is over
-      await this.threads.release(n, 'dispatch-failed').catch(() => {})
+      // The binding stays (#140): a failed dispatch is a claim release, not a
+      // ticket-terminal state — the retry's traffic belongs in the same thread.
       return `⚠️ dispatch of ${repo}#${n} failed before the worker could run: ${e.message} — ${released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'}`
     }
   }
@@ -712,7 +712,7 @@ export class Dispatcher {
         this.log(`respawn of ${worker.session} on ${next} failed:`, e.message)
         const released = await this.#releaseClaim(worker, `respawn after ${limit.scope} usage limit failed: ${e.message}`)
         this.notify(worker.ticket, `⚠️ \`${worker.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} and the respawn on **${next}** failed: ${e.message} — ${released ? 'claim released, ticket re-frontiered' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
-        await this.threads.release(worker.ticket, 'respawn-failed').catch(() => {})
+        // the binding stays (#140): a claim release is not a ticket-terminal state
         return
       }
     }
@@ -728,7 +728,7 @@ export class Dispatcher {
     const suppressed = this.#exhausted(worker.ticket, worker.repo)
     if (suppressed) this.notify(worker.ticket, suppressed)
     if (!released) this.notify(worker.ticket, `⚠️ \`${worker.session}\`: claim release FAILED: the issue is still assigned; reconcile will retry`)
-    await this.threads.release(worker.ticket, 'exhausted').catch(() => {})
+    // the binding stays (#140): exhaustion re-frontiers the ticket, it does not end it
   }
 
   // Drop the worker record and hand the ticket back to the frontier. Returns
@@ -1509,8 +1509,10 @@ export class Dispatcher {
     this.notify(ticket, msg)
     // the worker is positively gone ⇒ any OTHER open confirm on it lapses (#94)
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
-    // terminal state ⇒ the ticket label comes off the thread (#93)
-    await this.threads.release(ticket, 'cancelled').catch(() => {})
+    // The binding stays (#140): a cancel ends the WORKER and releases the
+    // claim, but the ticket goes back to the frontier — a later dispatch
+    // belongs in the thread its history lives in. The label comes off when
+    // the ticket itself closes (reconcile's sweep reads GitHub for that).
     return msg
   }
 
@@ -1737,19 +1739,38 @@ export class Dispatcher {
     // worker whoever owns the ticket.
     if (ctx.sessions) this.#sweepAbandonedCredentials(ctx.sessions)
 
-    // Ticket-label sweep (#93): a bound ticket with no live session, no
-    // tracked worker and no in-flight start hit its terminal state while this
-    // process was not looking (a restart) — take the label off now. Same
-    // evidence rule as every sweep: only a determinate session list. An open
-    // escalation on the ticket keeps the label — a human is still being asked
-    // there (awaiting review across a reboot), and its traffic must keep
-    // landing in the labeled thread.
+    // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
+    // a TICKET-terminal state — the issue is positively closed (or positively
+    // absent from every candidate repo). A dead worker or a released claim is
+    // NOT terminal: the binding stands, so a resumed worker lands back in the
+    // thread its history, breadcrumbs and recorded answers live in. Same
+    // evidence rule as every sweep: only a determinate session list, and an
+    // unreadable issue keeps the label for the next pass. An open escalation
+    // on the ticket keeps the label — a human is still being asked there
+    // (awaiting review across a reboot), and its traffic must keep landing in
+    // the labeled thread.
     if (ctx.sessions && typeof this.store.boundTickets === 'function') {
       const asked = new Set(this.store.openEscalations().map((r) => String(r.ticket)))
       for (const ticket of this.store.boundTickets()) {
         const session = `curia-${ticket}`
         if (ctx.sessions.includes(session) || this.workers.has(session) || this.inFlight.has(session)) continue
         if (asked.has(String(ticket))) continue
+        const epoch = ctx.epochs.get(String(ticket))
+        const reposToCheck = epoch?.repo ? [epoch.repo] : this.config.watch.map((w) => w.repo)
+        let terminal = true
+        for (const repo of reposToCheck) {
+          if (ctx.failedRepos.has(repo)) { terminal = false; break }
+          let issue
+          try {
+            issue = await ctx.getIssue(repo, ticket)
+          } catch (e) {
+            ctx.skipRepo(repo, e)
+            terminal = false
+            break
+          }
+          if (issue && issue.state !== 'closed') { terminal = false; break }
+        }
+        if (!terminal) continue
         await this.threads.release(ticket, 'reconcile')
           .catch((e) => this.log(`reconcile: thread release for #${ticket} failed (${e.message})`))
       }
