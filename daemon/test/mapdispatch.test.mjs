@@ -25,7 +25,7 @@ import { Dispatcher } from '../src/dispatch.mjs'
 import { writePrompt } from '../src/workspace.mjs'
 import { outstanding, CHARTING_ENDING, ENDING } from '../src/lifecycle.mjs'
 import { chartingComment } from '../src/resolve.mjs'
-import { resolveModel } from '../src/routing.mjs'
+import { resolveModel, candidates, Cooling } from '../src/routing.mjs'
 import { loadRoutingConfig } from '../src/config.mjs'
 import { expandCommand } from '../src/bridge.mjs'
 import { parseCommand } from '../src/commands.mjs'
@@ -157,6 +157,17 @@ describe('a wayfinder:map row joins the routing defaults', () => {
     assert.ok(routing.defaults.map, 'routing.yaml states no map default')
     assert.equal(model, routing.defaults.map)
     assert.equal(routing.models[model].backend, 'claude', 'a map dispatch must route to the claude lane')
+  })
+
+  test('the shipped chain is the one the operator asked for on #160', () => {
+    // "fable with fallback to opus if it's at its limit. then again fallback to
+    // gpt 5.6 sol" — ruled 2026-08-03. Pinned because it is a THREE-hop
+    // transitive walk through `fallbacks`, not a list anyone can read off one
+    // row, so an edit to opus's or fable's chain can move it silently.
+    const routing = loadRoutingConfig(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'config', 'routing.yaml'))
+    const chain = candidates(routing, resolveModel(routing, ['wayfinder:map'], null), new Cooling())
+    assert.deepEqual(chain.slice(0, 3), ['fable', 'opus', 'gpt'])
+    assert.equal(routing.models.gpt.id, 'gpt-5.6-sol')
   })
 
   test('a model: label on the map still beats the row', () => {

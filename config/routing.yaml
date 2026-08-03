@@ -19,14 +19,19 @@ defaults:
   # pinned it to the strongest claude-backend model, because no gate checks a
   # charting worker: the operator in the loop is the whole check.
   #
-  # That model is fable, and fable is entitlement-blocked on this account
-  # (#126 — the same reason grilling and prototype sit on opus above). A `fable`
-  # row here would burn one spawn per map dispatch and then fall to opus down
-  # the chain, so opus stands. This row flips back to fable with the other
-  # three, once the account holds fable usage credits.
+  # So this row states fable and NOT opus, unlike grilling and prototype above.
+  # Those three moved to opus in #126 to stop the burnt spawn; here the operator
+  # ruled the other way (2026-08-03), because charting is the one job worth the
+  # strongest model even at that price. While the account holds no fable usage
+  # credits, every map dispatch spends one spawn: the pane classifier reads the
+  # credits dialog, cools fable, and respawns down the chain. The row needs no
+  # edit on the day the credits arrive.
+  #
+  # The chain the operator asked for — fable, then opus, then gpt-5.6-sol — is
+  # what `fallbacks` below already gives, transitively, with sonnet at the tail.
   #
   # A `model:<x>` label on the map still beats this row (resolveModel).
-  map: opus
+  map: fable
 
 # `context_window` feeds the status line's context % (#146), and it is the LAST
 # resort for it since #178. It used to say 200000 for the three anthropic models

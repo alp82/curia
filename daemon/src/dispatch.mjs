@@ -1921,10 +1921,16 @@ export class Dispatcher {
     let claimLine
     try {
       const outcome = await this.#settleDeadClaim({ repo, ticket, session })
+      // A released MAP claim is not a re-frontiering: a map is never on a
+      // frontier, so nothing will pick it up again on its own (#160). Saying so
+      // matters — the operator has to know the next move is theirs.
+      const charting = this.#epochCharting(ticket, session).charting
       claimLine = {
         kept: 'its pull request is open and awaiting review, so the claim stays',
-        released: 'claim released, ticket re-frontiered',
-        'not-ours': 'the ticket is no longer claimed by curia',
+        released: charting
+          ? 'the map is unassigned again, and whatever this worker already wrote to it STANDS'
+          : 'claim released, ticket re-frontiered',
+        'not-ours': charting ? 'the map is no longer claimed by curia' : 'the ticket is no longer claimed by curia',
       }[outcome]
     } catch (e) {
       claimLine = `the claim decision failed (${e.message}) — reconcile will retry`
