@@ -374,6 +374,7 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
         workspace_root: root, ready_timeout_s: 1, confirm_ttl_h: 4, stop_nudge_budget: 3,
       },
       attach: { ttyd_port: 7681, serve_port: 8443 },
+      identity: { allow: ['tester@example.com'], proxy_port: 7682 },
       skills: null,
     },
     routing: {

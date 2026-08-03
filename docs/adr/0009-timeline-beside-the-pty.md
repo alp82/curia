@@ -23,3 +23,4 @@ A phone and a desktop attached to one worker fight over the terminal geometry, a
 - Liveness is per message, not per token. A `stream-json` broker is the named graduation path if token-level liveness is ever worth replacing the PTY for.
 - A native terminal dialog is invisible on the timeline and swallows injected keys, so the timeline shows a dialog banner and guards sends while a dialog holds the pane.
 - The geometry flap on the terminal surface stays, accepted: two devices on the terminal at once stopped being a real scenario once the everyday surface stopped needing a grid.
+- The surface landed under the attach hardening deferral. That deferral is closed: [ADR-0011](0011-tailscale-identity-in-front-of-every-attach-surface.md) gates the timeline on Tailscale identity, reads included.

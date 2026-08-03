@@ -34,6 +34,8 @@ function writeConfig(skillsYaml, attachExtra = '') {
     '  ttyd_port: 7681',
     '  serve_port: 8443',
     attachExtra,
+    'identity:',
+    '  allow: [tester@example.com]',
     skillsYaml ?? '',
     '',
   ].join('\n'))

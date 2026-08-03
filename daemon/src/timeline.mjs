@@ -17,15 +17,17 @@
 // both lanes (the codex lane shows the call natively; the overlay adds the
 // answer-surface state either way).
 //
-// AUTH, restated deliberately (#74 item 6): writes are gated by
-// Origin-must-equal-Host — ttyd's -O by hand — plus the ^curia- session
-// whitelist, and reads by tailnet membership, exactly the bounds the ttyd
-// surface beside it runs under. -O is a browser control only: a non-browser
-// client on the tailnet forges Origin trivially, and the loopback bind plus
-// Tailscale Serve is the real edge. Real auth (basic-auth / identity proxy) is
-// the same standing pre-production item #30 deferred for ttyd, and landing a
-// second writable surface into bypassPermissions workers does not take it
-// early — it inherits the deferral, on the record.
+// IDENTITY (#151 — the deferral #74 item 6 restated is now CLOSED). Every
+// request, read and write alike, must carry a `Tailscale-User-Login` on the
+// allowlist and a Host this box actually serves (identity.mjs holds the
+// predicate and the evidence behind it). Reads are gated too, not only writes:
+// the transcript IS the sensitive thing here — a read-only caller still gets
+// every line the worker has produced.
+//
+// The Origin-must-equal-Host check below stays where it was, unchanged. It is
+// no longer load-bearing on its own — a non-browser client forges Origin
+// trivially — but it costs nothing and it is the one control that survives if
+// the identity check is ever misconfigured wide.
 
 import fs from 'node:fs'
 import http from 'node:http'
@@ -153,6 +155,12 @@ export class TimelineSurface {
       // escalationHistoryFor(session): every escalation record for this
       // worker, any status — the full-fidelity interleave (#108 item 1).
       escalationHistoryFor: () => [],
+      // identityCheck(headers): the #151 gate — a refusal reason, or null to
+      // admit. The default REFUSES: this is a security control, so an
+      // unconfigured surface must fail closed rather than inherit the
+      // tailnet-membership-only posture it exists to end. index.mjs injects the
+      // real predicate; a test that wants the check out of its way says so.
+      identityCheck: () => 'the timeline was constructed with no identity check',
       ...deps,
     }
     this.sessions = new Map() // name -> tail state
@@ -221,7 +229,7 @@ export class TimelineSurface {
       }
       return { verified: false }
     }
-    await this.deps.assertServe({ servePort: this.servePort, ttydPort: this.port })
+    await this.deps.assertServe({ servePort: this.servePort, targetPort: this.port })
     return { verified: true }
   }
 
@@ -445,6 +453,22 @@ export class TimelineSurface {
     const json = (code, obj) => {
       res.writeHead(code, { 'content-type': 'application/json' })
       res.end(JSON.stringify(obj))
+    }
+
+    // The #151 identity check, ahead of everything including the page itself:
+    // a caller who may not drive this worker may not read its transcript
+    // either. Journalled so a refusal is one grep away, the same way the
+    // terminal surface's proxy records its own.
+    const refused = this.deps.identityCheck(req.headers)
+    if (refused) {
+      this.deps.journal('timeline_identity_refused', {
+        reason: refused,
+        path: url.pathname,
+        host: req.headers.host ?? null,
+      })
+      this.log(`timeline: REFUSED ${req.method} ${url.pathname} — ${refused}`)
+      res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      return res.end(`curia refused this request: ${refused}\n`)
     }
 
     // ttyd's -O by hand (see the module header for what that does and does

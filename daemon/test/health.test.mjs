@@ -189,7 +189,7 @@ function bootFixture(tmp, extraEnv) {
 }
 
 async function writeConfig(cfgDir, tmp) {
-  const [ttydPort, servePort] = [await freePort(), await freePort()]
+  const [ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort()]
   fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
     'watch:',
     '  - repo: example/fixture',
@@ -204,6 +204,9 @@ async function writeConfig(cfgDir, tmp) {
     'attach:',
     `  ttyd_port: ${ttydPort}`,
     `  serve_port: ${servePort}`,
+    'identity:',
+    '  allow: [tester@example.com]',
+    `  proxy_port: ${proxyPort}`,
     '',
   ].join('\n'))
   fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [

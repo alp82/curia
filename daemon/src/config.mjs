@@ -106,10 +106,39 @@ export function loadCuriaConfig(file) {
   if (!fs.existsSync(t.index)) {
     fail(file, `timeline.index resolves to ${t.index}, which does not exist — it ships committed in daemon/assets/`)
   }
-  // Four ports, one box: any collision means one surface silently shadows or
+  // The identity check in front of both attach surfaces (#151, the standing
+  // requirement of ADR-0003). Unlike attach.index and timeline.index, this
+  // section has NO usable default and is REQUIRED: defaulting it would either
+  // invent an allowlist (admitting a login nobody chose) or ship an empty one
+  // (locking the operator out silently). #57's rule decides it — silence by
+  // omission is the failure — so a config with no `identity` block names the
+  // section and the key instead of booting either way.
+  const id = cfg.identity
+  if (!id || typeof id !== 'object' || Array.isArray(id)) {
+    fail(file, '`identity` section missing — both attach surfaces refuse every caller without it; give it an `allow:` list of tailscale logins (see docs/adr/0003)')
+  }
+  if (!Array.isArray(id.allow) || !id.allow.length) {
+    fail(file, 'identity.allow must be a non-empty list of tailscale logins (the `Tailscale-User-Login` Serve stamps on a request, e.g. someone@example.com)')
+  }
+  for (const login of id.allow) {
+    if (typeof login !== 'string' || !login.trim()) {
+      fail(file, `identity.allow: ${JSON.stringify(login)} is not a login string`)
+    }
+  }
+  // Compared against a header value, which arrives in whatever case the
+  // identity provider used. Normalized once here rather than at every request.
+  id.allow = id.allow.map((l) => l.trim().toLowerCase())
+  id.proxy_port = id.proxy_port ?? 7682
+  if (!(Number.isInteger(id.proxy_port) && id.proxy_port > 0 && id.proxy_port < 65536)) {
+    fail(file, 'identity.proxy_port must be a port number')
+  }
+  cfg.identity = id
+
+  // Five ports, one box: any collision means one surface silently shadows or
   // sweeps another, so all of them must be pairwise distinct.
   const ports = [
     ['attach.ttyd_port', a.ttyd_port], ['attach.serve_port', a.serve_port],
+    ['identity.proxy_port', id.proxy_port],
     ['timeline.port', t.port], ['timeline.serve_port', t.serve_port],
   ]
   for (let i = 0; i < ports.length; i++) {
