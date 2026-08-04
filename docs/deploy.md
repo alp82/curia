@@ -71,6 +71,22 @@ This grants `alp` root on the box, because anyone who can reach the socket can m
 
 The worker itself never reaches the socket. It is denied inside the container, which is the whole point of the boundary.
 
+**The firewall must let a container reach the daemon.** The box runs ufw with a default-deny
+INPUT policy, and a worker's side channel — `ask_human`, the Stop hook, every curia tool —
+goes from the container to the daemon over the docker bridge. Without a rule the traffic is
+dropped, not refused, so the worker hangs instead of failing. Done on 2026-08-04
+([#185](https://github.com/alp82/curia/issues/185)):
+
+```
+sudo ufw allow in on docker0 from 10.0.1.0/24 to 10.0.1.1 port 4271 proto tcp \
+  comment 'curia worker side channel'
+```
+
+Read the bridge subnet and the gateway off the box first — `docker network inspect bridge` and
+`ip -4 addr show docker0`. This box states no `Gateway` field, and `docker0` carries `10.0.1.1/24`.
+
+This rule is host state. No file in this repo carries it, so a rebuilt box needs it again.
+
 ## Logs
 
 ```
