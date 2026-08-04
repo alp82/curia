@@ -158,8 +158,17 @@ export class StatusLine {
         if (!r || r.kind === CONFIRM_KIND) return
         return this.#set(r.agent, r.ticket, 'working', {})
       }
-      case 'result':
-        return this.#set(ev.agent, ev.ticket, 'resolving', { status: ev.status })
+      case 'result': {
+        // The one event whose ticket the AGENT used to write (#202). The write
+        // edge binds it now, but the journal is append-only, so a line written
+        // before that keeps the agent's spelling — and this line must not
+        // follow it into a stray thread. The session this line already tracks
+        // carries the bound ticket, exactly as `agent_done` relies on below, so
+        // it wins. The event is the fallback for a session first seen after a
+        // daemon restart, where there is nothing else to post under.
+        const w = this.agents.get(ev.agent)
+        return this.#set(ev.agent, w?.ticket ?? ev.ticket, 'resolving', { status: ev.status })
+      }
       case 'agent_died':
         // the liveness sweep's event (#138) — the line stops saying "working"
         // about a killed agent and names the way out

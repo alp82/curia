@@ -158,6 +158,25 @@ describe('StatusLine', () => {
     assert.equal(posts.at(-1).text, `⚰️ \`curia-9\`${GROUP_SEP}agent gone — \`resume 9\``)
   })
 
+  test('a result event never steers the line out of the thread it is already in (#202)', async () => {
+    // The ticket on a `result` line used to be whatever the agent typed, and
+    // the journal is append-only, so an old line still says `owner/repo#164`.
+    // The spawn binding this line already tracks is the authority.
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-9', ticket: '9', model: 'opus' })
+    line.onEvent({ type: 'result', agent: 'curia-9', ticket: 'alp82/curia#164', status: 'resolved' })
+    await drain()
+    assert.equal(posts.at(-1).ticket, '9', 'the resolving line posts under the BOUND ticket')
+    assert.match(posts.at(-1).text, /result received \(\*\*resolved\*\*\)/)
+  })
+
+  test('a result for a session first seen after a restart still posts (#202)', async () => {
+    // The Map dies with the process, so this line never saw the spawn. The
+    // event is all there is, and a line under it beats no line at all.
+    line.onEvent({ type: 'result', agent: 'curia-9', ticket: '9', status: 'blocked' })
+    await drain()
+    assert.equal(posts.at(-1).ticket, '9')
+  })
+
   test('a bridge that is down loses nothing: the next transition posts', async () => {
     let up = false
     const l3 = new StatusLine({

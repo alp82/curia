@@ -309,4 +309,26 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     assert.ok(fs.existsSync(path.join(tmp, 'data', 'results', 'curia-77.json')), 'and the results file still gates the lifecycle')
     assert.equal(child.exitCode, null, 'the daemon is still up')
   })
+
+  // #202: the journal line took the agent at its word, so a repo-qualified id
+  // became the ticket every reader of that line keyed on — the status line
+  // reposted under a thread named for the string, and reconcile counted a
+  // result against the wrong number.
+  test('a reported ticket id never becomes the journal event\'s ticket', async () => {
+    const client = new Client({ name: 'curia-result-bind-test', version: '0.0.0' })
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-88&ticket=88`), armed('curia-88')))
+    await client.callTool(
+      { name: 'report_result', arguments: { ticket: 'alp82/curia#164', status: 'resolved', summary: 'fixture' } },
+      undefined,
+      { timeout: 30_000 },
+    )
+    await client.close()
+
+    const line = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      .findLast((ev) => ev.type === 'result' && ev.agent === 'curia-88')
+    assert.equal(line.ticket, '88', 'the bound ticket is the event\'s ticket')
+    assert.equal(line.reported_ticket, 'alp82/curia#164', 'the disagreement is journalled beside it')
+    assert.equal(child.exitCode, null, 'the daemon is still up')
+  })
 })
