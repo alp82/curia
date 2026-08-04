@@ -2,14 +2,14 @@
 
 Ticket: [alp82/curia#172](https://github.com/alp82/curia/issues/172), on the map
 [Curia gets better](https://github.com/alp82/curia/issues/147). Run on 2026-08-04 inside a live
-containerized agent, against codex 0.146.0 — the version `config/curia.yaml` pins. Every check
+containerized agent, against codex 0.146.0. That is the version `config/curia.yaml` pins. Every check
 reads. Nothing on any account was written.
 
 The fault is gap 3 of
 [docs/research/codex-lane-gaps.md](../research/codex-lane-gaps.md) (#152). curia writes one MCP
 server into `config.toml`, `[mcp_servers.curia]`. A live codex agent also carried
-`mcp__codex_apps__plugin_management` — search, install and uninstall apps — plus `resume_agent`,
-`close_agent` and `_update_app_permissions`. The bounds named none of them.
+`mcp__codex_apps__plugin_management`, which searches, installs and uninstalls apps. It also carried
+`resume_agent`, `close_agent` and `_update_app_permissions`. The bounds named none of them.
 
 This is the codex half of [#180](https://github.com/alp82/curia/issues/180), which shut the same
 fault on claude. The two mechanisms rhyme: the namespace follows the CREDENTIAL, not the config
@@ -46,7 +46,7 @@ down with it. Codex fails the other way, and both halves were induced:
 | `not_a_real_feature = false` | **ignored in silence**, exit 0, `hooks` still true |
 | `apps = "false"` | **hard error**, `invalid type: string "false", expected a boolean` |
 
-So no value here can quietly take curia's own MCP server down — a wrong type stops the spawn at
+So no value here can quietly take curia's own MCP server down. A wrong type stops the spawn at
 startup, loudly, where the pane says why (#169). The live risk is the other row. A key codex
 renames upstream becomes a no-op that reads exactly like a bound lane, and it buys the whole
 surface back with nothing to say so.
@@ -81,9 +81,9 @@ curia  http://127.0.0.1:4271/mcp?agent=curia-172x&ticket=172  enabled  Unsupport
 It looked like the instrument for this ticket. It is not, and the reason is worth recording so the
 next session does not reach for it.
 
-Its output does not change for ANY feature flag. Twelve were disabled one at a time — `apps`,
+Its output does not change for ANY feature flag. Twelve were disabled one at a time: `apps`,
 `plugins`, `multi_agent`, and nine others including `hooks` and `personality`, which certainly
-gate behavior — and the rendered text was byte-identical every time:
+gate behavior. The rendered text was byte-identical every time:
 
 ```
 baseline               62e36914c4141cd3bbd69586d5881bd3
@@ -100,8 +100,8 @@ message survives `multi_agent = false`, and that says nothing either way about t
 
 ## 5. What is NOT proved here, and what would prove it
 
-**The `codex_apps` tools were not watched disappearing.** The namespace needs ChatGPT backend auth
-— the binary answers `ChatGPT connectors require Codex backend auth` — and this container holds no
+**The `codex_apps` tools were not watched disappearing.** The namespace needs ChatGPT backend auth.
+The binary answers `ChatGPT connectors require Codex backend auth`, and this container holds no
 codex credential. On a clean `CODEX_HOME` the namespace is absent whatever the flags say, so there
 is no before state to measure against.
 
