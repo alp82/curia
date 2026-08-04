@@ -926,6 +926,8 @@ export class Dispatcher {
       // codex pane, whose composer says `<model> <effort> · <cwd>`.
       if (readyRe.test(tail)) {
         worker.state = 'ready'
+        // The anchor the tool-channel grace window is measured from (#194).
+        worker.readyAt = Date.now()
         this.store.logEvent('worker_ready', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: worker.model })
         // #118 item 7 / #108 item 22: both links land with readiness as
         // buttons — /attach stays as the retrieve-later verb. Fail-soft: a
@@ -968,6 +970,31 @@ export class Dispatcher {
     // pane the whole time. Fenced, and stripped of backticks by paneExcerpt.
     const why = excerpt ? `\n\`\`\`\n${excerpt}\n\`\`\`` : ''
     this.notify(worker.ticket, `⚠️ \`${worker.session}\` ${headline}${ignored} — session and claim kept for inspection (\`/attach ${worker.ticket}\`)${why}`)
+  }
+
+  // ---- the tool channel (#194) -------------------------------------------------
+
+  // Every curia tool call a worker makes arrives as `POST /mcp?worker=<name>`,
+  // and the client's startup handshake is the first of them. The daemon owns
+  // that route, so it already holds the evidence that a worker HAS a tool
+  // channel — it just recorded none of it (#189). This stamp is the whole
+  // detector: one per worker, the first time its name lands on the route.
+  //
+  // Called from index.mjs AFTER the #159 token gate, so a request that could not
+  // prove whose it is never counts as that worker speaking.
+  onMcpCall(workerName) {
+    const w = this.workers.get(workerName)
+    if (!w || w.mcpSeenAt) return
+    w.mcpSeenAt = Date.now()
+    this.store.logEvent('worker_mcp_first', {
+      repo: w.repo, ticket: w.ticket, worker: workerName, backend: w.backend, model: w.model,
+      // The two numbers the grace window is tuned against. A worker that has not
+      // reached its composer yet states null for the second, and that null is
+      // itself a reading: it says the handshake ran ahead of the marker.
+      since_spawn_ms: w.spawnedAt ? w.mcpSeenAt - w.spawnedAt : null,
+      since_ready_ms: w.readyAt ? w.mcpSeenAt - w.readyAt : null,
+      state: w.state,
+    })
   }
 
   // When does this cooling end? Two lanes state it in two places, so both are

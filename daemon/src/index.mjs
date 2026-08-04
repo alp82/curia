@@ -1040,6 +1040,12 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (req.method !== 'POST') return json(405, { error: 'stateless server: POST only' })
     const worker = url.searchParams.get('worker') ?? 'unknown'
     const ticket = url.searchParams.get('ticket') ?? 'unknown'
+    // #194: the first request a worker makes on this route is the proof that it
+    // has a tool channel at all. It is recorded here — after the #159 token gate
+    // above, so only a request that proved whose it is counts — and before the
+    // MCP server runs, so a call that fails inside the server still counts: the
+    // question is whether the client reached the daemon, not what it asked for.
+    dispatcher.onMcpCall(worker)
     const body = await readBody(req)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     res.on('close', () => { transport.close() })

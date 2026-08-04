@@ -655,6 +655,52 @@ describe('a backend command that exits is not a slow start (#169)', () => {
   })
 })
 
+describe('the tool channel is recorded, not assumed (#194)', () => {
+  const READY = '⏵⏵ bypass permissions on'
+
+  test('the first /mcp call per worker is stamped and journalled, and later ones are not', async () => {
+    const d = makeDispatcher({ capturePane: async () => READY })
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => typesOf().includes('worker_ready'))
+
+    d.onMcpCall('curia-42')
+    const first = d.workers.get('curia-42').mcpSeenAt
+    assert.ok(first, 'the stamp is the whole detector')
+    d.onMcpCall('curia-42')
+    d.onMcpCall('curia-42')
+
+    const stamps = events.filter((e) => e.type === 'worker_mcp_first')
+    assert.equal(stamps.length, 1, 'FIRST, not every call — the journal is evidence, not traffic')
+    assert.equal(d.workers.get('curia-42').mcpSeenAt, first, 'the stamp never moves')
+    assert.equal(stamps[0].worker, 'curia-42')
+    assert.equal(stamps[0].ticket, '42')
+    assert.equal(typeof stamps[0].since_spawn_ms, 'number')
+    assert.equal(typeof stamps[0].since_ready_ms, 'number', 'the reading the grace window is tuned against')
+  })
+
+  test('a handshake that lands before the composer states a null since_ready_ms', async () => {
+    // the reading #189 could not settle: whether the client connects at startup
+    // or lazily. A null here IS the answer that it ran ahead of the marker.
+    // The watchdog polls every 2 s, so the call below lands while the record
+    // still says `spawning` — and the wait after it leaves no watch running.
+    const d = makeDispatcher({ capturePane: async () => READY })
+    await d.start('42', { repo: 'o/r' })
+    d.onMcpCall('curia-42')
+
+    const stamp = events.find((e) => e.type === 'worker_mcp_first')
+    assert.equal(stamp.since_ready_ms, null)
+    assert.equal(stamp.state, 'spawning')
+    assert.ok(stamp.since_spawn_ms >= 0)
+    await waitFor(() => typesOf().includes('worker_ready'))
+  })
+
+  test('a name with no live worker records nothing at all', () => {
+    const d = makeDispatcher()
+    d.onMcpCall('curia-999')
+    assert.ok(!typesOf().includes('worker_mcp_first'), 'no worker, no evidence — and no throw')
+  })
+})
+
 describe('reconcile without a confirmed viewer identity (B1)', () => {
   test('a failed `gh api user` destroys nothing — no sweep, no unclaim, no worktree removal', async () => {
     const destroyed = []
