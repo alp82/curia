@@ -144,11 +144,16 @@ const statusLine = new StatusLine({
   log,
   // Same backend resolution the timeline uses: the dispatcher's word on what it
   // spawned, on-disk evidence for re-adopted and lab sessions.
+  //
+  // The routing label takes the same route (#187). The status line only learns
+  // it from a spawn event, so a line first drawn after a restart carries none —
+  // and the effort meter reads off the label's routing row. The dispatcher's
+  // record answers instead, which reconcile now rebuilds from the journal.
   meters: (session, model) => workerMeters({
     backend: dispatcher?.workers.get(session)?.backend
       ?? detectBackend(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
     cfgDir: path.join(curiaConfig.dispatch.workspace_root, 'cfg', session),
-    model,
+    model: model ?? dispatcher?.workers.get(session)?.model ?? null,
     routing: routingConfig,
     account: accountUsage,
     models: modelWindows,

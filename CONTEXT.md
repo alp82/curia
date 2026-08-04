@@ -263,7 +263,7 @@ One Discord message per worker, written by the daemon, that says what the worker
 A number the status line carries beside the state: the model name, its reasoning effort, the context percent, and the account usage bars. Each meter has its own source and drops alone when that source is silent. Meters drop from the tail when the line runs out of columns. The model is the exception: the escalation title is cut to keep it.
 
 **Account bars**:
-The 5-hour and 7-day usage windows. They are an account fact, not a worker fact, so every worker on a provider shows the same reading.
+The 5-hour and 7-day usage windows. They are an account fact, not a worker fact, so every worker on a provider shows the same reading. The provider follows from the worker's backend, never from the routing label: a label is a spawn-time fact and a backend has on-disk evidence. A window whose reset has passed rolls over — the bar shows the fresh window at 0%, and that reading counts as stale at once, so the next probe measures it.
 
 **Pace**:
 Usage measured against the time already gone from its window. A bar shows the window's clock as `┃` and renders spending past it as overshoot. The square before the bar states the same fact at a glance: 🟩 behind the clock, 🟨 on it, 🟥 ahead.
@@ -281,7 +281,7 @@ How full a worker's context window is. The numerator is the last request's input
 The one durable place a fact lives. GitHub holds ticket truth. The journal holds curia's events. Everything in memory is a disposable cache.
 
 **Reconcile**:
-The pass, at boot and on demand, that re-derives live state from GitHub, tmux, and the journal, and asserts the surfaces.
+The pass, at boot and on demand, that re-derives live state from GitHub, tmux, and the journal, and asserts the surfaces. A worker it re-adopts gets its spawn-time facts back from the journal: the routing label it runs on, and the backend under it.
 
 **Epoch**:
 A ticket's latest dispatch. Journal reads count only events from the latest epoch.

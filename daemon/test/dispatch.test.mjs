@@ -426,6 +426,67 @@ describe('reconcile epoch scoping (criterion 7)', () => {
     assert.deepEqual(unclaimed, [])
     assert.equal(d.workers.get('curia-42').repo, 'o/r') // re-adopted instead
   })
+
+  test('a re-adopted worker gets its model and backend back from the journal (#187)', async () => {
+    // The record used to be rebuilt with every spawn-time fact missing. The
+    // status line then had no routing row for the worker, and both account
+    // bars left the line while the context figure stayed — one missing fact,
+    // two meters gone. The journal wrote the label down at spawn.
+    writeJournal([
+      { type: 'worker_spawned', repo: 'o/r', ticket: '42', worker: 'curia-42', model: 'sonnet', backend: 'claude' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...assignedToMe }),
+    })
+
+    await d.reconcile({ boot: false })
+
+    const w = d.workers.get('curia-42')
+    assert.equal(w.model, 'sonnet')
+    assert.equal(w.backend, 'claude')
+    assert.equal(w.provider, 'anthropic', 'the provider follows the label, as it does at spawn')
+  })
+
+  test('a respawn down the fallback chain is what is running, so the LAST spawn wins', async () => {
+    const routing = {
+      ...ROUTING,
+      models: { sonnet: { provider: 'anthropic', backend: 'claude' }, gpt: { provider: 'openai', backend: 'codex' } },
+    }
+    writeJournal([
+      { type: 'worker_spawned', repo: 'o/r', ticket: '42', worker: 'curia-42', model: 'sonnet', backend: 'claude' },
+      { type: 'worker_spawned', repo: 'o/r', ticket: '42', worker: 'curia-42', model: 'gpt', backend: 'codex', retry_after_limit: true },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...assignedToMe }),
+    }, { routing })
+
+    await d.reconcile({ boot: false })
+
+    const w = d.workers.get('curia-42')
+    assert.equal(w.model, 'gpt')
+    assert.equal(w.backend, 'codex')
+    assert.equal(w.provider, 'openai')
+  })
+
+  test('a session this daemon never spawned is adopted with no model, and nothing breaks', async () => {
+    // A lab session, or a journal that no longer reaches back that far. The
+    // meters fall to their on-disk evidence — the transcript names the model
+    // and the config dir names the backend.
+    writeJournal([{ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', worker: 'curia-42' }])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...assignedToMe }),
+    })
+
+    await d.reconcile({ boot: false })
+
+    const w = d.workers.get('curia-42')
+    assert.equal(w.model, null)
+    assert.equal(w.backend, null)
+    assert.equal(w.provider, null)
+  })
 })
 
 describe('the pane is untrusted text (B6)', () => {
