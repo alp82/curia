@@ -336,6 +336,29 @@ export function loadRoutingConfig(file) {
     if (!cfg.models[model]) fail(file, `defaults.${type} names unknown model "${model}"`)
   }
 
+  // The cross-check pairing (#164, ADR-0010): which model reads a builder's
+  // diff. Keyed by the BUILDER's provider, and the value must run on another
+  // one — a row that pairs a provider with itself is not a cross-check, and it
+  // would silently turn the whole feature into a same-provider reading.
+  //
+  // The section is optional, because a box watching one provider has no pairing
+  // to state. A provider with no row refuses the cross-check at spawn time
+  // naming this key, which is the same failure direction as an unknown model.
+  cfg.review = cfg.review ?? {}
+  if (typeof cfg.review !== 'object' || Array.isArray(cfg.review)) {
+    fail(file, '`review` must be a mapping of provider → model')
+  }
+  const providers = new Set(Object.values(cfg.models).map((m) => m.provider))
+  for (const [provider, model] of Object.entries(cfg.review)) {
+    if (!providers.has(provider)) {
+      fail(file, `review.${provider} names a provider no configured model runs on — configured providers: ${[...providers].join(', ')}`)
+    }
+    if (!cfg.models[model]) fail(file, `review.${provider} names unknown model "${model}"`)
+    if (cfg.models[model].provider === provider) {
+      fail(file, `review.${provider} names "${model}", which runs on ${provider} itself — a cross-check reads the diff on the OTHER provider`)
+    }
+  }
+
   cfg.fallbacks = cfg.fallbacks ?? {}
   for (const [from, chain] of Object.entries(cfg.fallbacks)) {
     if (!cfg.models[from]) fail(file, `fallbacks.${from} names unknown model "${from}"`)

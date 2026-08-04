@@ -68,6 +68,69 @@ export class Cooling {
   }
 }
 
+// ---- the cross-check pairing (#164, ADR-0010) --------------------------------
+
+// The label that beats the pairing table. `review-model:opus` on a ticket names
+// the model that reads its diff, whatever `review:` in routing.yaml says.
+export const REVIEW_MODEL_LABEL = 'review-model:'
+
+export function reviewModelLabel(labels) {
+  const l = (labels ?? []).find((x) => x.startsWith(REVIEW_MODEL_LABEL))
+  return l ? l.slice(REVIEW_MODEL_LABEL.length) : null
+}
+
+// Which model reads a builder's diff, and whose provider it runs on.
+//
+// The whole point of a cross-check is the OTHER provider, so the answer is
+// picked in that order and the caller is told which one it got:
+//
+//   1. the ticket's `review-model:<name>` label, else the `review:` row for the
+//      builder's provider. That model, if it is warm, is the answer;
+//   2. it is cooling ⇒ its own fallback chain, cross-provider first — a chain
+//      that crosses back is still a chain, and a warm model on the other
+//      provider is a better cross-check than a same-provider one;
+//   3. every model on the other provider is cooling ⇒ the builder's own
+//      provider, with `sameProvider` true. ADR-0010 asks for that fallback and
+//      asks the verdict to say so at its top: a same-provider reading is the
+//      weaker check, and the operator has to know which one they got.
+//
+// Throws rather than guessing: an unknown label, a provider with no row, and
+// total exhaustion each name their own fix.
+export function resolveReviewer(routing, { builderModel, labels = [], cooling }) {
+  const builderSpec = routing.models?.[builderModel]
+  if (!builderSpec) {
+    throw new Error(`curia does not know what the builder ran on ("${builderModel}"), so it cannot tell which provider is the other one — configured models: ${Object.keys(routing.models ?? {}).join(', ')}`)
+  }
+  const builderProvider = builderSpec.provider
+  const providerOf = (m) => routing.models?.[m]?.provider ?? null
+
+  const labelled = reviewModelLabel(labels)
+  if (labelled && !routing.models?.[labelled]) {
+    throw new Error(`the ticket carries \`${REVIEW_MODEL_LABEL}${labelled}\`, and no model of that name is configured — configured models: ${Object.keys(routing.models ?? {}).join(', ')}`)
+  }
+  const wanted = labelled ?? routing.review?.[builderProvider] ?? null
+  if (!wanted) {
+    throw new Error(`routing.yaml states no cross-check pairing for provider "${builderProvider}" — add a \`review:\` row for it, or put a \`${REVIEW_MODEL_LABEL}<name>\` label on the ticket`)
+  }
+
+  const pick = (model) => ({ model, wanted, sameProvider: providerOf(model) === builderProvider })
+  if (!cooling.isCool(wanted, providerOf(wanted))) return pick(wanted)
+
+  const chain = candidates(routing, wanted, cooling)
+  const cross = chain.find((m) => providerOf(m) !== builderProvider)
+  if (cross) return pick(cross)
+  if (chain.length) return pick(chain[0])
+
+  const own = candidates(routing, builderModel, cooling)
+  if (own.length) return pick(own[0])
+  throw new Error('every configured model is cooling on both providers — there is nothing left to read this diff with')
+}
+
+// The line the daemon stamps on a same-provider verdict (ADR-0010). Written by
+// curia rather than by the reviewer: which provider a model ran on is curia's
+// own record, and a reviewer's account of it is not evidence.
+export const SAME_PROVIDER_STAMP = 'same provider — cross-provider was cooling'
+
 // TRANSITIVE fallback chain (field-notes contract 1): the starting model plus
 // everything reachable through routing.fallbacks, skipping models cooling at
 // either level. Empty array = true exhaustion (every candidate cooling).

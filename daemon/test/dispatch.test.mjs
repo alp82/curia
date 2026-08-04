@@ -1187,7 +1187,10 @@ describe('Dispatcher.cancel (criterion 6, the destructive half — W8; immediate
   test('untracked cancel: session and config dir go, the GitHub claim is left alone', async () => {
     const acts = []
     const d = makeDispatcher({
-      hasSession: async () => true,
+      // Named rather than blanket-true (#164): `cancel` now also asks whether a
+      // cross-check reviewer is live on this ticket, and a double that says yes
+      // to every name would have this test tear one down too.
+      hasSession: async (n) => n === 'curia-42',
       killSession: async (n) => acts.push(`kill:${n}`),
       removeWorktree: async () => acts.push('worktree'),
       unclaim: async () => acts.push('unclaim'),

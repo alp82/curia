@@ -15,7 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
-import { endingProse, CHARTING_NEVER } from './lifecycle.mjs'
+import { endingProse, CHARTING_NEVER, REVIEWER_NEVER } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
@@ -138,6 +138,76 @@ export async function createWorktree(base, n) {
   fs.mkdirSync(path.dirname(wt), { recursive: true })
   await git(base, ['worktree', 'add', '-B', branch, wt, start])
   return wt
+}
+
+// ---- the reviewer's checkout (#164, ADR-0010) --------------------------------
+
+// The cross-check reviewer reads a live checkout of the branch, and it gets one
+// of its OWN: `repos/<owner>__<repo>/review/<n>`, beside the builder's `wt/<n>`.
+export function reviewPathFor(root, repo, n) {
+  return path.join(root, 'repos', repo.replace('/', '__'), 'review', String(n))
+}
+
+// The pushed tip of a ticket's branch, fetched fresh. This is what the reviewer
+// reads, and it is deliberately the PUSHED tip rather than whatever the
+// builder's worktree holds: the cross-check is a second reading of the diff a
+// human is looking at in the pull request, and a commit that exists only in one
+// worktree is in no diff anybody can see. A branch that is not on origin at all
+// refuses here, naming the call that puts it there.
+async function fetchTip(gitDir, repo, branch) {
+  try {
+    await git(gitDir, ['fetch', 'origin', branch], { timeout: CLONE_TIMEOUT_MS })
+  } catch (e) {
+    throw new Error(`origin carries no \`${branch}\` for ${repo}, so there is no pushed diff to read (${(e.stderr ?? e.message ?? '').trim().split('\n')[0]}) — the builder has to call open_pull_request first`)
+  }
+  const { stdout } = await git(gitDir, ['rev-parse', 'FETCH_HEAD'])
+  return stdout.trim()
+}
+
+// A checkout of the branch tip that the builder's own workspace cannot collide
+// with. git refuses the same branch in two worktrees, so this one carries NO
+// branch at all: a DETACHED HEAD at the tip sha. That also states the reviewer's
+// posture on disk — there is no branch here to commit onto.
+//
+// Two shapes, the same two the builder has (#156): a worktree cut from the
+// shared base clone for a bare pane, a private blobless clone for a container,
+// which cannot use a worktree because its `.git` is a file pointing at a base
+// the container never mounts.
+export async function createReviewCheckout(root, repo, n, { sandbox = false } = {}) {
+  const wt = reviewPathFor(root, repo, n)
+  const branch = branchFor(n)
+
+  if (sandbox) {
+    if (fs.existsSync(wt)) fs.rmSync(wt, { recursive: true, force: true })
+    fs.mkdirSync(path.dirname(wt), { recursive: true })
+    await execFileP('gh', ['repo', 'clone', repo, wt, '--', '--filter=blob:none'], {
+      maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS,
+    })
+    await git(wt, ['remote', 'set-url', 'origin', `https://github.com/${repo}.git`])
+    await git(wt, ['config', 'credential.helper', '!gh auth git-credential'])
+    const sha = await fetchTip(wt, repo, branch)
+    await git(wt, ['checkout', '--detach', sha])
+    // The claude harness writes `.mcp.json` and `.claude/` into the checkout, and
+    // the reviewer reads `git status` to see what the diff touched — so curia's
+    // own files must not show up as the builder's changes.
+    const excludeFile = path.join(wt, '.git', 'info', 'exclude')
+    fs.mkdirSync(path.dirname(excludeFile), { recursive: true })
+    fs.appendFileSync(excludeFile, '\n.mcp.json\n.claude/\n.curia-prompt.md\n')
+    return { path: wt, sha, branch, baseBranch: await defaultBranchOf(wt) }
+  }
+
+  // The base clone's own info/exclude already hides the harness files from every
+  // worktree cut from it (ensureBaseClone), so this shape needs none of its own.
+  const base = await ensureBaseClone(root, repo)
+  const sha = await fetchTip(base, repo, branch)
+  if (fs.existsSync(wt)) {
+    await git(base, ['worktree', 'remove', '--force', wt]).catch(() => {})
+    fs.rmSync(wt, { recursive: true, force: true })
+  }
+  await git(base, ['worktree', 'prune'])
+  fs.mkdirSync(path.dirname(wt), { recursive: true })
+  await git(base, ['worktree', 'add', '--detach', wt, sha])
+  return { path: wt, sha, branch, baseBranch: await defaultBranchOf(base) }
 }
 
 // ---- landing the work (#41) --------------------------------------------------
@@ -1125,6 +1195,117 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
         '  tells you which one. It also verifies the resolution afterwards and repairs what is missing, so an',
         '  honest `report_result` matters more than a perfect run.',
       ]),
+    '',
+  ].join('\n')
+  fs.writeFileSync(promptFile, body)
+  return promptFile
+}
+
+// ---- the reviewer's prompt (#164, ADR-0010) ----------------------------------
+
+// The cross-check reviewer's standing orders. Its own function rather than a
+// branch in writePrompt, because almost nothing is shared: no `/wayfinder` line
+// (the reviewer works through no map and resolves no ticket), no claim, no
+// worktree it may write, no ending but one call.
+//
+// What it does share is the SHAPE — parameters, bounds, tools, ending — so an
+// operator reading a reviewer's prompt beside a builder's reads the same
+// document twice. The one section with no counterpart is "What to do", because
+// the reviewer's job is not stated by any skill it carries.
+//
+// `wtPath` is the checkout AS THE AGENT SEES IT (#156), like everywhere else:
+// the mount point inside a container, the host path outside one.
+export function writeReviewPrompt(cfgDir, issue, {
+  repo, wtPath, branch, baseBranch, sha, model, builderModel, ticketUrl = null,
+}) {
+  const promptFile = path.join(cfgDir, 'prompt.md')
+  const n = issue.number
+  const url = ticketUrl ?? `https://github.com/${repo}/issues/${n}`
+  const short = String(sha ?? '').slice(0, 12)
+
+  const params = [
+    `- The ticket is ${repo}#${n} — ${url}. Its body is above: it is what the work was supposed to be.`,
+    `- The tracker is **GitHub**, repo \`${repo}\`, reached with the \`gh\` CLI. Read it freely.`,
+    `- Your checkout is ${wtPath}. It is a DETACHED HEAD at \`${short}\`, the pushed tip of \`${branch}\`.`,
+    '  It is yours alone: the builder works in a checkout of its own, and nothing you do here reaches it.',
+    `- The diff is \`git diff origin/${baseBranch}...HEAD\`, and the commits are`,
+    `  \`git log --oneline origin/${baseBranch}..HEAD\`.`,
+    `- You run on **${model}**. The builder ran on **${builderModel}**. You are the second reading of`,
+    '  this diff, on another model, which is the whole reason you exist.',
+  ]
+
+  const orders = [
+    '1. Read the ticket, then the diff, then the checkout around it. The diff alone does not say whether',
+    '   the change is right — the code it lands in does.',
+    '2. Run the tests. Find how this repo runs them and run them yourself. A finding you proved beats a',
+    '   finding you reasoned about, and "the tests pass" is itself worth stating.',
+    '3. Judge the work against the TICKET, not against how you would have written it. A different style',
+    '   is not a finding. A wrong answer, a missing case, a broken test, a bound nobody checked is.',
+    '4. End with the verdict.',
+  ]
+
+  const verdict = [
+    'Your `report_result` summary is the verdict, and a human reads it on a phone. Write it in this shape:',
+    '',
+    '```',
+    'VERDICT: pass | concerns | fail',
+    '',
+    'TESTS: what you ran, and what happened.',
+    '',
+    'FINDINGS (most serious first, or "none"):',
+    '- <file>:<line> — what is wrong — why it matters',
+    '```',
+    '',
+    'Be specific and be short. Name the file and the line for every finding. Say "none" when you found',
+    'nothing: a clean reading is a real result, and padding it hides the findings that matter.',
+    'A finding that is real but beyond this ticket\'s scope goes in the list, marked `out of scope`.',
+  ]
+
+  const body = [
+    `# Cross-check of ${repo}#${n}: ${issue.title}`,
+    '',
+    issue.body ?? '(no body)',
+    '',
+    '---',
+    '',
+    '## What you are (curia daemon)',
+    '',
+    `You are the CROSS-CHECK REVIEWER for ${repo}#${n}. Another model built this change and a human is`,
+    'about to approve it. You read the same diff and say what you find. You are not that human, and you',
+    'are not the builder: nothing you write lands anywhere, and nothing you decide is acted on by you.',
+    '',
+    '## What curia already did (parameters, not procedure)',
+    '',
+    ...params,
+    '',
+    '## What to do',
+    '',
+    ...orders,
+    '',
+    '## Bounds (curia daemon)',
+    '',
+    '- **Read anything.** The checkout, the ticket, its map, any sibling or closed issue, the web. Nothing',
+    '  here limits reading.',
+    ...REVIEWER_NEVER.flatMap(([first, ...rest]) => [`- ${first}`, ...rest.map((l) => `  ${l}`)]),
+    '- Where a skill and these bounds disagree, these win.',
+    '',
+    '## Your tools (the `curia` MCP server)',
+    '',
+    '- `notify` — a status line for the human. Returns at once. Use it to say what you are reading.',
+    '- `report_result` — exactly once, at the very end. Its summary is the verdict.',
+    '- Every other curia tool is refused for you, by name, with the reason.',
+    '',
+    '## The verdict',
+    '',
+    ...verdict,
+    '',
+    '## How this ends',
+    '',
+    ...endingProse({ repo, ticket: n, branch, reviewer: true }),
+    '',
+    '- If you cannot review — the checkout will not build, the tests cannot run, the diff is unreadable —',
+    '  call `report_result` with status `blocked` and say exactly what stopped you. Never guess a verdict.',
+    '- curia holds you at this ending: its Stop hook refuses your stop until the verdict is in.',
     '',
   ].join('\n')
   fs.writeFileSync(promptFile, body)
