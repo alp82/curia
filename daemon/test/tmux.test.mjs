@@ -12,7 +12,8 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { hasSession, listSessions, newSession, capturePane, killSession } from '../src/tmux.mjs'
+import { hasSession, listSessions, newSession, capturePane, killSession, wrapShellCmd } from '../src/tmux.mjs'
+import { paneTail, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 
 // Inside any tmux pane — every curia agent runs there — tmux exports $TMUX,
 // and a set $TMUX beats TMUX_TMPDIR: every tmux call below then targets the
@@ -191,5 +192,50 @@ describe('tmux targets survive a renamed window', { skip: !hasTmux && 'tmux not 
       /not quote-free/,
     )
     assert.equal(await hasSession(session), false, 'a refused marker must spawn nothing at all')
+  })
+})
+
+// #169 again, WITHOUT tmux. The live check above is the only place the wrapper
+// meets a real shell, and it skips wherever tmux is absent — the container this
+// was confirmed in included. So run the SAME string through bash here, and read
+// what comes back with the daemon's own classifiers. tmux only adds a pane to
+// hold the text; the exit line is bash's work, and bash is everywhere.
+describe('the exit wrapper, through a real shell', () => {
+  // stdout and stderr share ONE file descriptor, because that is what a terminal
+  // is: `command not found` goes to stderr and the marker echo to stdout, and
+  // paneExcerpt reads the reason as the line ABOVE the marker. Two separate
+  // pipes would lose exactly that order. `exec bash` reads stdin, so an empty
+  // input ends the pane shell instead of hanging the test.
+  const runWrapped = (shellCmd, marker) => {
+    const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'curia-wrap-')), 'pane.txt')
+    const fd = fs.openSync(out, 'w')
+    try {
+      spawnSync('bash', ['-c', wrapShellCmd(shellCmd, marker)], {
+        stdio: ['pipe', fd, fd], input: '', timeout: 10_000,
+      })
+    } finally {
+      fs.closeSync(fd)
+    }
+    return fs.readFileSync(out, 'utf8')
+  }
+
+  test('a missing binary reads as status 127, with the reason above the marker', () => {
+    const marker = 'curia-exit-liveshell'
+    const tail = paneTail(runWrapped('definitely-not-a-real-binary --model x', marker))
+
+    assert.equal(parseExitMarker(tail, marker), 127, 'the wrapper has to carry the shell status, not just the death')
+    assert.match(paneExcerpt(tail, marker), /command not found/, 'the reason the notify quotes must survive the real shell')
+  })
+
+  test('a command that succeeds and exits is still an exit, at status 0', () => {
+    const marker = 'curia-exit-liveshell0'
+    const tail = paneTail(runWrapped('echo the harness printed this and left', marker))
+
+    assert.equal(parseExitMarker(tail, marker), 0)
+    assert.match(paneExcerpt(tail, marker), /printed this and left/)
+  })
+
+  test('an unsafe marker is refused before it is ever nested in bash -c', () => {
+    assert.throws(() => wrapShellCmd('true', 'x"; rm -rf /; #'), /not quote-free/)
   })
 })

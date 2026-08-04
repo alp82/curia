@@ -67,6 +67,18 @@ export async function listSessions() {
 // here rather than trusted.
 const SAFE_MARKER = /^[A-Za-z0-9_-]+$/
 
+// The script `bash -c` runs in the pane. Exported so a check can run the REAL
+// string through a real shell: the tmux live checks below skip wherever tmux is
+// absent, and a copy of this line in a test proves only the copy.
+export function wrapShellCmd(shellCmd, exitMarker = null) {
+  if (exitMarker && !SAFE_MARKER.test(exitMarker)) {
+    throw new Error(`refusing to use exit marker "${exitMarker}": it is not quote-free/shell-safe`)
+  }
+  return exitMarker
+    ? `${shellCmd}; echo "[curia] the harness command exited — ${exitMarker} $?"; exec bash`
+    : `${shellCmd}; exec bash`
+}
+
 // Detached session running `env K=V… bash -c '<shellCmd>; exec bash'` — the
 // trailing `exec bash` keeps the pane alive after the command exits, so the
 // pane content stays inspectable (spike #32 pattern).
@@ -76,14 +88,9 @@ const SAFE_MARKER = /^[A-Za-z0-9_-]+$/
 // only wait out its whole timeout. The echo is the last thing before the
 // shell, so it always sits inside the pane tail the classifiers read.
 export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = null }) {
-  if (exitMarker && !SAFE_MARKER.test(exitMarker)) {
-    throw new Error(`refusing to use exit marker "${exitMarker}": it is not quote-free/shell-safe`)
-  }
+  const wrapped = wrapShellCmd(shellCmd, exitMarker)
   const args = ['new-session', '-d', '-s', name, '-c', cwd, 'env']
   for (const [k, v] of Object.entries(env)) args.push(`${k}=${v}`)
-  const wrapped = exitMarker
-    ? `${shellCmd}; echo "[curia] the harness command exited — ${exitMarker} $?"; exec bash`
-    : `${shellCmd}; exec bash`
   args.push('bash', '-c', wrapped)
   await tmux(args)
 }
