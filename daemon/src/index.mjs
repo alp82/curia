@@ -879,12 +879,25 @@ function buildMcpServer(agent, ticket) {
       details: z.record(z.string(), z.any()).optional(),
     },
     async (result, extra) => {
-      const rec = store.logEvent('result', { agent, ...result })
+      // The BOUND ticket is this event's ticket, not `result.ticket` (#202).
+      // The spread wrote the agent's own argument onto the journal line, and
+      // every surface keyed on that field then followed the agent's spelling:
+      // the status line reposted `resolving` under a thread named `owner/repo#164`,
+      // and reconcile's "did this ticket see a result" scans read the wrong
+      // number. The reported id is kept beside the bound one when the two
+      // disagree, because the disagreement is a fact worth journalling — it is
+      // just not a fact worth acting on.
+      const reported = result.ticket == null ? null : String(result.ticket)
+      const bound = ticket || reported
+      const disagrees = reported !== null && reported !== bound
+      const rec = store.logEvent('result', {
+        agent, ...result, ticket: bound, ...(disagrees ? { reported_ticket: reported } : {}),
+      })
       fs.writeFileSync(path.join(DATA, 'results', `${agent}.json`), JSON.stringify(rec, null, 2))
-      // Route by the BOUND ticket, not `result.ticket` — the agent-supplied id
-      // may be repo-qualified or a URL, which ensureThread would send to a
-      // stray named thread instead of the ticket's bound thread (#103).
-      if (bridge) bridge.notify(ticket || result.ticket, `✅ reports **${result.status}**: ${result.summary}`, { as: speaker() }).catch(() => {})
+      // Route by that same bound ticket: an agent-supplied id may be
+      // repo-qualified or a URL, which ensureThread would send to a stray named
+      // thread instead of the ticket's bound thread (#103).
+      if (bridge) bridge.notify(bound, `✅ reports **${result.status}**: ${result.summary}`, { as: speaker() }).catch(() => {})
       const stopKeepAlive = startKeepAlive(extra, `${agent}/result`)
       try {
         return { content: [{ type: 'text', text: await dispatcher.onResult(agent, result) }, ...drainNotes()] }
