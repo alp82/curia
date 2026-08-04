@@ -22,6 +22,7 @@ import http from 'node:http'
 import path from 'node:path'
 import fs from 'node:fs'
 import { execFileSync } from 'node:child_process'
+import { format } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
@@ -29,6 +30,7 @@ import { z } from 'zod'
 import { EscalationStore, CONFIRM_KIND } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
+import { readable } from './logline.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { assertSandboxConfig, loadCuriaConfig, loadRoutingConfig } from './config.mjs'
@@ -166,8 +168,12 @@ const nudgeTimers = new Map() // escalation id -> interval handle — ephemeral,
 
 let bridge = null
 
+// #190: one control character anywhere in a message makes journalctl print
+// `[NNNB blob data]` and drop the words, so the streamed `docker build` output
+// this function also carries is cleaned before it is written. The timestamp is
+// built outside format(), which would read a `%s` in it as a specifier.
 function log(...args) {
-  console.log(`[${new Date().toISOString()}]`, ...args)
+  console.log(`[${new Date().toISOString()}] ${readable(format(...args))}`)
 }
 
 // #56: a transient gateway/socket error must not take dispatch, escalation,

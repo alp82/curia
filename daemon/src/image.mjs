@@ -26,6 +26,7 @@ import crypto from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
+import { lastFrame, readable } from './logline.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -135,10 +136,23 @@ export function buildWorkerImage(ref, { onLine = () => {} } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(DOCKER_BIN, argv, { stdio: ['ignore', 'pipe', 'pipe'] })
     let tail = ''
+    // #190: a build line is a TERMINAL line — buildkit colors it and apt
+    // redraws it with carriage returns — and both make journalctl drop the
+    // whole message. The redraw collapses here, while the line still has no
+    // `[image <session>]` prefix in front of its first frame. A line that was
+    // only a color reset says nothing once the color is gone, so it is not
+    // emitted at all; that alone was 27 of the 64 lines lost during #185.
     const feed = (chunk) => {
       tail = (tail + chunk).split('\n').slice(-40).join('\n')
-      for (const line of String(chunk).split('\n')) if (line.trim()) onLine(line)
+      for (const raw of String(chunk).split('\n')) {
+        const line = readable(lastFrame(raw))
+        if (line.trim()) onLine(line)
+      }
     }
+    // The tail rides a FAILED build's error to the operator, so it is cleaned
+    // the same way. It stays raw until then, because a line split across two
+    // chunks is only whole once both have arrived.
+    const cleanTail = () => tail.split('\n').map((l) => readable(lastFrame(l))).join('\n').trim()
     child.stdout.setEncoding('utf8').on('data', feed)
     child.stderr.setEncoding('utf8').on('data', feed)
 
@@ -151,7 +165,7 @@ export function buildWorkerImage(ref, { onLine = () => {} } = {}) {
     child.once('close', (code) => {
       clearTimeout(timer)
       if (code === 0) resolve(ref)
-      else reject(new Error(`docker build exited ${code}\n${tail.trim()}`))
+      else reject(new Error(`docker build exited ${code}\n${cleanTail()}`))
     })
   })
 }
