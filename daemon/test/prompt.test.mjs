@@ -112,6 +112,20 @@ describe('bounds', () => {
     assert.match(body, /stand in for the reply/)
   })
 
+  // #172/#180 shut the namespaces both harnesses handed out unasked. This order
+  // is the half no config key reaches: a skill that installs an MCP server, a
+  // `codex plugin add`, a `claude mcp add`, a marketplace. Asserted on a
+  // charting dispatch too, because it is harness-blind AND dispatch-blind — a
+  // charting agent can reach for a tool just as easily.
+  test('the tool set is closed, on every dispatch (#172)', () => {
+    for (const opts of [{ mapNumber: 1 }, { mapNumber: 1, charting: true }, {}]) {
+      const p = write(opts)
+      assert.match(p, /\*\*Your tools are the ones curia configured, and that set is closed\.\*\*/)
+      assert.match(p, /no plugin, no app, no MCP server, no marketplace/)
+      assert.match(p, /out of bounds even when it is reachable/)
+    }
+  })
+
   test('a HITL ticket is never answered by the agent itself', () => {
     assert.match(write({ mapNumber: 1 }), /\*\*Never answer for the human\.\*\*/)
   })

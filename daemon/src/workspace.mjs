@@ -765,6 +765,37 @@ const HARNESS = {
         ...(reasoningEffort ? [`model_reasoning_effort = ${toml(reasoningEffort)}`, ''] : []),
         '[features]',
         'hooks = true',
+        // The tool set is bounded HERE (#172), and this table is the whole lever:
+        // every one of these is `stable` and defaults to TRUE on the pinned
+        // codex, so curia carried them without ever choosing them. A live agent
+        // held `mcp__codex_apps__plugin_management` — search, install and
+        // uninstall apps — plus `_update_app_permissions`, and none of it was
+        // named in `[mcp_servers]` or in the bounds.
+        //
+        // This is the codex half of the fault #180 fixed on claude, and the
+        // mechanism rhymes: the `codex_apps` namespace follows the ChatGPT
+        // credential rather than the config file, and ADR-0007 shares that
+        // credential with the host on purpose. The container boundary (#148)
+        // does not reach it either — a connector call is ordinary outbound
+        // HTTPS, and the network is open because wayfinder needs `gh` and the
+        // web.
+        //
+        // `apps` and `plugins` are the namespace itself. `multi_agent` is the
+        // other half of the same tool set: `resume_agent` and `close_agent` come
+        // from there, and a curia agent works alone by design — one ticket, one
+        // agent, one review gate.
+        //
+        // The trap is the OPPOSITE shape to #180's, and it was measured both
+        // ways. A key codex does not know is ignored in silence, so a rename
+        // upstream fails as a no-op rather than as a dead agent. A key with the
+        // wrong TYPE is a hard config error that stops the spawn at startup.
+        // So nothing here can quietly take curia's own MCP server down, and a
+        // typo buys back the whole surface with nothing to say so. That is why
+        // the guard is a live read of `codex features list` (docs/live-checks/172)
+        // rather than a unit test on the string this writes.
+        'apps = false',
+        'plugins = false',
+        'multi_agent = false',
         '',
         `[projects.${toml(wtPath)}]`,
         'trust_level = "trusted"',
@@ -1108,6 +1139,17 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
       '  you its only fresh check: if the way it charts stops short of its destination, say so in your',
       '  first `ask_human` call, rather than working around the gap or leaving it for the review gate.',
     ] : []),
+    // #172, and #180 before it: an agent's tool set is a control, and both
+    // harnesses handed out tools curia never configured. Those two tickets shut
+    // the namespaces off, so this line is not the enforcement — it is the half
+    // no setting reaches. A harness keeps ordinary ways to widen its own reach
+    // that no config key covers: a skill that installs an MCP server, a `codex
+    // plugin add`, a `claude mcp add`, a marketplace. Said harness-blind on
+    // purpose, because it is true on both lanes and the prompt is one text.
+    '- **Your tools are the ones curia configured, and that set is closed.** Do not install, connect,',
+    '  enable or add another — no plugin, no app, no MCP server, no marketplace, whatever offers it.',
+    '  A tool curia did not give you is out of bounds even when it is reachable, and reaching for one',
+    '  is an `ask_human` call, never a decision you make.',
     '- A HITL ticket is many `ask_human` calls, one question at a time. **Never answer for the human.**',
     // #56: a daemon crash took an in-flight ask_human down with it, and the agent
     // read the transport error as permission to decide the question itself. A
