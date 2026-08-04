@@ -470,10 +470,17 @@ describe('the /start slash expansion', () => {
   })
 
   test('what the phone sends, the router reads back', () => {
-    const text = expandCommand(interaction({ ticket: '147', harness: 'claude', instruction: 'chart\nthe fog' }))
+    const text = expandCommand(interaction({ ticket: '147', model: 'opus', instruction: 'chart\nthe fog' }))
     assert.deepEqual(parseCommand(text), {
-      verb: 'start', ticket: '147', harness: 'claude', instruction: 'chart the fog',
+      verb: 'start', ticket: '147', model: 'opus', instruction: 'chart the fog',
     })
+  })
+
+  // #177: the option is gone from the manifest, so a current client cannot send
+  // it. A STALE client-side manifest still can, and expansion must not put it
+  // back into the canonical text — the round trip above is what would break.
+  test('a stale client sending harness= expands to text without it', () => {
+    assert.equal(expandCommand(interaction({ ticket: '147', harness: 'codex' })), 'start 147')
   })
 })
 

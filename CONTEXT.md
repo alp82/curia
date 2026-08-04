@@ -85,7 +85,7 @@ A key under `models:` in `routing.yaml`. It is the dispatch vocabulary that `mod
 What curia tells a human is running. Best evidence first: the model the transcript states, then `models.<label>.id`, then the routing label. The status line and the composer-ready message say this. Cooling, fallback and the `status` list keep the routing label, because they speak about dispatch.
 
 **Harness**:
-The program an agent runs under: claude or codex.
+The program an agent runs under: claude or codex. It is a function of the model: `models.<x>.harness` states one value, and no command overrides it. A pin that disagreed with the model built `codex --model opus`, which is not a model.
 _Avoid_: backend, lane.
 
 **Cooling**:
@@ -102,6 +102,9 @@ The command brain of curia. The standing design is one brain with three skins (D
 
 **The five verbs**:
 `frontier`, `start`, `status`, `cancel`, `attach`. The whole command surface, identical over Discord and REST.
+
+**Resume**:
+A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree and the model of the last spawn, which the journal states. It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
 
 **Cancel**:
 The one act that ends a running agent. It kills the session, removes the worktree and releases the GitHub claim. It closes every open question of that agent, and the ticket goes back to the frontier. The word has one place: `cancel <n>` in the command channel. No button on a question ends anything.

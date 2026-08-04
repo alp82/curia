@@ -25,9 +25,19 @@ const REPOISH_RE = /^[\w./-]+$/
 // unchanged.
 const INSTRUCTION_SEP = '--'
 
+// #177: `harness=` is gone from every surface. The harness is a FUNCTION of the
+// model — `models.<x>.harness` holds one value — so every value the daemon could
+// accept was either the model's own harness (a no-op) or a contradiction that
+// built `codex --model opus`, which is not a model, and died at the composer.
+// The parser refuses it, and the router names the rule rather than printing the
+// catalogue at an operator with muscle memory. `review` already ruled this way.
+const HARNESS_OPT_RE = /(^|\s)harness=/
+const HARNESS_GONE = '`harness=` is gone — the harness follows the model, so `model=` is the whole override. To run a model on another harness, add a row to `routing.yaml`.'
+
 // 'tickets [repo]' | 'next [repo]' | 'status'
-// | 'start <n>|<owner/repo#n> [model=x] [harness=y] [-- <instruction>]'
-// | 'cancel <n>|all' | 'resume <n>|all' | 'attach <n>'  — anything else ⇒ null.
+// | 'start <n>|<owner/repo#n> [model=x] [-- <instruction>]'
+// | 'cancel <n>|all' | 'resume <n> [model=x]' | 'resume all' | 'attach <n>'
+// — anything else ⇒ null.
 export function parseCommand(text) {
   const parts = (text ?? '').trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return null
@@ -63,9 +73,9 @@ export function parseCommand(text) {
       const sep = rest.indexOf(INSTRUCTION_SEP)
       const opts = sep === -1 ? rest.slice(1) : rest.slice(1, sep)
       for (const opt of opts) {
-        const om = opt.match(/^(model|harness)=([\w.-]+)$/)
+        const om = opt.match(/^model=([\w.-]+)$/)
         if (!om) return null
-        cmd[om[1]] = om[2]
+        cmd.model = om[1]
       }
       if (sep !== -1) {
         // `--` with nothing after it is a typo, not an empty instruction: it
@@ -77,12 +87,30 @@ export function parseCommand(text) {
       }
       return cmd
     }
-    case 'cancel':
-    case 'resume': {
+    case 'cancel': {
       if (rest.length !== 1) return null
       if (rest[0] === 'all') return { verb, all: true }
       if (/^\d+$/.test(rest[0])) return { verb, ticket: rest[0] }
       return null
+    }
+    // `resume` takes the same `model=` override `start` takes (#177). It needs
+    // one because resume now INHERITS the model of the dead agent, and an
+    // inheritance with no way out pins a ticket to a model the operator has
+    // changed their mind about.
+    //
+    // `resume all` takes none: one model over every surviving worktree would
+    // overwrite each ticket's own inherited model with a single guess.
+    case 'resume': {
+      if (!rest.length) return null
+      if (rest[0] === 'all') return rest.length === 1 ? { verb, all: true } : null
+      if (!/^\d+$/.test(rest[0])) return null
+      const cmd = { verb, ticket: rest[0] }
+      for (const opt of rest.slice(1)) {
+        const om = opt.match(/^model=([\w.-]+)$/)
+        if (!om) return null
+        cmd.model = om[1]
+      }
+      return cmd
     }
     case 'attach': {
       if (rest.length === 1 && /^\d+$/.test(rest[0])) return { verb, ticket: rest[0] }
@@ -113,19 +141,18 @@ const USAGE = [
   '`tickets [repo]` — takeable tickets across the watch list (repo: any unambiguous part of the name)',
   '`next [repo]` — dispatch the next takeable ticket',
   '`status` — agents running, agents waiting on input, recent cancelled and finished',
-  '`start <n>|repo#<n> [model=x] [harness=y]` — claim + dispatch an agent (repo: any unambiguous part of the name)',
+  '`start <n>|repo#<n> [model=x]` — claim + dispatch an agent (repo: any unambiguous part of the name)',
   '`start <map> -- <instruction>` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after `--` is what it should change',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
-  '`resume <n>|all` — fresh agent on a ticket, inheriting its surviving worktree',
+  '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree and the model it last ran on',
   '`attach <n>` — timeline + browser-terminal links for a live agent',
   '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
 ].join('\n')
 
 export class CommandRouter {
   // attach: { link(ticket) -> Promise<url> } — injected by index.mjs.
-  // dispatcher carries the loaded routing config at dispatcher.routing so
-  // `harness=` validates without a network round-trip, and the watch list at
-  // dispatcher.config.watch so repo arguments resolve without one either.
+  // dispatcher carries the watch list at dispatcher.config.watch so repo
+  // arguments resolve without a network round-trip.
   constructor({ dispatcher, attach, log = console.log }) {
     this.dispatcher = dispatcher
     this.attach = attach
@@ -140,7 +167,10 @@ export class CommandRouter {
   // interpreted destructive verbs go through the button confirm.
   async handle(canonical, userId, { threadId = null, interpreted = false } = {}) {
     const cmd = parseCommand(canonical)
-    if (!cmd) return `❌ could not parse \`${canonical}\`\n${USAGE}`
+    if (!cmd) {
+      const why = HARNESS_OPT_RE.test(canonical) ? `${HARNESS_GONE}\n` : ''
+      return `❌ could not parse \`${canonical}\`\n${why}${USAGE}`
+    }
     try {
       // `return await` is load-bearing throughout: a bare `return <promise>` is
       // adopted AFTER the try block exits, so the catch below would never see a
@@ -164,12 +194,8 @@ export class CommandRouter {
             if (repo.error) return repo.error
             cmd.repo = repo.repo
           }
-          if (cmd.harness && !this.dispatcher.routing.harnesses?.[cmd.harness]) {
-            const configured = Object.keys(this.dispatcher.routing.harnesses ?? {}).map((b) => `\`${b}\``).join(', ')
-            return `❌ harness \`${cmd.harness}\` is not configured — configured harnesses: ${configured}`
-          }
           return await this.dispatcher.start(cmd.ticket, {
-            repo: cmd.repo, model: cmd.model, harness: cmd.harness, instruction: cmd.instruction,
+            repo: cmd.repo, model: cmd.model, instruction: cmd.instruction,
             by: userId, threadId,
           })
         }
@@ -182,7 +208,7 @@ export class CommandRouter {
           return await this.dispatcher.cancel(cmd.ticket, { by: userId })
         case 'resume':
           if (cmd.all) return await this.dispatcher.resumeAll({ by: userId })
-          return await this.dispatcher.resume(cmd.ticket, { by: userId, threadId })
+          return await this.dispatcher.resume(cmd.ticket, { model: cmd.model, by: userId, threadId })
         case 'attach':
           return await this.#attachReply(cmd.ticket)
         case 'review':

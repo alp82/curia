@@ -7,24 +7,24 @@
 //     'tickets [repo]'                 -> { verb: 'tickets', repo?: string }
 //     'next [repo]'                    -> { verb: 'next', repo?: string }
 //     'status'                         -> { verb: 'status' }
-//     'start <n> [model=x] [harness=y]'-> { verb: 'start', ticket, model?, harness? }
-//     'start <owner>/<repo>#<n> [model=x] [harness=y]'
-//                                       -> { verb: 'start', repo, ticket, model?, harness? }
+//     'start <n> [model=x]'            -> { verb: 'start', ticket, model? }
+//     'start <owner>/<repo>#<n> [model=x]'
+//                                       -> { verb: 'start', repo, ticket, model? }
 //       (field-notes contract 6: the repo-qualified form, needed so a user
 //       can satisfy the ambiguity-refusal path's recommended qualified
 //       `owner/repo#n` reply -- plan.md step 8's `start`.)
 //     'cancel <n>' | 'cancel all'      -> { verb: 'cancel', ticket } | { verb: 'cancel', all: true }
-//     'resume <n>' | 'resume all'      -> { verb: 'resume', ticket } | { verb: 'resume', all: true }
+//     'resume <n> [model=x]'           -> { verb: 'resume', ticket, model? }
+//     'resume all'                     -> { verb: 'resume', all: true }
 //     'attach <n>'                     -> { verb: 'attach', ticket }
 //     anything else                    -> null
 //
 //   class CommandRouter({ dispatcher, attach, log })
 //     handle(canonical, userId) -> Promise<string>  (Discord-markdown reply)
-//     dispatcher carries the loaded routing config at dispatcher.routing
-//     (mirroring plan.md step 8's Dispatcher constructor) so the router can
-//     validate `harness=` without a network round-trip: a value not present
-//     in dispatcher.routing.harnesses is refused, naming the configured ones,
-//     and dispatcher.start(...) must NOT be called in that case.
+//     #177 removed `harness=` from this surface: the harness is a function of
+//     the model, so every value the router could have accepted was either the
+//     model's own harness or a spawn that dies at the composer. The parse fails
+//     and the reply names the rule.
 //
 //   validSessionName(s) -- exported by src/attach.mjs, the SAME regex as the
 //   wrapper script: ^curia-[A-Za-z0-9._-]+$ (prototype.md #2, exact shape).
@@ -75,6 +75,30 @@ describe('parseCommand', () => {
     assert.deepEqual(parseCommand('resume 42'), { verb: 'resume', ticket: '42' })
   })
 
+  // #177: resume inherits the model of the dead agent, and this is the way out.
+  test('resume takes the model override start takes', () => {
+    assert.deepEqual(parseCommand('resume 42 model=gpt'), { verb: 'resume', ticket: '42', model: 'gpt' })
+  })
+
+  // One model over every surviving worktree would overwrite each ticket's own
+  // inherited model with a single guess.
+  test('resume all takes no model', () => {
+    assert.equal(parseCommand('resume all model=gpt'), null)
+  })
+
+  test('resume takes no harness either', () => {
+    assert.equal(parseCommand('resume 42 harness=codex'), null)
+  })
+
+  // #177: the harness follows the model. `start 5 model=opus harness=codex`
+  // built `codex --model opus`, which is not a model, and the spawn died at the
+  // composer; every value that did NOT contradict the model was a no-op.
+  test('start refuses harness=, whether it contradicts the model or agrees with it', () => {
+    assert.equal(parseCommand('start 42 model=opus harness=codex'), null)
+    assert.equal(parseCommand('start 42 model=opus harness=claude'), null)
+    assert.equal(parseCommand('start 42 harness=codex'), null)
+  })
+
   test('status', () => {
     assert.equal(parseCommand('status').verb, 'status')
   })
@@ -87,12 +111,12 @@ describe('parseCommand', () => {
     assert.equal(c.harness, undefined)
   })
 
-  test('start with model and harness overrides', () => {
-    const c = parseCommand('start 42 model=opus harness=claude')
+  test('start with a model override', () => {
+    const c = parseCommand('start 42 model=opus')
     assert.equal(c.verb, 'start')
     assert.equal(c.ticket, '42')
     assert.equal(c.model, 'opus')
-    assert.equal(c.harness, 'claude')
+    assert.equal(c.harness, undefined)
   })
 
   // field-notes contract 6: the repo-qualified start form -- required so the
@@ -116,7 +140,7 @@ describe('parseCommand', () => {
     assert.equal(c.ticket, '42')
   })
 
-  test('start with a fuzzy repo keeps model and harness options', () => {
+  test('start with a fuzzy repo keeps the model option', () => {
     const c = parseCommand('start alperortac#42 model=opus')
     assert.equal(c.repoArg, 'alperortac')
     assert.equal(c.model, 'opus')
@@ -196,22 +220,56 @@ describe('parseCommand', () => {
   })
 })
 
-describe('CommandRouter harness refusal', () => {
-  test('a harness not in routing.harnesses is refused, naming the configured harnesses, without dispatching', async () => {
-    let started = false
-    const dispatcher = {
-      routing: {
-        harnesses: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ } },
-      },
-      start: async () => { started = true },
-    }
-    const attach = {}
-    const router = new CommandRouter({ dispatcher, attach, log: () => {} })
+// #177: `harness=` is refused at the command surface now, on every verb that
+// used to take it. The refusal has to say WHY — an operator with muscle memory
+// reading only "could not parse" would retype it.
+describe('CommandRouter harness refusal (#177)', () => {
+  const makeRouter = (calls) => new CommandRouter({
+    dispatcher: {
+      routing: { harnesses: { claude: {}, codex: {} }, models: { opus: { harness: 'claude' } } },
+      start: async (...a) => { calls.push(a); return 'started' },
+      resume: async (...a) => { calls.push(a); return 'resumed' },
+    },
+    attach: {},
+    log: () => {},
+  })
 
-    const reply = await router.handle('start 42 harness=codex', 'user-1')
+  test('a harness= on start is refused with the rule, and nothing dispatches', async () => {
+    const calls = []
+    const reply = await makeRouter(calls).handle('start 42 harness=codex', 'user-1')
+    assert.equal(calls.length, 0)
+    assert.match(reply, /the harness follows the model/)
+    assert.match(reply, /routing\.yaml/)
+  })
 
-    assert.equal(started, false)
-    assert.match(reply, /claude/) // names the one configured harness
+  test('a harness= that AGREES with the model is refused too — it was only ever a no-op', async () => {
+    const calls = []
+    const reply = await makeRouter(calls).handle('start 42 model=opus harness=claude', 'user-1')
+    assert.equal(calls.length, 0)
+    assert.match(reply, /the harness follows the model/)
+  })
+
+  test('an ordinary parse failure does not mention the harness at all', async () => {
+    const reply = await makeRouter([]).handle('banana', 'user-1')
+    assert.ok(!/the harness follows the model/.test(reply), reply)
+  })
+
+  test('the model override still reaches the dispatcher, on start and on resume', async () => {
+    const calls = []
+    const router = makeRouter(calls)
+    assert.equal(await router.handle('start 42 model=opus', 'user-1'), 'started')
+    assert.equal(await router.handle('resume 42 model=opus', 'user-1'), 'resumed')
+    assert.equal(calls[0][1].model, 'opus')
+    assert.equal(calls[0][1].harness, undefined)
+    assert.equal(calls[1][1].model, 'opus')
+  })
+
+  // The inheritance lives in the dispatcher, so a bare resume must hand it
+  // NOTHING — a router-side default would beat the journal.
+  test('a bare resume passes no model, leaving the inheritance to the dispatcher', async () => {
+    const calls = []
+    assert.equal(await makeRouter(calls).handle('resume 42', 'user-1'), 'resumed')
+    assert.equal(calls[0][1].model, undefined)
   })
 })
 
@@ -381,7 +439,9 @@ describe('CommandRouter grown verbs (#81)', () => {
     }
     const attach = { timelineLink: async () => 'https://t.example/5', link: async () => 'https://a.example/5' }
     const router = new CommandRouter({ dispatcher, attach, log: () => {} })
-    for (const cmd of ['tickets', 'status', 'attach 5', 'garbage in', 'tickets nomatch']) {
+    // `start 5 harness=codex` carries the #177 refusal line on top of the
+    // catalogue, so the standard has to hold for it too.
+    for (const cmd of ['tickets', 'status', 'attach 5', 'garbage in', 'tickets nomatch', 'start 5 harness=codex']) {
       const reply = await router.handle(cmd, 'u')
       assert.deepEqual(lintReply(reply), [], `\`${cmd}\` reply violates the standard: ${reply}`)
     }
