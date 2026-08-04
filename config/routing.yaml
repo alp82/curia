@@ -130,8 +130,11 @@ backends:
   codex:
     template: 'codex --model {model} --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat {prompt_file})"'
     ready: '·\s[~/]'
-    # The codex lane joins the container at #158, after the claude lane soaks.
-    sandbox: none
+    # ON since #158. The claude lane soaked first (#156, #157, #185), which was
+    # the rollout rule #148 set. `none` is still the whole way back, and on this
+    # lane it also restores the SHARED credential store: a container copies
+    # `auth.json` and freezes on it, a bare pane symlinks the host's own file.
+    sandbox: docker
     # UNMEASURED, and deliberately loose until #158 takes the reading (#194).
     # Nothing here says the codex CLI starts its MCP servers on the claude
     # lane's clock, and the cost of guessing low is a healthy worker killed —

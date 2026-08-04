@@ -338,6 +338,79 @@ describe('the codex worker harness (#39)', () => {
     assert.equal(fs.existsSync(host), hostExisted)
   })
 
+  // #158: a container mounts no host HOME, so the link resolves to nothing
+  // inside it. `os.homedir()` reads $HOME on POSIX, which is what lets these
+  // drive both the copy and the refusal without touching the real store.
+  describe('the sandboxed codex credential (#158)', () => {
+    const withHome = (fn) => {
+      const saved = process.env.HOME
+      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-codex-home-'))
+      try {
+        process.env.HOME = home
+        return fn(home)
+      } finally {
+        process.env.HOME = saved
+        fs.rmSync(home, { recursive: true, force: true })
+      }
+    }
+
+    test('a container gets a read-only COPY, never the link', () => withHome((home) => {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{"tokens":{"refresh_token":"r"}}')
+      const { cfgDir, wtPath } = dirs(20)
+      seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true })
+
+      const dest = path.join(cfgDir, 'auth.json')
+      const st = fs.lstatSync(dest)
+      assert.equal(st.isSymbolicLink(), false, 'a link into ~/.codex resolves to nothing inside a container')
+      assert.equal(fs.readFileSync(dest, 'utf8'), '{"tokens":{"refresh_token":"r"}}')
+      // 0400: an ordinary in-place refresh FAILS rather than rotating the host
+      // away, which is the whole reason the copy is frozen (the file carries a
+      // refresh_token, and providers rotate those)
+      assert.equal(st.mode & 0o777, 0o400)
+    }))
+
+    test('the bare path still shares the host store — the boundary is what changes, not the lane', () => withHome((home) => {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}')
+      const { cfgDir, wtPath } = dirs(21)
+      seedConfigDir(cfgDir, wtPath, null, 'codex')
+      assert.equal(fs.lstatSync(path.join(cfgDir, 'auth.json')).isSymbolicLink(), true)
+    }))
+
+    test('no host credential refuses the seed, naming both ways out', () => withHome(() => {
+      const { cfgDir, wtPath } = dirs(22)
+      assert.throws(
+        () => seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true }),
+        /codex login[\s\S]*sandbox: none/,
+      )
+    }))
+
+    test('a stale copy in a reused config dir is swept before the fresh one lands', () => withHome((home) => {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{"fresh":true}')
+      const { cfgDir, wtPath } = dirs(23)
+      fs.mkdirSync(cfgDir, { recursive: true })
+      fs.writeFileSync(path.join(cfgDir, 'auth.json'), '{"stale":true}')
+      fs.chmodSync(path.join(cfgDir, 'auth.json'), 0o400)
+
+      seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true })
+      assert.equal(fs.readFileSync(path.join(cfgDir, 'auth.json'), 'utf8'), '{"fresh":true}')
+    }))
+
+    test('the sweep takes the copy — it is a live host credential outliving its container', () => withHome((home) => {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+      const host = path.join(home, '.codex', 'auth.json')
+      fs.writeFileSync(host, '{}')
+      const { cfgDir, wtPath } = dirs(24)
+      seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true })
+
+      removeCredentials(cfgDir)
+      assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), false)
+      assert.equal(fs.existsSync(host), true, 'the host store is never touched by a sweep')
+    }))
+  })
+
   test('skills install the same way under codex — both CLIs read <config>/skills', () => {
     const { cfgDir, wtPath } = dirs(5)
     const root = path.join(tmp, 'skills')

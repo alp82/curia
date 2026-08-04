@@ -300,7 +300,10 @@ export function removeConfigDir(cfgDir) {
 // the other backend leaves the first one's files behind.
 //
 // `rmSync` unlinks a symlink rather than following it, so sweeping the codex
-// lane's `auth.json` link never touches the host file it points at.
+// lane's `auth.json` link never touches the host file it points at. On the
+// sandboxed codex lane that path holds a real COPY instead (#158), and sweeping
+// it is the point rather than a side effect: it is a live host credential, and
+// the copy outlives the container it was made for.
 export function removeCredentials(cfgDir) {
   for (const name of ['.credentials.json', 'auth.json']) {
     fs.rmSync(path.join(cfgDir, name), { force: true })
@@ -640,10 +643,36 @@ const HARNESS = {
     // can be seen torn. The window is one small write and nothing in codex locks
     // that file (its own locks live under $CODEX_HOME/tmp, which is per-worker
     // and so shares nothing), and the failure re-dispatches (#11/#12).
-    seed: (cfgDir) => {
-      const link = path.join(cfgDir, 'auth.json')
-      fs.rmSync(link, { force: true })
-      fs.symlinkSync(path.join(os.homedir(), '.codex', 'auth.json'), link)
+    // A CONTAINER cannot have the link, and cannot have the sharing either
+    // (#158). It mounts no host HOME, so a link into `~/.codex` resolves to
+    // nothing inside — the silent shape #156 found with skills. The credential
+    // is a FILE in `CODEX_HOME`, and `CODEX_HOME` is the config dir the
+    // container already mounts, so delivery is a copy and needs no new mount.
+    //
+    // The copy is READ-ONLY, and that is the whole decision rather than a
+    // detail. `auth.json` on this box carries a `refresh_token`, and providers
+    // rotate those: a worker that refreshed its copy would invalidate the
+    // token the HOST still holds — #53's stranding, arriving by the other lane.
+    // So the container worker is frozen on the token it started with, which is
+    // the same bound #156 accepted for the claude lane and stated.
+    //
+    // 0400 is a bound against accident, not against the agent: the container
+    // runs as uid 1000 and owns the file, so it could chmod it back. What it
+    // buys is that an ordinary in-place refresh FAILS rather than silently
+    // rotating the host away.
+    seed: (cfgDir, _wtPath, { sandboxed = false } = {}) => {
+      const dest = path.join(cfgDir, 'auth.json')
+      const host = path.join(os.homedir(), '.codex', 'auth.json')
+      fs.rmSync(dest, { force: true })
+      if (!sandboxed) {
+        fs.symlinkSync(host, dest)
+        return
+      }
+      if (!fs.existsSync(host)) {
+        throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex worker cannot reach the host store — run \`codex login\` on this box, or set \`backends.codex.sandbox: none\``)
+      }
+      fs.copyFileSync(host, dest)
+      fs.chmodSync(dest, 0o400)
     },
 
     // Everything the codex lane needs is in the config dir, so nothing is written
@@ -805,7 +834,10 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude',
   // is worse than none because it is a *silent* return to the frozen-token
   // failure. The codex seed then puts its symlink back.
   removeCredentials(cfgDir)
-  h.seed(cfgDir, wtPath)
+  // The seed needs the boundary too (#158): the codex lane shares the host's
+  // credential file through a symlink on the bare path and cannot share it at
+  // all across a mount, so it copies instead.
+  h.seed(cfgDir, wtPath, { sandboxed })
   // The one deliberate narrowing of the no-host-config stance below (#133):
   // the operator's communication rules are mandatory for every agent, so a
   // curia-owned copy lands as the CLI's global-memory file. `CLAUDE.md` for

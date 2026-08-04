@@ -46,6 +46,7 @@ let confirms // confirm records opened through the injected openConfirm (#94)
 let lapses // {id, reason} lapsed through the injected lapseEscalation (#94)
 let confirmNotes // {id, text} posted next to a confirm's buttons (#94)
 let overseerNotes // {threadId, text} synthetic session lines (#94)
+const dispatchers = [] // every Dispatcher a test built, so afterEach can end its watches
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-dispatch-test-'))
@@ -61,6 +62,14 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Every detached watch this test left running is ended HERE, by dropping the
+  // records they hold: both the readiness watchdog and the tool-channel watch
+  // (#194) stop as soon as `workers.get(session)` is no longer the object they
+  // started on. Without this a worker that reached its composer keeps a 15 s
+  // window open, and it journals its verdict into whatever test is running when
+  // it closes — `events` and `notifies` are shared across the file.
+  for (const d of dispatchers) d.workers.clear()
+  dispatchers.length = 0
   fs.rmSync(tmp, { recursive: true, force: true })
 })
 
@@ -180,6 +189,7 @@ function makeDispatcher(deps = {}, {
   // the timeline. Reconcile refuses to publish the terminal surface while the
   // proxy is down, so the default here is up — the down case gets its own test.
   d.identityProxy = identityProxy
+  dispatchers.push(d)
   return d
 }
 
