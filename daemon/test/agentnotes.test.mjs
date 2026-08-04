@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EscalationStore } from '../src/store.mjs'
+import { EscalationStore, noteDisposition } from '../src/store.mjs'
 import { COMMAND_SHAPED, commandHint, queuedNoteReply } from '../src/bridge.mjs'
 import { parseCommand } from '../src/commands.mjs'
 
@@ -155,6 +155,9 @@ describe('agent-note queue', () => {
     assert.match(dead[0], /NOT running/)
     assert.match(dead[0], /resume 166/)
     assert.ok(!dead[0].includes('next tool result'), 'the promise must not survive on a dead agent')
+    // #208 took the queue away as well, so the line must not imply one
+    assert.match(dead[0], /nothing was queued/)
+    assert.ok(!/^queued/.test(dead[0]), 'nothing was queued, so the line may not open with "queued"')
 
     const live = queuedNoteReply({ owner: 'curia-9', q: { reads: true, ticket: '9' }, text: 'look at the logs', channelId: 'C1' })
     assert.match(live[0], /reads this with its next tool result/)
@@ -205,6 +208,68 @@ describe('agent-note queue', () => {
     store.queueRecordedAnswer(store.get(record.id))
     const [note] = store.takeAgentNotes('curia-9')
     assert.match(note.text, /\/data\/attachments\/esc-1\/image\.png/)
+  })
+
+  // #208: the ruling. Words typed at an agent are about what THAT agent was
+  // doing, so they die with it. The caller is what marks the two kinds apart:
+  // thread text names the instance it was typed at, the #139 hand-off names
+  // none, because reaching the successor is its whole point.
+  describe('a note expires with the instance it was addressed to (#208)', () => {
+    test('a stamped note dies with its instance, an unstamped one lives on', () => {
+      store.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@1' })
+      store.queueRecordedAnswer({ id: 'esc-3', agent: 'curia-166', prompt: 'ship it?', answer: 'yes' })
+
+      assert.equal(store.expireAgentNotes('curia-166', null), 1, 'one stamped note died')
+      const [survivor, ...rest] = store.takeAgentNotes('curia-166')
+      assert.deepEqual(rest, [], 'exactly one note survived')
+      assert.match(survivor.text, /a human answered esc-3/)
+    })
+
+    test('the successor never reads its predecessor\'s words, even if no exit path ran', () => {
+      store.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@15:13' })
+      // the #170 run: a fresh agent takes the session name an hour later
+      assert.deepEqual(store.takeAgentNotes('curia-166', 'curia-166@16:36'), [])
+    })
+
+    test('the instance that WAS addressed still reads its own notes', () => {
+      store.queueAgentNote('curia-166', 'look at the tail', { instance: 'curia-166@1' })
+      assert.deepEqual(store.takeAgentNotes('curia-166', 'curia-166@1').map((n) => n.text), ['look at the tail'])
+    })
+
+    test('expiry is journalled, so a restart does not resurrect the words', () => {
+      store.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@1' })
+      store.expireAgentNotes('curia-166', null)
+      assert.deepEqual(new EscalationStore(dir).takeAgentNotes('curia-166'), [])
+    })
+
+    test('expiring nothing writes nothing — an empty sweep is not an event', () => {
+      store.queueAgentNote('curia-166', 'a note for whoever resumes', {})
+      assert.equal(store.expireAgentNotes('curia-166', null), 0)
+      assert.deepEqual(store.takeAgentNotes('curia-166').map((n) => n.text), ['a note for whoever resumes'])
+    })
+
+    // The gate's own decision, pure for the reason queuedNoteReply is pure:
+    // the daemon seam needs a live gateway, and this rule is the one that
+    // closes the #170 case.
+    test('a dead agent queues nothing at all — the #170 note never exists', () => {
+      assert.deepEqual(noteDisposition({ state: 'failed', instance: 'curia-166@1' }), { reads: false, instance: null })
+    })
+
+    test('a running agent queues, stamped with the instance the words were typed at', () => {
+      assert.deepEqual(noteDisposition({ state: 'ready', instance: 'curia-166@1' }), { reads: true, instance: 'curia-166@1' })
+      assert.deepEqual(noteDisposition({ state: 'spawning', instance: 'curia-166@2' }), { reads: true, instance: 'curia-166@2' })
+    })
+
+    test('an agent with no instance still queues — an unstamped note is the old rule, not a refusal', () => {
+      assert.deepEqual(noteDisposition({ state: 'ready' }), { reads: true, instance: null })
+    })
+
+    test('a note journalled before #208 carries no stamp, so it keeps the old rule', () => {
+      fs.appendFileSync(path.join(dir, 'events.jsonl'),
+        JSON.stringify({ ts: '2026-08-01T00:00:00Z', type: 'agent_note', agent: 'curia-166', text: 'from before', after: null }) + '\n')
+      const reborn = new EscalationStore(dir)
+      assert.deepEqual(reborn.takeAgentNotes('curia-166', 'curia-166@2').map((n) => n.text), ['from before'])
+    })
   })
 
   test('the queue survives a daemon restart — journal, not memory', () => {

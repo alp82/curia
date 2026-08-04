@@ -2317,6 +2317,7 @@ export class Dispatcher {
       const lease = await this.#endWorkspaceLease(agentName, ticket, w?.repo ?? this.#epochRepo(ticket))
       this.notify(ticket, `✅ \`${agentName}\` finished with a recorded result — session closed; ${lease}`)
       this.lapseConfirmsFor(agentName, `\`${agentName}\` finished`)
+      this.expireNotesFor(agentName, ticket, 'finished')
       // terminal state ⇒ the ticket label comes off the thread (#93)
       await this.threads.release(ticket, 'finished').catch(() => {})
     } else {
@@ -2326,6 +2327,7 @@ export class Dispatcher {
       this.notify(ticket, `⚠️ \`${agentName}\` stopped WITHOUT reporting a result — session kept for post-mortem (\`/attach ${ticket}\`)`)
       // the agent the confirm described has exited, whatever the pane holds (#94)
       this.lapseConfirmsFor(agentName, `\`${agentName}\` stopped without a result`)
+      this.expireNotesFor(agentName, ticket, 'stopped without a result')
     }
   }
 
@@ -2600,6 +2602,29 @@ export class Dispatcher {
     }
   }
 
+  // The same rule for operator notes (#208), and every exit path calls this
+  // the way it calls lapseConfirmsFor above: the words were about what THAT
+  // agent was doing, so a successor on the session must never read them. The
+  // #139 hand-off carries no instance stamp and is untouched, because
+  // reaching the successor is its whole point.
+  //
+  // The count, never the words: the journal keeps the text, and the thread
+  // says how many died so the operator knows to say them again. A note that
+  // vanishes with no line is the dead end #170 was about.
+  //
+  // `liveInstance` is null at every death. Adoption after a restart passes
+  // the FRESH instance instead, which expires the pre-restart words on the
+  // same rule that lapses a pre-restart confirm.
+  expireNotesFor(session, ticket, why, liveInstance = null) {
+    const n = this.store.expireAgentNotes(session, liveInstance)
+    if (!n) return
+    this.log(`${n} operator note(s) for ${session} expired — ${why}`)
+    const again = liveInstance
+      ? 'Say them again in this thread.'
+      : `Say them again after \`resume ${ticket}\`.`
+    this.notify(ticket, `📭 \`${session}\` ${why} with ${n} operator note${n === 1 ? '' : 's'} it never read. A note dies with the agent it was typed at, so nothing carries these words to a successor. ${again}`)
+  }
+
   // The teardown a confirmed cancel runs — shared verbatim by cancel and
   // cancelAll, so the bulk verb can never drift from the single one.
   async #teardown(ticket, { by } = {}) {
@@ -2660,6 +2685,7 @@ export class Dispatcher {
     this.notify(ticket, msg)
     // the agent is positively gone ⇒ any OTHER open confirm on it lapses (#94)
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
+    this.expireNotesFor(session, ticket, 'was cancelled')
     // The binding stays (#140): a cancel ends the AGENT and releases the
     // claim, but the ticket goes back to the frontier — a later dispatch
     // belongs in the thread its history lives in. The label comes off when
@@ -2897,6 +2923,7 @@ export class Dispatcher {
     await this.#withdrawPreview(ticket, 'agent died')
     // an open confirm describes an instance that no longer exists (#94)
     this.lapseConfirmsFor(session, `\`${session}\` died`)
+    this.expireNotesFor(session, ticket, 'died')
     // the session is positively gone, so nothing later collects the copy
     this.deps.removeCredentials(w.cfgDir ?? cfgDirFor(this.root, session))
 
@@ -3151,10 +3178,11 @@ export class Dispatcher {
           // state home for what a restart cannot re-derive, so it answers here
           // exactly as it does for the repo and the charting kind.
           const spawn = this.#epochSpawn(journal, session)
+          // a FRESH instance id: any confirm bound before the restart lapses
+          // at boot rather than matching an adopted agent it never described
+          const instance = `${session}@adopted-${Date.now()}`
           this.agents.set(session, {
-            // a FRESH instance id: any confirm bound before the restart lapses
-            // at boot rather than matching an adopted agent it never described
-            repo, ticket: n, title: issue.title, session, instance: `${session}@adopted-${Date.now()}`,
+            repo, ticket: n, title: issue.title, session, instance,
             wtPath, cfgDir: cfgDirFor(this.root, session), promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
             model: spawn?.model ?? null, requestedModel: null,
             harness: spawn?.harness ?? null,
@@ -3165,6 +3193,10 @@ export class Dispatcher {
             resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
           })
           this.log(`reconcile: re-adopted live agent ${session} (${repo}#${n})`)
+          // The same reason the confirms lapse here (#208): a pre-restart note
+          // named a pre-restart instance, and this one is new. The agent IS
+          // running, so the way out is the thread rather than a resume.
+          this.expireNotesFor(session, String(n), 'was adopted after a daemon restart', instance)
           adopted = true
           break
         }

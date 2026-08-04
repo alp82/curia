@@ -46,6 +46,7 @@ let confirms // confirm records opened through the injected openConfirm (#94)
 let lapses // {id, reason} lapsed through the injected lapseEscalation (#94)
 let confirmNotes // {id, text} posted next to a confirm's buttons (#94)
 let overseerNotes // {threadId, text} synthetic session lines (#94)
+let agentNotes // session -> queued operator notes the exit sweep expires (#208)
 const dispatchers = [] // every Dispatcher a test built, so afterEach can end its watches
 
 beforeEach(() => {
@@ -59,6 +60,7 @@ beforeEach(() => {
   lapses = []
   confirmNotes = []
   overseerNotes = []
+  agentNotes = new Map()
 })
 
 afterEach(() => {
@@ -107,6 +109,15 @@ function makeDispatcher(deps = {}, {
     logEvent: (type, data) => { const rec = { type, ...data }; events.push(rec); return rec },
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     cancel: () => ({ ok: true }),
+    // #208, the real EscalationStore predicate: a note stamped with an
+    // instance dies when that instance is no longer the live one. An
+    // unstamped note is session-keyed and stays (the #139 hand-off).
+    expireAgentNotes: (agent, live = null) => {
+      const arr = agentNotes.get(agent) ?? []
+      const keep = arr.filter((n) => !n.instance || n.instance === live)
+      agentNotes.set(agent, keep)
+      return arr.length - keep.length
+    },
   }
   const base = {
     viewerLogin: async () => 'me',
@@ -1207,6 +1218,84 @@ describe('Dispatcher.cancel (criterion 6, the destructive half — W8; immediate
     // dispatch_unclaimed as "this ticket is settled" and would skip it forever
     assert.ok(!typesOf().includes('dispatch_unclaimed'), 'no unclaim happened ⇒ none may be journalled')
     assert.ok(!typesOf().includes('unclaim_failed'), 'no unclaim was even attempted ⇒ no event at all')
+  })
+})
+
+// #208: words typed at an agent die with that agent. The confirm rule of #94,
+// applied to the note queue — same exit paths, same reason, and the operator
+// is told at the moment the words die rather than left to find out when a
+// successor acts on them an hour later (#170).
+describe('operator notes die with the instance they were typed at (#208)', () => {
+  const noted = (instance) => ({ text: 'cancel 42', instance })
+  const writeJournal = (lines) =>
+    fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  const agentAt = (instance) => ({
+    repo: 'o/r', ticket: '42', session: 'curia-42', instance,
+    wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready', resultReceived: false,
+  })
+
+  test('a finished agent takes its unread notes with it, and the thread gets the count', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.agents.set('curia-42', agentAt('curia-42@1'))
+    agentNotes.set('curia-42', [noted('curia-42@1'), noted('curia-42@1')])
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{}')
+
+    await d.onAgentDone('curia-42')
+
+    assert.deepEqual(agentNotes.get('curia-42'), [], 'nothing survives to a successor')
+    const line = notifies.find((n) => /operator note/.test(n.message))
+    assert.ok(line, 'a note that vanishes with no line is the dead end #170 was about')
+    assert.match(line.message, /2 operator notes it never read/)
+    assert.match(line.message, /resume 42/)
+    assert.ok(!line.message.includes('cancel 42'), 'the count, never the words')
+  })
+
+  test('a result-less exit expires them too — that is the #170 shape exactly', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.agents.set('curia-42', agentAt('curia-42@1'))
+    agentNotes.set('curia-42', [noted('curia-42@1')])
+
+    await d.onAgentDone('curia-42')
+
+    assert.deepEqual(agentNotes.get('curia-42'), [])
+    assert.match(notifies.find((n) => /operator note/.test(n.message)).message, /1 operator note it never read/)
+  })
+
+  test('the #139 hand-off carries no instance, so it survives every exit', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.agents.set('curia-42', agentAt('curia-42@1'))
+    const handOff = { text: 'a human answered esc-3', instance: null }
+    agentNotes.set('curia-42', [noted('curia-42@1'), handOff])
+
+    await d.onAgentDone('curia-42')
+
+    assert.deepEqual(agentNotes.get('curia-42'), [handOff], 'the successor is the whole point of that one')
+    assert.match(notifies.find((n) => /operator note/.test(n.message)).message, /1 operator note it never read/)
+  })
+
+  test('an exit with nothing queued says nothing — no empty line in the thread', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.agents.set('curia-42', agentAt('curia-42@1'))
+
+    await d.onAgentDone('curia-42')
+
+    assert.equal(notifies.filter((n) => /operator note/.test(n.message)).length, 0)
+  })
+
+  test('adoption after a restart mints a fresh instance, so pre-restart words expire there too', async () => {
+    writeJournal([{ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42' }])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: [{ login: 'me' }] }),
+    })
+    agentNotes.set('curia-42', [noted('curia-42@before-the-restart')])
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(agentNotes.get('curia-42'), [])
+    const line = notifies.find((n) => /operator note/.test(n.message))
+    // this agent IS running, so the way out is the thread, not a resume
+    assert.match(line.message, /Say them again in this thread/)
   })
 })
 

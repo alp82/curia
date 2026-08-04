@@ -439,6 +439,8 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       openEscalations: () => escalations,
       cancel: () => ({ ok: true }),
       boundTickets: () => bound,
+      // #208: no test here queues an operator note, so nothing ever expires
+      expireAgentNotes: () => 0,
     },
     notify: () => {},
     confirm,
