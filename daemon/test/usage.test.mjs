@@ -26,6 +26,7 @@ import path from 'node:path'
 import {
   AccountUsage, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
   readTranscriptMeters, modelName, windowFromModel, windowLabel, workerMeters,
+  spentReset, transcriptReset,
   USAGE_ATTEMPT_MS, USAGE_STALE_MS, WINDOW_STALE_MS,
 } from '../src/usage.mjs'
 
@@ -177,12 +178,97 @@ describe('transcript meters', () => {
   })
 
   test('a missing, empty or unreadable transcript reads as no meters, never as a throw', () => {
-    assert.deepEqual(readTranscriptMeters('claude', null), { ctx: null, windows: null })
-    assert.deepEqual(readTranscriptMeters('claude', path.join(dir, 'nope.jsonl')), { ctx: null, windows: null })
-    assert.deepEqual(readTranscriptMeters('gemini', write('g.jsonl', [{}])), { ctx: null, windows: null })
+    const none = { ctx: null, windows: null, limits: null }
+    assert.deepEqual(readTranscriptMeters('claude', null), none)
+    assert.deepEqual(readTranscriptMeters('claude', path.join(dir, 'nope.jsonl')), none)
+    assert.deepEqual(readTranscriptMeters('gemini', write('g.jsonl', [{}])), none)
     const half = path.join(dir, 'half.jsonl')
     fs.writeFileSync(half, '{"type":"assistant","message":{"usa')
-    assert.deepEqual(readTranscriptMeters('claude', half), { ctx: null, windows: null })
+    assert.deepEqual(readTranscriptMeters('claude', half), none)
+  })
+
+  // The reading the cooling path takes (#175): the same slots the bars render,
+  // unrounded and with the expired ones still on them.
+  test('the raw slot readings ride beside the bars they render', () => {
+    const file = write('x.jsonl', [
+      codexCount({
+        input: 10,
+        window: 100,
+        primary: { used_percent: 99.4, window_minutes: 300, resets_at: resetsInSec(-30) },
+        secondary: { used_percent: 41, window_minutes: 10080, resets_at: resetsInSec(1000) },
+      }),
+    ])
+    const { windows, limits } = readTranscriptMeters('codex', file, NOW)
+    assert.deepEqual(windows, [{ label: '7d', pct: 41, elapsedPct: 90 }], 'the expired window is dropped from the bars')
+    assert.deepEqual(limits, [
+      { label: '5h', usedPct: 99.4, windowMs: 300 * MIN, resetsAt: resetsInSec(-30) },
+      { label: '7d', usedPct: 41, windowMs: 10080 * MIN, resetsAt: resetsInSec(1000) },
+    ])
+  })
+})
+
+// The instant a codex cap hit waits for, which used to be a blind hour.
+describe('the cooling reset (#175)', () => {
+  const slot = (label, usedPct, windowMinutes, resetsInMinutes) => ({
+    label, usedPct, windowMs: windowMinutes * MIN, resetsAt: resetsInSec(resetsInMinutes),
+  })
+
+  test('the spent window is the one to wait for, and a window with room is not', () => {
+    assert.deepEqual(
+      spentReset([slot('5h', 100, 300, 42), slot('7d', 41, 10080, 5000)], NOW),
+      new Date(NOW + 42 * MIN),
+    )
+    // 94% is not a cap hit. Nothing here states when this cooling ends.
+    assert.equal(spentReset([slot('5h', 94, 300, 42)], NOW), null)
+  })
+
+  test('two spent windows mean two caps, so the LATER reset wins', () => {
+    // Waiting only for the 5 h window respawns straight into the weekly one.
+    assert.deepEqual(
+      spentReset([slot('5h', 100, 300, 42), slot('7d', 99, 10080, 4000)], NOW),
+      new Date(NOW + 4000 * MIN),
+    )
+  })
+
+  test('a reset already past states nothing: that window has rolled', () => {
+    assert.equal(spentReset([slot('5h', 100, 300, -1)], NOW), null)
+  })
+
+  test('a reset further out than its own window is not that window\'s reset', () => {
+    assert.equal(spentReset([slot('5h', 100, 300, 600)], NOW), null)
+  })
+
+  test('no reading at all keeps the caller on its floor', () => {
+    assert.equal(spentReset(null, NOW), null)
+    assert.equal(spentReset([], NOW), null)
+    assert.equal(spentReset([{ label: '5h', usedPct: 100, windowMs: 300 * MIN, resetsAt: null }], NOW), null)
+  })
+
+  test('transcriptReset reads the worker config dir, and the claude lane states nothing', () => {
+    const codexDir = path.join(dir, 'cfg-codex')
+    const day = path.join(codexDir, 'sessions', '2026', '08', '03')
+    fs.mkdirSync(day, { recursive: true })
+    fs.writeFileSync(
+      path.join(day, 'rollout-2026-08-03T11-00-00-a.jsonl'),
+      JSON.stringify(codexCount({
+        input: 10,
+        window: 258400,
+        primary: { used_percent: 100, window_minutes: 300, resets_at: resetsInSec(90) },
+      })),
+    )
+    assert.deepEqual(transcriptReset('codex', codexDir, NOW), new Date(NOW + 90 * MIN))
+
+    // The claude lane states its rate limits nowhere, so its reset stays the
+    // one on the pane text — this reader must not invent one.
+    const claudeDir = path.join(dir, 'cfg-claude')
+    const proj = path.join(claudeDir, 'projects', 'p')
+    fs.mkdirSync(proj, { recursive: true })
+    fs.writeFileSync(path.join(proj, 's.jsonl'), JSON.stringify(claudeTurn(1, 100, 0)))
+    assert.equal(transcriptReset('claude', claudeDir, NOW), null)
+
+    // A worker capped before its first turn has written no transcript at all.
+    assert.equal(transcriptReset('codex', path.join(dir, 'cfg-empty'), NOW), null)
+    assert.equal(transcriptReset(null, codexDir, NOW), null)
   })
 })
 

@@ -91,6 +91,9 @@ _Avoid_: worker lane.
 **Cooling**:
 A temporary hold on a model or provider after a usage-limit signal, until the stated reset.
 
+**Stated reset**:
+The instant a cooling ends. Two surfaces state it, and curia reads both: the anthropic pane text carries an epoch beside the reached-text, and the codex transcript carries `resets_at` beside the rate-limit window that is spent. A cap is account-level, so any live worker on that provider states it for the lane. With neither surface stating one, cooling holds for one hour.
+
 **Exhaustion**:
 The state where every candidate model is cooling. The frontier stays the queue, and a wake timer fires at the earliest reset.
 

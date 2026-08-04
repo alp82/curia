@@ -2286,6 +2286,105 @@ describe('dispatching across two backends (#39)', () => {
     assert.ok(events.some((e) => e.type === 'worker_spawned' && e.backend === 'claude'))
   })
 
+  // #175: the codex pane states no reset instant, so this lane cooled a blind
+  // hour. Its transcript states one, on the `token_count` event the status bars
+  // already read. The shape below is the one usage.test.mjs pins.
+  const CAP_PANE = "You've hit your usage limit. Upgrade to Plus to continue using Codex\n"
+  const HOUR = 3600_000
+
+  const writeRollout = (cfgDir, { usedPct, windowMinutes, resetsInMinutes }) => {
+    const day = path.join(cfgDir, 'sessions', '2026', '08', '03')
+    fs.mkdirSync(day, { recursive: true })
+    fs.writeFileSync(path.join(day, 'rollout-2026-08-03T11-00-00-a.jsonl'), `${JSON.stringify({
+      type: 'event_msg',
+      payload: {
+        type: 'token_count',
+        info: { last_token_usage: { input_tokens: 4000 }, model_context_window: 258400 },
+        rate_limits: {
+          primary: {
+            used_percent: usedPct,
+            window_minutes: windowMinutes,
+            resets_at: Math.round((Date.now() + resetsInMinutes * 60_000) / 1000),
+          },
+        },
+      },
+    })}\n`)
+  }
+
+  test('a codex cap hit cools until the reset its own transcript states', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      // The transcript the capped worker has already written, taken at its last
+      // turn: the 5 h window is spent and states when it rolls.
+      seedConfigDir: (cfgDir, wt, s, backend) => {
+        if (backend === 'codex') writeRollout(cfgDir, { usedPct: 100, windowMinutes: 300, resetsInMinutes: 12 })
+      },
+      capturePane: async () => CAP_PANE,
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.some((e) => e.type === 'provider_cooling'))
+
+    const cooled = events.find((e) => e.type === 'provider_cooling')
+    assert.equal(cooled.reset_source, 'transcript')
+    const waited = Date.parse(cooled.reset_at) - Date.now()
+    assert.ok(waited > 10 * 60_000 && waited < 14 * 60_000, `cooled for ${Math.round(waited / 60_000)} min, not the stated 12`)
+    assert.equal(events.some((e) => e.type === 'reset_unparseable'), false)
+  })
+
+  test('a worker capped before its first turn keeps the one-hour floor', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      capturePane: async () => CAP_PANE,
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.some((e) => e.type === 'provider_cooling'))
+
+    const cooled = events.find((e) => e.type === 'provider_cooling')
+    assert.equal(cooled.reset_source, 'floor')
+    assert.ok(Math.abs(Date.parse(cooled.reset_at) - (Date.now() + HOUR)) < 5000)
+    assert.ok(events.some((e) => e.type === 'reset_unparseable' && e.applied_cooldown_h === 1))
+  })
+
+  test('a window with room states nothing, so the floor stands', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      // 41% is not what the pane just refused a turn for.
+      seedConfigDir: (cfgDir, wt, s, backend) => {
+        if (backend === 'codex') writeRollout(cfgDir, { usedPct: 41, windowMinutes: 300, resetsInMinutes: 12 })
+      },
+      capturePane: async () => CAP_PANE,
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.some((e) => e.type === 'provider_cooling'))
+
+    assert.equal(events.find((e) => e.type === 'provider_cooling').reset_source, 'floor')
+  })
+
+  // The cap is account-level, so a sibling's reading is about the same account
+  // — and the worker that just spawned is the one least likely to hold one.
+  test('a sibling worker on the same provider supplies the reset', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      capturePane: async () => CAP_PANE,
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    const siblingCfg = path.join(tmp, 'work', 'cfg', 'curia-41')
+    writeRollout(siblingCfg, { usedPct: 99.6, windowMinutes: 10080, resetsInMinutes: 300 })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    d.workers.set('curia-41', {
+      session: 'curia-41', ticket: '41', repo: 'o/r', backend: 'codex', provider: 'openai', cfgDir: siblingCfg,
+    })
+    await waitFor(() => events.some((e) => e.type === 'provider_cooling'))
+
+    const cooled = events.find((e) => e.type === 'provider_cooling')
+    assert.equal(cooled.reset_source, 'transcript')
+    const waited = Date.parse(cooled.reset_at) - Date.now()
+    assert.ok(waited > 4 * HOUR && waited < 6 * HOUR, `cooled for ${Math.round(waited / 60_000)} min, not the stated 300`)
+  })
+
   // The codex lane spawns with hook trust bypassed, so a hook the repo carries
   // would run unreviewed with no model in the loop.
   test('a repo-planted .codex/hooks.json refuses the dispatch and releases the claim', async () => {
