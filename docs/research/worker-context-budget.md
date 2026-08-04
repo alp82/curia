@@ -133,6 +133,20 @@ deliberately shares with the host.
 They cost 0 context tokens, so this is not a context fault. It is a bounds fault: a worker can
 read and write the operator's Notion, mail, Drive and calendar.
 
+**What shipped** ([#180](https://github.com/alp82/curia/issues/180)): the namespace is bounded
+in the worker's own `settings.json`, and the credential did not have to change. Claude Code runs
+an eligibility chain before it fetches account connectors, and `disableClaudeAiConnectors` sits
+ahead of every auth branch in it — measured both ways against the pinned CLI, which names the
+setting in its own debug line. A second key, `allowedMcpServers`, admits curia's server and
+nothing else, whatever route another server arrives by. Its entries are objects, not strings, and
+the string form enforces an EMPTY allowlist that takes curia's own server with it.
+
+The same probe found the container lane already closed, by accident rather than by decision: its
+`CLAUDE_CODE_OAUTH_TOKEN` states `user:inference` alone, and the API refuses it `403 ... does not
+meet scope requirement user:mcp_servers`. The bare-pane lane is the open one, because it shares
+the host store and its interactive-login credential. Measurements in
+[docs/live-checks/180-worker-mcp-namespace.md](../live-checks/180-worker-mcp-namespace.md).
+
 ## 5. What a fix must not repeat
 
 The claude transcript states no window anywhere — searched, and the only matches in a 1.4 MB
