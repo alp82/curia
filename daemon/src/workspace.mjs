@@ -1021,6 +1021,23 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  view, verify or approve your own work is forbidden — you never judge rendered output by looking',
     '  at it. `publish_preview` is how a HUMAN looks at a page, and their eyes are the only ones that',
     '  pass it.',
+    // #161, from #149's ruling: a freshly charted map ships on the charting
+    // model plus the human in that loop, with no verification gate behind them.
+    // The dispatched agent reading the map cold is the only fresh check left, so
+    // the catch is stated as a duty rather than left to luck — curia-107 found
+    // exactly this gap on the landing-page map and only because it happened to
+    // look. It rides HERE, not in the wayfinder skill: the skill is a host file
+    // outside this repo, it loads on claude only (#173), and it has no word for
+    // "escalation" because a hand session has the human in the room.
+    //
+    // Mapped ticket dispatches only. A mapless ticket has no map to check, and a
+    // charting dispatch IS the repair — telling it to escalate about the map it
+    // was sent to change would be circular.
+    ...(mapNumber && !charting ? [
+      '- **A map that cannot reach its destination is an escalation.** You read the map cold, which makes',
+      '  you its only fresh check: if the way it charts stops short of its destination, say so in your',
+      '  first `ask_human` call, rather than working around the gap or leaving it for the review gate.',
+    ] : []),
     '- A HITL ticket is many `ask_human` calls, one question at a time. **Never answer for the human.**',
     // #56: a daemon crash took an in-flight ask_human down with it, and the agent
     // read the transport error as permission to decide the question itself. A

@@ -116,6 +116,30 @@ describe('bounds', () => {
     assert.match(write({ mapNumber: 1 }), /\*\*Never answer for the human\.\*\*/)
   })
 
+  // #161, from #149: no verification gate stands behind a freshly charted map,
+  // so the agent reading it cold is the only fresh check. curia-107 caught a map
+  // that could not reach its destination by accident; this makes it a duty.
+  describe('the route-gap duty (#161)', () => {
+    test('a mapped ticket is told to escalate a map that stops short', () => {
+      const p = write({ mapNumber: 1 })
+      assert.match(p, /\*\*A map that cannot reach its destination is an escalation\.\*\*/)
+      assert.match(p, /you its only fresh check/)
+      assert.match(p, /first `ask_human` call/)
+      assert.match(p, /rather than working around the gap or leaving it for the review gate/)
+    })
+
+    test('a mapless ticket is not, because it has no map to check', () => {
+      assert.ok(!/cannot reach its destination/.test(write({ mapNumber: null })))
+    })
+
+    test('a charting dispatch is not, because changing the map IS its job', () => {
+      // It carries mapNumber like any map dispatch, so the guard has to read
+      // `charting` too — a map agent told to escalate about the map it was sent
+      // to repair would be circular.
+      assert.ok(!/cannot reach its destination/.test(write({ mapNumber: 1, charting: true })))
+    })
+  })
+
   test('curia wins over a skill on conflict', () => {
     assert.match(write({ mapNumber: 1 }), /Where a skill and these bounds disagree, these win/)
   })

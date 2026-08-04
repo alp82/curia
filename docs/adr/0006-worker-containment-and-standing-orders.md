@@ -1,7 +1,7 @@
 # ADR-0006: Agent containment and standing orders
 
-**Status**: accepted (2026-07), amended 2026-08 (#155, #159, #180)
-**Provenance**: [Build preview-link allocation (#40)](https://github.com/alp82/curia/issues/40), [Close the loop: the agent resolves its ticket (#41)](https://github.com/alp82/curia/issues/41), [Align the agent's standing orders with the wayfinder skill (#49)](https://github.com/alp82/curia/issues/49), [Mint the scoped GitHub PAT and inject GH_TOKEN (#155)](https://github.com/alp82/curia/issues/155), [Per-agent token on the daemon loopback (#159)](https://github.com/alp82/curia/issues/159), [An agent reaches the operator's account connectors (#180)](https://github.com/alp82/curia/issues/180)
+**Status**: accepted (2026-07), amended 2026-08 (#155, #159, #180, #161)
+**Provenance**: [Build preview-link allocation (#40)](https://github.com/alp82/curia/issues/40), [Close the loop: the agent resolves its ticket (#41)](https://github.com/alp82/curia/issues/41), [Align the agent's standing orders with the wayfinder skill (#49)](https://github.com/alp82/curia/issues/49), [Mint the scoped GitHub PAT and inject GH_TOKEN (#155)](https://github.com/alp82/curia/issues/155), [Per-agent token on the daemon loopback (#159)](https://github.com/alp82/curia/issues/159), [An agent reaches the operator's account connectors (#180)](https://github.com/alp82/curia/issues/180), [Route-gap duty in the agent skill (#161)](https://github.com/alp82/curia/issues/161)
 
 ## Context
 
@@ -23,9 +23,11 @@ A dispatched agent holds `gh` and full read access, so its authority must be sha
 
 - **Amended by [#180](https://github.com/alp82/curia/issues/180)**: an agent's TOOL SET is a control too, and it was never bounded. `CLAUDE_CONFIG_DIR` holds the #23/#29 line for every MCP server named in a config file. The operator's account-level claude.ai connectors are not named in one. Claude Code fetches them over the wire from the account behind the credential, which [ADR-0007](0007-shared-credential-store.md) shares with the host on purpose, so an agent listed 38 tools where curia configured six and could read and write the operator's Notion, Gmail, Drive and Calendar. The bound is two settings keys in the config dir curia already owns: `disableClaudeAiConnectors` stops the fetch, ahead of every auth branch in the CLI's own eligibility chain, and `allowedMcpServers` admits curia's server and nothing else whatever route another one arrives by. Neither touches the credential. The sandbox ([ADR-0012](0012-one-container-per-worker.md)) does not reach this at all: a connector call is ordinary outbound HTTPS, and the network is open by design.
 
+- **Amended by [#161](https://github.com/alp82/curia/issues/161)**: the agent reading a map cold is a standing order too. [#149](https://github.com/alp82/curia/issues/149) ruled out a verification gate on a freshly charted map, so nothing behind the charting model and the human in that loop checks whether the map can reach its destination. The dispatched agent is the only fresh pair of eyes left, and curia-107 proved the catch works by finding exactly that gap on the landing-page map — by luck, not by duty. So a mapped ticket dispatch now carries one order: a map that stops short of its destination goes in the agent's FIRST `ask_human` call, not into a workaround and not into the review gate. It rides the spawn prompt rather than the wayfinder skill, because the skill is a host file outside this repo, it loads on claude only ([#173](https://github.com/alp82/curia/issues/173)), and it has no word for "escalation" — a hand session has the human in the room. Charting dispatches are exempt: changing the map is already their job.
+
 ## Consequences
 
-- The daemon cannot verify the charting half. The review gate is the only control on it.
+- The daemon cannot verify the charting half. The review gate is the only control on it, and — since #161 — the next agent dispatched under the map.
 - Concurrent map writes converge agent-side by read, modify, write, re-read, redo. The daemon's map lock covers only its own repair writes.
 - Every ticket type dispatches, HITL included, so HITL agents are the long-lived slot tenants.
 - The one merge exception to "agents never push" is defined in [ADR-0008](0008-resolved-means-merged.md).
