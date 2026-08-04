@@ -942,6 +942,10 @@ export class Dispatcher {
         // is the best evidence there is.
         const named = spawnModelId(this.routing, worker.model)
         this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${named}**${links ? '' : ` — \`/attach ${worker.ticket}\` to watch`}`, links ? { links } : {})
+        // At the composer is not the same as able to speak (#194). The readiness
+        // watch ends here and the tool-channel watch starts, on the same worker
+        // record and with the marker as its anchor.
+        this.#watchToolChannel(worker).catch((e) => this.log(`tool-channel watch ${worker.session} failed:`, e.message))
         return
       }
     }
@@ -997,6 +1001,96 @@ export class Dispatcher {
     })
   }
 
+  // The grace window, opened at the composer marker and closed by the first
+  // `/mcp` request. Measured on the claude lane (#194, docs/live-checks/194):
+  // the handshake lands about 3 s after spawn and about 2.5 s AHEAD of the
+  // marker, so a worker that is still silent a window later has no tool channel
+  // and is not merely slow.
+  //
+  // Polled rather than timed, so a cancel, a death or a respawn ends the watch
+  // at the next second instead of firing into a record that has moved on.
+  async #watchToolChannel(worker) {
+    const graceS = this.routing.backends[worker.backend]?.toolChannelGraceS
+    if (!graceS) {
+      // config validation makes this unreachable; silence here would be the
+      // #33 failure again, so say it rather than watching against nothing
+      this.log(`no tool_channel_grace_s for backend "${worker.backend}" — ${worker.session} is not watched for a tool channel`)
+      return
+    }
+    // The watch is over the moment the record it holds stops being the live
+    // one: a cancel or a finish drops it, a respawn re-arms it, and a worker
+    // already marked failed (an early exit, a ready timeout, a result-less
+    // stop) must not be respawned by this path on top of that.
+    const stale = () => this.workers.get(worker.session) !== worker
+      || Boolean(worker.mcpSeenAt) || worker.state === 'failed'
+    const deadline = worker.readyAt + graceS * 1000
+    while (Date.now() < deadline) {
+      if (stale()) return
+      await sleep(1000)
+    }
+    if (stale()) return
+    await this.#muteWorker(worker, { graceS, found: 'grace window' })
+  }
+
+  // A worker with no tool channel cannot report a result, ask a question, open
+  // a pull request or end its turn on curia's terms. Every surface above it
+  // reads it as a worker that is thinking (#185 fault 3), which is the whole
+  // fault this ticket closes.
+  //
+  // Respawn ONCE, on the SAME model. The model is not what failed — the
+  // client's one-shot MCP connect is — so walking the fallback chain would cool
+  // a lane over a fault that has nothing to do with quota. Detection lands
+  // seconds after spawn, so there is no work to throw away.
+  //
+  // A second mute worker is REFUSED and unclaimed, deliberately the same
+  // behavior #188 gives a failed side-channel probe: the operator meets one
+  // behavior for "curia could not give this worker a way to speak", not two.
+  // Nothing here retries without a bound — that is #126's burnt spawn.
+  async #muteWorker(worker, { graceS, found }) {
+    const attempt = (worker.muteRespawns ?? 0) + 1
+    const model = worker.model
+    this.store.logEvent('worker_mute', {
+      repo: worker.repo, ticket: worker.ticket, worker: worker.session,
+      backend: worker.backend, model, grace_s: graceS ?? null, found, attempt,
+    })
+    this.log(`${worker.session} reached its composer and sent no /mcp request (${found}) — attempt ${attempt}`)
+    await this.deps.killSession(worker.session).catch(() => {})
+
+    if (attempt === 1) {
+      worker.muteRespawns = attempt
+      try {
+        await this.#respawnOn(worker, model, { retry_after_mute: true })
+        this.notify(worker.ticket, `⚙️ \`${worker.session}\` reached its composer with **no curia tools** — its MCP client never connected, so nothing it did could have reached anyone. Respawned once on the same model (**${model}**); the model is not what failed.`)
+        return
+      } catch (e) {
+        this.log(`mute respawn of ${worker.session} on ${model} failed:`, e.message)
+        const released = await this.#releaseClaim(worker, `respawn after a mute worker failed: ${e.message}`)
+        this.notify(worker.ticket, `⚠️ \`${worker.session}\` had no curia tools and the respawn on **${model}** failed: ${e.message} — ${released ? 'claim released, ticket re-frontiered' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
+        return
+      }
+    }
+
+    const released = await this.#releaseClaim(worker, 'no tool channel, twice')
+    this.notify(worker.ticket, `🚫 \`${worker.session}\` reached its composer with **no curia tools** twice — refusing to dispatch #${worker.ticket} again on this fault. ${released ? 'Claim released, ticket re-frontiered.' : 'Claim release FAILED: the issue is still assigned; reconcile will retry.'} The MCP client connects once at startup and never retries, so the side channel has to be up BEFORE the worker (\`/state\`, then the daemon log for the last \`side_channel_ready\`).`)
+  }
+
+  // The backstop at the far end (#194). The Stop hook rides curl, not MCP
+  // (`workspace.mjs`), so it reaches the daemon on a transport that works when
+  // the tool channel does not — and a worker arriving here having never sent an
+  // `/mcp` request is provably mute, whatever the grace window was tuned to.
+  //
+  // This is a backstop for a MISTUNED window, not a second mechanism: it cannot
+  // catch a channel lost mid-session, because such a worker already has a
+  // request on record.
+  //
+  // `spawnedAt` is the guard that makes the silence mean something. A worker
+  // adopted after a daemon restart carries null there and no stamp either, and
+  // its silence belongs to the restart rather than to the worker.
+  #muteAtStop(workerName) {
+    const w = this.workers.get(workerName)
+    return Boolean(w && w.spawnedAt && !w.mcpSeenAt)
+  }
+
   // When does this cooling end? Two lanes state it in two places, so both are
   // read, best evidence first (#175):
   //
@@ -1044,57 +1138,9 @@ export class Dispatcher {
     const cands = candidates(this.routing, worker.requestedModel, this.cooling)
     if (cands.length) {
       const next = cands[0]
-      // The whole point of a second provider (#13) is that a cap hit falls
-      // ACROSS it, and a cross-provider fallback is also a cross-backend one:
-      // the next model wants a different config dir, a different credential
-      // arrangement and a different side-channel layout. Re-seed before
-      // respawning rather than handing the new CLI the old lane's harness.
-      // Same-backend fallbacks re-seed too — it is idempotent, and one path is
-      // easier to trust than a branch that has to be right about when it matters.
-      const nextBackend = this.routing.models[next].backend
       try {
-        // The two lanes need not agree about the sandbox (#148's rollout puts
-        // claude in a container first and codex after the soak), so a
-        // cross-provider fallback can also cross the boundary. Everything the
-        // worker reads names its paths — the prompt, the harness, the config
-        // dir — so the whole arming runs again in the NEW view, and the
-        // workspace itself may have to change shape.
-        const sandbox = this.#sandboxFor(nextBackend)
-        await this.#reshapeWorkspace(worker, sandbox)
-        const view = this.#viewFor(sandbox, worker.wtPath, worker.cfgDir)
-        // #157: the ports belong to the WORKER, not to one container. A
-        // same-shape respawn keeps its prompt (#rewritePrompt writes only when
-        // the view moved), so fresh numbers here would leave that prompt naming
-        // ports nothing publishes. The kill above is an ordered teardown, which
-        // removes the container before tmux (see the killSession wrapper), so the
-        // old bindings are already released.
-        const ports = sandbox ? (worker.ports ?? await this.#allocatePorts(sandbox)) : null
-        this.#armWorker({
-          session: worker.session, ticket: worker.ticket, backend: nextBackend,
-          model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir, view, sandbox,
-        })
-        await this.#rewritePrompt(worker, view, ports)
-        const plan = await this.#spawnPlan({
-          session: worker.session, ticket: worker.ticket, repo: worker.repo,
-          backend: nextBackend, model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir,
-          promptFile: worker.promptFile, view, sandbox, ports,
-        })
-        // A fresh marker per spawn: the old session is dead, and reusing its
-        // nonce would let the previous life's exit line — still on screen for
-        // a moment — read as the successor's death.
-        const exitMarker = newExitMarker()
-        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
-        worker.ports = plan.container?.ports ?? null
-        worker.sandbox = plan.container ? 'docker' : null
-        worker.exitMarker = exitMarker
-        worker.model = next
-        worker.backend = nextBackend
-        worker.provider = this.routing.models[next].provider
-        worker.spawnedAt = Date.now()
-        worker.state = 'spawning'
-        this.store.logEvent('worker_spawned', { repo: worker.repo, ticket: worker.ticket, worker: worker.session, model: next, backend: nextBackend, retry_after_limit: true })
+        await this.#respawnOn(worker, next, { retry_after_limit: true })
         this.notify(worker.ticket, `⚙️ \`${worker.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} — respawned on **${next}**`)
-        this.#watchdog(worker).catch((e) => this.log(`watchdog ${worker.session} failed:`, e.message))
         return
       } catch (e) {
         // The old session is already dead. Letting this reject would strand the
@@ -1121,6 +1167,72 @@ export class Dispatcher {
     if (suppressed) this.notify(worker.ticket, suppressed)
     if (!released) this.notify(worker.ticket, `⚠️ \`${worker.session}\`: claim release FAILED: the issue is still assigned; reconcile will retry`)
     // the binding stays (#140): exhaustion re-frontiers the ticket, it does not end it
+  }
+
+  // Respawn a live worker's session, in one place. Two callers with two
+  // reasons and identical mechanics: a cap hit falls DOWN the chain (#13), a
+  // mute worker respawns on the SAME model (#194). The mechanics are what a
+  // second copy would get subtly wrong, so there is only one.
+  //
+  // The caller kills the old session first and handles every failure: this
+  // throws, and there is no session left to fall back to.
+  //
+  // Re-seeding is unconditional. The next model may sit on another backend,
+  // which wants a different config dir, a different credential arrangement and
+  // a different side-channel layout — and a same-backend respawn re-seeds too,
+  // because one path is easier to trust than a branch that has to be right
+  // about when it matters.
+  async #respawnOn(worker, next, journalData = {}) {
+    const nextBackend = this.routing.models[next].backend
+    // The two lanes need not agree about the sandbox (#148's rollout puts
+    // claude in a container first and codex after the soak), so a fallback
+    // across providers can also cross the boundary. Everything the worker reads
+    // names its paths — the prompt, the harness, the config dir — so the whole
+    // arming runs again in the NEW view, and the workspace itself may have to
+    // change shape.
+    const sandbox = this.#sandboxFor(nextBackend)
+    await this.#reshapeWorkspace(worker, sandbox)
+    const view = this.#viewFor(sandbox, worker.wtPath, worker.cfgDir)
+    // #157: the ports belong to the WORKER, not to one container. A same-shape
+    // respawn keeps its prompt (#rewritePrompt writes only when the view
+    // moved), so fresh numbers here would leave that prompt naming ports
+    // nothing publishes. The caller's kill is an ordered teardown, which removes
+    // the container before tmux (see the killSession wrapper), so the old
+    // bindings are already released.
+    const ports = sandbox ? (worker.ports ?? await this.#allocatePorts(sandbox)) : null
+    this.#armWorker({
+      session: worker.session, ticket: worker.ticket, backend: nextBackend,
+      model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir, view, sandbox,
+    })
+    await this.#rewritePrompt(worker, view, ports)
+    const plan = await this.#spawnPlan({
+      session: worker.session, ticket: worker.ticket, repo: worker.repo,
+      backend: nextBackend, model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir,
+      promptFile: worker.promptFile, view, sandbox, ports,
+    })
+    // A fresh marker per spawn: the old session is dead, and reusing its nonce
+    // would let the previous life's exit line — still on screen for a moment —
+    // read as the successor's death.
+    const exitMarker = newExitMarker()
+    await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
+    worker.ports = plan.container?.ports ?? null
+    worker.sandbox = plan.container ? 'docker' : null
+    worker.exitMarker = exitMarker
+    worker.model = next
+    worker.backend = nextBackend
+    worker.provider = this.routing.models[next].provider
+    worker.spawnedAt = Date.now()
+    worker.state = 'spawning'
+    // A respawn is a NEW client process, so what the last one proved about its
+    // tool channel says nothing about this one (#194). Clearing these is what
+    // makes the second window a real second reading rather than an echo.
+    worker.mcpSeenAt = null
+    worker.readyAt = null
+    this.store.logEvent('worker_spawned', {
+      repo: worker.repo, ticket: worker.ticket, worker: worker.session,
+      model: next, backend: nextBackend, ...journalData,
+    })
+    this.#watchdog(worker).catch((e) => this.log(`watchdog ${worker.session} failed:`, e.message))
   }
 
   // A container cannot use a worktree cut from the shared base clone: its
@@ -1419,6 +1531,20 @@ export class Dispatcher {
   // is a worker blocked on a human, not a worker that finished — and blocking
   // THAT stop would spin a worker whose next move is not its own to make.
   async onStopHook(workerName, { stopHookActive = false } = {}) {
+    // #194's backstop, FIRST and before the nudge. A worker that got here having
+    // never sent an `/mcp` request has no way to satisfy any item of the ending
+    // — `open_pull_request`, `request_review` and `report_result` are all curia
+    // tools — so holding it at that ending would spin it against a channel it
+    // does not have. Allow the stop, and say why on the surfaces.
+    if (this.#muteAtStop(workerName)) {
+      const w = this.workers.get(workerName)
+      this.store.logEvent('worker_mute', {
+        repo: w.repo, ticket: w.ticket, worker: workerName, backend: w.backend,
+        model: w.model, grace_s: null, found: 'stop hook', attempt: (w.muteRespawns ?? 0) + 1,
+      })
+      this.notify(w.ticket, `⚠️ \`${workerName}\` ended a turn having never called one curia tool — its MCP client never connected, so it has no way to report a result or ask anything. The Stop hook rides curl and reached curia anyway, which is how this is known. Not held at the ending: there is nothing it could do about it.`)
+      return { allow: true, terminal: true }
+    }
     const block = await this.#humanBlockEvidence(workerName)
     if (block.blocked) {
       this.#recordHumanBlock(workerName, block.open)

@@ -107,6 +107,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '\u23f5\u23f5|bypass permissions'",
+    "    tool_channel_grace_s: 15",
       '',
     ].join('\n'))
 
@@ -268,6 +269,7 @@ describe('an answer with no live resolver queues for the resumed worker (#139, r
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
       "    ready: '⏵⏵|bypass permissions'",
+      "    tool_channel_grace_s: 15",
       '',
     ].join('\n'))
   })
@@ -384,6 +386,7 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '\u23f5\u23f5|bypass permissions'",
+    "    tool_channel_grace_s: 15",
       '',
     ].join('\n'))
 
@@ -514,6 +517,7 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
       '    sandbox: docker',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '⏵⏵|bypass permissions'",
+    "    tool_channel_grace_s: 15",
       '',
     ].join('\n'))
 

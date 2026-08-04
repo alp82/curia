@@ -218,6 +218,7 @@ async function writeConfig(cfgDir, tmp) {
     '  claude:',
     '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '\u23f5\u23f5|bypass permissions'",
+    "    tool_channel_grace_s: 15",
     '',
   ].join('\n'))
 }

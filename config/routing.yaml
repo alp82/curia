@@ -107,6 +107,16 @@ backends:
     # lane follows at #158, and the bare path is deleted there rather than here.
     # `none` is the way back, and it needs no other change.
     sandbox: docker
+    # MEASURED on the box, two live dispatches, 2026-08-04 (#194,
+    # docs/live-checks/194): the client's MCP handshake landed 3.7 s and 3.2 s
+    # after spawn, and the composer marker 6.0 s after it both times — so the
+    # handshake ran 2.4 s and 2.9 s AHEAD of the marker. This lane connects its
+    # MCP servers at startup, it does not connect them lazily, which is what
+    # #189 could not settle from the two readings on record.
+    #
+    # 15 s is that margin with room in it, and it still catches a mute worker
+    # about 21 s after spawn. Raise it only against a new reading.
+    tool_channel_grace_s: 15
   # `--dangerously-bypass-hook-trust` is what makes the Stop hook fire without an
   # interactive "Hooks need review" prompt that no one is there to answer. curia
   # writes that hook itself, into a config dir it owns; the flag is not scoped to
@@ -122,3 +132,8 @@ backends:
     ready: '·\s[~/]'
     # The codex lane joins the container at #158, after the claude lane soaks.
     sandbox: none
+    # UNMEASURED, and deliberately loose until #158 takes the reading (#194).
+    # Nothing here says the codex CLI starts its MCP servers on the claude
+    # lane's clock, and the cost of guessing low is a healthy worker killed —
+    # so this lane waits a minute and catches the fault late instead.
+    tool_channel_grace_s: 60

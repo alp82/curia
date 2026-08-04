@@ -21,8 +21,16 @@ const ROUTING = {
   defaults: { untyped: 'sonnet' },
   models: { sonnet: { provider: 'anthropic', backend: 'claude' } },
   fallbacks: {},
-  backends: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', readyRe: /⏵⏵|bypass permissions/ } },
+  backends: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ } },
 }
+
+// The same routing with a shorter tool-channel window (#194), so a test can sit
+// out the grace period instead of the configured 15 s. ROUTING itself is shared
+// across every test in this file and is never mutated.
+const withGrace = (s) => ({
+  ...ROUTING,
+  backends: { claude: { ...ROUTING.backends.claude, toolChannelGraceS: s } },
+})
 
 const OPEN_ISSUE = {
   number: 42, title: 'a ticket', body: 'body text', state: 'open',
@@ -698,6 +706,118 @@ describe('the tool channel is recorded, not assumed (#194)', () => {
     const d = makeDispatcher()
     d.onMcpCall('curia-999')
     assert.ok(!typesOf().includes('worker_mcp_first'), 'no worker, no evidence — and no throw')
+  })
+
+  test('a worker at the composer that calls /mcp inside the window is left alone', async () => {
+    const d = makeDispatcher({ capturePane: async () => READY }, { routing: withGrace(3) })
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => typesOf().includes('worker_ready'))
+    d.onMcpCall('curia-42')
+
+    await new Promise((r) => setTimeout(r, 4500))
+    assert.ok(!typesOf().includes('worker_mute'), 'a healthy worker must never be called mute')
+    assert.equal(events.filter((e) => e.type === 'worker_spawned').length, 1)
+    d.workers.delete('curia-42')
+  })
+
+  test('a mute worker is respawned ONCE, on the same model, and the cause reaches the operator', async () => {
+    const killed = []
+    const spawns = []
+    const d = makeDispatcher({
+      capturePane: async () => READY,
+      killSession: async (n) => { killed.push(n) },
+      newSession: async (o) => { spawns.push(o.name) },
+    }, { routing: withGrace(2) })
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => typesOf().includes('worker_mute'), 12_000)
+    await waitFor(() => events.filter((e) => e.type === 'worker_spawned').length === 2, 12_000)
+
+    const mute = events.find((e) => e.type === 'worker_mute')
+    assert.equal(mute.attempt, 1)
+    assert.equal(mute.found, 'grace window')
+    assert.equal(mute.grace_s, 2)
+    assert.deepEqual(killed, ['curia-42'], 'the mute session is torn down before the respawn')
+
+    const respawn = events.filter((e) => e.type === 'worker_spawned')[1]
+    assert.equal(respawn.model, 'sonnet', 'the SAME model — the model is not what failed')
+    assert.equal(respawn.retry_after_mute, true)
+    assert.equal(spawns.length, 2)
+
+    const msg = notifies.find((n) => /no curia tools/.test(n.message)).message
+    assert.match(msg, /MCP client never connected/, 'the operator gets the cause, not just the symptom')
+    assert.match(msg, /same model/)
+    assert.ok(!notifies.some((n) => /usage limit/.test(n.message)), 'this is not a cap hit and must not read as one')
+
+    // the respawned worker's own window is still open, and `events` is shared
+    // across tests — dropping the record ends the watch at its next check
+    d.workers.delete('curia-42')
+  })
+
+  test('the respawn clears the stamp, so the second window is a reading and not an echo', async () => {
+    const d = makeDispatcher({ capturePane: async () => READY }, { routing: withGrace(2) })
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => events.filter((e) => e.type === 'worker_spawned').length === 2, 12_000)
+
+    // A stamp carried over would make the successor look healthy on its
+    // predecessor's evidence — and a second stamp is only journalled when the
+    // record holds none, so this event IS the clearing.
+    assert.equal(d.workers.get('curia-42').mcpSeenAt, null)
+    d.onMcpCall('curia-42')
+    assert.equal(events.filter((e) => e.type === 'worker_mcp_first').length, 1)
+    await waitFor(() => typesOf().filter((t) => t === 'worker_ready').length === 2, 12_000)
+    await new Promise((r) => setTimeout(r, 3000))
+    assert.ok(!events.some((e) => e.type === 'worker_mute' && e.attempt === 2), 'the second worker spoke, so the second window closes clean')
+    d.workers.delete('curia-42')
+  })
+
+  test('a second mute worker is refused and unclaimed, never respawned again', async () => {
+    let unclaimed = 0
+    const d = makeDispatcher({
+      capturePane: async () => READY,
+      unclaim: async () => { unclaimed += 1 },
+    }, { routing: withGrace(2) })
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => events.filter((e) => e.type === 'worker_mute').length === 2, 25_000)
+
+    assert.equal(events.filter((e) => e.type === 'worker_spawned').length, 2, 'one respawn, and only one — #126 paid for the unbounded kind once')
+    assert.equal(events.filter((e) => e.type === 'worker_mute')[1].attempt, 2)
+    assert.equal(unclaimed, 1)
+    assert.ok(typesOf().includes('dispatch_unclaimed'))
+    assert.ok(!d.workers.has('curia-42'), 'the record goes with the claim')
+
+    const msg = notifies.find((n) => /refusing to dispatch/.test(n.message)).message
+    assert.match(msg, /twice/)
+    assert.match(msg, /side channel has to be up BEFORE the worker/, 'the refusal names where to look')
+  })
+})
+
+describe('the Stop hook is the backstop for a mistuned window (#194)', () => {
+  test('a worker that ends a turn having never called /mcp is named, not nudged', async () => {
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const d = makeDispatcher({ commitsOnBranch: async () => [{ sha: 'a', subject: 's' }] })
+    liveWorker(d, { mcpSeenAt: null })
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.deepEqual(decision, { allow: true, terminal: true }, 'nothing it could do about it')
+    assert.ok(!typesOf().includes('stop_blocked'), 'the ending is all curia tools — nudging asks for the impossible')
+    const mute = events.find((e) => e.type === 'worker_mute')
+    assert.equal(mute.found, 'stop hook')
+    const msg = notifies.find((n) => /never called one curia tool/.test(n.message)).message
+    assert.match(msg, /rides curl/, 'the transport that proved it is the point')
+  })
+
+  test('a worker adopted after a daemon restart is never called mute on this path', async () => {
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', worker: 'curia-42' }])
+    const d = makeDispatcher({ commitsOnBranch: async () => [{ sha: 'a', subject: 's' }] })
+    // reconcile rebuilds a re-adopted record with spawnedAt null: this daemon
+    // never saw the spawn, so it never saw the handshake either
+    liveWorker(d, { mcpSeenAt: null, spawnedAt: null })
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(decision.decision, 'block', 'the ordinary nudge, on the ordinary evidence')
+    assert.ok(!typesOf().includes('worker_mute'), 'the silence belongs to the restart, not to the worker')
   })
 })
 
@@ -1857,7 +1977,10 @@ function liveWorker(d, over = {}) {
   const w = {
     repo: 'o/r', ticket: '42', title: 'a ticket', session: 'curia-42', wtPath: wt,
     cfgDir: path.join(tmp, 'work', 'cfg', 'curia-42'), model: 'opus',
-    state: 'ready', resultReceived: false, spawnedAt: Date.now(), ...over,
+    state: 'ready', resultReceived: false, spawnedAt: Date.now(),
+    // a worker that got as far as the ending has a tool channel by definition
+    // (#194) — it took one to open the pull request and ask for the review
+    mcpSeenAt: Date.now(), ...over,
   }
   d.workers.set('curia-42', w)
   return w
@@ -2306,11 +2429,11 @@ const TWO_LANE = {
   backends: {
     claude: {
       template: 'claude --model {model} "$(cat {prompt_file})"',
-      ready: '⏵⏵|bypass permissions', readyRe: /⏵⏵|bypass permissions/,
+      ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/,
     },
     codex: {
       template: 'codex --model {model} "$(cat {prompt_file})"',
-      ready: '·\\s[~/]', readyRe: /·\s[~/]/,
+      ready: '·\\s[~/]', toolChannelGraceS: 15, readyRe: /·\s[~/]/,
     },
   },
 }

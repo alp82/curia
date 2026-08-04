@@ -37,7 +37,7 @@ const ROUTING = {
     opus: { provider: 'anthropic', backend: 'claude' },
   },
   fallbacks: {},
-  backends: { claude: { template: 'claude --model {model} "$(cat {prompt_file})"', ready: 'x', readyRe: /x/ } },
+  backends: { claude: { template: 'claude --model {model} "$(cat {prompt_file})"', ready: 'x', toolChannelGraceS: 15, readyRe: /x/ } },
 }
 
 const MAP_ISSUE = {

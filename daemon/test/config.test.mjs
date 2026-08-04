@@ -157,8 +157,8 @@ describe('routing config with a second backend (#39)', () => {
     '  opus: { provider: anthropic, backend: claude }',
     '  gpt: { provider: openai, backend: codex, id: gpt-5.5 }',
     'backends:',
-    "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'bypass permissions' }",
-    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '\u00b7\\s[~/]' }",
+    "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'bypass permissions', tool_channel_grace_s: 15 }",
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '\u00b7\\s[~/]', tool_channel_grace_s: 15 }",
   ]
 
   function load(lines) {
@@ -183,9 +183,29 @@ describe('routing config with a second backend (#39)', () => {
     assert.throws(() => load(lines), /backends\.codex needs a `ready` regex/)
   })
 
+  test('a backend with no tool-channel window refuses the boot (#194)', () => {
+    const lines = BASE.map((l) => (l.startsWith('  codex:')
+      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x' }"
+      : l))
+    assert.throws(() => load(lines), /backends\.codex needs a positive `tool_channel_grace_s`/)
+  })
+
+  test('a zero or negative tool-channel window refuses the boot — it would call every worker mute', () => {
+    for (const bad of ['0', '-5']) {
+      const lines = BASE.map((l) => (l.startsWith('  codex:')
+        ? `  codex: { template: 'codex --model {model} "$(cat {prompt_file})"', ready: 'x', tool_channel_grace_s: ${bad} }`
+        : l))
+      assert.throws(() => load(lines), /tool_channel_grace_s/)
+    }
+  })
+
+  test('the window compiles onto the backend the dispatcher reads', () => {
+    assert.equal(load(BASE).backends.claude.toolChannelGraceS, 15)
+  })
+
   test('a readiness marker that is not a regex refuses the boot', () => {
     const lines = BASE.map((l) => (l.startsWith('  codex:')
-      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '[unclosed' }"
+      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '[unclosed', tool_channel_grace_s: 15 }"
       : l))
     assert.throws(() => load(lines), /is not a valid regex/)
   })
@@ -194,9 +214,9 @@ describe('routing config with a second backend (#39)', () => {
   // Stop hook — a worker that cannot be driven or ended.
   test('a backend with no harness in workspace.mjs refuses the boot', () => {
     const lines = [...BASE.slice(0, -2),
-      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x' }",
-      "  cursor: { template: 'cursor --model {model} \"$(cat {prompt_file})\"', ready: 'x' }",
-      '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', ready: \'x\' }',
+      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
+      "  cursor: { template: 'cursor --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
+      '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', ready: \'x\', tool_channel_grace_s: 15 }',
     ]
     assert.throws(() => load(lines), /backends\.cursor has no harness/)
   })
@@ -231,7 +251,7 @@ describe('reasoning effort is stated, not inherited (#39)', () => {
     'models:',
     `  gpt: { provider: openai, backend: codex, id: gpt-5.6-sol${effort === null ? '' : `, reasoning_effort: ${effort}`} }`,
     'backends:',
-    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x' }",
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
   ]
 
   function load(effort) {

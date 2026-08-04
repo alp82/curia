@@ -64,7 +64,7 @@ const routing = {
   },
   fallbacks: { fable: ['opus'], opus: ['sonnet'] },
   backends: {
-    claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', readyRe: /⏵⏵|bypass permissions/ },
+    claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ },
   },
 }
 

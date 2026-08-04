@@ -316,6 +316,7 @@ describe('the sandbox switch (#156)', () => {
       '  claude:',
       '    template: \'claude --model {model} "$(cat {prompt_file})"\'',
       "    ready: '⏵⏵'",
+      "    tool_channel_grace_s: 15",
       ...backendExtra,
     ].join('\n'))
     return file
@@ -425,7 +426,7 @@ const SANDBOXED_ROUTING = {
   backends: {
     claude: {
       template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"',
-      ready: '⏵⏵', readyRe: /⏵⏵/, sandbox: 'docker',
+      ready: '⏵⏵', readyRe: /⏵⏵/, toolChannelGraceS: 15, sandbox: 'docker',
     },
   },
 }

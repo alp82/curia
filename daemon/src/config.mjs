@@ -368,6 +368,18 @@ export function loadRoutingConfig(file) {
     } catch (e) {
       fail(file, `backends.${name}.ready is not a valid regex: ${e.message}`)
     }
+    // How long after the composer marker a worker may stay silent on `/mcp`
+    // before curia calls it mute (#194). Per backend, because it is a property
+    // of the CLI's startup and not of curia: only the WINDOW is per lane, the
+    // detector is the same route for both.
+    //
+    // Required, no default, for the reason `ready` is: a number nobody measured
+    // reads exactly like a number somebody did, and the failure it buys is
+    // either a healthy worker killed or a mute one left running.
+    if (typeof b.tool_channel_grace_s !== 'number' || !(b.tool_channel_grace_s > 0)) {
+      fail(file, `backends.${name} needs a positive \`tool_channel_grace_s\` — how long after the composer marker a worker may send no /mcp request before curia treats it as having no tool channel`)
+    }
+    b.toolChannelGraceS = b.tool_channel_grace_s
     // The sandbox switch (#156, rollout rule of #148): per backend, default
     // off, so the claude lane goes first and the codex lane follows after the
     // soak (#158). A backend with no key runs the bare pane exactly as before.
