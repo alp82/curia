@@ -36,6 +36,7 @@ import {
   untrustedProjectConfig,
 } from './workspace.mjs'
 import { ensureWorkerImage } from './image.mjs'
+import { transcriptReset } from './usage.mjs'
 import { mintWorkerToken, forgetWorkerToken, sweepWorkerTokens } from './workertoken.mjs'
 import {
   GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, ENV_FILE, PORTS_PER_WORKER,
@@ -946,19 +947,47 @@ export class Dispatcher {
     this.notify(worker.ticket, `⚠️ \`${worker.session}\` ${headline}${ignored} — session and claim kept for inspection (\`/attach ${worker.ticket}\`)${why}`)
   }
 
+  // When does this cooling end? Two lanes state it in two places, so both are
+  // read, best evidence first (#175):
+  //
+  //   pane        the anthropic lane puts an epoch on the reached-text itself,
+  //               and parseUsageLimit has already taken it.
+  //   transcript  the codex lane states none in the pane and states one in its
+  //               transcript, beside the numbers the status bars read.
+  //   the floor   neither stated one ⇒ the conservative hour, journalled
+  //               (stated deviation 2). A worker capped before its first turn
+  //               has written no transcript yet, and this is that case.
+  #resetFor(worker, limit) {
+    if (limit.resetAt) return { at: limit.resetAt, source: 'pane' }
+    // The cap is ACCOUNT-level, so the reset belongs to the PROVIDER and not to
+    // the worker that ran into it. Every live worker on this provider reads the
+    // same account, and the one that just spawned is the one least likely to
+    // have written a reading — so its siblings are asked too, and the latest
+    // stated reset wins for the reason spentReset takes the latest slot.
+    let best = null
+    const read = new Set()
+    for (const w of [worker, ...this.workers.values()]) {
+      if (w.provider !== worker.provider || !w.backend || !w.cfgDir || read.has(w.cfgDir)) continue
+      read.add(w.cfgDir)
+      const at = transcriptReset(w.backend, w.cfgDir)
+      if (at && (!best || at > best)) best = at
+    }
+    if (best) return { at: best, source: 'transcript' }
+    return { at: new Date(Date.now() + 3600_000), source: 'floor' }
+  }
+
   async #handleLimit(worker, limit) {
-    // Unparseable reset ⇒ journalled conservative 1 h cooldown (stated deviation 2).
-    const resetAt = limit.resetAt ?? new Date(Date.now() + 3600_000)
-    if (!limit.resetAt) {
+    const { at: resetAt, source } = this.#resetFor(worker, limit)
+    if (source === 'floor') {
       this.store.logEvent('reset_unparseable', { worker: worker.session, scope: limit.scope, applied_cooldown_h: 1 })
     }
     if (limit.scope === 'model') {
       // Fable's own weekly sub-cap: cool only the model, provider stays warm.
       this.cooling.coolModel(worker.model, resetAt)
-      this.store.logEvent('model_cooling', { model: worker.model, reset_at: resetAt.toISOString() })
+      this.store.logEvent('model_cooling', { model: worker.model, reset_at: resetAt.toISOString(), reset_source: source })
     } else {
       this.cooling.coolProvider(worker.provider, resetAt)
-      this.store.logEvent('provider_cooling', { provider: worker.provider, reset_at: resetAt.toISOString() })
+      this.store.logEvent('provider_cooling', { provider: worker.provider, reset_at: resetAt.toISOString(), reset_source: source })
     }
     await this.deps.killSession(worker.session).catch(() => {})
 

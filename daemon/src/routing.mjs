@@ -169,7 +169,9 @@ export const LIMIT_PATTERNS = {
   // weekly, 5-hour, monthly and annual limits and no per-model sub-cap — so the
   // scope is always 'provider' and the chain crosses to the other provider.
   // No reset pattern: codex states no reset time in any of these messages, so
-  // resetAt stays null and the caller applies its conservative cooldown.
+  // resetAt stays null HERE. It is not unknown, though — this lane states the
+  // instant in its transcript, and #handleLimit reads it there (#175). What
+  // stays conservative is the case neither surface states: an hour.
   openai: {
     reached: new RegExp(
       `you${AP}ve (?:hit|reached) your (?:usage limit|workspace credit limit)`

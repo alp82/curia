@@ -92,6 +92,14 @@
 //
 // The read path costs nothing and always runs; the probe is what
 // `usage.account_bars` turns off.
+//
+// THE COOLING PATH READS THE SAME LINE (#175). A codex cap hit cooled a blind
+// hour, because the codex CLI states no reset instant in the pane text the
+// limit classifier reads (`LIMIT_PATTERNS.openai.reset` is null). It states one
+// in the transcript: `resets_at`, beside every `rate_limits` slot, which is the
+// field these bars already take their pace from. `transcriptReset` is that same
+// reading asked a different question — not "how far through the window are we"
+// but "when does the window that is SPENT roll".
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
@@ -170,9 +178,17 @@ function claudeTail(lines) {
       + (u.cache_creation_input_tokens ?? 0)
     if (!tokens) continue
     const model = typeof e.message.model === 'string' ? e.message.model : null
-    return { ctx: { tokens, window: null, model }, windows: null }
+    return { ctx: { tokens, window: null, model }, windows: null, limits: null }
   }
-  return { ctx: null, windows: null }
+  return { ctx: null, windows: null, limits: null }
+}
+
+// A reset instant in either lane's vocabulary, as epoch milliseconds. The codex
+// lane states epoch seconds and the anthropic one an ISO string; both are
+// absolute, so a stale reading still dates itself correctly. NaN when nothing
+// usable is stated, which every caller checks with Number.isFinite.
+function resetMs(resetsAt) {
+  return typeof resetsAt === 'number' ? resetsAt * 1000 : Date.parse(resetsAt ?? '')
 }
 
 // How far into a usage window the clock has got, 0-100 — the second number
@@ -193,7 +209,7 @@ function claudeTail(lines) {
 // knowable while `now` is still inside it. Past that the reading is a window or
 // more behind and which window we are in is a guess, so there is no clock.
 export function paceOf(resetsAt, windowMs, now = Date.now()) {
-  const at = typeof resetsAt === 'number' ? resetsAt * 1000 : Date.parse(resetsAt ?? '')
+  const at = resetMs(resetsAt)
   if (!Number.isFinite(at) || !Number.isFinite(windowMs) || windowMs <= 0) return { elapsedPct: null }
   const remaining = at - now
   if (remaining <= 0) {
@@ -215,13 +231,35 @@ export function windowLabel(minutes) {
   return `${Math.round(minutes / 60)}h`
 }
 
+// The bars, from the raw slot readings. A worker that has been idle for hours
+// may hold a reading whose window has since reset. The percentage beside it is
+// then about a window that no longer exists, so the window rolls over to a
+// fresh one at 0% and the bar stays on the line (#187). See accountWindows.
+function barsOf(limits, now) {
+  const found = []
+  for (const l of limits ?? []) {
+    const pace = paceOf(l.resetsAt, l.windowMs, now)
+    if (pace.expired) {
+      found.push({ label: l.label, pct: 0, elapsedPct: pace.elapsedPct, fresh: true })
+      continue
+    }
+    found.push({ label: l.label, pct: Math.round(l.usedPct), elapsedPct: pace.elapsedPct })
+  }
+  return found.length ? found : null
+}
+
 // The codex lane states all three numbers itself, on the `token_count` event it
 // writes after every turn: the last request's input tokens, the model's own
 // context window, and the account rate limits. Context and limits are taken
 // from the newest line that carries each — not every token_count carries both.
+//
+// `limits` is the slot reading itself, kept beside the bars it renders (#175):
+// the bars round the percentage and roll an expired window over to a fresh one
+// at 0%, and the cooling path needs the reading exactly as the transcript
+// states it — a rolled window states no cap to wait for.
 function codexTail(lines, now) {
   let ctx = null
-  let windows = null
+  let limits = null
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i]
     if (!line.includes('"token_count"')) continue
@@ -235,38 +273,79 @@ function codexTail(lines, now) {
         ctx = { tokens, window: p.info?.model_context_window ?? null }
       }
     }
-    if (!windows) {
+    if (!limits) {
       const found = []
       for (const slot of ['primary', 'secondary']) {
         const r = p.rate_limits?.[slot]
         if (!r || !Number.isFinite(r.used_percent)) continue
         const label = windowLabel(r.window_minutes)
         if (!label) continue
-        // A worker that has been idle for hours may hold a reading whose window
-        // has since reset. The percentage beside it is then about a window that
-        // no longer exists, so the window rolls over to a fresh one at 0% and
-        // the bar stays on the line (#187). See accountWindows.
-        const pace = paceOf(r.resets_at, r.window_minutes * 60 * 1000, now)
-        if (pace.expired) {
-          found.push({ label, pct: 0, elapsedPct: pace.elapsedPct, fresh: true })
-          continue
-        }
-        found.push({ label, pct: Math.round(r.used_percent), elapsedPct: pace.elapsedPct })
+        found.push({
+          label, usedPct: r.used_percent, windowMs: r.window_minutes * 60 * 1000, resetsAt: r.resets_at ?? null,
+        })
       }
-      if (found.length) windows = found
+      if (found.length) limits = found
     }
-    if (ctx && windows) break
+    if (ctx && limits) break
   }
-  return { ctx, windows }
+  return { ctx, windows: barsOf(limits, now), limits }
 }
 
 const TAILS = { claude: claudeTail, codex: codexTail }
 
-// { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct}] | null }
+// { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct, fresh?}] | null,
+//   limits: [{label, usedPct, windowMs, resetsAt}] | null }
 export function readTranscriptMeters(backend, file, now = Date.now()) {
   const tail = TAILS[backend]
-  if (!tail || !file) return { ctx: null, windows: null }
+  if (!tail || !file) return { ctx: null, windows: null, limits: null }
   return tail(tailLines(file), now)
+}
+
+// ---------------------------------------------------------------------------
+// the cooling reset (#175)
+// ---------------------------------------------------------------------------
+
+// A window this full is the one the cap hit. The threshold is not 100 because
+// the reading is taken at the worker's last turn and the cap is hit on the
+// next one, so the last number below the ceiling is what the transcript holds.
+export const SPENT_PCT = 95
+
+// When does the spent window roll? Null means the transcript states nothing
+// usable, and the caller keeps its conservative floor.
+//
+// Four rules, and each one keeps a wrong answer out:
+//
+//   1. Only a SPENT window counts. A window at 40% is not what the pane just
+//      refused a turn for, and cooling until its reset would wait for nothing.
+//   2. A reset already past is dropped. That window rolled; there is nothing
+//      left to wait for.
+//   3. A reset further out than its own window is not that window's reset —
+//      the same rule paceOf runs on the same field, for the same reason.
+//   4. The LATEST surviving reset wins. Two spent windows mean two caps, and
+//      waiting only for the earlier one respawns straight into the later.
+//
+// A STALE reading is still evidence, which is what makes rule 2 the only
+// freshness check needed: `resets_at` names one instant for the whole window,
+// so a reset still in the future proves the reading belongs to the window that
+// is live now — and usage inside one window never falls.
+export function spentReset(limits, now = Date.now()) {
+  let best = null
+  for (const l of limits ?? []) {
+    if (!Number.isFinite(l.usedPct) || l.usedPct < SPENT_PCT) continue
+    const at = resetMs(l.resetsAt)
+    if (!Number.isFinite(at) || at <= now || at - now > l.windowMs) continue
+    if (!best || at > best) best = at
+  }
+  return best === null ? null : new Date(best)
+}
+
+// The instant this config dir's transcript says a cap hit has to wait for.
+// Date | null. The claude lane always answers null: its transcript states no
+// rate limits anywhere, which is why its reset rides the pane text instead.
+export function transcriptReset(backend, cfgDir, now = Date.now()) {
+  if (!backend || !cfgDir) return null
+  const { limits } = readTranscriptMeters(backend, findTranscript(backend, cfgDir), now)
+  return spentReset(limits, now)
 }
 
 // ---------------------------------------------------------------------------
