@@ -2,6 +2,10 @@
 // the worker-facing MCP surface proven in spike #29, and the dispatch loop.
 //
 //   POST /mcp?worker=<name>&ticket=<n>  — streamable-HTTP MCP (ask_human / notify / report_result)
+//
+// The two worker routes (/mcp, /worker_done) carry the per-worker token #159
+// mints; the rest are the operator's own and never leave loopback.
+//
 //   GET  /state                          — open escalations
 //   POST /escalate                       — synthetic escalation (testing / non-MCP emitters)
 //   POST /answer {id, answer}            — REST answer (same first-valid-wins gate as Discord)
@@ -36,6 +40,7 @@ import { CommandRouter } from './commands.mjs'
 import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, workerGhToken } from './workspace.mjs'
+import { TOKEN_HEADER, WORKER_ROUTES, tokensDir, workerTokenMatches } from './workertoken.mjs'
 import { probeAgentToken, tokenExpiryDays } from './github.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
@@ -63,6 +68,9 @@ const NUDGE_MS = Number(process.env.NUDGE_MS ?? 30 * 60 * 1000) // ~30-min re-nu
 // fixture dir so a test run never writes into the real journal.
 const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
 fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
+// Daemon-owned, never mounted into a container: one worker's token is unreadable
+// by every other worker (#159).
+fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
 
 // dispatch-loop config (#33) — hand-edited YAML, validated on load; a bad
 // shape refuses the boot rather than limping
@@ -842,8 +850,8 @@ async function readBody(req) {
 // route (POST /command → router.handle, POST /reconcile → dispatcher.reconcile)
 // both hangs the request AND raises an unhandled rejection, which Node ≥15
 // turns into an uncaught exception that kills the daemon.
-const requestListener = (req, res) => {
-  handleRequest(req, res).catch((e) => {
+const listenerFor = (opts) => (req, res) => {
+  handleRequest(req, res, opts).catch((e) => {
     log(`request ${req.method} ${req.url} failed: ${e.message}`)
     if (res.writableEnded) return
     if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' })
@@ -851,7 +859,7 @@ const requestListener = (req, res) => {
   })
 }
 
-const httpServer = http.createServer(requestListener)
+const httpServer = http.createServer(listenerFor({ fromContainer: false }))
 
 // The same surface, reachable from inside a worker container (#156). A
 // container's own loopback is the container, so the MCP side channel and the
@@ -864,13 +872,20 @@ const httpServer = http.createServer(requestListener)
 // this host, and from nothing else.
 //
 // Every container on the box can reach it, which is the `?worker=` spoofing
-// hole #159 exists to close. It is not new — the bare pane could always reach
-// the loopback port — but the container is where a real boundary now sits.
+// hole #159 closes. It is not new — the bare pane could always reach the
+// loopback port — but the container is where a real boundary now sits.
+//
+// #159 narrows this listener twice. It carries the WORKER surface and nothing
+// else, so /command, /answer, /cancel and /reconcile are unreachable from any
+// container (a container spoofing a worker was the stated hole; a container
+// dispatching a worker of its own, or answering the operator's questions for
+// them, is the larger one behind it). And the two routes it does carry demand
+// the token the daemon minted for the worker they name.
 async function listenForContainers() {
   if (!SANDBOXED_BACKENDS.length) return
   const gateway = await dockerGateway()
   await new Promise((resolve, reject) => {
-    const srv = http.createServer(requestListener)
+    const srv = http.createServer(listenerFor({ fromContainer: true }))
     srv.once('error', reject)
     srv.listen(PORT, gateway, () => {
       log(`curia daemon also listening on http://${gateway}:${PORT} — the side channel for ${SANDBOXED_BACKENDS.join(', ')} containers`)
@@ -879,7 +894,7 @@ async function listenForContainers() {
   })
 }
 
-async function handleRequest(req, res) {
+async function handleRequest(req, res, { fromContainer = false } = {}) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   const json = (code, obj) => {
     res.writeHead(code, { 'content-type': 'application/json' })
@@ -901,6 +916,36 @@ async function handleRequest(req, res) {
   const site = req.headers['sec-fetch-site']
   if (req.headers.origin !== undefined || (site && site !== 'same-origin' && site !== 'none')) {
     return json(403, { error: 'cross-origin request refused — this surface is for loopback tooling, not browsers' })
+  }
+
+  // The container-facing listener is the worker surface and nothing more. A
+  // refusal, not a 404: the route exists, this caller may not have it.
+  if (fromContainer && !WORKER_ROUTES.has(url.pathname)) {
+    store.logEvent('container_route_refused', { path: url.pathname, method: req.method })
+    return json(403, { error: `${url.pathname} is not reachable from a worker container — this address carries the MCP side channel and the Stop hook only` })
+  }
+
+  // Who a request says it is, and its proof (#159). The name in `?worker=` used
+  // to be the whole claim, so anything that could reach this port could report a
+  // result for another worker, ask a question as it, or end its turn. Fails
+  // closed: an unminted name, a missing header and a wrong one are one answer.
+  //
+  // A worker armed before this shipped carries no header, so the daemon restart
+  // that adopts this change refuses its live workers. Take that one restart with
+  // no worker live and it costs nothing; with one live, kill its pane and
+  // `resume <n>`, which arms it again and mints its token.
+  if (WORKER_ROUTES.has(url.pathname)) {
+    const claimed = url.searchParams.get('worker') ?? 'unknown'
+    if (!workerTokenMatches(DATA, claimed, req.headers[TOKEN_HEADER])) {
+      store.logEvent('worker_token_refused', {
+        worker: claimed,
+        path: url.pathname,
+        from: fromContainer ? 'container' : 'loopback',
+        presented: Boolean(req.headers[TOKEN_HEADER]),
+      })
+      log(`refused ${url.pathname} claiming to be ${claimed} — ${req.headers[TOKEN_HEADER] ? 'the token does not match the one curia minted for it' : 'no worker token on the request'}`)
+      return json(403, { error: `no valid curia worker token for "${claimed}" — the daemon mints one per worker at spawn and writes it into that worker's own harness` })
+    }
   }
 
   if (url.pathname === '/mcp') {

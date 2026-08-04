@@ -78,6 +78,8 @@ $ getent hosts host.docker.internal
 172.17.0.1      host.docker.internal
 ```
 
+That listener was a stub with no auth. Against the real daemon the same call now needs the worker's own token, and reaches only these two routes — see [the #159 checks](159-worker-token.md).
+
 The CSRF gate lets it through: a container sends no `Origin` and no `Sec-Fetch-Site`, exactly
 like the loopback tooling the gate was written for.
 

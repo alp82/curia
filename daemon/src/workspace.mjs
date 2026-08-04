@@ -16,6 +16,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
 import { endingProse, CHARTING_NEVER } from './lifecycle.mjs'
+import { TOKEN_HEADER } from './workertoken.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
 // operator's STE writing standard, seeded into every config dir as the CLI's
@@ -461,8 +462,26 @@ const CODEX_TOOL_TIMEOUT_S = 86_400
 // The Stop hook, identical on both lanes: POST the hook's own stdin payload to
 // the daemon, which answers `{decision:"block", reason}` while a step of the
 // ending is outstanding (#54).
-function stopHookCommand(daemonPort, worker, host = LOOPBACK) {
-  return `curl -s -X POST 'http://${host}:${daemonPort}/worker_done?worker=${worker}' -H 'Content-Type: application/json' -d @-`
+//
+// The token header rides beside the ticket's own content type (#159). Both
+// values are quote-free by construction — a hex token and a daemon-owned port —
+// so the single-quoted curl arguments need no escaping rule.
+function stopHookCommand(daemonPort, worker, host = LOOPBACK, token) {
+  return [
+    `curl -s -X POST 'http://${host}:${daemonPort}/worker_done?worker=${worker}'`,
+    `-H 'Content-Type: application/json'`,
+    `-H '${TOKEN_HEADER}: ${token}'`,
+    '-d @-',
+  ].join(' ')
+}
+
+// The four harness files now carry the worker's secret, so none of them is
+// world-readable. On the bare path that is belt only (a sibling worker runs as
+// the same host user); in a container the mount arrives owned by the same uid the
+// agent runs as, so 0600 is still readable by the one worker that needs it.
+function writeSecretFile(file, data) {
+  fs.writeFileSync(file, data, { mode: 0o600 })
+  fs.chmodSync(file, 0o600) // the mode applies only on create; a reused config dir already has one
 }
 
 const HARNESS = {
@@ -532,16 +551,25 @@ const HARNESS = {
     // MCP on, bypass permissions, Stop hook → /worker_done) — spike #29 shapes
     // with per-worker substitution. Both land in the worktree and are hidden from
     // git by the base clone's info/exclude (see ensureBaseClone).
-    harness: ({ wtPath, worker, ticket, daemonPort, daemonHost }) => {
-      fs.writeFileSync(path.join(wtPath, '.mcp.json'), JSON.stringify({
-        mcpServers: { curia: { type: 'http', url: curiaMcpUrl(daemonPort, worker, ticket, daemonHost) } },
+    harness: ({ wtPath, worker, ticket, daemonPort, daemonHost, token }) => {
+      writeSecretFile(path.join(wtPath, '.mcp.json'), JSON.stringify({
+        mcpServers: {
+          curia: {
+            type: 'http',
+            url: curiaMcpUrl(daemonPort, worker, ticket, daemonHost),
+            // #159. Claude Code sends a per-server `headers` object on every
+            // request to an http MCP server (`claude mcp add --header` writes
+            // this exact shape).
+            headers: { [TOKEN_HEADER]: token },
+          },
+        },
       }, null, 2))
       const dotClaude = path.join(wtPath, '.claude')
       fs.mkdirSync(dotClaude, { recursive: true })
-      fs.writeFileSync(path.join(dotClaude, 'settings.json'), JSON.stringify({
+      writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
         enableAllProjectMcpServers: true,
         permissions: { defaultMode: 'bypassPermissions' },
-        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker, daemonHost) }] }] },
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker, daemonHost, token) }] }] },
       }, null, 2))
     },
   },
@@ -591,8 +619,8 @@ const HARNESS = {
     // hasTrustDialogAccepted: without it the first spawn stops at a "Do you trust
     // the contents of this directory?" prompt and the worker never reaches its
     // composer (observed, before this line existed).
-    harness: ({ wtPath, cfgDir, worker, ticket, daemonPort, daemonHost, reasoningEffort }) => {
-      fs.writeFileSync(path.join(cfgDir, 'config.toml'), [
+    harness: ({ wtPath, cfgDir, worker, ticket, daemonPort, daemonHost, reasoningEffort, token }) => {
+      writeSecretFile(path.join(cfgDir, 'config.toml'), [
         '# Written by the curia daemon per worker. Never hand-edited.',
         '',
         // Written whenever routing states one, because a model's OWN default is
@@ -610,10 +638,16 @@ const HARNESS = {
         '[mcp_servers.curia]',
         `url = ${toml(curiaMcpUrl(daemonPort, worker, ticket, daemonHost))}`,
         `tool_timeout_sec = ${CODEX_TOOL_TIMEOUT_S}`,
+        // #159, the codex spelling of the claude lane's `headers` object. An
+        // inline table, which is what `codex mcp list --json` reads back as the
+        // transport's `http_headers`. `bearer_token_env_var` is the other option
+        // codex offers and it is the wrong one here: it names an ENVIRONMENT
+        // VARIABLE, which puts the secret back in `ps` on the bare path.
+        `http_headers = { ${toml(TOKEN_HEADER)} = ${toml(token)} }`,
         '',
       ].join('\n'))
-      fs.writeFileSync(path.join(cfgDir, 'hooks.json'), JSON.stringify({
-        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker, daemonHost) }] }] },
+      writeSecretFile(path.join(cfgDir, 'hooks.json'), JSON.stringify({
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker, daemonHost, token) }] }] },
       }, null, 2))
     },
   },
@@ -760,11 +794,17 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude',
 // pane, the docker host gateway from a container.
 export function writeHarness({
   wtPath, cfgDir, worker, ticket, daemonPort, backend = 'claude', reasoningEffort = null,
-  hostWtPath = wtPath, daemonHost = LOOPBACK,
+  hostWtPath = wtPath, daemonHost = LOOPBACK, token,
 }) {
+  // The harness is the ONLY way a worker learns its token (#159), so a caller
+  // that forgot one would write a harness whose every call the daemon then
+  // refuses. Asserted here rather than defaulted: there is no safe default.
+  if (!/^[0-9a-f]{64}$/.test(String(token ?? ''))) {
+    throw new Error(`refusing to write the ${worker} harness without a minted worker token — every call it makes would be refused`)
+  }
   harnessFor(backend).harness({
     wtPath: backend === 'claude' ? hostWtPath : wtPath,
-    cfgDir, worker, ticket, daemonPort, daemonHost, reasoningEffort,
+    cfgDir, worker, ticket, daemonPort, daemonHost, reasoningEffort, token,
   })
 }
 

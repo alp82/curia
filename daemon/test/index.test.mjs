@@ -21,6 +21,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { TOKEN_HEADER, mintWorkerToken } from '../src/workertoken.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -38,9 +39,13 @@ function freePort() {
 
 // http.request, not fetch: full control over Origin/Sec-Fetch-Site headers
 // with no client-side forbidden-header opinions in the way.
-function request(port, method, urlPath, { headers = {}, body = null } = {}) {
+const request = (port, method, urlPath, opts) => requestOn('127.0.0.1', port, method, urlPath, opts)
+
+// The same, against a chosen address — the #159 suite dials the daemon's
+// container-facing listener, which is a different bind on the same port.
+function requestOn(host, port, method, urlPath, { headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.request({ host: '127.0.0.1', port, method, path: urlPath, headers }, (res) => {
+    const req = http.request({ host, port, method, path: urlPath, headers }, (res) => {
       let data = ''
       res.on('data', (c) => { data += c })
       res.on('end', () => resolve({ status: res.statusCode, body: data }))
@@ -429,5 +434,185 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       !withdrawn.some((l) => /--bg/.test(l) && l.includes(`--https=${servePort}`)),
       'and must never assert the attach rule',
     )
+  })
+})
+
+// #159. The `?worker=` param used to BE the claim: anything that could reach the
+// daemon port could report a result for another worker, ask a question as it, or
+// end its turn. #156 is what made that matter — the daemon binds a second
+// listener on the docker bridge gateway, and every container on the box reaches
+// that address.
+//
+// Boots the real daemon with a SANDBOXED backend so both listeners come up, and
+// fakes only `docker network inspect` — the gateway it reports is 127.0.0.2,
+// another loopback address this box can bind and dial. So the container-facing
+// listener here is the shipped one, reached the way a container reaches it.
+describe('the per-worker token on the worker routes (#159, real boot, both listeners)', () => {
+  let tmp
+  let child
+  let port
+  let childLog = ''
+  const GATEWAY = '127.0.0.2'
+
+  const mint = (worker) => mintWorkerToken(path.join(tmp, 'data'), worker)
+
+  before(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-token-boot-'))
+    const cfgDir = path.join(tmp, 'config')
+    const dataDir = path.join(tmp, 'data')
+    const shim = path.join(tmp, 'shim')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.mkdirSync(shim, { recursive: true })
+    for (const bin of ['gh', 'tmux', 'tailscale']) {
+      const p = path.join(shim, bin)
+      fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
+      fs.chmodSync(p, 0o755)
+    }
+    // The one fake: the bridge gateway. Everything downstream of it — the second
+    // listener, the route narrowing, the token check — is the real code.
+    const docker = path.join(shim, 'docker')
+    fs.writeFileSync(docker, `#!/bin/sh\necho '[{"Gateway":"${GATEWAY}"}]'\n`)
+    fs.chmodSync(docker, 0o755)
+
+    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    port = daemonPort
+    fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
+      'watch:',
+      '  - repo: example/fixture',
+      '    mode: ready-for-agent',
+      'dispatch:',
+      '  auto_dispatch: false',
+      '  max_concurrent: 1',
+      '  poll_interval_s: 60',
+      `  workspace_root: ${path.join(tmp, 'work')}`,
+      '  ready_timeout_s: 5',
+      '  confirm_ttl_h: 1',
+      'attach:',
+      `  ttyd_port: ${ttydPort}`,
+      `  serve_port: ${servePort}`,
+      'identity:',
+      '  allow: [tester@example.com]',
+      `  proxy_port: ${proxyPort}`,
+      'sandbox:',
+      '  image: curia-worker-test',
+      '  claude_version: 1.0.0',
+      '  codex_version: 1.0.0',
+      '  gh_version: 1.0.0',
+      '  playwright_version: 1.0.0',
+      '  port_from: 9400',
+      '  port_to: 9410',
+      '',
+    ].join('\n'))
+    fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
+      'defaults:',
+      '  untyped: sonnet',
+      'models:',
+      '  sonnet: { provider: anthropic, backend: claude }',
+      'backends:',
+      '  claude:',
+      '    sandbox: docker',
+      '    template: claude --model {model} "$(cat {prompt_file})"',
+    "    ready: '⏵⏵|bypass permissions'",
+      '',
+    ].join('\n'))
+
+    child = spawn(process.execPath, [DAEMON], {
+      env: {
+        ...process.env,
+        PORT: String(daemonPort),
+        CURIA_CONFIG_DIR: cfgDir,
+        CURIA_DATA_DIR: dataDir,
+        PATH: `${shim}:${process.env.PATH}`,
+        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
+        DISCORD_BOT_TOKEN: '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    child.stdout.on('data', (c) => { childLog += c })
+    child.stderr.on('data', (c) => { childLog += c })
+
+    const deadline = Date.now() + 15_000
+    for (;;) {
+      try {
+        if ((await request(port, 'GET', '/state')).status === 200
+          && (await requestOn(GATEWAY, port, 'POST', '/worker_done?worker=curia-0')).status === 403) break
+      } catch { /* not listening yet */ }
+      if (Date.now() > deadline) throw new Error(`daemon did not bring up both listeners; log:\n${childLog}`)
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  })
+
+  after(() => {
+    if (child && child.exitCode === null) child.kill('SIGKILL')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  test('a worker route with no token is refused on loopback', async () => {
+    for (const route of ['/mcp?worker=curia-41&ticket=41', '/worker_done?worker=curia-41']) {
+      const res = await request(port, 'POST', route, {
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      })
+      assert.equal(res.status, 403, `${route} must not serve an unproven worker`)
+      assert.match(res.body, /no valid curia worker token/)
+    }
+  })
+
+  test('one worker cannot present another worker\'s token', async () => {
+    mint('curia-42')
+    const other = mint('curia-43')
+    const res = await request(port, 'POST', '/worker_done?worker=curia-42', {
+      headers: { 'content-type': 'application/json', [TOKEN_HEADER]: other },
+      body: '{}',
+    })
+    assert.equal(res.status, 403, 'the header proves a name, not merely that the caller has A token')
+  })
+
+  test('the worker curia armed gets through, and the refusal is on the record', async () => {
+    const token = mint('curia-44')
+    const res = await request(port, 'POST', '/worker_done?worker=curia-44', {
+      headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token },
+      body: JSON.stringify({ hook_event_name: 'Stop', session_id: 'fixture' }),
+    })
+    assert.equal(res.status, 200)
+    const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+    assert.ok(journal.includes('"type":"worker_token_refused"'), 'a refusal is journalled, or nobody ever learns it happened')
+    assert.ok(journal.includes('"type":"worker_done"'), 'and the accepted call reached the route')
+  })
+
+  test('the container-facing listener carries the worker surface and nothing else', async () => {
+    // The whole operator surface: dispatching a worker, answering the operator's
+    // own questions, forcing a reconcile. A container reaches none of it.
+    for (const [method, route, body] of [
+      ['POST', '/command', JSON.stringify({ text: 'status' })],
+      ['POST', '/answer', JSON.stringify({ id: 'e1', answer: 'approve' })],
+      ['POST', '/cancel', JSON.stringify({ id: 'e1' })],
+      ['POST', '/escalate', JSON.stringify({ prompt: 'from a container' })],
+      ['POST', '/reconcile', '{}'],
+      ['GET', '/state', null],
+    ]) {
+      const res = await requestOn(GATEWAY, port, method, route, {
+        headers: { 'content-type': 'application/json' },
+        body,
+      })
+      assert.equal(res.status, 403, `${route} must not be reachable from a container`)
+      assert.match(res.body, /not reachable from a worker container/)
+    }
+    // …and the same routes still answer the operator on loopback.
+    assert.equal((await request(port, 'GET', '/state')).status, 200)
+  })
+
+  test('a container still reaches its own two routes, with its own token', async () => {
+    const token = mint('curia-45')
+    const refused = await requestOn(GATEWAY, port, 'POST', '/worker_done?worker=curia-45', {
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    assert.equal(refused.status, 403, 'the gateway address is not a proof of identity')
+    const res = await requestOn(GATEWAY, port, 'POST', '/worker_done?worker=curia-45', {
+      headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token },
+      body: JSON.stringify({ hook_event_name: 'Stop', session_id: 'fixture' }),
+    })
+    assert.equal(res.status, 200, 'the Stop hook has to work from inside a container, or the ending is unenforceable')
   })
 })

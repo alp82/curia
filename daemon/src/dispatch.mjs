@@ -33,6 +33,7 @@ import {
   untrustedProjectConfig,
 } from './workspace.mjs'
 import { ensureWorkerImage } from './image.mjs'
+import { mintWorkerToken, forgetWorkerToken, sweepWorkerTokens } from './workertoken.mjs'
 import {
   GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, ENV_FILE, PORTS_PER_WORKER,
   allocatePorts, dockerRunCmd, listContainers, modelCredential, stopContainer, writeEnvFile,
@@ -78,6 +79,8 @@ const DEFAULT_DEPS = {
   ensureTtyd, assertServe, serveOff,
   // the worker sandbox (#156)
   ensureWorkerImage, stopContainer, listContainers, allocatePorts,
+  // the per-worker token on the loopback surface (#159)
+  mintWorkerToken, forgetWorkerToken, sweepWorkerTokens,
   // resolve + land (#41), merge-gated (#54)
   commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
   setPullRequestBody, deleteRemoteBranch,
@@ -614,6 +617,7 @@ export class Dispatcher {
       // No tmux session ever existed here, so no sweep would ever collect the
       // dir — remove it whole (no worker ran; there is nothing to post-mortem)
       this.deps.removeConfigDir(cfgDir)
+      this.deps.forgetWorkerToken(this.dataDir, session)
       // W1 class, in the journal: dispatch_unclaimed is written ONLY when the
       // unclaim actually returned. #reconcileDeadClaims reads any post-epoch
       // dispatch_unclaimed as "epoch closed" and skips the ticket — so
@@ -662,9 +666,13 @@ export class Dispatcher {
   // mode that changes with the backend is exactly where that costs.
   #armWorker({ session, ticket, backend, model, wtPath, cfgDir, view, sandbox = null }) {
     this.deps.seedConfigDir(cfgDir, view.wt, this.config.skills, backend, { sandboxed: Boolean(sandbox) })
+    // A FRESH secret per arm (#159), minted before the harness that carries it.
+    // The cross-backend respawn arms again, so the pane a usage limit killed
+    // stops being able to speak for this name the moment its successor is armed.
+    const token = this.deps.mintWorkerToken(this.dataDir, session)
     this.deps.writeHarness({
       wtPath: view.wt, hostWtPath: wtPath, cfgDir, worker: session, ticket,
-      daemonPort: this.daemonPort, daemonHost: view.daemonHost,
+      daemonPort: this.daemonPort, daemonHost: view.daemonHost, token,
       backend, reasoningEffort: this.routing.models[model].reasoning_effort ?? null,
     })
   }
@@ -1920,6 +1928,7 @@ export class Dispatcher {
       }
     }
     this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
+    this.deps.forgetWorkerToken(this.dataDir, session)
     this.workers.delete(session)
     if (w) {
       if (released) {
@@ -2186,6 +2195,18 @@ export class Dispatcher {
     // worker whoever owns the ticket.
     if (ctx.sessions) await this.#sweepContainers(ctx.sessions)
 
+    // And for the worker tokens (#159). The teardown paths that destroy a config
+    // dir forget the token beside it, but the two terminal states that KEEP the
+    // whole workspace for post-mortem do not — so a token outlives its worker
+    // exactly as an old credential copy used to, and gets collected here once
+    // tmux positively says the session is gone.
+    if (ctx.sessions) {
+      const swept = this.deps.sweepWorkerTokens(this.dataDir, [
+        ...ctx.sessions, ...this.workers.keys(), ...this.inFlight,
+      ])
+      for (const worker of swept) this.log(`reconcile: forgot the loopback token of dead ${worker}`)
+    }
+
     // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
     // a TICKET-terminal state — the issue is positively closed (or positively
     // absent from every candidate repo). A dead worker or a released claim is
@@ -2365,6 +2386,7 @@ export class Dispatcher {
       } catch (e) {
         this.log(`reconcile: could not remove the config dir of swept orphan ${session} (${e.message}) — leftovers stay for the next pass`)
       }
+      this.deps.forgetWorkerToken(this.dataDir, session)
       this.log(`reconcile: swept orphan ${session}`)
     }
   }

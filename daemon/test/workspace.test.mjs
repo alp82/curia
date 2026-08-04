@@ -261,6 +261,11 @@ describe('the codex worker harness (#39)', () => {
   before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-codex-')) })
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
 
+  // A fixed stand-in for what the daemon mints per worker (#159). The harness is
+  // the only channel a worker learns it on, so writeHarness refuses without one.
+  const TOKEN = 'a'.repeat(64)
+  const TOKEN_HEADER = 'x-curia-worker-token'
+
   const dirs = (n) => ({
     cfgDir: path.join(tmp, 'cfg', `curia-${n}`),
     wtPath: path.join(tmp, 'wt', String(n)),
@@ -315,7 +320,7 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(6)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'codex')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-6', ticket: 6, daemonPort: 4271, backend: 'codex', reasoningEffort: 'high' })
+    writeHarness({ wtPath, cfgDir, worker: 'curia-6', ticket: 6, daemonPort: 4271, backend: 'codex', reasoningEffort: 'high', token: TOKEN })
 
     const toml = fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')
     // without the trust entry the first spawn stops at "Do you trust the
@@ -333,10 +338,52 @@ describe('the codex worker harness (#39)', () => {
     // so leaving it out would move the depth whenever the model id moves.
     assert.match(toml, /model_reasoning_effort = "high"/)
 
+    // #159: the worker's proof of its own name, in the shape `codex mcp list`
+    // reads back as the transport's `http_headers`.
+    assert.match(toml, new RegExp(`http_headers = \\{ "${TOKEN_HEADER}" = "${TOKEN}" \\}`))
+
     const hooks = JSON.parse(fs.readFileSync(path.join(cfgDir, 'hooks.json'), 'utf8'))
     assert.match(hooks.hooks.Stop[0].hooks[0].command, /worker_done\?worker=curia-6/)
+    assert.match(hooks.hooks.Stop[0].hooks[0].command, new RegExp(`-H '${TOKEN_HEADER}: ${TOKEN}'`))
+
+    // The harness is the only channel a worker learns its token on, so nothing
+    // here is world-readable.
+    for (const f of ['config.toml', 'hooks.json']) {
+      assert.equal(fs.statSync(path.join(cfgDir, f)).mode & 0o077, 0, `${f} carries the token and must not be world-readable`)
+    }
 
     assert.deepEqual(fs.readdirSync(wtPath), [])
+  })
+
+  // The claude lane's own spelling of the same control, pinned beside it.
+  test('the claude harness carries the worker token on the MCP server and the Stop hook (#159)', () => {
+    const { cfgDir, wtPath } = dirs(14)
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'claude')
+    writeHarness({ wtPath, cfgDir, worker: 'curia-14', ticket: 14, daemonPort: 4271, backend: 'claude', token: TOKEN })
+
+    const mcp = JSON.parse(fs.readFileSync(path.join(wtPath, '.mcp.json'), 'utf8'))
+    assert.deepEqual(mcp.mcpServers.curia.headers, { [TOKEN_HEADER]: TOKEN })
+    const settings = JSON.parse(fs.readFileSync(path.join(wtPath, '.claude', 'settings.json'), 'utf8'))
+    assert.match(settings.hooks.Stop[0].hooks[0].command, new RegExp(`-H '${TOKEN_HEADER}: ${TOKEN}'`))
+    for (const f of [path.join(wtPath, '.mcp.json'), path.join(wtPath, '.claude', 'settings.json')]) {
+      assert.equal(fs.statSync(f).mode & 0o077, 0, `${f} carries the token and must not be world-readable`)
+    }
+  })
+
+  // There is no safe default for a secret, so the harness refuses rather than
+  // writing one a worker could not authenticate with.
+  test('a harness with no minted token is refused rather than written (#159)', () => {
+    const { cfgDir, wtPath } = dirs(15)
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'claude')
+    for (const token of [undefined, '', 'short', 'Z'.repeat(64)]) {
+      assert.throws(
+        () => writeHarness({ wtPath, cfgDir, worker: 'curia-15', ticket: 15, daemonPort: 4271, backend: 'claude', token }),
+        /without a minted worker token/,
+      )
+    }
+    assert.equal(fs.existsSync(path.join(wtPath, '.mcp.json')), false)
   })
 
   // The claude lane's own shape, asserted alongside so the two stay told apart.
@@ -344,7 +391,7 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(7)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'claude')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-7', ticket: 7, daemonPort: 4271, backend: 'claude' })
+    writeHarness({ wtPath, cfgDir, worker: 'curia-7', ticket: 7, daemonPort: 4271, backend: 'claude', token: TOKEN })
     assert.ok(fs.existsSync(path.join(wtPath, '.mcp.json')))
     assert.ok(fs.existsSync(path.join(wtPath, '.claude', 'settings.json')))
     assert.equal(fs.existsSync(path.join(cfgDir, 'config.toml')), false)
@@ -354,7 +401,7 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(11)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'codex')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-11', ticket: 11, daemonPort: 4271, backend: 'codex' })
+    writeHarness({ wtPath, cfgDir, worker: 'curia-11', ticket: 11, daemonPort: 4271, backend: 'codex', token: TOKEN })
     assert.equal(/model_reasoning_effort/.test(fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')), false)
   })
 
@@ -391,7 +438,7 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(13)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'claude')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-13', ticket: 13, daemonPort: 4271, backend: 'claude' })
+    writeHarness({ wtPath, cfgDir, worker: 'curia-13', ticket: 13, daemonPort: 4271, backend: 'claude', token: TOKEN })
     assert.equal(untrustedProjectConfig(wtPath, 'claude'), null)
   })
 

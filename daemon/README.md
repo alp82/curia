@@ -38,6 +38,8 @@ One boot brings up everything: the HTTP surface, ttyd, the Discord bridge, the r
 
 ## Surfaces
 
+Two of these routes are the WORKER's, and since #159 they are gated: `/mcp` and `/worker_done` take a per-worker token in the `X-Curia-Worker-Token` header, minted at spawn and written into that worker's own harness. Everything else is the operator's own and answers on loopback only. A worker container reaches the daemon on the docker bridge gateway, and that listener serves the two worker routes and nothing else.
+
 - `POST /mcp?worker=<name>&ticket=<n>` — MCP tools `ask_human` (blocking), `notify`, `report_result`, `publish_preview` (#40, `path` since #68), `open_pull_request` and `request_review` (#54). Ticket binding rides the spawn URL (#11). `ask_human` and `notify` also take `images: [<path>]` (#34).
 - `GET /state` — open escalations + bridge status.
 - `POST /escalate` — synthetic escalation (testing / non-MCP emitters); `?wait=1` blocks until answered.

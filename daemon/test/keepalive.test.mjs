@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
+import { TOKEN_HEADER, mintWorkerToken } from '../src/workertoken.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -75,6 +76,16 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
   let child
   let port
   let childLog = ''
+
+  // Since #159 the daemon serves /mcp only to a worker that presents the token
+  // it minted for that name — so every client here arms itself the way a real
+  // harness does: the daemon writes the token file, the worker sends the header.
+  // Minting straight into the child's own data dir is deliberate: the file IS
+  // the contract between the two processes.
+  const armed = (worker) => {
+    const token = mintWorkerToken(path.join(tmp, 'data'), worker)
+    return { requestInit: { headers: { [TOKEN_HEADER]: token } } }
+  }
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-keepalive-test-'))
@@ -151,7 +162,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
 
   test('progress notifications flow to the client while the call is still blocked, then the answer releases it', async () => {
     const client = new Client({ name: 'curia-keepalive-test', version: '0.0.0' })
-    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=lab&ticket=77`))
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=curia-lab&ticket=77`), armed('curia-lab'))
     await client.connect(transport)
 
     // onprogress is what makes the SDK put a progressToken on the request —
@@ -202,7 +213,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
   // logging notification is its business; the daemon's job is to keep sending.)
   test('a client that offers no progressToken still gets keepalive traffic', async () => {
     const client = new Client({ name: 'curia-keepalive-test-notoken', version: '0.0.0' })
-    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=lab2&ticket=78`))
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=curia-lab2&ticket=78`), armed('curia-lab2'))
     await client.connect(transport)
 
     const logs = []
@@ -275,7 +286,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
   test('report_result returns the daemon\'s resolve outcome, and declines safely when it cannot identify the ticket', async () => {
     const call = async (worker, ticket) => {
       const client = new Client({ name: 'curia-result-test', version: '0.0.0' })
-      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=${worker}&ticket=${ticket}`)))
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=${worker}&ticket=${ticket}`), armed(worker)))
       const res = await client.callTool(
         { name: 'report_result', arguments: { ticket: String(ticket), status: 'resolved', summary: 'fixture' } },
         undefined,
@@ -285,8 +296,9 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       return res.content.map((c) => c.text).join('\n')
     }
 
-    // a non-curia session name carries no ticket binding at all
-    assert.match(await call('lab', 77), /no curia ticket is bound/)
+    // a session name that carries no TICKET number carries no ticket binding
+    // at all (`curia-lab` passes the name check #159 added and fails SESSION_RE)
+    assert.match(await call('curia-lab', 77), /no curia ticket is bound/)
     // a real binding, but no dispatch epoch and no readable gh ⇒ no repo
     assert.match(await call('curia-77', 77), /could not tell which repo #77 belongs to/)
 
