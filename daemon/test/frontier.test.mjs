@@ -107,7 +107,7 @@ describe('filterTakeable', () => {
   // field-notes v2: the flat ready-for-agent lane returns PRs as well as
   // issues (GitHub shares the number space). An open, unassigned,
   // unblocked-looking PR must still be dropped, or the daemon spawns a
-  // worker on a pull request.
+  // agent on a pull request.
   test('drops items carrying a pull_request key even when otherwise takeable', () => {
     const items = [mkIssue(70), mkIssue(71, { pullRequest: true })]
     assert.deepEqual(numbers(filterTakeable(items)), [70])

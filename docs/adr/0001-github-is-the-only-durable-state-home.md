@@ -19,6 +19,6 @@ Curia needs awareness of every watched repo, map, and ticket, and that awareness
 ## Consequences
 
 - Restart recovery is a re-query, not a restore. There is no local brain to lose.
-- GitHub has no compare-and-swap on issue bodies. Concurrent map writes stay best-effort: detected, journaled verbatim, replayable, never prevented. See [ADR-0006](0006-worker-containment-and-standing-orders.md) for the worker-side convergence rule.
+- GitHub has no compare-and-swap on issue bodies. Concurrent map writes stay best-effort: detected, journaled verbatim, replayable, never prevented. See [ADR-0006](0006-worker-containment-and-standing-orders.md) for the agent-side convergence rule.
 - The flat lane has no native blocking or ordering. Label presence is its only gate. Dependency-aware frontiers need a map.
 - A whole-box reboot loses in-flight turns. The accepted recovery is re-dispatch, because the ticket is still on the tracker.

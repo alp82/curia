@@ -4,7 +4,7 @@
 // "no server" is a legitimate false; any other failure — the wedged-tmux case
 // its 5 s timeout exists for — throws. Swallowing indeterminate answers as
 // falsy is what let reconcile (and, through hasSession, the auto-dispatch
-// path) read a wedged tmux as "nothing is running" and destroy live workers.
+// path) read a wedged tmux as "nothing is running" and destroy live agents.
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
@@ -14,10 +14,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { hasSession, listSessions, newSession, capturePane, killSession } from '../src/tmux.mjs'
 
-// Inside any tmux pane — every curia worker runs there — tmux exports $TMUX,
+// Inside any tmux pane — every curia agent runs there — tmux exports $TMUX,
 // and a set $TMUX beats TMUX_TMPDIR: every tmux call below then targets the
 // LIVE server instead of this file's throwaway sockets, and the afterEach
-// kill-server shuts down the real server with every worker on it (#141 — four
+// kill-server shuts down the real server with every agent on it (#141 — four
 // dead dispatches on 2026-08-02, traced to exactly this). These tests only
 // ever talk to their own sockets, so strip the pane identity for the whole
 // process before the first tmux call.
@@ -86,7 +86,7 @@ describe('hasSession failure classification (the third instance of the R1 bug cl
   test('an environment failure is indeterminate ⇒ throws, never false', async () => {
     // `tmux has-session` exits 1 here exactly as it does for genuine absence —
     // a `false` from this state is what authorised force-removing a live
-    // worker's worktree through the auto-dispatch path
+    // agent's worktree through the auto-dispatch path
     const notADir = path.join(tmp, 'not-a-dir')
     fs.writeFileSync(notADir, '')
     process.env.TMUX_TMPDIR = notADir
@@ -94,13 +94,13 @@ describe('hasSession failure classification (the third instance of the R1 bug cl
   })
 })
 
-// A real Claude Code worker renames its tmux window to "claude" seconds after
+// A real Claude Code agent renames its tmux window to "claude" seconds after
 // spawn. Every helper here therefore has to keep working against a session
 // whose window name no longer matches the session name — the unit suite's
 // injected `capturePane` stubs cannot see this, only a real tmux server can.
 // When capturePane targeted a bare `=<session>` it threw "can't find pane" for
 // the whole life of every real dispatch, and #watchdog reads a throw as an
-// empty pane: no `worker_ready`, a false `worker_ready_timeout` at 45 s, and no
+// empty pane: no `agent_ready`, a false `agent_ready_timeout` at 45 s, and no
 // reactive cooling because parseUsageLimit never saw a byte of pane text.
 describe('tmux targets survive a renamed window', { skip: !hasTmux && 'tmux not installed' }, () => {
   let tmp
@@ -166,11 +166,11 @@ describe('tmux targets survive a renamed window', { skip: !hasTmux && 'tmux not 
     assert.equal(await hasSession(`${session}-keepalive`), true, 'kill-session must hit only its target')
   })
 
-  // #169: a lane whose binary is not installed died in a millisecond and left a
+  // #169: a harness whose binary is not installed died in a millisecond and left a
   // pane that looked exactly like a slow start, so the watchdog waited out its
   // whole 45 s and then reported nothing but "did not reach a composer". Only a
   // real bash can prove the wrapper actually echoes the status.
-  test('the exit marker records the backend command death, with its status', async () => {
+  test('the exit marker records the harness command death, with its status', async () => {
     const marker = 'curia-exit-testnonce'
     await newSession({
       name: session, cwd: os.tmpdir(), shellCmd: 'definitely-not-a-real-binary --model x', exitMarker: marker,

@@ -110,7 +110,7 @@ describe('promptTitle', () => {
 })
 
 describe('speakerName (#108 item 15)', () => {
-  test('worker plus ticket title, middot-joined', () => {
+  test('agent plus ticket title, middot-joined', () => {
     assert.equal(speakerName('curia-9', 'Pin the landing page pitch'), 'curia-9 · Pin the landing page pitch')
   })
 

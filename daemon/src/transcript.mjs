@@ -1,8 +1,8 @@
-// Per-backend transcript readers (#74 item 3, the #39 harness-table shape).
+// Per-harness transcript readers (#74 item 3, the #39 harness-table shape).
 //
-// Every worker writes a structured, geometry-free transcript under its own
-// config dir — the claude lane as `projects/<proj>/<uuid>.jsonl` under
-// CLAUDE_CONFIG_DIR, the codex lane as `sessions/<y>/<m>/<d>/rollout-*.jsonl`
+// Every agent writes a structured, geometry-free transcript under its own
+// config dir — the claude harness as `projects/<proj>/<uuid>.jsonl` under
+// CLAUDE_CONFIG_DIR, the codex harness as `sessions/<y>/<m>/<d>/rollout-*.jsonl`
 // under CODEX_HOME — and the timeline surface reads it instead of parsing a
 // terminal (#72/#73). This module is the ONLY place that knows either
 // vocabulary. Everything here is pure given a line of text; the fs helpers
@@ -26,25 +26,25 @@
 import fs from 'node:fs'
 import path from 'node:path'
 
-export const TRANSCRIPT_BACKENDS = ['claude', 'codex']
+export const TRANSCRIPT_HARNESSES = ['claude', 'codex']
 
 function readdirSafe(dir) {
   try { return fs.readdirSync(dir) } catch { return [] }
 }
 
-// Which lane wrote this config dir, by positive on-disk evidence: the claude
-// lane's CLI creates `projects/`, codex's creates `sessions/`. Null when
+// Which harness wrote this config dir, by positive on-disk evidence: the claude
+// harness creates `projects/`, codex's creates `sessions/`. Null when
 // neither is there — a dir that has not been written yet is "no transcript",
-// never a guess. The dispatcher's own worker record wins over this probe when
+// never a guess. The dispatcher's own agent record wins over this probe when
 // it has one (it knows what it spawned); this is the fallback for re-adopted
 // and lab sessions.
-export function detectBackend(cfgDir) {
+export function detectHarness(cfgDir) {
   if (fs.existsSync(path.join(cfgDir, 'projects'))) return 'claude'
   if (fs.existsSync(path.join(cfgDir, 'sessions'))) return 'codex'
   return null
 }
 
-// Newest transcript by mtime. A worker writes one file per run; a re-dispatch
+// Newest transcript by mtime. An agent writes one file per run; a re-dispatch
 // onto the same ticket writes a new one, so "newest" is the live run (spike
 // shape, unchanged).
 function newestFile(files) {
@@ -57,8 +57,8 @@ function newestFile(files) {
   return best?.path ?? null
 }
 
-export function findTranscript(backend, cfgDir) {
-  if (backend === 'claude') {
+export function findTranscript(harness, cfgDir) {
+  if (harness === 'claude') {
     const projects = path.join(cfgDir, 'projects')
     const files = []
     for (const proj of readdirSafe(projects)) {
@@ -68,7 +68,7 @@ export function findTranscript(backend, cfgDir) {
     }
     return newestFile(files)
   }
-  if (backend === 'codex') {
+  if (harness === 'codex') {
     // sessions/<year>/<month>/<day>/rollout-*.jsonl
     const root = path.join(cfgDir, 'sessions')
     const files = []
@@ -91,11 +91,11 @@ function firstLine(s, n = 200) {
 }
 
 // ---------------------------------------------------------------------------
-// claude lane
+// claude harness
 // ---------------------------------------------------------------------------
 
 // Line types the claude CLI writes that carry nothing a timeline shows —
-// enumerated from real worker transcripts on this box. `summary` is the
+// enumerated from real agent transcripts on this box. `summary` is the
 // compaction artifact; the file-history pair is checkpointing; the rest are
 // UI bookkeeping.
 const CLAUDE_UNRENDERED = new Set([
@@ -104,7 +104,7 @@ const CLAUDE_UNRENDERED = new Set([
 ])
 
 // One line that says what a tool call is DOING, per tool — the only place this
-// lane's tool vocabulary is known (spike shape).
+// harness's tool vocabulary is known (spike shape).
 function claudeToolBrief(name, input = {}) {
   if (name === 'Bash') return firstLine(input.command)
   if (name === 'Read' || name === 'Write' || name === 'Edit' || name === 'NotebookEdit') {
@@ -142,7 +142,7 @@ function claudeItems(e) {
     const out = []
     for (const c of e.message?.content ?? []) {
       if (c.type === 'text' && c.text?.trim()) out.push({ kind: 'say', at, text: c.text })
-      // Real workers store thinking signature-only with empty text (#72/#73
+      // Real agents store thinking signature-only with empty text (#72/#73
       // measured 41 of 41), so this arm almost never fires — kept because a
       // transcript that DOES carry text should show it.
       else if (c.type === 'thinking' && c.thinking?.trim()) out.push({ kind: 'think', at, text: c.thinking })
@@ -190,7 +190,7 @@ function claudeItems(e) {
 }
 
 // ---------------------------------------------------------------------------
-// codex lane
+// codex harness
 // ---------------------------------------------------------------------------
 
 // event_msg is codex's live-UI event stream and every payload type it carries
@@ -200,7 +200,7 @@ function claudeItems(e) {
 // Rendering from response_item alone avoids double items, so event_msg is
 // tolerated wholesale rather than allowlisted per payload type: a NEW event
 // subtype is additive UI noise, not a vocabulary break. The break signal for
-// this lane is an unknown response_item payload or an unknown top-level type.
+// this harness is an unknown response_item payload or an unknown top-level type.
 const CODEX_TOPLEVEL_UNRENDERED = new Set([
   'event_msg', 'session_meta', 'turn_context', 'world_state', 'compacted',
 ])
@@ -211,7 +211,7 @@ const CODEX_ITEM_UNRENDERED = new Set(['reasoning', 'ghost_snapshot'])
 
 function codexDisplayName(name, namespace) {
   // namespace "mcp__curia" + name "ask_human" → "curia.ask_human", matching
-  // how the page shows the claude lane's mcp__curia__ tools.
+  // how the page shows the claude harness's mcp__curia__ tools.
   if (namespace) return `${String(namespace).replace(/^mcp__/, '')}.${name}`
   return name
 }
@@ -282,11 +282,11 @@ function codexItems(e) {
 
 // ---------------------------------------------------------------------------
 
-const LANES = { claude: claudeItems, codex: codexItems }
+const READERS = { claude: claudeItems, codex: codexItems }
 
-export function parseLine(backend, line) {
-  const lane = LANES[backend]
-  if (!lane) throw new Error(`no transcript reader for backend "${backend}"`)
+export function parseLine(harness, line) {
+  const reader = READERS[harness]
+  if (!reader) throw new Error(`no transcript reader for harness "${harness}"`)
   let e
   try {
     e = JSON.parse(line)
@@ -294,9 +294,9 @@ export function parseLine(backend, line) {
     return { malformed: true }
   }
   if (!e || typeof e !== 'object') return { malformed: true }
-  const items = lane(e)
+  const items = reader(e)
   if (items === null) {
-    return { unknown: backend === 'codex' && e.type === 'response_item' ? `response_item/${e.payload?.type}` : String(e.type) }
+    return { unknown: harness === 'codex' && e.type === 'response_item' ? `response_item/${e.payload?.type}` : String(e.type) }
   }
   return { items }
 }

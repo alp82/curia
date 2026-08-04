@@ -2,7 +2,7 @@
 // prompt and the Stop hook both render from.
 //
 // The properties worth pinning:
-//   - report_result ends the sequence WHATEVER its status, so a worker that
+//   - report_result ends the sequence WHATEVER its status, so an agent that
 //     cannot comply is never held (the loop #48 refused)
 //   - each todo fires only on positive evidence, so an indeterminate read drops
 //     the item rather than adding it
@@ -20,7 +20,7 @@ const FRESH = {
 const todos = (over) => outstanding({ ...FRESH, ...over })
 
 describe('the outstanding checklist', () => {
-  test('a worker that has done nothing is asked for the review and the result', () => {
+  test('an agent that has done nothing is asked for the review and the result', () => {
     assert.deepEqual(todos({}).length, 2)
     assert.match(todos({})[0], /request_review/)
     assert.match(todos({})[1], /report_result/)
@@ -42,14 +42,14 @@ describe('the outstanding checklist', () => {
     assert.ok(todos({ ...approved, prState: 'OPEN' }).some((t) => /merge/.test(t)))
     assert.ok(!todos({ ...approved, prState: 'MERGED' }).some((t) => /merge/.test(t)))
     // an unreadable pull-request state leaves prState null: the item drops out
-    // rather than trapping a worker over a failed gh call
+    // rather than trapping an agent over a failed gh call
     assert.ok(!todos({ ...approved, prState: null }).some((t) => /merge/.test(t)))
   })
 
   test('report_result ends the sequence whatever its status', () => {
-    // The `blocked` path is exactly this: a worker that cannot finish has
+    // The `blocked` path is exactly this: an agent that cannot finish has
     // complied with the one order covering that, and holding it here would loop
-    // the very worker that cannot comply.
+    // the very agent that cannot comply.
     assert.deepEqual(todos({ hasResult: true, hasCommits: true }), [])
   })
 
@@ -71,7 +71,7 @@ describe('the prompt prose is the same structure', () => {
   test('a mapless ticket gets the tracker wording, with its own ticket number filled in', () => {
     const lines = endingProse({ repo: 'o/r', ticket: 42, branch: 'curia/42', mapNumber: null }).join('\n')
     assert.match(lines, /comment on o\/r#42/)
-    assert.ok(!lines.includes('#{n}'), 'the placeholder must not reach a worker')
+    assert.ok(!lines.includes('#{n}'), 'the placeholder must not reach an agent')
   })
 })
 
@@ -95,7 +95,7 @@ describe('the review gate payload', () => {
     links: ['Ticket: https://github.com/o/r/issues/42', 'Pull request (**OPEN**): https://x/pull/7'],
   }
 
-  test('it carries the question, both worker statements, and every link', () => {
+  test('it carries the question, both agent statements, and every link', () => {
     const { text } = reviewGateText(base)
     assert.match(text, /\*\*Is o\/r#42 done\?\*\* — a ticket/)
     assert.match(text, /did the thing/)
@@ -104,7 +104,7 @@ describe('the review gate payload', () => {
     assert.match(text, /- Pull request \(\*\*OPEN\*\*\)/)
   })
 
-  test('a silent worker is shown as silent rather than as an empty section', () => {
+  test('a silent agent is shown as silent rather than as an empty section', () => {
     const { text } = reviewGateText({ ...base, summary: '   ', charting: '' })
     assert.equal(text.match(/\(nothing said\)/g).length, 2)
   })

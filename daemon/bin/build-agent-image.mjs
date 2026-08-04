@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Build the shared worker image (#154) from the pins in config/curia.yaml.
+// Build the shared agent image (#154) from the pins in config/curia.yaml.
 //
-//     npm run build-worker-image --prefix daemon
+//     npm run build-agent-image --prefix daemon
 //
 // The daemon builds this itself on the dispatch path when the tag is missing
 // (#156), so nobody has to remember to run this. It exists for the two cases
@@ -9,7 +9,7 @@
 //
 //   - the first build on a box, which takes minutes and should not be the
 //     thing a ticket waits behind;
-//   - checking a Dockerfile edit before it reaches a worker.
+//   - checking a Dockerfile edit before it reaches an agent.
 //
 // It prints the tag it built. That tag is a content address (see image.mjs),
 // so the same config and the same Dockerfile always name the same image, and
@@ -18,13 +18,13 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadCuriaConfig } from '../src/config.mjs'
-import { BUILD_CONTEXT, DOCKERFILE, buildWorkerImage, imageExists, workerImageRef } from '../src/image.mjs'
+import { BUILD_CONTEXT, DOCKERFILE, buildAgentImage, imageExists, agentImageRef } from '../src/image.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const CONFIG = process.env.CURIA_CONFIG ?? path.resolve(DIR, '..', '..', 'config', 'curia.yaml')
 
 function die(msg) {
-  console.error(`build-worker-image: ${msg}`)
+  console.error(`build-agent-image: ${msg}`)
   process.exit(1)
 }
 
@@ -39,7 +39,7 @@ if (!cfg.sandbox) {
   die(`${CONFIG} has no \`sandbox\` section — the image pins live there, and there is no default for them`)
 }
 
-const ref = workerImageRef(cfg.sandbox)
+const ref = agentImageRef(cfg.sandbox)
 
 console.log(`image       ${ref.ref}`)
 console.log(`dockerfile  ${DOCKERFILE}`)
@@ -58,7 +58,7 @@ try {
     process.exit(0)
   }
   console.log('')
-  await buildWorkerImage(ref, { onLine: (line) => console.log(line) })
+  await buildAgentImage(ref, { onLine: (line) => console.log(line) })
 } catch (e) {
   die(e.message)
 }

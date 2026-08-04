@@ -9,16 +9,16 @@ watch:
 
 dispatch:
   auto_dispatch: false                     # shipped OFF (settled answer 1)
-  # #54 item 8: a worker awaiting review holds its slot on purpose — that is the
+  # #54 item 8: an agent awaiting review holds its slot on purpose — that is the
   # backpressure that beats a pile of unreviewed PRs — so this is a RESOURCE
-  # number now: ~0.3-0.5 GB per worker plus ~0.3 GB per preview dev server
+  # number now: ~0.3-0.5 GB per agent plus ~0.3 GB per preview dev server
   # against 8 GB. Quota stays bounded separately by #13's reactive cooling.
   # The long-lived tenant is a grilling ticket (N blocking questions), not review.
   max_concurrent: 6
   poll_interval_s: 60
   workspace_root: /home/alp/curia-work     # daemon-owned; never Alp's working tree
   ready_timeout_s: 45
-  stop_nudge_budget: 3                     # #54: how often the Stop hook may hold a worker
+  stop_nudge_budget: 3                     # #54: how often the Stop hook may hold an agent
                                            # at the ending before curia stops holding it
 
 attach:
@@ -53,8 +53,8 @@ timeline:                                  # #74, landing #73: the grid-less att
   # serve or publish a page whose proto is not the one it speaks (#70's rule).
   index: ../daemon/assets/timeline.html
 
-usage:                                     # #146: the per-worker status-line meters
-  # The 5 h / 7 d bars are ACCOUNT-level, and the claude lane states them in no
+usage:                                     # #146: the per-agent status-line meters
+  # The 5 h / 7 d bars are ACCOUNT-level, and the claude harness states them in no
   # file and no transcript. They ride the response headers of any accepted
   # completion, so the daemon takes one minimal completion for its headers and
   # caches the reading (#162 — the OAuth usage endpoint answers only a `claude
@@ -71,18 +71,18 @@ usage:                                     # #146: the per-worker status-line me
   probe_model: claude-haiku-4-5-20251001
 
 sandbox:                                   # #154, building the decision at #148: one shared
-                                           # worker image, one container per worker.
+                                           # agent image, one container per agent.
   # Every version here is a PIN, and the pins feed the image tag together with
   # the Dockerfile's own bytes (daemon/src/image.mjs). So a bump on any line
   # below names a tag that is not on the box, and the daemon rebuilds on the
   # next dispatch that wants a container. Nothing else needs touching.
   #
-  # There is no default for any of them: an unpinned CLI inside a worker image
-  # is a worker running whatever npm served that minute, which is the thing
+  # There is no default for any of them: an unpinned CLI inside an agent image
+  # is an agent running whatever npm served that minute, which is the thing
   # this section exists to stop. Build it by hand ahead of a dispatch with
-  # `npm run build-worker-image --prefix daemon`.
-  image: curia-worker
-  # Both pins track what the box itself runs, so a worker and a hand session
+  # `npm run build-agent-image --prefix daemon`.
+  image: curia-agent
+  # Both pins track what the box itself runs, so an agent and a hand session
   # meet the same CLI. Read them off the box with `claude --version` and
   # `codex --version` before bumping.
   claude_version: 2.1.220
@@ -96,10 +96,10 @@ sandbox:                                   # #154, building the decision at #148
   playwright_version: 1.62.1
   # The uid inside the container. It must equal the uid of the host user that
   # owns the mounted clone and cfg dir — the daemon runs as `alp` (1000) on
-  # the box — or the worker cannot write its own worktree.
+  # the box — or the agent cannot write its own worktree.
   agent_uid: 1000
-  # #156: the loopback ports each container publishes, three per worker, as
-  # `127.0.0.1:<p>:<p>` — the same number inside and out, so the port a worker
+  # #156: the loopback ports each container publishes, three per agent, as
+  # `127.0.0.1:<p>:<p>` — the same number inside and out, so the port an agent
   # binds is the port a preview rule points at. The range must hold
   # 3 × max_concurrent, and it must not touch the preview range: those are the
   # tailnet-facing HTTPS ports, these are the plain ports they proxy to.
@@ -110,8 +110,8 @@ preview:                                   # #40, implementing #8: one Serve por
   port_from: 8500                          # must not contain attach.serve_port — the sweep
   port_to: 8599                            # withdraws every rule it finds in this range
 
-skills:                                    # #57, decision 1 of #49: what a worker can invoke
-  root: ~/.claude/skills                   # host skills, symlinked read-only into each worker
+skills:                                    # #57, decision 1 of #49: what an agent can invoke
+  root: ~/.claude/skills                   # host skills, symlinked read-only into each agent
   install:                                 # every name must exist at boot or the daemon refuses
     - wayfinder
     - grilling
@@ -124,4 +124,4 @@ skills:                                    # #57, decision 1 of #49: what a work
     - diagnosing-bugs
   # Withheld on purpose: to-tickets, triage, to-spec, handoff — the
   # charting-and-PM side. to-tickets is mass ticket creation in the hands of a
-  # worker that now carries charting authority (#49).
+  # agent that now carries charting authority (#49).

@@ -1,5 +1,5 @@
 // Status-line meters (#146). The transcript shapes below are copied from real
-// worker transcripts on this box, not invented: both lanes are UNDOCUMENTED
+// agent transcripts on this box, not invented: both harnesses are UNDOCUMENTED
 // (transcript.mjs says so), so a fixture that guesses would prove nothing.
 //
 // The account half exists to answer the ticket's own open question — may the
@@ -25,14 +25,14 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   AccountUsage, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
-  readTranscriptMeters, modelName, windowFromModel, windowLabel, workerMeters,
+  readTranscriptMeters, modelName, windowFromModel, windowLabel, agentMeters,
   spentReset, transcriptReset,
   USAGE_ATTEMPT_MS, USAGE_STALE_MS, WINDOW_STALE_MS,
 } from '../src/usage.mjs'
 
 const NOW = Date.parse('2026-08-03T12:00:00Z')
 const MIN = 60 * 1000
-// A reset `m` minutes out, in each lane's own vocabulary.
+// A reset `m` minutes out, in each harness's own vocabulary.
 const resetsInSec = (m) => Math.round(NOW / 1000) + m * 60
 const resetsInIso = (m) => new Date(NOW + m * MIN).toISOString()
 
@@ -78,7 +78,7 @@ const codexCount = ({ input, window, primary = null, secondary = null }) => ({
 })
 
 describe('paceOf', () => {
-  test('elapsed is measured back from the reset, in either lane vocabulary', () => {
+  test('elapsed is measured back from the reset, in either harness vocabulary', () => {
     // 300-minute window, 210 minutes left -> 30% elapsed. Epoch seconds (codex)
     // and an ISO string (anthropic) must agree.
     assert.deepEqual(paceOf(resetsInSec(210), 300 * MIN, NOW), { elapsedPct: 30 })
@@ -105,7 +105,7 @@ describe('paceOf', () => {
 })
 
 describe('transcript meters', () => {
-  test('the claude lane: context is everything the request SENT, cached or not', () => {
+  test('the claude harness: context is everything the request SENT, cached or not', () => {
     const file = write('c.jsonl', [
       { type: 'system', subtype: 'init' },
       claudeTurn(1, 100, 0),
@@ -113,13 +113,13 @@ describe('transcript meters', () => {
       { type: 'file-history-snapshot' },
     ])
     const { ctx, windows } = readTranscriptMeters('claude', file, NOW)
-    // The model rides along (#178): the lane states no window, but it does
+    // The model rides along (#178): the harness states no window, but it does
     // state which model produced the counts, and that is the lookup key.
     assert.deepEqual(ctx, { tokens: 88922, window: null, model: 'claude-opus-5' })
-    assert.equal(windows, null, 'this lane states no account limits anywhere')
+    assert.equal(windows, null, 'this harness states no account limits anywhere')
   })
 
-  test('the codex lane states its own window, its own limits, and its own clock', () => {
+  test('the codex harness states its own window, its own limits, and its own clock', () => {
     const file = write('x.jsonl', [
       codexCount({
         input: 47481,
@@ -155,7 +155,7 @@ describe('transcript meters', () => {
   })
 
   test('a window whose reset has passed rolls over to a fresh one, and stays on the line', () => {
-    // An idle worker holds a reading from a window that has since reset. The
+    // An idle agent holds a reading from a window that has since reset. The
     // 88% is about a window that ended, so it goes — and the window that
     // started at that reset takes its place, 30 minutes into its five hours
     // (#187). The bar used to leave the line instead.
@@ -274,7 +274,7 @@ describe('the cooling reset (#175)', () => {
     assert.equal(spentReset([{ label: '5h', usedPct: 100, windowMs: 300 * MIN, resetsAt: null }], NOW), null)
   })
 
-  test('transcriptReset reads the worker config dir, and the claude lane states nothing', () => {
+  test('transcriptReset reads the agent config dir, and the claude harness states nothing', () => {
     const codexDir = path.join(dir, 'cfg-codex')
     const day = path.join(codexDir, 'sessions', '2026', '08', '03')
     fs.mkdirSync(day, { recursive: true })
@@ -288,7 +288,7 @@ describe('the cooling reset (#175)', () => {
     )
     assert.deepEqual(transcriptReset('codex', codexDir, NOW), new Date(NOW + 90 * MIN))
 
-    // The claude lane states its rate limits nowhere, so its reset stays the
+    // The claude harness states its rate limits nowhere, so its reset stays the
     // one on the pane text — this reader must not invent one.
     const claudeDir = path.join(dir, 'cfg-claude')
     const proj = path.join(claudeDir, 'projects', 'p')
@@ -296,7 +296,7 @@ describe('the cooling reset (#175)', () => {
     fs.writeFileSync(path.join(proj, 's.jsonl'), JSON.stringify(claudeTurn(1, 100, 0)))
     assert.equal(transcriptReset('claude', claudeDir, NOW), null)
 
-    // A worker capped before its first turn has written no transcript at all.
+    // An agent capped before its first turn has written no transcript at all.
     assert.equal(transcriptReset('codex', path.join(dir, 'cfg-empty'), NOW), null)
     assert.equal(transcriptReset(null, codexDir, NOW), null)
   })
@@ -403,17 +403,17 @@ describe('ModelWindows', () => {
   })
 })
 
-describe('workerMeters', () => {
+describe('agentMeters', () => {
   const routing = {
     models: {
-      opus: { provider: 'anthropic', backend: 'claude' },
-      stale: { provider: 'anthropic', backend: 'claude', context_window: 200000 },
+      opus: { provider: 'anthropic', harness: 'claude' },
+      stale: { provider: 'anthropic', harness: 'claude', context_window: 200000 },
       // The shape routing.yaml actually carries: the key is the routing label
       // and `id` is the model. #179 is about which of the two a human sees.
-      gpt: { provider: 'openai', backend: 'codex', id: 'gpt-5.6-sol', reasoning_effort: 'high', context_window: 258400 },
+      gpt: { provider: 'openai', harness: 'codex', id: 'gpt-5.6-sol', reasoning_effort: 'high', context_window: 258400 },
     },
   }
-  // The live lookup, stubbed at the shape workerMeters uses it through. The
+  // The live lookup, stubbed at the shape agentMeters uses it through. The
   // real number: measured against `GET /v1/models/claude-opus-5` on the
   // deployment box, which is where #146's 200000 came apart.
   const lookup = (table) => ({ windowFor: (id) => table[id] ?? null })
@@ -423,14 +423,14 @@ describe('workerMeters', () => {
     return d
   }
 
-  test('the claude lane looks its denominator up by the model the TRANSCRIPT names', () => {
+  test('the claude harness looks its denominator up by the model the TRANSCRIPT names', () => {
     // Not by the routing label: the label is `opus`, the model is
     // `claude-opus-5`, and only the second one has a window (#178).
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 399998, 0)])
     const account = { windows: () => [{ label: '5h', pct: 18, elapsedPct: 99 }] }
     const models = lookup({ 'claude-opus-5': 1000000 })
-    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'opus', routing, account, models, now: NOW })
+    const m = agentMeters({ harness: 'claude', cfgDir: d, model: 'opus', routing, account, models, now: NOW })
     assert.equal(m.ctxPct, 40)
     assert.equal(m.ctxOver, false)
     assert.equal(m.effort, null)
@@ -443,7 +443,7 @@ describe('workerMeters', () => {
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 399998, 0)])
     const models = lookup({ 'claude-opus-5': 1000000 })
-    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'stale', routing, account: null, models, now: NOW })
+    const m = agentMeters({ harness: 'claude', cfgDir: d, model: 'stale', routing, account: null, models, now: NOW })
     assert.equal(m.ctxPct, 40)
   })
 
@@ -453,7 +453,7 @@ describe('workerMeters', () => {
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
     const models = lookup({})
-    const m = workerMeters({ backend: 'claude', cfgDir: d, model: 'stale', routing, account: null, models, now: NOW })
+    const m = agentMeters({ harness: 'claude', cfgDir: d, model: 'stale', routing, account: null, models, now: NOW })
     assert.equal(m.ctxPct, 40)
   })
 
@@ -462,8 +462,8 @@ describe('workerMeters', () => {
     // confident percentage that is simply false.
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
-    const m = workerMeters({
-      backend: 'claude', cfgDir: d, model: 'opus', routing, account: null, models: lookup({}), now: NOW,
+    const m = agentMeters({
+      harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models: lookup({}), now: NOW,
     })
     assert.equal(m.ctxPct, null)
     // A window it cannot find costs the context figure and nothing else — the
@@ -472,18 +472,18 @@ describe('workerMeters', () => {
   })
 
   test('the meter names the MODEL, not the routing label (#179)', () => {
-    // Three sources, best evidence first. The claude lane states its own model
+    // Three sources, best evidence first. The claude harness states its own model
     // on every turn, so the label `opus` gives way to what actually ran.
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
-    const m = workerMeters({
-      backend: 'claude', cfgDir: d, model: 'opus', routing, account: null, models: lookup({}), now: NOW,
+    const m = agentMeters({
+      harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models: lookup({}), now: NOW,
     })
     assert.equal(m.model, 'claude-opus-5')
-    // And the codex lane states none, so `models.gpt.id` answers instead. This
-    // is the fault #179 was raised on: `gpt` about a Sol 5.6 worker.
+    // And the codex harness states none, so `models.gpt.id` answers instead. This
+    // is the fault #179 was raised on: `gpt` about a Sol 5.6 agent.
     assert.equal(modelName('gpt', routing.models.gpt), 'gpt-5.6-sol')
-    // Last resort: a lane that states neither keeps the label. The claude lane
+    // Last resort: a harness that states neither keeps the label. The claude harness
     // sits here for its first seconds, which is why no `id` is pinned for it.
     assert.equal(modelName('opus', routing.models.opus), 'opus')
     assert.equal(modelName(null, null), null)
@@ -495,14 +495,14 @@ describe('workerMeters', () => {
     // proof the denominator is wrong and the meter now says so.
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(3, 248000, 0)])
-    const m = workerMeters({
-      backend: 'claude', cfgDir: d, model: 'stale', routing, account: null, models: lookup({}), now: NOW,
+    const m = agentMeters({
+      harness: 'claude', cfgDir: d, model: 'stale', routing, account: null, models: lookup({}), now: NOW,
     })
     assert.equal(m.ctxPct, 124)
     assert.equal(m.ctxOver, true)
   })
 
-  test('the codex lane never consults the account reading — its transcript is the source', () => {
+  test('the codex harness never consults the account reading — its transcript is the source', () => {
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'sessions', '2026', '08', '03', 'rollout-a.jsonl'), [
       codexCount({
@@ -512,46 +512,46 @@ describe('workerMeters', () => {
       }),
     ])
     const account = { windows: () => { throw new Error('must not be called') } }
-    const m = workerMeters({ backend: 'codex', cfgDir: d, model: 'gpt', routing, account, now: NOW })
+    const m = agentMeters({ harness: 'codex', cfgDir: d, model: 'gpt', routing, account, now: NOW })
     assert.equal(m.ctxPct, 50)
     assert.equal(m.model, 'gpt-5.6-sol')
     assert.equal(m.effort, 'high')
     assert.deepEqual(m.windows, [{ label: '5h', pct: 3, elapsedPct: 50 }])
   })
 
-  test('the account bars survive a worker whose routing label is gone (#187)', () => {
-    // What a daemon restart used to cost. Reconcile rebuilt a live worker with
+  test('the account bars survive an agent whose routing label is gone (#187)', () => {
+    // What a daemon restart used to cost. Reconcile rebuilt a live agent with
     // no label, so there was no routing row, so `provider` was never
     // `anthropic` and BOTH bars left the line. `ctx` stayed, because it reads
-    // the transcript. The backend is the evidence that survives, so it names
+    // the transcript. The harness is the evidence that survives, so it names
     // the provider now.
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 399998, 0)])
     const account = { windows: () => [{ label: '5h', pct: 18, elapsedPct: 99 }] }
-    const m = workerMeters({
-      backend: 'claude', cfgDir: d, model: null, routing, account, models: lookup({ 'claude-opus-5': 1000000 }), now: NOW,
+    const m = agentMeters({
+      harness: 'claude', cfgDir: d, model: null, routing, account, models: lookup({ 'claude-opus-5': 1000000 }), now: NOW,
     })
     assert.deepEqual(m.windows, [{ label: '5h', pct: 18, elapsedPct: 99 }])
     assert.equal(m.model, 'claude-opus-5', 'the transcript names it, label or no label')
     assert.equal(m.ctxPct, 40)
   })
 
-  test('a codex worker with no label still never takes the anthropic reading', () => {
-    // The other direction of the same change: the backend decides, and this
-    // backend is not anthropic's. A transcript with no rate limits in it yet
+  test('a codex agent with no label still never takes the anthropic reading', () => {
+    // The other direction of the same change: the harness decides, and this
+    // harness is not anthropic's. A transcript with no rate limits in it yet
     // must leave the bars empty rather than borrow another account's.
     const d = cfgDir()
     write(path.join('cfg', 'curia-1', 'sessions', '2026', '08', '03', 'rollout-a.jsonl'), [
       codexCount({ input: 129200, window: 258400 }),
     ])
     const account = { windows: () => { throw new Error('must not be called') } }
-    const m = workerMeters({ backend: 'codex', cfgDir: d, model: null, routing, account, now: NOW })
+    const m = agentMeters({ harness: 'codex', cfgDir: d, model: null, routing, account, now: NOW })
     assert.equal(m.windows, null)
     assert.equal(m.ctxPct, 50)
   })
 
-  test('the effort and the model survive a worker with no transcript yet', () => {
-    const m = workerMeters({ backend: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
+  test('the effort and the model survive an agent with no transcript yet', () => {
+    const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
     assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
   })
 })
@@ -616,7 +616,7 @@ describe('rendering', () => {
   })
 
   test('an over-window context figure is marked, not passed off as nearly full', () => {
-    // 100% and 124% must not look alike: the first is a worker, the second is a
+    // 100% and 124% must not look alike: the first is an agent, the second is a
     // broken denominator (#178).
     assert.deepEqual(meterParts({ ctxPct: 100, ctxOver: false }), ['ctx 100%'])
     assert.deepEqual(meterParts({ ctxPct: 124, ctxOver: true }), ['ctx 124% ⚠️'])
@@ -708,7 +708,7 @@ describe('AccountUsage', () => {
   })
 
   test('a window that already reset rolls over on the account reading too', () => {
-    // #187: every 5 h reset used to take this bar off every worker line, for as
+    // #187: every 5 h reset used to take this bar off every agent line, for as
     // long as the next probe took. Five minutes past the reset the window is
     // five minutes old and empty, which is 2% of its clock and 0% spent.
     assert.deepEqual(accountWindows(payload(18, 57, { fiveIn: -5 }), NOW), [

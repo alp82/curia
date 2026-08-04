@@ -14,10 +14,10 @@ Environment=PATH=/home/alp/.local/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/local/bin/node src/index.mjs
 Restart=on-failure
 RestartSec=5
-# Workers live in a tmux server the daemon spawns, INSIDE this service's
+# Agents live in a tmux server the daemon spawns, INSIDE this service's
 # cgroup. The default (control-group) kill reaped that server on every
-# restart — a deploy at 10:54 on 2026-08-02 killed a live worker mid-ticket
-# (wayfinder #132). `process` kills only the daemon; tmux and its workers
+# restart — a deploy at 10:54 on 2026-08-02 killed a live agent mid-ticket
+# (wayfinder #132). `process` kills only the daemon; tmux and its agents
 # survive the restart, and boot reconcile re-adopts them.
 KillMode=process
 

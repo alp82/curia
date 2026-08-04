@@ -25,7 +25,7 @@ export function resolveModel(routing, labels, override) {
 // In-memory only, never persisted (settled answer 6). Two distinct levels:
 // a model-level entry (Fable's own weekly sub-cap) cools only that model and
 // the chain falls back within the provider; a provider-level entry cools every
-// lane under that provider at once. With two providers configured (#39) a
+// model under that provider at once. With two providers configured (#39) a
 // provider-level entry is no longer the all-cooling path it was under all-Claude
 // routing — it is the ordinary case the cross-provider chains exist for, and
 // #exhausted fires only when BOTH providers are cooling.
@@ -90,9 +90,9 @@ export function candidates(routing, model, cooling) {
 // generated workspace_root paths and model names never need anything else.
 export const SAFE_SUBSTITUTION = /^[A-Za-z0-9._/-]+$/
 
-// The name a backend's CLI knows a routing model by. They are the same string
-// for the Claude lane, where `fable`/`opus`/`sonnet` are aliases the CLI accepts
-// — but #13's routing vocabulary is not any CLI's vocabulary, and the codex lane
+// The name a harness's CLI knows a routing model by. They are the same string
+// for the Claude harness, where `fable`/`opus`/`sonnet` are aliases the CLI accepts
+// — but #13's routing vocabulary is not any CLI's vocabulary, and the codex harness
 // broke that assumption: `model:gpt` is the label a human writes and
 // `codex --model gpt` is not a model. `models.<name>.id` is the CLI's name, and
 // the routing name stays the label vocabulary.
@@ -103,31 +103,31 @@ export function spawnModelId(routing, model) {
   return routing.models?.[model]?.id ?? model
 }
 
-// Which provider a backend belongs to, as `routing.yaml` states it (#187).
+// Which provider a harness belongs to, as `routing.yaml` states it (#187).
 //
-// A provider is normally read off the routing row of the model a worker was
+// A provider is normally read off the routing row of the model an agent was
 // dispatched on. That row needs a label, and a label is a spawn-time fact: a
-// lab session never had one, and a re-adopted worker holds one only because the
-// journal remembered it. The backend is weaker evidence, and it survives on
-// disk (detectBackend), so it answers when the label cannot.
+// lab session never had one, and a re-adopted agent holds one only because the
+// journal remembered it. The harness is weaker evidence, and it survives on
+// disk (detectHarness), so it answers when the label cannot.
 //
-// Config stays the authority — no table of backends and providers is written
-// here. The answer comes from what every configured model on that backend says,
-// and only when they all say the same thing. Two providers under one backend is
+// Config stays the authority — no table of harnesses and providers is written
+// here. The answer comes from what every configured model on that harness says,
+// and only when they all say the same thing. Two providers under one harness is
 // a config a caller must not be given a guess about.
-export function providerOf(routing, backend) {
-  if (!backend) return null
+export function providerOf(routing, harness) {
+  if (!harness) return null
   const found = new Set()
   for (const spec of Object.values(routing?.models ?? {})) {
-    if (spec?.backend === backend && spec.provider) found.add(spec.provider)
+    if (spec?.harness === harness && spec.provider) found.add(spec.provider)
   }
   return found.size === 1 ? [...found][0] : null
 }
 
-export function buildSpawnCmd(routing, backend, model, promptFile) {
-  const b = routing.backends?.[backend]
+export function buildSpawnCmd(routing, harness, model, promptFile) {
+  const b = routing.harnesses?.[harness]
   if (!b) {
-    throw new Error(`unknown backend "${backend}" — configured backends: ${Object.keys(routing.backends ?? {}).join(', ')}`)
+    throw new Error(`unknown harness "${harness}" — configured harnesses: ${Object.keys(routing.harnesses ?? {}).join(', ')}`)
   }
   const modelId = spawnModelId(routing, model)
   for (const [name, value] of [['model', modelId], ['prompt_file', promptFile]]) {
@@ -169,7 +169,7 @@ export const LIMIT_PATTERNS = {
   // weekly, 5-hour, monthly and annual limits and no per-model sub-cap — so the
   // scope is always 'provider' and the chain crosses to the other provider.
   // No reset pattern: codex states no reset time in any of these messages, so
-  // resetAt stays null HERE. It is not unknown, though — this lane states the
+  // resetAt stays null HERE. It is not unknown, though — this harness states the
   // instant in its transcript, and #handleLimit reads it there (#175). What
   // stays conservative is the case neither surface states: an hour.
   openai: {
@@ -194,7 +194,7 @@ export const LIMIT_PATTERNS = {
 // the definitive no-credits statement, not the informational "now uses usage
 // credits" line — promotional text appears in healthy panes (field-notes
 // contract 4) and must never match. Model-scoped: the dialog gates one
-// model's credits; every other lane stays warm.
+// model's credits; every other model stays warm.
 export const CREDIT_GATE_PATTERNS = {
   anthropic: new RegExp(`you don${AP}t have usage credits`, 'i'),
 }
@@ -217,9 +217,9 @@ export function parseUsageLimit(paneText, provider = 'anthropic') {
 }
 
 // Does this text carry a phrase that could FORGE a usage-limit signal? Checked
-// against every provider's vocabulary rather than the worker's own, for two
+// against every provider's vocabulary rather than the agent's own, for two
 // reasons: the answer is computed once from the ticket text at dispatch while a
-// worker's provider CHANGES under it on a cross-provider fallback, and the
+// agent's provider CHANGES under it on a cross-provider fallback, and the
 // consequence of a match is a refusal to act — over-refusing falls through to
 // the ready-timeout path, which surfaces to a human, and that is the safe
 // direction (see paneTail in dispatch.mjs).

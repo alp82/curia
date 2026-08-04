@@ -7,7 +7,7 @@
 // canonical verb text to the SAME /command seam the slash verbs and REST use —
 // that seam is the containment boundary: the daemon executes every effect, the
 // session holds no shell, no files, no process handles. Config posture mirrors
-// a worker's (workspace.mjs): config isolated under a dedicated dir, host
+// an agent's (workspace.mjs): config isolated under a dedicated dir, host
 // credentials shared through CLAUDE_SECURESTORAGE_CONFIG_DIR — confirmed live
 // on #83.
 
@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { query as sdkQuery, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
-import { seedConfigDir, workerEnv } from './workspace.mjs'
+import { seedConfigDir, agentEnv } from './workspace.mjs'
 import { SIGNALS, smallPrint } from './messaging.mjs'
 
 // Haiku answers the verb catalogue reliably (measured on #83: fresh turn
@@ -36,7 +36,7 @@ export function canonicalFor(verb, args = {}) {
     case 'start': {
       let text = `start ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
       if (args.model) text += ` model=${args.model}`
-      if (args.backend) text += ` backend=${args.backend}`
+      if (args.harness) text += ` harness=${args.harness}`
       // The map instruction (#160) rides LAST, after a bare `--`, because it is
       // the one argument that is a whole sentence. Whitespace is collapsed here:
       // the seam is one line of text, and the router splits it on whitespace, so
@@ -71,24 +71,24 @@ export function buildVerbTools(command) {
     tool('tickets', 'List the takeable tickets across the watched repos, in map order, with the agent-only runnable count. Optionally limit to one repo.', {
       repo: repoArg,
     }, run('tickets')),
-    tool('next', 'Dispatch a worker on the next takeable ticket. Optionally limit to one repo.', {
+    tool('next', 'Dispatch an agent on the next takeable ticket. Optionally limit to one repo.', {
       repo: repoArg,
     }, run('next')),
-    tool('status', 'Show the live workers: ticket, model, state, uptime, and who is waiting on input.', {}, run('status')),
-    tool('start', 'Claim a ticket and dispatch a worker on it. Use the repo field when the ticket number alone is ambiguous. Started on a MAP issue, this dispatches a charting worker that updates the map instead — pass the operator\'s sentence as the instruction.', {
+    tool('status', 'Show the live agents: ticket, model, state, uptime, and who is waiting on input.', {}, run('status')),
+    tool('start', 'Claim a ticket and dispatch an agent on it. Use the repo field when the ticket number alone is ambiguous. Started on a MAP issue, this dispatches a charting agent that updates the map instead — pass the operator\'s sentence as the instruction.', {
       ticket: ticketArg,
       repo: repoArg,
       model: z.string().optional().describe('model override'),
-      backend: z.string().optional().describe('backend override (claude | codex)'),
-      instruction: z.string().optional().describe('MAP DISPATCHES ONLY: what the operator wants changed on the map, in their own words ("update the landing page map so that X"). The charting worker reads it as its first input. Leave it out and the worker asks the operator what should change. A ticket dispatch refuses it.'),
+      harness: z.string().optional().describe('harness override (claude | codex)'),
+      instruction: z.string().optional().describe('MAP DISPATCHES ONLY: what the operator wants changed on the map, in their own words ("update the landing page map so that X"). The charting agent reads it as its first input. Leave it out and the agent asks the operator what should change. A ticket dispatch refuses it.'),
     }, run('start')),
-    tool('cancel', 'Cancel the worker on a ticket, or "all" for every worker. Destructive, so the daemon posts ✅/❌ buttons and executes ONLY after the operator presses ✅. Call this directly when asked — never seek confirmation in conversation first, and never report the cancel as done: report that the confirm was posted.', {
+    tool('cancel', 'Cancel the agent on a ticket, or "all" for every agent. Destructive, so the daemon posts ✅/❌ buttons and executes ONLY after the operator presses ✅. Call this directly when asked — never seek confirmation in conversation first, and never report the cancel as done: report that the confirm was posted.', {
       ticket: bulkArg,
     }, run('cancel')),
-    tool('resume', 'Fresh worker on a ticket, inheriting its surviving worktree. "all" resumes every resumable ticket.', {
+    tool('resume', 'Fresh agent on a ticket, inheriting its surviving worktree. "all" resumes every resumable ticket.', {
       ticket: bulkArg,
     }, run('resume')),
-    tool('attach', 'Get the attach links (timeline + browser terminal) for a live worker.', {
+    tool('attach', 'Get the attach links (timeline + browser terminal) for a live agent.', {
       ticket: ticketArg,
     }, run('attach')),
   ]
@@ -106,20 +106,20 @@ export const DISALLOWED_TOOLS = [
   'Task', 'TodoWrite', 'NotebookEdit', 'AskUserQuestion', 'ToolSearch',
 ]
 
-const SYSTEM_PROMPT = `You are the curia overseer. Curia is a personal orchestration daemon: it watches GitHub trackers, dispatches AI agent workers on tickets, and keeps the operator in the loop from any device. You are the command brain over its Discord surface.
+const SYSTEM_PROMPT = `You are the curia overseer. Curia is a personal orchestration daemon: it watches GitHub trackers, dispatches AI agents on tickets, and keeps the operator in the loop from any device. You are the command brain over its Discord surface.
 
 You speak with one operator, in one Discord thread, in short Discord markdown. You act only through the curia tools. The daemon executes every effect.
 
 What you do:
 - Translate the operator's prose into the verbs: tickets, next, status, start, cancel, resume, attach.
 - Answer reasoning questions from tool output ("what should I start next?" — call tickets, then recommend one, with a one-line reason).
-- Report tool replies faithfully. Do not invent workers, tickets, or states.
+- Report tool replies faithfully. Do not invent agents, tickets, or states.
 
 Vocabulary the operator uses:
 - A "map" is a wayfinder map: a GitHub issue whose child tickets chart one effort. The operator names maps by topic ("the landing page map"). The \`tickets\` output groups tickets under their map's header line ("map #109 **The curia landing page**").
 - A map named in prose resolves to that map's header, never to repo-wide order: "continue with <map>" means \`start\` the FIRST ticket listed under that map's header. A repo can hold several maps — picking the repo's first takeable when the operator named a map dispatches the wrong ticket.
 - When a phrase names no repo or map you know, call \`tickets\` with no filter and match the phrase against the headers that come back before saying you cannot.
-- \`start\` on the MAP's own number is a map dispatch: a charting worker updates the map itself. Use it when the operator asks to CHANGE a map ("update the landing page map so that X", "add a ticket for Y", "the map is wrong about Z"). Put their sentence in the \`instruction\` field, in their own words — do not rewrite it and do not summarize it. "Continue with <map>" is not this: that starts the map's first ticket.
+- \`start\` on the MAP's own number is a map dispatch: a charting agent updates the map itself. Use it when the operator asks to CHANGE a map ("update the landing page map so that X", "add a ticket for Y", "the map is wrong about Z"). Put their sentence in the \`instruction\` field, in their own words — do not rewrite it and do not summarize it. "Continue with <map>" is not this: that starts the map's first ticket.
 
 Your memory goes stale:
 - Tool output from an earlier turn may be minutes or hours old, and the daemon, the trackers, and the operator all change state between your turns. Re-run \`tickets\` or \`status\` before you refuse, recommend, or report state. Never answer from a previous turn's tool output.
@@ -163,9 +163,9 @@ export class OverseerHost {
     this.home = path.join(dataDir, 'overseer', 'home')
     this.configDir = path.join(dataDir, 'overseer', 'config')
     fs.mkdirSync(this.home, { recursive: true })
-    // The worker seed (workspace.mjs): no first-run dialog, home pre-trusted,
+    // The agent seed (workspace.mjs): no first-run dialog, home pre-trusted,
     // credentials swept from the config dir — the session shares the host
-    // store through workerEnv instead. No skills: the overseer has no files
+    // store through agentEnv instead. No skills: the overseer has no files
     // to run them against.
     seedConfigDir(this.configDir, this.home)
     this.busy = new Set() // thread ids with a turn in flight
@@ -243,7 +243,7 @@ export class OverseerHost {
         prompt,
         options: {
           cwd: this.home,
-          env: { ...process.env, ...workerEnv(this.configDir) },
+          env: { ...process.env, ...agentEnv(this.configDir) },
           model,
           resume,
           systemPrompt: SYSTEM_PROMPT,

@@ -26,7 +26,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
-import { TOKEN_HEADER, mintWorkerToken } from '../src/workertoken.mjs'
+import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -77,13 +77,13 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
   let port
   let childLog = ''
 
-  // Since #159 the daemon serves /mcp only to a worker that presents the token
+  // Since #159 the daemon serves /mcp only to an agent that presents the token
   // it minted for that name — so every client here arms itself the way a real
-  // harness does: the daemon writes the token file, the worker sends the header.
+  // harness does: the daemon writes the token file, the agent sends the header.
   // Minting straight into the child's own data dir is deliberate: the file IS
   // the contract between the two processes.
-  const armed = (worker) => {
-    const token = mintWorkerToken(path.join(tmp, 'data'), worker)
+  const armed = (agent) => {
+    const token = mintAgentToken(path.join(tmp, 'data'), agent)
     return { requestInit: { headers: { [TOKEN_HEADER]: token } } }
   }
 
@@ -124,8 +124,8 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       'defaults:',
       '  untyped: sonnet',
       'models:',
-      '  sonnet: { provider: anthropic, backend: claude }',
-      'backends:',
+      '  sonnet: { provider: anthropic, harness: claude }',
+      'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '\u23f5\u23f5|bypass permissions'",
@@ -163,7 +163,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
 
   test('progress notifications flow to the client while the call is still blocked, then the answer releases it', async () => {
     const client = new Client({ name: 'curia-keepalive-test', version: '0.0.0' })
-    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=curia-lab&ticket=77`), armed('curia-lab'))
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-lab&ticket=77`), armed('curia-lab'))
     await client.connect(transport)
 
     // onprogress is what makes the SDK put a progressToken on the request —
@@ -207,14 +207,14 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     await client.close()
   })
 
-  // The other branch. A worker lane that offers no progressToken still has to
+  // The other branch. An agent harness that offers no progressToken still has to
   // get bytes, or it dies at its own idle timeout exactly like Claude Code did
   // — and this is the branch a silent regression would leave uncovered, since
   // Claude Code itself never takes it. (What a *given* client does with a
   // logging notification is its business; the daemon's job is to keep sending.)
   test('a client that offers no progressToken still gets keepalive traffic', async () => {
     const client = new Client({ name: 'curia-keepalive-test-notoken', version: '0.0.0' })
-    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=curia-lab2&ticket=78`), armed('curia-lab2'))
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-lab2&ticket=78`), armed('curia-lab2'))
     await client.connect(transport)
 
     const logs = []
@@ -285,9 +285,9 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
   // case: the resolve step must decline out loud instead of hanging the call or
   // taking the daemon down with it.
   test('report_result returns the daemon\'s resolve outcome, and declines safely when it cannot identify the ticket', async () => {
-    const call = async (worker, ticket) => {
+    const call = async (agent, ticket) => {
       const client = new Client({ name: 'curia-result-test', version: '0.0.0' })
-      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?worker=${worker}&ticket=${ticket}`), armed(worker)))
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=${agent}&ticket=${ticket}`), armed(agent)))
       const res = await client.callTool(
         { name: 'report_result', arguments: { ticket: String(ticket), status: 'resolved', summary: 'fixture' } },
         undefined,

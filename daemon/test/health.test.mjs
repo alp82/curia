@@ -213,8 +213,8 @@ async function writeConfig(cfgDir, tmp) {
     'defaults:',
     '  untyped: sonnet',
     'models:',
-    '  sonnet: { provider: anthropic, backend: claude }',
-    'backends:',
+    '  sonnet: { provider: anthropic, harness: claude }',
+    'harnesses:',
     '  claude:',
     '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '\u23f5\u23f5|bypass permissions'",
@@ -269,7 +269,7 @@ describe('the daemon survives the gateway crash it died of (real boot, induced)'
   })
 
   test('the abandoned socket kills nothing, and the escalation open across it is still answerable', async () => {
-    // opened BEFORE the fault: this is the worker whose question the crash took
+    // opened BEFORE the fault: this is the agent whose question the crash took
     // down with it on 26 July.
     const opened = await json(port, 'POST', '/escalate', { ticket: '999', kind: 'free-text', prompt: 'still there?' })
     assert.equal(opened.status, 200)

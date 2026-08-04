@@ -31,8 +31,8 @@ const NOT_FOUND_RE = /can't find session|session not found/i
 // only on positive evidence of absence; anything indeterminate throws. This
 // answer authorises destructive acts downstream — start()'s already-live
 // override and #autoTick's "skip, never churn" both read `false` as "no live
-// worker", and a wedged tmux answered as `false` used to let a re-dispatch
-// force-remove a LIVE worker's worktree with no human in the loop.
+// agent", and a wedged tmux answered as `false` used to let a re-dispatch
+// force-remove a LIVE agent's worktree with no human in the loop.
 export async function hasSession(name) {
   try {
     await tmux(['has-session', '-t', `=${name}`])
@@ -47,7 +47,7 @@ export async function hasSession(name) {
 // All session names; callers filter ^curia-. Returns [] only on positive
 // evidence that no server exists; any other failure throws. Swallowing those
 // used to hand reconcile an empty list it read as "nothing is running", which
-// unclaimed live workers and force-removed their worktrees — the exact
+// unclaimed live agents and force-removed their worktrees — the exact
 // data-destroying outcome the null-login guard already blocks on the identity
 // read. An indeterminate session list is a failed pass, not evidence.
 export async function listSessions() {
@@ -60,7 +60,7 @@ export async function listSessions() {
   }
 }
 
-// An exit marker is echoed between the backend command and the `exec bash`
+// An exit marker is echoed between the harness command and the `exec bash`
 // below, so the pane itself records that the command ENDED and with what
 // status. The value is nested inside `bash -c`, so it must be quote-free by
 // construction — same discipline as SAFE_SUBSTITUTION in routing.mjs, asserted
@@ -82,7 +82,7 @@ export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = n
   const args = ['new-session', '-d', '-s', name, '-c', cwd, 'env']
   for (const [k, v] of Object.entries(env)) args.push(`${k}=${v}`)
   const wrapped = exitMarker
-    ? `${shellCmd}; echo "[curia] the backend command exited — ${exitMarker} $?"; exec bash`
+    ? `${shellCmd}; echo "[curia] the harness command exited — ${exitMarker} $?"; exec bash`
     : `${shellCmd}; exec bash`
   args.push('bash', '-c', wrapped)
   await tmux(args)
@@ -91,7 +91,7 @@ export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = n
 // PANE-scoped target — and a pane target is NOT a session target. A bare
 // `=<session>` makes tmux look for a *pane* by that name and fail with
 // "can't find pane: =<session>" as soon as the window is no longer named after
-// the session — which is always, because a real Claude Code worker renames its
+// the session — which is always, because a real Claude Code agent renames its
 // window to "claude". The trailing colon is what says "session <name>, its
 // active window, that window's active pane" (verified live on tmux 3.7b against
 // a renamed-window session). The `=` still means exact match through the colon
@@ -99,8 +99,8 @@ export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = n
 // prefix-matching `curia-probe:` wrongly captures curia-probe-2's pane.
 //
 // The old form made every capture throw, and #watchdog reads a throw as an
-// empty pane: READY_MARKER never matched (so `worker_ready` was never
-// journalled and every live worker got a false `worker_ready_timeout`), and
+// empty pane: READY_MARKER never matched (so `agent_ready` was never
+// journalled and every live agent got a false `agent_ready_timeout`), and
 // parseUsageLimit never saw pane text, so reactive cooling could never fire.
 export async function capturePane(name) {
   const { stdout } = await tmux(['capture-pane', '-p', '-t', `=${name}:`])

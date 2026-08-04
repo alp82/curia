@@ -6,20 +6,20 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 - [ADR-0001](0001-github-is-the-only-durable-state-home.md): GitHub is the only durable state home. The daemon holds no board, and the journal is its one artifact.
 
-## Daemon and worker host
+## Daemon and agent host
 
 - [ADR-0002](0002-thin-custom-daemon.md): A thin custom daemon owns the unique logic and drives commodity parts. No adopted platform.
-- [ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md): Workers live in bare tmux, attach is one shared ttyd behind Tailscale Serve, workspaces are per-ticket worktrees.
-- [ADR-0012](0012-one-container-per-worker.md): Each worker runs in its own Docker container, started by its own tmux pane, holding its own clone and nothing else of the box.
+- [ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md): Agents live in bare tmux, attach is one shared ttyd behind Tailscale Serve, workspaces are per-ticket worktrees.
+- [ADR-0012](0012-one-container-per-worker.md): Each agent runs in its own Docker container, started by its own tmux pane, holding its own clone and nothing else of the box.
 
 ## Dispatch and routing
 
 - [ADR-0004](0004-label-only-routing.md): Model routing reads labels only. Quota awareness is reactive cooling, and exhaustion makes the frontier the queue.
 
-## Workers
+## Agents
 
-- [ADR-0006](0006-worker-containment-and-standing-orders.md): The worker resolves in the tracker's idiom, bounded by standing orders. The daemon verifies, repairs, and lands.
-- [ADR-0007](0007-shared-credential-store.md): Workers share the host credential store. Nothing is snapshotted, so nothing goes stale. The daemon reads that store for the account usage bars, and never writes it.
+- [ADR-0006](0006-worker-containment-and-standing-orders.md): The agent resolves in the tracker's idiom, bounded by standing orders. The daemon verifies, repairs, and lands.
+- [ADR-0007](0007-shared-credential-store.md): Agents share the host credential store. Nothing is snapshotted, so nothing goes stale. The daemon reads that store for the account usage bars, and never writes it.
 
 ## Human in the loop
 
@@ -27,7 +27,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 ## Resolution
 
-- [ADR-0008](0008-resolved-means-merged.md): Resolved means merged. The worker stays alive through the review, and the Stop hook enforces the ending.
+- [ADR-0008](0008-resolved-means-merged.md): Resolved means merged. The agent stays alive through the review, and the Stop hook enforces the ending.
 - [ADR-0010](0010-the-cross-check.md): The cross-check is a button on the review gate. A reviewer on the other provider returns a verdict, and the builder answers it before the operator decides.
 
 ## Attach surfaces

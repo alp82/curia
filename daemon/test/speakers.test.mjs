@@ -1,5 +1,5 @@
 // #143: speaker identities (#108 item 15) need Manage Webhooks. Without the
-// grant every worker send raised `Missing Permissions`, fell back to the bot
+// grant every agent send raised `Missing Permissions`, fell back to the bot
 // voice, and said so in the daemon log only — so the identities were off for a
 // day and no one saw it. These tests pin the two halves of the fix: the words
 // still always land, and the degradation reaches the channel once.
@@ -79,20 +79,20 @@ describe('speaker-identity degradation (#143)', () => {
     assert.equal(asHook[0].threadId, 't-1')
   })
 
-  test('the speaker avatar is a URL that exists, and one per worker (#143)', async () => {
+  test('the speaker avatar is a URL that exists, and one per agent (#143)', async () => {
     await bridge.probeSpeakers()
     await bridge.notify('85', 'a', { as: 'curia-85 · a ticket' })
     await bridge.notify('85', 'b', { as: 'curia-143 · another ticket' })
 
     // github.com/identicons/<name>.png answers for real accounts only, so the
-    // old scheme 404ed for every worker and Discord drew the default face.
+    // old scheme 404ed for every agent and Discord drew the default face.
     for (const send of asHook) assert.doesNotMatch(send.avatarURL, /github\.com\/identicons/)
     for (const send of asHook) assert.match(send.avatarURL, /^https:\/\/www\.gravatar\.com\/avatar\/[0-9a-f]{32}\?d=identicon&f=y/)
-    assert.notEqual(asHook[0].avatarURL, asHook[1].avatarURL, 'two workers, two faces')
+    assert.notEqual(asHook[0].avatarURL, asHook[1].avatarURL, 'two agents, two faces')
 
-    // the ticket title moves, the worker does not — the face must not follow it
+    // the ticket title moves, the agent does not — the face must not follow it
     await bridge.notify('85', 'c', { as: 'curia-85 · a renamed ticket' })
-    assert.equal(asHook[2].avatarURL, asHook[0].avatarURL, 'the worker name alone seeds the face')
+    assert.equal(asHook[2].avatarURL, asHook[0].avatarURL, 'the agent name alone seeds the face')
   })
 
   test('a grant withdrawn while the daemon runs is caught at the send', async () => {

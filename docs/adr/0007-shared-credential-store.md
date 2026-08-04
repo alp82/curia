@@ -1,28 +1,28 @@
-# ADR-0007: Workers share the host credential store
+# ADR-0007: Agents share the host credential store
 
 **Status**: accepted (2026-07), extended (2026-08), corrected (2026-08)
-**Provenance**: [Share the host credential file with workers instead of copying it (#53)](https://github.com/alp82/curia/issues/53), [Status line shows model, effort, context %, and the usage bars (#146)](https://github.com/alp82/curia/issues/146), [The account usage bars have no source on the deployment box (#162)](https://github.com/alp82/curia/issues/162)
+**Provenance**: [Share the host credential file with agents instead of copying it (#53)](https://github.com/alp82/curia/issues/53), [Status line shows model, effort, context %, and the usage bars (#146)](https://github.com/alp82/curia/issues/146), [The account usage bars have no source on the deployment box (#162)](https://github.com/alp82/curia/issues/162)
 
 ## Context
 
-The daemon used to copy the host's credential file into each worker's config dir at spawn. The host session refreshes tokens in place, and the refresh rotates the refresh token server-side. Every worker then carried a dead snapshot, and a long human-in-the-loop block killed the worker on its next model turn. That failure is fatal under merge-gated resolution, where a worker waits hours on a review.
+The daemon used to copy the host's credential file into each agent's config dir at spawn. The host session refreshes tokens in place, and the refresh rotates the refresh token server-side. Every agent then carried a dead snapshot, and a long human-in-the-loop block killed the agent on its next model turn. That failure is fatal under merge-gated resolution, where an agent waits hours on a review.
 
 ## Decision
 
-Workers share the host credential store instead of holding a copy. A worker's config dir contains no credential file at all. The worker's environment keeps `CLAUDE_CONFIG_DIR` per-worker and points the secure-storage location at the host's `~/.claude`, so every worker rides the host's one refresh lineage.
+Agents share the host credential store instead of holding a copy. An agent's config dir contains no credential file at all. The agent's environment keeps `CLAUDE_CONFIG_DIR` per-agent and points the secure-storage location at the host's `~/.claude`, so every agent rides the host's one refresh lineage.
 
-The isolation of everything else is untouched: prompt, skills, settings, and harness stay per-worker. Only auth is shared, which is the one thing that should be.
+The isolation of everything else is untouched: prompt, skills, settings, and harness stay per-agent. Only auth is shared, which is the one thing that should be.
 
 ## Consequences
 
-- A worker survives any host-side refresh. Verified live: a worker blocked in `ask_human` across a forced token rotation resumed and completed model turns.
-- The parked worker-auth watchdog is retired as mis-framed. There is nothing to watch once nothing is snapshotted.
+- An agent survives any host-side refresh. Verified live: an agent blocked in `ask_human` across a forced token rotation resumed and completed model turns.
+- The parked agent-auth watchdog is retired as mis-framed. There is nothing to watch once nothing is snapshotted.
 - The refresh writes temp-then-rename, verified empirically. A symlinked credential file would have been silently replaced by a regular file, so the environment-level share is the durable form.
 - The concurrent-refresh race stays parity with N host sessions on one machine. Argued, not exercised.
 
 ## Extension: the daemon reads the store, and never writes it (#146)
 
-The status line's account usage bars have no per-worker source. The claude transcript states no rate limit anywhere, so the only source is the account usage endpoint the CLI itself polls, and reaching it needs the shared token.
+The status line's account usage bars have no per-agent source. The claude transcript states no rate limit anywhere, so the only source is the account usage endpoint the CLI itself polls, and reaching it needs the shared token.
 
 The daemon may read that token. Three rules bound the read, and they apply to any future daemon-side use of the store:
 
@@ -32,13 +32,13 @@ The daemon may read that token. Three rules bound the read, and they apply to an
 
 `usage.account_bars: false` in `config/curia.yaml` stops the daemon reaching the endpoint at all. The bars then show whatever reading is already cached on disk, and age.
 
-Only the account bars need this. The model, the reasoning effort and the context percent come from the daemon's own records and the worker's own transcript.
+Only the account bars need this. The model, the reasoning effort and the context percent come from the daemon's own records and the agent's own transcript.
 
 ## Correction: the credential store is not a usage source on a headless box (#162)
 
 The extension above was built and verified against a workstation, where an interactive `claude /login` keeps `~/.claude/.credentials.json` current. The deployment box has no such file. It authenticates through `CLAUDE_CODE_OAUTH_TOKEN`, the `claude setup-token` credential [#100](https://github.com/alp82/curia/issues/100) chose, so the account bars never rendered there. That was a wrong reference machine, not a wrong idea.
 
-**The cause is a scope, not a missing file.** `GET /api/oauth/usage` answers only a credential that carries `user:profile`. Measured against the live API: the setup token gets `403 OAuth token does not meet scope requirement any_of(user:profile, user:office)` on the sibling profile endpoint, and the usage endpoint refuses it exactly as it refuses a request carrying no credential at all. The same token authenticates `/v1/messages` without complaint, so the token is sound and the endpoint is out of reach. The CLI carries the matching guard: it polls that endpoint only when the stored scopes hold both `user:inference` and `user:profile`. That is why no worker config dir on the box has ever cached a reading.
+**The cause is a scope, not a missing file.** `GET /api/oauth/usage` answers only a credential that carries `user:profile`. Measured against the live API: the setup token gets `403 OAuth token does not meet scope requirement any_of(user:profile, user:office)` on the sibling profile endpoint, and the usage endpoint refuses it exactly as it refuses a request carrying no credential at all. The same token authenticates `/v1/messages` without complaint, so the token is sound and the endpoint is out of reach. The CLI carries the matching guard: it polls that endpoint only when the stored scopes hold both `user:inference` and `user:profile`. That is why no agent config dir on the box has ever cached a reading.
 
 **The source moves to the response headers.** Every accepted completion states the same two windows, as `anthropic-ratelimit-unified-{5h,7d}-{utilization,reset}`. Measured side by side against the endpoint: identical percentages, identical reset instants. Every credential shape gets them, so one path serves a workstation, the deployment box, and a stranger's own VPS alike.
 
@@ -46,7 +46,7 @@ So the daemon takes one minimal completion for its headers, on the cheapest mode
 
 1. **Read only**, unchanged. A refusal is still terminal, but it is now keyed on a digest of the credential rather than the credential file's mtime. An environment variable has no mtime, and the value is the thing that actually changed.
 2. **New: the headers are the reading, whatever the status code.** A window spent to its limit states itself on the rejection that proves it, and that is the moment the bars matter most.
-3. **New: the probe spends account quota to measure account quota.** That is only honest at this size. One probe costs about two dozen tokens, at most one attempt per ten minutes and in practice one per thirty, against a worker turn that spends thousands. `usage.account_bars: false` stops it completely.
+3. **New: the probe spends account quota to measure account quota.** That is only honest at this size. One probe costs about two dozen tokens, at most one attempt per ten minutes and in practice one per thirty, against an agent turn that spends thousands. `usage.account_bars: false` stops it completely.
 4. **The shared lock is unchanged**, and the cache file keeps the endpoint's own schema. A reading either fetcher takes serves both, so the operator's `statusline.sh` needs no change to benefit from a reading the daemon took.
 
 ### What this rules out
@@ -55,14 +55,14 @@ So the daemon takes one minimal completion for its headers, on the cheapest mode
 
 **Switching the box to a `claude /login` lineage.** It brings back the expiring access token that [#100](https://github.com/alp82/curia/issues/100) chose the setup token to avoid, and rule 1 forbids the daemon refreshing it.
 
-## Narrowing: a sandboxed worker cannot share the store (#156)
+## Narrowing: a sandboxed agent cannot share the store (#156)
 
-A container denies the host HOME, and the store lives there. So a worker under [ADR-0012](0012-one-container-per-worker.md) gets the model credential COPIED into its environment through an env file, in the same precedence order the probe above uses: `ANTHROPIC_API_KEY`, then `CLAUDE_CODE_OAUTH_TOKEN`, then the stored credential.
+A container denies the host HOME, and the store lives there. So an agent under [ADR-0012](0012-one-container-per-worker.md) gets the model credential COPIED into its environment through an env file, in the same precedence order the probe above uses: `ANTHROPIC_API_KEY`, then `CLAUDE_CODE_OAUTH_TOKEN`, then the stored credential.
 
 That is the frozen-credential shape this ADR exists to avoid, accepted knowingly and only this far:
 
 - **The deployment box gives out a token that does not rotate.** It authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, the `claude setup-token` credential of [#100](https://github.com/alp82/curia/issues/100), so a container holds a copy of a long-lived value rather than a snapshot of a rotating one.
-- **A box on a rotating login is the case that breaks.** There the copy is an access token, and a worker outliving it dies mid-ticket exactly as [#53](https://github.com/alp82/curia/issues/53) described. The refusal is loud rather than silent: a dispatch with no credential to copy fails before the claim is spent.
+- **A box on a rotating login is the case that breaks.** There the copy is an access token, and an agent outliving it dies mid-ticket exactly as [#53](https://github.com/alp82/curia/issues/53) described. The refusal is loud rather than silent: a dispatch with no credential to copy fails before the claim is spent.
 - **Nothing here writes a credential.** Rule 1 of the extension above is unchanged, and the container has no path back to the host store to rotate anything.
 
-The bare path keeps sharing the store. The two lanes differ only while both exist.
+The bare path keeps sharing the store. The two paths differ only while both exist.

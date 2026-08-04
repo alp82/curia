@@ -3,12 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Curia daemon: worker-facing MCP surface + Discord bridge + durable escalation record",
+  "description": "Curia daemon: agent-facing MCP surface + Discord bridge + durable escalation record",
   "scripts": {
     "start": "node src/index.mjs",
     "test": "node --test 'test/*.test.mjs'",
     "build-attach-index": "node bin/build-attach-index.mjs",
-    "build-worker-image": "node bin/build-worker-image.mjs"
+    "build-agent-image": "node bin/build-agent-image.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",

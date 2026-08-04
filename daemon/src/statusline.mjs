@@ -1,5 +1,5 @@
-// Per-worker live status line (#108 item 8, absorbing the Discord side of
-// items 2/3/13): one message per worker thread through daemon-witnessed
+// Per-agent live status line (#108 item 8, absorbing the Discord side of
+// items 2/3/13): one message per agent thread through daemon-witnessed
 // states — dispatched → working → waiting on esc-N ("title", elapsed) →
 // awaiting review → executing approved writes → 🏁 done. A state change
 // repositions the message to the thread bottom (item 17); every other refresh
@@ -7,7 +7,7 @@
 //
 // Every transition is a journal event the daemon already writes, so this
 // module subscribes to the store's append hook rather than threading a
-// callback through the dispatcher. The daemon composes every string; worker
+// callback through the dispatcher. The daemon composes every string; agent
 // text never lands here verbatim. State is ephemeral — after a daemon restart
 // the next transition posts a fresh line, and the journal remains the truth.
 //
@@ -37,7 +37,7 @@ export const GROUP_SEP = ' · '
 // Set against the two real shapes. A full working line measures 86 columns and
 // always survives whole. A `waiting` line carrying an 80-character escalation
 // title starts near 116, so it loses the usage bars — which is the right thing
-// to lose, because a worker blocked on a question is burning no quota at all.
+// to lose, because an agent blocked on a question is burning no quota at all.
 //
 // The model is the exception, and #179 made it one. See #fit below: the title
 // yields columns to the model rather than the other way round.
@@ -64,7 +64,7 @@ export function visibleWidth(text) {
 }
 
 // The states a meter says anything true about. A finished, stalled or dead
-// worker has no live context and no reason to carry account bars.
+// agent has no live context and no reason to carry account bars.
 const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 'executing'])
 
 export class StatusLine {
@@ -72,7 +72,7 @@ export class StatusLine {
   // edit(ids, text) -> boolean — false means the message is gone; repost
   // remove(ids) — delete before a repositioning repost (#108 item 17)
   // get(id) -> escalation record (esc_* events carry only the id)
-  // meters(session, model) -> see usage.workerMeters; null drops every meter
+  // meters(session, model) -> see usage.agentMeters; null drops every meter
   constructor({
     post, edit, remove = async () => {}, get, log = console.log,
     meters = () => null, refreshMs = 60_000, now = () => Date.now(),
@@ -86,14 +86,14 @@ export class StatusLine {
     this.now = now
     this.refreshMs = refreshMs
     this.timer = null
-    this.workers = new Map() // session -> { ticket, model, state, detail, text, ids, chain }
+    this.agents = new Map() // session -> { ticket, model, state, detail, text, ids, chain }
   }
 
   // The meter tick (#146). The elapsed time only refreshes while an escalation
   // nudges, so context % and the usage bars would otherwise stand still through
   // a whole working turn — a percentage that stops moving is a lie on a surface
   // built to be trusted. Same message, edited in place, and #apply drops the
-  // edit when the composed text did not actually change, so a quiet worker
+  // edit when the composed text did not actually change, so a quiet agent
   // costs no Discord call at all.
   start() {
     if (this.timer) return
@@ -107,7 +107,7 @@ export class StatusLine {
   }
 
   refresh() {
-    for (const [session, w] of this.workers) {
+    for (const [session, w] of this.agents) {
       if (!METERED.has(w.state)) continue
       this.#set(session, w.ticket, w.state, w.detail)
     }
@@ -115,22 +115,22 @@ export class StatusLine {
 
   onEvent(ev) {
     switch (ev.type) {
-      case 'worker_spawned':
-        return this.#set(ev.worker, ev.ticket, 'dispatched', { model: ev.model })
-      case 'worker_ready':
+      case 'agent_spawned':
+        return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
+      case 'agent_ready':
         // The spawn command carries the prompt, so the composer marker means
-        // the worker is already at work — ready and working are one state.
-        return this.#set(ev.worker, ev.ticket, 'working', { model: ev.model, at: ev.ts })
-      case 'worker_ready_timeout':
-        return this.#set(ev.worker, ev.ticket, 'stalled', {})
-      case 'worker_exited_early':
+        // the agent is already at work — ready and working are one state.
+        return this.#set(ev.agent, ev.ticket, 'working', { model: ev.model, at: ev.ts })
+      case 'agent_ready_timeout':
+        return this.#set(ev.agent, ev.ticket, 'stalled', {})
+      case 'agent_exited_early':
         // same terminal state as the timeout, but the line says WHICH kind of
         // failure it was (#169) — a dead command reads nothing like a slow one
-        return this.#set(ev.worker, ev.ticket, 'stalled', { exit: ev.status })
+        return this.#set(ev.agent, ev.ticket, 'stalled', { exit: ev.status })
       case 'esc_open': {
         if (ev.kind === CONFIRM_KIND) return
         const state = ev.kind === REVIEW_KIND ? 'awaiting-review' : 'waiting'
-        return this.#set(ev.worker, ev.ticket, state, {
+        return this.#set(ev.agent, ev.ticket, state, {
           esc: { id: ev.id, title: promptTitle(ev.prompt), opened_at: ev.ts },
         })
       }
@@ -140,34 +140,34 @@ export class StatusLine {
         // (#108 item 13): never fake-new content, never a re-posted body.
         const r = this.get(ev.id)
         if (!r || r.kind === CONFIRM_KIND) return
-        const w = this.workers.get(r.worker)
-        if (w && w.detail.esc?.id === r.id) return this.#set(r.worker, r.ticket, w.state, w.detail)
+        const w = this.agents.get(r.agent)
+        if (w && w.detail.esc?.id === r.id) return this.#set(r.agent, r.ticket, w.state, w.detail)
         return
       }
       case 'esc_answer': {
         const r = this.get(ev.id)
         if (!r || r.kind === CONFIRM_KIND) return
         if (r.kind === REVIEW_KIND && ev.answer === 'approve') {
-          return this.#set(r.worker, r.ticket, 'executing', {})
+          return this.#set(r.agent, r.ticket, 'executing', {})
         }
-        return this.#set(r.worker, r.ticket, 'working', {})
+        return this.#set(r.agent, r.ticket, 'working', {})
       }
       case 'esc_cancel':
       case 'esc_lapse': {
         const r = this.get(ev.id)
         if (!r || r.kind === CONFIRM_KIND) return
-        return this.#set(r.worker, r.ticket, 'working', {})
+        return this.#set(r.agent, r.ticket, 'working', {})
       }
       case 'result':
-        return this.#set(ev.worker, ev.ticket, 'resolving', { status: ev.status })
-      case 'worker_died':
+        return this.#set(ev.agent, ev.ticket, 'resolving', { status: ev.status })
+      case 'agent_died':
         // the liveness sweep's event (#138) — the line stops saying "working"
-        // about a killed worker and names the way out
-        return this.#set(ev.worker, ev.ticket, 'gone', { ticket: ev.ticket })
-      case 'worker_done': {
+        // about a killed agent and names the way out
+        return this.#set(ev.agent, ev.ticket, 'gone', { ticket: ev.ticket })
+      case 'agent_done': {
         // carries no ticket — only a session this line already tracks can end
-        const w = this.workers.get(ev.worker)
-        if (w) return this.#set(ev.worker, w.ticket, 'done', {})
+        const w = this.agents.get(ev.agent)
+        if (w) return this.#set(ev.agent, w.ticket, 'done', {})
         return
       }
       default:
@@ -190,7 +190,7 @@ export class StatusLine {
         return `▶️ \`${session}\`${GROUP_SEP}working`
       case 'stalled':
         if (detail.exit !== undefined) {
-          return `⚠️ \`${session}\`${GROUP_SEP}the backend command exited (status ${detail.exit}) before the composer — session kept for inspection`
+          return `⚠️ \`${session}\`${GROUP_SEP}the harness command exited (status ${detail.exit}) before the composer — session kept for inspection`
         }
         return `⚠️ \`${session}\`${GROUP_SEP}never reached a composer — session kept for inspection`
       case 'waiting': {
@@ -208,7 +208,7 @@ export class StatusLine {
       case 'done':
         return `🏁 \`${session}\`${GROUP_SEP}done`
       case 'gone':
-        return `⚰️ \`${session}\`${GROUP_SEP}worker gone — \`resume ${detail.ticket}\``
+        return `⚰️ \`${session}\`${GROUP_SEP}agent gone — \`resume ${detail.ticket}\``
       default:
         return `\`${session}\`${GROUP_SEP}${state}`
     }
@@ -264,13 +264,13 @@ export class StatusLine {
     return text
   }
 
-  // One line per worker, edits serialized per worker so a fast transition
+  // One line per agent, edits serialized per agent so a fast transition
   // never lands under a slower one's edit.
   #set(session, ticket, state, detail) {
-    let w = this.workers.get(session)
+    let w = this.agents.get(session)
     if (!w) {
       w = { ticket, model: null, state, detail, text: null, ids: null, chain: Promise.resolve() }
-      this.workers.set(session, w)
+      this.agents.set(session, w)
     }
     // a respawn after done is a new run: leave the old line as history
     const fresh = state === 'dispatched' && w.state === 'done'

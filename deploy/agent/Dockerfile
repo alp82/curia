@@ -1,9 +1,9 @@
-# The shared curia worker image (#154), built from the sandbox decision (#148).
+# The shared curia agent image (#154), built from the sandbox decision (#148).
 #
-#     npm run build-worker-image --prefix daemon
+#     npm run build-agent-image --prefix daemon
 #
-# One image serves every worker. The per-ticket difference is what the daemon
-# mounts and passes in (#156), never a per-worker build: a build per dispatch
+# One image serves every agent. The per-ticket difference is what the daemon
+# mounts and passes in (#156), never a per-agent build: a build per dispatch
 # would put a network fetch and two npm installs on the dispatch path.
 #
 # Kept to the classic builder on purpose — the box runs docker 20.10, where
@@ -14,7 +14,7 @@
 
 FROM node:lts-slim
 
-# Every version is a build ARG with NO default. An unpinned CLI in a worker
+# Every version is a build ARG with NO default. An unpinned CLI in an agent
 # image is the failure this ticket exists to prevent: the pins live in
 # config/curia.yaml under `sandbox`, and they feed the image tag, so a bump
 # there names a tag that is not on the box and the daemon rebuilds.
@@ -23,12 +23,12 @@ ARG CODEX_VERSION
 ARG GH_VERSION
 ARG PLAYWRIGHT_VERSION
 # The agent uid must match the host user that owns the mounted clone and cfg
-# dir, or the worker cannot write its own worktree. The box runs the daemon as
+# dir, or the agent cannot write its own worktree. The box runs the daemon as
 # uid 1000 (`alp`).
 ARG AGENT_UID=1000
 
 # TUIs draw box characters. A container with no LANG lays them out as question
-# marks, and both backends are TUIs.
+# marks, and both harnesses are TUIs.
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -50,7 +50,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 # gh from the upstream release, not from apt: Debian 12 ships gh 2.23 (2023),
-# three years behind the gh a hand session on this box runs. A worker and a
+# three years behind the gh a hand session on this box runs. An agent and a
 # hand session must speak the same tracker CLI, so this one is pinned too.
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
@@ -61,7 +61,7 @@ RUN set -eux; \
     rm -rf /tmp/gh.tgz "/tmp/gh_${GH_VERSION}_linux_${arch}"; \
     gh --version
 
-# Both backends, at the exact versions the box runs. The npm cache from this
+# Both harnesses, at the exact versions the box runs. The npm cache from this
 # layer is dropped rather than left in the image: the run-time cache is a
 # mounted volume, and a stale copy baked at build time only costs size.
 RUN set -eux; \
@@ -73,7 +73,7 @@ RUN set -eux; \
 # Chromium's OS libraries, but not chromium. #148 keeps browsers out of the
 # image and installs them on demand into the shared volume. The libraries
 # cannot follow that rule: `playwright install` runs as the agent, and the
-# `--with-deps` half of it is apt-get, which needs root the worker does not
+# `--with-deps` half of it is apt-get, which needs root the agent does not
 # have. Without this an on-demand chromium installs and then fails to launch.
 RUN set -eux; \
     npx --yes "playwright@${PLAYWRIGHT_VERSION}" install-deps chromium; \
@@ -105,10 +105,10 @@ RUN set -eux; \
 
 # Both CLIs check for a newer self on start. The image IS the pin, and an
 # updated CLI inside a container that dies with its ticket is a download the
-# next worker repeats.
+# next agent repeats.
 ENV DISABLE_AUTOUPDATER=1
 
-LABEL org.opencontainers.image.title="curia worker" \
+LABEL org.opencontainers.image.title="curia agent" \
       org.opencontainers.image.source="https://github.com/alp82/curia" \
       curia.claude-version="${CLAUDE_VERSION}" \
       curia.codex-version="${CODEX_VERSION}" \

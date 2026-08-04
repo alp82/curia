@@ -1,22 +1,22 @@
 // Preview links (#40, implementing #8's scheme "B1"): one HTTPS Serve port per
-// preview, allocated by the DAEMON — not by the worker — from a configured
-// range, proxying a dev server the worker runs on localhost.
+// preview, allocated by the DAEMON — not by the agent — from a configured
+// range, proxying a dev server the agent runs on localhost.
 //
-//   worker: npm run dev                  (binds SOME localhost address — see localhostTarget)
+//   agent: npm run dev                  (binds SOME localhost address — see localhostTarget)
 //   daemon: publish_preview(port, path)  -> tailscale serve --bg --https=<serve-port> http://<target>:<dev-port>
 //   human:  https://<box>.<tailnet>.ts.net:<serve-port><path>
 //
-// A SANDBOXED worker (#156) runs the dev server inside its container, and the
+// A SANDBOXED agent (#156) runs the dev server inside its container, and the
 // daemon reaches it only through one of the three host ports that container
 // publishes — so #157 gives `publish` a second shape, picked by whether the
 // caller has published ports:
 //
-//   worker: npm run dev -- --host 0.0.0.0 --port 9000   (inside the container)
+//   agent: npm run dev -- --host 0.0.0.0 --port 9000   (inside the container)
 //   docker: 127.0.0.1:9000 -> container 9000
 //   daemon: the rule points at 127.0.0.1:9000, as it always did
 //
-// Why the daemon allocates: a worker choosing its own Serve port would collide
-// with other workers and with the attach rule, and — the sharper reason —
+// Why the daemon allocates: an agent choosing its own Serve port would collide
+// with other agents and with the attach rule, and — the sharper reason —
 // `tailscale serve` publishes ANY localhost port to the whole tailnet. The
 // daemon's own MCP/REST surface (/answer, /command, /escalate) is a localhost
 // port. So "publish this port" is a privileged request from an agent that may
@@ -25,12 +25,12 @@
 //   - reserved ports are refused outright (the daemon's own port, the ttyd
 //     port, the attach Serve port) — publishing the daemon port would hand the
 //     escalation-answer surface to the tailnet with no auth at all;
-//   - the dev port must be the worker's own: one of the three ports its
+//   - the dev port must be the agent's own: one of the three ports its
 //     container publishes, or — on the bare path, until #158 retires it — a
-//     LIVE localhost listener, so a worker cannot reserve a rule pointing at a
+//     LIVE localhost listener, so an agent cannot reserve a rule pointing at a
 //     port something else may bind later;
 //   - the Serve port comes from the configured range only, never from the
-//     worker.
+//     agent.
 //
 // State posture (#9): the registry is an ephemeral cache. The durable truth is
 // tailscaled's own serve config, which SURVIVES daemon restarts — so a rule
@@ -75,7 +75,7 @@ function dial(host, port, timeout) {
 //
 // "localhost" is not one address. Vite (verified on v8 in both demo repos)
 // binds `[::1]` and NOT 127.0.0.1 unless told otherwise, so probing only IPv4
-// refused a dev server that was plainly running — the worker was told "start
+// refused a dev server that was plainly running — the agent was told "start
 // the dev server first" right after it had, with no way to tell what curia
 // actually wanted. Whatever answers is what the rule must point at.
 //
@@ -95,8 +95,8 @@ export async function localhostTarget(port, { timeout = 750 } = {}) {
 // port and nothing else, so the only link curia could compose pointed at the dev
 // server's root — and in #65's re-run all three review gates sent Alp to an
 // untouched homepage while the work lived on `/curia-check`. He sent the ticket
-// back, and the worker then routed around curia by putting the real URL in its
-// own prose: exactly the worker-asserted string the gate exists so as not to
+// back, and the agent then routed around curia by putting the real URL in its
+// own prose: exactly the agent-asserted string the gate exists so as not to
 // depend on (#54, #40).
 //
 // The path is a DISPLAY suffix on a rule that is already allocated. It grants no
@@ -104,7 +104,7 @@ export async function localhostTarget(port, { timeout = 750 } = {}) {
 // server either way — so it needs no new refusal for reach. It needs one for
 // what it must not smuggle: a host or a scheme would move the gate's own link
 // off this box, which is the one property that makes a daemon-composed link
-// worth more than a worker's word.
+// worth more than an agent's word.
 //
 // Resolution decides that, rather than a pattern: anything that moves the origin
 // is refused whatever syntax it arrived in — `//evil.com/x` (protocol-relative),
@@ -191,7 +191,7 @@ export class PreviewRegistry {
   // port returns the existing allocation rather than burning a second port.
   //
   // `published` is the caller's own container ports (#157), or null for a bare
-  // worker. It is the whole bound where it is present: a sandboxed worker can
+  // agent. It is the whole bound where it is present: a sandboxed agent can
   // reach the host on those three ports and on nothing else, so a fourth number
   // is a mistake to name rather than a port to probe.
   async publish(ticket, devPort, { base, path: rawPath, published = null } = {}) {
@@ -210,7 +210,7 @@ export class PreviewRegistry {
     const path = norm.path
 
     // Re-publishing the same dev port reuses the allocation — but it MOVES the
-    // path, because correcting a wrong link is the whole reason a worker calls
+    // path, because correcting a wrong link is the whole reason an agent calls
     // this twice. Returning the stale URL here would reinstate #68 one call in.
     const existing = this.byTicket.get(key)
     if (existing && existing.devPort === devPort) {
@@ -222,7 +222,7 @@ export class PreviewRegistry {
     // probe cannot answer the question any more. docker binds the host port for
     // the container's whole life — a `docker-proxy` on 127.0.0.1:<p>, measured
     // on docker 29.6.2 and on the box's 20.10.17 — so a connect succeeds whether
-    // or not the worker ever started a server, and even when it bound `localhost`
+    // or not the agent ever started a server, and even when it bound `localhost`
     // INSIDE the container, where the proxy accepts and then resets. A probe that
     // always says "live" is not a weaker check, it is a false one; the allocation
     // is the real check, and the human's own eyes are what find a dead page.
@@ -261,7 +261,7 @@ export class PreviewRegistry {
     await this.exec('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://${target}:${devPort}`])
     // The URL is kept on the entry, not only returned: the review gate (#54)
     // shows the human the preview link, and it must be the link this registry
-    // actually allocated rather than a string a worker handed over. Resolving
+    // actually allocated rather than a string an agent handed over. Resolving
     // the tailnet name again there would mean a second `tailscale` call inside a
     // blocking tool.
     const url = previewUrl(base, servePort, path)
@@ -300,7 +300,7 @@ export class PreviewRegistry {
 
   // Orphan sweep (#19's lesson, #33's discipline): `tailscale serve --bg`
   // config persists in tailscaled across daemon restarts, so a rule can easily
-  // outlive both the worker and the process that published it. Anything in our
+  // outlive both the agent and the process that published it. Anything in our
   // range that no live ticket claims is withdrawn.
   //
   // `liveTickets` must be positively known. An indeterminate serve status

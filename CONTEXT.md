@@ -1,6 +1,6 @@
 # Curia
 
-Curia is a personal orchestration daemon. It watches GitHub trackers, dispatches AI agent workers on tickets, and keeps a human in the loop from any device. This file gives a fresh session or a dispatched worker the vocabulary and the layout of the system.
+Curia is a personal orchestration daemon. It watches GitHub trackers, dispatches AI agents on tickets, and keeps a human in the loop from any device. This file gives a fresh session or a dispatched agent the vocabulary and the layout of the system.
 
 ## Language
 
@@ -11,7 +11,7 @@ The one end-to-end pass through the system: frontier, dispatch, escalation and a
 _Avoid_: golden thread (banned by the operator).
 
 **Inner loop**:
-The worker-side slice of the full loop: notify, a blocking question, the answer, resume, commit, result.
+The agent-side slice of the full loop: notify, a blocking question, the answer, resume, commit, result.
 
 **Rehearsal**:
 A scripted live run of the full loop on real repos. It proves every leg in one unbroken pass.
@@ -32,16 +32,16 @@ A ticket whose parent issue is a map.
 The map section "Not yet specified": work that is coming but not yet sharp enough to state as a ticket.
 
 **Charting**:
-The map changes: new tickets, graduated fog, blocking edges, scope rulings. They land two ways. A ticket worker proposes them at the review gate and writes them after the approval. A charting worker writes them as its whole job.
+The map changes: new tickets, graduated fog, blocking edges, scope rulings. They land two ways. A ticket agent proposes them at the review gate and writes them after the approval. A charting agent writes them as its whole job.
 
 **Map dispatch**:
-`start` on a map's own issue. The daemon spawns a charting worker instead of a ticket worker.
+`start` on a map's own issue. The daemon spawns a charting agent instead of a ticket agent.
 
-**Charting worker**:
-The worker of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate.
+**Charting agent**:
+The agent of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate.
 
 **Instruction**:
-The operator's sentence on a map dispatch, in their own words. It rides the dispatch and reaches the charting worker as the first thing it reads. With no instruction, the worker asks what should change.
+The operator's sentence on a map dispatch, in their own words. It rides the dispatch and reaches the charting agent as the first thing it reads. With no instruction, the agent asks what should change.
 
 **Frontier**:
 The takeable tickets of a watched repo, in map order.
@@ -53,7 +53,7 @@ Open, not a pull request, no open blockers, no assignee.
 The rule that computes a repo's frontier. The map lane takes the children of open maps. The flat lane takes open `ready-for-agent` issues. A repo whose maps are all closed or deferred gets an empty frontier, never the flat fallback.
 
 **Claim**:
-The assignee on a ticket. A claim removes the ticket from every frontier. The daemon claims before it spawns. A claim on a map takes nothing off a frontier, because a map is never on one. It stops a second charting worker from editing the same body.
+The assignee on a ticket. A claim removes the ticket from every frontier. The daemon claims before it spawns. A claim on a map takes nothing off a frontier, because a map is never on one. It stops a second charting agent from editing the same body.
 
 **Watched repo**:
 A repo on the watch list in `config/curia.yaml`. Curia dispatches only against watched repos.
@@ -62,7 +62,7 @@ A repo on the watch list in `config/curia.yaml`. Curia dispatches only against w
 `docs/agents/issue-tracker.md` in a watched repo. It tells agents how that tracker expresses maps, blocking, and resolution. A map child does not dispatch without it.
 
 **Resolve protocol**:
-The worker's three tracker writes: a resolution comment, the close, one map pointer.
+The agent's three tracker writes: a resolution comment, the close, one map pointer.
 
 **Map pointer**:
 One line in the map's "Decisions so far": the ticket title as a link, plus a one-line gist.
@@ -82,17 +82,17 @@ The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<typ
 A key under `models:` in `routing.yaml`. It is the dispatch vocabulary that `model:<x>` and `/start <ticket> <label>` speak. It is not a model: the label `gpt` names the model `gpt-5.6-sol`.
 
 **Model name**:
-What curia tells a human is running. Best evidence first: the model the transcript states, then `models.<label>.id`, then the routing label. The status line and the composer-ready message say this. Cooling, fallback and the `/workers` list keep the routing label, because they speak about dispatch.
+What curia tells a human is running. Best evidence first: the model the transcript states, then `models.<label>.id`, then the routing label. The status line and the composer-ready message say this. Cooling, fallback and the `status` list keep the routing label, because they speak about dispatch.
 
-**Backend**:
-The agent CLI a worker runs under: claude or codex.
-_Avoid_: worker lane.
+**Harness**:
+The program an agent runs under: claude or codex.
+_Avoid_: backend, lane.
 
 **Cooling**:
 A temporary hold on a model or provider after a usage-limit signal, until the stated reset.
 
 **Stated reset**:
-The instant a cooling ends. Two surfaces state it, and curia reads both: the anthropic pane text carries an epoch beside the reached-text, and the codex transcript carries `resets_at` beside the rate-limit window that is spent. A cap is account-level, so any live worker on that provider states it for the lane. With neither surface stating one, cooling holds for one hour.
+The instant a cooling ends. Two surfaces state it, and curia reads both: the anthropic pane text carries an epoch beside the reached-text, and the codex transcript carries `resets_at` beside the rate-limit window that is spent. A cap is account-level, so any live agent on that provider states it for the harness. With neither surface stating one, cooling holds for one hour.
 
 **Exhaustion**:
 The state where every candidate model is cooling. The frontier stays the queue, and a wake timer fires at the earliest reset.
@@ -103,39 +103,39 @@ The command brain of curia. The standing design is one brain with three skins (D
 **The five verbs**:
 `frontier`, `start`, `status`, `cancel`, `attach`. The whole command surface, identical over Discord and REST.
 
-### Workers
+### Agents
 
-**Worker**:
-One agent CLI process, spawned per ticket, that works the ticket to its ending.
-_Avoid_: agent (that names the CLI product, not the process curia spawns).
+**Agent**:
+One harness process, spawned per ticket, that works the ticket to its ending. It may spawn subagents of its own, which curia neither sees nor counts.
+_Avoid_: worker (the old name, swept in #184).
 
 **Session**:
-The tmux session `curia-<n>`. The session name is the worker's identity everywhere.
+The tmux session `curia-<n>`. The session name is the agent's identity everywhere.
 
-**Worker host**:
-The layer that hosts worker sessions and their attach: bare tmux, one shared ttyd, Tailscale Serve.
+**Agent host**:
+The layer that hosts agent sessions and their attach: bare tmux, one shared ttyd, Tailscale Serve.
 _Avoid_: substrate (banned by the operator).
 
 **Worktree**:
-The worker's per-ticket git worktree, on branch `curia/<n>`, cut from a shared base clone. The bare path's workspace shape.
+The agent's per-ticket git worktree, on branch `curia/<n>`, cut from a shared base clone. The bare path's workspace shape.
 
 **Base clone**:
 The one daemon-owned clone per watched repo. Its push URL is disabled.
 
 **Private clone**:
-A sandboxed worker's own blobless clone, at the same per-ticket path, on the same branch. A container cannot use a worktree, whose `.git` points into a base clone it never sees. Both shapes retire to one when the bare path goes.
+A sandboxed agent's own blobless clone, at the same per-ticket path, on the same branch. A container cannot use a worktree, whose `.git` points into a base clone it never sees. Both shapes retire to one when the bare path goes.
 
 **Published port**:
-One of the three loopback ports a worker's container publishes, the same number inside and out. The prompt names them, a worker binds its dev server to `0.0.0.0` on one of them, and a preview rule points at it. They are the whole bound on `publish_preview` for a sandboxed worker.
+One of the three loopback ports an agent's container publishes, the same number inside and out. The prompt names them, an agent binds its dev server to `0.0.0.0` on one of them, and a preview rule points at it. They are the whole bound on `publish_preview` for a sandboxed agent.
 
 **Config dir**:
-The worker's private agent config home. It holds the prompt, the skills, and the harness. It holds no credentials.
+The agent's private config home for its harness. It holds the prompt, the skills, the harness settings, and on the claude path nothing else. It holds no credentials.
 
 **Tool namespace**:
-The MCP servers a worker can reach: curia's own, and nothing else. Two settings keys in the config dir hold that line. One stops the fetch of the operator's account-level claude.ai connectors, which follow the shared credential rather than the config dir. The other admits curia's server alone.
+The MCP servers an agent can reach: curia's own, and nothing else. Two settings keys in the config dir hold that line. One stops the fetch of the operator's account-level claude.ai connectors, which follow the shared credential rather than the config dir. The other admits curia's server alone.
 
 **Skills**:
-The skill set curia symlinks into every worker's config dir, so a worker resolves in the same idiom as a hand session.
+The skill set curia symlinks into every agent's config dir, so an agent resolves in the same idiom as a hand session.
 
 **Standing orders**:
 The spawn prompt: parameters and bounds, not procedure. Procedure lives in the installed skills.
@@ -143,37 +143,40 @@ The spawn prompt: parameters and bounds, not procedure. Procedure lives in the i
 **Bounds**:
 The hard limits in the standing orders. Read anything. Write only inside the worktree, the ticket, and the map subtree. No browser. Never answer for the human. A failed call is not an answer, and silence is not an answer.
 
-**Harness**:
-The per-backend files curia writes so a worker reaches the side channel and the Stop hook.
+**Harness settings**:
+What curia writes so the harness itself starts quietly and bounded: no onboarding, the worktree pre-trusted, the permission mode, and the tool namespace. They live in the config dir.
+
+**Connection settings**:
+What curia writes so an agent reaches the side channel and the Stop hook: the MCP server URL, the agent token, and the Stop-hook command. Where they land is the harness's business — the claude path puts them in the worktree, the codex path in the config dir.
 
 **Sandbox**:
-The boundary around a worker: one Docker container per worker, holding its own clone and cfg dir and nothing else of the box. It denies host HOME, the daemon's secrets and state, sibling worktrees, and the tmux socket. The network stays open. The pane runs the container, so every attach surface is unchanged.
+The boundary around an agent: one Docker container per agent, holding its own clone and cfg dir and nothing else of the box. It denies host HOME, the daemon's secrets and state, sibling worktrees, and the tmux socket. The network stays open. The pane runs the container, so every attach surface is unchanged.
 
 **Sandbox switch**:
-`backends.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per backend. The claude lane is on and soaking, the codex lane follows.
+`harnesses.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per harness. The claude harness is on and soaking, the codex harness follows.
 
-**Worker image**:
-The one image every worker container runs. It carries both agent CLIs at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
+**Agent image**:
+The one image every agent container runs. It carries both harnesses at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
 
 **Cache volume**:
-A Docker volume shared by every worker for what is too heavy to bake into the image: the npm cache and the Playwright browsers. Cross-worker poisoning is an accepted risk.
+A Docker volume shared by every agent for what is too heavy to bake into the image: the npm cache and the Playwright browsers. Cross-agent poisoning is an accepted risk.
 
 **Side channel**:
-The daemon's structured channel to a worker: the MCP tools and the Stop hook. Curia never parses the terminal to learn worker state.
+The daemon's structured channel to an agent: the MCP tools and the Stop hook. Curia never parses the terminal to learn agent state.
 
 **Spawn binding**:
-The rule that a worker's repo and ticket come from the spawn record, never from the worker's own account.
+The rule that an agent's repo and ticket come from the spawn record, never from the agent's own account.
 
 **Exit marker**:
-The nonce line the spawn wrapper echoes into the pane when the backend command ends, with its status. It is what tells a dead spawn apart from a slow one.
+The nonce line the spawn wrapper echoes into the pane when the harness command ends, with its status. It is what tells a dead spawn apart from a slow one.
 
 ### Human in the loop
 
 **Escalation**:
-The durable record of one question from a worker to a human. It survives daemon restarts.
+The durable record of one question from an agent to a human. It survives daemon restarts.
 
 **ask_human**:
-The blocking tool a worker calls to ask a question. Kinds: free-text, choice, approve-reject, preview-review. The call blocks until an answer arrives, hours included.
+The blocking tool an agent calls to ask a question. Kinds: free-text, choice, approve-reject, preview-review. The call blocks until an answer arrives, hours included.
 
 **Review gate**:
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records.
@@ -182,7 +185,7 @@ The one approval before a merge, and its own escalation kind. Only the daemon op
 The operator's third choice at the review gate. Curia spawns a reviewer on the other provider, and the verdict returns to the builder.
 
 **Reviewer**:
-The worker a cross-check spawns. It reads the diff, the ticket, and a checkout it can run. It writes nothing and it ends with its verdict.
+The agent a cross-check spawns. It reads the diff, the ticket, and a checkout it can run. It writes nothing and it ends with its verdict.
 _Avoid_: checker.
 
 **Verdict**:
@@ -201,10 +204,10 @@ The half-hour re-post of an open escalation into its thread.
 The Discord module. It renders and captures. It never interprets.
 
 **Thread-per-ticket**:
-One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the worker: it releases only when the ticket itself closes, so a resumed worker lands back in the same thread.
+One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread.
 
 **Notify**:
-A fire-and-forget line of worker prose into the ticket thread.
+A fire-and-forget line of agent prose into the ticket thread.
 _Avoid_: status line (that names the daemon's own line, below).
 
 ### The ending
@@ -216,36 +219,36 @@ The ordered close-out of a ticket: commit, pull request, preview, review gate, m
 The ending of a map dispatch: edit the map, then report the result. Curia posts the summary on the map and unassigns it. No pull request, no review gate, no close.
 
 **Stop hook**:
-The enforcement hook that fires at the end of every worker turn. It refuses a stop that leaves ending steps open, up to the stop budget, then lets go and reports the ticket unfinished.
+The enforcement hook that fires at the end of every agent turn. It refuses a stop that leaves ending steps open, up to the stop budget, then lets go and reports the ticket unfinished.
 
 **Stop budget**:
-How many times the Stop hook may refuse one worker's stop (`stop_nudge_budget`).
+How many times the Stop hook may refuse one agent's stop (`stop_nudge_budget`).
 
 **Landing**:
-The daemon's push of `curia/<n>` and the open or update of the one pull request per ticket. Workers never push.
+The daemon's push of `curia/<n>` and the open or update of the one pull request per ticket. Agents never push.
 
 **Workspace lease**:
 The hold on a worktree and branch until the pull request is positively merged. Every uncertain case keeps the workspace.
 
 **Repair**:
-The daemon's completion of resolve-protocol steps the worker missed, recorded as repairs.
+The daemon's completion of resolve-protocol steps the agent missed, recorded as repairs.
 
 ### Surfaces
 
 **Attach**:
-Joining a live worker from a device. One verb, two handles: the timeline link and the terminal link.
+Joining a live agent from a device. One verb, two handles: the timeline link and the terminal link.
 
 **Terminal surface**:
 The shared ttyd page over Tailscale Serve. The raw TUI, honest for one device at a time.
 
 **Timeline**:
-The grid-free attach surface. It reads the worker's transcript and writes with tmux send-keys. The timeline is where you drive. The terminal is where you go to see the TUI itself.
+The grid-free attach surface. It reads the agent's transcript and writes with tmux send-keys. The timeline is where you drive. The terminal is where you go to see the TUI itself.
 
 **Transcript**:
-The agent CLI's own append-only run log. It carries no geometry, so any device lays it out at its own width.
+The harness's own append-only run log. It carries no geometry, so any device lays it out at its own width.
 
 **Preview**:
-A tailnet HTTPS link to a worker's running dev server. The daemon allocates the public port and composes the link.
+A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.
 
 **Serve rule**:
 One `tailscale serve` handler. It lives in tailscaled and outlives the daemon, so reconcile sweeps stale rules.
@@ -263,20 +266,20 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Status line**:
-One Discord message per worker, written by the daemon, that says what the worker is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
+One Discord message per agent, written by the daemon, that says what the agent is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
 
 **Meter**:
 A number the status line carries beside the state: the model name, its reasoning effort, the context percent, and the account usage bars. Each meter has its own source and drops alone when that source is silent. Meters drop from the tail when the line runs out of columns. The model is the exception: the escalation title is cut to keep it.
 
 **Account bars**:
-The 5-hour and 7-day usage windows. They are an account fact, not a worker fact, so every worker on a provider shows the same reading. The provider follows from the worker's backend, never from the routing label: a label is a spawn-time fact and a backend has on-disk evidence. A window whose reset has passed rolls over — the bar shows the fresh window at 0%, and that reading counts as stale at once, so the next probe measures it.
+The 5-hour and 7-day usage windows. They are an account fact, not an agent fact, so every agent on a provider shows the same reading. The provider follows from the agent's harness, never from the routing label: a label is a spawn-time fact and a harness has on-disk evidence. A window whose reset has passed rolls over — the bar shows the fresh window at 0%, and that reading counts as stale at once, so the next probe measures it.
 
 **Pace**:
 Usage measured against the time already gone from its window. A bar shows the window's clock as `┃` and renders spending past it as overshoot. The square before the bar states the same fact at a glance: 🟩 behind the clock, 🟨 on it, 🟥 ahead.
 _Avoid_: usage (that is the raw percent, which says nothing about speed).
 
 **Context percent**:
-How full a worker's context window is. The numerator is the last request's input tokens from the transcript. The denominator comes from the best source that has one: the window the codex transcript states, then `max_input_tokens` from `GET /v1/models/<id>` for the model id the claude transcript names, then `models.<name>.context_window`. It is never clamped — a figure above 100% says the denominator is wrong, not that the worker is full.
+How full an agent's context window is. The numerator is the last request's input tokens from the transcript. The denominator comes from the best source that has one: the window the codex transcript states, then `max_input_tokens` from `GET /v1/models/<id>` for the model id the claude transcript names, then `models.<name>.context_window`. It is never clamped — a figure above 100% says the denominator is wrong, not that the agent is full.
 
 ### State and evidence
 
@@ -287,7 +290,7 @@ How full a worker's context window is. The numerator is the last request's input
 The one durable place a fact lives. GitHub holds ticket truth. The journal holds curia's events. Everything in memory is a disposable cache.
 
 **Reconcile**:
-The pass, at boot and on demand, that re-derives live state from GitHub, tmux, and the journal, and asserts the surfaces. A worker it re-adopts gets its spawn-time facts back from the journal: the routing label it runs on, and the backend under it.
+The pass, at boot and on demand, that re-derives live state from GitHub, tmux, and the journal, and asserts the surfaces. An agent it re-adopts gets its spawn-time facts back from the journal: the routing label it runs on, and the harness under it.
 
 **Epoch**:
 A ticket's latest dispatch. Journal reads count only events from the latest epoch.
@@ -302,7 +305,7 @@ A claim with no live session and no close behind it. Reconcile releases it, unle
 A failed read is not evidence. Only a positive "absent" narrows a set. Anything else is indeterminate and fails the pass.
 
 **Live check**:
-A first-person report of what a worker experienced during a live run, committed under `docs/live-checks/`.
+A first-person report of what an agent experienced during a live run, committed under `docs/live-checks/`.
 
 **Spike**:
 Throwaway prototype code that answers one named question, under `spikes/`, with its report under `docs/research/`.
@@ -314,7 +317,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Daemon** (`daemon/`): one Node process, no build step. It owns dispatch, escalations, routing, previews, the attach surfaces, and reconcile.
 - **Bridge**: the Discord module inside the daemon. Thread-per-ticket rendering, buttons, image passthrough both directions.
 - **Router**: the deterministic command router inside the daemon. It parses the five verbs from Discord slash commands or REST.
-- **Workers**: one agent CLI process per ticket, in tmux sessions named `curia-<n>`.
+- **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`.
 - **Surfaces**: the shared ttyd terminal and the timeline, both published with Tailscale Serve. Previews take their own port range.
 - **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, skills) and `routing.yaml` (models, defaults, fallbacks).
 
@@ -322,11 +325,11 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 
 - **GitHub**: ticket state, labels, claims, sub-issue parentage, map bodies, branches, pull requests. The source of truth.
 - **Journal** (`daemon/data/events.jsonl`): every durable curia event.
-- **tmux**: the live worker sessions.
+- **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, and previews.
-- **Workspace root** (`~/curia-work`): base clones, worktrees or private clones, worker config dirs.
-- **Host credential stores** (`~/.claude`, `~/.codex`): shared with bare-pane workers, which hold no copy. A sandboxed worker cannot reach them, so it gets the model credential copied into its container environment.
-- **docker**: the live worker containers and the two shared cache volumes.
+- **Workspace root** (`~/curia-work`): base clones, worktrees or private clones, agent config dirs.
+- **Host credential stores** (`~/.claude`, `~/.codex`): shared with bare-pane agents, which hold no copy. A sandboxed agent cannot reach them, so it gets the model credential copied into its container environment.
+- **docker**: the live agent containers and the two shared cache volumes.
 
 Everything else is a cache that reconcile can rebuild.
 
@@ -334,7 +337,7 @@ Everything else is a cache that reconcile can rebuild.
 
 - `docs/adr/`: one file per standing decision, indexed at `docs/adr/README.md`.
 - `docs/research/`: research notes, one per investigation, indexed at `docs/research/README.md`.
-- `docs/live-checks/`: first-person worker evidence.
+- `docs/live-checks/`: first-person agent evidence.
 - `docs/agents/`: tracker, triage, and domain-doc conventions for agents.
 - `docs/full-loop.md`: the rehearsal record of the PoC map. History, not a live procedure.
 

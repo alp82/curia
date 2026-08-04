@@ -6,9 +6,9 @@
 //
 //   const routing = {
 //     defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
-//     models:   { fable: { provider, backend }, opus: { ... }, sonnet: { ... } },
+//     models:   { fable: { provider, harness }, opus: { ... }, sonnet: { ... } },
 //     fallbacks: { fable: ['opus'], opus: ['sonnet'] },   // intra-Claude only
-//     backends: { claude: { template: '...{model}...{prompt_file}...' } },
+//     harnesses: { claude: { template: '...{model}...{prompt_file}...' } },
 //   }
 //
 //   resolveModel(routing, labels, override) -> modelName
@@ -35,9 +35,9 @@
 //     even if multiple heads of the chain are cooling. Empty array signals
 //     true exhaustion (every candidate cooling).
 //
-//   buildSpawnCmd(routing, backend, model, promptFile) -> string
-//     template substitution; throws naming the configured backends on an
-//     unknown backend key; throws if a substituted path is not quote-free
+//   buildSpawnCmd(routing, harness, model, promptFile) -> string
+//     template substitution; throws naming the configured harnesses on an
+//     unknown harness key; throws if a substituted path is not quote-free
 //     (challenge.md concern: "assert it in buildSpawnCmd rather than
 //     trusting it" -- generated workspace_root paths must never carry a
 //     single quote, since the template is nested inside `bash -c '...'`).
@@ -58,12 +58,12 @@ import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit, pars
 const routing = {
   defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
   models: {
-    fable: { provider: 'anthropic', backend: 'claude' },
-    opus: { provider: 'anthropic', backend: 'claude' },
-    sonnet: { provider: 'anthropic', backend: 'claude' },
+    fable: { provider: 'anthropic', harness: 'claude' },
+    opus: { provider: 'anthropic', harness: 'claude' },
+    sonnet: { provider: 'anthropic', harness: 'claude' },
   },
   fallbacks: { fable: ['opus'], opus: ['sonnet'] },
-  backends: {
+  harnesses: {
     claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ },
   },
 }
@@ -106,7 +106,7 @@ describe('Cooling', () => {
     assert.equal(c.isCool('sonnet', 'anthropic'), false)
   })
 
-  // A provider-level (anthropic) limit cools every lane at once -- #13's
+  // A provider-level (anthropic) limit cools every model at once -- #13's
   // all-cooling path under all-Claude routing.
   test('provider-level cooling cools every model under that provider', () => {
     const c = new Cooling()
@@ -135,7 +135,7 @@ describe('Cooling', () => {
   })
 
   // Same contract, provider level. This is the higher-stakes half: a stuck
-  // provider-level entry cools every lane at once, so an implementation that
+  // provider-level entry cools every model at once, so an implementation that
   // only expires the model-level lookup leaves the daemon refusing to
   // dispatch anything until restart.
   test('a provider-level cooling entry whose resetAt has passed is no longer cooling', () => {
@@ -205,7 +205,7 @@ describe('candidates', () => {
 })
 
 describe('buildSpawnCmd', () => {
-  test('substitutes model and prompt file into the backend template', () => {
+  test('substitutes model and prompt file into the harness template', () => {
     const cmd = buildSpawnCmd(routing, 'claude', 'opus', '/home/alp/curia-work/cfg/curia-42/prompt.md')
     assert.equal(
       cmd,
@@ -213,7 +213,7 @@ describe('buildSpawnCmd', () => {
     )
   })
 
-  test('an unknown backend key throws, naming the configured backends', () => {
+  test('an unknown harness key throws, naming the configured harnesses', () => {
     assert.throws(
       () => buildSpawnCmd(routing, 'codex', 'opus', '/home/alp/curia-work/cfg/curia-42/prompt.md'),
       /claude/,
@@ -253,7 +253,7 @@ describe('parseUsageLimit', () => {
   // field-notes contract 4, the live hazard: this exact promotional text was
   // observed in a perfectly healthy session during this run's prototype.
   // Classifying it as a cap-hit would cool the model and kill a live
-  // worker -- it must never match.
+  // agent -- it must never match.
   test('a promotional mention of the weekly usage limit is not a cap-hit', () => {
     const result = parseUsageLimit(
       'Fable 5 is now a standard part of your Max plan / You can use up to 50% of your weekly usage limit on Fable 5…',
@@ -268,7 +268,7 @@ describe('parseUsageLimit', () => {
 
 describe('parseCreditGate (#126, #108 item 12)', () => {
   // The dialog verbatim, captured on the deployment box (2026-08-02) from a
-  // spawn seeded exactly like a worker: same .claude.json, same env, same
+  // spawn seeded exactly like an agent: same .claude.json, same env, same
   // daemon token. ASCII apostrophe as the pane renders it.
   const DIALOG = [
     '  Fable 5 now uses usage credits',
@@ -297,30 +297,30 @@ describe('parseCreditGate (#126, #108 item 12)', () => {
     assert.equal(carriesLimitPhrase("the CLI says You don't have usage credits yet"), true)
   })
 
-  test('no vocabulary for the openai lane — codex words credits as a usage limit', () => {
+  test('no vocabulary for the codex harness — codex words credits as a usage limit', () => {
     assert.equal(parseCreditGate("You don't have usage credits yet", 'openai'), null)
   })
 })
 
-// ---- the codex lane (#39) ----------------------------------------------------
+// ---- the codex harness (#39) ----------------------------------------------------
 
 describe('two providers (#39, restoring #13)', () => {
   const twoLane = {
     defaults: { grilling: 'fable', research: 'gpt', task: 'opus', untyped: 'opus' },
     models: {
-      fable: { provider: 'anthropic', backend: 'claude' },
-      opus: { provider: 'anthropic', backend: 'claude' },
-      sonnet: { provider: 'anthropic', backend: 'claude' },
-      gpt: { provider: 'openai', backend: 'codex', id: 'gpt-5.5' },
+      fable: { provider: 'anthropic', harness: 'claude' },
+      opus: { provider: 'anthropic', harness: 'claude' },
+      sonnet: { provider: 'anthropic', harness: 'claude' },
+      gpt: { provider: 'openai', harness: 'codex', id: 'gpt-5.5' },
     },
     fallbacks: { fable: ['opus'], opus: ['gpt', 'sonnet'], sonnet: ['gpt'], gpt: ['opus'] },
-    backends: {
+    harnesses: {
       claude: { template: 'claude --model {model} "$(cat {prompt_file})"' },
       codex: { template: 'codex --model {model} "$(cat {prompt_file})"' },
     },
   }
 
-  test('research routes to the gpt lane again — #33 sent it to opus by deviation', () => {
+  test('research routes to the gpt model again — #33 sent it to opus by deviation', () => {
     assert.equal(resolveModel(twoLane, ['wayfinder:research']), 'gpt')
   })
 
@@ -356,20 +356,20 @@ describe('two providers (#39, restoring #13)', () => {
     assert.deepEqual(candidates(twoLane, 'opus', cooling), [])
   })
 
-  // #187: the status line asks which provider a worker belongs to, and the
+  // #187: the status line asks which provider an agent belongs to, and the
   // label it used to ask with is a spawn-time fact the daemon loses on a
-  // restart. The backend survives on disk, so it answers instead.
-  test('a backend states its provider, taken from the models configured on it', () => {
+  // restart. The harness survives on disk, so it answers instead.
+  test('a harness states its provider, taken from the models configured on it', () => {
     assert.equal(providerOf(twoLane, 'claude'), 'anthropic')
     assert.equal(providerOf(twoLane, 'codex'), 'openai')
   })
 
-  test('an unknown backend, and a backend two providers claim, answer nothing', () => {
+  test('an unknown harness, and a harness two providers claim, answer nothing', () => {
     assert.equal(providerOf(twoLane, 'gemini'), null)
     assert.equal(providerOf(twoLane, null), null)
     assert.equal(providerOf(undefined, 'claude'), null)
-    // A guess here would put one account's bars on the other account's worker.
-    const split = { models: { ...twoLane.models, other: { provider: 'openai', backend: 'claude' } } }
+    // A guess here would put one account's bars on the other account's agent.
+    const split = { models: { ...twoLane.models, other: { provider: 'openai', harness: 'claude' } } }
     assert.equal(providerOf(split, 'claude'), null)
   })
 
@@ -407,7 +407,7 @@ describe('parseUsageLimit is per provider (#39)', () => {
 
   // Read off a live pane, not guessed: codex opens EVERY session with this line
   // and puts the second in its status bar. Either one classified as a cap hit
-  // would kill a healthy worker and cool the provider for an hour.
+  // would kill a healthy agent and cool the provider for an hour.
   test('the healthy-session lines codex always prints are not cap hits', () => {
     for (const text of [
       'You have 2 usage limit resets available. Run /usage to use one.',
@@ -428,7 +428,7 @@ describe('parseUsageLimit is per provider (#39)', () => {
     assert.equal(parseUsageLimit('Fable 5 usage limit reached', 'mistral'), null)
   })
 
-  // The forge guard reads EVERY provider's vocabulary, because a worker's own
+  // The forge guard reads EVERY provider's vocabulary, because an agent's own
   // provider changes under it on a cross-provider fallback while this answer is
   // computed once, from the ticket text, at dispatch.
   test('the forge guard spans providers', () => {

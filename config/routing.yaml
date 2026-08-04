@@ -1,5 +1,5 @@
 # Label-only model routing (#13). Two providers since #39, which restored the
-# gpt/codex lane #33 shipped without.
+# gpt/codex harness #33 shipped without.
 
 defaults:
   # grilling and prototype ran on fable until 2026-08-02. Diagnosed in #126:
@@ -15,9 +15,9 @@ defaults:
   task: opus
   untyped: opus
   # A map dispatch (#160): `start curia#<map>` on a `wayfinder:map` issue spawns
-  # a CHARTING worker, which rewrites the map every later worker reads. #149
-  # pinned it to the strongest claude-backend model, because no gate checks a
-  # charting worker: the operator in the loop is the whole check.
+  # a CHARTING agent, which rewrites the map every later agent reads. #149
+  # pinned it to the strongest claude-harness model, because no gate checks a
+  # charting agent: the operator in the loop is the whole check.
   #
   # So this row states fable and NOT opus, unlike grilling and prototype above.
   # Those three moved to opus in #126 to stop the burnt spawn; here the operator
@@ -35,11 +35,11 @@ defaults:
 
 # `context_window` feeds the status line's context % (#146), and it is the LAST
 # resort for it since #178. It used to say 200000 for the three anthropic models
-# here; the real window is 1000000, so every context figure the claude lane ever
+# here; the real window is 1000000, so every context figure the claude harness ever
 # showed was five times too large and nothing on the box could notice.
 #
 # A hand-written denominator has nothing to correct it. So the daemon now takes
-# the claude lane's window from two live facts instead: the model id the
+# the claude harness's window from two live facts instead: the model id the
 # transcript states on every turn, and `max_input_tokens` from
 # `GET /v1/models/<id>`. The codex transcript states its own
 # `model_context_window`, which beats both.
@@ -50,16 +50,16 @@ defaults:
 models:
   fable:
     provider: anthropic
-    backend: claude
+    harness: claude
   opus:
     provider: anthropic
-    backend: claude
+    harness: claude
   sonnet:
     provider: anthropic
-    backend: claude
+    harness: claude
   # `gpt` is the label vocabulary (`model:gpt` on a ticket); `id` is what the
   # CLI is actually asked for, because `codex --model gpt` is not a model.
-  # Since #179 `id` is also what a status line calls this worker, so a human
+  # Since #179 `id` is also what a status line calls this agent, so a human
   # reads `gpt-5.6-sol` where the line used to say `gpt`.
   #
   # There is no plain `gpt-5.6` — the release is three models. `sol` is the
@@ -70,14 +70,14 @@ models:
   # gpt-5.5 defaults to medium and gpt-5.6-sol to low, so taking the default
   # here would have made this upgrade a quiet downgrade in thinking. `high`
   # rather than `xhigh`/`max`, because #13 sends the bulk lane here to SPREAD
-  # quota, and burning it faster than the anthropic lane defeats that.
+  # quota, and burning it faster than the claude harness defeats that.
   gpt:
     provider: openai
-    backend: codex
+    harness: codex
     id: gpt-5.6-sol
     reasoning_effort: high
-    # Stated only as the fallback before the first turn — this is the one lane
-    # where the config value is safe, because every token_count event the lane
+    # Stated only as the fallback before the first turn — this is the one harness
+    # where the config value is safe, because every token_count event the harness
     # writes carries the real window and overrides it within one turn.
     context_window: 258400
 
@@ -91,30 +91,30 @@ fallbacks:
   sonnet: [gpt]
   gpt: [opus]            # transitively reaches sonnet through opus
 
-backends:
-  # `ready` is the pane text that says this backend reached its composer. It is
+harnesses:
+  # `ready` is the pane text that says this harness reached its composer. It is
   # required, not defaulted: #33 lost readiness live to a marker that matched
   # nothing, and the symptom was silence.
   claude:
     template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"'
     ready: '⏵⏵|bypass permissions'
-    # #156, from the sandbox decision (#148): `docker` puts each worker in its
-    # own container, `none` runs the bare tmux pane every worker ran in before.
+    # #156, from the sandbox decision (#148): `docker` puts each agent in its
+    # own container, `none` runs the bare tmux pane every agent ran in before.
     #
-    # ON since #157, which was the condition: a container worker binds its dev
+    # ON since #157, which was the condition: a container agent binds its dev
     # server on one of the three ports its container publishes, and the daemon
-    # reaches it there. The claude lane is the one that soaks first. The codex
-    # lane follows at #158, and the bare path is deleted there rather than here.
+    # reaches it there. The claude harness is the one that soaks first. The codex
+    # harness follows at #158, and the bare path is deleted there rather than here.
     # `none` is the way back, and it needs no other change.
     sandbox: docker
     # MEASURED on the box, two live dispatches, 2026-08-04 (#194,
     # docs/live-checks/194): the client's MCP handshake landed 3.7 s and 3.2 s
     # after spawn, and the composer marker 6.0 s after it both times — so the
-    # handshake ran 2.4 s and 2.9 s AHEAD of the marker. This lane connects its
+    # handshake ran 2.4 s and 2.9 s AHEAD of the marker. This harness connects its
     # MCP servers at startup, it does not connect them lazily, which is what
     # #189 could not settle from the two readings on record.
     #
-    # 15 s is that margin with room in it, and it still catches a mute worker
+    # 15 s is that margin with room in it, and it still catches a mute agent
     # about 21 s after spawn. Raise it only against a new reading.
     tool_channel_grace_s: 15
   # `--dangerously-bypass-hook-trust` is what makes the Stop hook fire without an
@@ -130,19 +130,19 @@ backends:
   codex:
     template: 'codex --model {model} --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat {prompt_file})"'
     ready: '·\s[~/]'
-    # ON since #158. The claude lane soaked first (#156, #157, #185), which was
+    # ON since #158. The claude harness soaked first (#156, #157, #185), which was
     # the rollout rule #148 set. `none` is still the whole way back, and on this
-    # lane it also restores the SHARED credential store: a container copies
+    # harness it also restores the SHARED credential store: a container copies
     # `auth.json` and freezes on it, a bare pane symlinks the host's own file.
     sandbox: docker
     # MEASURED on the box, three live dispatches, 2026-08-04 (#158,
-    # docs/live-checks/158). This lane does NOT behave like the claude one. Its
+    # docs/live-checks/158). This harness does NOT behave like the claude one. Its
     # handshake and its composer marker land within ~100 ms of each other and in
     # EITHER order: 844 ms ahead, 82 ms ahead, then 106 ms behind. Where the
     # claude handshake led the marker by 1.3-2.9 s in every sample, this one
     # straddles it.
     #
-    # So this lane gets more room than the claude lane's 15 s, not because it is
+    # So this harness gets more room than the claude harness's 15 s, not because it is
     # slower but because its ordering is not established: 20 s is about 200x the
-    # largest lag seen, and still catches a mute worker about 22 s after spawn.
+    # largest lag seen, and still catches a mute agent about 22 s after spawn.
     tool_channel_grace_s: 20

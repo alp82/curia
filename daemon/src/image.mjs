@@ -1,24 +1,24 @@
-// The shared worker image (#154, from the sandbox decision at #148): its tag,
+// The shared agent image (#154, from the sandbox decision at #148): its tag,
 // its build, and the "is it already there" check the dispatch path (#156) asks
 // before it runs a container.
 //
 // The tag is a CONTENT ADDRESS, not a name someone bumps by hand. It carries
-// the two CLI versions so a human reading `docker images` sees what a worker
+// the two CLI versions so a human reading `docker images` sees what an agent
 // runs, and a hash over every build input so nothing else can drift silently:
 //
-//     curia-worker:2.1.220-0.146.0-3f8a1c2d
+//     curia-agent:2.1.220-0.146.0-3f8a1c2d
 //                  ^claude ^codex  ^sha256(Dockerfile + all build args)
 //
 // That is what makes "the daemon rebuilds the image when a CLI version bumps"
 // a fact rather than a promise. A bump in config/curia.yaml names a tag that
-// is not on the box, `docker image inspect` fails, and ensureWorkerImage()
+// is not on the box, `docker image inspect` fails, and ensureAgentImage()
 // builds it. The same holds for an edit to the Dockerfile itself, which a
 // version-only tag would have missed — the case worth catching, since a
 // Dockerfile edit is how the image changes most often.
 //
-// Nothing here reads the image at boot. The sandbox ships behind a per-backend
+// Nothing here reads the image at boot. The sandbox ships behind a per-harness
 // switch that is off by default (#148), so the build belongs on the dispatch
-// path of a worker that actually wants a container.
+// path of an agent that actually wants a container.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -34,11 +34,11 @@ const DIR = path.dirname(fileURLToPath(import.meta.url))
 // any cwd. The Dockerfile's own directory is also the build CONTEXT — the
 // build COPYs nothing, so the context stays a directory holding one file
 // instead of the whole repo the classic builder would otherwise upload.
-export const DOCKERFILE = path.resolve(DIR, '..', '..', 'deploy', 'worker', 'Dockerfile')
+export const DOCKERFILE = path.resolve(DIR, '..', '..', 'deploy', 'agent', 'Dockerfile')
 export const BUILD_CONTEXT = path.dirname(DOCKERFILE)
 
 export const DOCKER_BIN = process.env.DOCKER_BIN ?? 'docker'
-export const BUILD_CMD = 'npm run build-worker-image --prefix daemon'
+export const BUILD_CMD = 'npm run build-agent-image --prefix daemon'
 
 // A build pulls a base image, fetches gh, and installs two CLIs that are
 // ~600 MB of native binary between them. Measured at ~4 minutes cold on the
@@ -53,7 +53,7 @@ const BUILD_ARGS = ['CLAUDE_VERSION', 'CODEX_VERSION', 'GH_VERSION', 'PLAYWRIGHT
 
 // The pins as they are named in config/curia.yaml, mapped to the ARG each one
 // feeds. `agent_uid` is the one that is not a version: it must match the host
-// user owning the mounted clone, or the worker cannot write its own worktree.
+// user owning the mounted clone, or the agent cannot write its own worktree.
 export const SANDBOX_KEYS = {
   claude_version: 'CLAUDE_VERSION',
   codex_version: 'CODEX_VERSION',
@@ -62,7 +62,7 @@ export const SANDBOX_KEYS = {
   agent_uid: 'AGENT_UID',
 }
 
-export const DEFAULT_IMAGE = 'curia-worker'
+export const DEFAULT_IMAGE = 'curia-agent'
 
 // Docker tags accept [A-Za-z0-9_.-] and nothing else, so a version string with
 // anything else in it (a `+build` suffix, a scoped prerelease) cannot ride the
@@ -90,7 +90,7 @@ export function imageDigest(sandbox, dockerfile = DOCKERFILE) {
   return crypto.createHash('sha256').update(material).digest('hex')
 }
 
-export function workerImageRef(sandbox, dockerfile = DOCKERFILE) {
+export function agentImageRef(sandbox, dockerfile = DOCKERFILE) {
   const repo = sandbox.image ?? DEFAULT_IMAGE
   const digest = imageDigest(sandbox, dockerfile)
   const tag = `${tagSafe(sandbox.claude_version)}-${tagSafe(sandbox.codex_version)}-${digest.slice(0, 8)}`
@@ -115,7 +115,7 @@ export async function imageExists(ref) {
 function dockerError(e) {
   const detail = (e.stderr ?? e.message ?? '').trim().split('\n')[0]
   if (e.code === 'ENOENT') {
-    return new Error(`no \`${DOCKER_BIN}\` on PATH — the worker sandbox needs docker on this box`)
+    return new Error(`no \`${DOCKER_BIN}\` on PATH — the agent sandbox needs docker on this box`)
   }
   if (/permission denied.*docker\.sock/i.test(detail)) {
     return new Error(
@@ -128,7 +128,7 @@ function dockerError(e) {
 
 // Streamed, not buffered: a cold build prints minutes of apt and npm output,
 // and a dispatch that shows nothing for four minutes reads as a hang.
-export function buildWorkerImage(ref, { onLine = () => {} } = {}) {
+export function buildAgentImage(ref, { onLine = () => {} } = {}) {
   const argv = ['build']
   for (const [arg, value] of Object.entries(ref.args)) argv.push('--build-arg', `${arg}=${value}`)
   argv.push('-t', ref.ref, '-f', DOCKERFILE, BUILD_CONTEXT)
@@ -175,12 +175,12 @@ export function buildWorkerImage(ref, { onLine = () => {} } = {}) {
 // race it did not need to enter.
 const inflight = new Map()
 
-export async function ensureWorkerImage(sandbox, { onLine } = {}) {
-  const ref = workerImageRef(sandbox)
+export async function ensureAgentImage(sandbox, { onLine } = {}) {
+  const ref = agentImageRef(sandbox)
   if (await imageExists(ref.ref)) return { ...ref, built: false }
 
   if (!inflight.has(ref.ref)) {
-    const p = buildWorkerImage(ref, { onLine }).finally(() => inflight.delete(ref.ref))
+    const p = buildAgentImage(ref, { onLine }).finally(() => inflight.delete(ref.ref))
     inflight.set(ref.ref, p)
   }
   await inflight.get(ref.ref)

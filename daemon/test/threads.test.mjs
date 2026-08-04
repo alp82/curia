@@ -315,7 +315,7 @@ describe('CommandRouter thread context (#93)', () => {
     const got = []
     const dispatcher = {
       config: WATCH,
-      routing: { backends: {} },
+      routing: { harnesses: {} },
       start: async (t, opts) => { got.push(['start', t, opts.threadId]); return 'ok' },
       next: async (r, opts) => { got.push(['next', r, opts.threadId]); return 'ok' },
       resume: async (t, opts) => { got.push(['resume', t, opts.threadId]); return 'ok' },
@@ -379,9 +379,9 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
     },
     routing: {
       defaults: { untyped: 'sonnet' },
-      models: { sonnet: { provider: 'anthropic', backend: 'claude' } },
+      models: { sonnet: { provider: 'anthropic', harness: 'claude' } },
       fallbacks: {},
-      backends: { claude: { template: 'claude "$(cat {prompt_file})"', readyRe: /⏵⏵/ } },
+      harnesses: { claude: { template: 'claude "$(cat {prompt_file})"', readyRe: /⏵⏵/ } },
     },
     store: {
       logEvent: (type, data) => ({ type, ...data }),
@@ -414,7 +414,7 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
         return wt
       },
       removeWorktree: async () => {}, removeConfigDir: () => {}, removeCredentials: () => {},
-      seedConfigDir: () => {}, writeHarness: () => {},
+      seedConfigDir: () => {}, writeConnectionSettings: () => {},
       writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
       ensureTtyd: async () => ({ verified: true }), assertServe: async () => {}, serveOff: async () => {},
       commentIssue: async () => {}, closeIssue: async () => {}, setIssueBody: async () => {},
@@ -451,7 +451,7 @@ describe('Dispatcher thread binding (#93)', () => {
 
   test('a prepare failure keeps the label — a claim release is not ticket-terminal (#140)', async () => {
     const d = makeDispatcher({ createWorktree: async () => { throw new Error('disk full') } })
-    assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /failed before the worker could run/)
+    assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /failed before the agent could run/)
     assert.deepEqual(releases, [], 'the retry belongs in the same thread')
   })
 
@@ -462,16 +462,16 @@ describe('Dispatcher thread binding (#93)', () => {
     assert.deepEqual(releases, [], 'a later dispatch belongs in the thread its history lives in')
   })
 
-  test('a finished worker (result recorded) releases the label; an abnormal exit keeps it', async () => {
+  test('a finished agent (result recorded) releases the label; an abnormal exit keeps it', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
     fs.writeFileSync(path.join(dir, 'data', 'results', 'curia-42.json'), '{}')
-    await d.onWorkerDone('curia-42')
+    await d.onAgentDone('curia-42')
     assert.deepEqual(releases, [{ ticket: '42', reason: 'finished' }])
 
     releases.length = 0
     await d.start('43', { repo: 'o/r' })
-    await d.onWorkerDone('curia-43') // no results file ⇒ abnormal exit, pane kept
+    await d.onAgentDone('curia-43') // no results file ⇒ abnormal exit, pane kept
     assert.deepEqual(releases, [], 'post-mortem traffic still belongs in the labeled thread')
   })
 
@@ -482,13 +482,13 @@ describe('Dispatcher thread binding (#93)', () => {
     )
     await d.reconcile({ boot: false })
     assert.deepEqual(releases, [{ ticket: '42', reason: 'reconcile' }],
-      'the closed ticket loses its label; the open one keeps it for the resumed worker')
+      'the closed ticket loses its label; the open one keeps it for the resumed agent')
   })
 
-  test('reconcile keeps the binding of a dead worker on an open ticket, even with no escalation (#140)', async () => {
+  test('reconcile keeps the binding of a dead agent on an open ticket, even with no escalation (#140)', async () => {
     const d = makeDispatcher({}, { bound: ['42'] }) // fetchIssue default: state open
     await d.reconcile({ boot: false })
-    assert.deepEqual(releases, [], 'worker death is not a ticket-terminal state')
+    assert.deepEqual(releases, [], 'agent death is not a ticket-terminal state')
   })
 
   test('reconcile keeps the label of a closed ticket while a human is still being asked', async () => {
@@ -496,7 +496,7 @@ describe('Dispatcher thread binding (#93)', () => {
       { fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed' }) },
       { bound: ['43'] },
     )
-    escalations.push({ id: 'esc-1', worker: 'curia-43', ticket: '43', status: 'open', kind: 'review-gate' })
+    escalations.push({ id: 'esc-1', agent: 'curia-43', ticket: '43', status: 'open', kind: 'review-gate' })
     await d.reconcile({ boot: false })
     assert.deepEqual(releases, [], 'the open escalation traffic must keep landing in the labeled thread')
   })

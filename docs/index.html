@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia — many repos, one queue, driven from a phone</title>
-<meta name="description" content="Curia is a self-hosted dispatcher for coding agents. It reads what is takeable across every GitHub repo you watch, sends a worker at it, and brings every question, preview and approval to your phone.">
+<meta name="description" content="Curia is a self-hosted dispatcher for coding agents. It reads what is takeable across every GitHub repo you watch, sends an agent at it, and brings every question, preview and approval to your phone.">
 <meta property="og:title" content="curia — many repos, one queue, driven from a phone">
 <meta property="og:description" content="Self-hosted dispatcher for coding agents. Your box, your subscription, your keys.">
 <meta property="og:url" content="https://curia.sh/">
@@ -180,7 +180,7 @@
     <h1>Many repos, one queue,<br>driven from a phone.</h1>
 
     <p class="lede">You already run coding agents every day. Curia reads what is takeable across
-    every repo you watch, sends a worker at it, and brings every question, every preview and every
+    every repo you watch, sends an agent at it, and brings every question, every preview and every
     approval to the device in your hand.</p>
 
     <div class="facts">
@@ -212,16 +212,16 @@
     <div class="claim">
       <h3>Any device is a full seat</h3>
       <p>Five verbs over Discord, one thread per ticket. Questions arrive with buttons. Results
-      arrive as HTTPS links on your tailnet. You can attach to a live worker's terminal from a phone
+      arrive as HTTPS links on your tailnet. You can attach to a live agent's terminal from a phone
       and from a desktop at the same time, and neither one is the lesser seat.</p>
-      <div class="under">tickets · start 42 · status · attach 42 · resume 42<br>~0.5 GB per worker measured · four at once on one small box</div>
+      <div class="under">tickets · start 42 · status · attach 42 · resume 42<br>~0.5 GB per agent measured · four at once on one small box</div>
     </div>
 
     <div class="claim">
-      <h3>A worker cannot finish by talking</h3>
+      <h3>An agent cannot finish by talking</h3>
       <p>Every ticket ends the same way: commit, pull request, live preview, your approval, merge.
       A rejection comes back in your own words and turns into new commits on the same pull request.
-      A stop hook refuses a worker that tries to quit early.</p>
+      A stop hook refuses an agent that tries to quit early.</p>
       <div class="under">resolved means merged · nothing lands without you</div>
     </div>
   </div>
@@ -240,7 +240,7 @@
       </figure></div>
       <div class="frame"><figure>
         <button class="box" type="button" data-frame="1">frame 2</button>
-        <figcaption><span class="n">2</span> The worker asks. You answer in the thread.</figcaption>
+        <figcaption><span class="n">2</span> The agent asks. You answer in the thread.</figcaption>
       </figure></div>
       <div class="frame"><figure>
         <button class="box" type="button" data-frame="2">frame 3</button>
@@ -255,14 +255,14 @@
     <p class="shotnote">Four phone screenshots of one real ticket, on a repo that is not this one.
     Tap one to read it.</p>
 
-    <p class="trail">This page was charted, decided and written by curia workers. Each one ended at a
+    <p class="trail">This page was charted, decided and written by curia agents. Each one ended at a
     review gate, and none of them merged itself.
     <a href="https://github.com/alp82/curia/pulls?q=is%3Apr+is%3Amerged">Read the merged pull requests</a>.</p>
 
     <div class="stats">
-      From GitHub, since the first commit on 21 Jul 2026 — 10 merged worker pull requests · 112
+      From GitHub, since the first commit on 21 Jul 2026 — 10 merged agent pull requests · 112
       issues closed · 3 repos watched.<br>
-      From the daemon journal, since 1 Aug 2026 — 10 workers spawned · 43 questions asked ·
+      From the daemon journal, since 1 Aug 2026 — 10 agents spawned · 43 questions asked ·
       7 review gates approved.<br>
       Counted 2 Aug 2026.
     </div>
@@ -279,9 +279,9 @@
         <li><b>Curia is twelve days old.</b> First commit 21 July 2026.</li>
         <li><b>One person runs it.</b> You would be the second.</li>
         <li><b>Setup is manual and takes an evening.</b> Node, tmux, Tailscale, a Discord bot, an
-        agent CLI, a GitHub repo. It gets simpler. There is no package yet.</li>
+        a harness, a GitHub repo. It gets simpler. There is no package yet.</li>
         <li><b>Tailscale and Discord are required.</b> There is no web UI.</li>
-        <li><b>Workers use your agent login.</b> A worker can do what you can do with it.</li>
+        <li><b>Agents use your own harness login.</b> An agent can do what you can do with it.</li>
       </ul>
     </div>
   </div>
@@ -310,7 +310,7 @@
       <h3><span class="num">2</span>Log in, as the user that runs the daemon</h3>
       <pre><code>gh auth login &amp;&amp; gh auth setup-git
 claude</code></pre>
-      <p>Workers use this agent login and this GitHub account. The account needs write access to
+      <p>Agents use this harness login and this GitHub account. The account needs write access to
       every repo you watch.</p>
     </div>
 
@@ -347,7 +347,7 @@ cd curia/daemon &amp;&amp; npm install</code></pre>
       <div class="step">
         <h3><span class="num">1</span>The box</h3>
         <p>Linux, always on. Node 22 or newer, tmux, ttyd, Tailscale. About 0.5 GB per running
-        worker.</p>
+        agent.</p>
       </div>
 
       <div class="step">
@@ -363,9 +363,9 @@ gh auth setup-git</code></pre>
       </div>
 
       <div class="step">
-        <h3><span class="num">4</span>Your agent CLI</h3>
-        <p>Log in as the user that runs the daemon. Log out and every worker fails. Codex CLI is
-        optional: install it only for the <code>gpt</code> lane in
+        <h3><span class="num">4</span>Your harness</h3>
+        <p>Log in as the user that runs the daemon. Log out and every agent fails. Codex CLI is
+        optional: install it only for the <code>gpt</code> entry in
         <code>config/routing.yaml</code>.</p>
       </div>
 
@@ -425,7 +425,7 @@ dispatch:
       <div class="step">
         <h3><span class="num">10</span><code>config/routing.yaml</code></h3>
         <p>Maps a ticket label to a model, and a model to a CLI. Without Codex, delete the
-        <code>gpt</code> model, the <code>codex</code> backend, and every <code>gpt</code> under
+        <code>gpt</code> model, the <code>codex</code> harness, and every <code>gpt</code> under
         <code>defaults</code> and <code>fallbacks</code>.</p>
       </div>
 
@@ -499,7 +499,7 @@ npm start</code></pre>
 (function () {
   var caps = [
     'The ticket goes out from a Discord thread.',
-    'The worker asks. You answer in the thread.',
+    'The agent asks. You answer in the thread.',
     'The preview link, open on the phone.',
     'The review gate. Approved.'
   ];

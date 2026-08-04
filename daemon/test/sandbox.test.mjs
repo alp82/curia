@@ -1,8 +1,8 @@
-// The worker sandbox (#156, building the decision at #148): one container per
-// worker, started by the tmux pane.
+// The agent sandbox (#156, building the decision at #148): one container per
+// agent, started by the tmux pane.
 //
 // Nothing here runs docker. What is worth pinning is everything that would be
-// wrong SILENTLY: a path the worker is told that is not the path it can see, a
+// wrong SILENTLY: a path the agent is told that is not the path it can see, a
 // secret on a command line instead of in an env file, a container left running
 // when its pane died, and a skill set that resolves to nothing inside the
 // container. The container itself is proved live on the box.
@@ -17,14 +17,14 @@ import path from 'node:path'
 import { Dispatcher } from '../src/dispatch.mjs'
 import { loadCuriaConfig, loadRoutingConfig, assertSandboxConfig } from '../src/config.mjs'
 import {
-  GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, PORTS_PER_WORKER, PROBE_MARK, PROBE_PATH,
+  GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, PORTS_PER_AGENT, PROBE_MARK, PROBE_PATH,
   allocatePorts, containerPorts, dockerGateway, dockerRunCmd, modelCredential,
   probeSideChannel, sourceAddressFor, stopContainer, writeEnvFile,
 } from '../src/sandbox.mjs'
-import { installSkills, seedConfigDir, workerEnv, writePrompt as realWritePrompt } from '../src/workspace.mjs'
+import { installSkills, seedConfigDir, agentEnv, writePrompt as realWritePrompt } from '../src/workspace.mjs'
 
 const PINS = {
-  image: 'curia-worker',
+  image: 'curia-agent',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
   gh_version: '2.97.0',
@@ -44,7 +44,7 @@ describe('the docker run line (#156)', () => {
   const line = (over = {}) => dockerRunCmd({
     name: 'curia-42',
     ticket: '42',
-    image: 'curia-worker:2.1.220-0.146.0-c6c38f36',
+    image: 'curia-agent:2.1.220-0.146.0-c6c38f36',
     cfgDir: '/home/alp/curia-work/cfg/curia-42',
     wtPath: '/home/alp/curia-work/repos/o__r/wt/42',
     envFile: '/home/alp/curia-work/cfg/curia-42/container.env',
@@ -84,17 +84,17 @@ describe('the docker run line (#156)', () => {
     assert.match(cmd, /--label curia\.session=curia-42/)
   })
 
-  test('the backend command is single-quoted, so $(cat …) expands inside the container', () => {
+  test('the harness command is single-quoted, so $(cat …) expands inside the container', () => {
     assert.match(line(), /bash -c 'claude --model opus "\$\(cat \/cfg\/prompt\.md\)"'$/)
   })
 
-  test('a backend template carrying a single quote is refused, not escaped', () => {
+  test('a harness template carrying a single quote is refused, not escaped', () => {
     assert.throws(() => line({ spawnCmd: "claude --model 'opus'" }), /single quote/)
   })
 
   test('a path that is not shell-safe is refused rather than quoted', () => {
     assert.throws(() => line({ wtPath: '/home/alp/curia work/wt/42' }), /not quote-free/)
-    assert.throws(() => line({ image: 'curia-worker:latest; rm -rf /' }), /not quote-free/)
+    assert.throws(() => line({ image: 'curia-agent:latest; rm -rf /' }), /not quote-free/)
   })
 
   test('the container runs as the uid that owns the mounts', () => {
@@ -105,7 +105,7 @@ describe('the docker run line (#156)', () => {
 // ---- ports ---------------------------------------------------------------------
 
 describe('container ports (#156)', () => {
-  test('ports already handed to live workers are skipped', async () => {
+  test('ports already handed to live agents are skipped', async () => {
     const got = await allocatePorts({ from: 9000, to: 9099 }, { taken: [9000, 9001], isFree: async () => true })
     assert.deepEqual(got, [9002, 9003, 9004])
   })
@@ -117,7 +117,7 @@ describe('container ports (#156)', () => {
     try {
       const got = await allocatePorts({ from: held, to: held + 8 })
       assert.ok(!got.includes(held), 'allocated a port another process is listening on')
-      assert.equal(got.length, PORTS_PER_WORKER)
+      assert.equal(got.length, PORTS_PER_AGENT)
     } finally {
       await new Promise((r) => srv.close(r))
     }
@@ -161,7 +161,7 @@ describe('the docker host gateway (#156)', () => {
   })
 
   // #188: with no route to the bridge, the kernel answers off the DEFAULT route,
-  // and that address is the box's public one. Binding the worker routes there
+  // and that address is the box's public one. Binding the agent routes there
   // would publish them to the internet.
   test('a source address outside the subnet is refused, not bound', async () => {
     await assert.rejects(
@@ -203,7 +203,7 @@ describe('the side-channel probe (#188)', () => {
   test('it runs curl in the image, against the gateway the container resolves', async () => {
     let argv = null
     await probeSideChannel({
-      image: 'curia-worker:test',
+      image: 'curia-agent:test',
       port: 4271,
       exec: async (_bin, args) => { argv = args; return ok },
     })
@@ -211,7 +211,7 @@ describe('the side-channel probe (#188)', () => {
     assert.deepEqual(
       argv.slice(argv.indexOf('--add-host'), argv.indexOf('--add-host') + 2),
       ['--add-host', `${GUEST_DAEMON_HOST}:host-gateway`],
-      'the probe resolves the daemon exactly the way a worker does',
+      'the probe resolves the daemon exactly the way an agent does',
     )
     assert.ok(argv.includes(`http://${GUEST_DAEMON_HOST}:4271${PROBE_PATH}`))
   })
@@ -282,7 +282,7 @@ describe('the model credential a container gets (#148)', () => {
     assert.deepEqual(modelCredential('claude', { env: {}, home: tmp }), { CLAUDE_CODE_OAUTH_TOKEN: 'stored-1' })
   })
 
-  test('no credential anywhere refuses the spawn instead of starting a worker that cannot think', () => {
+  test('no credential anywhere refuses the spawn instead of starting an agent that cannot think', () => {
     assert.throws(() => modelCredential('claude', { env: {}, home: tmp }), /no anthropic credential/)
   })
 })
@@ -307,24 +307,24 @@ describe('container teardown (#156)', () => {
 // ---- config ------------------------------------------------------------------------
 
 describe('the sandbox switch (#156)', () => {
-  const routingFile = (backendExtra) => {
+  const routingFile = (harnessExtra) => {
     const file = path.join(tmp, 'routing.yaml')
     fs.writeFileSync(file, [
       'defaults: {untyped: opus}',
-      'models: {opus: {provider: anthropic, backend: claude}}',
-      'backends:',
+      'models: {opus: {provider: anthropic, harness: claude}}',
+      'harnesses:',
       '  claude:',
       '    template: \'claude --model {model} "$(cat {prompt_file})"\'',
       "    ready: '⏵⏵'",
       "    tool_channel_grace_s: 15",
-      ...backendExtra,
+      ...harnessExtra,
     ].join('\n'))
     return file
   }
 
-  test('a backend with no switch runs the bare pane, exactly as before', () => {
+  test('a harness with no switch runs the bare pane, exactly as before', () => {
     const cfg = loadRoutingConfig(routingFile([]))
-    assert.equal(cfg.backends.claude.sandbox, 'none')
+    assert.equal(cfg.harnesses.claude.sandbox, 'none')
   })
 
   test('an unknown mode names the key rather than running an unknown containment', () => {
@@ -332,12 +332,12 @@ describe('the sandbox switch (#156)', () => {
   })
 
   test('the switch on, with no image pins in curia.yaml, refuses at boot', () => {
-    const routing = { backends: { claude: { sandbox: 'docker' } } }
+    const routing = { harnesses: { claude: { sandbox: 'docker' } } }
     assert.throws(() => assertSandboxConfig({}, routing), /carries no `sandbox:` section/)
     assert.deepEqual(assertSandboxConfig({ sandbox: PINS }, routing), ['claude'])
   })
 
-  test('a port range that cannot hold three ports per concurrent worker refuses', () => {
+  test('a port range that cannot hold three ports per concurrent agent refuses', () => {
     assert.throws(() => curiaConfigWith({ port_from: 9000, port_to: 9003 }, tmp), /need 18/)
   })
 
@@ -367,7 +367,7 @@ function curiaConfigWith(sandboxOver, dir) {
     'preview: {port_from: 8500, port_to: 8599}',
     'skills: {install: []}',
     'sandbox:',
-    '  image: curia-worker',
+    '  image: curia-agent',
     '  claude_version: 2.1.220',
     '  codex_version: 0.146.0',
     '  gh_version: 2.97.0',
@@ -378,11 +378,11 @@ function curiaConfigWith(sandboxOver, dir) {
   return loadCuriaConfig(file)
 }
 
-// ---- what the worker is told ---------------------------------------------------------
+// ---- what the agent is told ---------------------------------------------------------
 
-describe('the worker sees its own paths (#156)', () => {
+describe('the agent sees its own paths (#156)', () => {
   test('the config dir a container reads is the mount point, and the host store is not named', () => {
-    const env = workerEnv(GUEST_CFG, 'claude', { sandboxed: true })
+    const env = agentEnv(GUEST_CFG, 'claude', { sandboxed: true })
     assert.equal(env.CLAUDE_CONFIG_DIR, GUEST_CFG)
     // The host store lives in the host HOME, which is what the boundary denies:
     // naming it would point the CLI at a path that is not mounted.
@@ -390,7 +390,7 @@ describe('the worker sees its own paths (#156)', () => {
   })
 
   test('a bare pane still shares the host credential store (#53)', () => {
-    assert.ok(workerEnv(path.join(tmp, 'cfg'), 'claude').CLAUDE_SECURESTORAGE_CONFIG_DIR)
+    assert.ok(agentEnv(path.join(tmp, 'cfg'), 'claude').CLAUDE_SECURESTORAGE_CONFIG_DIR)
   })
 
   test('skills are copied for a container, because a symlink into the host resolves to nothing there', () => {
@@ -409,7 +409,7 @@ describe('the worker sees its own paths (#156)', () => {
     assert.equal(fs.lstatSync(installed).isSymbolicLink(), true)
   })
 
-  test('the claude seed trusts the path the worker will actually be in', () => {
+  test('the claude seed trusts the path the agent will actually be in', () => {
     const cfgDir = path.join(tmp, 'cfg')
     seedConfigDir(cfgDir, GUEST_WT, null, 'claude', { sandboxed: true })
     const seeded = JSON.parse(fs.readFileSync(path.join(cfgDir, '.claude.json'), 'utf8'))
@@ -421,9 +421,9 @@ describe('the worker sees its own paths (#156)', () => {
 
 const SANDBOXED_ROUTING = {
   defaults: { untyped: 'opus' },
-  models: { opus: { provider: 'anthropic', backend: 'claude' } },
+  models: { opus: { provider: 'anthropic', harness: 'claude' } },
   fallbacks: {},
-  backends: {
+  harnesses: {
     claude: {
       template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"',
       ready: '⏵⏵', readyRe: /⏵⏵/, toolChannelGraceS: 15, sandbox: 'docker',
@@ -474,7 +474,7 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     defaultBranchOf: async () => 'main',
     hasUnpushedWork: async () => false,
     findPullRequest: async () => null,
-    ensureWorkerImage: async () => ({ ref: 'curia-worker:test', built: false }),
+    ensureAgentImage: async () => ({ ref: 'curia-agent:test', built: false }),
     assertSideChannel: async () => '10.0.1.1',
     stopContainer: async () => true,
     listContainers: async () => [],
@@ -510,7 +510,7 @@ describe('a sandboxed dispatch (#156)', () => {
   afterEach(() => { delete process.env.ANTHROPIC_API_KEY })
 
   // #188: a container with no side channel cannot reach ask_human, the Stop
-  // hook, or any curia tool. It is worse than no worker, because it claims the
+  // hook, or any curia tool. It is worse than no agent, because it claims the
   // ticket and edits the worktree in silence — so the dispatch is refused.
   test('an unreachable side channel refuses the dispatch and releases the claim', async () => {
     const unclaimed = []
@@ -543,7 +543,7 @@ describe('a sandboxed dispatch (#156)', () => {
     let asked = false
     const { d } = makeDispatcher(
       { assertSideChannel: async () => { asked = true } },
-      { routing: { ...SANDBOXED_ROUTING, backends: { claude: { ...SANDBOXED_ROUTING.backends.claude, sandbox: 'none' } } }, sandbox: undefined },
+      { routing: { ...SANDBOXED_ROUTING, harnesses: { claude: { ...SANDBOXED_ROUTING.harnesses.claude, sandbox: 'none' } } }, sandbox: undefined },
     )
     await d.start('42', { repo: 'o/r' })
     assert.equal(asked, false)
@@ -554,7 +554,7 @@ describe('a sandboxed dispatch (#156)', () => {
     await d.start('42', { repo: 'o/r' })
     assert.equal(spawns.length, 1)
     assert.match(spawns[0].shellCmd, /^docker run --rm -i -t --init /)
-    assert.match(spawns[0].shellCmd, /curia-worker:test bash -c 'claude --model opus/)
+    assert.match(spawns[0].shellCmd, /curia-agent:test bash -c 'claude --model opus/)
     assert.match(spawns[0].shellCmd, /-p 127\.0\.0\.1:9000:9000/)
     assert.match(spawns[0].shellCmd, new RegExp(`:${GUEST_WT}`))
   })
@@ -565,7 +565,7 @@ describe('a sandboxed dispatch (#156)', () => {
     assert.deepEqual(spawns[0].env, {})
   })
 
-  test('the prompt tells the worker the path it can actually see', async () => {
+  test('the prompt tells the agent the path it can actually see', async () => {
     const { d } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
     const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
@@ -628,9 +628,9 @@ describe('a sandboxed dispatch (#156)', () => {
   test('the journal records the image and the ports a restart cannot re-derive', async () => {
     const { d, events } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
-    const spawned = events.find((e) => e.type === 'worker_spawned')
+    const spawned = events.find((e) => e.type === 'agent_spawned')
     assert.equal(spawned.sandbox, 'docker')
-    assert.equal(spawned.image, 'curia-worker:test')
+    assert.equal(spawned.image, 'curia-agent:test')
     assert.deepEqual(spawned.ports, [9000, 9001, 9002])
   })
 
@@ -654,14 +654,14 @@ describe('a sandboxed dispatch (#156)', () => {
     // (nothing on GitHub claims it) — that path takes its container with it.
     // curia-7 has no pane at all, and only this sweep can see it.
     assert.ok(stopped.includes('curia-7'))
-    assert.ok(events.some((e) => e.type === 'orphan_container_swept' && e.worker === 'curia-7'))
-    assert.ok(!events.some((e) => e.type === 'orphan_container_swept' && e.worker === 'curia-9'))
+    assert.ok(events.some((e) => e.type === 'orphan_container_swept' && e.agent === 'curia-7'))
+    assert.ok(!events.some((e) => e.type === 'orphan_container_swept' && e.agent === 'curia-9'))
   })
 
-  test('no docker at all on a bare-lane box: nothing calls it', async () => {
+  test('no docker at all on a bare-path box: nothing calls it', async () => {
     const { d } = makeDispatcher(
       { stopContainer: async () => { throw new Error('docker was called') }, listContainers: async () => { throw new Error('docker was called') } },
-      { routing: { ...SANDBOXED_ROUTING, backends: { claude: { ...SANDBOXED_ROUTING.backends.claude, sandbox: 'none' } } }, sandbox: undefined },
+      { routing: { ...SANDBOXED_ROUTING, harnesses: { claude: { ...SANDBOXED_ROUTING.harnesses.claude, sandbox: 'none' } } }, sandbox: undefined },
     )
     await d.start('42', { repo: 'o/r' })
     await d.cancel('42', { by: 'test' })
@@ -671,8 +671,8 @@ describe('a sandboxed dispatch (#156)', () => {
 
 // ---- the preview bound (#157) ------------------------------------------------------------
 
-// The three published ports are what `publish_preview` checks a worker's dev
-// port against, so the daemon has to know them for every live worker — including
+// The three published ports are what `publish_preview` checks an agent's dev
+// port against, so the daemon has to know them for every live agent — including
 // one it adopted after a restart and never spawned.
 describe('reading the published ports back from a container (#157)', () => {
   // The shape docker returns, measured identically on 29.6.2 and on the box's
@@ -704,7 +704,7 @@ describe('reading the published ports back from a container (#157)', () => {
   })
 })
 
-describe('the worker is told its ports (#157)', () => {
+describe('the agent is told its ports (#157)', () => {
   beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'sk-test' })
   afterEach(() => { delete process.env.ANTHROPIC_API_KEY })
 
@@ -712,14 +712,14 @@ describe('the worker is told its ports (#157)', () => {
     const { d } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
     const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
-    assert.match(prompt, /\*\*9000, 9001, 9002\*\*/, 'a worker cannot discover its ports — the prompt is the only place they exist for it')
-    assert.match(prompt, /bind `0\.0\.0\.0`/, 'a localhost bind inside the container is unreachable, and fails where the worker cannot see it')
+    assert.match(prompt, /\*\*9000, 9001, 9002\*\*/, 'an agent cannot discover its ports — the prompt is the only place they exist for it')
+    assert.match(prompt, /bind `0\.0\.0\.0`/, 'a localhost bind inside the container is unreachable, and fails where the agent cannot see it')
     assert.match(prompt, /publish_preview` takes no other port/)
   })
 
-  test('a bare worker is told nothing about ports — it has none', async () => {
+  test('a bare agent is told nothing about ports — it has none', async () => {
     const { d } = makeDispatcher({}, {
-      routing: { ...SANDBOXED_ROUTING, backends: { claude: { ...SANDBOXED_ROUTING.backends.claude, sandbox: 'none' } } },
+      routing: { ...SANDBOXED_ROUTING, harnesses: { claude: { ...SANDBOXED_ROUTING.harnesses.claude, sandbox: 'none' } } },
       sandbox: undefined,
     })
     await d.start('42', { repo: 'o/r' })
@@ -740,29 +740,29 @@ describe('the worker is told its ports (#157)', () => {
     assert.match(spawns[0].shellCmd, /-p 127\.0\.0\.1:9010:9010/)
   })
 
-  test('a restart adopts a container worker with its bound, read back from docker', async () => {
+  test('a restart adopts a container agent with its bound, read back from docker', async () => {
     const { d } = makeDispatcher({
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...ISSUE, assignees: [{ login: 'me' }] }),
       containerPorts: async (name) => (name === 'curia-42' ? [9000, 9001, 9002] : []),
     })
     await d.reconcile({ boot: false })
-    assert.deepEqual(d.workers.get('curia-42').ports, [9000, 9001, 9002])
-    assert.equal(d.workers.get('curia-42').sandbox, 'docker')
+    assert.deepEqual(d.agents.get('curia-42').ports, [9000, 9001, 9002])
+    assert.equal(d.agents.get('curia-42').sandbox, 'docker')
   })
 
-  test('a container docker cannot describe leaves the worker with no bound, which refuses every publish', async () => {
+  test('a container docker cannot describe leaves the agent with no bound, which refuses every publish', async () => {
     const { d } = makeDispatcher({
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...ISSUE, assignees: [{ login: 'me' }] }),
       containerPorts: async () => { throw new Error('Cannot connect to the Docker daemon') },
     })
     await d.reconcile({ boot: false })
-    assert.equal(d.workers.get('curia-42').ports, null, 'a bound curia cannot state must not fall back to no bound at all')
+    assert.equal(d.agents.get('curia-42').ports, null, 'a bound curia cannot state must not fall back to no bound at all')
   })
 })
 
-describe('the ports belong to the worker, not to one container (#157)', () => {
+describe('the ports belong to the agent, not to one container (#157)', () => {
   beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'sk-test' })
   afterEach(() => { delete process.env.ANTHROPIC_API_KEY })
 
@@ -779,8 +779,8 @@ describe('the ports belong to the worker, not to one container (#157)', () => {
     const routing = {
       ...SANDBOXED_ROUTING,
       models: {
-        opus: { provider: 'anthropic', backend: 'claude' },
-        sonnet: { provider: 'anthropic', backend: 'claude' },
+        opus: { provider: 'anthropic', harness: 'claude' },
+        sonnet: { provider: 'anthropic', harness: 'claude' },
       },
       fallbacks: { opus: ['sonnet'] },
     }
@@ -796,6 +796,6 @@ describe('the ports belong to the worker, not to one container (#157)', () => {
     assert.match(spawns[1].shellCmd, /-p 127\.0\.0\.1:9010:9010/)
     const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
     assert.match(prompt, /9010, 9001, 9002/)
-    assert.deepEqual(d.workers.get('curia-42').ports, [9010, 9001, 9002])
+    assert.deepEqual(d.agents.get('curia-42').ports, [9010, 9001, 9002])
   })
 })

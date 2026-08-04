@@ -9,11 +9,11 @@ Your box, your subscription, your repos.
 ## What it does
 
 - Reads what is takeable across every watched repo, in dependency order.
-- Sends a worker with one command: claims the issue, cuts a worktree, picks the model by label.
-- Runs each worker in its own tmux session and git worktree. Six at once fits in 8 GB.
+- Sends an agent with one command: claims the issue, cuts a worktree, picks the model by label.
+- Runs each agent in its own tmux session and git worktree. Six at once fits in 8 GB.
 - Asks you questions in Discord and waits. Buttons, text, and images both ways.
-- Publishes a worker's dev server as an HTTPS link on your tailnet, so you see the result.
-- Puts a live worker's terminal in your browser, phone or desktop, at the same time.
+- Publishes an agent's dev server as an HTTPS link on your tailnet, so you see the result.
+- Puts a live agent's terminal in your browser, phone or desktop, at the same time.
 - Ends every ticket the same way: commit, pull request, preview, your approval, merge.
 - Survives restarts. GitHub holds the truth and the daemon rebuilds the rest.
 - Runs Claude Code or Codex CLI under one contract.
@@ -24,13 +24,13 @@ Your box, your subscription, your repos.
 - Setup is manual and takes an evening. It gets simpler. There is no package yet.
 - Tailscale and Discord are required. There is no web UI.
 - Attach and preview links are open to anything on your tailnet.
-- Workers use your agent login, so a worker can do what you can do with it.
+- Agents use your own harness login, so an agent can do what you can do with it.
 
 # Setup
 
 ## 1. The box
 
-Linux, always on. Node 22 or newer, tmux, ttyd, Tailscale. About 0.5 GB per running worker.
+Linux, always on. Node 22 or newer, tmux, ttyd, Tailscale. About 0.5 GB per running agent.
 
 ## 2. Tailscale
 
@@ -52,7 +52,7 @@ gh auth setup-git
 
 The account needs write access to every repo you watch.
 
-## 4. Your agent CLI
+## 4. Your harness (Claude Code, or Codex)
 
 Log in as the user that runs the daemon:
 
@@ -60,9 +60,9 @@ Log in as the user that runs the daemon:
 claude
 ```
 
-Workers use this login. Log out and every worker fails.
+Agents use this login. Log out and every agent fails.
 
-Codex CLI is optional. Install it only if you want the `gpt` lane in `config/routing.yaml`.
+Codex CLI is optional. Install it only if you want the `gpt` entry in `config/routing.yaml`.
 
 ## 5. The Discord bot
 
@@ -142,7 +142,7 @@ Pick one:
 ## 10. `config/routing.yaml`
 
 Maps a ticket label to a model, and a model to a CLI. If you did not install Codex, delete the `gpt`
-model, the `codex` backend, and every `gpt` under `defaults` and `fallbacks`.
+model, the `codex` harness, and every `gpt` under `defaults` and `fallbacks`.
 
 ## 11. The repos you watch
 
@@ -166,9 +166,9 @@ Test it: send a normal message in `#curia`. A thread opens and answers you.
 Then use the commands, as Discord slash commands or as plain English in a thread:
 
 - `tickets` — what is takeable
-- `start <n>` — send a worker
+- `start <n>` — send an agent
 - `status` — who is running
-- `attach <n>` — that worker's terminal in your browser
+- `attach <n>` — that agent's terminal in your browser
 - `resume <n>` / `cancel <n>`
 
 ## 13. Keep it running
@@ -190,7 +190,7 @@ tmux and Tailscale on boot. Open questions keep their Discord buttons across a r
 | `bot is in no guild` | The invite did not finish, or `CURIA_GUILD_ID` is wrong. |
 | The bridge refuses to start | `DISCORD_ALLOWED_USERS` is empty. |
 | Replies in a thread do nothing | The message content intent is off. |
-| `Speaker identities are off` in `#curia` | The bot role lacks Manage Webhooks. Grant it on the role, or as a `#curia` channel override. Worker prose keeps posting under the bot voice until you do. |
+| `Speaker identities are off` in `#curia` | The bot role lacks Manage Webhooks. Grant it on the role, or as a `#curia` channel override. Agent prose keeps posting under the bot voice until you do. |
 | `spawned ttyd ... but no listener came up` | `TTYD_BIN` points at nothing. |
 | Attach and preview links never appear | Tailscale HTTPS certificates are off, or `--operator` was never set. |
 

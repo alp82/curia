@@ -33,7 +33,7 @@ watch; curia reads what is takeable in dependency order, runs the work, and brin
 that needs a human to whatever device they are holding.
 
 The three claims below support that promise. They are not co-headlines. Presence ("curia removes
-the desk"), rigor ("a worker cannot finish by talking") and the dogfood run were each considered as
+the desk"), rigor ("an agent cannot finish by talking") and the dogfood run were each considered as
 the headline and each demoted: presence and rigor to supporting claims, the dogfood run to proof.
 
 ## The three supporting claims
@@ -52,40 +52,40 @@ Rests on:
   path.
 - `daemon/src/dispatch.mjs` — the frontier reads every watched repo, map lane before flat lane,
   dropping blocked and claimed tickets.
-- `config/curia.yaml` — three repos watched today. `config/routing.yaml` — two backends, Claude Code
+- `config/curia.yaml` — three repos watched today. `config/routing.yaml` — two harnesses, Claude Code
   and Codex, under one contract.
 
 ### 2. Any device is a full seat
 
 Five verbs over Discord. One thread per ticket. Questions arrive with buttons, results arrive as
-per-ticket HTTPS preview links, and a live worker can be attached from a phone or a desktop at the
-same time. Four or more tickets have run at once on one small box, at about 0.5 GB per worker
+per-ticket HTTPS preview links, and a live agent can be attached from a phone or a desktop at the
+same time. Four or more tickets have run at once on one small box, at about 0.5 GB per agent
 measured.
 
 Rests on:
 
 - [The overseer rehearsal](../live-checks/96-overseer-rehearsal.md) — one unbroken pass driven from
-  Discord: prose dispatch, a worker question answered in the thread, a button confirm, and the
+  Discord: prose dispatch, an agent question answered in the thread, a button confirm, and the
   review gate approved.
 - The operator's memory benchmark on `coinmatica.net`: four genuinely overlapping sessions, 733 MB
-  peak total, ~0.5 GB per worker as the planning number, headroom for 40–50 concurrent workers on
+  peak total, ~0.5 GB per agent as the planning number, headroom for 40–50 concurrent agents on
   the 30 GB box before CPU or rate limits bind.
-- The operator's own runs: four or more curia workers alive at once on real tickets.
+- The operator's own runs: four or more curia agents alive at once on real tickets.
 - [ADR-0003](../adr/0003-tmux-ttyd-tailscale-worker-host.md),
   [ADR-0005](../adr/0005-escalation-contract.md).
 
-### 3. A worker cannot finish by talking
+### 3. An agent cannot finish by talking
 
 Nothing lands without the reader's approval. Every ticket ends the same way: commit, pull request,
 live preview, review gate, merge. A rejection comes back as their own words and turns into new
-commits on the same pull request. A stop hook refuses a worker that tries to quit early.
+commits on the same pull request. A stop hook refuses an agent that tries to quit early.
 
 Rests on:
 
 - [ADR-0008](../adr/0008-resolved-means-merged.md) — resolved means merged; the ending is one
-  structure, rendered as both the worker's orders and the stop hook's checklist.
+  structure, rendered as both the agent's orders and the stop hook's checklist.
 - [The merge-gated ending](../live-checks/54-merge-gate.md) — written from inside the ending by the
-  worker living through it, rejection loop included.
+  agent living through it, rejection loop included.
 - The second live check, where the stop hook caught a planted protocol skip — recorded in the same
   file, from [Live check 2 (#62)](https://github.com/alp82/curia/issues/62), commit `d3b118a`.
 
@@ -97,10 +97,10 @@ it.
 Settled in [Decide what proof of curia working goes on the page](https://github.com/alp82/curia/issues/114).
 The proof brief is [`proof.md`](proof.md); what follows is what became of each item.
 
-- **This page was charted, decided and written by curia itself** — workers dispatched from a Discord
+- **This page was charted, decided and written by curia itself** — agents dispatched from a Discord
   thread, grilling the operator, opening pull requests, and merging on approval. **On the page**, as
   a line pointing at the merged pull requests, each stamped by the daemon with its session and model.
-- **The rehearsal survived two daemon restarts inside one pass** — one while a worker's question was
+- **The rehearsal survived two daemon restarts inside one pass** — one while an agent's question was
   open, one while the review gate was open. Both recovered. **Not on the page.** It stays where it is
   above, backing claim 2.
 - **A question held open for almost eight hours resumed cleanly.** Recorded in
@@ -112,7 +112,7 @@ The proof brief is [`proof.md`](proof.md); what follows is what became of each i
 
 The page shows, besides those: **four frames of one real ticket** on a repo other than this one,
 captured by the operator on a phone, in a strip after the three claims; and **a dated stats line** a
-worker regenerates from GitHub and the journal. `proof.md` holds the detail.
+agent regenerates from GitHub and the journal. `proof.md` holds the detail.
 
 ## What the page is honest about
 
@@ -120,7 +120,7 @@ Three things a reader finds out sooner or later, so the page says them first:
 
 - Curia is eleven days old. First commit 2026-07-21.
 - One person runs it. There are no other users.
-- Setup is manual today: Node, tmux, Tailscale, a Discord bot, an agent CLI, a GitHub repo. It gets
+- Setup is manual today: Node, tmux, Tailscale, a Discord bot, a harness, a GitHub repo. It gets
   simpler, and the page does not promise packaging it has not shipped.
 
 **Where it sits: straight after the three claims, before the guide.** The reader learns why they

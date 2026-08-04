@@ -1,4 +1,4 @@
-// #53: a worker shares the host credential store instead of snapshotting it.
+// #53: an agent shares the host credential store instead of snapshotting it.
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -7,12 +7,12 @@ import path from 'node:path'
 
 import { execFileSync } from 'node:child_process'
 import {
-  seedConfigDir, workerEnv, workerGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
-  writeHarness, removeCredentials, untrustedProjectConfig, MCP_SERVER_NAME,
+  seedConfigDir, agentEnv, agentGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
+  writeConnectionSettings, removeCredentials, untrustedProjectConfig, MCP_SERVER_NAME,
   createWorktree, remoteBranchExists,
 } from '../src/workspace.mjs'
 
-describe('per-worker config dir (#53)', () => {
+describe('per-agent config dir (#53)', () => {
   let tmp
   before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-ws-')) })
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
@@ -43,21 +43,21 @@ describe('per-worker config dir (#53)', () => {
 
     const settings = JSON.parse(fs.readFileSync(path.join(cfgDir, 'settings.json'), 'utf8'))
     assert.equal(settings.disableClaudeAiConnectors, true,
-      'without this the worker fetches the operator\'s Notion, Gmail, Drive and Calendar')
+      'without this the agent fetches the operator\'s Notion, Gmail, Drive and Calendar')
     // OBJECT entries, not strings: an invalid allowlist enforces an empty one,
-    // which would leave the worker with no curia tools at all.
+    // which would leave the agent with no curia tools at all.
     assert.deepEqual(settings.allowedMcpServers, [{ serverName: MCP_SERVER_NAME }])
     assert.equal(settings.skipDangerousModePermissionPrompt, true)
   })
 
   // The allowlist and the server it admits are one constant. Spelled apart they
-  // would drift, and the drift is silent until a worker has no tools.
+  // would drift, and the drift is silent until an agent has no tools.
   test('the allowlist names the very server the harness writes (#180)', () => {
     const cfgDir = path.join(tmp, 'cfg', 'curia-1c')
     const wtPath = path.join(tmp, 'wt', '1c')
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'claude')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-1c', ticket: 1, daemonPort: 4271, backend: 'claude', token: 'a'.repeat(64) })
+    writeConnectionSettings({ wtPath, cfgDir, agent: 'curia-1c', ticket: 1, daemonPort: 4271, harness: 'claude', token: 'a'.repeat(64) })
 
     const settings = JSON.parse(fs.readFileSync(path.join(cfgDir, 'settings.json'), 'utf8'))
     const mcp = JSON.parse(fs.readFileSync(path.join(wtPath, '.mcp.json'), 'utf8'))
@@ -76,9 +76,9 @@ describe('per-worker config dir (#53)', () => {
       'a stale copy that still parses would silently re-enter the frozen-token failure')
   })
 
-  test('the worker env isolates config while sharing the credential store', () => {
+  test('the agent env isolates config while sharing the credential store', () => {
     const cfgDir = path.join(tmp, 'cfg', 'curia-3')
-    const env = workerEnv(cfgDir)
+    const env = agentEnv(cfgDir)
 
     assert.equal(env.CLAUDE_CONFIG_DIR, cfgDir)
     assert.equal(env.CLAUDE_SECURESTORAGE_CONFIG_DIR, hostStorageDir())
@@ -87,54 +87,54 @@ describe('per-worker config dir (#53)', () => {
     // the point of the split: the two must NOT be the same dir, or the
     // isolation #23/#29 made mandatory is gone
     assert.notEqual(env.CLAUDE_CONFIG_DIR, env.CLAUDE_SECURESTORAGE_CONFIG_DIR)
-    // an absolute path, not the empty-string form (see workerEnv's note)
+    // an absolute path, not the empty-string form (see agentEnv's note)
     assert.ok(path.isAbsolute(env.CLAUDE_SECURESTORAGE_CONFIG_DIR))
   })
 
-  // #155: the worker's GitHub authority is a scoped PAT, not the host's
+  // #155: the agent's GitHub authority is a scoped PAT, not the host's
   // account-wide `gh` login.
-  describe('the scoped worker PAT (#155)', () => {
+  describe('the scoped agent PAT (#155)', () => {
     const cfgDir = () => path.join(tmp, 'cfg', 'curia-3')
     const env = {
       CURIA_AGENT_GH_TOKEN_ALP82: 'github_pat_11ALP82',
       CURIA_AGENT_GH_TOKEN_GETALFREDO: 'github_pat_11ORG',
     }
 
-    test('the token reaches the worker as GH_TOKEN, on both lanes', () => {
-      assert.equal(workerEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
-      assert.equal(workerEnv(cfgDir(), 'codex', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
+    test('the token reaches the agent as GH_TOKEN, on both harnesses', () => {
+      assert.equal(agentEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
+      assert.equal(agentEnv(cfgDir(), 'codex', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
       // the isolation it rides beside is untouched
-      assert.equal(workerEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).CLAUDE_CONFIG_DIR, cfgDir())
+      assert.equal(agentEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).CLAUDE_CONFIG_DIR, cfgDir())
     })
 
     // The reason the key carries an owner at all: a fine-grained PAT has one
     // resource owner, and the watch list spans two.
     test('each resource owner gets its own token', () => {
-      assert.equal(workerGhToken('alp82/alperortac.com', env), 'github_pat_11ALP82')
-      assert.equal(workerGhToken('getalfredo/landing-page', env), 'github_pat_11ORG')
+      assert.equal(agentGhToken('alp82/alperortac.com', env), 'github_pat_11ALP82')
+      assert.equal(agentGhToken('getalfredo/landing-page', env), 'github_pat_11ORG')
       assert.equal(ghTokenKeyFor('getalfredo/landing-page'), 'CURIA_AGENT_GH_TOKEN_GETALFREDO')
       // a login's one foldable character
       assert.equal(ghTokenKeyFor('some-org/repo'), 'CURIA_AGENT_GH_TOKEN_SOME_ORG')
     })
 
-    test('an owner with no token leaves the worker on the inherited host login', () => {
+    test('an owner with no token leaves the agent on the inherited host login', () => {
       // absent, empty and whitespace all mean "not configured" — an operator who
       // commented the line out and one who blanked it get the same box
       const blanks = { CURIA_AGENT_GH_TOKEN_EMPTY: '', CURIA_AGENT_GH_TOKEN_PAD: '   ' }
       for (const repo of ['other/repo', 'empty/repo', 'pad/repo']) {
-        assert.equal('GH_TOKEN' in workerEnv(cfgDir(), 'claude', { repo, env: { ...env, ...blanks } }), false)
-        assert.equal(workerGhToken(repo, { ...env, ...blanks }), null)
+        assert.equal('GH_TOKEN' in agentEnv(cfgDir(), 'claude', { repo, env: { ...env, ...blanks } }), false)
+        assert.equal(agentGhToken(repo, { ...env, ...blanks }), null)
       }
-      // and a spawn with no repo at all — the overseer's reuse of workerEnv
-      assert.equal('GH_TOKEN' in workerEnv(cfgDir(), 'claude', { env }), false)
+      // and a spawn with no repo at all — the overseer's reuse of agentEnv
+      assert.equal('GH_TOKEN' in agentEnv(cfgDir(), 'claude', { env }), false)
     })
 
     // The value travels as `env K=V` in tmux argv, and `gh` answers a quoted
     // token with a bare 401 — so the refusal has to name the fault here.
-    test('a quoted or padded token refuses rather than reaching a worker', () => {
-      assert.equal(workerGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: ' github_pat_11ABC \n' }), 'github_pat_11ABC')
+    test('a quoted or padded token refuses rather than reaching an agent', () => {
+      assert.equal(agentGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: ' github_pat_11ABC \n' }), 'github_pat_11ABC')
       for (const bad of ['"github_pat_11ABC"', "'github_pat_11ABC'", 'github_pat_11ABC # the scoped one', 'gh p_11ABC']) {
-        assert.throws(() => workerGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: bad }), /CURIA_AGENT_GH_TOKEN_ALP82/)
+        assert.throws(() => agentGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: bad }), /CURIA_AGENT_GH_TOKEN_ALP82/)
       }
     })
 
@@ -149,15 +149,15 @@ describe('per-worker config dir (#53)', () => {
     })
   })
 
-  test('the worker env lifts the 300 s MCP idle abort (#104)', () => {
-    const env = workerEnv(path.join(tmp, 'cfg', 'curia-3'))
-    // ms, and at least the codex lane's one-day bound — a blocked ask_human
+  test('the agent env lifts the 300 s MCP idle abort (#104)', () => {
+    const env = agentEnv(path.join(tmp, 'cfg', 'curia-3'))
+    // ms, and at least the codex harness's one-day bound — a blocked ask_human
     // must survive a human who takes hours, keepalive or no keepalive
     assert.equal(env.CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT, '86400000')
   })
 })
 
-describe('the worker skill set (#57)', () => {
+describe('the agent skill set (#57)', () => {
   let tmp
   let root
 
@@ -206,10 +206,10 @@ describe('the worker skill set (#57)', () => {
     seedConfigDir(cfgDir, path.join(tmp, 'wt', '12'), { root, install: ['wayfinder'] })
 
     assert.deepEqual(fs.readdirSync(path.join(cfgDir, 'skills')), ['wayfinder'],
-      'a link left behind would hand the worker a skill the operator removed')
+      'a link left behind would hand the agent a skill the operator removed')
   })
 
-  test('a skill missing from the host refuses the spawn instead of shipping a worker without it', () => {
+  test('a skill missing from the host refuses the spawn instead of shipping an agent without it', () => {
     const cfgDir = path.join(tmp, 'cfg', 'curia-13')
     assert.throws(
       () => installSkills(cfgDir, { root, install: ['wayfinder', 'gone'] }),
@@ -232,7 +232,7 @@ describe('the worker skill set (#57)', () => {
 // #54 item 6: re-dispatch onto a ticket whose pull request is already open. This
 // runs against real git, because the bug it fixes was entirely in the plumbing:
 // `worktree add -B curia/<n> … origin/HEAD` force-reset the branch, so the second
-// worker started from the default branch and its non-forced push then failed —
+// agent started from the default branch and its non-forced push then failed —
 // after having thrown away every commit already under review.
 describe('createWorktree start point (#54 item 6)', () => {
   let tmp
@@ -287,15 +287,15 @@ describe('createWorktree start point (#54 item 6)', () => {
 
 // ---- the codex harness (#39) -------------------------------------------------
 
-describe('the codex worker harness (#39)', () => {
+describe('the codex agent harness (#39)', () => {
   let tmp
   before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-codex-')) })
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
 
-  // A fixed stand-in for what the daemon mints per worker (#159). The harness is
-  // the only channel a worker learns it on, so writeHarness refuses without one.
+  // A fixed stand-in for what the daemon mints per agent (#159). The harness is
+  // the only channel an agent learns it on, so writeConnectionSettings refuses without one.
   const TOKEN = 'a'.repeat(64)
-  const TOKEN_HEADER = 'x-curia-worker-token'
+  const TOKEN_HEADER = 'x-curia-agent-token'
 
   const dirs = (n) => ({
     cfgDir: path.join(tmp, 'cfg', `curia-${n}`),
@@ -304,11 +304,11 @@ describe('the codex worker harness (#39)', () => {
 
   test('CODEX_HOME is the whole isolation, and no Claude variable leaks into it', () => {
     const { cfgDir } = dirs(1)
-    assert.deepEqual(workerEnv(cfgDir, 'codex', { env: {} }), { CODEX_HOME: cfgDir })
+    assert.deepEqual(agentEnv(cfgDir, 'codex', { env: {} }), { CODEX_HOME: cfgDir })
   })
 
   // The #53 property, reached by the opposite mechanism: codex FOLLOWS the link
-  // when it refreshes (Claude replaces it), so the worker writes the host's own
+  // when it refreshes (Claude replaces it), so the agent writes the host's own
   // file and the two share one refresh lineage.
   test('the credential is a symlink to the host store, never a copy', () => {
     const { cfgDir, wtPath } = dirs(2)
@@ -370,7 +370,7 @@ describe('the codex worker harness (#39)', () => {
       assert.equal(st.mode & 0o777, 0o400)
     }))
 
-    test('the bare path still shares the host store — the boundary is what changes, not the lane', () => withHome((home) => {
+    test('the bare path still shares the host store — the boundary is what changes, not the harness', () => withHome((home) => {
       fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
       fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{}')
       const { cfgDir, wtPath } = dirs(21)
@@ -424,14 +424,14 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(6)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'codex')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-6', ticket: 6, daemonPort: 4271, backend: 'codex', reasoningEffort: 'high', token: TOKEN })
+    writeConnectionSettings({ wtPath, cfgDir, agent: 'curia-6', ticket: 6, daemonPort: 4271, harness: 'codex', reasoningEffort: 'high', token: TOKEN })
 
     const toml = fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')
     // without the trust entry the first spawn stops at "Do you trust the
-    // contents of this directory?" and the worker never reaches its composer
+    // contents of this directory?" and the agent never reaches its composer
     assert.match(toml, new RegExp(`\\[projects\\."${wtPath}"\\]\\ntrust_level = "trusted"`))
     assert.match(toml, /\[features\]\nhooks = true/)
-    assert.match(toml, /\[mcp_servers\.curia\]\nurl = "http:\/\/127\.0\.0\.1:4271\/mcp\?worker=curia-6&ticket=6"/)
+    assert.match(toml, /\[mcp_servers\.curia\]\nurl = "http:\/\/127\.0\.0\.1:4271\/mcp\?agent=curia-6&ticket=6"/)
 
     // codex's 300 s tool-call deadline is a HARD one, so #34's keepalive — which
     // lifts Claude Code's identical abort — does nothing here. Without this line
@@ -442,15 +442,15 @@ describe('the codex worker harness (#39)', () => {
     // so leaving it out would move the depth whenever the model id moves.
     assert.match(toml, /model_reasoning_effort = "high"/)
 
-    // #159: the worker's proof of its own name, in the shape `codex mcp list`
+    // #159: the agent's proof of its own name, in the shape `codex mcp list`
     // reads back as the transport's `http_headers`.
     assert.match(toml, new RegExp(`http_headers = \\{ "${TOKEN_HEADER}" = "${TOKEN}" \\}`))
 
     const hooks = JSON.parse(fs.readFileSync(path.join(cfgDir, 'hooks.json'), 'utf8'))
-    assert.match(hooks.hooks.Stop[0].hooks[0].command, /worker_done\?worker=curia-6/)
+    assert.match(hooks.hooks.Stop[0].hooks[0].command, /agent_done\?agent=curia-6/)
     assert.match(hooks.hooks.Stop[0].hooks[0].command, new RegExp(`-H '${TOKEN_HEADER}: ${TOKEN}'`))
 
-    // The harness is the only channel a worker learns its token on, so nothing
+    // The harness is the only channel an agent learns its token on, so nothing
     // here is world-readable.
     for (const f of ['config.toml', 'hooks.json']) {
       assert.equal(fs.statSync(path.join(cfgDir, f)).mode & 0o077, 0, `${f} carries the token and must not be world-readable`)
@@ -459,12 +459,12 @@ describe('the codex worker harness (#39)', () => {
     assert.deepEqual(fs.readdirSync(wtPath), [])
   })
 
-  // The claude lane's own spelling of the same control, pinned beside it.
-  test('the claude harness carries the worker token on the MCP server and the Stop hook (#159)', () => {
+  // The claude harness's own spelling of the same control, pinned beside it.
+  test('the claude harness carries the agent token on the MCP server and the Stop hook (#159)', () => {
     const { cfgDir, wtPath } = dirs(14)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'claude')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-14', ticket: 14, daemonPort: 4271, backend: 'claude', token: TOKEN })
+    writeConnectionSettings({ wtPath, cfgDir, agent: 'curia-14', ticket: 14, daemonPort: 4271, harness: 'claude', token: TOKEN })
 
     const mcp = JSON.parse(fs.readFileSync(path.join(wtPath, '.mcp.json'), 'utf8'))
     assert.deepEqual(mcp.mcpServers.curia.headers, { [TOKEN_HEADER]: TOKEN })
@@ -476,26 +476,26 @@ describe('the codex worker harness (#39)', () => {
   })
 
   // There is no safe default for a secret, so the harness refuses rather than
-  // writing one a worker could not authenticate with.
+  // writing one an agent could not authenticate with.
   test('a harness with no minted token is refused rather than written (#159)', () => {
     const { cfgDir, wtPath } = dirs(15)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'claude')
     for (const token of [undefined, '', 'short', 'Z'.repeat(64)]) {
       assert.throws(
-        () => writeHarness({ wtPath, cfgDir, worker: 'curia-15', ticket: 15, daemonPort: 4271, backend: 'claude', token }),
-        /without a minted worker token/,
+        () => writeConnectionSettings({ wtPath, cfgDir, agent: 'curia-15', ticket: 15, daemonPort: 4271, harness: 'claude', token }),
+        /without a minted agent token/,
       )
     }
     assert.equal(fs.existsSync(path.join(wtPath, '.mcp.json')), false)
   })
 
-  // The claude lane's own shape, asserted alongside so the two stay told apart.
-  test('the claude lane still writes its side channel into the worktree', () => {
+  // The claude harness's own shape, asserted alongside so the two stay told apart.
+  test('the claude harness still writes its side channel into the worktree', () => {
     const { cfgDir, wtPath } = dirs(7)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'claude')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-7', ticket: 7, daemonPort: 4271, backend: 'claude', token: TOKEN })
+    writeConnectionSettings({ wtPath, cfgDir, agent: 'curia-7', ticket: 7, daemonPort: 4271, harness: 'claude', token: TOKEN })
     assert.ok(fs.existsSync(path.join(wtPath, '.mcp.json')))
     assert.ok(fs.existsSync(path.join(wtPath, '.claude', 'settings.json')))
     assert.equal(fs.existsSync(path.join(cfgDir, 'config.toml')), false)
@@ -505,31 +505,31 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(11)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'codex')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-11', ticket: 11, daemonPort: 4271, backend: 'codex', token: TOKEN })
+    writeConnectionSettings({ wtPath, cfgDir, agent: 'curia-11', ticket: 11, daemonPort: 4271, harness: 'codex', token: TOKEN })
     assert.equal(/model_reasoning_effort/.test(fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')), false)
   })
 
-  test('an unknown backend refuses rather than seeding a worker nothing can drive', () => {
+  test('an unknown harness refuses rather than seeding an agent nothing can drive', () => {
     const { cfgDir, wtPath } = dirs(8)
-    assert.throws(() => seedConfigDir(cfgDir, wtPath, null, 'cursor'), /no worker harness/)
-    assert.throws(() => workerEnv(cfgDir, 'cursor'), /no worker harness/)
+    assert.throws(() => seedConfigDir(cfgDir, wtPath, null, 'cursor'), /no agent harness/)
+    assert.throws(() => agentEnv(cfgDir, 'cursor'), /no agent harness/)
   })
 
   // The codex spawn bypasses hook trust for the hook curia writes; the same flag
   // would run one the repo carries, with no model in the loop.
-  test('a repo-planted project hook file is spotted on the codex lane', () => {
+  test('a repo-planted project hook file is spotted on the codex harness', () => {
     const { wtPath } = dirs(9)
     fs.mkdirSync(path.join(wtPath, '.codex'), { recursive: true })
     fs.writeFileSync(path.join(wtPath, '.codex', 'hooks.json'), '{}')
     assert.equal(untrustedProjectConfig(wtPath, 'codex'), path.join(wtPath, '.codex', 'hooks.json'))
-    // the claude lane never loads .codex/, so it is not this guard's business
+    // the claude harness never loads .codex/, so it is not this guard's business
     assert.equal(untrustedProjectConfig(wtPath, 'claude'), null)
   })
 
   // curia overwrites <wt>/.claude/settings.json, but Claude Code merges
   // settings.local.json on top of it — a repo-carried copy would run its hooks
   // with no model in the loop (#105).
-  test('a repo-planted settings.local.json is spotted on the claude lane', () => {
+  test('a repo-planted settings.local.json is spotted on the claude harness', () => {
     const { wtPath } = dirs(12)
     fs.mkdirSync(path.join(wtPath, '.claude'), { recursive: true })
     fs.writeFileSync(path.join(wtPath, '.claude', 'settings.local.json'), '{}')
@@ -542,7 +542,7 @@ describe('the codex worker harness (#39)', () => {
     const { cfgDir, wtPath } = dirs(13)
     fs.mkdirSync(wtPath, { recursive: true })
     seedConfigDir(cfgDir, wtPath, null, 'claude')
-    writeHarness({ wtPath, cfgDir, worker: 'curia-13', ticket: 13, daemonPort: 4271, backend: 'claude', token: TOKEN })
+    writeConnectionSettings({ wtPath, cfgDir, agent: 'curia-13', ticket: 13, daemonPort: 4271, harness: 'claude', token: TOKEN })
     assert.equal(untrustedProjectConfig(wtPath, 'claude'), null)
   })
 

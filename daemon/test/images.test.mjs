@@ -4,7 +4,7 @@
 // The contract these pin:
 //
 //   resolveOutboundImages(paths, { roots, cwd }) -> { files, refusals }
-//     A worker may publish files from inside `roots` only. The daemon holds a
+//     An agent may publish files from inside `roots` only. The daemon holds a
 //     Discord token and a tailnet position, so an unbounded path here is an
 //     exfiltration primitive — containment is checked against REAL paths, so a
 //     symlink planted inside the worktree cannot smuggle /etc/passwd out.
@@ -12,7 +12,7 @@
 //     still gets the message.
 //
 //   inboundContent(paths) -> MCP content blocks
-//     Images become real `image` blocks so the picture lands in the worker's
+//     Images become real `image` blocks so the picture lands in the agent's
 //     context. Anything unreadable, oversized or not an image degrades to a
 //     text line naming the path — visible, never silently dropped.
 //
@@ -80,7 +80,7 @@ describe('resolveOutboundImages containment', () => {
     assert.equal(files.length, 0)
   })
 
-  test('a relative path resolves against the worker cwd', () => {
+  test('a relative path resolves against the agent cwd', () => {
     const { root } = fixture()
     const { files, refusals } = resolveOutboundImages(['shot.png'], { roots: [root], cwd: root })
     assert.equal(refusals.length, 0)

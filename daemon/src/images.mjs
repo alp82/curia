@@ -2,20 +2,20 @@
 // contract).
 //
 // Before this module the bridge could render `files` but nothing on the
-// worker-facing MCP surface could supply them, and an inbound Discord image
-// reached the worker only as a `[attachment: <path>]` line of text — a disk
-// path the worker had to go Read for itself (#28's workaround shape). Both
+// agent-facing MCP surface could supply them, and an inbound Discord image
+// reached the agent only as a `[attachment: <path>]` line of text — a disk
+// path the agent had to go Read for itself (#28's workaround shape). Both
 // directions now carry real images:
 //
-//   outbound  worker → human: `images: [<path>]` on ask_human / notify; the
+//   outbound  agent → human: `images: [<path>]` on ask_human / notify; the
 //             daemon validates and hands the files to discord.js
-//   inbound   human → worker: Discord attachments come back as MCP `image`
+//   inbound   human → agent: Discord attachments come back as MCP `image`
 //             content blocks (base64) in the ask_human result, so the picture
-//             lands in the worker's context directly
+//             lands in the agent's context directly
 //
 // Refusals are never silent: a rejected path is reported back to the caller in
 // the tool result and journalled. Text stays the floor — a bad image never
-// costs the human the message or the worker the answer.
+// costs the human the message or the agent the answer.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -61,10 +61,10 @@ function containedIn(p, roots) {
   return null
 }
 
-// Worker-supplied outbound image paths → files discord.js can send.
-// `roots` bounds what a worker may publish: its own worktree and the daemon's
+// Agent-supplied outbound image paths → files discord.js can send.
+// `roots` bounds what an agent may publish: its own worktree and the daemon's
 // data dir, never the whole box. Returns { files, refusals } — refusals are
-// strings meant to go straight back to the worker.
+// strings meant to go straight back to the agent.
 export function resolveOutboundImages(images, { roots, cwd }) {
   const files = []
   const refusals = []
@@ -76,7 +76,7 @@ export function resolveOutboundImages(images, { roots, cwd }) {
     const candidate = path.isAbsolute(raw) ? raw : path.resolve(cwd ?? roots[0] ?? '.', raw)
     const real = containedIn(candidate, roots)
     if (!real) {
-      refusals.push(`${raw}: refused — not a readable path inside this worker's workspace`)
+      refusals.push(`${raw}: refused — not a readable path inside this agent's workspace`)
       continue
     }
     const mime = mimeFor(real)

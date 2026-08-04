@@ -77,8 +77,8 @@ describe('canonicalFor', () => {
     assert.equal(canonicalFor('start', { ticket: '85' }), 'start 85')
     assert.equal(canonicalFor('start', { ticket: '85', repo: 'alp82/curia' }), 'start alp82/curia#85')
     assert.equal(
-      canonicalFor('start', { ticket: '85', model: 'claude-sonnet-5', backend: 'codex' }),
-      'start 85 model=claude-sonnet-5 backend=codex',
+      canonicalFor('start', { ticket: '85', model: 'claude-sonnet-5', harness: 'codex' }),
+      'start 85 model=claude-sonnet-5 harness=codex',
     )
     assert.equal(canonicalFor('cancel', { ticket: '85' }), 'cancel 85')
     assert.equal(canonicalFor('cancel', { ticket: 'all' }), 'cancel all')

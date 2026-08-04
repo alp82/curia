@@ -61,10 +61,10 @@ export async function unclaim(repo, n, login) {
 
 // ---- resolve protocol + landing (#41) ---------------------------------------
 //
-// The WORKER runs the resolve protocol itself, with its own `gh` — that is what
+// The AGENT runs the resolve protocol itself, with its own `gh` — that is what
 // the wayfinder skill already does at the end of a session. Everything below
 // exists so the daemon can VERIFY that afterwards and repair what is missing,
-// and so it can land the code (push + PR) without the worker ever holding that
+// and so it can land the code (push + PR) without the agent ever holding that
 // authority. See resolve.mjs for the division of labour.
 
 // Long markdown never travels in argv: a resolution comment or a whole map body
@@ -139,8 +139,8 @@ export function setPullRequestBody(repo, n, body) {
 }
 
 // Merge ends the workspace lease (#54 item 7), and `gh pr merge --delete-branch`
-// is what the WORKER runs. This is the daemon's repair for the branch it left
-// behind. A missing ref is positive absence, not a failure: the worker's own
+// is what the AGENT runs. This is the daemon's repair for the branch it left
+// behind. A missing ref is positive absence, not a failure: the agent's own
 // merge already deleted it, which is the expected case.
 export async function deleteRemoteBranch(repo, branch) {
   try {

@@ -7,7 +7,7 @@
 // The signals, one meaning each (#89's fixed set — nothing else appears in a
 // message):
 //   ⚙️ work in motion        ✅ done / confirmed     ❌ refused / declined
-//   ⚠️ warning / failure     🎫 ticket               ⚰️ dead — a worker torn
+//   ⚠️ warning / failure     🎫 ticket               ⚰️ dead — an agent torn
 //   🔗 link                                            down, a lapsed confirm
 //
 // Button LABELS are UI chrome, not messages: the ✅/❌ confirm pair is fixed
@@ -94,9 +94,9 @@ export function promptTitle(prompt, max = 80) {
 // Webhook speaker name (#108 item 15): `curia-9 · <ticket title>` — the
 // multi-agent shape moves from the prose into the speaker label. Discord caps
 // webhook usernames at 80 chars, so the title cuts at a word boundary.
-export function speakerName(worker, title = '') {
-  if (!title) return worker
-  return `${worker} · ${promptTitle(title, 80 - worker.length - 3)}`
+export function speakerName(agent, title = '') {
+  if (!title) return agent
+  return `${agent} · ${promptTitle(title, 80 - agent.length - 3)}`
 }
 
 // "how long has this been waiting" for reminders and keepalives (#118).

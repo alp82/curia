@@ -223,7 +223,7 @@ async function waitPortFree(port, ms) {
 // cross-origin WebSocket upgrades, so ANY page loaded in a browser on ANY
 // tailnet-connected device could open
 // `wss://<host>:<serve_port>/ws?arg=curia-<n>` — session names are public issue
-// numbers — and drive a writable terminal into a bypassPermissions worker (or
+// numbers — and drive a writable terminal into a bypassPermissions agent (or
 // the bare shell tmux.mjs leaves behind). The victim's browser supplies the
 // network position, so tailnet membership is not the gate it looks like.
 // What -O actually enforces (verified in tsl0922/ttyd src/protocol.c) is
@@ -264,7 +264,7 @@ export function canonicalArgv(argv) {
 //
 //   -O            the cross-origin WebSocket hijack #33 closed. Without it any
 //                 page in any browser on any tailnet device can drive a
-//                 writable terminal into a bypassPermissions worker.
+//                 writable terminal into a bypassPermissions agent.
 //   -i 127.0.0.1  -O is a *browser* control; a non-browser client on the LAN
 //                 forges Origin trivially, so the bind is the real edge.
 //   -a + wrapper  ?arg= session picking (#30), whitelisted to ^curia- by the

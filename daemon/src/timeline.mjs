@@ -1,4 +1,4 @@
-// The timeline attach surface (#74, landing #73's pick): read a worker by
+// The timeline attach surface (#74, landing #73's pick): read an agent by
 // tailing its own transcript, write to it with `tmux send-keys` — no terminal
 // parsed, no pane resized, so a phone and a desktop each lay the same run out
 // at their own width and both drive the same live turn (#72's division of
@@ -8,13 +8,13 @@
 // The daemon hosts this in-process rather than as a child: the surface then
 // dies with the daemon (no orphan process to sweep — #19's lesson pre-empted),
 // and it reads two things only the daemon has — the dispatcher's word on which
-// backend a session runs, and the durable escalation record. The record
-// matters because of #74's own measurement: the claude lane writes NOTHING to
+// harness a session runs, and the durable escalation record. The record
+// matters because of #74's own measurement: the claude harness writes NOTHING to
 // its transcript while an ask_human blocks (the tool_use line is flushed only
 // with the result), so a timeline that reads the transcript alone is silent
 // through every escalation — precisely when a human most needs to see one.
 // Open escalations for the session are therefore overlaid from the store on
-// both lanes (the codex lane shows the call natively; the overlay adds the
+// both harnesses (the codex harness shows the call natively; the overlay adds the
 // answer-surface state either way).
 //
 // IDENTITY (#151 — the deferral #74 item 6 restated is now CLOSED). Every
@@ -22,7 +22,7 @@
 // allowlist and a Host this box actually serves (identity.mjs holds the
 // predicate and the evidence behind it). Reads are gated too, not only writes:
 // the transcript IS the sensitive thing here — a read-only caller still gets
-// every line the worker has produced.
+// every line the agent has produced.
 //
 // The Origin-must-equal-Host check below stays where it was, unchanged. It is
 // no longer load-bearing on its own — a non-browser client forges Origin
@@ -36,7 +36,7 @@ import { fileURLToPath } from 'node:url'
 import { assertServe, serveOff, attachBase, validSessionName } from './attach.mjs'
 import { paneTail } from './dispatch.mjs'
 import { sendText, sendKey, capturePane } from './tmux.mjs'
-import { detectBackend, findTranscript, parseLine } from './transcript.mjs'
+import { detectHarness, findTranscript, parseLine } from './transcript.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -85,7 +85,7 @@ const KEYS = { escape: 'Escape', 'ctrl-c': 'C-c', enter: 'Enter', up: 'Up', tab:
 // is blind to it — and a /send while one owns the pane is typed INTO the
 // dialog, where the trailing Enter answers it blind, or is swallowed outright
 // (#75's live incident: the operator's own approval of #74 vanished this way,
-// with no trace on the page, the worker, or the journal). The surface must not
+// with no trace on the page, the agent, or the journal). The surface must not
 // render or answer the dialog itself — only stop being silent about it.
 //
 // Detection is pane-text, the same evidence #25 recorded these prompts leave
@@ -98,8 +98,8 @@ const KEYS = { escape: 'Escape', 'ctrl-c': 'C-c', enter: 'Enter', up: 'Up', tab:
 // phrase, and this ticket's own body quotes the AskUserQuestion footer), so
 // two narrowings apply: the classifier sees only the pane TAIL, and a visible
 // composer VETOES the match — verified live: every dialog above replaces the
-// composer, so its per-backend ready marker (#39) and a real dialog never
-// share a tail; a footer phrase that scrolled by in worker output does.
+// composer, so its per-harness ready marker (#39) and a real dialog never
+// share a tail; a footer phrase that scrolled by in agent output does.
 export const DIALOG_MARKERS = [
   /Enter to [^·\n]{1,60}·/, // "Enter to <verb> …" joined to more chrome by a middot
   /↑\/↓ to navigate/, // belt and braces should the select footer reword its verb
@@ -142,18 +142,18 @@ export class TimelineSurface {
     this.dialogProbeMs = dialogProbeMs
     this.deps = {
       assertServe, serveOff, attachBase, sendText, sendKey, capturePane,
-      // composerFor(backend): the per-backend ready regex (#39) — the veto in
+      // composerFor(harness): the per-harness ready regex (#39) — the veto in
       // detectDialog. Null skips the veto, never the marker match.
       composerFor: () => null,
       // journal(type, detail): the store's logEvent, injected by index.mjs.
       journal: () => {},
-      // backendFor(session): the dispatcher's word, with detectBackend as the
+      // harnessFor(session): the dispatcher's word, with detectHarness as the
       // on-disk fallback for re-adopted and lab sessions.
-      backendFor: (session) => detectBackend(this.#cfgDir(session)),
-      // escalationsFor(session): open escalation records for this worker.
+      harnessFor: (session) => detectHarness(this.#cfgDir(session)),
+      // escalationsFor(session): open escalation records for this agent.
       escalationsFor: () => [],
       // escalationHistoryFor(session): every escalation record for this
-      // worker, any status — the full-fidelity interleave (#108 item 1).
+      // agent, any status — the full-fidelity interleave (#108 item 1).
       escalationHistoryFor: () => [],
       // identityCheck(headers): the #151 gate — a refusal reason, or null to
       // admit. The default REFUSES: this is a security control, so an
@@ -252,7 +252,7 @@ export class TimelineSurface {
     let s = this.sessions.get(name)
     if (!s) {
       s = {
-        backend: null, file: null, offset: 0, rest: '', items: [],
+        harness: null, file: null, offset: 0, rest: '', items: [],
         clients: new Set(), draft: '',
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
@@ -276,7 +276,7 @@ export class TimelineSurface {
   }
 
   // The one failure mode the ticket forbids: an unreadable transcript reading
-  // as "the worker is quiet". Every unknown/malformed line lands here — once
+  // as "the agent is quiet". Every unknown/malformed line lands here — once
   // per file+reason in the journal, permanently on the page banner until the
   // file rotates.
   #parseFailure(name, s, reason) {
@@ -305,10 +305,10 @@ export class TimelineSurface {
   #pump(name) {
     const s = this.#state(name)
     // The dispatcher's word wins; on-disk evidence covers sessions it never
-    // spawned. Re-probed while null so a lane that appears later is picked up.
-    if (!s.backend) s.backend = this.deps.backendFor(name)
-    if (!s.backend) return
-    const file = findTranscript(s.backend, this.#cfgDir(name))
+    // spawned. Re-probed while null so a harness that appears later is picked up.
+    if (!s.harness) s.harness = this.deps.harnessFor(name)
+    if (!s.harness) return
+    const file = findTranscript(s.harness, this.#cfgDir(name))
     if (file !== s.file) {
       // A new run for this ticket: start over rather than splicing two
       // conversations together.
@@ -342,13 +342,13 @@ export class TimelineSurface {
     const fresh = []
     for (const line of lines) {
       if (!line.trim()) continue
-      const r = parseLine(s.backend, line)
+      const r = parseLine(s.harness, line)
       if (r.malformed) {
         this.#parseFailure(name, s, 'line is not JSON — the transcript format may have moved')
         continue
       }
       if (r.unknown) {
-        this.#parseFailure(name, s, `unknown ${s.backend} line type "${r.unknown}" — the transcript format moved underneath the reader`)
+        this.#parseFailure(name, s, `unknown ${s.harness} line type "${r.unknown}" — the transcript format moved underneath the reader`)
         continue
       }
       for (const item of r.items) {
@@ -377,7 +377,7 @@ export class TimelineSurface {
     // The full history, closed records included, from the daemon's own record
     // (#108 item 1): the page interleaves these with the transcript tail, so
     // an answered question keeps its full body, its answer and who gave it —
-    // the transcript's tool line is a clipped brief on both lanes.
+    // the transcript's tool line is a clipped brief on both harnesses.
     const history = this.deps.escalationHistoryFor(name).map((r) => ({
       id: r.id, kind: r.kind, prompt: r.prompt, options: r.options ?? null,
       preview_url: r.preview_url ?? null, opened_at: r.opened_at,
@@ -392,11 +392,11 @@ export class TimelineSurface {
     }
   }
 
-  // The composer veto's regex, resolved through the same backend probe #pump
+  // The composer veto's regex, resolved through the same harness probe #pump
   // uses (the dispatcher's word, on-disk evidence as fallback).
   #composerRe(name, s) {
-    if (!s.backend) s.backend = this.deps.backendFor(name)
-    return s.backend ? this.deps.composerFor(s.backend) : null
+    if (!s.harness) s.harness = this.deps.harnessFor(name)
+    return s.harness ? this.deps.composerFor(s.harness) : null
   }
 
   #setDialog(name, s, dialog) {
@@ -456,7 +456,7 @@ export class TimelineSurface {
     }
 
     // The #151 identity check, ahead of everything including the page itself:
-    // a caller who may not drive this worker may not read its transcript
+    // a caller who may not drive this agent may not read its transcript
     // either. Journalled so a refusal is one grep away, the same way the
     // terminal surface's proxy records its own.
     const refused = this.deps.identityCheck(req.headers)
@@ -516,7 +516,7 @@ export class TimelineSurface {
       s.clients.add(client)
       // A late joiner replays the whole run for free: the backlog problem a
       // broker has to solve is solved by the file being a file (#72).
-      this.#send(res, 'hello', { session, file: s.file, backend: s.backend, clients: s.clients.size, draft: s.draft })
+      this.#send(res, 'hello', { session, file: s.file, harness: s.harness, clients: s.clients.size, draft: s.draft })
       if (s.items.length) this.#send(res, 'items', s.items)
       if (s.parse) this.#send(res, 'parse', s.parse)
       if (s.dialog) this.#send(res, 'dialog', { up: true, hint: s.dialog.hint })
@@ -553,7 +553,7 @@ export class TimelineSurface {
       const dialog = await this.#probeDialog(b.session, s)
       if (dialog) {
         this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_dialog', hint: dialog.hint, text: clip(text) })
-        return json(409, { error: `the worker is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`, dialog: true })
+        return json(409, { error: `the agent is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`, dialog: true })
       }
       try {
         await this.deps.sendText(b.session, text)
@@ -595,7 +595,7 @@ export class TimelineSurface {
         const dialog = await this.#probeDialog(b.session, s)
         if (dialog) {
           this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_dialog', hint: dialog.hint })
-          return json(409, { error: `the worker is in a terminal dialog ("${dialog.hint}") — ${key} would drive its selection blind; open the terminal surface`, dialog: true })
+          return json(409, { error: `the agent is in a terminal dialog ("${dialog.hint}") — ${key} would drive its selection blind; open the terminal surface`, dialog: true })
         }
       }
       try {

@@ -43,7 +43,7 @@
   #conn.ok { color: #2f9e44; } #conn.bad { color: var(--warn); }
 
   /* the ticket's item 4: an unreadable transcript must never read as "the
-     worker is quiet" — this banner stays up until the file rotates */
+     agent is quiet" — this banner stays up until the file rotates */
   #parse {
     display: none; background: var(--warn); color: var(--bg);
     padding: .4rem .75rem; font-size: .85rem;
@@ -59,7 +59,7 @@
   }
   #dialog.on { display: block; }
 
-  /* open escalations from the daemon's own record — the claude lane writes
+  /* open escalations from the daemon's own record — the claude harness writes
      nothing to its transcript while ask_human blocks (#74 item 5, measured) */
   #escs { padding: 0 .75rem; }
   .esc {
@@ -140,7 +140,7 @@
 <div class="mirror" id="mirror"></div>
 <footer>
   <textarea id="box" rows="1" placeholder="type here — shared box"></textarea>
-  <button id="esc" title="send Escape to the worker">esc</button>
+  <button id="esc" title="send Escape to the agent">esc</button>
   <button id="send" class="primary">send</button>
 </footer>
 
@@ -323,14 +323,14 @@ function connect() {
   es.addEventListener('parse', (e) => {
     const d = JSON.parse(e.data)
     $('parse').className = 'on'
-    $('parse').textContent = `⚠ this timeline is INCOMPLETE — ${d.reason} (${d.dropped} line${d.dropped > 1 ? 's' : ''} dropped). The worker may not be quiet; check the terminal surface.`
+    $('parse').textContent = `⚠ this timeline is INCOMPLETE — ${d.reason} (${d.dropped} line${d.dropped > 1 ? 's' : ''} dropped). The agent may not be quiet; check the terminal surface.`
   })
   es.addEventListener('dialog', (e) => {
     const d = JSON.parse(e.data)
     const el = $('dialog')
     el.className = d.up ? 'on' : ''
     el.textContent = d.up
-      ? `🖥 the worker is in a terminal dialog (“${d.hint}”) this page cannot show — open the terminal surface (/attach) to answer it. Sends are refused while it is up.`
+      ? `🖥 the agent is in a terminal dialog (“${d.hint}”) this page cannot show — open the terminal surface (/attach) to answer it. Sends are refused while it is up.`
       : ''
   })
   es.addEventListener('escalations', (e) => renderEscalations(JSON.parse(e.data)))

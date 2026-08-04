@@ -1,5 +1,5 @@
 // The merge-gated ending (#54, implementing #48): a dispatched ticket is
-// resolved when its work is MERGED, and the worker stays alive through the
+// resolved when its work is MERGED, and the agent stays alive through the
 // review to do it.
 //
 //   work → commit → open_pull_request → publish_preview → request_review
@@ -25,7 +25,7 @@
 // plain approve-reject, for three reasons: /status must read *awaiting review*
 // distinguishably from any other block (item 9), the Stop hook needs a durable
 // journal fact for "a human approved this" (item 4), and only the daemon may open
-// one — so an approval is never something a worker could stage for itself with a
+// one — so an approval is never something an agent could stage for itself with a
 // hand-rolled ask_human.
 export const REVIEW_KIND = 'review-gate'
 
@@ -101,22 +101,22 @@ export const ENDING = [
 // ---- the charting ending (#160) ----------------------------------------------
 //
 // A map dispatch has a different ending, because it produces a different thing.
-// A ticket worker's output is CODE, so the ending is the merge gate: pull
-// request → review → merge → resolve. A charting worker's output is the MAP
+// A ticket agent's output is CODE, so the ending is the merge gate: pull
+// request → review → merge → resolve. A charting agent's output is the MAP
 // ITSELF — issue bodies and child issues on the tracker — which is inside a
-// worker's ordinary write bounds and cannot be staged in a branch at all. There
+// agent's ordinary write bounds and cannot be staged in a branch at all. There
 // is nothing to push, so there is nothing for a review gate to show, and #149
 // settled the trade: no gate, an operator in the loop, and the strongest model.
 //
 // So four steps of ENDING are not merely skipped here — they are refused
 // (dispatch.mjs turns `open_pull_request` and `request_review` down for a
-// charting worker). What is left is the map edit, and the one call that ends
+// charting agent). What is left is the map edit, and the one call that ends
 // every dispatch.
 //
 // The summary comment is deliberately NOT a step. The daemon posts it from the
 // `report_result` summary (see chartingComment in resolve.mjs), for the same
 // reason the review gate composes its own links: a record curia writes from its
-// own knowledge of what happened is evidence, and one the worker writes about
+// own knowledge of what happened is evidence, and one the agent writes about
 // itself is an account. It also keeps the Stop-hook checklist off a `gh` read
 // at the end of every turn.
 export const CHARTING_ENDING = [
@@ -137,7 +137,7 @@ export const CHARTING_ENDING = [
   },
 ]
 
-// What a charting worker must NOT do — one bullet per entry, its own lines.
+// What a charting agent must NOT do — one bullet per entry, its own lines.
 // Prose only: the refusals themselves live in dispatch.mjs, and this is the
 // copy the model reads.
 export const CHARTING_NEVER = [
@@ -148,7 +148,7 @@ export const CHARTING_NEVER = [
   ],
   [
     'The resolve protocol — resolution comment, close, Decisions-so-far line — belongs to a TICKET',
-    "worker. Do not run it, and do not resolve any of the map's children yourself.",
+    "agent. Do not run it, and do not resolve any of the map's children yourself.",
   ],
 ]
 
@@ -166,15 +166,15 @@ export function endingProse(ctx) {
 }
 
 // What the Stop hook blocks on. `report_result` ends the sequence WHATEVER its
-// status: a worker that reports `blocked` has complied with the one order that
-// covers not finishing, and holding it here would trap the very worker that
+// status: an agent that reports `blocked` has complied with the one order that
+// covers not finishing, and holding it here would trap the very agent that
 // cannot comply — the loop #48 refused.
 export function outstanding(state) {
   if (state.hasResult) return []
   return listFor(state).map((s) => (s.todo ? s.todo(state) : null)).filter(Boolean)
 }
 
-// The `reason` a blocked Stop hands back to the worker. It is the only text the
+// The `reason` a blocked Stop hands back to the agent. It is the only text the
 // model sees, so it names the step rather than the policy.
 export function stopReason(items, { attempt, budget }) {
   return [
@@ -191,18 +191,18 @@ export function stopReason(items, { attempt, budget }) {
 // The gate's payload. Every link is composed by the DAEMON from its own records
 // — an allocated preview rule, a pull request it pushed, the ticket it claimed —
 // because the links are the evidence the human approves on. #40 recorded the
-// opposite case as a live limit: a worker can hand `ask_human` any string it
+// opposite case as a live limit: an agent can hand `ask_human` any string it
 // likes for `preview_url`, and a forged link is worst exactly here.
 //
-// The worker supplies the two things only it knows: what it did, and the
+// The agent supplies the two things only it knows: what it did, and the
 // charting it proposes. #49: that proposal must be CONCRETE in the thread text
 // — ticket titles, the lines to be removed — or approval from a phone degrades
-// to a rubber stamp and the worker holds full map authority with no gate at all.
+// to a rubber stamp and the agent holds full map authority with no gate at all.
 export function reviewGateText({ repo, ticket, title, summary, charting, links }) {
   const parts = [
     `**Is ${repo}#${ticket} done?** — ${title}`,
     '',
-    '**What the worker did**',
+    '**What the agent did**',
     summary.trim() || '(nothing said)',
     '',
     '**Charting it proposes for the map**',

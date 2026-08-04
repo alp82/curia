@@ -5,7 +5,7 @@
 // holds the transcript. What is unit-testable here is that the daemon acts on
 // them: refuse a caller Serve did not stamp, refuse a Host this box does not
 // answer to, and never let either past on the WebSocket upgrade, which is the
-// path that actually drives a worker.
+// path that actually drives an agent.
 
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -124,38 +124,38 @@ describe('identityRefusal: fail-closed, every leg positive (#151)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// The proxy: ttyd's half, including the upgrade that actually drives a worker
+// The proxy: ttyd's half, including the upgrade that actually drives an agent
 // ---------------------------------------------------------------------------
 
 describe('IdentityProxy in front of ttyd (#151)', () => {
-  let backend, proxy, backendHits, journal
+  let harness, proxy, harnessHits, journal
   // An upgraded socket outlives the request by design, so the test has to close
   // what it opened or node never drains and the FILE times out with every test
   // green — a failure that reads like a hang rather than a bug.
   const upgraded = []
 
   before(async () => {
-    backendHits = []
+    harnessHits = []
     journal = []
-    backend = http.createServer((req, res) => {
-      backendHits.push({ path: req.url, host: req.headers.host })
+    harness = http.createServer((req, res) => {
+      harnessHits.push({ path: req.url, host: req.headers.host })
       res.writeHead(200, { 'content-type': 'text/plain' })
       res.end('ttyd here')
     })
     // ttyd's /ws, standing in for the real handshake: enough of a 101 to prove
     // the bytes flow, and a hit recorded so a REFUSED upgrade can be shown
     // never to have reached it.
-    backend.on('upgrade', (req, socket) => {
-      backendHits.push({ path: req.url, host: req.headers.host, upgrade: true })
+    harness.on('upgrade', (req, socket) => {
+      harnessHits.push({ path: req.url, host: req.headers.host, upgrade: true })
       upgraded.push(socket)
       socket.write('HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\r\n')
       socket.on('data', (d) => socket.write(Buffer.concat([Buffer.from('echo:'), d])))
     })
-    await new Promise((r) => backend.listen(0, '127.0.0.1', r))
+    await new Promise((r) => harness.listen(0, '127.0.0.1', r))
 
     proxy = new IdentityProxy({
       port: 0,
-      targetPort: backend.address().port,
+      targetPort: harness.address().port,
       allow: ALLOW,
       hosts: HOSTS,
       log: () => {},
@@ -168,33 +168,33 @@ describe('IdentityProxy in front of ttyd (#151)', () => {
   after(() => {
     for (const sock of upgraded) sock.destroy()
     proxy.stop()
-    backend.closeAllConnections?.()
-    backend.close()
+    harness.closeAllConnections?.()
+    harness.close()
   })
 
   const hit = (headers, p = '/') => req(proxy.port, p, { headers })
 
   test('a stamped request reaches ttyd, with the Host forwarded UNCHANGED so -O still works', async () => {
-    backendHits.length = 0
+    harnessHits.length = 0
     const res = await hit(served())
     assert.equal(res.status, 200)
     assert.equal(res.text, 'ttyd here')
-    assert.deepEqual(backendHits, [{ path: '/', host: 'box.tail1234.ts.net:8443' }])
+    assert.deepEqual(harnessHits, [{ path: '/', host: 'box.tail1234.ts.net:8443' }])
   })
 
   test('an unstamped request gets 403 and NEVER reaches ttyd', async () => {
-    backendHits.length = 0
+    harnessHits.length = 0
     const res = await hit({ host: 'box.tail1234.ts.net:8443' })
     assert.equal(res.status, 403)
     assert.match(res.text, /did not arrive through Tailscale Serve/)
-    assert.deepEqual(backendHits, [], 'ttyd must never see a refused request')
+    assert.deepEqual(harnessHits, [], 'ttyd must never see a refused request')
   })
 
   test('a stranger on the tailnet gets 403 and never reaches ttyd', async () => {
-    backendHits.length = 0
+    harnessHits.length = 0
     const res = await hit(served({ [LOGIN_HEADER]: 'mallory@example.com' }), '/?arg=curia-151')
     assert.equal(res.status, 403)
-    assert.deepEqual(backendHits, [])
+    assert.deepEqual(harnessHits, [])
   })
 
   test('every refusal lands on the journal with the who and the why', () => {
@@ -226,7 +226,7 @@ describe('IdentityProxy in front of ttyd (#151)', () => {
   })
 
   test('a stamped WebSocket upgrade reaches ttyd and bytes flow both ways', async () => {
-    backendHits.length = 0
+    harnessHits.length = 0
     const r = await upgrade(served())
     assert.equal(r.status, 101)
     const echoed = await new Promise((resolve) => {
@@ -235,22 +235,22 @@ describe('IdentityProxy in front of ttyd (#151)', () => {
     })
     assert.match(echoed, /echo:drive/)
     r.sock.destroy()
-    assert.ok(backendHits.some((h) => h.upgrade), 'the upgrade reached ttyd')
+    assert.ok(harnessHits.some((h) => h.upgrade), 'the upgrade reached ttyd')
   })
 
   test('an UNSTAMPED WebSocket upgrade is refused and never reaches ttyd', async () => {
-    backendHits.length = 0
+    harnessHits.length = 0
     const r = await upgrade({ host: 'box.tail1234.ts.net:8443' })
     assert.equal(r.status, 403)
     assert.match(r.buf, /did not arrive through Tailscale Serve/)
-    assert.deepEqual(backendHits, [], 'the drive path must never open for an unstamped caller')
+    assert.deepEqual(harnessHits, [], 'the drive path must never open for an unstamped caller')
   })
 
   test('a rebinding-shaped upgrade — valid identity, forged Host — is refused', async () => {
-    backendHits.length = 0
+    harnessHits.length = 0
     const r = await upgrade({ host: 'evil.example.com' })
     assert.equal(r.status, 403)
-    assert.deepEqual(backendHits, [])
+    assert.deepEqual(harnessHits, [])
   })
 })
 
@@ -299,7 +299,7 @@ describe('the timeline refuses an unstamped caller too (#151)', () => {
   })
 
   // Reads are gated, not just writes: the transcript IS the sensitive thing —
-  // a caller who may not drive the worker may not read what it has produced.
+  // a caller who may not drive the agent may not read what it has produced.
   test('the transcript stream is refused to an unstamped caller', async () => {
     const res = await hit('/events?session=curia-151&once=1', { host: 'box.tail1234.ts.net:8444' })
     assert.equal(res.status, 403)

@@ -1,22 +1,22 @@
 // Curia daemon (#31 + #33): durable escalation record + Discord bridge module,
-// the worker-facing MCP surface proven in spike #29, and the dispatch loop.
+// the agent-facing MCP surface proven in spike #29, and the dispatch loop.
 //
-//   POST /mcp?worker=<name>&ticket=<n>  — streamable-HTTP MCP (ask_human / notify / report_result)
+//   POST /mcp?agent=<name>&ticket=<n>  — streamable-HTTP MCP (ask_human / notify / report_result)
 //
-// The two worker routes (/mcp, /worker_done) carry the per-worker token #159
+// The two agent routes (/mcp, /agent_done) carry the per-agent token #159
 // mints; the rest are the operator's own and never leave loopback.
 //
 //   GET  /state                          — open escalations
 //   POST /escalate                       — synthetic escalation (testing / non-MCP emitters)
 //   POST /answer {id, answer}            — REST answer (same first-valid-wins gate as Discord)
-//   POST /worker_done?worker=            — Stop-hook webhook (closes the dispatch lifecycle)
+//   POST /agent_done?agent=            — Stop-hook webhook (closes the dispatch lifecycle)
 //   POST /command {text}                 — canonical command text (REST parity with the slash verbs)
 //   POST /reconcile                      — on-demand reconcile (boot reconcile runs automatically)
 //
 // State posture (#9): the events journal is the only durable artifact; the
-// pending-resolver map, ticket→thread cache and dispatcher workers map are
+// pending-resolver map, ticket→thread cache and dispatcher agents map are
 // ephemeral. A daemon restart keeps every open escalation renderable and
-// answerable, and reconcile re-derives live workers from GitHub + tmux.
+// answerable, and reconcile re-derives live agents from GitHub + tmux.
 
 import http from 'node:http'
 import path from 'node:path'
@@ -41,16 +41,16 @@ import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
-import { assertGhTokens, ghTokenKeyFor, workerGhToken } from './workspace.mjs'
-import { TOKEN_HEADER, WORKER_ROUTES, tokensDir, workerTokenMatches } from './workertoken.mjs'
+import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
+import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeAgentToken, tokenExpiryDays } from './github.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './identity.mjs'
-import { detectBackend } from './transcript.mjs'
+import { detectHarness } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
-import { AccountUsage, ModelWindows, workerMeters } from './usage.mjs'
+import { AccountUsage, ModelWindows, agentMeters } from './usage.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -70,8 +70,8 @@ const NUDGE_MS = Number(process.env.NUDGE_MS ?? 30 * 60 * 1000) // ~30-min re-nu
 // fixture dir so a test run never writes into the real journal.
 const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
 fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
-// Daemon-owned, never mounted into a container: one worker's token is unreadable
-// by every other worker (#159).
+// Daemon-owned, never mounted into a container: one agent's token is unreadable
+// by every other agent (#159).
 fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
 
 // dispatch-loop config (#33) — hand-edited YAML, validated on load; a bad
@@ -81,18 +81,18 @@ const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
 const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
 // The one check neither file can make alone (#156): the switch is in
 // routing.yaml, the image pins are in curia.yaml.
-const SANDBOXED_BACKENDS = assertSandboxConfig(curiaConfig, routingConfig)
+const SANDBOXED_HARNESSES = assertSandboxConfig(curiaConfig, routingConfig)
 
-// #155: the worker's own GitHub authority — one scoped fine-grained PAT per
+// #155: the agent's own GitHub authority — one scoped fine-grained PAT per
 // resource owner. Read at BOOT so a malformed value refuses the boot rather than
-// reaching a worker as a 401 in the middle of a resolve, and said out loud per
+// reaching an agent as a 401 in the middle of a resolve, and said out loud per
 // watched owner, because an owner with no token silently keeps the host's
 // account-wide login and that is the thing this ticket exists to end. The daemon
-// itself never uses these (see workerGhToken).
-for (const { key, token } of assertGhTokens()) log(`worker GitHub token ${key} (…${token.slice(-4)})`)
+// itself never uses these (see agentGhToken).
+for (const { key, token } of assertGhTokens()) log(`agent GitHub token ${key} (…${token.slice(-4)})`)
 for (const owner of new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))) {
   const key = ghTokenKeyFor(owner)
-  if (!workerGhToken(`${owner}/x`)) log(`WARNING: no ${key} — workers on ${owner}/* inherit the host gh login (account-wide)`)
+  if (!agentGhToken(`${owner}/x`)) log(`WARNING: no ${key} — agents on ${owner}/* inherit the host gh login (account-wide)`)
 }
 
 // And the same tokens against GitHub itself, once per watched repo. A token's
@@ -103,7 +103,7 @@ for (const owner of new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0])))
 // probeAgentToken for the one case it cannot see.
 const TOKEN_EXPIRY_WARN_DAYS = 14
 Promise.all(curiaConfig.watch.map(async ({ repo }) => {
-  const token = workerGhToken(repo)
+  const token = agentGhToken(repo)
   if (!token) return
   try {
     const { ok, message, expiresAt } = await probeAgentToken(repo, token)
@@ -124,11 +124,11 @@ Promise.all(curiaConfig.watch.map(async ({ repo }) => {
 
 const store = new EscalationStore(DATA)
 
-// Per-worker status line (#108 item 8): one Discord message per worker
+// Per-agent status line (#108 item 8): one Discord message per agent
 // thread, edited in place through the journal's own lifecycle events. With
 // the bridge down, post returns null and the next transition retries.
-// One account reading for every anthropic worker (#146): the 5 h / 7 d windows
-// are an account fact, not a worker fact.
+// One account reading for every anthropic agent (#146): the 5 h / 7 d windows
+// are an account fact, not an agent fact.
 const accountUsage = new AccountUsage({
   enabled: curiaConfig.usage.account_bars,
   probeModel: curiaConfig.usage.probe_model,
@@ -144,18 +144,18 @@ const statusLine = new StatusLine({
   remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
   get: (id) => store.get(id),
   log,
-  // Same backend resolution the timeline uses: the dispatcher's word on what it
+  // Same harness resolution the timeline uses: the dispatcher's word on what it
   // spawned, on-disk evidence for re-adopted and lab sessions.
   //
   // The routing label takes the same route (#187). The status line only learns
   // it from a spawn event, so a line first drawn after a restart carries none —
   // and the effort meter reads off the label's routing row. The dispatcher's
   // record answers instead, which reconcile now rebuilds from the journal.
-  meters: (session, model) => workerMeters({
-    backend: dispatcher?.workers.get(session)?.backend
-      ?? detectBackend(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
+  meters: (session, model) => agentMeters({
+    harness: dispatcher?.agents.get(session)?.harness
+      ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
     cfgDir: path.join(curiaConfig.dispatch.workspace_root, 'cfg', session),
-    model: model ?? dispatcher?.workers.get(session)?.model ?? null,
+    model: model ?? dispatcher?.agents.get(session)?.model ?? null,
     routing: routingConfig,
     account: accountUsage,
     models: modelWindows,
@@ -190,7 +190,7 @@ installCrashGuard({
 
 function scheduleNudge(record) {
   // #94: a confirm has no nudge and no expiry — it waits silently and lapses
-  // with its worker.
+  // with its agent.
   if (record.kind === CONFIRM_KIND) return
   if (nudgeTimers.has(record.id)) return
   const t = setInterval(() => {
@@ -226,11 +226,11 @@ async function renderEscalation(record, files = []) {
 
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
-function openEscalation({ worker, ticket, kind, prompt, options, preview_url, files }) {
-  const { record, superseded } = store.open({ worker, ticket, kind, prompt, options, preview_url })
-  log(`escalation ${record.id} open (${kind}) worker=${worker} ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
+function openEscalation({ agent, ticket, kind, prompt, options, preview_url, files }) {
+  const { record, superseded } = store.open({ agent, ticket, kind, prompt, options, preview_url })
+  log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
   if (superseded) {
-    pending.delete(superseded.id) // the worker aborted that call; nobody is waiting on it
+    pending.delete(superseded.id) // the agent aborted that call; nobody is waiting on it
     clearNudge(superseded.id)
     if (bridge) bridge.markSuperseded(store.get(superseded.id)).catch(() => {})
   }
@@ -241,7 +241,7 @@ function openEscalation({ worker, ticket, kind, prompt, options, preview_url, fi
 }
 
 // Resolves with { text, attachments } — the answer's images travel with it all
-// the way to the worker's tool result (#34). Returns whether a resolver was
+// the way to the agent's tool result (#34). Returns whether a resolver was
 // actually waiting: false means the blocked call died with a previous daemon
 // process, and the answer needs the #139 hand-off instead.
 function settle(record, text, attachments = []) {
@@ -253,25 +253,25 @@ function settle(record, text, attachments = []) {
 }
 
 // #139: the answer is recorded, but nothing live received it — no resolver
-// (a daemon restart emptied `pending`), or the worker died mid-ask (#138's
-// sweep marked the record). Queue question + answer as a worker note — the
-// journalled channel a resumed worker drains on its first tool result — and
+// (a daemon restart emptied `pending`), or the agent died mid-ask (#138's
+// sweep marked the record). Queue question + answer as an agent note — the
+// journalled channel a resumed agent drains on its first tool result — and
 // say in the thread where the answer went.
 function handOffAnswer(record) {
-  if (!/^curia-\d+$/.test(record.worker)) return // synthetic/lab callers have no resume
+  if (!/^curia-\d+$/.test(record.agent)) return // synthetic/lab callers have no resume
   store.queueRecordedAnswer(record)
-  const live = dispatcher.workers.has(record.worker)
+  const live = dispatcher.agents.has(record.agent)
   notifyThread(record.ticket, live
-    ? `✅ recorded — \`${record.worker}\` gets this answer with its next tool result`
-    : `✅ recorded — \`${record.worker}\` is not running; \`resume ${record.ticket}\` hands it over`)
-  log(`escalation ${record.id} answered with no live receiver — hand-off note queued for ${record.worker}`)
+    ? `✅ recorded — \`${record.agent}\` gets this answer with its next tool result`
+    : `✅ recorded — \`${record.agent}\` is not running; \`resume ${record.ticket}\` hands it over`)
+  log(`escalation ${record.id} answered with no live receiver — hand-off note queued for ${record.agent}`)
 }
 
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
 const gate = {
   get: (id) => store.get(id),
   // `review-gate` is here because a rejection IS feedback (#48): the human's own
-  // words have to reach the worker, and a button cannot carry them. Approval
+  // words have to reach the agent, and a button cannot carry them. Approval
   // still comes from the ✅ button — see classifyReviewAnswer, where anything
   // else counts as a rejection.
   findOpenForThread: (threadId) =>
@@ -291,9 +291,9 @@ const gate = {
       if (result.record.kind === CONFIRM_KIND) {
         dispatcher.onConfirmAnswered(result.record)
           .catch((e) => log(`confirm ${result.record.id} execution failed: ${e.message}`))
-      } else if (!delivered || result.record.worker_died) {
-        // A resolver on a dead worker's record "delivered" into a closed
-        // transport — the worker_died mark, not the resolver, is the truth.
+      } else if (!delivered || result.record.agent_died) {
+        // A resolver on a dead agent's record "delivered" into a closed
+        // transport — the agent_died mark, not the resolver, is the truth.
         handOffAnswer(result.record)
       }
     }
@@ -321,11 +321,11 @@ const gate = {
   // #92: the bridge's overseer surface hands each operator message here; the
   // host runs one SDK query per message and speaks back through `io.post`.
   overseerTurn: (threadId, prompt, io) => overseer.runTurn(threadId, prompt, io),
-  // #120: the live worker bound to a thread, if any — the bridge's one-listener
+  // #120: the live agent bound to a thread, if any — the bridge's one-listener
   // guard reads it before letting the overseer near a message.
-  workerForThread(threadId) {
+  agentForThread(threadId) {
     if (!threadId) return null
-    for (const w of dispatcher.workers.values()) {
+    for (const w of dispatcher.agents.values()) {
       if (w.ticket != null && store.threadForTicket(w.ticket) === threadId) return w.session
     }
     return null
@@ -336,23 +336,23 @@ const gate = {
   timelineLink: (ticket) => attachApi.timelineLink(ticket),
   terminalLink: (ticket) => attachApi.link(ticket),
   previewUrl: (ticket) => previews.get(String(ticket))?.url ?? null,
-  // #108 item 14, positive half: text in a worker-bound thread outside an open
-  // escalation queues for the worker instead of being refused. Returns null
-  // when no worker owns the thread — the bridge falls back to the overseer.
-  queueWorkerNote(threadId, text, by) {
-    const worker = gate.workerForThread(threadId)
-    if (!worker || !text?.trim()) return null
-    const { after } = store.queueWorkerNote(worker, text.trim(), { by })
+  // #108 item 14, positive half: text in an agent-bound thread outside an open
+  // escalation queues for the agent instead of being refused. Returns null
+  // when no agent owns the thread — the bridge falls back to the overseer.
+  queueAgentNote(threadId, text, by) {
+    const agent = gate.agentForThread(threadId)
+    if (!agent || !text?.trim()) return null
+    const { after } = store.queueAgentNote(agent, text.trim(), { by })
     // `reads` is what the bridge promises the operator (#170). A `failed`
-    // worker — the early exit (#169), the ready timeout, the result-less exit
+    // agent — the early exit (#169), the ready timeout, the result-less exit
     // — calls no more tools, so "it reads this with its next tool result" is a
     // promise nothing can keep. The note still queues: the session-keyed queue
     // hands it to whatever resumes on this session.
-    const reads = dispatcher.workers.get(worker)?.state !== 'failed'
-    log(`worker note queued for ${worker}${after ? ` (after ${after})` : ''}${reads ? '' : ' — that worker is not running'}`)
+    const reads = dispatcher.agents.get(agent)?.state !== 'failed'
+    log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}${reads ? '' : ' — that agent is not running'}`)
     // the ticket rides along so the bridge can spell out `cancel <n>` when the
     // note is command-shaped (#108 item 23, #170)
-    return { worker, after, reads, ticket: store.ticketForThread(threadId) ?? null }
+    return { agent, after, reads, ticket: store.ticketForThread(threadId) ?? null }
   },
 }
 
@@ -368,10 +368,10 @@ function notifyThread(ticket, message, opts = {}) {
 // every other escalation, journalled, answerable after a bridge outage — and
 // NOTHING waits on it: no resolver, no nudge, no TTL. The executing path is
 // button → gate.answer → dispatcher.onConfirmAnswered, and the record lapses
-// the moment its worker exits.
+// the moment its agent exits.
 function openConfirm({ ticket, prompt, action, originThreadId }) {
   const { record, superseded } = store.open({
-    worker: 'overseer', ticket, kind: CONFIRM_KIND, prompt, action, origin_thread_id: originThreadId ?? null,
+    agent: 'overseer', ticket, kind: CONFIRM_KIND, prompt, action, origin_thread_id: originThreadId ?? null,
   })
   log(`confirm ${record.id} open (${action.verb}) ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
   if (superseded && bridge) bridge.markSuperseded(store.get(superseded.id)).catch(() => {})
@@ -395,8 +395,8 @@ function lapseEscalation(id, reason) {
 // than a string in a prompt. Unlike overseerConfirm there is NO ttl: #11's
 // indefinite block is the whole promise, and a review that expired under a human
 // who was merely asleep would drop the work on the floor.
-function askReview(worker, ticket, promptText) {
-  const { record, answered } = openEscalation({ worker, ticket, kind: REVIEW_KIND, prompt: promptText })
+function askReview(agent, ticket, promptText) {
+  const { record, answered } = openEscalation({ agent, ticket, kind: REVIEW_KIND, prompt: promptText })
   // The final status separates an approval-or-rejection from a 🛑 Cancel, which
   // settles the same promise with an "aborted" text.
   return answered.then(({ text }) => ({ text, status: store.get(record.id)?.status ?? 'answered' }))
@@ -530,7 +530,7 @@ const attachApi = {
       // Refusing alone withdraws nothing: /attach runs on every request, so
       // THIS is the path that detects a verified→unverified flip first (there
       // is no periodic reconcile — startAutoLoop's tick only dispatches and
-      // sweeps worker liveness), and the persisted serve rule still points at
+      // sweeps agent liveness), and the persisted serve rule still points at
       // 127.0.0.1:<ttyd_port> — a foreign listener that took the port would
       // stay live tailnet-wide at a URL already sitting in the Discord
       // thread. Same posture as reconcile's #assertAttachSurface: actively
@@ -589,10 +589,10 @@ const previews = new PreviewRegistry({
 dispatcher.previews = previews // constructed after the dispatcher; teardown + sweep read it here
 
 // The timeline surface (#74, landing #73's pick). In-process, so it can read
-// the two things only the daemon has: which backend a session runs, and the
-// durable escalation record — the claude lane's transcript is SILENT while an
+// the two things only the daemon has: which harness a session runs, and the
+// durable escalation record — the claude harness's transcript is SILENT while an
 // ask_human blocks (measured on #74), so open escalations are overlaid from
-// the store or the surface shows a working worker as idle at the exact moment
+// the store or the surface shows a working agent as idle at the exact moment
 // a human is needed.
 const timeline = new TimelineSurface({
   port: curiaConfig.timeline.port,
@@ -602,14 +602,14 @@ const timeline = new TimelineSurface({
   log,
   deps: {
     journal: (type, detail) => store.logEvent(type, detail),
-    backendFor: (session) => dispatcher.workers.get(session)?.backend
-      ?? detectBackend(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
+    harnessFor: (session) => dispatcher.agents.get(session)?.harness
+      ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
     // The dialog guard's composer veto (#75): a visible ready marker (#39)
     // says the pane is at its composer, so a dialog-footer phrase in the tail
     // is scrollback, not a dialog.
-    composerFor: (backend) => routingConfig.backends[backend]?.readyRe ?? null,
-    escalationsFor: (session) => store.openEscalations().filter((r) => r.worker === session),
-    escalationHistoryFor: (session) => store.escalationsForWorker(session),
+    composerFor: (harness) => routingConfig.harnesses[harness]?.readyRe ?? null,
+    escalationsFor: (session) => store.openEscalations().filter((r) => r.agent === session),
+    escalationHistoryFor: (session) => store.escalationsForAgent(session),
     // The #151 identity check. The timeline is the daemon's own server, so it
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,
@@ -631,17 +631,17 @@ const overseer = new OverseerHost({
   log,
 })
 
-// ---- worker-facing MCP surface (#29 shape) ---------------------------------
+// ---- agent-facing MCP surface (#29 shape) ---------------------------------
 
-// Outbound images (#34): a worker may publish files from its OWN worktree and
+// Outbound images (#34): an agent may publish files from its OWN worktree and
 // the daemon's data dir, nothing else — the daemon holds a Discord token and a
 // tailnet position, so an unbounded path here would turn `notify` into an
-// exfiltration primitive for anything the box can read. A worker the dispatcher
+// exfiltration primitive for anything the box can read. An agent the dispatcher
 // does not know (synthetic/lab callers, whose MCP URL the daemon did not write)
 // falls back to the workspace root.
-function outboundImages(worker, images) {
+function outboundImages(agent, images) {
   if (!images?.length) return { files: [], refusals: [] }
-  const known = dispatcher.workers.get(worker)
+  const known = dispatcher.agents.get(agent)
   const roots = [known?.wtPath ?? curiaConfig.dispatch.workspace_root, DATA]
   return resolveOutboundImages(images, { roots, cwd: known?.wtPath })
 }
@@ -649,10 +649,10 @@ function outboundImages(worker, images) {
 // Keep a blocked ask_human alive on the wire (#34).
 //
 // The block itself is sound — the daemon holds the response for as long as it
-// takes. What killed real workers was the CLIENT: Claude Code aborts an MCP
+// takes. What killed real agents was the CLIENT: Claude Code aborts an MCP
 // tool call after 300s of server silence (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT),
 // so an escalation was dead ~25 minutes before the #11 re-nudge could ever
-// fire. The fix belongs here rather than in a client env var: every worker lane
+// fire. The fix belongs here rather than in a client env var: every harness
 // curia has evaluated (Claude Code, Codex, Cline, pi via ACP shims) speaks MCP,
 // and periodic traffic on the stream is the protocol's own answer to a long
 // call. Progress notifications when the client offered a token, logging
@@ -667,7 +667,7 @@ function startKeepAlive(extra, id, label = null) {
   const tick = () => {
     n += 1
     // #118 item 2: the progress line says WHAT it waits on, not just which id —
-    // in the worker pane this line is all an onlooker sees while the call blocks.
+    // in the agent pane this line is all an onlooker sees while the call blocks.
     const what = `${id}${label ? ` — "${label}"` : ''} (${elapsedLabel(startedAt) ?? `${n}`})`
     const sent = token
       ? extra.sendNotification({
@@ -685,18 +685,18 @@ function startKeepAlive(extra, id, label = null) {
   return () => clearInterval(timer)
 }
 
-function buildMcpServer(worker, ticket) {
+function buildMcpServer(agent, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
 
-  // The worker's speaker identity (#108 item 15): its own words post under
-  // "curia-<n> · <ticket title>", so the prose no longer says "the worker".
-  const speaker = () => speakerName(worker, dispatcher.workers.get(worker)?.title ?? '')
+  // The agent's speaker identity (#108 item 15): its own words post under
+  // "curia-<n> · <ticket title>", so the prose no longer says "the agent".
+  const speaker = () => speakerName(agent, dispatcher.agents.get(agent)?.title ?? '')
 
-  // Queued operator notes ride the worker's NEXT tool result (#108 item 14):
+  // Queued operator notes ride the agent's NEXT tool result (#108 item 14):
   // every tool below appends the drain, so a note is never older than one
   // round-trip. A note tagged `after esc-N` is the follow-up the operator
   // typed just after answering that escalation.
-  const drainNotes = () => store.takeWorkerNotes(worker).map((n) => ({
+  const drainNotes = () => store.takeAgentNotes(agent).map((n) => ({
     type: 'text',
     text: `[operator note${n.after ? `, after ${n.after}` : ''}] ${n.text}`,
   }))
@@ -706,20 +706,20 @@ function buildMcpServer(worker, ticket) {
     'Fire-and-forget status update to the human. Returns immediately. `images`: local file paths inside your workspace to show the human (screenshots, renders).',
     { message: z.string(), images: z.array(z.string()).optional() },
     async ({ message, images }) => {
-      const { files, refusals } = outboundImages(worker, images)
-      store.logEvent('notify', { worker, ticket, message, images: files.map((f) => f.attachment), refusals })
+      const { files, refusals } = outboundImages(agent, images)
+      store.logEvent('notify', { agent, ticket, message, images: files.map((f) => f.attachment), refusals })
       if (bridge) bridge.notify(ticket, `⚙️ ${message}`, { files, as: speaker() }).catch(() => {})
       return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
     },
   )
 
-  // #40: the worker runs its dev server on localhost and asks the daemon to
-  // publish it. The worker never picks the public port — see preview.mjs for
+  // #40: the agent runs its dev server on localhost and asks the daemon to
+  // publish it. The agent never picks the public port — see preview.mjs for
   // why that separation is the whole point of the registry.
   //
-  // #68: it also names the PAGE. The port is the only thing the worker knew how
+  // #68: it also names the PAGE. The port is the only thing the agent knew how
   // to say, so every composed link pointed at the site root; the path is where
-  // the worker declares what it changed, once, in the same call.
+  // the agent declares what it changed, once, in the same call.
   server.tool(
     'publish_preview',
     'Publish a dev server you have started as an HTTPS preview link the human can open from any device. Start the server FIRST, then call this with the port it bound and the path of the page you want looked at — without a path the link opens the site root, which is usually not what you changed. Call it again with a different path to move the link. Returns the URL; curia puts it in the review gate itself, so you never need to repeat it in your own text. The link is withdrawn automatically when this ticket finishes.',
@@ -734,14 +734,14 @@ function buildMcpServer(worker, ticket) {
       } catch (e) {
         return { content: [{ type: 'text', text: `preview unavailable: could not resolve this box's tailnet name (${e.message})` }] }
       }
-      // #157: a sandboxed worker's three published ports are its whole reach
+      // #157: a sandboxed agent's three published ports are its whole reach
       // onto this box, so they are the bound `publish_preview` checks against.
-      // A bare worker has none, and keeps the liveness probe until #158 retires
+      // A bare agent has none, and keeps the liveness probe until #158 retires
       // that path.
-      const published = dispatcher.workers.get(worker)?.ports ?? null
+      const published = dispatcher.agents.get(agent)?.ports ?? null
       const r = await previews.publish(ticket, dev_port, { base, path, published })
       store.logEvent('preview', {
-        worker, ticket, dev_port, path: r.path ?? path ?? null,
+        agent, ticket, dev_port, path: r.path ?? path ?? null,
         ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,
       })
       if (!r.ok) return { content: [{ type: 'text', text: `preview refused — ${r.reason}` }, ...drainNotes()] }
@@ -749,9 +749,9 @@ function buildMcpServer(worker, ticket) {
       // message, so an updated preview lands at the thread bottom instead of a
       // scroll-back hunt. Bot voice on purpose: link buttons are components,
       // which the speaker webhook cannot carry — and the composed link is
-      // curia's record, not the worker's prose.
+      // curia's record, not the agent's prose.
       if (bridge) {
-        bridge.notify(ticket, `🔗 \`${worker}\` ${r.reused ? 'updated the' : 'published a'} preview (dev server on :${dev_port})`, {
+        bridge.notify(ticket, `🔗 \`${agent}\` ${r.reused ? 'updated the' : 'published a'} preview (dev server on :${dev_port})`, {
           links: [{ label: '🔗 open preview', url: r.url }],
         }).catch(() => {})
       }
@@ -760,7 +760,7 @@ function buildMcpServer(worker, ticket) {
   )
 
   // #54 item 1: landing left report_result, because the pull request is now what
-  // a human reviews BEFORE anything is resolved. The worker still never pushes —
+  // a human reviews BEFORE anything is resolved. The agent still never pushes —
   // it asks the daemon to, which is the #40/#41 containment boundary with its
   // timing changed and nothing else.
   server.tool(
@@ -770,9 +770,9 @@ function buildMcpServer(worker, ticket) {
     // keepalive: a push plus two gh round-trips is well inside the client's 300s
     // idle abort (#34), but "well inside" is not a guarantee on a big repo
     async ({ summary }, extra) => {
-      const stopKeepAlive = startKeepAlive(extra, `${worker}/pr`)
+      const stopKeepAlive = startKeepAlive(extra, `${agent}/pr`)
       try {
-        return { content: [{ type: 'text', text: await dispatcher.openPullRequest(worker, { summary }) }, ...drainNotes()] }
+        return { content: [{ type: 'text', text: await dispatcher.openPullRequest(agent, { summary }) }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }
@@ -789,9 +789,9 @@ function buildMcpServer(worker, ticket) {
       charting: z.string().describe('CONCRETE map changes you propose, as a numbered list — one line per change: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. Name each change; put full ticket bodies and long Decisions-so-far lines in the work you do AFTER approval, not here. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
     },
     async ({ summary, charting }, extra) => {
-      const stopKeepAlive = startKeepAlive(extra, `${worker}/review`)
+      const stopKeepAlive = startKeepAlive(extra, `${agent}/review`)
       try {
-        const r = await dispatcher.requestReview(worker, { summary, charting })
+        const r = await dispatcher.requestReview(agent, { summary, charting })
         return { content: [{ type: 'text', text: r.text }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
@@ -810,11 +810,11 @@ function buildMcpServer(worker, ticket) {
       images: z.array(z.string()).optional(),
     },
     async ({ images, ...payload }, extra) => {
-      const { files, refusals } = outboundImages(worker, images)
-      const { record, answered } = openEscalation({ worker, ticket, ...payload, files })
+      const { files, refusals } = outboundImages(agent, images)
+      const { record, answered } = openEscalation({ agent, ticket, ...payload, files })
       const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(payload.prompt))
       // Images the human replies with come back as real content blocks, so the
-      // picture lands in this worker's context without a Read round-trip (#34).
+      // picture lands in this agent's context without a Read round-trip (#34).
       const { text, attachments } = await answered.finally(stopKeepAlive)
       const refusalNote = refusals.length ? [{ type: 'text', text: `(curia refused ${refusals.length} outbound image(s): ${refusals.join('; ')})` }] : []
       // drainNotes runs AFTER the answer resolves: a note typed right behind a
@@ -824,7 +824,7 @@ function buildMcpServer(worker, ticket) {
   )
 
   // #41: this call now also closes the TICKET, not just curia's dispatch
-  // lifecycle. The worker has already run the resolve protocol itself; the
+  // lifecycle. The agent has already run the resolve protocol itself; the
   // daemon verifies it, repairs what is missing, and lands the branch as a PR.
   // The outcome comes back as the tool result, so the one agent still able to
   // react to a failure hears about it — and the keepalive is reused because that
@@ -840,15 +840,15 @@ function buildMcpServer(worker, ticket) {
       details: z.record(z.string(), z.any()).optional(),
     },
     async (result, extra) => {
-      const rec = store.logEvent('result', { worker, ...result })
-      fs.writeFileSync(path.join(DATA, 'results', `${worker}.json`), JSON.stringify(rec, null, 2))
-      // Route by the BOUND ticket, not `result.ticket` — the worker-supplied id
+      const rec = store.logEvent('result', { agent, ...result })
+      fs.writeFileSync(path.join(DATA, 'results', `${agent}.json`), JSON.stringify(rec, null, 2))
+      // Route by the BOUND ticket, not `result.ticket` — the agent-supplied id
       // may be repo-qualified or a URL, which ensureThread would send to a
       // stray named thread instead of the ticket's bound thread (#103).
       if (bridge) bridge.notify(ticket || result.ticket, `✅ reports **${result.status}**: ${result.summary}`, { as: speaker() }).catch(() => {})
-      const stopKeepAlive = startKeepAlive(extra, `${worker}/result`)
+      const stopKeepAlive = startKeepAlive(extra, `${agent}/result`)
       try {
-        return { content: [{ type: 'text', text: await dispatcher.onResult(worker, result) }, ...drainNotes()] }
+        return { content: [{ type: 'text', text: await dispatcher.onResult(agent, result) }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }
@@ -883,7 +883,7 @@ const listenerFor = (opts) => (req, res) => {
 
 const httpServer = http.createServer(listenerFor({ fromContainer: false }))
 
-// The same surface, reachable from inside a worker container (#156). A
+// The same surface, reachable from inside an agent container (#156). A
 // container's own loopback is the container, so the MCP side channel and the
 // Stop hook cannot use 127.0.0.1 — they reach the box on the docker bridge
 // gateway, which docker resolves for them as `host.docker.internal`.
@@ -893,16 +893,16 @@ const httpServer = http.createServer(listenerFor({ fromContainer: false }))
 // in front of either. The bridge address is reachable from containers and from
 // this host, and from nothing else.
 //
-// Every container on the box can reach it, which is the `?worker=` spoofing
+// Every container on the box can reach it, which is the `?agent=` spoofing
 // hole #159 closes. It is not new — the bare pane could always reach the
 // loopback port — but the container is where a real boundary now sits.
 //
-// #159 narrows this listener twice. It carries the WORKER surface and nothing
+// #159 narrows this listener twice. It carries the AGENT surface and nothing
 // else, so /command, /answer, /cancel and /reconcile are unreachable from any
-// container (a container spoofing a worker was the stated hole; a container
-// dispatching a worker of its own, or answering the operator's questions for
+// container (a container spoofing an agent was the stated hole; a container
+// dispatching an agent of its own, or answering the operator's questions for
 // them, is the larger one behind it). And the two routes it does carry demand
-// the token the daemon minted for the worker they name.
+// the token the daemon minted for the agent they name.
 //
 // #188 makes the bind LAZY and repeatable rather than a one-shot at boot. The
 // boot attempt stays, because the ordinary case should be up before anything
@@ -928,7 +928,7 @@ function listenForContainers() {
 }
 
 async function bindContainerListener() {
-  if (!SANDBOXED_BACKENDS.length) return null
+  if (!SANDBOXED_HARNESSES.length) return null
   const gateway = await dockerGateway()
   if (containerListener) {
     if (containerListener.address === gateway) return containerListener
@@ -950,12 +950,12 @@ async function bindContainerListener() {
     })
   })
   containerListener = { server, address: gateway }
-  log(`curia daemon also listening on http://${gateway}:${PORT} — the side channel for ${SANDBOXED_BACKENDS.join(', ')} containers`)
+  log(`curia daemon also listening on http://${gateway}:${PORT} — the side channel for ${SANDBOXED_HARNESSES.join(', ')} containers`)
   return containerListener
 }
 
 // What a sandboxed dispatch must be able to say is true before it starts a
-// worker (#188). Two halves, because the first one alone was not enough on the
+// agent (#188). Two halves, because the first one alone was not enough on the
 // deployment box:
 //
 //   1. the daemon is listening where the containers look — bound here and now,
@@ -963,11 +963,11 @@ async function bindContainerListener() {
 //   2. a container can actually REACH it, proved by a container.
 //
 // It throws, and #prepareContainer lets that throw refuse the dispatch. A
-// sandboxed worker with no side channel is worse than no worker: it burns a
+// sandboxed agent with no side channel is worse than no agent: it burns a
 // claim, edits a worktree, and cannot say one word about any of it.
 async function assertSideChannel(image) {
   const bound = await listenForContainers()
-  if (!bound) throw new Error('no backend runs in a container, so the daemon binds no side channel')
+  if (!bound) throw new Error('no harness runs in a container, so the daemon binds no side channel')
   await probeSideChannel({ image, port: PORT })
   return bound.address
 }
@@ -984,11 +984,11 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // page in a browser ON THIS HOST is a CORS *simple* request — no preflight,
   // and the side effect lands even though the response is unreadable. The port
   // is a fixed default and readBody JSON-parses regardless of content-type, so
-  // without this check any web page could dispatch a bypassPermissions worker
+  // without this check any web page could dispatch a bypassPermissions agent
   // on an attacker-filed issue (POST /command with an explicit repo skips the
   // frontier gate) or reach `git worktree remove --force` via POST /reconcile.
   // Browsers always send Origin on cross-origin requests and stamp
-  // Sec-Fetch-Site; loopback tooling (curl, the worker's Stop hook, the MCP
+  // Sec-Fetch-Site; loopback tooling (curl, the agent's Stop hook, the MCP
   // client) sends neither — so refuse any request that carries either marker
   // of a browser-mediated cross-site call.
   const site = req.headers['sec-fetch-site']
@@ -997,59 +997,59 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   // The reachability probe (#188). It answers before every gate below it that
-  // could refuse a caller with no worker to be, because the question it asks is
+  // could refuse a caller with no agent to be, because the question it asks is
   // only "did this request cross the bridge and land on curia" — a probe runs
-  // before any worker exists, so it can carry no worker token. It reads nothing,
+  // before any agent exists, so it can carry no agent token. It reads nothing,
   // writes nothing, and journals nothing: a route that said more would be a
   // wider container surface than #159 left, for no gain.
   if (url.pathname === PROBE_PATH) {
     return json(200, { curia: PROBE_MARK, port: PORT })
   }
 
-  // The container-facing listener is the worker surface and nothing more. A
+  // The container-facing listener is the agent surface and nothing more. A
   // refusal, not a 404: the route exists, this caller may not have it.
-  if (fromContainer && !WORKER_ROUTES.has(url.pathname)) {
+  if (fromContainer && !AGENT_ROUTES.has(url.pathname)) {
     store.logEvent('container_route_refused', { path: url.pathname, method: req.method })
-    return json(403, { error: `${url.pathname} is not reachable from a worker container — this address carries the MCP side channel and the Stop hook only` })
+    return json(403, { error: `${url.pathname} is not reachable from an agent container — this address carries the MCP side channel and the Stop hook only` })
   }
 
-  // Who a request says it is, and its proof (#159). The name in `?worker=` used
+  // Who a request says it is, and its proof (#159). The name in `?agent=` used
   // to be the whole claim, so anything that could reach this port could report a
-  // result for another worker, ask a question as it, or end its turn. Fails
+  // result for another agent, ask a question as it, or end its turn. Fails
   // closed: an unminted name, a missing header and a wrong one are one answer.
   //
-  // A worker armed before this shipped carries no header, so the daemon restart
-  // that adopts this change refuses its live workers. Take that one restart with
-  // no worker live and it costs nothing; with one live, kill its pane and
+  // An agent armed before this shipped carries no header, so the daemon restart
+  // that adopts this change refuses its live agents. Take that one restart with
+  // no agent live and it costs nothing; with one live, kill its pane and
   // `resume <n>`, which arms it again and mints its token.
-  if (WORKER_ROUTES.has(url.pathname)) {
-    const claimed = url.searchParams.get('worker') ?? 'unknown'
-    if (!workerTokenMatches(DATA, claimed, req.headers[TOKEN_HEADER])) {
-      store.logEvent('worker_token_refused', {
-        worker: claimed,
+  if (AGENT_ROUTES.has(url.pathname)) {
+    const claimed = url.searchParams.get('agent') ?? 'unknown'
+    if (!agentTokenMatches(DATA, claimed, req.headers[TOKEN_HEADER])) {
+      store.logEvent('agent_token_refused', {
+        agent: claimed,
         path: url.pathname,
         from: fromContainer ? 'container' : 'loopback',
         presented: Boolean(req.headers[TOKEN_HEADER]),
       })
-      log(`refused ${url.pathname} claiming to be ${claimed} — ${req.headers[TOKEN_HEADER] ? 'the token does not match the one curia minted for it' : 'no worker token on the request'}`)
-      return json(403, { error: `no valid curia worker token for "${claimed}" — the daemon mints one per worker at spawn and writes it into that worker's own harness` })
+      log(`refused ${url.pathname} claiming to be ${claimed} — ${req.headers[TOKEN_HEADER] ? 'the token does not match the one curia minted for it' : 'no agent token on the request'}`)
+      return json(403, { error: `no valid curia agent token for "${claimed}" — the daemon mints one per agent at spawn and writes it into that agent's own connection settings` })
     }
   }
 
   if (url.pathname === '/mcp') {
     if (req.method !== 'POST') return json(405, { error: 'stateless server: POST only' })
-    const worker = url.searchParams.get('worker') ?? 'unknown'
+    const agent = url.searchParams.get('agent') ?? 'unknown'
     const ticket = url.searchParams.get('ticket') ?? 'unknown'
-    // #194: the first request a worker makes on this route is the proof that it
+    // #194: the first request an agent makes on this route is the proof that it
     // has a tool channel at all. It is recorded here — after the #159 token gate
     // above, so only a request that proved whose it is counts — and before the
     // MCP server runs, so a call that fails inside the server still counts: the
     // question is whether the client reached the daemon, not what it asked for.
-    dispatcher.onMcpCall(worker)
+    dispatcher.onMcpCall(agent)
     const body = await readBody(req)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     res.on('close', () => { transport.close() })
-    const mcp = buildMcpServer(worker, ticket)
+    const mcp = buildMcpServer(agent, ticket)
     await mcp.connect(transport)
     await transport.handleRequest(req, res, body)
     return
@@ -1069,12 +1069,12 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
 
   if (url.pathname === '/escalate' && req.method === 'POST') {
     const body = await readBody(req)
-    const worker = body.worker ?? 'synthetic'
+    const agent = body.agent ?? 'synthetic'
     // Same containment as the MCP path: /escalate is loopback-only, but it must
     // not be the softer way to hand the bridge an arbitrary file.
-    const { files } = outboundImages(worker, body.images ?? body.files)
+    const { files } = outboundImages(agent, body.images ?? body.files)
     const { record, answered } = openEscalation({
-      worker, ticket: body.ticket ?? 'unknown',
+      agent, ticket: body.ticket ?? 'unknown',
       kind: body.kind ?? 'approve-reject', prompt: body.prompt ?? '(no prompt)',
       options: body.options, preview_url: body.preview_url, files,
     })
@@ -1087,7 +1087,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
 
   if (url.pathname === '/answer' && req.method === 'POST') {
     const { id, answer, attachments } = await readBody(req)
-    // Attachment paths get read and inlined into a worker's context, so they
+    // Attachment paths get read and inlined into an agent's context, so they
     // pass the same containment gate as outbound images rather than being
     // trusted because the caller reached loopback.
     const { files } = outboundImages('rest', attachments)
@@ -1104,7 +1104,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   // The Stop hook is now the ENFORCEMENT of the ending (#54 item 4), not just a
-  // notification that a turn ended: `{decision:"block", reason}` sends the worker
+  // notification that a turn ended: `{decision:"block", reason}` sends the agent
   // back with its outstanding checklist.
   //
   // Two phases on purpose. The decision is awaited, because the hook needs it on
@@ -1112,35 +1112,35 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // hook's own curl is running inside — awaiting it would kill the request before
   // the response left.
   //
-  // Every failure here ALLOWS the stop. A daemon bug must never trap a worker in
+  // Every failure here ALLOWS the stop. A daemon bug must never trap an agent in
   // a block loop.
-  if (url.pathname === '/worker_done' && req.method === 'POST') {
+  if (url.pathname === '/agent_done' && req.method === 'POST') {
     const body = await readBody(req)
-    const worker = url.searchParams.get('worker') ?? 'unknown'
+    const agent = url.searchParams.get('agent') ?? 'unknown'
     const stopHookActive = Boolean(body.stop_hook_active)
-    store.logEvent('worker_done', {
-      worker,
+    store.logEvent('agent_done', {
+      agent,
       hook_event: body.hook_event_name,
       session_id: body.session_id,
       stop_hook_active: body.stop_hook_active,
     })
     let decision
     try {
-      decision = await dispatcher.onStopHook(worker, { stopHookActive })
+      decision = await dispatcher.onStopHook(agent, { stopHookActive })
     } catch (e) {
-      log(`onStopHook ${worker} failed (${e.message}) — allowing the stop`)
+      log(`onStopHook ${agent} failed (${e.message}) — allowing the stop`)
       decision = { allow: true, terminal: true }
     }
     if (decision?.decision === 'block') {
       return json(200, { decision: 'block', reason: decision.reason })
     }
     if (decision?.terminal) {
-      dispatcher.onWorkerDone(worker).catch((e) => log(`onWorkerDone ${worker} failed:`, e.message))
+      dispatcher.onAgentDone(agent).catch((e) => log(`onAgentDone ${agent} failed:`, e.message))
     }
     // An EMPTY object, not `{ok:true}`. Both CLIs read "no decision" as allow,
     // but codex validates this body against a closed schema and rejected the
     // extra key outright — `Stop hook (failed): hook returned invalid stop hook
-    // JSON output`, printed in the worker's own pane on every clean ending
+    // JSON output`, printed in the agent's own pane on every clean ending
     // (observed). It failed open, so nothing was trapped; what it cost was the
     // signal, since a genuinely broken hook would have looked exactly the same.
     return json(200, {})
@@ -1187,7 +1187,7 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     .then(() => resolveServeHosts())
     .catch((e) => log(`WARNING: could not resolve this box's tailnet names (${e.message}) — both attach surfaces refuse every caller until this succeeds`))
     .then(() => Promise.all([timeline.start(), identityProxy.start()]))
-    // boot reconcile (#33): re-derive live workers from GitHub + tmux + journal,
+    // boot reconcile (#33): re-derive live agents from GitHub + tmux + journal,
     // sweep orphans, release dead claims, void restart-orphaned overseer
     // confirms, assert the attach + timeline surfaces — then start the auto
     // loop (a no-op while auto_dispatch is false). Not gated on the bridge.
@@ -1202,7 +1202,7 @@ httpServer.listen(PORT, '127.0.0.1', () => {
 // restart recovery: every open escalation in the journal gets its nudge timer
 // back; records that never rendered retry on the first tick
 for (const r of store.openEscalations()) {
-  log(`recovered open escalation ${r.id} (${r.kind}) worker=${r.worker} ticket=${r.ticket}`)
+  log(`recovered open escalation ${r.id} (${r.kind}) agent=${r.agent} ticket=${r.ticket}`)
   scheduleNudge(r)
 }
 

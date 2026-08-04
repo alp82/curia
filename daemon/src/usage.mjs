@@ -1,5 +1,5 @@
 // Status-line meters (#146): the numbers Claude Code's own status line shows a
-// human about a session, computed by the daemon about a worker — the routing
+// human about a session, computed by the daemon about an agent — the routing
 // model and its reasoning effort, how full the context is, and the two account
 // usage windows.
 //
@@ -11,10 +11,10 @@
 //                   restart cost, because the label reached this function only
 //                   through memory. Reconcile now rebuilds it from the journal.
 //
-//   context %       the worker's own transcript tail, the same file the
-//                   timeline (#74) reads. Both lanes state their last request's
-//                   input tokens; only the codex lane also states the window.
-//                   The claude lane looks its window up LIVE — see the next
+//   context %       the agent's own transcript tail, the same file the
+//                   timeline (#74) reads. Both harnesses state their last request's
+//                   input tokens; only the codex harness also states the window.
+//                   The claude harness looks its window up LIVE — see the next
 //                   block. A model with no window from any source shows NO
 //                   context figure: a guessed denominator is a wrong
 //                   percentage, and this line exists to be trusted.
@@ -22,7 +22,7 @@
 // WHERE THE CLAUDE DENOMINATOR COMES FROM (#178 settled this, and #146 had it
 // wrong). #146 wrote the window into `models.<name>.context_window` because the
 // claude transcript states none. That number was 200000 and the real window is
-// 1000000, so every context figure that lane ever showed was five times too
+// 1000000, so every context figure that harness ever showed was five times too
 // large — and the clamp hid it, rendering a 248,003-token request against a
 // stated 200,000 as a plausible `ctx 100%`.
 //
@@ -42,16 +42,16 @@
 //     none of the probe's throttling.
 //
 // `models.<name>.context_window` survives as the LAST resort, for a box that
-// cannot reach the API and for the codex lane's pre-first-turn fallback. It is
+// cannot reach the API and for the codex harness's pre-first-turn fallback. It is
 // no longer set for any anthropic model.
 //
-//   5 h / 7 d bars  ACCOUNT-level, not per worker: every worker on a provider
+//   5 h / 7 d bars  ACCOUNT-level, not per agent: every agent on a provider
 //                   shares one quota, so this is one reading rendered on every
-//                   line. The codex lane gets it free — its transcript carries
-//                   `rate_limits` beside every token count. The claude lane
+//                   line. The codex harness gets it free — its transcript carries
+//                   `rate_limits` beside every token count. The claude harness
 //                   states them nowhere: not in the transcript, and not in any
 //                   file the CLI writes on a headless box.
-//                   WHICH provider comes from the backend (#187). It used to
+//                   WHICH provider comes from the harness (#187). It used to
 //                   come from the dispatched label's routing row, which made an
 //                   account fact depend on a spawn-time one, and both bars left
 //                   the line whenever the label did.
@@ -83,7 +83,7 @@
 //   3. The probe is the cheapest completion there is, on the cheapest model,
 //      and never more often than the shared attempt stamp allows. It spends
 //      account quota to measure account quota, which is only honest at this
-//      size: about two dozen tokens per half hour, against a worker turn that
+//      size: about two dozen tokens per half hour, against an agent turn that
 //      spends thousands.
 //   4. The attempt stamp beside the cache stays a cooperative lock. The
 //      operator's own statusline.sh writes the same two files in the same
@@ -158,8 +158,8 @@ export function tailLines(file) {
 }
 
 // Context is everything the last request SENT, cached or not: a cache read
-// occupies the window exactly like a fresh token does. Measured on real worker
-// transcripts on this box — the lane states no window anywhere, so the caller
+// occupies the window exactly like a fresh token does. Measured on real agent
+// transcripts on this box — the harness states no window anywhere, so the caller
 // supplies it.
 //
 // It does state the MODEL, though, on the same line as the counts (#178). That
@@ -183,8 +183,8 @@ function claudeTail(lines) {
   return { ctx: null, windows: null, limits: null }
 }
 
-// A reset instant in either lane's vocabulary, as epoch milliseconds. The codex
-// lane states epoch seconds and the anthropic one an ISO string; both are
+// A reset instant in either harness's vocabulary, as epoch milliseconds. The codex
+// harness states epoch seconds and the anthropic one an ISO string; both are
 // absolute, so a stale reading still dates itself correctly. NaN when nothing
 // usable is stated, which every caller checks with Number.isFinite.
 function resetMs(resetsAt) {
@@ -193,7 +193,7 @@ function resetMs(resetsAt) {
 
 // How far into a usage window the clock has got, 0-100 — the second number
 // every bar needs, because usage alone cannot say whether it is being spent too
-// fast. `resetsAt` is an epoch-seconds number on the codex lane and an ISO
+// fast. `resetsAt` is an epoch-seconds number on the codex harness and an ISO
 // string on the anthropic one; both are absolute, so a stale reading still
 // dates itself correctly.
 //
@@ -231,7 +231,7 @@ export function windowLabel(minutes) {
   return `${Math.round(minutes / 60)}h`
 }
 
-// The bars, from the raw slot readings. A worker that has been idle for hours
+// The bars, from the raw slot readings. An agent that has been idle for hours
 // may hold a reading whose window has since reset. The percentage beside it is
 // then about a window that no longer exists, so the window rolls over to a
 // fresh one at 0% and the bar stays on the line (#187). See accountWindows.
@@ -248,7 +248,7 @@ function barsOf(limits, now) {
   return found.length ? found : null
 }
 
-// The codex lane states all three numbers itself, on the `token_count` event it
+// The codex harness states all three numbers itself, on the `token_count` event it
 // writes after every turn: the last request's input tokens, the model's own
 // context window, and the account rate limits. Context and limits are taken
 // from the newest line that carries each — not every token_count carries both.
@@ -295,8 +295,8 @@ const TAILS = { claude: claudeTail, codex: codexTail }
 
 // { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct, fresh?}] | null,
 //   limits: [{label, usedPct, windowMs, resetsAt}] | null }
-export function readTranscriptMeters(backend, file, now = Date.now()) {
-  const tail = TAILS[backend]
+export function readTranscriptMeters(harness, file, now = Date.now()) {
+  const tail = TAILS[harness]
   if (!tail || !file) return { ctx: null, windows: null, limits: null }
   return tail(tailLines(file), now)
 }
@@ -306,7 +306,7 @@ export function readTranscriptMeters(backend, file, now = Date.now()) {
 // ---------------------------------------------------------------------------
 
 // A window this full is the one the cap hit. The threshold is not 100 because
-// the reading is taken at the worker's last turn and the cap is hit on the
+// the reading is taken at the agent's last turn and the cap is hit on the
 // next one, so the last number below the ceiling is what the transcript holds.
 export const SPENT_PCT = 95
 
@@ -340,11 +340,11 @@ export function spentReset(limits, now = Date.now()) {
 }
 
 // The instant this config dir's transcript says a cap hit has to wait for.
-// Date | null. The claude lane always answers null: its transcript states no
+// Date | null. The claude harness always answers null: its transcript states no
 // rate limits anywhere, which is why its reset rides the pane text instead.
-export function transcriptReset(backend, cfgDir, now = Date.now()) {
-  if (!backend || !cfgDir) return null
-  const { limits } = readTranscriptMeters(backend, findTranscript(backend, cfgDir), now)
+export function transcriptReset(harness, cfgDir, now = Date.now()) {
+  if (!harness || !cfgDir) return null
+  const { limits } = readTranscriptMeters(harness, findTranscript(harness, cfgDir), now)
   return spentReset(limits, now)
 }
 
@@ -395,7 +395,7 @@ export function windowFromModel(payload) {
   return Number.isInteger(n) && n > 0 ? n : null
 }
 
-// The live denominator for the claude lane, keyed by the model id the
+// The live denominator for the claude harness, keyed by the model id the
 // transcript states. One entry per model, fetched once and kept for a day.
 //
 // This is deliberately not the account probe: `GET /v1/models/<id>` is metadata,
@@ -524,7 +524,7 @@ export function payloadFromHeaders(headers) {
 
 // A window whose reset has passed ROLLS OVER — it does not leave the line
 // (#187, and the operator settled which of the three it is). Dropping the entry
-// took the 5 h bar off every worker line after every reset, for as long as the
+// took the 5 h bar off every agent line after every reset, for as long as the
 // next probe took, with no sign that the number was missing rather than zero.
 //
 // So the ended window is replaced by the one that started at its reset instant:
@@ -549,9 +549,9 @@ export function accountWindows(payload, now = Date.now()) {
 
 export class AccountUsage {
   // `fetch` is injected so the test never reaches the network. `home` is the
-  // DAEMON's home — never a worker config dir: workers run headless and their
+  // DAEMON's home — never an agent config dir: agents run headless and their
   // own `.claude.json` carries no usage copy (measured on the deployment box:
-  // every worker cfg dir there lacks `cachedUsageUtilization` entirely, because
+  // every agent cfg dir there lacks `cachedUsageUtilization` entirely, because
   // the CLI never polls for it under an env-var credential — see #162).
   constructor({
     home = os.homedir(), enabled = true, log = () => {},
@@ -721,9 +721,9 @@ export function bar(pct, elapsedPct = null, width = BAR_WIDTH) {
 
 // What a line a human reads CALLS the model (#179). #146 rendered the routing
 // label, which is the key in `routing.yaml` and not a model at all. On the
-// claude lane the key `opus` reads like one and hid the mismatch. On the codex
-// lane the key is `gpt` while the model is `gpt-5.6-sol`, so the status line
-// said `gpt` about a Sol 5.6 worker.
+// claude harness the key `opus` reads like one and hid the mismatch. On the codex
+// harness the key is `gpt` while the model is `gpt-5.6-sol`, so the status line
+// said `gpt` about a Sol 5.6 agent.
 //
 // Three sources, best evidence first — the same order #178 settled for the
 // context denominator, because it is the same question asked about the same
@@ -733,31 +733,31 @@ export function bar(pct, elapsedPct = null, width = BAR_WIDTH) {
 //      resolved (`claude-opus-5`). An alias that moves under us corrects
 //      itself on the next turn.
 //   2. `models.<label>.id`: the name the CLI was ASKED for. This is the codex
-//      lane's whole fault, and `id` was already sitting beside the label.
-//   3. the routing label. Last resort, for a lane that states neither — which
-//      is the claude lane before its first turn lands. `opus` is an alias the
+//      harness's whole fault, and `id` was already sitting beside the label.
+//   3. the routing label. Last resort, for a harness that states neither — which
+//      is the claude harness before its first turn lands. `opus` is an alias the
 //      CLI accepts, and pinning an `id` there would undo the alias-following
 //      #178 depends on, so the label stands for those first seconds.
 //
 // The label does not ride along beside the id. It is the DISPATCH vocabulary
 // (`model:gpt`, `/start 179 opus`) and the surfaces that speak it — cooling,
-// fallback, the `/workers` list — go on saying it. The status line answers
+// fallback, the `/agents` list — go on saying it. The status line answers
 // "what is running", and one name for that is the point.
 export function modelName(model, spec, stated = null) {
   return stated ?? spec?.id ?? model ?? null
 }
 
-// Everything the status line can say about one worker beyond its state. Every
+// Everything the status line can say about one agent beyond its state. Every
 // field is independently nullable — a missing source drops its meter, never the
 // line.
-export function workerMeters({ backend, cfgDir, model, routing, account, models, now = Date.now() }) {
+export function agentMeters({ harness, cfgDir, model, routing, account, models, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = {
     model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
   }
-  if (!backend || !cfgDir) return out
+  if (!harness || !cfgDir) return out
 
-  const { ctx, windows } = readTranscriptMeters(backend, findTranscript(backend, cfgDir), now)
+  const { ctx, windows } = readTranscriptMeters(harness, findTranscript(harness, cfgDir), now)
   // The transcript's own word beats the config's, exactly as it does for the
   // window on the line below.
   out.model = modelName(model, spec, ctx?.model)
@@ -776,16 +776,16 @@ export function workerMeters({ backend, cfgDir, model, routing, account, models,
   }
 
   // The transcript's own limits win — they are this provider's numbers,
-  // measured at the worker's last turn. Only the anthropic lane needs the
+  // measured at the agent's last turn. Only the anthropic harness needs the
   // account reading, because its transcript states none.
   //
-  // The provider follows from the BACKEND when there is no routing row (#187).
-  // Keying the bars on the row made them a spawn-time fact: a worker the daemon
+  // The provider follows from the HARNESS when there is no routing row (#187).
+  // Keying the bars on the row made them a spawn-time fact: an agent the daemon
   // adopted after a restart lost its label, lost its row with it, and both bars
   // left the line while `ctx` — which reads the transcript — stayed. The bars
   // are an account fact and have nothing to do with which label was dispatched.
   if (windows) out.windows = windows
-  else if ((spec?.provider ?? providerOf(routing, backend)) === 'anthropic') {
+  else if ((spec?.provider ?? providerOf(routing, harness)) === 'anthropic') {
     out.windows = account?.windows() ?? null
   }
   return out
@@ -794,14 +794,14 @@ export function workerMeters({ backend, cfgDir, model, routing, account, models,
 // Ordered most valuable first: the status line appends what fits and drops the
 // rest from the tail (#146 — state and escalation title win over the meters).
 // The window label carries bold because it is the thing the eye lands on when
-// scanning a column of workers, and the mark leads the bar for the same reason.
+// scanning a column of agents, and the mark leads the bar for the same reason.
 export function meterParts(m) {
   if (!m) return []
   const parts = []
   if (m.model) parts.push(m.effort ? `**${m.model}** ${m.effort}` : `**${m.model}**`)
   // The mark is the whole point of not clamping: over 100% the number is not a
-  // reading about the worker, it is a complaint about the denominator, and it
-  // has to look different from a worker that is merely nearly full.
+  // reading about the agent, it is a complaint about the denominator, and it
+  // has to look different from an agent that is merely nearly full.
   if (m.ctxPct != null) parts.push(m.ctxOver ? `ctx ${m.ctxPct}% ⚠️` : `ctx ${m.ctxPct}%`)
   for (const w of m.windows ?? []) {
     const mark = paceMark(w.pct, w.elapsedPct)

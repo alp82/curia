@@ -4,36 +4,36 @@
 //
 // Division of labour, settled on #41:
 //
-//   The WORKER resolves, in the tracker's own idiom — `gh issue comment` →
+//   The AGENT resolves, in the tracker's own idiom — `gh issue comment` →
 //   `gh issue close` → one appended line in the parent map's
 //   `## Decisions so far`. That is exactly what the wayfinder skill does at the
 //   end of a session, and a curia-specific resolve path would put every ticket
 //   prompt at odds with the grammar curia consumes (#7). The standing orders in
 //   workspace.mjs spell it out.
 //
-//   The DAEMON does not resolve. It does three things the worker cannot:
+//   The DAEMON does not resolve. It does three things the agent cannot:
 //
-//   1. VERIFY and REPAIR. A worker that reported `resolved` and forgot to
+//   1. VERIFY and REPAIR. An agent that reported `resolved` and forgot to
 //      close; a resolution comment that never landed; a map append lost to a
-//      concurrent worker's read-modify-write of the same body (GitHub has no
+//      concurrent agent's read-modify-write of the same body (GitHub has no
 //      compare-and-swap on an issue body, and max_concurrent > 1). The
 //      appended line is journalled verbatim, so a lost update stays replayable
 //      from the journal — the one durable artifact (#9).
 //
-//   2. LAND the code: push `curia/<n>` and open the PR. The worker never holds
+//   2. LAND the code: push `curia/<n>` and open the PR. The agent never holds
 //      that authority — same containment boundary as preview allocation (#40),
 //      and the reason the base clone's push URL stays disabled.
 //
-//      Since #54 the worker ASKS for this, through the `open_pull_request` tool,
+//      Since #54 the agent ASKS for this, through the `open_pull_request` tool,
 //      because landing now happens in the middle of the ticket rather than at its
 //      end: the pull request is what the human reviews before anything is
 //      resolved. `landBranch` below is that tool's body. resolveAndLand keeps
-//      landing only as a REPAIR — a worker that reported `resolved` with commits
+//      landing only as a REPAIR — an agent that reported `resolved` with commits
 //      and no pull request would otherwise leave the only copy of its work in a
 //      worktree.
 //
 //   3. TELL THE TRUTH about what was committed. The PR body's commit list is
-//      read out of git by the daemon, not taken from the worker's account of
+//      read out of git by the daemon, not taken from the agent's account of
 //      itself.
 //
 //   4. Since #54: check that the code is actually IN. `resolved` means merged
@@ -56,7 +56,7 @@ export const DECISIONS_HEADING = /^##\s+Decisions so far\s*$/i
 // Without it the check is wrong in the one direction that matters. It asks "is
 // there a comment by us since this dispatch", and the daemon itself now comments
 // on an OPEN ticket — `open_pull_request` posts the pull-request link mid-ticket.
-// That comment would satisfy the check, so a worker that closed its ticket
+// That comment would satisfy the check, so an agent that closed its ticket
 // without writing a resolution would have curia's own link comment accepted as
 // its resolution and no fallback posted.
 export const MACHINE_MARKER = '<!-- curia:machine -->'
@@ -126,14 +126,14 @@ export function fallbackResolutionComment(result) {
     '',
     result.summary ?? '(no summary)',
     '',
-    `_The worker reported **${result.status}** but posted no resolution comment of its own; curia`,
+    `_The agent reported **${result.status}** but posted no resolution comment of its own; curia`,
     'recorded its `report_result` summary verbatim rather than let the ticket close silently._',
   ].join('\n')
 }
 
-export function nonCleanComment({ worker, result, released }) {
+export function nonCleanComment({ agent, result, released }) {
   return machine([
-    `⚠️ curia: worker \`${worker}\` stopped with status **${result.status}** and did **not** resolve this ticket.`,
+    `⚠️ curia: agent \`${agent}\` stopped with status **${result.status}** and did **not** resolve this ticket.`,
     '',
     result.summary ?? '(no summary)',
     '',
@@ -145,11 +145,11 @@ export function nonCleanComment({ worker, result, released }) {
 
 // ---- the map dispatch (#160) --------------------------------------------------
 
-// What a charting worker leaves on the map. The DAEMON posts it, from the
+// What a charting agent leaves on the map. The DAEMON posts it, from the
 // `report_result` summary — the same division of labour as the review gate's
 // links (#40): a record curia writes from what it knows is evidence, and one
-// the worker writes about itself is an account. It also makes the summary
-// arrive exactly once, whatever the worker did with `gh` on its own.
+// the agent writes about itself is an account. It also makes the summary
+// arrive exactly once, whatever the agent did with `gh` on its own.
 //
 // No MACHINE_MARKER: this is the substantive record of a charting session, not
 // plumbing for a later check to skip over.
@@ -157,10 +157,10 @@ export function nonCleanComment({ worker, result, released }) {
 // The map is never closed and its `## Decisions so far` is never touched here.
 // That section indexes the route walked — one line per RESOLVED ticket — and a
 // charting session walks no step of it.
-export function chartingComment({ worker, model, instruction, result }) {
+export function chartingComment({ agent, model, instruction, result }) {
   const clean = result.status === 'resolved'
   return [
-    `## ${clean ? 'Charting' : `Charting — **${result.status}**`} (curia session \`${worker}\`)`,
+    `## ${clean ? 'Charting' : `Charting — **${result.status}**`} (curia session \`${agent}\`)`,
     '',
     ...(instruction ? ['The operator asked for:', '', `> ${instruction}`, ''] : ['Dispatched with no instruction.', '']),
     result.summary ?? '(no summary)',
@@ -169,7 +169,7 @@ export function chartingComment({ worker, model, instruction, result }) {
     '',
     clean
       ? `_A map dispatch: this session edited the map and its tickets. It opened no pull request and closed nothing. Model \`${model ?? '?'}\`._`
-      : `_The charting worker stopped with status **${result.status}**. Whatever it had already written to the map STANDS — read the changes above before you dispatch another one. Model \`${model ?? '?'}\`._`,
+      : `_The charting agent stopped with status **${result.status}**. Whatever it had already written to the map STANDS — read the changes above before you dispatch another one. Model \`${model ?? '?'}\`._`,
   ].join('\n')
 }
 
@@ -179,9 +179,9 @@ export function prLinkComment({ branch, commits, url, state }) {
   ])
 }
 
-export function prBody({ repo, ticket, title, summary, commits, worker, model }) {
+export function prBody({ repo, ticket, title, summary, commits, agent, model }) {
   return [
-    // deliberately NOT a closing keyword: the worker closes the ticket itself
+    // deliberately NOT a closing keyword: the agent closes the ticket itself
     // after the merge, and "Resolves #n" on top of that reads as if the merge
     // did it
     `Ticket: ${repo}#${ticket} — [${title}](https://github.com/${repo}/issues/${ticket})`,
@@ -190,10 +190,10 @@ export function prBody({ repo, ticket, title, summary, commits, worker, model })
     '',
     '---',
     '',
-    `Dispatched by the curia daemon — session \`${worker}\`${model ? `, model \`${model}\`` : ''}.`,
+    `Dispatched by the curia daemon — session \`${agent}\`${model ? `, model \`${model}\`` : ''}.`,
     '',
     commits.length
-      ? ['Commits (read out of git by the daemon, not reported by the worker):', '', ...commits.map((c) => `- \`${c.sha}\` ${c.subject}`)].join('\n')
+      ? ['Commits (read out of git by the daemon, not reported by the agent):', '', ...commits.map((c) => `- \`${c.sha}\` ${c.subject}`)].join('\n')
       : 'No commits on the branch.',
   ].join('\n')
 }
@@ -209,28 +209,28 @@ export function prBody({ repo, ticket, title, summary, commits, worker, model })
 // dispatch) is not reused — a merged pull request cannot carry new commits, so
 // the branch gets a fresh one.
 export async function landBranch({
-  repo, ticket, title, summary, worker, model, wtPath, basePath, branch, deps, journal,
+  repo, ticket, title, summary, agent, model, wtPath, basePath, branch, deps, journal,
 }) {
   const defaultBranch = await deps.defaultBranchOf(basePath)
   const commits = await deps.commitsOnBranch(wtPath, defaultBranch)
   if (!commits.length) {
-    journal('land_skipped', { repo, ticket, worker, branch, reason: 'no commits on the branch' })
+    journal('land_skipped', { repo, ticket, agent, branch, reason: 'no commits on the branch' })
     return { ok: false, state: 'no-commits', branch }
   }
   const sha = await deps.pushBranch(wtPath, repo, branch)
-  journal('branch_pushed', { repo, ticket, worker, branch, sha, commits: commits.length })
+  journal('branch_pushed', { repo, ticket, agent, branch, sha, commits: commits.length })
 
-  const body = prBody({ repo, ticket, title, summary, commits, worker, model })
+  const body = prBody({ repo, ticket, title, summary, commits, agent, model })
   const existing = await deps.findPullRequest(repo, branch)
   if (existing && existing.state === 'OPEN') {
     await deps.setPullRequestBody(repo, existing.number, body)
-    journal('pr_reused', { repo, ticket, worker, branch, url: existing.url, commits: commits.length })
+    journal('pr_reused', { repo, ticket, agent, branch, url: existing.url, commits: commits.length })
     return { ok: true, state: 'updated', url: existing.url, number: existing.number, commits: commits.length, branch }
   }
   const url = await deps.createPullRequest(repo, {
     head: branch, base: defaultBranch, title: `${title} (${repo}#${ticket})`, body,
   })
-  journal('pr_opened', { repo, ticket, worker, branch, url, commits: commits.length })
+  journal('pr_opened', { repo, ticket, agent, branch, url, commits: commits.length })
   return { ok: true, state: 'opened', url, commits: commits.length, branch }
 }
 
@@ -241,12 +241,12 @@ export async function landBranch({
 // `journal(type, data)` writes to the events log.
 //
 // `withMapLock(key, fn)` serialises the map body's read-modify-write against
-// this daemon's other workers. It cannot serialise against a human editing the
+// this daemon's other agents. It cannot serialise against a human editing the
 // same body in another window — GitHub offers no conditional issue update — so
 // the write is bracketed by a fresh read and a verifying re-read, and the line
 // itself is journalled.
 export async function resolveAndLand({
-  repo, ticket, worker, result, wtPath, basePath, branch, epochTs, login, model,
+  repo, ticket, agent, result, wtPath, basePath, branch, epochTs, login, model,
   deps, journal, withMapLock, log = () => {},
 }) {
   const out = { comment: 'unknown', close: 'unknown', map: { state: 'none' }, land: { state: 'skipped' }, repaired: [], warnings: [] }
@@ -261,22 +261,22 @@ export async function resolveAndLand({
     comments = await deps.issueComments(repo, ticket)
   } catch (e) {
     out.warnings.push(`could not read the ticket's comments (${e.message}) — no resolution comment was posted or repaired`)
-    journal('resolve_verify_indeterminate', { repo, ticket, worker, axis: 'comment', error: e.message })
+    journal('resolve_verify_indeterminate', { repo, ticket, agent, axis: 'comment', error: e.message })
   }
   if (comments && !login) {
     // No confirmed gh identity ⇒ no way to tell OUR comment from anyone's, and
     // "no comment by nobody" would post a duplicate resolution on top of the
-    // worker's own. Same rule as reconcile's identity check: a failed identity
+    // agent's own. Same rule as reconcile's identity check: a failed identity
     // read is a failed pass.
     out.warnings.push('the gh viewer identity is unknown, so the resolution comment could not be verified')
-    journal('resolve_verify_indeterminate', { repo, ticket, worker, axis: 'comment', error: 'no viewer login' })
+    journal('resolve_verify_indeterminate', { repo, ticket, agent, axis: 'comment', error: 'no viewer login' })
   } else if (comments) {
-    // The worker holds the same gh identity as the daemon, so "a comment by us
+    // The agent holds the same gh identity as the daemon, so "a comment by us
     // since this dispatch" is the test. A comment Alp wrote himself after the
     // spawn also satisfies it; the failure direction is "post no fallback",
     // which is the harmless one. Curia's OWN machine comments are excluded —
     // see MACHINE_MARKER: `open_pull_request` comments on an open ticket, and
-    // that link would otherwise pass for the worker's resolution.
+    // that link would otherwise pass for the agent's resolution.
     const own = comments.some((c) => c.user?.login === login
       && !String(c.body ?? '').includes(MACHINE_MARKER)
       && (!epochTs || String(c.created_at) >= epochTs))
@@ -286,7 +286,7 @@ export async function resolveAndLand({
       await deps.commentIssue(repo, ticket, fallbackResolutionComment(result))
       out.comment = 'repaired'
       out.repaired.push('resolution comment')
-      journal('resolve_repaired', { repo, ticket, worker, axis: 'comment' })
+      journal('resolve_repaired', { repo, ticket, agent, axis: 'comment' })
     }
   }
 
@@ -295,7 +295,7 @@ export async function resolveAndLand({
     await deps.closeIssue(repo, ticket)
     out.close = 'repaired'
     out.repaired.push('close')
-    journal('resolve_repaired', { repo, ticket, worker, axis: 'close' })
+    journal('resolve_repaired', { repo, ticket, agent, axis: 'close' })
   } else {
     out.close = 'present'
   }
@@ -343,10 +343,10 @@ export async function resolveAndLand({
 
   // --- 4. is the code IN? ----------------------------------------------------
   //
-  // Landing itself moved to `landBranch`, which the worker calls mid-ticket so a
+  // Landing itself moved to `landBranch`, which the agent calls mid-ticket so a
   // human can review the pull request before anything is resolved (#54 item 1).
   // What is left here is the check `resolved` now has to pass — merged, not
-  // merely pushed (#48) — plus the one repair that has no other cure: a worker
+  // merely pushed (#48) — plus the one repair that has no other cure: an agent
   // that committed and never opened a pull request would leave the ONLY copy of
   // its work in a worktree the lifecycle is about to stop protecting.
   if (wtPath && basePath && branch) {
@@ -359,13 +359,13 @@ export async function resolveAndLand({
         const pr = await deps.findPullRequest(repo, branch)
         if (!pr) {
           const landed = await landBranch({
-            repo, ticket, title, summary: result.summary, worker, model,
+            repo, ticket, title, summary: result.summary, agent, model,
             wtPath, basePath, branch, deps, journal,
           })
           out.land = { state: 'repaired', url: landed.url, commits: landed.commits, branch }
           out.repaired.push('pull request')
-          out.warnings.push(`the worker never called \`open_pull_request\` — curia pushed \`${branch}\` and opened ${landed.url}, which NOBODY REVIEWED and which is not merged`)
-          journal('land_repaired', { repo, ticket, worker, branch, url: landed.url })
+          out.warnings.push(`the agent never called \`open_pull_request\` — curia pushed \`${branch}\` and opened ${landed.url}, which NOBODY REVIEWED and which is not merged`)
+          journal('land_repaired', { repo, ticket, agent, branch, url: landed.url })
           await deps.commentIssue(repo, ticket, prLinkComment({ branch, commits: landed.commits, url: landed.url, state: landed.state }))
         } else if (pr.state === 'MERGED') {
           out.land = { state: 'merged', url: pr.url, commits: commits.length, branch }
@@ -376,19 +376,19 @@ export async function resolveAndLand({
           // so it says so loudly and keeps the workspace.
           out.land = { state: pr.state === 'OPEN' ? 'unmerged' : 'pr-closed', url: pr.url, commits: commits.length, branch }
           out.warnings.push(`${pr.url} is **${pr.state}**, not merged — this ticket is closed over code that is not in \`${defaultBranch}\``)
-          journal('resolved_unmerged', { repo, ticket, worker, branch, url: pr.url, pr_state: pr.state })
+          journal('resolved_unmerged', { repo, ticket, agent, branch, url: pr.url, pr_state: pr.state })
           // push whatever is not on the remote yet, so nothing lives only in a
           // worktree the human may now discard
           if (await deps.hasUnpushedWork(wtPath, branch, defaultBranch).catch(() => true)) {
             const sha = await deps.pushBranch(wtPath, repo, branch)
-            journal('branch_pushed', { repo, ticket, worker, branch, sha, commits: commits.length, reason: 'unmerged at resolve' })
+            journal('branch_pushed', { repo, ticket, agent, branch, sha, commits: commits.length, reason: 'unmerged at resolve' })
           }
         }
       }
     } catch (e) {
       out.land = { state: 'failed', error: e.message, branch }
       out.warnings.push(`curia could not establish whether the work is landed (${e.message}) — the commits are in ${wtPath}`)
-      journal('land_failed', { repo, ticket, worker, branch, error: e.message })
+      journal('land_failed', { repo, ticket, agent, branch, error: e.message })
       log(`landing check for ${repo}#${ticket} failed: ${e.message}`)
     }
   }
@@ -397,7 +397,7 @@ export async function resolveAndLand({
 }
 
 // One human-readable line per axis — goes to the Discord thread and back to the
-// worker as its report_result tool result.
+// agent as its report_result tool result.
 export function summariseOutcome(out) {
   const bits = []
   bits.push(out.close === 'repaired' ? 'ticket closed by curia' : out.close === 'present' ? 'ticket closed' : 'close state unknown')

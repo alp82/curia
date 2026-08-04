@@ -21,7 +21,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { TOKEN_HEADER, mintWorkerToken } from '../src/workertoken.mjs'
+import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { PROBE_MARK, PROBE_PATH } from '../src/sandbox.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -102,8 +102,8 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       'defaults:',
       '  untyped: sonnet',
       'models:',
-      '  sonnet: { provider: anthropic, backend: claude }',
-      'backends:',
+      '  sonnet: { provider: anthropic, harness: claude }',
+      'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '\u23f5\u23f5|bypass permissions'",
@@ -189,7 +189,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
 // return value → handOffAnswer) — like the CSRF gate, nothing but a real boot
 // pair exercises the shipped path: the escalation opens under daemon A, the
 // answer lands under daemon B, whose `pending` map never held the resolver.
-describe('an answer with no live resolver queues for the resumed worker (#139, real boot pair)', () => {
+describe('an answer with no live resolver queues for the resumed agent (#139, real boot pair)', () => {
   let tmp
   let child
   let port
@@ -264,8 +264,8 @@ describe('an answer with no live resolver queues for the resumed worker (#139, r
       'defaults:',
       '  untyped: sonnet',
       'models:',
-      '  sonnet: { provider: anthropic, backend: claude }',
-      'backends:',
+      '  sonnet: { provider: anthropic, harness: claude }',
+      'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
       "    ready: '⏵⏵|bypass permissions'",
@@ -283,7 +283,7 @@ describe('an answer with no live resolver queues for the resumed worker (#139, r
     await bootDaemon()
     const esc = await request(port, 'POST', '/escalate', {
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ worker: 'curia-7', ticket: '7', kind: 'free-text', prompt: 'pick A or B' }),
+      body: JSON.stringify({ agent: 'curia-7', ticket: '7', kind: 'free-text', prompt: 'pick A or B' }),
     })
     const { id } = JSON.parse(esc.body)
     assert.ok(id)
@@ -298,11 +298,11 @@ describe('an answer with no live resolver queues for the resumed worker (#139, r
     assert.equal(res.status, 200)
     assert.equal(JSON.parse(res.body).ok, true, 'the answer is recorded, not rejected')
 
-    // the hand-off: question + answer sit on the worker-note queue, journalled
+    // the hand-off: question + answer sit on the agent-note queue, journalled
     const events = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
       .split('\n').filter(Boolean).map((l) => JSON.parse(l))
-    const note = events.find((e) => e.type === 'worker_note' && e.worker === 'curia-7')
-    assert.ok(note, 'a worker note is queued for the resumed worker')
+    const note = events.find((e) => e.type === 'agent_note' && e.agent === 'curia-7')
+    assert.ok(note, 'an agent note is queued for the resumed agent')
     assert.match(note.text, /pick A or B/)
     assert.match(note.text, /answer: B/)
     assert.equal(note.after, id, 'tagged with the escalation it answers')
@@ -381,8 +381,8 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       'defaults:',
       '  untyped: sonnet',
       'models:',
-      '  sonnet: { provider: anthropic, backend: claude }',
-      'backends:',
+      '  sonnet: { provider: anthropic, harness: claude }',
+      'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '\u23f5\u23f5|bypass permissions'",
@@ -441,24 +441,24 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
   })
 })
 
-// #159. The `?worker=` param used to BE the claim: anything that could reach the
-// daemon port could report a result for another worker, ask a question as it, or
+// #159. The `?agent=` param used to BE the claim: anything that could reach the
+// daemon port could report a result for another agent, ask a question as it, or
 // end its turn. #156 is what made that matter — the daemon binds a second
 // listener on the docker bridge gateway, and every container on the box reaches
 // that address.
 //
-// Boots the real daemon with a SANDBOXED backend so both listeners come up, and
+// Boots the real daemon with a SANDBOXED harness so both listeners come up, and
 // fakes only `docker network inspect` — the gateway it reports is 127.0.0.2,
 // another loopback address this box can bind and dial. So the container-facing
 // listener here is the shipped one, reached the way a container reaches it.
-describe('the per-worker token on the worker routes (#159, real boot, both listeners)', () => {
+describe('the per-agent token on the agent routes (#159, real boot, both listeners)', () => {
   let tmp
   let child
   let port
   let childLog = ''
   const GATEWAY = '127.0.0.2'
 
-  const mint = (worker) => mintWorkerToken(path.join(tmp, 'data'), worker)
+  const mint = (agent) => mintAgentToken(path.join(tmp, 'data'), agent)
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-token-boot-'))
@@ -498,7 +498,7 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
       '  allow: [tester@example.com]',
       `  proxy_port: ${proxyPort}`,
       'sandbox:',
-      '  image: curia-worker-test',
+      '  image: curia-agent-test',
       '  claude_version: 1.0.0',
       '  codex_version: 1.0.0',
       '  gh_version: 1.0.0',
@@ -511,8 +511,8 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
       'defaults:',
       '  untyped: sonnet',
       'models:',
-      '  sonnet: { provider: anthropic, backend: claude }',
-      'backends:',
+      '  sonnet: { provider: anthropic, harness: claude }',
+      'harnesses:',
       '  claude:',
       '    sandbox: docker',
       '    template: claude --model {model} "$(cat {prompt_file})"',
@@ -540,7 +540,7 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
     for (;;) {
       try {
         if ((await request(port, 'GET', '/state')).status === 200
-          && (await requestOn(GATEWAY, port, 'POST', '/worker_done?worker=curia-0')).status === 403) break
+          && (await requestOn(GATEWAY, port, 'POST', '/agent_done?agent=curia-0')).status === 403) break
       } catch { /* not listening yet */ }
       if (Date.now() > deadline) throw new Error(`daemon did not bring up both listeners; log:\n${childLog}`)
       await new Promise((r) => setTimeout(r, 100))
@@ -552,41 +552,41 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  test('a worker route with no token is refused on loopback', async () => {
-    for (const route of ['/mcp?worker=curia-41&ticket=41', '/worker_done?worker=curia-41']) {
+  test('an agent route with no token is refused on loopback', async () => {
+    for (const route of ['/mcp?agent=curia-41&ticket=41', '/agent_done?agent=curia-41']) {
       const res = await request(port, 'POST', route, {
         headers: { 'content-type': 'application/json' },
         body: '{}',
       })
-      assert.equal(res.status, 403, `${route} must not serve an unproven worker`)
-      assert.match(res.body, /no valid curia worker token/)
+      assert.equal(res.status, 403, `${route} must not serve an unproven agent`)
+      assert.match(res.body, /no valid curia agent token/)
     }
   })
 
-  test('one worker cannot present another worker\'s token', async () => {
+  test('one agent cannot present another agent\'s token', async () => {
     mint('curia-42')
     const other = mint('curia-43')
-    const res = await request(port, 'POST', '/worker_done?worker=curia-42', {
+    const res = await request(port, 'POST', '/agent_done?agent=curia-42', {
       headers: { 'content-type': 'application/json', [TOKEN_HEADER]: other },
       body: '{}',
     })
     assert.equal(res.status, 403, 'the header proves a name, not merely that the caller has A token')
   })
 
-  test('the worker curia armed gets through, and the refusal is on the record', async () => {
+  test('the agent curia armed gets through, and the refusal is on the record', async () => {
     const token = mint('curia-44')
-    const res = await request(port, 'POST', '/worker_done?worker=curia-44', {
+    const res = await request(port, 'POST', '/agent_done?agent=curia-44', {
       headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token },
       body: JSON.stringify({ hook_event_name: 'Stop', session_id: 'fixture' }),
     })
     assert.equal(res.status, 200)
     const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
-    assert.ok(journal.includes('"type":"worker_token_refused"'), 'a refusal is journalled, or nobody ever learns it happened')
-    assert.ok(journal.includes('"type":"worker_done"'), 'and the accepted call reached the route')
+    assert.ok(journal.includes('"type":"agent_token_refused"'), 'a refusal is journalled, or nobody ever learns it happened')
+    assert.ok(journal.includes('"type":"agent_done"'), 'and the accepted call reached the route')
   })
 
-  test('the container-facing listener carries the worker surface and nothing else', async () => {
-    // The whole operator surface: dispatching a worker, answering the operator's
+  test('the container-facing listener carries the agent surface and nothing else', async () => {
+    // The whole operator surface: dispatching an agent, answering the operator's
     // own questions, forcing a reconcile. A container reaches none of it.
     for (const [method, route, body] of [
       ['POST', '/command', JSON.stringify({ text: 'status' })],
@@ -601,17 +601,17 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
         body,
       })
       assert.equal(res.status, 403, `${route} must not be reachable from a container`)
-      assert.match(res.body, /not reachable from a worker container/)
+      assert.match(res.body, /not reachable from an agent container/)
     }
     // …and the same routes still answer the operator on loopback.
     assert.equal((await request(port, 'GET', '/state')).status, 200)
   })
 
-  // #188: the one container-reachable route that needs no worker token, because
-  // the daemon sends it BEFORE any worker exists. A bind is not reachability —
+  // #188: the one container-reachable route that needs no agent token, because
+  // the daemon sends it BEFORE any agent exists. A bind is not reachability —
   // #185 had the daemon bound on the gateway while ufw dropped every packet from
   // the bridge — so a dispatch proves the path with a container first.
-  test('the reachability probe answers a container that has no worker to be', async () => {
+  test('the reachability probe answers a container that has no agent to be', async () => {
     const res = await requestOn(GATEWAY, port, 'GET', PROBE_PATH)
     assert.equal(res.status, 200)
     assert.equal(JSON.parse(res.body).curia, PROBE_MARK, 'the marker is what says this is curia and not something else on the port')
@@ -624,12 +624,12 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
 
   test('a container still reaches its own two routes, with its own token', async () => {
     const token = mint('curia-45')
-    const refused = await requestOn(GATEWAY, port, 'POST', '/worker_done?worker=curia-45', {
+    const refused = await requestOn(GATEWAY, port, 'POST', '/agent_done?agent=curia-45', {
       headers: { 'content-type': 'application/json' },
       body: '{}',
     })
     assert.equal(refused.status, 403, 'the gateway address is not a proof of identity')
-    const res = await requestOn(GATEWAY, port, 'POST', '/worker_done?worker=curia-45', {
+    const res = await requestOn(GATEWAY, port, 'POST', '/agent_done?agent=curia-45', {
       headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token },
       body: JSON.stringify({ hook_event_name: 'Stop', session_id: 'fixture' }),
     })

@@ -7,7 +7,7 @@
 // numbers, so `wss://<box>:8443/ws?arg=curia-151` is guessable, and ttyd's -O
 // stops a BROWSER on another origin only — a non-browser client on the tailnet
 // (curl, websocat) sets Origin to whatever it likes. Any tailnet node could
-// therefore drive a bypassPermissions worker, and read every transcript on the
+// therefore drive a bypassPermissions agent, and read every transcript on the
 // timeline beside it.
 //
 // The closure rides Tailscale Serve's own identity headers. Measured live on
@@ -27,7 +27,7 @@
 // The boundary this does NOT move: a process on the box itself reaches
 // 127.0.0.1:7681 and 127.0.0.1:4272 directly, bypassing Serve, and can set any
 // header it likes (fact 4's sibling, also measured). Loopback on this box is
-// already inside the trust boundary — workers share the host credential store
+// already inside the trust boundary — agents share the host credential store
 // (ADR-0007) and the tmux socket (ADR-0003) — so this is recorded, not chased.
 
 import http from 'node:http'

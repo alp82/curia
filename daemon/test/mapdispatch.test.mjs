@@ -1,17 +1,17 @@
 // The map dispatch (#160, building #149 points 3-5): `start curia#<map>` on a
-// `wayfinder:map` issue spawns a CHARTING worker, which updates the map and
+// `wayfinder:map` issue spawns a CHARTING agent, which updates the map and
 // ends without a close, a pull request or a review gate.
 //
 // Four seams, tested where each one lives:
 //   1. the canonical text — `-- <instruction>` on `start` (commands.test.mjs
 //      and overseer.test.mjs carry the parse and the render);
 //   2. routing — a `map` row in the defaults, reached by the label;
-//   3. the prompt — a charting worker is told what it is, what the operator
+//   3. the prompt — a charting agent is told what it is, what the operator
 //      asked for, and what it must not do;
 //   4. the ending — Stop-hook checklist, the two refused tools, and what
 //      report_result does instead of resolving.
 //
-// The failure this file exists to pin: a charting worker run through the TICKET
+// The failure this file exists to pin: a charting agent run through the TICKET
 // ending would close the map. That is the one act nothing can undo cheaply —
 // closing a map takes a whole effort off every frontier — so the assertions on
 // #finishCharting are exact rather than "does not throw".
@@ -33,11 +33,11 @@ import { parseCommand } from '../src/commands.mjs'
 const ROUTING = {
   defaults: { untyped: 'sonnet', map: 'opus' },
   models: {
-    sonnet: { provider: 'anthropic', backend: 'claude' },
-    opus: { provider: 'anthropic', backend: 'claude' },
+    sonnet: { provider: 'anthropic', harness: 'claude' },
+    opus: { provider: 'anthropic', harness: 'claude' },
   },
   fallbacks: {},
-  backends: { claude: { template: 'claude --model {model} "$(cat {prompt_file})"', ready: 'x', toolChannelGraceS: 15, readyRe: /x/ } },
+  harnesses: { claude: { template: 'claude --model {model} "$(cat {prompt_file})"', ready: 'x', toolChannelGraceS: 15, readyRe: /x/ } },
 }
 
 const MAP_ISSUE = {
@@ -80,7 +80,7 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE } = {}) {
   }
   // The journal is a real file here: #epochCharting reads it back, which is the
   // whole point of journalling the kind — a restarted daemon must still know
-  // which ending it is holding a worker to.
+  // which ending it is holding an agent to.
   const store = {
     logEvent: (type, data) => {
       const rec = { type, ...data }
@@ -116,7 +116,7 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE } = {}) {
     removeConfigDir: () => {},
     removeCredentials: () => {},
     seedConfigDir: () => {},
-    writeHarness: () => {},
+    writeConnectionSettings: () => {},
     writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
     ensureTtyd: async () => ({ verified: true }),
     assertServe: async () => {},
@@ -151,12 +151,12 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE } = {}) {
 // ---- routing (#149 point 5) ---------------------------------------------------
 
 describe('a wayfinder:map row joins the routing defaults', () => {
-  test('the shipped config routes a map to a claude-backend model', () => {
+  test('the shipped config routes a map to a claude-harness model', () => {
     const routing = loadRoutingConfig(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'config', 'routing.yaml'))
     const model = resolveModel(routing, ['wayfinder:map'], null)
     assert.ok(routing.defaults.map, 'routing.yaml states no map default')
     assert.equal(model, routing.defaults.map)
-    assert.equal(routing.models[model].backend, 'claude', 'a map dispatch must route to the claude lane')
+    assert.equal(routing.models[model].harness, 'claude', 'a map dispatch must route to the claude harness')
   })
 
   test('the shipped chain is the one the operator asked for on #160', () => {
@@ -199,12 +199,12 @@ describe('the charting prompt', () => {
     const p = write({ charting: true, instruction: 'add a ticket for X' })
     assert.match(p, /\*\*This is a MAP DISPATCH\.\*\*/)
     assert.match(p, /Do not choose a frontier ticket/)
-    assert.ok(!p.includes('already CLAIMED it in your name'), 'the ticket-claim wording must not reach a charting worker')
+    assert.ok(!p.includes('already CLAIMED it in your name'), 'the ticket-claim wording must not reach a charting agent')
   })
 
   test('the operator\'s sentence rides the prompt verbatim, as the first thing it reads', () => {
-    // #149 called it "the worker's first note". The note QUEUE drains on the
-    // next curia tool call, and a charting worker can read the map and start
+    // #149 called it "the agent's first note". The note QUEUE drains on the
+    // next curia tool call, and a charting agent can read the map and start
     // editing before it makes one — so the prompt is the only channel that is
     // first by construction.
     const p = write({ charting: true, instruction: 'update the landing page map so that the proof frames come last' })
@@ -212,7 +212,7 @@ describe('the charting prompt', () => {
     assert.match(p, /This is the whole brief/)
   })
 
-  test('with no instruction the worker is ordered to ask what should change', () => {
+  test('with no instruction the agent is ordered to ask what should change', () => {
     const p = write({ charting: true, instruction: null })
     assert.match(p, /No instruction rode this dispatch/)
     assert.match(p, /FIRST act is one\n\s*`ask_human` call: what should change on this map\?/)
@@ -248,8 +248,8 @@ describe('the charting prompt', () => {
 // ---- the ending (#149 point 3) ------------------------------------------------
 
 describe('the charting checklist', () => {
-  test('a charting worker is only ever held for report_result', () => {
-    // The state below would put THREE items on a ticket worker's checklist.
+  test('a charting agent is only ever held for report_result', () => {
+    // The state below would put THREE items on a ticket agent's checklist.
     const state = { hasResult: false, hasCommits: true, prOpened: false, reviewApproved: false, prState: null }
     assert.equal(outstanding({ ...state, charting: false }).length, 3)
     assert.deepEqual(outstanding({ ...state, charting: true }), ['call `report_result` exactly once'])
@@ -262,7 +262,7 @@ describe('the charting checklist', () => {
 
   test('the charting ending states no step the daemon cannot see', () => {
     // Every `todo` is a step the Stop hook will block on, so a step with no
-    // evidence behind it would trap the worker. Only `report` has one.
+    // evidence behind it would trap the agent. Only `report` has one.
     assert.deepEqual(CHARTING_ENDING.filter((s) => s.todo).map((s) => s.key), ['report'])
     assert.ok(ENDING.filter((s) => s.todo).length > 1, 'the ticket ending should still have several')
   })
@@ -272,7 +272,7 @@ describe('report_result on a map dispatch', () => {
   async function chartAndReport(result, deps = {}) {
     const d = makeDispatcher(deps)
     const reply = await d.start('147')
-    assert.match(reply, /charting worker on map/)
+    assert.match(reply, /charting agent on map/)
     calls.length = 0
     const text = await d.onResult('curia-147', result)
     return { d, text }
@@ -284,7 +284,7 @@ describe('report_result on a map dispatch', () => {
     })
     assert.ok(calls.some((c) => c === 'comment o/r#147'), 'no summary comment on the map')
     assert.ok(calls.some((c) => c === 'unclaim o/r#147'), 'the map stayed assigned')
-    assert.ok(!calls.some((c) => String(c).startsWith('CLOSE')), 'a charting worker closed the map')
+    assert.ok(!calls.some((c) => String(c).startsWith('CLOSE')), 'a charting agent closed the map')
     assert.ok(!calls.some((c) => String(c).startsWith('setBody')), 'curia wrote a Decisions-so-far line for a charting session')
     assert.ok(!calls.includes('pushBranch') && !calls.includes('createPullRequest'), 'a charting session landed code')
     assert.match(text, /Nothing was closed, resolved or pushed/)
@@ -299,7 +299,7 @@ describe('report_result on a map dispatch', () => {
     assert.match(body, /opened no pull request and closed nothing/)
   })
 
-  test('a blocked charting worker still leaves the map unassigned and says the edits stand', async () => {
+  test('a blocked charting agent still leaves the map unassigned and says the edits stand', async () => {
     // The half-charted map is the dangerous state: the next operator has to
     // know that whatever it wrote is already live on the map.
     await chartAndReport({ ticket: '147', status: 'blocked', summary: 'ran out of road on the fog section' })
@@ -316,12 +316,12 @@ describe('report_result on a map dispatch', () => {
     assert.ok(!events.some((e) => e.type === 'ticket_resolved'))
   })
 
-  test('a worker whose record this process never held is still read as charting', async () => {
+  test('an agent whose record this process never held is still read as charting', async () => {
     // The restart case: the in-memory record is gone and only the journal is
     // left. Falling back to "ticket" here would close the map.
     const d = makeDispatcher()
     await d.start('147')
-    d.workers.delete('curia-147') // as a restart, or #releaseClaim, leaves it
+    d.agents.delete('curia-147') // as a restart, or #releaseClaim, leaves it
     calls.length = 0
     await d.onResult('curia-147', { ticket: '147', status: 'resolved', summary: 's' })
     assert.ok(!calls.some((c) => String(c).startsWith('CLOSE')), 'the journal fallback lost the charting kind')
@@ -335,7 +335,7 @@ describe('the two tools a map dispatch refuses', () => {
     await d.start('147')
     calls.length = 0
     const reply = await d.openPullRequest('curia-147', { summary: 'x' })
-    assert.match(reply, /CHARTING worker/)
+    assert.match(reply, /CHARTING agent/)
     assert.match(reply, /opens no pull request/)
     assert.equal(calls.length, 0, 'the refusal still touched the remote')
     assert.ok(events.some((e) => e.type === 'charting_tool_refused' && e.tool === 'open_pull_request'))
@@ -352,7 +352,7 @@ describe('the two tools a map dispatch refuses', () => {
     assert.equal(asked, 0, 'a review gate was opened for a map dispatch')
   })
 
-  test('an ordinary ticket worker reaches both as before', async () => {
+  test('an ordinary ticket agent reaches both as before', async () => {
     const d = makeDispatcher({}, { issue: TICKET_ISSUE })
     await d.start('42')
     const reply = await d.openPullRequest('curia-42', { summary: 'x' })
@@ -369,7 +369,7 @@ describe('start on a map', () => {
       writePrompt: (cfgDir, issue, opts) => { prompted = opts; return path.join(cfgDir, 'prompt.md') },
     })
     const reply = await d.start('147', { instruction: 'add a ticket for the cooling signal' })
-    assert.match(reply, /charting worker on map o\/r#147/)
+    assert.match(reply, /charting agent on map o\/r#147/)
     assert.match(reply, /on \*\*opus\*\*/)
     assert.equal(prompted.charting, true)
     assert.equal(prompted.mapNumber, 147)
@@ -377,7 +377,7 @@ describe('start on a map', () => {
     assert.ok(calls.includes('claim o/r#147'))
   })
 
-  test('with no instruction the reply says the worker will ask', async () => {
+  test('with no instruction the reply says the agent will ask', async () => {
     const d = makeDispatcher()
     const reply = await d.start('147')
     assert.match(reply, /no instruction rode this dispatch, so it will ask what should change/)
@@ -386,14 +386,14 @@ describe('start on a map', () => {
   test('the spawn is journalled with its kind and its instruction', async () => {
     const d = makeDispatcher()
     await d.start('147', { instruction: 'do X' })
-    const spawn = events.find((e) => e.type === 'worker_spawned')
+    const spawn = events.find((e) => e.type === 'agent_spawned')
     assert.equal(spawn.kind, 'charting')
     assert.equal(spawn.instruction, 'do X')
   })
 
   test('an instruction on a ticket is REFUSED, not dropped', async () => {
     // Silently dropping it would steer nothing and say nothing. The ticket body
-    // is where a ticket worker's brief has to live, because other sessions read
+    // is where a ticket agent's brief has to live, because other sessions read
     // it and a spawn prompt is read once.
     const d = makeDispatcher({}, { issue: TICKET_ISSUE })
     const reply = await d.start('42', { instruction: 'focus on the routing part' })
@@ -404,12 +404,12 @@ describe('start on a map', () => {
   test('a ticket dispatch is journalled as a ticket', async () => {
     const d = makeDispatcher({}, { issue: TICKET_ISSUE })
     await d.start('42')
-    assert.equal(events.find((e) => e.type === 'worker_spawned').kind, 'ticket')
+    assert.equal(events.find((e) => e.type === 'agent_spawned').kind, 'ticket')
   })
 
-  test('a map already assigned refuses — one charting worker at a time', async () => {
+  test('a map already assigned refuses — one charting agent at a time', async () => {
     // The map body is a read-modify-write with no compare-and-swap behind it,
-    // and the WORKER does the writing, so #withMapLock cannot serialise it.
+    // and the AGENT does the writing, so #withMapLock cannot serialise it.
     // The claim is what does.
     const d = makeDispatcher({}, { issue: { ...MAP_ISSUE, assignees: [{ login: 'me' }] } })
     const reply = await d.start('147')
@@ -424,10 +424,10 @@ describe('resume on a map', () => {
       writePrompt: (cfgDir, issue, opts) => { prompted = opts; return path.join(cfgDir, 'prompt.md') },
     })
     await d.start('147', { instruction: 'graduate the cooling fog' })
-    d.workers.delete('curia-147')
+    d.agents.delete('curia-147')
     prompted = null
     await d.resume('147')
-    assert.equal(prompted.instruction, 'graduate the cooling fog', 'the resumed charting worker lost the brief')
+    assert.equal(prompted.instruction, 'graduate the cooling fog', 'the resumed charting agent lost the brief')
   })
 
   test('a map that has since lost its label degrades instead of refusing', async () => {
@@ -435,7 +435,7 @@ describe('resume on a map', () => {
     // would be a refusal for something they did not do.
     const d = makeDispatcher()
     await d.start('147', { instruction: 'do X' })
-    d.workers.delete('curia-147')
+    d.agents.delete('curia-147')
     const plain = makeDispatcher({ fetchIssue: async () => ({ ...MAP_ISSUE, labels: [] }) })
     plain.dataDir = d.dataDir
     const reply = await plain.resume('147')
@@ -464,15 +464,15 @@ describe('the /start slash expansion', () => {
 
   test('no instruction leaves the pre-#160 text untouched', () => {
     // An old client-side manifest sends no such option (#65), and the dispatch
-    // must still work — the charting worker then asks what should change.
+    // must still work — the charting agent then asks what should change.
     assert.equal(expandCommand(interaction({ ticket: '147' })), 'start 147')
     assert.equal(expandCommand(interaction({ ticket: '147', instruction: '  ' })), 'start 147')
   })
 
   test('what the phone sends, the router reads back', () => {
-    const text = expandCommand(interaction({ ticket: '147', backend: 'claude', instruction: 'chart\nthe fog' }))
+    const text = expandCommand(interaction({ ticket: '147', harness: 'claude', instruction: 'chart\nthe fog' }))
     assert.deepEqual(parseCommand(text), {
-      verb: 'start', ticket: '147', backend: 'claude', instruction: 'chart the fog',
+      verb: 'start', ticket: '147', harness: 'claude', instruction: 'chart the fog',
     })
   })
 })
@@ -482,7 +482,7 @@ describe('the /start slash expansion', () => {
 describe('chartingComment', () => {
   test('it is not marked as machine plumbing — it is the record of the session', () => {
     const body = chartingComment({
-      worker: 'curia-147', model: 'opus', instruction: 'do X',
+      agent: 'curia-147', model: 'opus', instruction: 'do X',
       result: { status: 'resolved', summary: 'did X' },
     })
     assert.ok(!body.includes('curia:machine'))
@@ -491,7 +491,7 @@ describe('chartingComment', () => {
 
   test('no instruction is stated as such, never left blank', () => {
     const body = chartingComment({
-      worker: 'curia-147', model: 'opus', instruction: null,
+      agent: 'curia-147', model: 'opus', instruction: null,
       result: { status: 'resolved', summary: 'did X' },
     })
     assert.match(body, /Dispatched with no instruction/)

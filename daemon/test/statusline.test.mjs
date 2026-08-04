@@ -1,4 +1,4 @@
-// The per-worker status line (#108 item 8): one message per worker thread
+// The per-agent status line (#108 item 8): one message per agent thread
 // through daemon-witnessed states. A state CHANGE repositions the line to the
 // thread bottom — delete + repost (#108 item 17) — because an edit-in-place
 // stays where the line was born, screens above where the operator reads. Only
@@ -37,26 +37,26 @@ describe('StatusLine', () => {
       // suite never reads a transcript or an account cache; `meters` returns
       // the model the line was told about, plus whatever the tests set.
       //
-      // The label passes straight through, which is workerMeters' last-resort
-      // branch (#179): a lane that states no model of its own keeps its routing
+      // The label passes straight through, which is agentMeters' last-resort
+      // branch (#179): a harness that states no model of its own keeps its routing
       // label. The test below covers the branch where the two differ.
       meters: (session, model) => ({ model, ...meters }),
     })
   })
 
-  const drain = () => Promise.all([...line.workers.values()].map((w) => w.chain))
+  const drain = () => Promise.all([...line.agents.values()].map((w) => w.chain))
 
   test('every state change repositions: delete + repost at the bottom (#108 item 17)', async () => {
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-9', ticket: '9', model: 'opus' })
-    line.onEvent({ type: 'worker_ready', worker: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
-    records.set('esc-1', { id: 'esc-1', worker: 'curia-9', ticket: '9', kind: 'choice' })
-    line.onEvent({ type: 'esc_open', id: 'esc-1', worker: 'curia-9', ticket: '9', kind: 'choice', prompt: 'Which shade of blue?\nlong body', ts: new Date().toISOString() })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-9', ticket: '9', model: 'opus' })
+    line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    records.set('esc-1', { id: 'esc-1', agent: 'curia-9', ticket: '9', kind: 'choice' })
+    line.onEvent({ type: 'esc_open', id: 'esc-1', agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'Which shade of blue?\nlong body', ts: new Date().toISOString() })
     line.onEvent({ type: 'esc_answer', id: 'esc-1', answer: 'navy' })
-    records.set('esc-2', { id: 'esc-2', worker: 'curia-9', ticket: '9', kind: REVIEW_KIND })
-    line.onEvent({ type: 'esc_open', id: 'esc-2', worker: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
+    records.set('esc-2', { id: 'esc-2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND })
+    line.onEvent({ type: 'esc_open', id: 'esc-2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
     line.onEvent({ type: 'esc_answer', id: 'esc-2', answer: 'approve' })
-    line.onEvent({ type: 'result', worker: 'curia-9', ticket: '9', status: 'resolved' })
-    line.onEvent({ type: 'worker_done', worker: 'curia-9' })
+    line.onEvent({ type: 'result', agent: 'curia-9', ticket: '9', status: 'resolved' })
+    line.onEvent({ type: 'agent_done', agent: 'curia-9' })
     await drain()
 
     const texts = posts.map((p) => p.text)
@@ -87,19 +87,19 @@ describe('StatusLine', () => {
       now: () => clock,
     })
     const opened = new Date(clock - 45 * 60_000).toISOString()
-    records.set('esc-3', { id: 'esc-3', worker: 'curia-4', ticket: '4', kind: 'free-text', status: 'open' })
-    l.onEvent({ type: 'esc_open', id: 'esc-3', worker: 'curia-4', ticket: '4', kind: 'free-text', prompt: 'A question', ts: opened })
+    records.set('esc-3', { id: 'esc-3', agent: 'curia-4', ticket: '4', kind: 'free-text', status: 'open' })
+    l.onEvent({ type: 'esc_open', id: 'esc-3', agent: 'curia-4', ticket: '4', kind: 'free-text', prompt: 'A question', ts: opened })
     clock += 30 * 60_000
     l.onEvent({ type: 'esc_nudge', id: 'esc-3' })
-    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
     assert.equal(posts.length, 1)
     assert.equal(edits.length, 1, 'the nudge edits, never posts')
     assert.match(edits[0].text, /\[esc-3\].*1 h 15 min/)
   })
 
-  test('a confirm is the overseer talking — the worker line ignores it', async () => {
-    records.set('esc-5', { id: 'esc-5', worker: 'overseer', kind: CONFIRM_KIND })
-    line.onEvent({ type: 'esc_open', id: 'esc-5', worker: 'overseer', ticket: '9', kind: CONFIRM_KIND, prompt: 'cancel all?', ts: 'T' })
+  test('a confirm is the overseer talking — the agent line ignores it', async () => {
+    records.set('esc-5', { id: 'esc-5', agent: 'overseer', kind: CONFIRM_KIND })
+    line.onEvent({ type: 'esc_open', id: 'esc-5', agent: 'overseer', ticket: '9', kind: CONFIRM_KIND, prompt: 'cancel all?', ts: 'T' })
     line.onEvent({ type: 'esc_answer', id: 'esc-5', answer: 'approve' })
     await drain()
     assert.equal(posts.length, 0)
@@ -108,17 +108,17 @@ describe('StatusLine', () => {
 
   // #169: both failures keep the session for inspection, but the operator acts
   // on them differently — a stalled start is worth a look at the pane, a dead
-  // command is a broken lane.
+  // command is a broken harness.
   test('a stalled line says WHICH failure it was', async () => {
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-8', ticket: '8', model: 'opus' })
-    line.onEvent({ type: 'worker_ready_timeout', worker: 'curia-8', ticket: '8', timeout_s: 45 })
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-6', ticket: '6', model: 'gpt' })
-    line.onEvent({ type: 'worker_exited_early', worker: 'curia-6', ticket: '6', status: 127 })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-8', ticket: '8', model: 'opus' })
+    line.onEvent({ type: 'agent_ready_timeout', agent: 'curia-8', ticket: '8', timeout_s: 45 })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-6', ticket: '6', model: 'gpt' })
+    line.onEvent({ type: 'agent_exited_early', agent: 'curia-6', ticket: '6', status: 127 })
     await drain()
 
     const last = (session) => posts.filter((p) => p.text.includes(session)).at(-1).text
     assert.match(last('curia-8'), /never reached a composer/)
-    assert.match(last('curia-6'), /the backend command exited \(status 127\)/)
+    assert.match(last('curia-6'), /the harness command exited \(status 127\)/)
     assert.match(last('curia-6'), /kept for inspection/)
   })
 
@@ -130,19 +130,19 @@ describe('StatusLine', () => {
       get: (id) => records.get(id),
       log: () => {},
     })
-    l2.onEvent({ type: 'worker_spawned', worker: 'curia-7', ticket: '7', model: 'opus' })
-    await Promise.all([...l2.workers.values()].map((w) => w.chain))
+    l2.onEvent({ type: 'agent_spawned', agent: 'curia-7', ticket: '7', model: 'opus' })
+    await Promise.all([...l2.agents.values()].map((w) => w.chain))
     alive = false
-    l2.onEvent({ type: 'worker_ready', worker: 'curia-7', ticket: '7', model: 'opus', ts: 'T' })
-    await Promise.all([...l2.workers.values()].map((w) => w.chain))
+    l2.onEvent({ type: 'agent_ready', agent: 'curia-7', ticket: '7', model: 'opus', ts: 'T' })
+    await Promise.all([...l2.agents.values()].map((w) => w.chain))
     assert.equal(posts.length, 2, 'the dead message is replaced by a fresh post')
     assert.match(posts[1].text, /working/)
   })
 
   test('a respawn after done starts a fresh message; the 🏁 line stands as history', async () => {
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-2', ticket: '2', model: 'opus' })
-    line.onEvent({ type: 'worker_done', worker: 'curia-2' })
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-2', ticket: '2', model: 'sonnet' })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'opus' })
+    line.onEvent({ type: 'agent_done', agent: 'curia-2' })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'sonnet' })
     await drain()
     assert.equal(posts.length, 3)
     assert.match(posts[1].text, /🏁 .*done/)
@@ -150,12 +150,12 @@ describe('StatusLine', () => {
     assert.ok(!removals.includes('m2'), 'the done line of the finished run is never deleted')
   })
 
-  test('worker_died flips a working line to ⚰️ gone with the resume verb (#138, #108 item 20)', async () => {
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-9', ticket: '9', model: 'opus' })
-    line.onEvent({ type: 'worker_ready', worker: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
-    line.onEvent({ type: 'worker_died', worker: 'curia-9', ticket: '9', repo: 'o/r' })
+  test('agent_died flips a working line to ⚰️ gone with the resume verb (#138, #108 item 20)', async () => {
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-9', ticket: '9', model: 'opus' })
+    line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    line.onEvent({ type: 'agent_died', agent: 'curia-9', ticket: '9', repo: 'o/r' })
     await drain()
-    assert.equal(posts.at(-1).text, `⚰️ \`curia-9\`${GROUP_SEP}worker gone — \`resume 9\``)
+    assert.equal(posts.at(-1).text, `⚰️ \`curia-9\`${GROUP_SEP}agent gone — \`resume 9\``)
   })
 
   test('a bridge that is down loses nothing: the next transition posts', async () => {
@@ -170,12 +170,12 @@ describe('StatusLine', () => {
       get: () => null,
       log: () => {},
     })
-    l3.onEvent({ type: 'worker_spawned', worker: 'curia-3', ticket: '3', model: 'opus' })
-    await Promise.all([...l3.workers.values()].map((w) => w.chain))
+    l3.onEvent({ type: 'agent_spawned', agent: 'curia-3', ticket: '3', model: 'opus' })
+    await Promise.all([...l3.agents.values()].map((w) => w.chain))
     assert.equal(posts.length, 0)
     up = true
-    l3.onEvent({ type: 'worker_ready', worker: 'curia-3', ticket: '3', model: 'opus', ts: 'T' })
-    await Promise.all([...l3.workers.values()].map((w) => w.chain))
+    l3.onEvent({ type: 'agent_ready', agent: 'curia-3', ticket: '3', model: 'opus', ts: 'T' })
+    await Promise.all([...l3.agents.values()].map((w) => w.chain))
     assert.equal(posts.length, 1)
   })
 
@@ -187,8 +187,8 @@ describe('StatusLine', () => {
       ctxPct: 41,
       windows: [{ label: '5h', pct: 62, elapsedPct: 30 }, { label: '7d', pct: 41, elapsedPct: 76 }],
     }
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-138', ticket: '138', model: 'gpt' })
-    line.onEvent({ type: 'worker_ready', worker: 'curia-138', ticket: '138', model: 'gpt', ts: 'T' })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-138', ticket: '138', model: 'gpt' })
+    line.onEvent({ type: 'agent_ready', agent: 'curia-138', ticket: '138', model: 'gpt', ts: 'T' })
     await drain()
     assert.equal(
       posts.at(-1).text,
@@ -202,8 +202,8 @@ describe('StatusLine', () => {
 
   test('a meter with no source drops itself, never the line', async () => {
     meters = { effort: null, ctxPct: null, windows: null }
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-5', ticket: '5', model: 'opus' })
-    line.onEvent({ type: 'worker_ready', worker: 'curia-5', ticket: '5', model: 'opus', ts: 'T' })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-5', ticket: '5', model: 'opus' })
+    line.onEvent({ type: 'agent_ready', agent: 'curia-5', ticket: '5', model: 'opus', ts: 'T' })
     await drain()
     assert.equal(posts.at(-1).text, `▶️ \`curia-5\`${GROUP_SEP}working${GROUP_SEP}**opus**`)
   })
@@ -216,13 +216,13 @@ describe('StatusLine', () => {
       log: () => {},
       meters: () => { throw new Error('transcript vanished') },
     })
-    l.onEvent({ type: 'worker_ready', worker: 'curia-6', ticket: '6', model: 'opus', ts: 'T' })
-    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    l.onEvent({ type: 'agent_ready', agent: 'curia-6', ticket: '6', model: 'opus', ts: 'T' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
     assert.equal(posts.at(-1).text, `▶️ \`curia-6\`${GROUP_SEP}working`)
   })
 
   test('the base sentence names the MODEL the meters state, not the routing label (#179)', async () => {
-    // The codex lane's fault: the label is `gpt` and the model is
+    // The codex harness's fault: the label is `gpt` and the model is
     // `gpt-5.6-sol`. The dispatched sentence and the meter run are one line, so
     // both take their name from the same place — and the name arrives once.
     const l = new StatusLine({
@@ -232,15 +232,15 @@ describe('StatusLine', () => {
       log: () => {},
       meters: () => ({ model: 'gpt-5.6-sol', effort: 'high', ctxPct: 12, windows: null }),
     })
-    l.onEvent({ type: 'worker_spawned', worker: 'curia-4', ticket: '4', model: 'gpt' })
-    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    l.onEvent({ type: 'agent_spawned', agent: 'curia-4', ticket: '4', model: 'gpt' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
     const dispatched = posts.at(-1).text
     assert.match(dispatched, /dispatched on \*\*gpt-5\.6-sol\*\*/)
     assert.equal(dispatched.match(/gpt-5\.6-sol/g).length, 1, 'the model arrives once')
     assert.ok(!dispatched.includes('**gpt**'), 'the routing label never stands in for it')
 
-    l.onEvent({ type: 'worker_ready', worker: 'curia-4', ticket: '4', model: 'gpt', ts: 'T' })
-    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    l.onEvent({ type: 'agent_ready', agent: 'curia-4', ticket: '4', model: 'gpt', ts: 'T' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
     assert.equal(posts.at(-1).text, `▶️ \`curia-4\`${GROUP_SEP}working${GROUP_SEP}**gpt-5.6-sol** high${GROUP_SEP}ctx 12%`)
   })
 
@@ -255,16 +255,16 @@ describe('StatusLine', () => {
       windows: [{ label: '5h', pct: 62, elapsedPct: 30 }, { label: '7d', pct: 41, elapsedPct: 76 }],
     }
     const title = 'Which of these seven candidate shades of blue should the launch banner use'
-    records.set('esc-9', { id: 'esc-9', worker: 'curia-8', ticket: '8', kind: 'choice' })
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-8', ticket: '8', model: 'gpt' })
-    line.onEvent({ type: 'esc_open', id: 'esc-9', worker: 'curia-8', ticket: '8', kind: 'choice', prompt: title, ts: new Date().toISOString() })
+    records.set('esc-9', { id: 'esc-9', agent: 'curia-8', ticket: '8', kind: 'choice' })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-8', ticket: '8', model: 'gpt' })
+    line.onEvent({ type: 'esc_open', id: 'esc-9', agent: 'curia-8', ticket: '8', kind: 'choice', prompt: title, ts: new Date().toISOString() })
     await drain()
     const text = posts.at(-1).text
     assert.ok(visibleWidth(text) <= LINE_BUDGET, `${visibleWidth(text)} columns is over the ${LINE_BUDGET} budget`)
     assert.ok(text.includes('**gpt** high'), 'the model survives the longest title there is')
     assert.ok(text.includes('Which of these seven candidate shades'), 'and the title still reads as one')
     assert.ok(text.includes('…'), 'it paid for the model in its own tail')
-    assert.ok(!text.includes('5h') && !text.includes('7d'), 'the bars still go — a blocked worker burns no quota')
+    assert.ok(!text.includes('5h') && !text.includes('7d'), 'the bars still go — a blocked agent burns no quota')
   })
 
   test('a title that cannot reach the floor is left whole and the meter drops (#179)', async () => {
@@ -284,9 +284,9 @@ describe('StatusLine', () => {
       meters: () => ({ model: WIDE, effort: null, ctxPct: null, windows: null }),
     })
     const title = 'Which of these seven candidate shades of blue should the launch banner use'
-    records.set('esc-7', { id: 'esc-7', worker: 'curia-7', ticket: '7', kind: 'choice' })
-    l.onEvent({ type: 'esc_open', id: 'esc-7', worker: 'curia-7', ticket: '7', kind: 'choice', prompt: title, ts: 'T' })
-    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    records.set('esc-7', { id: 'esc-7', agent: 'curia-7', ticket: '7', kind: 'choice' })
+    l.onEvent({ type: 'esc_open', id: 'esc-7', agent: 'curia-7', ticket: '7', kind: 'choice', prompt: title, ts: 'T' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
     const text = posts.at(-1).text
     assert.ok(text.includes(title), 'the title survives whole')
     assert.ok(!text.includes(WIDE), 'and the meter is what goes')
@@ -300,9 +300,9 @@ describe('StatusLine', () => {
       windows: [{ label: '5h', pct: 62, elapsedPct: 30 }, { label: '7d', pct: 41, elapsedPct: 76 }],
     }
     const ask = async (n, title) => {
-      records.set(`esc-${n}`, { id: `esc-${n}`, worker: `curia-${n}`, ticket: `${n}`, kind: 'choice' })
-      line.onEvent({ type: 'worker_spawned', worker: `curia-${n}`, ticket: `${n}`, model: 'gpt' })
-      line.onEvent({ type: 'esc_open', id: `esc-${n}`, worker: `curia-${n}`, ticket: `${n}`, kind: 'choice', prompt: title, ts: 'T' })
+      records.set(`esc-${n}`, { id: `esc-${n}`, agent: `curia-${n}`, ticket: `${n}`, kind: 'choice' })
+      line.onEvent({ type: 'agent_spawned', agent: `curia-${n}`, ticket: `${n}`, model: 'gpt' })
+      line.onEvent({ type: 'esc_open', id: `esc-${n}`, agent: `curia-${n}`, ticket: `${n}`, kind: 'choice', prompt: title, ts: 'T' })
       await drain()
       return posts.at(-1).text
     }
@@ -344,7 +344,7 @@ describe('StatusLine', () => {
 
   test('the meter tick edits in place, and only when a number moved (#146)', async () => {
     meters = { effort: null, ctxPct: 10, windows: null }
-    line.onEvent({ type: 'worker_ready', worker: 'curia-1', ticket: '1', model: 'opus', ts: 'T' })
+    line.onEvent({ type: 'agent_ready', agent: 'curia-1', ticket: '1', model: 'opus', ts: 'T' })
     await drain()
     assert.equal(posts.length, 1)
 
@@ -360,17 +360,17 @@ describe('StatusLine', () => {
     assert.match(edits[0].text, /ctx 63%/)
   })
 
-  test('a finished or dead worker carries no meters', async () => {
+  test('a finished or dead agent carries no meters', async () => {
     meters = { effort: null, ctxPct: 41, windows: [{ label: '5h', pct: 62 }] }
-    line.onEvent({ type: 'worker_spawned', worker: 'curia-3', ticket: '3', model: 'opus' })
-    line.onEvent({ type: 'worker_died', worker: 'curia-3', ticket: '3' })
-    line.onEvent({ type: 'worker_done', worker: 'curia-3' })
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-3', ticket: '3', model: 'opus' })
+    line.onEvent({ type: 'agent_died', agent: 'curia-3', ticket: '3' })
+    line.onEvent({ type: 'agent_done', agent: 'curia-3' })
     await drain()
     assert.ok(!posts.at(-2).text.includes('ctx'))
     assert.ok(!posts.at(-1).text.includes('ctx'))
     line.refresh()
     await drain()
-    assert.equal(edits.length, 0, 'the tick skips a worker whose run is over')
+    assert.equal(edits.length, 0, 'the tick skips an agent whose run is over')
   })
 
   test('the store append hook delivers live events and stays silent on replay', async () => {
@@ -383,9 +383,9 @@ describe('StatusLine', () => {
       const store = new EscalationStore(dir)
       const seen = []
       store.onEvent = (ev) => seen.push(ev.type)
-      store.logEvent('worker_spawned', { worker: 'curia-1', ticket: '1', model: 'opus' })
-      store.open({ worker: 'curia-1', ticket: '1', kind: 'free-text', prompt: 'q' })
-      assert.deepEqual(seen, ['worker_spawned', 'esc_open'])
+      store.logEvent('agent_spawned', { agent: 'curia-1', ticket: '1', model: 'opus' })
+      store.open({ agent: 'curia-1', ticket: '1', kind: 'free-text', prompt: 'q' })
+      assert.deepEqual(seen, ['agent_spawned', 'esc_open'])
       // replay: a rebooted store re-announces nothing
       const reborn = new EscalationStore(dir)
       const replaySeen = []

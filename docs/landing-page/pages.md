@@ -37,7 +37,7 @@ is set, and hard-coding it means the page stops being portable off GitHub.
 
 Setting the custom domain in repo settings makes GitHub commit a `CNAME` file to the publishing
 source on `main`. **That file is load-bearing** — deleting it drops the custom domain and the site
-falls back to `alp82.github.io/curia`. It was written by GitHub, not by a worker; leave it where it
+falls back to `alp82.github.io/curia`. It was written by GitHub, not by an agent; leave it where it
 sits.
 
 ## The DNS records

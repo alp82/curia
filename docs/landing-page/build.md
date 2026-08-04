@@ -5,7 +5,7 @@ on the map [The curia landing page](https://github.com/alp82/curia/issues/109).
 Every answer below came from the operator over Discord escalations.
 
 This file is the contract the shipping tickets build against. It fixes where the page lives, what
-turns it into a site, and the one command a worker runs before `publish_preview`.
+turns it into a site, and the one command an agent runs before `publish_preview`.
 
 ## Build path: none
 
@@ -55,7 +55,7 @@ python3 -m http.server 4000 --directory docs
 
 Then `publish_preview(4000, "/")`.
 
-`/` is the page locally and `/` is the page live, so a worker previews the same URL shape that
+`/` is the page locally and `/` is the page live, so an agent previews the same URL shape that
 ships. No path skew between the review gate and production.
 
 **Why `http.server` and not a node dev server:**
@@ -72,7 +72,7 @@ ships. No path skew between the review gate and production.
 attach and timeline Serve rules (8443, 8444) and the 8500–8599 preview range. `8000` and `8080` were
 both taken.
 
-**If the port is busy, move up.** `dispatch.max_concurrent` is 6, so two workers can want a preview
+**If the port is busy, move up.** `dispatch.max_concurrent` is 6, so two agents can want a preview
 at the same moment and `http.server` exits on `Address already in use`. Try 4001, 4002, and pass the
 port you **actually** bound — which is why `publish_preview` takes a port rather than reading a
 configured one (#40).

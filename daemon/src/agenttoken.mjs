@@ -1,29 +1,29 @@
-// The worker's proof of its own name (#159).
+// The agent's proof of its own name (#159).
 //
-// Two routes on the daemon are the worker's own — `POST /mcp?worker=` and
-// `POST /worker_done?worker=` — and until this file existed the NAME WAS THE
-// CLAIM. Any process that reached the daemon port could send another worker's
+// Two routes on the daemon are the agent's own — `POST /mcp?agent=` and
+// `POST /agent_done?agent=` — and until this file existed the NAME WAS THE
+// CLAIM. Any process that reached the daemon port could send another agent's
 // name in that query param: report a result for it, open an escalation as it, or
 // end its turn under it. The bare pane could always do that. #156 is what makes
 // it matter, because the daemon now binds a second listener on the docker bridge
 // gateway, and every container on the box can reach that address.
 //
-// So the daemon mints a secret per worker and hands it over inside the harness it
-// already writes: one header on the MCP server, the same header on the Stop
+// So the daemon mints a secret per agent and hands it over inside the connection settings
+// it already writes: one header on the MCP server, the same header on the Stop
 // hook's curl. NOT an environment variable, which is what the ticket proposed —
 // on the bare path a pane env rides `env K=V` in tmux argv and lands in `ps` for
 // every user on the box, the exact cost #155 measured and asked #156 not to
-// repeat. A header costs no new plumbing on either lane: `.mcp.json` takes a
+// repeat. A header costs no new plumbing on either harness: `.mcp.json` takes a
 // `headers` object and codex's `[mcp_servers.*]` takes `http_headers`.
 //
 // The token file is DAEMON-OWNED. It sits beside the results dir, never inside
-// the config dir a container mounts, so a worker holds its own token and no
+// the config dir a container mounts, so an agent holds its own token and no
 // other's. It is a file rather than a map in memory because a restarted daemon
-// ADOPTS the workers its predecessor spawned (reconcile), and those workers keep
-// using the token their harness already carries.
+// ADOPTS the agents its predecessor spawned (reconcile), and those agents keep
+// using the token their connection settings already carry.
 //
 // What this does not do: on the bare path there is no boundary to enforce. Every
-// worker runs as the same host user, so one can read another's harness file
+// agent runs as the same host user, so one can read another agent's settings
 // whatever the daemon stores and where. The token is a real control for a
 // CONTAINER, which mounts only its own two directories, and for anything else on
 // the box that can reach the port but not the daemon's own data dir.
@@ -36,14 +36,14 @@ import { validSessionName } from './attach.mjs'
 // Lower case because node lower-cases every incoming header name, and this one
 // string is written into `.mcp.json`, into codex's `config.toml`, into two curl
 // commands, and read back off `req.headers`. One name for one thing.
-export const TOKEN_HEADER = 'x-curia-worker-token'
+export const TOKEN_HEADER = 'x-curia-agent-token'
 
-// The routes a worker calls, and the only two that name a worker at all. This
+// The routes an agent calls, and the only two that name an agent at all. This
 // set does double duty: it is what the token gates, and it is the whole surface
 // the container-facing listener serves (index.mjs). Adding a route that takes a
-// `?worker=` and forgetting this set is the regression to guard against — the
+// `?agent=` and forgetting this set is the regression to guard against — the
 // name would be the claim again.
-export const WORKER_ROUTES = new Set(['/mcp', '/worker_done'])
+export const AGENT_ROUTES = new Set(['/mcp', '/agent_done'])
 
 // 32 bytes as hex: quote-free by construction, so it drops into a single-quoted
 // curl argument, a JSON string and a TOML string with no escaping rule anywhere.
@@ -56,28 +56,28 @@ export function tokensDir(dataDir) {
 // The session name comes off a query param at check time, so it is asserted
 // before it is ever used as a filename. `validSessionName` admits no `/`, which
 // is what keeps this a basename.
-function tokenFile(dataDir, worker) {
-  if (!validSessionName(String(worker ?? ''))) return null
-  return path.join(tokensDir(dataDir), String(worker))
+function tokenFile(dataDir, agent) {
+  if (!validSessionName(String(agent ?? ''))) return null
+  return path.join(tokensDir(dataDir), String(agent))
 }
 
-// A FRESH secret, overwriting whatever the last arm of this worker left. The
-// cross-backend respawn (#126) rewrites the harness, and the pane that died must
+// A FRESH secret, overwriting whatever the last arm of this agent left. The
+// cross-harness respawn (#126) rewrites the connection settings, and the pane that died must
 // not keep speaking for the name.
-export function mintWorkerToken(dataDir, worker) {
-  const file = tokenFile(dataDir, worker)
-  if (!file) throw new Error(`refusing to mint a worker token for "${worker}": not a valid curia session name`)
+export function mintAgentToken(dataDir, agent) {
+  const file = tokenFile(dataDir, agent)
+  if (!file) throw new Error(`refusing to mint an agent token for "${agent}": not a valid curia session name`)
   const token = crypto.randomBytes(32).toString('hex')
   fs.mkdirSync(tokensDir(dataDir), { recursive: true })
   fs.writeFileSync(file, token, { mode: 0o600 })
-  // writeFileSync applies the mode only when it CREATES the file, and a worker
+  // writeFileSync applies the mode only when it CREATES the file, and an agent
   // armed twice already has one (same note as sandbox.mjs's env file).
   fs.chmodSync(file, 0o600)
   return token
 }
 
-export function readWorkerToken(dataDir, worker) {
-  const file = tokenFile(dataDir, worker)
+export function readAgentToken(dataDir, agent) {
+  const file = tokenFile(dataDir, agent)
   if (!file) return null
   try {
     const token = fs.readFileSync(file, 'utf8').trim()
@@ -88,11 +88,11 @@ export function readWorkerToken(dataDir, worker) {
 }
 
 // Fails CLOSED in every direction that is not an exact match: no minted token,
-// an unreadable one, a missing header, a wrong one. A worker armed before this
+// an unreadable one, a missing header, a wrong one. An agent armed before this
 // shipped therefore has no way in — see docs/live-checks/159-worker-token.md for
 // the one restart that costs, and its recovery.
-export function workerTokenMatches(dataDir, worker, presented) {
-  const expected = readWorkerToken(dataDir, worker)
+export function agentTokenMatches(dataDir, agent, presented) {
+  const expected = readAgentToken(dataDir, agent)
   if (!expected || typeof presented !== 'string') return false
   const a = Buffer.from(expected, 'utf8')
   const b = Buffer.from(presented.trim(), 'utf8')
@@ -102,14 +102,14 @@ export function workerTokenMatches(dataDir, worker, presented) {
   return crypto.timingSafeEqual(a, b)
 }
 
-export function forgetWorkerToken(dataDir, worker) {
-  const file = tokenFile(dataDir, worker)
+export function forgetAgentToken(dataDir, agent) {
+  const file = tokenFile(dataDir, agent)
   if (file) fs.rmSync(file, { force: true })
 }
 
-// Every token whose worker is not in a POSITIVELY known session list — the same
+// Every token whose agent is not in a POSITIVELY known session list — the same
 // evidence rule the rest of reconcile runs on. Returns the names collected.
-export function sweepWorkerTokens(dataDir, live) {
+export function sweepAgentTokens(dataDir, live) {
   let names = []
   try {
     names = fs.readdirSync(tokensDir(dataDir))
@@ -120,7 +120,7 @@ export function sweepWorkerTokens(dataDir, live) {
   const swept = []
   for (const name of names) {
     if (keep.has(name) || !validSessionName(name)) continue
-    forgetWorkerToken(dataDir, name)
+    forgetAgentToken(dataDir, name)
     swept.push(name)
   }
   return swept

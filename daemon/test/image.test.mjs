@@ -1,4 +1,4 @@
-// The worker image (#154). Two things carry the weight here, and neither one
+// The agent image (#154). Two things carry the weight here, and neither one
 // can be checked by running a build in a test: the TAG IS A CONTENT ADDRESS
 // (so "the daemon rebuilds when a CLI version bumps" is arithmetic, not a
 // promise), and the config refuses an unpinned image rather than building one.
@@ -15,11 +15,11 @@ import path from 'node:path'
 import { loadCuriaConfig } from '../src/config.mjs'
 import {
   BUILD_CONTEXT, DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS,
-  buildArgs, imageDigest, workerImageRef,
+  buildArgs, imageDigest, agentImageRef,
 } from '../src/image.mjs'
 
 const PINS = {
-  image: 'curia-worker',
+  image: 'curia-agent',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
   gh_version: '2.97.0',
@@ -47,19 +47,19 @@ function otherDockerfile(body) {
 
 describe('the image tag (#154)', () => {
   test('the same pins and the same Dockerfile give the same ref', () => {
-    assert.equal(workerImageRef(PINS).ref, workerImageRef({ ...PINS }).ref)
+    assert.equal(agentImageRef(PINS).ref, agentImageRef({ ...PINS }).ref)
   })
 
   test('the legible half names both CLI versions', () => {
-    const { ref } = workerImageRef(PINS)
-    assert.match(ref, /^curia-worker:2\.1\.220-0\.146\.0-[0-9a-f]{8}$/)
+    const { ref } = agentImageRef(PINS)
+    assert.match(ref, /^curia-agent:2\.1\.220-0\.146\.0-[0-9a-f]{8}$/)
   })
 
   test('a bump in ANY pin changes the tag — that is what triggers the rebuild', () => {
-    const base = workerImageRef(PINS).tag
+    const base = agentImageRef(PINS).tag
     for (const key of Object.keys(SANDBOX_KEYS)) {
       const bumped = key === 'agent_uid' ? 1001 : `${PINS[key]}1`
-      assert.notEqual(workerImageRef({ ...PINS, [key]: bumped }).tag, base, `${key} did not move the tag`)
+      assert.notEqual(agentImageRef({ ...PINS, [key]: bumped }).tag, base, `${key} did not move the tag`)
     }
   })
 
@@ -70,9 +70,9 @@ describe('the image tag (#154)', () => {
   })
 
   test('the repository name comes from config, the tag never does', () => {
-    const ref = workerImageRef({ ...PINS, image: 'somewhere/curia-worker' })
-    assert.equal(ref.repo, 'somewhere/curia-worker')
-    assert.equal(ref.tag, workerImageRef(PINS).tag)
+    const ref = agentImageRef({ ...PINS, image: 'somewhere/curia-agent' })
+    assert.equal(ref.repo, 'somewhere/curia-agent')
+    assert.equal(ref.tag, agentImageRef(PINS).tag)
   })
 
   test('every pin reaches the build as the ARG the Dockerfile declares', () => {
@@ -176,7 +176,7 @@ describe('sandbox config (#154)', () => {
   })
 
   test('a tag written into sandbox.image is refused — the tag is derived', () => {
-    const lines = [...FULL, '  image: curia-worker:latest']
+    const lines = [...FULL, '  image: curia-agent:latest']
     assert.throws(() => loadCuriaConfig(writeConfig(lines)), /sandbox\.image/)
   })
 })
@@ -186,7 +186,7 @@ describe('the shipped config (#154)', () => {
     const file = path.resolve(import.meta.dirname, '..', '..', 'config', 'curia.yaml')
     const cfg = loadCuriaConfig(file)
     assert.ok(cfg.sandbox, 'the shipped config has no sandbox section')
-    const ref = workerImageRef(cfg.sandbox)
-    assert.match(ref.ref, /^curia-worker:\d[\w.]*-\d[\w.]*-[0-9a-f]{8}$/)
+    const ref = agentImageRef(cfg.sandbox)
+    assert.match(ref.ref, /^curia-agent:\d[\w.]*-\d[\w.]*-[0-9a-f]{8}$/)
   })
 })

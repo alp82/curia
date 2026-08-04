@@ -7,25 +7,25 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
-import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_BACKENDS } from './workspace.mjs'
+import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES } from './workspace.mjs'
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 import { PROBE_MODEL } from './usage.mjs'
 import { DEFAULT_TIMELINE_INDEX } from './timeline.mjs'
 import { DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS } from './image.mjs'
-import { DEFAULT_CONTAINER_PORTS, PORTS_PER_WORKER } from './sandbox.mjs'
+import { DEFAULT_CONTAINER_PORTS, PORTS_PER_AGENT } from './sandbox.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
-// How a backend's workers are contained (#156). `none` is the bare tmux pane
-// every worker ran in before the sandbox; `docker` is one container per worker.
+// How a harness's agents are contained (#156). `none` is the bare tmux pane
+// every agent ran in before the sandbox; `docker` is one container per agent.
 const SANDBOX_MODES = ['none', 'docker']
 
 // Every reasoning effort any configured model accepts, unioned.
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
 // A plain directory name and nothing else. The file is hand-edited, so this
-// also refuses "..", "a/b" and any other way of pointing the worker's skills
+// also refuses "..", "a/b" and any other way of pointing the agent's skills
 // dir outside the configured root.
 const SKILL_NAME_RE = /^[\w.-]+$/
 
@@ -72,7 +72,7 @@ export function loadCuriaConfig(file) {
   // enforcement off is not a thing a number should express by accident.
   d.stop_nudge_budget = d.stop_nudge_budget ?? 3
   // confirm_ttl_h is gone (#94): confirms have no expiry clock — they lapse
-  // with their worker. A yaml still carrying the key loads fine; it is ignored.
+  // with their agent. A yaml still carrying the key loads fine; it is ignored.
   for (const key of ['max_concurrent', 'poll_interval_s', 'ready_timeout_s', 'stop_nudge_budget']) {
     if (!(typeof d[key] === 'number' && d[key] > 0)) fail(file, `dispatch.${key} must be a positive number`)
   }
@@ -182,9 +182,9 @@ export function loadCuriaConfig(file) {
   }
   cfg.preview = range
 
-  // Worker skill set (#57). Optional section with defaults, but validated the
+  // Agent skill set (#57). Optional section with defaults, but validated the
   // same either way: the daemon refuses to boot naming the missing skill
-  // rather than dispatching a worker that silently lacks one. Only an
+  // rather than dispatching an agent that silently lacks one. Only an
   // explicitly empty `install:` opts out — silence by omission is the failure
   // this section exists to end, so omission takes the full default list.
   const s = cfg.skills ?? {}
@@ -208,7 +208,7 @@ export function loadCuriaConfig(file) {
 
   // Status-line meters (#146). Only the anthropic account bars are switchable,
   // because only they leave the box: the model, the effort and the context %
-  // are computed from the daemon's own records and the worker's own transcript.
+  // are computed from the daemon's own records and the agent's own transcript.
   // Turning this off keeps the reading the CLI already cached on disk and stops
   // the daemon refreshing it — the bars then age instead of vanishing.
   const u = cfg.usage ?? {}
@@ -221,11 +221,11 @@ export function loadCuriaConfig(file) {
   }
   cfg.usage = { account_bars: u.account_bars ?? true, probe_model: u.probe_model ?? PROBE_MODEL }
 
-  // The worker sandbox image (#154, from #148). The section as a whole is
-  // OPTIONAL, because the sandbox ships behind a per-backend switch that is
+  // The agent sandbox image (#154, from #148). The section as a whole is
+  // OPTIONAL, because the sandbox ships behind a per-harness switch that is
   // off by default and a box running no containers needs no pins. Every key
   // inside it is REQUIRED, for the reason #57 gives: the value silence would
-  // pick here is "whatever npm serves this minute", which is a worker running
+  // pick here is "whatever npm serves this minute", which is an agent running
   // an unreviewed CLI. There is no safe default for a pin.
   if (cfg.sandbox !== undefined) {
     const sb = cfg.sandbox
@@ -245,7 +245,7 @@ export function loadCuriaConfig(file) {
       }
     }
     // Not cosmetic: the container writes the clone the daemon prepared on the
-    // host, so a uid that is not the host user's makes every worker fail on
+    // host, so a uid that is not the host user's makes every agent fail on
     // its first write. Defaulted to the daemon's own uid, which is the only
     // value that can be right by construction.
     sb.agent_uid = sb.agent_uid ?? process.getuid?.()
@@ -256,7 +256,7 @@ export function loadCuriaConfig(file) {
       fail(file, `sandbox is configured but ${DOCKERFILE} is missing — the image has no recipe`)
     }
     // The ports each container publishes on loopback (#156, from #148). Three
-    // per worker, so the range has to hold `3 × max_concurrent` before every
+    // per agent, so the range has to hold `3 × max_concurrent` before every
     // slot can run sandboxed — checked here rather than discovered by the
     // dispatch that finds none free with a claim already taken.
     const sbRange = { from: sb.port_from ?? DEFAULT_CONTAINER_PORTS.from, to: sb.port_to ?? DEFAULT_CONTAINER_PORTS.to }
@@ -264,9 +264,9 @@ export function loadCuriaConfig(file) {
       if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(file, `sandbox.${key} must be a port number`)
     }
     if (sbRange.to < sbRange.from) fail(file, `sandbox.port_to (${sbRange.to}) must not be below sandbox.port_from (${sbRange.from})`)
-    const need = PORTS_PER_WORKER * d.max_concurrent
+    const need = PORTS_PER_AGENT * d.max_concurrent
     if (sbRange.to - sbRange.from + 1 < need) {
-      fail(file, `sandbox ports ${sbRange.from}-${sbRange.to} hold ${sbRange.to - sbRange.from + 1} ports, and ${d.max_concurrent} concurrent workers publishing ${PORTS_PER_WORKER} each need ${need}`)
+      fail(file, `sandbox ports ${sbRange.from}-${sbRange.to} hold ${sbRange.to - sbRange.from + 1} ports, and ${d.max_concurrent} concurrent agents publishing ${PORTS_PER_AGENT} each need ${need}`)
     }
     // Every other surface on this box is a port a container must never
     // shadow: publishing over the preview range would make `tailscale serve`
@@ -298,11 +298,11 @@ export function loadRoutingConfig(file) {
     fail(file, '`models` must be a non-empty map')
   }
   for (const [name, m] of Object.entries(cfg.models)) {
-    if (!m || typeof m.provider !== 'string' || typeof m.backend !== 'string') {
-      fail(file, `models.${name} needs \`provider\` and \`backend\``)
+    if (!m || typeof m.provider !== 'string' || typeof m.harness !== 'string') {
+      fail(file, `models.${name} needs \`provider\` and \`harness\``)
     }
     if (!LIMIT_PATTERNS[m.provider]) {
-      // A provider with no usage-limit vocabulary would spawn workers whose cap
+      // A provider with no usage-limit vocabulary would spawn agents whose cap
       // hits are invisible: parseUsageLimit returns null for it, so the model
       // never cools and every dispatch on it burns a claim into a ready-timeout.
       // Adding a provider is a code change (the phrasings are classifiers, not
@@ -345,73 +345,73 @@ export function loadRoutingConfig(file) {
     }
   }
 
-  if (!cfg.backends || typeof cfg.backends !== 'object' || !Object.keys(cfg.backends).length) {
-    fail(file, '`backends` must be a non-empty map')
+  if (!cfg.harnesses || typeof cfg.harnesses !== 'object' || !Object.keys(cfg.harnesses).length) {
+    fail(file, '`harnesses` must be a non-empty map')
   }
-  for (const [name, b] of Object.entries(cfg.backends)) {
-    if (!b || typeof b.template !== 'string') fail(file, `backends.${name} needs a \`template\` string`)
+  for (const [name, b] of Object.entries(cfg.harnesses)) {
+    if (!b || typeof b.template !== 'string') fail(file, `harnesses.${name} needs a \`template\` string`)
     for (const ph of ['{model}', '{prompt_file}']) {
-      if (!b.template.includes(ph)) fail(file, `backends.${name}.template is missing the ${ph} placeholder`)
+      if (!b.template.includes(ph)) fail(file, `harnesses.${name}.template is missing the ${ph} placeholder`)
     }
-    if (!HARNESS_BACKENDS.includes(name)) {
-      fail(file, `backends.${name} has no harness in workspace.mjs — a worker under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_BACKENDS.join(', ')}`)
+    if (!HARNESS_NAMES.includes(name)) {
+      fail(file, `harnesses.${name} has no entry in the HARNESS table in workspace.mjs — an agent under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_NAMES.join(', ')}`)
     }
-    // The readiness marker is per backend and REQUIRED, not defaulted (#57's
+    // The readiness marker is per harness and REQUIRED, not defaulted (#57's
     // precedent: silence by omission is the failure this refuses). #33 lost
     // readiness live to a marker that matched nothing, and the symptom was
-    // silence — no worker_ready, and reactive cooling that could never fire.
+    // silence — no agent_ready, and reactive cooling that could never fire.
     if (typeof b.ready !== 'string' || !b.ready.trim()) {
-      fail(file, `backends.${name} needs a \`ready\` regex — the pane text that says this backend reached its composer`)
+      fail(file, `harnesses.${name} needs a \`ready\` regex — the pane text that says this harness reached its composer`)
     }
     try {
       b.readyRe = new RegExp(b.ready)
     } catch (e) {
-      fail(file, `backends.${name}.ready is not a valid regex: ${e.message}`)
+      fail(file, `harnesses.${name}.ready is not a valid regex: ${e.message}`)
     }
-    // How long after the composer marker a worker may stay silent on `/mcp`
-    // before curia calls it mute (#194). Per backend, because it is a property
-    // of the CLI's startup and not of curia: only the WINDOW is per lane, the
+    // How long after the composer marker an agent may stay silent on `/mcp`
+    // before curia calls it mute (#194). Per harness, because it is a property
+    // of the CLI's startup and not of curia: only the WINDOW is per harness, the
     // detector is the same route for both.
     //
     // Required, no default, for the reason `ready` is: a number nobody measured
     // reads exactly like a number somebody did, and the failure it buys is
-    // either a healthy worker killed or a mute one left running.
+    // either a healthy agent killed or a mute one left running.
     if (typeof b.tool_channel_grace_s !== 'number' || !(b.tool_channel_grace_s > 0)) {
-      fail(file, `backends.${name} needs a positive \`tool_channel_grace_s\` — how long after the composer marker a worker may send no /mcp request before curia treats it as having no tool channel`)
+      fail(file, `harnesses.${name} needs a positive \`tool_channel_grace_s\` — how long after the composer marker an agent may send no /mcp request before curia treats it as having no tool channel`)
     }
     b.toolChannelGraceS = b.tool_channel_grace_s
-    // The sandbox switch (#156, rollout rule of #148): per backend, default
-    // off, so the claude lane goes first and the codex lane follows after the
-    // soak (#158). A backend with no key runs the bare pane exactly as before.
+    // The sandbox switch (#156, rollout rule of #148): per harness, default
+    // off, so the claude harness goes first and the codex harness follows after the
+    // soak (#158). A harness with no key runs the bare pane exactly as before.
     b.sandbox = b.sandbox ?? 'none'
     if (!SANDBOX_MODES.includes(b.sandbox)) {
-      fail(file, `backends.${name}.sandbox must be one of ${SANDBOX_MODES.join('|')} (got ${JSON.stringify(b.sandbox)})`)
+      fail(file, `harnesses.${name}.sandbox must be one of ${SANDBOX_MODES.join('|')} (got ${JSON.stringify(b.sandbox)})`)
     }
     // The container command is single-quoted inside the pane's shell (see
     // sandbox.mjs), which is what keeps `$(cat <prompt>)` expanding INSIDE the
     // container. A template carrying its own single quote breaks that, and the
-    // failure would be a worker whose command line came apart at spawn.
+    // failure would be an agent whose command line came apart at spawn.
     if (b.sandbox === 'docker' && b.template.includes("'")) {
-      fail(file, `backends.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one, or set backends.${name}.sandbox: none`)
+      fail(file, `harnesses.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one, or set harnesses.${name}.sandbox: none`)
     }
   }
   for (const [name, m] of Object.entries(cfg.models)) {
-    if (!cfg.backends[m.backend]) fail(file, `models.${name}.backend names unknown backend "${m.backend}"`)
+    if (!cfg.harnesses[m.harness]) fail(file, `models.${name}.harness names unknown harness "${m.harness}"`)
   }
 
   return cfg
 }
 
 // The one thing neither file can check alone (#156): the sandbox switch lives
-// in routing.yaml and the image pins live in curia.yaml, so a backend switched
+// in routing.yaml and the image pins live in curia.yaml, so a harness switched
 // to docker against a curia.yaml with no `sandbox:` section would fail at the
 // first dispatch — with a claim already taken — instead of at boot.
 export function assertSandboxConfig(curiaCfg, routingCfg) {
-  const on = Object.entries(routingCfg.backends ?? {})
+  const on = Object.entries(routingCfg.harnesses ?? {})
     .filter(([, b]) => b.sandbox === 'docker')
     .map(([name]) => name)
   if (on.length && !curiaCfg.sandbox) {
-    throw new Error(`backends ${on.join(', ')} run \`sandbox: docker\`, but config/curia.yaml carries no \`sandbox:\` section — a container has no image to run and no pins to build one from`)
+    throw new Error(`harnesses ${on.join(', ')} run \`sandbox: docker\`, but config/curia.yaml carries no \`sandbox:\` section — a container has no image to run and no pins to build one from`)
   }
   return on
 }

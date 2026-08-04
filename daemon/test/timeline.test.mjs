@@ -1,7 +1,7 @@
-// The timeline surface (#74): per-backend transcript readers, the loud parse
+// The timeline surface (#74): per-harness transcript readers, the loud parse
 // failure, the escalation overlay, the proto-stamp refusal, and the write
 // path's origin gate + session whitelist. Line fixtures are real shapes copied
-// from worker transcripts on the deployment host, trimmed.
+// from agent transcripts on the deployment host, trimmed.
 
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -11,7 +11,7 @@ import path from 'node:path'
 
 import http from 'node:http'
 
-import { detectBackend, findTranscript, parseLine } from '../src/transcript.mjs'
+import { detectHarness, findTranscript, parseLine } from '../src/transcript.mjs'
 import { TimelineSurface, pageRefusal, detectDialog, DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO } from '../src/timeline.mjs'
 
 // Real pane shapes, captured live on the deployment host (#75): the trust
@@ -193,15 +193,15 @@ describe('codex reader', () => {
   })
 })
 
-describe('backend detection + transcript discovery', () => {
+describe('harness detection + transcript discovery', () => {
   test('projects/ means claude, sessions/ means codex, neither means null', () => {
     const c = path.join(tmp, 'cfg', 'curia-1')
     fs.mkdirSync(path.join(c, 'projects'), { recursive: true })
-    assert.equal(detectBackend(c), 'claude')
+    assert.equal(detectHarness(c), 'claude')
     const x = path.join(tmp, 'cfg', 'curia-2')
     fs.mkdirSync(path.join(x, 'sessions'), { recursive: true })
-    assert.equal(detectBackend(x), 'codex')
-    assert.equal(detectBackend(path.join(tmp, 'cfg', 'nope')), null)
+    assert.equal(detectHarness(x), 'codex')
+    assert.equal(detectHarness(path.join(tmp, 'cfg', 'nope')), null)
   })
 
   test('newest claude transcript wins across project dirs', () => {
@@ -361,7 +361,7 @@ describe('TimelineSurface', () => {
 
     const { events } = await sse(port, 'session=curia-9')
     const hello = events.find((e) => e.event === 'hello')
-    assert.equal(hello.data.backend, 'claude')
+    assert.equal(hello.data.harness, 'claude')
     const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
     assert.equal(items.filter((i) => i.kind === 'say').length, 1)
     assert.equal(items.filter((i) => i.kind === 'tool').length, 1)
@@ -377,7 +377,7 @@ describe('TimelineSurface', () => {
     assert.equal(hello.data.file, null)
   })
 
-  test('open escalations overlay from the daemon record — the claude lane writes nothing while blocked (#74 item 5)', async () => {
+  test('open escalations overlay from the daemon record — the claude harness writes nothing while blocked (#74 item 5)', async () => {
     escalations = [{ id: 'esc-7', kind: 'free-text', prompt: 'which shade?', options: null, preview_url: null, opened_at: 'T', nudges: 1 }]
     try {
       const { events } = await sse(port, 'session=curia-9')
@@ -391,7 +391,7 @@ describe('TimelineSurface', () => {
 
   test('the full escalation history reaches the page — question, options, answer, who answered (#108 item 1)', async () => {
     escHistory = [{
-      id: 'esc-3', worker: 'curia-9', kind: 'choice',
+      id: 'esc-3', agent: 'curia-9', kind: 'choice',
       prompt: 'a long question body\nwith a second line the transcript brief drops',
       options: ['red', 'blue'], opened_at: 'T1', closed_at: 'T2',
       status: 'answered', answer: 'blue, because contrast', answered_by: 'alp',
@@ -424,10 +424,10 @@ describe('TimelineSurface', () => {
     const same = await fetch(`http://127.0.0.1:${port}/send`, {
       method: 'POST',
       headers: { origin: `http://127.0.0.1:${port}` },
-      body: JSON.stringify({ session: 'curia-9', text: 'hello worker' }),
+      body: JSON.stringify({ session: 'curia-9', text: 'hello agent' }),
     })
     assert.equal(same.status, 200)
-    assert.deepEqual(sent.at(-1), { session: 'curia-9', text: 'hello worker' })
+    assert.deepEqual(sent.at(-1), { session: 'curia-9', text: 'hello agent' })
   })
 
   test('the key route knows its keys', async () => {

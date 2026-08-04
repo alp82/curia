@@ -31,7 +31,7 @@ import { chunkMessage, smallPrint } from './messaging.mjs'
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
 // #108 item 23, widened by #170: a message that is nothing but a command,
-// typed at a worker thread — the shape that reads as "cancel the worker" but
+// typed at an agent thread — the shape that reads as "cancel the agent" but
 // queues as prose. Trailing punctuation forgiven; any surrounding words mean
 // it is a real note.
 //
@@ -42,7 +42,7 @@ const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 export const COMMAND_SHAPED = /^\s*(cancel|stop|pause|resume|status|start|attach)(\s+(#?\d+|all))?\s*[.!?]*\s*$/i
 
 // The command the operator meant. `stop` and `pause` are not verbs the surface
-// has — at a worker, cancel is what they ask for. `status` is the only one
+// has — at an agent, cancel is what they ask for. `status` is the only one
 // that takes no ticket.
 const MEANT_VERB = { cancel: 'cancel', stop: 'cancel', pause: 'cancel', resume: 'resume', status: 'status', start: 'start', attach: 'attach' }
 
@@ -58,7 +58,7 @@ export function commandHint(text, ticket, channelId) {
 // the two facts it carries are the ones #170 got wrong: WHETHER anything reads
 // the note, and where the operator's words would have been a command.
 //
-// `q.reads === false` is positive evidence the worker is not running — the
+// `q.reads === false` is positive evidence the agent is not running — the
 // early exit (#169), the ready timeout, the result-less exit. The note still
 // queues: the queue is session-keyed, so whatever resumes on this session gets
 // it (see store.queueRecordedAnswer). Anything else keeps the old promise.
@@ -79,18 +79,18 @@ const SLASH_MANIFEST = [
     .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
   new SlashCommandBuilder().setName('next').setDescription('Dispatch the next takeable ticket')
     .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
-  new SlashCommandBuilder().setName('status').setDescription('Workers running, waiting on input, and recent endings'),
-  new SlashCommandBuilder().setName('start').setDescription('Dispatch a worker on a ticket, or a charting worker on a map')
+  new SlashCommandBuilder().setName('status').setDescription('Agents running, waiting on input, and recent endings'),
+  new SlashCommandBuilder().setName('start').setDescription('Dispatch an agent on a ticket, or a charting agent on a map')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or a map number').setRequired(true))
     .addStringOption((o) => o.setName('model').setDescription('Model override'))
-    .addStringOption((o) => o.setName('backend').setDescription('Backend override'))
+    .addStringOption((o) => o.setName('harness').setDescription('Harness override'))
     // #160. Optional, so an old client-side manifest still sends a valid
-    // `/start` — it just cannot carry a sentence, and the charting worker then
+    // `/start` — it just cannot carry a sentence, and the charting agent then
     // asks what should change, which is the right degradation.
     .addStringOption((o) => o.setName('instruction').setDescription('MAP ONLY: what should change on the map')),
   new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket, or all of them')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
-  new SlashCommandBuilder().setName('resume').setDescription('Fresh worker on a ticket, inheriting its surviving worktree')
+  new SlashCommandBuilder().setName('resume').setDescription('Fresh agent on a ticket, inheriting its surviving worktree')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
   new SlashCommandBuilder().setName('attach').setDescription('Get the attach handle for a live session')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true)),
@@ -133,7 +133,7 @@ export function expandCommand(i) {
       const instruction = (need('instruction') ?? '').replace(/\s+/g, ' ').trim()
       return `start ${ticket}`
         + (opt('model') ? ' model=' + opt('model') : '')
-        + (opt('backend') ? ' backend=' + opt('backend') : '')
+        + (opt('harness') ? ' harness=' + opt('harness') : '')
         + (instruction ? ` -- ${instruction}` : '')
     }
     case 'cancel':
@@ -465,7 +465,7 @@ export class DiscordBridge {
       row.addComponents(b)
     }
     // A confirm (#94) gets ✅/❌ and nothing else: declining IS the safe exit,
-    // and the record closes by lapsing with its worker, never by 🛑 Cancel.
+    // and the record closes by lapsing with its agent, never by 🛑 Cancel.
     if (record.kind === CONFIRM_KIND) {
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|approve`).setLabel('✅ Approve').setStyle(ButtonStyle.Danger))
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|reject`).setLabel('❌ Decline').setStyle(ButtonStyle.Secondary))
@@ -491,7 +491,7 @@ export class DiscordBridge {
     if (record.kind === CONFIRM_KIND) {
       return [
         `**[${record.id}]** ${record.prompt}`,
-        '-# ✅ executes, ❌ declines. No expiry — but this confirm lapses the moment its worker exits.',
+        '-# ✅ executes, ❌ declines. No expiry — but this confirm lapses the moment its agent exits.',
       ].join('\n')
     }
     // The review gate (#54) is the one kind whose prompt is a multi-line block
@@ -499,15 +499,15 @@ export class DiscordBridge {
     // blockquote would mark only its first line, so it is printed as it stands.
     if (record.kind === REVIEW_KIND) {
       return [
-        `**[${record.id}]** \`${record.worker}\` asks for review:`,
+        `**[${record.id}]** \`${record.agent}\` asks for review:`,
         '',
         record.prompt,
         '',
-        '_✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the worker gets your words)._',
+        '_✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words)._',
       ].join('\n')
     }
     // No blockquote (#95's markdown standard) — the prompt stands on its own line.
-    const head = `**[${record.id}]** \`${record.worker}\` asks (*${record.kind}*):\n${record.prompt}`
+    const head = `**[${record.id}]** \`${record.agent}\` asks (*${record.kind}*):\n${record.prompt}`
     const parts = [head]
     if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {
       parts.push(record.options.map((o, i) => `**${i + 1}.** ${o}`).join('\n'), '_Reply in this thread with a number._')
@@ -530,10 +530,10 @@ export class DiscordBridge {
     return this.ensureThread(record.ticket)
   }
 
-  // Speaker identities (#108 item 15): worker prose posts under a webhook
+  // Speaker identities (#108 item 15): agent prose posts under a webhook
   // identity ("curia-9 · <ticket title>", own identicon avatar), overseer
   // prose as "curia" with the bot's avatar — one thread, one voice, and "the
-  // worker" moves from the prose into the speaker label. One channel webhook
+  // agent" moves from the prose into the speaker label. One channel webhook
   // serves every identity (username set per send). CONSTRAINT, verified
   // against Discord's API: interactive components require an
   // application-owned webhook, which createWebhook does not mint — so
@@ -554,7 +554,7 @@ export class DiscordBridge {
   //
   // Probed at START rather than left to the first send, because startup is when
   // the operator can act on it. The probe is the real path, not a permission
-  // read, so it also warms the hook for the first worker send. Public because
+  // read, so it also warms the hook for the first agent send. Public because
   // `start()` needs a live gateway and the tests do not.
   async probeSpeakers() {
     try {
@@ -574,10 +574,10 @@ export class DiscordBridge {
     const why = missing
       ? 'the bot lacks **Manage Webhooks** on this channel'
       : `the channel webhook failed (${e?.message ?? e})`
-    return `⚠️ Speaker identities are off: ${why}. Worker prose posts under the bot voice. Grant the permission to the bot role, or as a #curia channel override.`
+    return `⚠️ Speaker identities are off: ${why}. Agent prose posts under the bot voice. Grant the permission to the bot role, or as a #curia channel override.`
   }
 
-  static SPEAKERS_BACK = '✅ Speaker identities are on. Worker prose posts under its own name again.'
+  static SPEAKERS_BACK = '✅ Speaker identities are on. Agent prose posts under its own name again.'
 
   async #speakerFault(e) {
     this.speakers = { ok: false, reason: e?.message ?? String(e) }
@@ -598,8 +598,8 @@ export class DiscordBridge {
 
   // The face beside the name. `github.com/identicons/<name>.png` was the first
   // scheme (#108 item 15) and it answers for REAL GitHub accounts only —
-  // measured 404 for `curia-9`, `curia-143` and every other worker name, 200
-  // for `alp82`. So Discord had nothing to fetch and every worker wore the
+  // measured 404 for `curia-9`, `curia-143` and every other agent name, 200
+  // for `alp82`. So Discord had nothing to fetch and every agent wore the
   // default avatar (#143). Gravatar generates one from any hash, `f=y` forces
   // the generated face even when the hash happens to be a real account, and
   // curia still hosts no asset. md5 is Gravatar's key, not a security choice.
@@ -690,17 +690,17 @@ export class DiscordBridge {
   }
 
   markCancelled(record) {
-    return this.#editEscalationMessage(record, `❌ **cancelled** by <@${record.cancelled_by}> — worker gets an "aborted" result, ticket re-frontiers`)
+    return this.#editEscalationMessage(record, `❌ **cancelled** by <@${record.cancelled_by}> — agent gets an "aborted" result, ticket re-frontiers`)
   }
 
   markSuperseded(record) {
-    return this.#editEscalationMessage(record, `⚠️ **superseded** by **${record.successor}** (the worker re-issued this question) — answer the newer message`)
+    return this.#editEscalationMessage(record, `⚠️ **superseded** by **${record.successor}** (the agent re-issued this question) — answer the newer message`)
   }
 
-  // A confirm whose worker exited (#94): buttons off, and the message says why
+  // A confirm whose agent exited (#94): buttons off, and the message says why
   // nothing will ever execute from it.
   markLapsed(record) {
-    return this.#editEscalationMessage(record, `⚰️ **lapsed** — ${record.lapse_reason ?? 'its worker exited'}. Nothing was executed; re-issue the command if you still want it.`)
+    return this.#editEscalationMessage(record, `⚰️ **lapsed** — ${record.lapse_reason ?? 'its agent exited'}. Nothing was executed; re-issue the command if you still want it.`)
   }
 
   // A line into the thread a record was rendered in — confirm outcomes (#94)
@@ -711,7 +711,7 @@ export class DiscordBridge {
     if (thread) await this.#sendChunked(thread, { content: text })
   }
 
-  // The per-worker status line (#108 item 8): one message per worker thread,
+  // The per-agent status line (#108 item 8): one message per agent thread,
   // edited in place. The daemon composes the text; this is transport only.
   // editStatus returns false when the message is gone, so the caller reposts
   // rather than losing the line.
@@ -755,9 +755,9 @@ export class DiscordBridge {
   }
 
   // Fire-and-forget status line into the ticket thread; files = outbound
-  // images. `as` picks the speaker identity (#108 item 15): a worker's own
+  // images. `as` picks the speaker identity (#108 item 15): an agent's own
   // words post under its name; absent, the bot voice stands. `links` become
-  // buttons — bot voice only (see linkRow), so a worker-voice send with links
+  // buttons — bot voice only (see linkRow), so an agent-voice send with links
   // appends them as plain lines instead of dropping them.
   async notify(ticket, message, { files = [], as = null, links = [] } = {}) {
     const thread = await this.ensureThread(ticket)
@@ -857,7 +857,7 @@ export class DiscordBridge {
 
   // Discord caps a message at 2000 chars; the split respects paragraphs (#119).
   // The overseer speaks as "curia" (#108 item 15) — the webhook identity, so a
-  // ticket thread's worker name and the overseer are visibly two speakers.
+  // ticket thread's agent name and the overseer are visibly two speakers.
   async #sayChunked(thread, text) {
     await this.#sendAs('curia', thread, { content: text })
   }
@@ -873,30 +873,30 @@ export class DiscordBridge {
     }
     if (!m.channel.isThread() || m.channel.parentId !== this.channel.id) return
     // A reply in a thread feeds an open escalation first, otherwise the
-    // session (#89) — so a labeled ticket thread answers its worker's question
+    // session (#89) — so a labeled ticket thread answers its agent's question
     // before the overseer ever hears the words.
     const open = this.handlers.findOpenForThread(m.channel.id)
     if (!open) {
-      // One listener per thread (#120): while a live worker is bound here, the
-      // overseer stays silent — it cannot see the worker's question, and its
+      // One listener per thread (#120): while a live agent is bound here, the
+      // overseer stays silent — it cannot see the agent's question, and its
       // confident reply reads as if the words were delivered (#108 items 14/15).
       // Text outside an open escalation queues as an operator note the daemon
-      // piggybacks on the worker's next tool result (#108 item 14) — the
+      // piggybacks on the agent's next tool result (#108 item 14) — the
       // round-one refusal notice is gone.
-      const owner = this.handlers.workerForThread?.(m.channel.id)
+      const owner = this.handlers.agentForThread?.(m.channel.id)
       if (owner) {
-        const q = this.handlers.queueWorkerNote?.(m.channel.id, m.content ?? '', m.author.id)
+        const q = this.handlers.queueAgentNote?.(m.channel.id, m.content ?? '', m.author.id)
         if (q) {
           await m.react('📨').catch(() => {})
           // A command still queues — the operator may mean the word for the
-          // worker — but the reply names the way out, so `cancel 166` typed at
-          // a worker never dies silently as a note (#108 item 23, #170).
+          // agent — but the reply names the way out, so `cancel 166` typed at
+          // an agent never dies silently as a note (#108 item 23, #170).
           const lines = queuedNoteReply({ owner, q, text: m.content, channelId: this.channel.id })
           await m.channel.send(smallPrint(lines.join('\n'))).catch(() => {})
         } else {
           await m.react('⚠️').catch(() => {})
           await m.channel.send(smallPrint(
-            `this thread belongs to \`${owner}\` — text here reaches the worker only as a reply to an open escalation.`,
+            `this thread belongs to \`${owner}\` — text here reaches the agent only as a reply to an open escalation.`,
           )).catch(() => {})
         }
         return
@@ -916,7 +916,7 @@ export class DiscordBridge {
     if (!answer && !attachments.length) return
     if (attachments.length) {
       // The path line stays: it is the readable form in the durable record, and
-      // the worker keeps a handle on the file. The image itself now also rides
+      // the agent keeps a handle on the file. The image itself now also rides
       // back as a real content block (see `attachments`, #34).
       answer = [answer, ...attachments.map((p) => `[attachment: ${p}]`)].filter(Boolean).join('\n')
     }

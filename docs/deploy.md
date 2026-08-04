@@ -33,7 +33,7 @@ Getting it wrong 403s every attach. Fixing it is an edit plus a restart, over ss
 
 - `DISCORD_BOT_TOKEN`, `DISCORD_ALLOWED_USERS` — copied from the dev box.
 - `CURIA_AGENT_GH_TOKEN_ALP82`, `CURIA_AGENT_GH_TOKEN_GETALFREDO` — the scoped GitHub tokens agents get as `GH_TOKEN` ([#155](https://github.com/alp82/curia/issues/155)). One per resource owner, because a fine-grained PAT has exactly one. Adding a repo to an owner already covered is an edit on the token page and does **not** change the value, so it costs no edit here and no restart. A new owner needs a new token and a new key.
-- `CLAUDE_CODE_OAUTH_TOKEN` — a long-lived subscription token from `claude setup-token` (decision [#100](https://github.com/alp82/curia/issues/100)). The unit loads the file with `EnvironmentFile`, so the token reaches the daemon and flows into every worker.
+- `CLAUDE_CODE_OAUTH_TOKEN` — a long-lived subscription token from `claude setup-token` (decision [#100](https://github.com/alp82/curia/issues/100)). The unit loads the file with `EnvironmentFile`, so the token reaches the daemon and flows into every agent.
 
 **One daemon at a time.** The Discord bot token must live in exactly one running daemon. Before you start the local daemon for development, stop the service: `ssh alp@coinmatica.net sudo /bin/systemctl stop curia`.
 
@@ -47,12 +47,12 @@ The script connects over ssh, pulls `main`, installs daemon dependencies, copies
 
 The `alp` user holds narrow sudo rights (`/etc/sudoers.d/curia`): copy the unit file, `daemon-reload`, and `start`/`stop`/`restart` of `curia` only.
 
-## The worker sandbox image
+## The agent sandbox image
 
-Workers run in one Docker container each ([#148](https://github.com/alp82/curia/issues/148)). They share one image, built on the box from `deploy/worker/Dockerfile`:
+Agents run in one Docker container each ([#148](https://github.com/alp82/curia/issues/148)). They share one image, built on the box from `deploy/agent/Dockerfile`:
 
 ```
-ssh alp@coinmatica.net 'cd curia && npm run build-worker-image --prefix daemon'
+ssh alp@coinmatica.net 'cd curia && npm run build-agent-image --prefix daemon'
 ```
 
 The image tag is a content address over the Dockerfile and the pins in `config/curia.yaml` (`sandbox:`), so the command is a no-op when the image is already there. The daemon runs the same build itself when a dispatch wants a container and the tag is missing, which is what makes a version bump in that config enough on its own. Pass `--force` to rebuild against today's apt and npm without changing a pin.
@@ -69,17 +69,17 @@ The service picks the group up at start, so it needs a restart after the grant.
 
 This grants `alp` root on the box, because anyone who can reach the socket can mount `/` into a container. That is the accepted cost of rootful Docker. Rootless Docker does not replace it here: it maps a container uid to a subordinate host uid, so an agent running as uid 1000 could not write the clone the daemon bind-mounts, and the container-root that does map to `alp` is the one user Claude Code refuses to run as.
 
-The worker itself never reaches the socket. It is denied inside the container, which is the whole point of the boundary.
+The agent itself never reaches the socket. It is denied inside the container, which is the whole point of the boundary.
 
 **The firewall must let a container reach the daemon.** The box runs ufw with a default-deny
-INPUT policy, and a worker's side channel — `ask_human`, the Stop hook, every curia tool —
+INPUT policy, and an agent's side channel — `ask_human`, the Stop hook, every curia tool —
 goes from the container to the daemon over the docker bridge. Without a rule the traffic is
-dropped, not refused, so the worker hangs instead of failing. Done on 2026-08-04
+dropped, not refused, so the agent hangs instead of failing. Done on 2026-08-04
 ([#185](https://github.com/alp82/curia/issues/185)):
 
 ```
 sudo ufw allow in on docker0 from 10.0.1.0/24 to 10.0.1.1 port 4271 proto tcp \
-  comment 'curia worker side channel'
+  comment 'curia agent side channel'
 ```
 
 Read the bridge subnet and the gateway off the box first — `docker network inspect bridge` and
@@ -95,7 +95,7 @@ not listening. Check the rule by hand the same way:
 
 ```
 docker run --rm --add-host host.docker.internal:host-gateway --entrypoint curl \
-  $(docker images --format '{{.Repository}}:{{.Tag}}' | grep curia-worker | head -1) \
+  $(docker images --format '{{.Repository}}:{{.Tag}}' | grep curia-agent | head -1) \
   -sS -m 5 http://host.docker.internal:4271/ping
 ```
 
@@ -125,6 +125,6 @@ Done on 2026-08-01, as root unless noted:
 4. Installed `ttyd` 1.7.7 (static binary) to `/home/alp/.local/bin/ttyd`.
 5. Installed tailscale 1.98.10 from the official apt repo. Removed a stale NodeSource apt source that broke `apt-get update`. Set `tailscale set --operator=alp` so the daemon can run `tailscale serve`.
 6. Installed Claude Code (native installer) as `alp`.
-7. Cloned the repo, ran `npm install` in `daemon/`, created `~/curia-work`, rsynced the nine worker skills.
+7. Cloned the repo, ran `npm install` in `daemon/`, created `~/curia-work`, rsynced the nine agent skills.
 8. Wrote `/etc/sudoers.d/curia` and installed the unit.
 9. HITL: `tailscale up` approved in the browser. `claude setup-token` ran on the dev box, token pasted into the env file.

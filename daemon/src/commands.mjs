@@ -26,7 +26,7 @@ const REPOISH_RE = /^[\w./-]+$/
 const INSTRUCTION_SEP = '--'
 
 // 'tickets [repo]' | 'next [repo]' | 'status'
-// | 'start <n>|<owner/repo#n> [model=x] [backend=y] [-- <instruction>]'
+// | 'start <n>|<owner/repo#n> [model=x] [harness=y] [-- <instruction>]'
 // | 'cancel <n>|all' | 'resume <n>|all' | 'attach <n>'  — anything else ⇒ null.
 export function parseCommand(text) {
   const parts = (text ?? '').trim().split(/\s+/).filter(Boolean)
@@ -63,7 +63,7 @@ export function parseCommand(text) {
       const sep = rest.indexOf(INSTRUCTION_SEP)
       const opts = sep === -1 ? rest.slice(1) : rest.slice(1, sep)
       for (const opt of opts) {
-        const om = opt.match(/^(model|backend)=([\w.-]+)$/)
+        const om = opt.match(/^(model|harness)=([\w.-]+)$/)
         if (!om) return null
         cmd[om[1]] = om[2]
       }
@@ -97,18 +97,18 @@ const USAGE = [
   'commands:',
   '`tickets [repo]` — takeable tickets across the watch list (repo: any unambiguous part of the name)',
   '`next [repo]` — dispatch the next takeable ticket',
-  '`status` — workers running, workers waiting on input, recent cancelled and finished',
-  '`start <n>|repo#<n> [model=x] [backend=y]` — claim + dispatch a worker (repo: any unambiguous part of the name)',
-  '`start <map> -- <instruction>` — dispatch a charting worker on a `wayfinder:map` issue; the sentence after `--` is what it should change',
+  '`status` — agents running, agents waiting on input, recent cancelled and finished',
+  '`start <n>|repo#<n> [model=x] [harness=y]` — claim + dispatch an agent (repo: any unambiguous part of the name)',
+  '`start <map> -- <instruction>` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after `--` is what it should change',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
-  '`resume <n>|all` — fresh worker on a ticket, inheriting its surviving worktree',
-  '`attach <n>` — timeline + browser-terminal links for a live worker',
+  '`resume <n>|all` — fresh agent on a ticket, inheriting its surviving worktree',
+  '`attach <n>` — timeline + browser-terminal links for a live agent',
 ].join('\n')
 
 export class CommandRouter {
   // attach: { link(ticket) -> Promise<url> } — injected by index.mjs.
   // dispatcher carries the loaded routing config at dispatcher.routing so
-  // `backend=` validates without a network round-trip, and the watch list at
+  // `harness=` validates without a network round-trip, and the watch list at
   // dispatcher.config.watch so repo arguments resolve without one either.
   constructor({ dispatcher, attach, log = console.log }) {
     this.dispatcher = dispatcher
@@ -148,12 +148,12 @@ export class CommandRouter {
             if (repo.error) return repo.error
             cmd.repo = repo.repo
           }
-          if (cmd.backend && !this.dispatcher.routing.backends?.[cmd.backend]) {
-            const configured = Object.keys(this.dispatcher.routing.backends ?? {}).map((b) => `\`${b}\``).join(', ')
-            return `❌ backend \`${cmd.backend}\` is not configured — configured backends: ${configured}`
+          if (cmd.harness && !this.dispatcher.routing.harnesses?.[cmd.harness]) {
+            const configured = Object.keys(this.dispatcher.routing.harnesses ?? {}).map((b) => `\`${b}\``).join(', ')
+            return `❌ harness \`${cmd.harness}\` is not configured — configured harnesses: ${configured}`
           }
           return await this.dispatcher.start(cmd.ticket, {
-            repo: cmd.repo, model: cmd.model, backend: cmd.backend, instruction: cmd.instruction,
+            repo: cmd.repo, model: cmd.model, harness: cmd.harness, instruction: cmd.instruction,
             by: userId, threadId,
           })
         }
@@ -218,11 +218,11 @@ export class CommandRouter {
     return lines.join('\n')
   }
 
-  // Grown per #81: running workers, workers waiting on input (and where),
+  // Grown per #81: running agents, agents waiting on input (and where),
   // recent cancelled and finished.
   async #status() {
-    const { workers, untracked, recent = [] } = await this.dispatcher.status()
-    if (!workers.length && !untracked.length && !recent.length) return 'no live workers'
+    const { agents, untracked, recent = [] } = await this.dispatcher.status()
+    if (!agents.length && !untracked.length && !recent.length) return 'no live agents'
     const waitingStates = new Set(['blocked', 'awaiting-review'])
     const isWaiting = (w) => waitingStates.has(w.state) || (w.waiting_on ?? []).length > 0
     const line = (w) => {
@@ -234,8 +234,8 @@ export class CommandRouter {
       return `• \`${w.session}\` ${w.repo}#${w.ticket} — ${w.model ?? '?'} — **${w.state}** — up ${uptime}${w.result_received ? ' — result in' : ''}${where}${liveness} — \`/attach ${w.ticket}\``
     }
     const lines = []
-    for (const w of workers.filter((x) => !isWaiting(x))) lines.push(line(w))
-    for (const w of workers.filter(isWaiting)) lines.push(line(w))
+    for (const w of agents.filter((x) => !isWaiting(x))) lines.push(line(w))
+    for (const w of agents.filter(isWaiting)) lines.push(line(w))
     for (const s of untracked) lines.push(`• \`${s}\` — ⚠️ live tmux session not tracked by the dispatcher (reconcile will adopt or sweep it)`)
     for (const r of recent) {
       const label = { cancelled: '⚰️ cancelled', finished: '✅ finished', died: '⚰️ died' }[r.kind] ?? r.kind

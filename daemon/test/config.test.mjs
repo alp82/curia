@@ -1,6 +1,6 @@
 // Config validation is a trust boundary: both YAML files are hand-edited, and
 // the daemon must refuse to boot rather than limp. These tests cover the
-// worker skill set (#57) — the one section whose validation reaches the
+// agent skill set (#57) — the one section whose validation reaches the
 // filesystem, because a named-but-absent skill is the failure it exists to end.
 
 import { test, describe, before, after } from 'node:test'
@@ -62,7 +62,7 @@ describe('skills config (#57)', () => {
     assert.throws(
       () => loadCuriaConfig(writeConfig(`skills:\n  root: ${root}\n  install: [wayfinder, nope]`)),
       /skills.install names "nope".*SKILL\.md does not exist/s,
-      'dispatching a worker that silently lacks a skill is the failure being prevented',
+      'dispatching an agent that silently lacks a skill is the failure being prevented',
     )
   })
 
@@ -142,9 +142,9 @@ describe('the Stop-hook nudge budget (#54 item 4)', () => {
   })
 })
 
-// ---- two backends (#39) ------------------------------------------------------
+// ---- two harnesses (#39) ------------------------------------------------------
 
-describe('routing config with a second backend (#39)', () => {
+describe('routing config with a second harness (#39)', () => {
   let dir
   before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-routing-cfg-')) })
   after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
@@ -154,9 +154,9 @@ describe('routing config with a second backend (#39)', () => {
     '  untyped: opus',
     '  research: gpt',
     'models:',
-    '  opus: { provider: anthropic, backend: claude }',
-    '  gpt: { provider: openai, backend: codex, id: gpt-5.5 }',
-    'backends:',
+    '  opus: { provider: anthropic, harness: claude }',
+    '  gpt: { provider: openai, harness: codex, id: gpt-5.5 }',
+    'harnesses:',
     "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'bypass permissions', tool_channel_grace_s: 15 }",
     "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '\u00b7\\s[~/]', tool_channel_grace_s: 15 }",
   ]
@@ -167,30 +167,30 @@ describe('routing config with a second backend (#39)', () => {
     return loadRoutingConfig(file)
   }
 
-  test('the two-lane config loads and compiles each backend readiness marker', () => {
+  test('the two-harness config loads and compiles each harness readiness marker', () => {
     const cfg = load(BASE)
     assert.equal(cfg.models.gpt.id, 'gpt-5.5')
-    assert.equal(cfg.backends.codex.readyRe.test('  gpt-5.5 low · ~/curia-work/wt/39'), true)
-    assert.equal(cfg.backends.claude.readyRe.test('  gpt-5.5 low · ~/curia-work/wt/39'), false)
+    assert.equal(cfg.harnesses.codex.readyRe.test('  gpt-5.5 low · ~/curia-work/wt/39'), true)
+    assert.equal(cfg.harnesses.claude.readyRe.test('  gpt-5.5 low · ~/curia-work/wt/39'), false)
   })
 
   // #33 lost readiness live to a marker that matched nothing, and the whole
   // symptom was silence — so an absent one refuses the boot (#57's precedent).
-  test('a backend with no readiness marker refuses the boot', () => {
+  test('a harness with no readiness marker refuses the boot', () => {
     const lines = BASE.map((l) => (l.startsWith('  codex:')
       ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"' }"
       : l))
-    assert.throws(() => load(lines), /backends\.codex needs a `ready` regex/)
+    assert.throws(() => load(lines), /harnesses\.codex needs a `ready` regex/)
   })
 
-  test('a backend with no tool-channel window refuses the boot (#194)', () => {
+  test('a harness with no tool-channel window refuses the boot (#194)', () => {
     const lines = BASE.map((l) => (l.startsWith('  codex:')
       ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x' }"
       : l))
-    assert.throws(() => load(lines), /backends\.codex needs a positive `tool_channel_grace_s`/)
+    assert.throws(() => load(lines), /harnesses\.codex needs a positive `tool_channel_grace_s`/)
   })
 
-  test('a zero or negative tool-channel window refuses the boot — it would call every worker mute', () => {
+  test('a zero or negative tool-channel window refuses the boot — it would call every agent mute', () => {
     for (const bad of ['0', '-5']) {
       const lines = BASE.map((l) => (l.startsWith('  codex:')
         ? `  codex: { template: 'codex --model {model} "$(cat {prompt_file})"', ready: 'x', tool_channel_grace_s: ${bad} }`
@@ -199,8 +199,8 @@ describe('routing config with a second backend (#39)', () => {
     }
   })
 
-  test('the window compiles onto the backend the dispatcher reads', () => {
-    assert.equal(load(BASE).backends.claude.toolChannelGraceS, 15)
+  test('the window compiles onto the harness the dispatcher reads', () => {
+    assert.equal(load(BASE).harnesses.claude.toolChannelGraceS, 15)
   })
 
   test('a readiness marker that is not a regex refuses the boot', () => {
@@ -210,22 +210,22 @@ describe('routing config with a second backend (#39)', () => {
     assert.throws(() => load(lines), /is not a valid regex/)
   })
 
-  // A backend with no harness would get no config dir, no curia tools and no
-  // Stop hook — a worker that cannot be driven or ended.
-  test('a backend with no harness in workspace.mjs refuses the boot', () => {
+  // A harness with no entry in the HARNESS table would get no config dir, no curia tools and no
+  // Stop hook — an agent that cannot be driven or ended.
+  test('a harness with no entry in the HARNESS table refuses the boot', () => {
     const lines = [...BASE.slice(0, -2),
       "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
       "  cursor: { template: 'cursor --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
       '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', ready: \'x\', tool_channel_grace_s: 15 }',
     ]
-    assert.throws(() => load(lines), /backends\.cursor has no harness/)
+    assert.throws(() => load(lines), /harnesses\.cursor has no entry in the HARNESS table/)
   })
 
-  // A provider with no usage-limit vocabulary spawns workers whose cap hits are
+  // A provider with no usage-limit vocabulary spawns agents whose cap hits are
   // invisible: nothing cools, and every dispatch burns a claim into a timeout.
   test('a provider with no usage-limit vocabulary refuses the boot', () => {
     const lines = BASE.map((l) => (l.startsWith('  gpt:')
-      ? '  gpt: { provider: mistral, backend: codex, id: gpt-5.5 }'
+      ? '  gpt: { provider: mistral, harness: codex, id: gpt-5.5 }'
       : l))
     assert.throws(() => load(lines), /has no usage-limit vocabulary/)
   })
@@ -234,7 +234,7 @@ describe('routing config with a second backend (#39)', () => {
   // key rather than at dispatch with a claim already taken.
   test('a model id that is not quote-free refuses the boot', () => {
     const lines = BASE.map((l) => (l.startsWith('  gpt:')
-      ? '  gpt: { provider: openai, backend: codex, id: \'gpt"; rm -rf /\' }'
+      ? '  gpt: { provider: openai, harness: codex, id: \'gpt"; rm -rf /\' }'
       : l))
     assert.throws(() => load(lines), /models\.gpt\.id must be a quote-free model name/)
   })
@@ -249,8 +249,8 @@ describe('reasoning effort is stated, not inherited (#39)', () => {
     'defaults:',
     '  untyped: gpt',
     'models:',
-    `  gpt: { provider: openai, backend: codex, id: gpt-5.6-sol${effort === null ? '' : `, reasoning_effort: ${effort}`} }`,
-    'backends:',
+    `  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol${effort === null ? '' : `, reasoning_effort: ${effort}`} }`,
+    'harnesses:',
     "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
   ]
 

@@ -11,14 +11,14 @@ second writable surface under the same deferral. Until now the only control on e
 membership.
 
 That control was thinner than it looked. Session names are public issue numbers, so the URL of a
-running worker is guessable. ttyd's `-O` compares `Origin` to `Host`, which is a browser control: a
-non-browser client on the tailnet sets both headers itself and drives a `bypassPermissions` worker.
+running agent is guessable. ttyd's `-O` compares `Origin` to `Host`, which is a browser control: a
+non-browser client on the tailnet sets both headers itself and drives a `bypassPermissions` agent.
 The timeline gated writes the same way and gated reads on nothing at all.
 
 Tailscale Serve settles it, and the facts were measured on the deployment box rather than reasoned
 about ([the live check](../live-checks/151-attach-surface-auth.md)). Serve stamps
 `Tailscale-User-Login` on every request it proxies, **overwrites** the header when a client forges
-it, and carries it on the **WebSocket upgrade** — the path that actually drives a worker. Serve does
+it, and carries it on the **WebSocket upgrade** — the path that actually drives an agent. Serve does
 **not** sanitize `Host`: a forged one passes through verbatim, which is the residual hole `-O`
 leaves.
 
@@ -53,9 +53,9 @@ leaves.
   login still attaches. Revoking the node in the Tailscale admin console is the control there.
 - **Loopback on this box is not covered and is not meant to be.** Anything running here reaches
   ttyd and the timeline directly and can set any header. The box is already inside the trust
-  boundary: workers share the host credential store ([ADR-0007](0007-shared-credential-store.md))
+  boundary: agents share the host credential store ([ADR-0007](0007-shared-credential-store.md))
   and the tmux socket ([ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md)).
-- Preview rules are **not** covered. A worker's dev server still publishes to the whole tailnet
+- Preview rules are **not** covered. An agent's dev server still publishes to the whole tailnet
   with no identity check. That is the next surface to take this treatment.
 - Any future surface published through Serve inherits this decision. Adding one without the check
   reopens what this closed.

@@ -17,7 +17,7 @@ const target = (session, instance) => ({ session, ticket: session.replace('curia
 
 function openConfirm(store, targets, extra = {}) {
   return store.open({
-    worker: 'overseer', ticket: targets.length === 1 ? targets[0].ticket : 'all',
+    agent: 'overseer', ticket: targets.length === 1 ? targets[0].ticket : 'all',
     kind: CONFIRM_KIND, prompt: 'Cancel?', action: { verb: 'cancel', targets },
     origin_thread_id: 'thread-9', ...extra,
   })
@@ -42,7 +42,7 @@ describe('confirm records (#94)', () => {
     const { record: older } = openConfirm(store, [target('curia-42', 'curia-42@1')])
     const { record: newer, superseded } = openConfirm(store, [
       target('curia-42', 'curia-42@1'), target('curia-43', 'curia-43@1'),
-    ], { prompt: 'Cancel ALL 2 worker(s)?' })
+    ], { prompt: 'Cancel ALL 2 agent(s)?' })
 
     assert.equal(superseded.id, older.id)
     assert.equal(store.get(older.id).status, 'superseded')
@@ -62,7 +62,7 @@ describe('confirm records (#94)', () => {
 
   test('a confirm never trips the payload-hash supersede of ordinary escalations, and vice versa', () => {
     const store = new EscalationStore(dir)
-    const esc = store.open({ worker: 'overseer', ticket: '42', kind: 'approve-reject', prompt: 'Cancel?' })
+    const esc = store.open({ agent: 'overseer', ticket: '42', kind: 'approve-reject', prompt: 'Cancel?' })
     const { superseded } = openConfirm(store, [target('curia-42', 'curia-42@1')])
     assert.equal(superseded, null)
     assert.equal(store.get(esc.record.id).status, 'open')

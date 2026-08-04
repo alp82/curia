@@ -2,7 +2,7 @@
 //
 // The contract these pin:
 //
-//   - the daemon allocates the Serve port, never the worker;
+//   - the daemon allocates the Serve port, never the agent;
 //   - curia's own localhost surfaces can never be published (the daemon API is
 //     an unauthenticated escalation-answer surface — publishing it to the
 //     tailnet is the worst thing this module could do);
@@ -78,7 +78,7 @@ describe('publish refuses what must never reach the tailnet', () => {
     const r = await reg.publish('7', 4321, { base: BASE })
     assert.equal(r.ok, false)
     assert.match(r.reason, /nothing is listening/)
-    assert.match(r.reason, /both 127\.0\.0\.1 and \[::1\]/, 'the refusal must say which addresses were probed — the worker cannot otherwise tell a dead server from a wrong-family bind')
+    assert.match(r.reason, /both 127\.0\.0\.1 and \[::1\]/, 'the refusal must say which addresses were probed — the agent cannot otherwise tell a dead server from a wrong-family bind')
     assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
   })
 
@@ -367,9 +367,9 @@ describe('the published link points at the page, not the site root (#68)', () =>
   })
 })
 
-// #157: a sandboxed worker's dev server runs inside its container, and the box
+// #157: a sandboxed agent's dev server runs inside its container, and the box
 // reaches it only through the three ports that container publishes. So the
-// allocation, not a probe, is what says the port is the worker's own.
+// allocation, not a probe, is what says the port is the agent's own.
 //
 // The probe is not merely weaker here — it is false. docker binds the host port
 // for the container's whole life, so a connect succeeds whether or not a server
@@ -385,7 +385,7 @@ describe('the published-port bound (#157)', () => {
     const reg = new PreviewRegistry({ exec, isLive: neverProbed, log: () => {} })
     const r = await reg.publish('7', 3000, { base: BASE, published: [9000, 9001, 9002] })
     assert.equal(r.ok, false)
-    assert.match(r.reason, /9000, 9001, 9002/, 'a worker cannot discover its ports — the refusal has to state them')
+    assert.match(r.reason, /9000, 9001, 9002/, 'an agent cannot discover its ports — the refusal has to state them')
     assert.match(r.reason, /0\.0\.0\.0/, 'and has to say how to bind, since a localhost bind inside the container fails silently')
     assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
     assert.equal(reg.get('7'), null)
@@ -410,7 +410,7 @@ describe('the published-port bound (#157)', () => {
     assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
   })
 
-  test('a worker with no published ports keeps the probe — the bare path until #158', async () => {
+  test('an agent with no published ports keeps the probe — the bare path until #158', async () => {
     const { exec, calls } = fakeExec()
     const reg = new PreviewRegistry({ exec, isLive: neverLive, log: () => {} })
     const r = await reg.publish('7', 3000, { base: BASE, published: null })

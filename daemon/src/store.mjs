@@ -7,7 +7,7 @@
 //
 // Semantics owned here:
 //   - first-valid-wins: answer/cancel close atomically; later attempts are rejected
-//   - supersede (#29): a re-issued ask_human (same worker + same payload while an
+//   - supersede (#29): a re-issued ask_human (same agent + same payload while an
 //     older escalation is open) marks the old record superseded; answers posted
 //     to a dead id are routed along the successor chain to the live call
 //   - nudge bookkeeping for the ~30-min re-nudge (#11)
@@ -19,8 +19,42 @@ import crypto from 'node:crypto'
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no nudge timer, no
 // pending resolver — the executing path is button → daemon — and it closes by
-// LAPSING when the worker instance it is bound to exits.
+// LAPSING when the agent instance it is bound to exits.
 export const CONFIRM_KIND = 'confirm'
+
+// The journal in the old spelling (#184).
+//
+// Until #184 the process curia spawns was a "worker" and the program it ran
+// under was its "backend", so every line written before the rename says
+// `worker_spawned`, `"worker": "curia-170"`, `"backend": "claude"`. The journal
+// is APPEND-ONLY and it is the daemon's only durable artifact — a record you
+// rewrite to match today's vocabulary is no longer a record. So the file is
+// never touched, and the old spellings are translated HERE instead.
+//
+// One edge, crossed by both readers: `EscalationStore._replay` and the
+// dispatcher's `#readJournal`. Everything downstream of them — the reducer,
+// reconcile's epoch scan, the harness a re-adopted agent gets back — sees one
+// name for one thing, which is the whole point of the rename.
+//
+// A new-spelling key always wins over a legacy one, so a line carrying both
+// (which nothing writes) can never resurrect the old value.
+const LEGACY_FIELDS = { worker: 'agent', backend: 'harness' }
+
+export function normalizeEvent(ev) {
+  if (!ev || typeof ev !== 'object') return ev
+  let out = ev
+  // Covers every legacy type in one rule, `escalation_worker_died` included:
+  // there is no event whose name says "worker" and means something else.
+  if (typeof ev.type === 'string' && ev.type.includes('worker')) {
+    out = { ...out, type: ev.type.replaceAll('worker', 'agent') }
+  }
+  for (const [legacy, current] of Object.entries(LEGACY_FIELDS)) {
+    if (!(legacy in out) || current in out) continue
+    out = { ...out, [current]: out[legacy] }
+    delete out[legacy]
+  }
+  return out
+}
 
 export class EscalationStore {
   constructor(dataDir) {
@@ -29,7 +63,7 @@ export class EscalationStore {
     fs.mkdirSync(dataDir, { recursive: true })
     this.escalations = new Map() // id -> record
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
-    this.workerNotes = new Map() // worker session -> pending operator notes (#108 item 14)
+    this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
@@ -42,7 +76,7 @@ export class EscalationStore {
     if (!fs.existsSync(this.log)) return
     for (const line of fs.readFileSync(this.log, 'utf8').split('\n')) {
       if (!line.trim()) continue
-      this._apply(JSON.parse(line), { replay: true })
+      this._apply(normalizeEvent(JSON.parse(line)), { replay: true })
     }
   }
 
@@ -64,20 +98,20 @@ export class EscalationStore {
         const n = Number(ev.id.split('-')[1])
         if (n >= this.seq) this.seq = n
         this.escalations.set(ev.id, {
-          id: ev.id, worker: ev.worker, ticket: ev.ticket, kind: ev.kind,
+          id: ev.id, agent: ev.agent, ticket: ev.ticket, kind: ev.kind,
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
           payload_hash: ev.payload_hash, status: 'open', opened_at: ev.ts,
           action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
-          discord: null, successor: null, nudges: 0, worker_died: false,
+          discord: null, successor: null, nudges: 0, agent_died: false,
         })
         break
       }
-      case 'escalation_worker_died': {
-        // The liveness sweep's mark (#138): the worker died but its question
+      case 'escalation_agent_died': {
+        // The liveness sweep's mark (#138): the agent died but its question
         // stays open and answerable. Reduced onto the record so the answer
         // path (#139) can see, across restarts, that nothing live waits here.
         const r = this.escalations.get(ev.id)
-        if (r) r.worker_died = true
+        if (r) r.agent_died = true
         break
       }
       case 'esc_render': {
@@ -130,14 +164,14 @@ export class EscalationStore {
         this.overseerNotes.set(ev.thread_id, arr)
         break
       }
-      case 'worker_note': {
-        const arr = this.workerNotes.get(ev.worker) ?? []
+      case 'agent_note': {
+        const arr = this.agentNotes.get(ev.agent) ?? []
         arr.push({ text: ev.text, after: ev.after ?? null })
-        this.workerNotes.set(ev.worker, arr)
+        this.agentNotes.set(ev.agent, arr)
         break
       }
-      case 'worker_notes_drained': {
-        const arr = this.workerNotes.get(ev.worker) ?? []
+      case 'agent_notes_drained': {
+        const arr = this.agentNotes.get(ev.agent) ?? []
         arr.splice(0, ev.count)
         break
       }
@@ -161,15 +195,15 @@ export class EscalationStore {
       .digest('hex').slice(0, 16)
   }
 
-  // Open a new escalation. If the same worker already has an OPEN escalation with
+  // Open a new escalation. If the same agent already has an OPEN escalation with
   // the same payload, that record is a corpse from an aborted tool call (#29):
   // supersede it and chain answers forward.
   //
   // A confirm (#94) supersedes on a different key: any open confirm sharing a
-  // target INSTANCE — a newer confirm on the same worker replaces the older one
+  // target INSTANCE — a newer confirm on the same agent replaces the older one
   // whatever its wording, so at most one set of live buttons ever points at a
-  // given worker.
-  open({ worker, ticket, kind, prompt, options, preview_url, action, origin_thread_id }) {
+  // given agent.
+  open({ agent, ticket, kind, prompt, options, preview_url, action, origin_thread_id }) {
     const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
@@ -179,13 +213,13 @@ export class EscalationStore {
       if (r.status !== 'open') continue
       const match = kind === CONFIRM_KIND
         ? r.kind === CONFIRM_KIND && sharesInstance(r)
-        : r.worker === worker && r.payload_hash === payload_hash
+        : r.agent === agent && r.payload_hash === payload_hash
       if (match) {
         superseded = r
         break
       }
     }
-    this._append({ type: 'esc_open', id, worker, ticket, kind, prompt, options, preview_url, payload_hash, action, origin_thread_id })
+    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, payload_hash, action, origin_thread_id })
     if (superseded) this._append({ type: 'esc_supersede', id: superseded.id, successor: id })
     return { record: this.escalations.get(id), superseded }
   }
@@ -225,7 +259,7 @@ export class EscalationStore {
     return { ok: true, record }
   }
 
-  // A confirm whose worker exited closes by LAPSING (#94) — distinct from
+  // A confirm whose agent exited closes by LAPSING (#94) — distinct from
   // cancelled, because nobody chose it and the rendered message says so.
   lapse(id, reason) {
     const r = this.escalations.get(id)
@@ -243,12 +277,12 @@ export class EscalationStore {
     return [...this.escalations.values()].filter((r) => r.status === 'open')
   }
 
-  // Every record for one worker, oldest first — the timeline's full-fidelity
+  // Every record for one agent, oldest first — the timeline's full-fidelity
   // feed (#108 item 1). The transcript clips what this record holds whole:
   // question, kind, options, answer, who answered.
-  escalationsForWorker(worker) {
+  escalationsForAgent(agent) {
     return [...this.escalations.values()]
-      .filter((r) => r.worker === worker)
+      .filter((r) => r.agent === agent)
       .sort((a, b) => String(a.opened_at).localeCompare(String(b.opened_at)))
   }
 
@@ -281,27 +315,27 @@ export class EscalationStore {
     return notes
   }
 
-  // Late thread text bound for a worker (#108 item 14, positive half): while
-  // a worker owns a thread and no escalation is open, operator text queues
-  // here and the daemon piggybacks it on the worker's next tool result. A
+  // Late thread text bound for an agent (#108 item 14, positive half): while
+  // an agent owns a thread and no escalation is open, operator text queues
+  // here and the daemon piggybacks it on the agent's next tool result. A
   // note that lands inside the grace window after an escalation closed is
   // tagged with that escalation's id — "operator added, after esc-13" — the
   // follow-up-to-a-button case the finding measured. Journalled, so a daemon
   // restart keeps every undelivered note.
-  queueWorkerNote(worker, text, { by = null, graceMs = 120_000, now = Date.now() } = {}) {
+  queueAgentNote(agent, text, { by = null, graceMs = 120_000, now = Date.now() } = {}) {
     const recent = [...this.escalations.values()]
-      .filter((r) => r.worker === worker && r.status !== 'open' && r.closed_at)
+      .filter((r) => r.agent === agent && r.status !== 'open' && r.closed_at)
       .sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)))
       .at(-1)
     const closedMs = recent ? now - Date.parse(recent.closed_at) : Infinity
     const after = Number.isFinite(closedMs) && closedMs <= graceMs ? recent.id : null
-    this._append({ type: 'worker_note', worker, text, after, by })
+    this._append({ type: 'agent_note', agent, text, after, by })
     return { after }
   }
 
   // The hand-off half of #139: an answer that settled an escalation nothing
   // was waiting on (the resolver died with a previous daemon process, or the
-  // worker itself is gone) re-queues as a worker note, so the next worker on
+  // agent itself is gone) re-queues as an agent note, so the next agent on
   // the session — resumed or surviving — gets question and answer on its
   // first tool result. The guarantee is this journal, not the model's memory
   // of a thread it cannot read.
@@ -309,14 +343,14 @@ export class EscalationStore {
     const att = (record.attachments ?? []).length
       ? `\nattachments on disk, read them if you need them: ${record.attachments.join(', ')}`
       : ''
-    const text = `a human answered ${record.id}, a question asked on this ticket that no live worker could receive.`
+    const text = `a human answered ${record.id}, a question asked on this ticket that no live agent could receive.`
       + `\nquestion: ${record.prompt}\nanswer: ${record.answer}${att}`
-    return this.queueWorkerNote(record.worker, text, { by: record.answered_by ?? null })
+    return this.queueAgentNote(record.agent, text, { by: record.answered_by ?? null })
   }
 
-  takeWorkerNotes(worker) {
-    const notes = [...(this.workerNotes.get(worker) ?? [])]
-    if (notes.length) this._append({ type: 'worker_notes_drained', worker, count: notes.length })
+  takeAgentNotes(agent) {
+    const notes = [...(this.agentNotes.get(agent) ?? [])]
+    if (notes.length) this._append({ type: 'agent_notes_drained', agent, count: notes.length })
     return notes
   }
 
@@ -356,7 +390,7 @@ export class EscalationStore {
   }
 
   // The journal's last binding for a ticket, released or not (#140). The
-  // dispatch backstop reads it so a resumed worker lands back in the thread
+  // dispatch backstop reads it so a resumed agent lands back in the thread
   // its predecessor's history, breadcrumbs and recorded answers live in.
   lastThreadForTicket(ticket) {
     return this.lastTicketThreads.get(String(ticket))
@@ -366,7 +400,7 @@ export class EscalationStore {
     return [...this.ticketThreads.keys()]
   }
 
-  // Generic operational events (notify, result, worker_done…) share the journal.
+  // Generic operational events (notify, result, agent_done…) share the journal.
   logEvent(type, data) {
     return this._append({ type, ...data })
   }

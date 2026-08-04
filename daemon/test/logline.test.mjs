@@ -42,7 +42,7 @@ const REAL_CR = `[image curia-179] ${REAL_CR_RAW}`
 
 describe('readable', () => {
   test('leaves the daemon prose alone, em dash and all', () => {
-    const warning = 'WARNING: no container-facing listener (docker’s default bridge network states no gateway address — a sandboxed worker cannot reach ask_human or the Stop hook)'
+    const warning = 'WARNING: no container-facing listener (docker’s default bridge network states no gateway address — a sandboxed agent cannot reach ask_human or the Stop hook)'
     assert.equal(readable(warning), warning)
     assert.ok(printable(warning), 'the accused line was printable all along')
   })

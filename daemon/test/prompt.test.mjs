@@ -1,9 +1,9 @@
-// The spawn prompt is the only control on a bypassPermissions worker's tracker
+// The spawn prompt is the only control on a bypassPermissions agent's tracker
 // authority — the disabled push URL is a speed bump, not a control (see
 // workspace.mjs). So it gets pinned like an interface.
 //
 // What it can pin CHANGED with #49/#54. The prompt no longer states the resolve
-// protocol: the worker reads that from the wayfinder skill installed in its own
+// protocol: the agent reads that from the wayfinder skill installed in its own
 // config dir (#57), and restating it here is the duplication #49 deleted. So the
 // assertions below pin the parameters, the bounds, the tool block and the ordered
 // ending — and the ABSENCE of the protocol, because a well-meaning re-addition is
@@ -61,8 +61,8 @@ describe('parameters, not procedure', () => {
     assert.match(p, /you start at\n\s*resolving it, not at choosing it/)
   })
 
-  test('the ticket type reaches the worker, with its meaning left to the skill', () => {
-    // The one line that stops a dispatched grilling worker from standing in for
+  test('the ticket type reaches the agent, with its meaning left to the skill', () => {
+    // The one line that stops a dispatched grilling agent from standing in for
     // the human's side of its own ticket (#49 decision 2).
     assert.match(write({ mapNumber: 1, type: 'wayfinder:grilling' }), /Ticket type: `wayfinder:grilling`/)
     assert.match(write({ mapNumber: 1, type: null }), /no `wayfinder:` type label/)
@@ -80,7 +80,7 @@ describe('parameters, not procedure', () => {
 describe('bounds', () => {
   test('reading is unbounded and writing is not', () => {
     // #49 decision 3: the old wording read as a ban on the skill's own "zoom as
-    // needed", which is the reading a worker actually has to do.
+    // needed", which is the reading an agent actually has to do.
     const p = write({ mapNumber: 1 })
     assert.match(p, /\*\*Read anything\.\*\*/)
     assert.match(p, /Nothing here limits\n\s*reading/)
@@ -90,7 +90,7 @@ describe('bounds', () => {
 
   // #131: the bound is judgment, not tooling — a renderer that embeds Chrome
   // (remotion, screenshot assets, HTML-to-PDF) is a build step; viewing or
-  // approving the worker's own output stays forbidden.
+  // approving the agent's own output stays forbidden.
   test('the claim is left alone, and the browser is a build tool never a judge', () => {
     const p = write({ mapNumber: 1 })
     assert.match(p, /Leave the assignee alone/)
@@ -100,7 +100,7 @@ describe('bounds', () => {
     assert.match(p, /`publish_preview` is how a HUMAN looks at a page/)
   })
 
-  // #56: the daemon died and took a worker's ask_human with it; the worker read
+  // #56: the daemon died and took an agent's ask_human with it; the agent read
   // the transport error as permission to answer its own question. The live check
   // then found the error-path rule is not enough — its own call never errored, it
   // just went quiet for 7h53m, and a story filled the silence.
@@ -112,7 +112,7 @@ describe('bounds', () => {
     assert.match(body, /stand in for the reply/)
   })
 
-  test('a HITL ticket is never answered by the worker itself', () => {
+  test('a HITL ticket is never answered by the agent itself', () => {
     assert.match(write({ mapNumber: 1 }), /\*\*Never answer for the human\.\*\*/)
   })
 
@@ -127,7 +127,7 @@ describe('bounds', () => {
 })
 
 describe('the tool block', () => {
-  test('every worker-facing tool is named with a reach-for-it-when', () => {
+  test('every agent-facing tool is named with a reach-for-it-when', () => {
     // #35: publish_preview's own description already said all this and lost to a
     // strong prior for ~17 minutes. A positive pointer in the orders is the fix.
     const p = write({ mapNumber: 1 })
@@ -148,7 +148,7 @@ describe('the ordered ending', () => {
     assert.equal(ENDING.length, positions.length, 'a new step must appear in the prompt too')
   })
 
-  test('the merge is the worker\'s, and the push never is', () => {
+  test('the merge is the agent\'s, and the push never is', () => {
     const p = write({ mapNumber: 1 })
     assert.match(p, /Never `git push`: curia pushes for you/)
     assert.match(p, /gh pr merge <url> --repo o\/r --squash --delete-branch/)

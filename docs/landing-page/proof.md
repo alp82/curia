@@ -30,22 +30,22 @@ answers the sceptic with nothing.
 The four frames, in order:
 
 1. The operator dispatches the ticket in a Discord thread.
-2. The worker asks a question; the operator answers in the thread.
+2. The agent asks a question; the operator answers in the thread.
 3. The preview link, opened on the phone.
 4. The review gate, approved.
 
-**Producer: the operator, on a phone.** Workers have no browser, so this is the one element on the
+**Producer: the operator, on a phone.** Agents have no browser, so this is the one element on the
 page nobody else can make.
 
 **Redaction: the tailnet host, and nothing else.** Frame 3 shows a curia preview link, and those are
 tailnet HTTPS URLs — publishing one hands out the machine's name on the network. The operator's
 Discord handle, the server name, the repo and the ticket text stay visible on purpose: a
 redacted-to-death screenshot proves nothing, and the frames have to feel real. **The blurring
-happens at capture time.** A worker cannot judge what is still readable in an image.
+happens at capture time.** An agent cannot judge what is still readable in an image.
 
 **Delivery: Discord attachments on an `ask_human` answer.** The daemon downloads them to
-`daemon/data/attachments/<esc-id>/`, and the answer reaches the worker with real image blocks. A
-worker copies the files out of that directory into `docs/` and commits them; the directory sits
+`daemon/data/attachments/<esc-id>/`, and the answer reaches the agent with real image blocks. A
+agent copies the files out of that directory into `docs/` and commits them; the directory sits
 outside the worktree, so this is a read-then-copy, not a write. Two escalations have already carried
 images this way. `MAX_IMAGES` in `daemon/src/images.mjs` is **4**, and `MAX_INBOUND_BYTES` is 5 MB
 per file — the whole set fits one answer with nothing to spare.
@@ -63,24 +63,24 @@ its proof strip for a while, and that was the operator's call over a ship date s
 **Form: one line on the page, pointing at the merged pull requests on `alp82/curia`.**
 
 This is the "curia built this page" proof the brief held back. It costs nothing, it is public, and
-it updates itself. Every worker pull request ends with a block the daemon writes, not the worker:
+it updates itself. Every agent pull request ends with a block the daemon writes, not the agent:
 
 > Dispatched by the curia daemon — session `curia-113`, model `opus`.
 >
-> Commits (read out of git by the daemon, not reported by the worker):
+> Commits (read out of git by the daemon, not reported by the agent):
 
 Four merged so far on this map — [#116](https://github.com/alp82/curia/pull/116),
 [#128](https://github.com/alp82/curia/pull/128), [#129](https://github.com/alp82/curia/pull/129),
-[#130](https://github.com/alp82/curia/pull/130) — each one a worker, each one merged after a review
+[#130](https://github.com/alp82/curia/pull/130) — each one an agent, each one merged after a review
 gate the operator approved from a phone.
 
-**Producer: a worker.** GitHub is the evidence; the page only points at it.
+**Producer: an agent.** GitHub is the evidence; the page only points at it.
 
 ## The stats line
 
 **Form: a short line of counts, split by where each number comes from, and dated.**
 
-**Producer: a worker, regenerated whenever the page is touched.** Two sources, and they are not
+**Producer: an agent, regenerated whenever the page is touched.** Two sources, and they are not
 equally durable:
 
 **From GitHub — permanent, and the reader can re-derive them.**
@@ -94,15 +94,15 @@ grep -c 'repo:' config/curia.yaml                          # repos watched
 
 **From the journal — only ever "since 1 Aug 2026".** `daemon/data/events.jsonl` reaches back to
 **2026-08-01T13:41:50Z** and no further; everything before that is gone. Threads, sessions,
-escalations answered and workers spawned come from here, and the line on the page must carry the
+escalations answered and agents spawned come from here, and the line on the page must carry the
 since-date rather than read as a lifetime total.
 
 **Tokens are not on the page.** The operator asked for them; curia never journals them. They exist
-only in the agent CLI's own transcripts, for the Claude backend and not Codex, and only for projects
+only in the harness's own transcripts, for Claude and not Codex, and only for projects
 still on disk — the one number a reader could not check. **Handed to the production map
 [#99](https://github.com/alp82/curia/issues/99): make the daemon journal token usage**, so a later
 page can carry it honestly. That is a change to the daemon, so it belongs to #99's fog and not to
-this map. Filing it is the operator's, not a worker's — this map's tickets cannot write to #99.
+this map. Filing it is the operator's, not an agent's — this map's tickets cannot write to #99.
 
 ## What is deliberately not on the page
 
@@ -110,7 +110,7 @@ this map. Filing it is the operator's, not a worker's — this map's tickets can
   resumed cleanly" and said `README.md` records it. It does not — the record is
   [the gateway crash live check](../live-checks/56-gateway-crash.md), and **the same file records
   the other half**: one `request_review` dropped after about 4 hours 22 minutes in that same run.
-  The worker who wrote it says plainly it cannot tell which mechanism made the difference. Neither
+  The agent who wrote it says plainly it cannot tell which mechanism made the difference. Neither
   figure can be re-verified, because the journal no longer reaches 27 July. Carrying the eight hours
   alone is failure mode one, and it is a fact a reader can find in this repo in two clicks. Carrying
   both was offered; the operator dropped the number entirely and let the pull-request trail carry

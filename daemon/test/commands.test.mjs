@@ -7,9 +7,9 @@
 //     'tickets [repo]'                 -> { verb: 'tickets', repo?: string }
 //     'next [repo]'                    -> { verb: 'next', repo?: string }
 //     'status'                         -> { verb: 'status' }
-//     'start <n> [model=x] [backend=y]'-> { verb: 'start', ticket, model?, backend? }
-//     'start <owner>/<repo>#<n> [model=x] [backend=y]'
-//                                       -> { verb: 'start', repo, ticket, model?, backend? }
+//     'start <n> [model=x] [harness=y]'-> { verb: 'start', ticket, model?, harness? }
+//     'start <owner>/<repo>#<n> [model=x] [harness=y]'
+//                                       -> { verb: 'start', repo, ticket, model?, harness? }
 //       (field-notes contract 6: the repo-qualified form, needed so a user
 //       can satisfy the ambiguity-refusal path's recommended qualified
 //       `owner/repo#n` reply -- plan.md step 8's `start`.)
@@ -22,8 +22,8 @@
 //     handle(canonical, userId) -> Promise<string>  (Discord-markdown reply)
 //     dispatcher carries the loaded routing config at dispatcher.routing
 //     (mirroring plan.md step 8's Dispatcher constructor) so the router can
-//     validate `backend=` without a network round-trip: a value not present
-//     in dispatcher.routing.backends is refused, naming the configured ones,
+//     validate `harness=` without a network round-trip: a value not present
+//     in dispatcher.routing.harnesses is refused, naming the configured ones,
 //     and dispatcher.start(...) must NOT be called in that case.
 //
 //   validSessionName(s) -- exported by src/attach.mjs, the SAME regex as the
@@ -84,15 +84,15 @@ describe('parseCommand', () => {
     assert.equal(c.verb, 'start')
     assert.equal(c.ticket, '42')
     assert.equal(c.model, undefined)
-    assert.equal(c.backend, undefined)
+    assert.equal(c.harness, undefined)
   })
 
-  test('start with model and backend overrides', () => {
-    const c = parseCommand('start 42 model=opus backend=claude')
+  test('start with model and harness overrides', () => {
+    const c = parseCommand('start 42 model=opus harness=claude')
     assert.equal(c.verb, 'start')
     assert.equal(c.ticket, '42')
     assert.equal(c.model, 'opus')
-    assert.equal(c.backend, 'claude')
+    assert.equal(c.harness, 'claude')
   })
 
   // field-notes contract 6: the repo-qualified start form -- required so the
@@ -116,7 +116,7 @@ describe('parseCommand', () => {
     assert.equal(c.ticket, '42')
   })
 
-  test('start with a fuzzy repo keeps model and backend options', () => {
+  test('start with a fuzzy repo keeps model and harness options', () => {
     const c = parseCommand('start alperortac#42 model=opus')
     assert.equal(c.repoArg, 'alperortac')
     assert.equal(c.model, 'opus')
@@ -163,7 +163,7 @@ describe('parseCommand', () => {
     const seen = []
     const router = new CommandRouter({
       dispatcher: {
-        routing: { backends: { claude: {} } },
+        routing: { harnesses: { claude: {} } },
         config: { watch: [{ repo: 'alp82/curia' }] },
         start: async (ticket, opts) => { seen.push({ ticket, ...opts }); return 'ok' },
       },
@@ -196,22 +196,22 @@ describe('parseCommand', () => {
   })
 })
 
-describe('CommandRouter backend refusal', () => {
-  test('a backend not in routing.backends is refused, naming the configured backends, without dispatching', async () => {
+describe('CommandRouter harness refusal', () => {
+  test('a harness not in routing.harnesses is refused, naming the configured harnesses, without dispatching', async () => {
     let started = false
     const dispatcher = {
       routing: {
-        backends: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ } },
+        harnesses: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ } },
       },
       start: async () => { started = true },
     }
     const attach = {}
     const router = new CommandRouter({ dispatcher, attach, log: () => {} })
 
-    const reply = await router.handle('start 42 backend=codex', 'user-1')
+    const reply = await router.handle('start 42 harness=codex', 'user-1')
 
     assert.equal(started, false)
-    assert.match(reply, /claude/) // names the one configured backend
+    assert.match(reply, /claude/) // names the one configured harness
   })
 })
 
@@ -221,7 +221,7 @@ describe('CommandRouter fuzzy repo on start (#96)', () => {
     return {
       calls,
       config: { watch: [{ repo: 'alp82/curia' }, { repo: 'alp82/alperortac.com' }] },
-      routing: { backends: {} },
+      routing: { harnesses: {} },
       start: async (ticket, opts) => { calls.push({ ticket, repo: opts.repo }); return 'started' },
     }
   }
@@ -347,7 +347,7 @@ describe('CommandRouter grown verbs (#81)', () => {
     const dispatcher = {
       config: WATCH,
       status: async () => ({
-        workers: [{
+        agents: [{
           session: 'curia-5', repo: 'alp82/curia', ticket: '5', model: 'sonnet', state: 'blocked',
           uptime_s: 65, result_received: false, tmux_live: true,
           waiting_on: [{ id: 'esc-1', kind: 'free-text' }],
@@ -374,7 +374,7 @@ describe('CommandRouter grown verbs (#81)', () => {
         items: [{ number: 7, title: 'do a thing', labels: ['wayfinder:research'] }],
       }],
       status: async () => ({
-        workers: [{ session: 'curia-5', repo: 'alp82/curia', ticket: '5', model: 'sonnet', state: 'working', uptime_s: 65, tmux_live: true }],
+        agents: [{ session: 'curia-5', repo: 'alp82/curia', ticket: '5', model: 'sonnet', state: 'working', uptime_s: 65, tmux_live: true }],
         untracked: ['curia-9'],
         recent: [{ kind: 'cancelled', repo: 'alp82/curia', ticket: '3' }],
       }),

@@ -73,7 +73,7 @@ describe('map body surgery', () => {
   })
 
   test('insertMapPointer appends at the end of the section, leaving the rest byte-identical', () => {
-    const line = pointerLine({ title: 'Close the loop', url: 'https://github.com/o/r/issues/41', gist: 'the worker resolves' })
+    const line = pointerLine({ title: 'Close the loop', url: 'https://github.com/o/r/issues/41', gist: 'the agent resolves' })
     const next = insertMapPointer(MAP_BODY, line)
     const lines = next.split('\n')
     const at = lines.indexOf(line)
@@ -110,17 +110,17 @@ describe('comment bodies', () => {
   })
 
   test('a non-clean note says the ticket is NOT resolved and whether it came back', () => {
-    const released = nonCleanComment({ worker: 'curia-42', result: { status: 'blocked', summary: 'stuck' }, released: true })
+    const released = nonCleanComment({ agent: 'curia-42', result: { status: 'blocked', summary: 'stuck' }, released: true })
     assert.match(released, /did \*\*not\*\* resolve/)
     assert.match(released, /returns to the frontier/)
-    const stuck = nonCleanComment({ worker: 'curia-42', result: { status: 'blocked', summary: 'stuck' }, released: false })
+    const stuck = nonCleanComment({ agent: 'curia-42', result: { status: 'blocked', summary: 'stuck' }, released: false })
     assert.match(stuck, /Releasing its claim FAILED/)
   })
 
   test('the PR body links the ticket WITHOUT a closing keyword and lists daemon-observed commits', () => {
     const b = prBody({
       repo: 'o/r', ticket: '42', title: 'a ticket', summary: 's',
-      commits: [{ sha: 'abc1234', subject: 'do it' }], worker: 'curia-42', model: 'opus',
+      commits: [{ sha: 'abc1234', subject: 'do it' }], agent: 'curia-42', model: 'opus',
     })
     assert.ok(!/\b(closes|fixes|resolves) #42/i.test(b), 'a closing keyword would read as if the merge resolved the ticket')
     assert.match(b, /Ticket: o\/r#42/)
@@ -128,13 +128,13 @@ describe('comment bodies', () => {
     assert.match(b, /read out of git by the daemon/)
   })
 
-  test("curia's own comments are marked, so they can never pass for the worker's resolution", () => {
+  test("curia's own comments are marked, so they can never pass for the agent's resolution", () => {
     // #54: open_pull_request comments on an OPEN ticket, and the
     // resolution-comment check asks "is there a comment by us since this
     // dispatch". Unmarked, curia's link comment would answer that question for a
-    // worker that wrote no resolution at all.
+    // agent that wrote no resolution at all.
     assert.ok(prLinkComment({ branch: 'curia/42', commits: 1, url: 'u', state: 'opened' }).startsWith(MACHINE_MARKER))
-    assert.ok(nonCleanComment({ worker: 'curia-42', result: { status: 'blocked' }, released: true }).startsWith(MACHINE_MARKER))
+    assert.ok(nonCleanComment({ agent: 'curia-42', result: { status: 'blocked' }, released: true }).startsWith(MACHINE_MARKER))
     assert.ok(!fallbackResolutionComment({ summary: 's' }).includes(MACHINE_MARKER),
       'the fallback IS the resolution — marking it would make a later dispatch re-post one')
   })
@@ -151,7 +151,7 @@ describe('comment bodies', () => {
 let journalled
 let calls
 
-function harness({ issues, overrides = {}, result = { status: 'resolved', summary: 'the answer' }, login = 'me', epochTs = null } = {}) {
+function fixture({ issues, overrides = {}, result = { status: 'resolved', summary: 'the answer' }, login = 'me', epochTs = null } = {}) {
   const store = new Map(Object.entries(issues).map(([k, v]) => [String(k), { ...v }]))
   const deps = {
     fetchIssue: async (repo, n) => {
@@ -167,7 +167,7 @@ function harness({ issues, overrides = {}, result = { status: 'resolved', summar
     commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
     pushBranch: async (wt, repo, branch) => { calls.push({ op: 'push', branch }); return 'abc1234' },
     hasUnpushedWork: async () => false,
-    // the happy path since #54: the worker merged what a human approved
+    // the happy path since #54: the agent merged what a human approved
     findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' }),
     createPullRequest: async (repo, opts) => { calls.push({ op: 'pr', ...opts }); return 'https://github.com/o/r/pull/7' },
     setPullRequestBody: async (repo, n) => { calls.push({ op: 'prEdit', n }) },
@@ -176,7 +176,7 @@ function harness({ issues, overrides = {}, result = { status: 'resolved', summar
   return {
     store,
     run: () => resolveAndLand({
-      repo: 'o/r', ticket: '42', worker: 'curia-42', result, login, epochTs, model: 'opus',
+      repo: 'o/r', ticket: '42', agent: 'curia-42', result, login, epochTs, model: 'opus',
       wtPath: '/w/42', basePath: '/b', branch: 'curia/42',
       deps,
       journal: (type, data) => journalled.push({ type, ...data }),
@@ -190,9 +190,9 @@ const MAP_ISSUE = { number: 1, title: 'the map', state: 'open', labels: [{ name:
 
 beforeEach(() => { journalled = []; calls = [] })
 
-describe('resolveAndLand: the worker did everything right', () => {
+describe('resolveAndLand: the agent did everything right', () => {
   test('nothing is repaired; the branch is pushed, a PR opened, and the ticket gets the link', async () => {
-    const h = harness({
+    const h = fixture({
       issues: {
         42: { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' },
         1: { ...MAP_ISSUE, body: insertMapPointer(MAP_BODY, pointerLine({ title: 'a ticket', url: 'https://github.com/o/r/issues/42', gist: 'g' })) },
@@ -207,12 +207,12 @@ describe('resolveAndLand: the worker did everything right', () => {
     assert.deepEqual(out.repaired, [])
     assert.equal(out.land.state, 'merged')
     assert.deepEqual(calls.map((c) => c.op), [],
-      'landing happened mid-ticket through open_pull_request, and the merge was the worker\'s own')
+      'landing happened mid-ticket through open_pull_request, and the merge was the agent\'s own')
     assert.match(summariseOutcome(out), /code merged/)
   })
 
-  test("curia's own link comment does not pass for the worker's resolution", async () => {
-    const h = harness({
+  test("curia's own link comment does not pass for the agent's resolution", async () => {
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       overrides: {
         issueComments: async () => [{
@@ -229,8 +229,8 @@ describe('resolveAndLand: the worker did everything right', () => {
 })
 
 describe('resolveAndLand: repairs', () => {
-  test('a worker that reported resolved but left the ticket open and uncommented gets both repaired', async () => {
-    const h = harness({ issues: { 42: { ...TICKET, state: 'open' } } })
+  test('an agent that reported resolved but left the ticket open and uncommented gets both repaired', async () => {
+    const h = fixture({ issues: { 42: { ...TICKET, state: 'open' } } })
     const out = await h.run()
 
     assert.equal(out.comment, 'repaired')
@@ -244,7 +244,7 @@ describe('resolveAndLand: repairs', () => {
   })
 
   test("a comment from an EARLIER dispatch does not count as this dispatch's resolution", async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       epochTs: '2026-07-25T12:00:00Z',
       overrides: { issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-20T09:00:00Z' }] },
@@ -254,7 +254,7 @@ describe('resolveAndLand: repairs', () => {
   })
 
   test('a map pointer lost to a concurrent write is appended, verified, and journalled verbatim', async () => {
-    const h = harness({
+    const h = fixture({
       issues: {
         42: { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' },
         1: { ...MAP_ISSUE },
@@ -272,7 +272,7 @@ describe('resolveAndLand: repairs', () => {
   })
 
   test('a write that does not show up on re-read is reported unverified, with the line still journalled', async () => {
-    const h = harness({
+    const h = fixture({
       issues: {
         42: { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' },
         1: { ...MAP_ISSUE },
@@ -293,7 +293,7 @@ describe('resolveAndLand: repairs', () => {
   })
 
   test('a map with no Decisions-so-far section is not guessed at', async () => {
-    const h = harness({
+    const h = fixture({
       issues: {
         42: { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' },
         1: { ...MAP_ISSUE, body: '## Destination\n\njust this\n' },
@@ -308,7 +308,7 @@ describe('resolveAndLand: repairs', () => {
   })
 
   test('a parent that is not a wayfinder map gets no pointer', async () => {
-    const h = harness({
+    const h = fixture({
       issues: {
         42: { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/9' },
         9: { number: 9, title: 'an ordinary parent', state: 'open', labels: [], body: MAP_BODY },
@@ -323,7 +323,7 @@ describe('resolveAndLand: repairs', () => {
 
 describe('resolveAndLand: a failed read is never evidence', () => {
   test('an unreadable comment list posts NO fallback comment, and says so', async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       overrides: { issueComments: async () => { throw new Error('HTTP 502') } },
     })
@@ -337,7 +337,7 @@ describe('resolveAndLand: a failed read is never evidence', () => {
   })
 
   test('an unknown gh identity leaves the comment axis unverified rather than duplicating it', async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       login: null,
       overrides: { issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z' }] },
@@ -350,7 +350,7 @@ describe('resolveAndLand: a failed read is never evidence', () => {
   })
 
   test('an unreadable map still resolves the ticket, and the failure is loud', async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' } },
       overrides: { issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z' }] },
     })
@@ -369,7 +369,7 @@ describe('resolveAndLand: is the code IN', () => {
   const withComment = { issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z', body: 'resolution' }] }
 
   test('no commits ⇒ no landing question to answer', async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       overrides: { ...withComment, commitsOnBranch: async () => [] },
     })
@@ -381,7 +381,7 @@ describe('resolveAndLand: is the code IN', () => {
   })
 
   test('a ticket closed over an OPEN pull request is reported as the defect it is', async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       overrides: {
         ...withComment,
@@ -397,7 +397,7 @@ describe('resolveAndLand: is the code IN', () => {
   })
 
   test('unpushed commits under an unmerged pull request are pushed, so nothing lives only in a worktree', async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       overrides: {
         ...withComment,
@@ -411,11 +411,11 @@ describe('resolveAndLand: is the code IN', () => {
   })
 
   test('commits with NO pull request at all are landed as a repair, loudly', async () => {
-    // The one landing repair left: the worker skipped open_pull_request, so the
+    // The one landing repair left: the agent skipped open_pull_request, so the
     // only copy of its work is a worktree the lifecycle is about to stop
     // protecting. Curia cannot get it reviewed after the fact — it can only
     // refuse to lose it, and say that nobody looked.
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET } },
       overrides: { ...withComment, findPullRequest: async () => null },
     })
@@ -429,7 +429,7 @@ describe('resolveAndLand: is the code IN', () => {
   })
 
   test('an unreadable pull-request state leaves the ticket resolved and says it cannot tell', async () => {
-    const h = harness({
+    const h = fixture({
       issues: { 42: { ...TICKET, state: 'open' } },
       overrides: {
         ...withComment,
@@ -444,9 +444,9 @@ describe('resolveAndLand: is the code IN', () => {
     assert.ok(journalled.some((e) => e.type === 'land_failed'))
   })
 
-  test('a worker with no worktree on disk skips the landing check entirely', async () => {
+  test('an agent with no worktree on disk skips the landing check entirely', async () => {
     const out = await resolveAndLand({
-      repo: 'o/r', ticket: '42', worker: 'curia-42', login: 'me',
+      repo: 'o/r', ticket: '42', agent: 'curia-42', login: 'me',
       result: { status: 'resolved', summary: 's' },
       wtPath: null, basePath: '/b', branch: 'curia/42',
       deps: {
@@ -467,7 +467,7 @@ describe('landBranch', () => {
   function land({ commits = [{ sha: 'abc1234', subject: 'do it' }], pr = null, ...over } = {}) {
     return landBranch({
       repo: 'o/r', ticket: '42', title: 'a ticket', summary: 'what it does',
-      worker: 'curia-42', model: 'opus', wtPath: '/w/42', basePath: '/b', branch: 'curia/42',
+      agent: 'curia-42', model: 'opus', wtPath: '/w/42', basePath: '/b', branch: 'curia/42',
       deps: {
         defaultBranchOf: async () => 'main',
         commitsOnBranch: async () => commits,
@@ -505,7 +505,7 @@ describe('landBranch', () => {
     assert.ok(calls.some((c) => c.op === 'pr'))
   })
 
-  test('no commits ⇒ nothing pushed, and the worker is told to commit first', async () => {
+  test('no commits ⇒ nothing pushed, and the agent is told to commit first', async () => {
     const out = await land({ commits: [] })
     assert.equal(out.ok, false)
     assert.equal(out.state, 'no-commits')

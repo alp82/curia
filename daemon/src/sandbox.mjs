@@ -1,7 +1,7 @@
-// The worker sandbox (#156, building the decision at #148): one docker
-// container per worker, started BY THE TMUX PANE rather than beside it.
+// The agent sandbox (#156, building the decision at #148): one docker
+// container per agent, started BY THE TMUX PANE rather than beside it.
 //
-//   tmux pane → docker run -it --rm --name curia-<n> <image> bash -c '<backend>'
+//   tmux pane → docker run -it --rm --name curia-<n> <image> bash -c '<harness>'
 //
 // The pane owning the container is what keeps every existing surface working
 // unchanged: capture-pane still reads the TUI, send-keys still drives it, the
@@ -10,12 +10,12 @@
 //
 // What the container denies is everything the bare pane granted by default:
 // the host HOME (~/.ssh, ~/.claude, ~/.codex, ~/.config/gh), the daemon's own
-// checkout, secrets and journal, every sibling worker's clone and config dir,
-// and the tmux socket — a repeat of #141, where a worker's own test suite ran
+// checkout, secrets and journal, every sibling agent's clone and config dir,
+// and the tmux socket — a repeat of #141, where an agent's own test suite ran
 // `tmux kill-server` against the live socket, becomes impossible.
 //
 // Only two host directories are mounted, both writable, both prepared by the
-// daemon: the worker's private clone and its config dir. The network stays
+// daemon: the agent's private clone and its config dir. The network stays
 // open, because `gh` and web reach are what wayfinder runs on (#148); the
 // containment comes from the small readable set, not from egress rules.
 
@@ -39,7 +39,7 @@ export const GUEST_CFG = '/cfg'
 // bound to 127.0.0.1 is not reachable from any container. See dockerGateway().
 export const GUEST_DAEMON_HOST = 'host.docker.internal'
 
-// The per-worker env, written for `--env-file` rather than passed as `-e`.
+// The per-agent env, written for `--env-file` rather than passed as `-e`.
 // #155 found the cost of the other shape: a token on the command line is
 // visible in `ps` to every user on the box, and that ticket's own resolution
 // asked #156 not to repeat it. Mode 0600, and inside the config dir so the
@@ -61,10 +61,10 @@ function assertSafe(name, value) {
 
 // The two shared cache volumes (#148): what is too heavy to bake into the image
 // and too heavy to download per ticket. Named off the image repo so a second
-// image on the same box gets its own. Cross-worker cache poisoning is the
+// image on the same box gets its own. Cross-agent cache poisoning is the
 // accepted risk #148 named.
 export function cacheVolumes(sandbox) {
-  const base = sandbox.image ?? 'curia-worker'
+  const base = sandbox.image ?? 'curia-agent'
   return [
     { volume: `${base}-npm-cache`, mount: '/cache/npm' },
     { volume: `${base}-browsers`, mount: '/cache/playwright-browsers' },
@@ -73,11 +73,11 @@ export function cacheVolumes(sandbox) {
 
 // ---- ports -------------------------------------------------------------------
 
-// Three published ports per worker (#148). They are published as
-// `127.0.0.1:<p>:<p>` — the same number on both sides, so the port a worker
+// Three published ports per agent (#148). They are published as
+// `127.0.0.1:<p>:<p>` — the same number on both sides, so the port an agent
 // binds inside the container is the port `publish_preview` (#157) sees on the
-// host, and the worker can be told three plain numbers.
-export const PORTS_PER_WORKER = 3
+// host, and the agent can be told three plain numbers.
+export const PORTS_PER_AGENT = 3
 
 // Loopback ports the containers publish into. Deliberately far from the preview
 // Serve range (8500-8599): those are tailnet-facing HTTPS ports on the host,
@@ -97,14 +97,14 @@ export function portFree(port, host = '127.0.0.1') {
 }
 
 // The first `count` ports in the range that nothing else claims. `taken` is
-// what the daemon has already handed to other live workers — the in-memory
+// what the daemon has already handed to other live agents — the in-memory
 // half — and the bind probe covers everything else on the box, including a
 // container this process did not start.
 //
-// Refuses rather than overlapping: two workers publishing the same host port
+// Refuses rather than overlapping: two agents publishing the same host port
 // means the second container never starts, and the failure would land on a
 // dispatch that had already claimed its ticket.
-export async function allocatePorts(range, { count = PORTS_PER_WORKER, taken = [], isFree = portFree } = {}) {
+export async function allocatePorts(range, { count = PORTS_PER_AGENT, taken = [], isFree = portFree } = {}) {
   const used = new Set(taken)
   const out = []
   for (let p = range.from; p <= range.to && out.length < count; p += 1) {
@@ -113,7 +113,7 @@ export async function allocatePorts(range, { count = PORTS_PER_WORKER, taken = [
     out.push(p)
   }
   if (out.length < count) {
-    throw new Error(`no ${count} free container ports in ${range.from}-${range.to} — every worker publishes ${count}, so the range must hold at least ${count} per concurrent worker`)
+    throw new Error(`no ${count} free container ports in ${range.from}-${range.to} — every agent publishes ${count}, so the range must hold at least ${count} per concurrent agent`)
   }
   return out
 }
@@ -157,7 +157,7 @@ export async function dockerGateway({ exec = execFileP, sourceAddress = sourceAd
     const source = await sourceAddress(probe)
     // The answer counts only if it SITS in the subnet it was asked about. A box
     // with no route to the bridge falls through to its default route, and that
-    // answer is the box's PUBLIC address — binding the worker routes there
+    // answer is the box's PUBLIC address — binding the agent routes there
     // would publish them to the internet instead of to the containers.
     if (source && inSubnet(source, Subnet)) return source
   }
@@ -226,13 +226,13 @@ function addressInSubnet(cidr, offset) {
 //
 // A bound listener is not a reachable one, and #185 paid for the difference: the
 // daemon bound the gateway, ufw dropped every packet from the bridge, and the
-// worker's request TIMED OUT rather than being refused. Nothing on the host side
-// could see it. Only a request FROM A CONTAINER crosses the same path a worker's
+// agent's request TIMED OUT rather than being refused. Nothing on the host side
+// could see it. Only a request FROM A CONTAINER crosses the same path an agent's
 // `ask_human` and Stop hook cross, so that is what the daemon sends.
 //
 // The route it asks for carries no state and no secret, and it is the one path
-// on the container-facing listener that needs no worker token — there is no
-// worker yet. `curl` is in the image (#154), and `--rm` collects the container
+// on the container-facing listener that needs no agent token — there is no
+// agent yet. `curl` is in the image (#154), and `--rm` collects the container
 // whatever the answer.
 export const PROBE_PATH = '/ping'
 export const PROBE_MARK = 'curia-side-channel'
@@ -290,25 +290,25 @@ function inSubnet(address, cidr) {
 
 // ---- the container's environment ------------------------------------------------
 
-// The claude lane's credential, as the container gets it (#148: the model
+// The claude harness's credential, as the container gets it (#148: the model
 // credential is the sole remaining host secret that enters). The container
 // cannot share the host store the way a bare pane does (#53) — the store is in
 // the host HOME, which is exactly what the boundary denies — so the token is
-// COPIED into the container env, and it is frozen for the worker's life.
+// COPIED into the container env, and it is frozen for the agent's life.
 //
 // Same precedence as the usage probe (#162), and for the same reason: a box
-// carrying an API key authenticates with it everywhere else, so a worker
+// carrying an API key authenticates with it everywhere else, so an agent
 // authenticating differently would be a second lineage to reason about. The
 // stored access token comes last, because it is the one that expires soonest —
-// a worker outliving it dies mid-ticket, which is the frozen-credential failure
+// an agent outliving it dies mid-ticket, which is the frozen-credential failure
 // #53 fixed for the bare path and #148 accepted back for the container.
-export function modelCredential(backend, { env = process.env, home = null } = {}) {
-  if (backend !== 'claude') return {}
+export function modelCredential(harness, { env = process.env, home = null } = {}) {
+  if (harness !== 'claude') return {}
   if (env.ANTHROPIC_API_KEY) return { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY }
   if (env.CLAUDE_CODE_OAUTH_TOKEN) return { CLAUDE_CODE_OAUTH_TOKEN: env.CLAUDE_CODE_OAUTH_TOKEN }
   const stored = readStoredOauth(home)
   if (stored) return { CLAUDE_CODE_OAUTH_TOKEN: stored }
-  throw new Error('no anthropic credential for the container: set CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in daemon/.env, or run `claude /login` on this box — a sandboxed claude worker cannot reach the host credential store')
+  throw new Error('no anthropic credential for the container: set CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in daemon/.env, or run `claude /login` on this box — a sandboxed claude agent cannot reach the host credential store')
 }
 
 function readStoredOauth(home) {
@@ -344,9 +344,9 @@ export function writeEnvFile(file, env) {
 
 // The `docker run` line, as one shell command for tmux.newSession.
 //
-// The backend command rides inside SINGLE quotes, which is what keeps the two
+// The harness command rides inside SINGLE quotes, which is what keeps the two
 // shells apart: the host shell passes the string through untouched, and the
-// `$(cat /cfg/prompt.md)` in every backend template expands inside the
+// `$(cat /cfg/prompt.md)` in every harness template expands inside the
 // CONTAINER, against the prompt file at its guest path. A template carrying a
 // single quote of its own would break that, so it is refused rather than
 // escaped — the two shipped templates carry none, and an escaping scheme here
@@ -355,16 +355,16 @@ export function dockerRunCmd({
   name, image, cfgDir, wtPath, envFile, spawnCmd, ports = [], sandbox, ticket = null, docker = DOCKER_BIN,
 }) {
   if (String(spawnCmd ?? '').includes("'")) {
-    throw new Error(`refusing to run the ${name} backend command inside a container: it carries a single quote, and the container command is single-quoted (see routing.yaml)`)
+    throw new Error(`refusing to run the ${name} harness command inside a container: it carries a single quote, and the container command is single-quoted (see routing.yaml)`)
   }
   const argv = [
     docker, 'run', '--rm', '-i', '-t', '--init',
     '--name', assertSafe('the container name', name),
     '--hostname', assertSafe('the container name', name),
-    // The uid must be the host user that owns the two mounts, or the worker
+    // The uid must be the host user that owns the two mounts, or the agent
     // cannot write its own worktree (#154 §3). The image is built for the same
     // uid; stating it here as well means an image built elsewhere cannot
-    // silently give a worker a read-only clone.
+    // silently give an agent a read-only clone.
     '--user', `${assertSafe('agent_uid', sandbox.agent_uid)}:${assertSafe('agent_uid', sandbox.agent_uid)}`,
     '--workdir', GUEST_WT,
     '-v', `${assertSafe('the worktree path', wtPath)}:${GUEST_WT}`,
@@ -410,12 +410,12 @@ export async function stopContainer(name, { exec = execFileP, docker = DOCKER_BI
 }
 
 // Every container curia started that is still running, by session name. Docker
-// is the state home for this: the in-memory worker map is a cache (#9), and a
+// is the state home for this: the in-memory agent map is a cache (#9), and a
 // restarted daemon has to be able to find the containers its predecessor left.
 // The host ports one live container publishes, ascending — the preview bound
-// (#157) for a worker this process never spawned. A daemon restart adopts the
-// workers its predecessor left (reconcile), and their records come back with
-// every spawn-time fact missing; without this, an adopted worker either loses
+// (#157) for an agent this process never spawned. A daemon restart adopts the
+// agents its predecessor left (reconcile), and their records come back with
+// every spawn-time fact missing; without this, an adopted agent either loses
 // `publish_preview` for the rest of its life or gets it back unbounded.
 //
 // Read from the container rather than from the journal, for the same reason
