@@ -10,6 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { EscalationStore } from '../src/store.mjs'
 import { COMMAND_SHAPED, commandHint, queuedNoteReply } from '../src/bridge.mjs'
+import { parseCommand } from '../src/commands.mjs'
 
 describe('agent-note queue', () => {
   let dir, store
@@ -79,9 +80,57 @@ describe('agent-note queue', () => {
     }
   })
 
+  // Every argument form parseCommand takes is a form the operator types. The
+  // repo-qualified one is what this map's notes tell them to type, so a guard
+  // that missed it repeated the miss the ticket is about.
+  test('the repo-qualified ticket and the option overrides are commands too', () => {
+    for (const s of ['start curia#170', 'start alp82/curia#170', 'start 170 model=sonnet', 'start curia#170 harness=codex', 'cancel curia#166']) {
+      assert.ok(COMMAND_SHAPED.test(s), `"${s}" should read as a command`)
+    }
+  })
+
   test('a verb inside a sentence is a real note, not a swallowed command', () => {
-    for (const s of ['cancel the deploy', 'please stop', 'status of the tests?', 'do not pause here', 'ok', 'cancel 166 once the tests pass']) {
+    for (const s of ['cancel the deploy', 'please stop', 'status of the tests?', 'do not pause here', 'ok', 'cancel 166 once the tests pass', 'start curia#170 after lunch']) {
       assert.ok(!COMMAND_SHAPED.test(s), `"${s}" should read as prose`)
+    }
+  })
+
+  // The hint names a command the channel accepts, about the ticket the operator
+  // asked about — not the one whose thread they happened to type it in.
+  test('the operator\'s own argument wins over the thread it was typed in', () => {
+    assert.match(commandHint('cancel 138', '166', 'C1'), /say `cancel 138` there/)
+    assert.match(commandHint('stop 138', '166', 'C1'), /say `cancel 138` there/)
+    // a bare verb still falls back to the thread's ticket
+    assert.match(commandHint('cancel', '166', 'C1'), /say `cancel 166` there/)
+  })
+
+  test('the hint names a form the router parses', () => {
+    // `#166` and `curia#166` are not forms `cancel` takes — the number is
+    assert.match(commandHint('cancel #166', '166', 'C1'), /say `cancel 166` there/)
+    assert.match(commandHint('cancel curia#166', '166', 'C1'), /say `cancel 166` there/)
+    // `start` is the one verb that does take the repo-qualified ticket
+    assert.match(commandHint('start curia#170', '166', 'C1'), /say `start curia#170` there/)
+    assert.match(commandHint('start alp82/curia#170', '166', 'C1'), /say `start alp82\/curia#170` there/)
+    // `all` rides through on the verbs that take it, and not on the one that does not
+    assert.match(commandHint('cancel all', '166', 'C1'), /say `cancel all` there/)
+    assert.match(commandHint('attach all', '166', 'C1'), /say `attach 166` there/)
+  })
+
+  // The claim above is the router's to make, not the hint's: every command the
+  // hint tells the operator to type goes through the real parseCommand. A hint
+  // that names a command the channel refuses is the same dead end in one more
+  // step.
+  test('every command the hint names parses — checked against the real router', () => {
+    const typed = [
+      'cancel', 'Cancel', 'stop', 'pause', 'resume', 'status', 'cancel 166', 'cancel #166',
+      'cancel curia#166', 'cancel all', 'resume 12', 'resume all', 'attach 166', 'attach all',
+      'start 170', 'start curia#170', 'start alp82/curia#170', 'start 170 model=sonnet',
+    ]
+    for (const t of typed) {
+      assert.ok(COMMAND_SHAPED.test(t), `"${t}" should read as a command`)
+      const said = /say `([^`]+)` there/.exec(commandHint(t, '166', 'C1'))?.[1]
+      assert.ok(said, `no command named for "${t}"`)
+      assert.ok(parseCommand(said), `the hint for "${t}" names \`${said}\`, which the router refuses`)
     }
   })
 
