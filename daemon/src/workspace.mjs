@@ -439,6 +439,12 @@ function toml(value) {
 // listener through the docker host gateway instead (#156).
 export const LOOPBACK = '127.0.0.1'
 
+// The name curia's own MCP server carries in the worker's `.mcp.json`, and the
+// one name the claude lane's allowlist admits (#180). One constant, because the
+// two must never drift: an allowlist that does not name the server curia writes
+// leaves the worker with no tools at all.
+export const MCP_SERVER_NAME = 'curia'
+
 function curiaMcpUrl(daemonPort, worker, ticket, host = LOOPBACK) {
   return `http://${host}:${daemonPort}/mcp?worker=${worker}&ticket=${ticket}`
 }
@@ -544,7 +550,36 @@ const HARNESS = {
           },
         },
       }, null, 2))
-      fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({ skipDangerousModePermissionPrompt: true }, null, 2))
+      // The MCP namespace is bounded HERE, in the two settings keys below
+      // (#180), because nothing else reaches it. `CLAUDE_CONFIG_DIR` holds the
+      // #23/#29 line for config-borne servers, but the operator's account-level
+      // claude.ai connectors — Notion, Gmail, Drive, Calendar — do not travel
+      // through the config dir. Claude Code fetches them over the wire from the
+      // account behind the credential, which #53 shares with the host on
+      // purpose. So a bare-pane worker listed 38 tools where curia configured
+      // six, and could read and write the operator's mail and documents. The
+      // container boundary does not touch it either: the fetch is an ordinary
+      // outbound HTTPS call, and #148 leaves the network open because wayfinder
+      // needs `gh` and the web.
+      //
+      // `disableClaudeAiConnectors` is the source control. Claude Code reads it
+      // from ANY settings source, and this file is the user source, so the
+      // worker's own config dir is enough — the credential does not change.
+      // Measured against the pinned CLI: the check is FIRST in its eligibility
+      // chain, ahead of every auth branch, and the debug line names the setting
+      // by name (docs/live-checks/180).
+      //
+      // `allowedMcpServers` is the second belt, and it bounds the whole
+      // namespace rather than one source: only the server curia writes is
+      // admitted, whatever route another arrives by. Its entries are OBJECTS,
+      // not strings — `['curia']` fails schema validation, and an invalid
+      // allowlist enforces an EMPTY one, which takes curia's own server down
+      // with it. That trap was measured, not reasoned about.
+      fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({
+        skipDangerousModePermissionPrompt: true,
+        disableClaudeAiConnectors: true,
+        allowedMcpServers: [{ serverName: MCP_SERVER_NAME }],
+      }, null, 2))
     },
 
     // .mcp.json (curia HTTP MCP side channel) + .claude/settings.json (all-project
@@ -554,7 +589,7 @@ const HARNESS = {
     harness: ({ wtPath, worker, ticket, daemonPort, daemonHost, token }) => {
       writeSecretFile(path.join(wtPath, '.mcp.json'), JSON.stringify({
         mcpServers: {
-          curia: {
+          [MCP_SERVER_NAME]: {
             type: 'http',
             url: curiaMcpUrl(daemonPort, worker, ticket, daemonHost),
             // #159. Claude Code sends a per-server `headers` object on every
@@ -635,7 +670,7 @@ const HARNESS = {
         `[projects.${toml(wtPath)}]`,
         'trust_level = "trusted"',
         '',
-        '[mcp_servers.curia]',
+        `[mcp_servers.${MCP_SERVER_NAME}]`,
         `url = ${toml(curiaMcpUrl(daemonPort, worker, ticket, daemonHost))}`,
         `tool_timeout_sec = ${CODEX_TOOL_TIMEOUT_S}`,
         // #159, the codex spelling of the claude lane's `headers` object. An

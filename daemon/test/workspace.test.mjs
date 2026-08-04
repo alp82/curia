@@ -8,7 +8,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import {
   seedConfigDir, workerEnv, workerGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
-  writeHarness, removeCredentials, untrustedProjectConfig,
+  writeHarness, removeCredentials, untrustedProjectConfig, MCP_SERVER_NAME,
   createWorktree, remoteBranchExists,
 } from '../src/workspace.mjs'
 
@@ -31,6 +31,37 @@ describe('per-worker config dir (#53)', () => {
 
     assert.equal(fs.existsSync(path.join(cfgDir, '.credentials.json')), false,
       'a snapshotted token is the #34 failure — nothing may be written here')
+  })
+
+  // #180. The credential is shared on purpose, and the account's connectors ride
+  // it rather than the config dir, so the bound has to be a settings key. Both
+  // keys are asserted by their exact CLI spelling: they are read by Claude Code,
+  // not by curia, so a rename here is a silent loss of the bound.
+  test('seeding bounds the MCP namespace to curia and nothing else (#180)', () => {
+    const cfgDir = path.join(tmp, 'cfg', 'curia-1b')
+    seedConfigDir(cfgDir, path.join(tmp, 'wt', '1b'))
+
+    const settings = JSON.parse(fs.readFileSync(path.join(cfgDir, 'settings.json'), 'utf8'))
+    assert.equal(settings.disableClaudeAiConnectors, true,
+      'without this the worker fetches the operator\'s Notion, Gmail, Drive and Calendar')
+    // OBJECT entries, not strings: an invalid allowlist enforces an empty one,
+    // which would leave the worker with no curia tools at all.
+    assert.deepEqual(settings.allowedMcpServers, [{ serverName: MCP_SERVER_NAME }])
+    assert.equal(settings.skipDangerousModePermissionPrompt, true)
+  })
+
+  // The allowlist and the server it admits are one constant. Spelled apart they
+  // would drift, and the drift is silent until a worker has no tools.
+  test('the allowlist names the very server the harness writes (#180)', () => {
+    const cfgDir = path.join(tmp, 'cfg', 'curia-1c')
+    const wtPath = path.join(tmp, 'wt', '1c')
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'claude')
+    writeHarness({ wtPath, cfgDir, worker: 'curia-1c', ticket: 1, daemonPort: 4271, backend: 'claude', token: 'a'.repeat(64) })
+
+    const settings = JSON.parse(fs.readFileSync(path.join(cfgDir, 'settings.json'), 'utf8'))
+    const mcp = JSON.parse(fs.readFileSync(path.join(wtPath, '.mcp.json'), 'utf8'))
+    assert.deepEqual(Object.keys(mcp.mcpServers), settings.allowedMcpServers.map((e) => e.serverName))
   })
 
   test('seeding unlinks a pre-#53 snapshot rather than leaving it to be used', () => {

@@ -128,6 +128,9 @@ One of the three loopback ports a worker's container publishes, the same number 
 **Config dir**:
 The worker's private agent config home. It holds the prompt, the skills, and the harness. It holds no credentials.
 
+**Tool namespace**:
+The MCP servers a worker can reach: curia's own, and nothing else. Two settings keys in the config dir hold that line. One stops the fetch of the operator's account-level claude.ai connectors, which follow the shared credential rather than the config dir. The other admits curia's server alone.
+
 **Skills**:
 The skill set curia symlinks into every worker's config dir, so a worker resolves in the same idiom as a hand session.
 
