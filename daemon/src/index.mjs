@@ -44,7 +44,7 @@ import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeAgentToken, tokenExpiryDays } from './github.mjs'
-import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
+import { ensureTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
@@ -326,6 +326,10 @@ const gate = {
   agentForThread(threadId) {
     if (!threadId) return null
     for (const w of dispatcher.agents.values()) {
+      // #164: a cross-check reviewer sits in the BUILDER's thread and answers no
+      // note — it has no `ask_human` and drains no queue past its one verdict.
+      // The thread belongs to the builder, which is still working in it.
+      if (w.reviewer) continue
       if (w.ticket != null && store.threadForTicket(w.ticket) === threadId) return w.session
     }
     return null
@@ -512,8 +516,12 @@ const identityProxy = new IdentityProxy({
 // /attach continuation: daemon-side whitelist refusal + liveness check, then
 // the runtime-derived tailnet URL (never hardcoded).
 const attachApi = {
-  async link(ticket) {
-    const session = `curia-${ticket}`
+  // `session` names WHICH agent on this ticket (#164): the builder by default,
+  // the cross-check reviewer when the caller asks for it. Everything below is
+  // session-scoped already — ttyd picks a session from `?arg=`, and the
+  // liveness check is a `has-session` — so this is the argument moving out, not
+  // a second code path.
+  async link(ticket, { session = `curia-${ticket}` } = {}) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
     if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
     // Same rule as reconcile's #assertAttachSurface: only a listener verified
@@ -553,12 +561,11 @@ const attachApi = {
     await ensureServeHosts()
     await assertServe({ servePort: curiaConfig.attach.serve_port, targetPort: curiaConfig.identity.proxy_port })
     const base = await attachBase()
-    return attachUrl(base, curiaConfig.attach.serve_port, ticket)
+    return attachSessionUrl(base, curiaConfig.attach.serve_port, session)
   },
   // The timeline half of /attach (#74): same liveness gate, then the surface
   // composes its own link — or refuses, independently of the terminal half.
-  async timelineLink(ticket) {
-    const session = `curia-${ticket}`
+  async timelineLink(ticket, { session = `curia-${ticket}` } = {}) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
     if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
     // Same invariant the terminal half holds: never hand out a link to a
@@ -728,6 +735,11 @@ function buildMcpServer(agent, ticket) {
       path: z.string().optional().describe('The path of the page to review, e.g. "/curia-check" or "/blog/post?draft=1". Defaults to "/". A path on this dev server only — never a host or a scheme.'),
     },
     async ({ dev_port, path }) => {
+      // #164: the cross-check reviewer publishes nothing. Its container has no
+      // ports of its own, and a preview it did somehow raise would sit in the
+      // review gate as if the builder had put it there.
+      const refused = dispatcher.toolRefusal(agent, 'publish_preview')
+      if (refused) return { content: [{ type: 'text', text: refused }, ...drainNotes()] }
       let base
       try {
         base = await attachBase()
@@ -810,6 +822,11 @@ function buildMcpServer(agent, ticket) {
       images: z.array(z.string()).optional(),
     },
     async ({ images, ...payload }, extra) => {
+      // #164: the reviewer asks nobody. ADR-0010 gives it one output — the
+      // verdict — and a question in the ticket thread would put a second voice
+      // in front of the operator on a ticket the reviewer is not building.
+      const refused = dispatcher.toolRefusal(agent, 'ask_human')
+      if (refused) return { content: [{ type: 'text', text: refused }] }
       const { files, refusals } = outboundImages(agent, images)
       const { record, answered } = openEscalation({ agent, ticket, ...payload, files })
       const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(payload.prompt))

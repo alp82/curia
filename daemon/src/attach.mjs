@@ -437,8 +437,15 @@ export async function attachBase() {
   return cachedBase
 }
 
-export function attachUrl(base, servePort, n) {
-  const session = `curia-${n}`
+// The URL for one named session. Since #164 a ticket can carry two — the
+// builder `curia-<n>` and the cross-check reviewer `curia-review-<n>` — so the
+// SESSION is the argument, and attachUrl keeps the ticket-shaped call every
+// existing caller makes.
+export function attachSessionUrl(base, servePort, session) {
   if (!validSessionName(session)) throw new Error(`refusing attach URL for invalid session "${session}"`)
   return `https://${base}:${servePort}/?arg=${session}`
+}
+
+export function attachUrl(base, servePort, n) {
+  return attachSessionUrl(base, servePort, `curia-${n}`)
 }

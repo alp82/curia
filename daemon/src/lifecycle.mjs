@@ -17,9 +17,10 @@
 // expected value to compare a charting proposal against), and committing is not
 // required at all, since a grilling ticket resolves with a comment and no code.
 //
-// Since #160 there are TWO endings, read the same two ways: `ENDING` for a
-// ticket dispatch and `CHARTING_ENDING` for a map one. `state.charting` picks,
-// in the one function each caller already goes through.
+// Since #160 there is more than one ending, and every one of them is read the
+// same two ways: `ENDING` for a ticket dispatch, `CHARTING_ENDING` for a map one
+// (#160), and `REVIEW_ENDING` for the cross-check reviewer (#164). `listFor`
+// picks, in the one function each caller already goes through.
 
 // The kind the review gate opens under (#54 item 2). Its own kind rather than a
 // plain approve-reject, for three reasons: /status must read *awaiting review*
@@ -152,7 +153,53 @@ export const CHARTING_NEVER = [
   ],
 ]
 
-const listFor = (state) => (state.charting ? CHARTING_ENDING : ENDING)
+// ---- the reviewer's ending (#164, ADR-0010) ----------------------------------
+//
+// A third ending, and the smallest one there is. The cross-check reviewer
+// produces no code, no tracker write and no map edit — it produces a VERDICT, a
+// text the daemon captures and holds for the return path (#165). So there is one
+// step, and the daemon refuses every tool that could add a second.
+//
+// The reviewer is never held past that one call: an agent that cannot push,
+// cannot comment and cannot ask has nothing else it could be nudged toward.
+export const REVIEW_ENDING = [
+  {
+    key: 'verdict',
+    prose: ({ repo, ticket }) => [
+      `Call \`report_result\` exactly once, with the verdict as its \`summary\` and \`${repo}#${ticket}\``,
+      'as its ticket. That text IS your output: curia captures it and holds it. Nothing else you do',
+      'reaches anyone.',
+    ],
+    todo: (s) => (s.hasResult ? null : 'call `report_result` once, with your verdict as the summary'),
+  },
+]
+
+// What the reviewer must NOT do — one bullet per entry, its own lines. Prose
+// only: the refusals themselves live in dispatch.mjs, and this is the copy the
+// model reads.
+export const REVIEWER_NEVER = [
+  [
+    'Write nothing. No commit, no push, no merge, no branch, no file edit in the checkout. It is there',
+    'to be read and to run tests in, and every change you make to it is thrown away.',
+  ],
+  [
+    'No tracker write. Do not comment on the ticket, do not label it, do not close it, and do not touch',
+    'the map or any other issue. Read the tracker as much as you like.',
+  ],
+  [
+    'No gate and no question. curia refuses `open_pull_request`, `request_review`, `publish_preview`',
+    'and `ask_human` for you. A doubt you cannot settle belongs IN the verdict, named as a doubt.',
+  ],
+  [
+    'You are not the builder. Do not fix what you find, and do not judge whether the ticket should be',
+    'approved. You state findings; a human decides.',
+  ],
+]
+
+const listFor = (state) => {
+  if (state.reviewer) return REVIEW_ENDING
+  return state.charting ? CHARTING_ENDING : ENDING
+}
 
 // The prose block for the spawn prompt: a numbered list, in order.
 export function endingProse(ctx) {

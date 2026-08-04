@@ -81,6 +81,27 @@ models:
     # writes carries the real window and overrides it within one turn.
     context_window: 258400
 
+# The cross-check pairing (#164, ADR-0010): which model reads a builder's diff
+# when the operator asks for a second reading. Keyed by the BUILDER's provider,
+# so an anthropic builder gets a reading on openai and an openai builder gets
+# one on anthropic. That is the whole value of the check — one model reading its
+# own family's work is the reading the operator already has.
+#
+# A `review-model:<name>` label on the ticket beats this table, for the one diff
+# where the operator wants a named model.
+#
+# The values are routing labels like everything else here, so `gpt` is the model
+# `gpt-5.6-sol` and `opus` is the strongest claude-harness model. The reviewer
+# writes nothing and ends with a verdict, so it costs one read of the diff and
+# one test run.
+#
+# A row that paired a provider with itself is refused at boot: the daemon falls
+# back to the builder's own provider only when every model on the other one is
+# cooling, and it stamps that on the verdict.
+review:
+  anthropic: gpt
+  openai: opus
+
 # Chains are explicit config, so two #13 rules stay STRUCTURAL rather than
 # remembered: cross-provider first (a cooling provider must not strand a
 # ticket), and "never upgrade bulk work to fable" — fable appears in no chain

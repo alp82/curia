@@ -88,6 +88,21 @@ export function parseCommand(text) {
       if (rest.length === 1 && /^\d+$/.test(rest[0])) return { verb, ticket: rest[0] }
       return null
     }
+    // The cross-check's daemon-side entry point (#164, ADR-0010). The operator
+    // surface is a third button on the review gate (#165); this verb is what
+    // proves the engine without it, and it takes the same `model=` override
+    // `start` does, for the one diff where the pairing table is not what the
+    // operator wants.
+    case 'review': {
+      if (!rest.length || !/^\d+$/.test(rest[0])) return null
+      const cmd = { verb: 'review', ticket: rest[0] }
+      for (const opt of rest.slice(1)) {
+        const om = opt.match(/^model=([\w.-]+)$/)
+        if (!om) return null
+        cmd.model = om[1]
+      }
+      return cmd
+    }
     default:
       return null
   }
@@ -103,6 +118,7 @@ const USAGE = [
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n>|all` — fresh agent on a ticket, inheriting its surviving worktree',
   '`attach <n>` — timeline + browser-terminal links for a live agent',
+  '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
 ].join('\n')
 
 export class CommandRouter {
@@ -169,6 +185,8 @@ export class CommandRouter {
           return await this.dispatcher.resume(cmd.ticket, { by: userId, threadId })
         case 'attach':
           return await this.#attachReply(cmd.ticket)
+        case 'review':
+          return await this.dispatcher.crossCheck(cmd.ticket, { model: cmd.model, by: userId })
       }
     } catch (e) {
       this.log(`command "${canonical}" failed:`, e.message)
@@ -231,7 +249,10 @@ export class CommandRouter {
       const where = (w.waiting_on ?? []).length
         ? ` — waiting on ${w.waiting_on.map((e) => `**${e.id}** (${e.kind})`).join(', ')} in the ticket thread`
         : ''
-      return `• \`${w.session}\` ${w.repo}#${w.ticket} — ${w.model ?? '?'} — **${w.state}** — up ${uptime}${w.result_received ? ' — result in' : ''}${where}${liveness} — \`/attach ${w.ticket}\``
+      // #164: two agents can sit on one ticket, so the row says which one — a
+      // second `alp82/curia#164` line with no marker reads like a duplicate.
+      const kind = w.reviewer ? ' 🔎 cross-check reviewer' : ''
+      return `• \`${w.session}\` ${w.repo}#${w.ticket}${kind} — ${w.model ?? '?'} — **${w.state}** — up ${uptime}${w.result_received ? ' — result in' : ''}${where}${liveness} — \`/attach ${w.ticket}\``
     }
     const lines = []
     for (const w of agents.filter((x) => !isWaiting(x))) lines.push(line(w))
@@ -265,6 +286,24 @@ export class CommandRouter {
       lines.push(`🔗 terminal ${await this.attach.link(ticket)}`)
     } catch (e) {
       lines.push(`❌ terminal: ${e.message}`)
+    }
+    // #164: a cross-check puts a SECOND agent on this ticket, and ADR-0010 asks
+    // for it to be attachable — the operator watches it read. Its links are
+    // added only when a reviewer is actually live, so an ordinary attach reply
+    // is unchanged.
+    const reviewer = this.dispatcher.reviewerSession?.(ticket)
+    if (reviewer) {
+      lines.push(`— the cross-check reviewer \`${reviewer}\`:`)
+      for (const [label, get] of [
+        ['timeline', () => this.attach.timelineLink(ticket, { session: reviewer })],
+        ['terminal', () => this.attach.link(ticket, { session: reviewer })],
+      ]) {
+        try {
+          lines.push(`🔗 ${label} ${await get()}`)
+        } catch (e) {
+          lines.push(`❌ ${label}: ${e.message}`)
+        }
+      }
     }
     return lines.join('\n')
   }

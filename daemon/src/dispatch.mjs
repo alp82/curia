@@ -25,12 +25,12 @@ import {
 } from './github.mjs'
 import {
   resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
-  carriesLimitPhrase, Cooling,
+  carriesLimitPhrase, resolveReviewer, Cooling, SAME_PROVIDER_STAMP,
 } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
 import {
   ensureBaseClone, createWorktree, createPrivateClone, isPrivateClone, removeWorktree,
-  removeConfigDir, removeCredentials,
+  removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, agentEnv,
   untrustedProjectConfig,
@@ -49,6 +49,21 @@ import { CONFIRM_KIND, normalizeEvent } from './store.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 
 const SESSION_RE = /^curia-(\d+)$/
+
+// The cross-check reviewer's session name (#164, ADR-0010). Distinct from
+// `curia-<n>` by construction, and that is the point rather than a detail:
+// `curia-<n>` is the BUILDER's identity on every surface curia has — the tmux
+// session, the config dir, the agent token, the attach wrapper's whitelist, the
+// status line — so a second agent on the same ticket needs a name of its own or
+// it takes the builder's place on all of them at once.
+//
+// SESSION_RE does not match it, which is what keeps the ticket passes
+// (adoption, the orphan sweep, dead claims) blind to reviewers: a reviewer holds
+// no claim, so every one of those passes would reason about it wrongly. The
+// passes that must see it — containers, credentials, tokens — are given the
+// wider list explicitly.
+const REVIEW_SESSION_RE = /^curia-review-(\d+)$/
+export const reviewSessionFor = (n) => `curia-review-${n}`
 
 // The label that makes a dispatch a CHARTING one (#160): `start curia#<map>` on
 // the map's own issue spawns an agent that updates the map, not one that
@@ -80,6 +95,7 @@ const DEFAULT_DEPS = {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   hasSession, listSessions, newSession, capturePane, killSession,
   ensureBaseClone, createWorktree, createPrivateClone, removeWorktree, removeConfigDir, removeCredentials,
+  createReviewCheckout, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt,
   ensureTtyd, assertServe, serveOff,
   // the agent sandbox (#156)
@@ -246,6 +262,10 @@ export class Dispatcher {
       return realKill(name)
     }
     this.deps.newSession = (opts) => { this.orderedKills.delete(opts.name); return realSpawn(opts) }
+    // Captured cross-check verdicts (#164), ticket -> record. A cache like the
+    // agents map: `data/verdicts/<ticket>.json` is what survives a restart, and
+    // verdictFor() reads it back. The return path (#165) takes it from here.
+    this.verdicts = new Map()
     this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
     this.autoTimer = null
@@ -858,6 +878,285 @@ export class Dispatcher {
     return `⚠️ all routing lanes are cooling (earliest reset ${reset ? reset.toISOString() : 'unknown'}) — nothing claimed`
   }
 
+  // ---- the cross-check (#164, ADR-0010) -----------------------------------------
+
+  // Spawn a reviewer on the other provider and let it read the diff.
+  //
+  // This is the ENGINE half. ADR-0010 puts the press on the review gate as a
+  // third button, and that button is #165's; what is here is the daemon-side
+  // entry point behind it — `review <n>` on the command seam — so the engine can
+  // be proven before the surface exists.
+  //
+  // It claims nothing. The builder holds the ticket's only claim, and it is
+  // still alive: a cross-check adds a second agent, it does not replace the
+  // first. Both count against `max_concurrent`, which is the cost ADR-0010
+  // names.
+  async crossCheck(n, { repo, model, by } = {}) {
+    const ticket = String(n)
+    const session = reviewSessionFor(ticket)
+    const builderSession = `curia-${ticket}`
+    // Same synchronous admission guard `start` uses, and for the same reason: a
+    // second press landing during the gh round-trips below would otherwise
+    // prepare a second checkout over the first one's directory.
+    if (this.inFlight.has(session)) return `⚙️ \`${session}\` is already starting`
+    if (this.agents.has(session)) {
+      return `🔎 \`${session}\` is already reading #${ticket} — \`cancel ${ticket}\` tears it down with the builder`
+    }
+    this.inFlight.add(session)
+    try {
+      if (await this.deps.hasSession(session)) {
+        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${ticket}\` tears it down, then ask again`
+      }
+      const builder = this.agents.get(builderSession)
+      const theRepo = repo ?? builder?.repo ?? this.#epochRepo(ticket)
+      if (!theRepo) return `❌ curia cannot tell which repo #${ticket} belongs to — nothing was spawned`
+
+      // What the builder ran on decides which provider is the other one, so a
+      // cross-check with no answer here is not a cross-check at all. The record
+      // answers while the builder lives; the journal answers after a restart.
+      const builderModel = builder?.model ?? this.#epochSpawn(this.#readJournal(), builderSession)?.model ?? null
+      if (!builderModel) {
+        return `❌ curia has no record of what #${ticket} was built on, so it cannot tell which provider is the other one — nothing was spawned`
+      }
+
+      let issue
+      try {
+        issue = await this.deps.fetchIssue(theRepo, ticket)
+      } catch (e) {
+        return `❌ could not read ${theRepo}#${ticket} (${e.message}) — nothing was spawned`
+      }
+      const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
+
+      let useModel
+      let sameProvider
+      try {
+        // `model=` on the command beats the label, which beats the table — the
+        // same precedence resolveModel gives a dispatch.
+        ;({ model: useModel, sameProvider } = model
+          ? { model, sameProvider: this.routing.models[model]?.provider === this.routing.models[builderModel].provider }
+          : resolveReviewer(this.routing, { builderModel, labels, cooling: this.cooling }))
+      } catch (e) {
+        return `❌ no cross-check for ${theRepo}#${ticket}: ${e.message}`
+      }
+      if (!this.routing.models[useModel]) {
+        return `❌ unknown model \`${useModel}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
+      }
+
+      // The reviewer reads the PUSHED tip, so work that exists only in the
+      // builder's worktree would make the verdict a reading of a different diff
+      // than the one the operator is looking at. Refuse rather than review the
+      // wrong thing — and refuse on "cannot tell" too, the evidence rule the
+      // rest of this file runs on.
+      const guard = await this.#assertBuilderPushed(theRepo, ticket, builder)
+      if (guard) return guard
+
+      const harnessName = this.routing.models[useModel].harness
+      if (!this.routing.harnesses[harnessName]) {
+        return `❌ unknown harness \`${harnessName}\` — configured harnesses: ${Object.keys(this.routing.harnesses).join(', ')}`
+      }
+      return await this.#spawnReviewer({
+        session, ticket, repo: theRepo, issue, model: useModel, builderModel,
+        harnessName, sameProvider, by,
+      })
+    } finally {
+      this.inFlight.delete(session)
+    }
+  }
+
+  // Does the builder hold commits that origin has never seen? Returns a refusal
+  // string, or null when the pushed tip is the whole story. A builder whose
+  // workspace is gone (a restart, a finished agent) states nothing either way,
+  // and origin is then the only tip there is.
+  async #assertBuilderPushed(repo, ticket, builder) {
+    const wtPath = builder?.wtPath ?? worktreePathFor(this.root, repo, ticket)
+    if (!fs.existsSync(wtPath)) return null
+    try {
+      const unpushed = await this.deps.hasUnpushedWork(wtPath, branchFor(ticket), await this.deps.defaultBranchOf(wtPath))
+      if (!unpushed) return null
+      return `❌ #${ticket} holds commits that are on no remote, and a reviewer reads the PUSHED tip — the verdict would be about a different diff than the pull request shows. Have the builder call \`open_pull_request\`, then ask again.`
+    } catch (e) {
+      return `❌ curia could not tell whether #${ticket} holds unpushed commits (${e.message}), so it cannot promise the reviewer reads the diff the pull request shows — retry, or have the builder call \`open_pull_request\` first`
+    }
+  }
+
+  // Prepare and spawn the reviewer. Every step can fail, and all of them run
+  // inside one try — a failure here removes the checkout and the config dir it
+  // made and leaves the builder untouched, because the cross-check owns nothing
+  // the ticket depends on.
+  async #spawnReviewer({ session, ticket, repo, issue, model, builderModel, harnessName, sameProvider, by }) {
+    const cfgDir = cfgDirFor(this.root, session)
+    let checkout = null
+    try {
+      const sandbox = this.#sandboxFor(harnessName)
+      checkout = await this.deps.createReviewCheckout(this.root, repo, ticket, { sandbox: Boolean(sandbox) })
+      const view = this.#viewFor(sandbox, checkout.path, cfgDir)
+      this.#assertNoPlantedConfig(checkout.path, harnessName)
+      this.#armAgent({ session, ticket, harness: harnessName, model, wtPath: checkout.path, cfgDir, view, sandbox })
+      // No published ports: a reviewer starts no dev server, and
+      // `publish_preview` is one of the four tools curia refuses it. Three
+      // ports per reviewer would be three ports a builder could not have.
+      const promptFile = this.deps.writeReviewPrompt(cfgDir, issue, {
+        repo, wtPath: view.wt, branch: checkout.branch, baseBranch: checkout.baseBranch,
+        sha: checkout.sha, model: spawnModelId(this.routing, model),
+        builderModel: spawnModelId(this.routing, builderModel),
+      })
+      fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
+
+      const plan = await this.#spawnPlan({
+        session, ticket, repo, harness: harnessName, model,
+        wtPath: checkout.path, cfgDir, promptFile, view, sandbox, ports: [],
+      })
+      const exitMarker = newExitMarker()
+      await this.deps.newSession({ name: session, cwd: checkout.path, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
+
+      // `reviewer_spawned` carries everything a restarted daemon needs to adopt
+      // this session and still capture its verdict — the journal is the state
+      // home for exactly what tmux cannot re-derive (#reconcileReviewers).
+      this.store.logEvent('reviewer_spawned', {
+        repo, ticket, agent: session, builder: `curia-${ticket}`, model, harness: harnessName,
+        builder_model: builderModel, same_provider: sameProvider, sha: checkout.sha,
+        checkout: checkout.path, base_branch: checkout.baseBranch, by: by ?? 'unknown',
+        ...(plan.container ? { sandbox: 'docker', image: plan.container.image } : {}),
+      })
+      // `agent_spawned` too, and deliberately: the status line, the timeline and
+      // every surface that draws an agent read that event. A reviewer with its
+      // own status line in the ticket thread is what ADR-0010 asks for, and this
+      // is the one event that gives it one.
+      this.store.logEvent('agent_spawned', {
+        repo, ticket, agent: session, model, harness: harnessName, kind: 'reviewer',
+      })
+
+      const agent = {
+        repo, ticket, title: issue.title, session, instance: `${session}@${Date.now()}`,
+        wtPath: checkout.path, cfgDir, promptFile,
+        model, requestedModel: model, harness: harnessName,
+        provider: this.routing.models[model].provider,
+        ports: null, sandbox: plan.container ? 'docker' : null,
+        promptView: view.wt,
+        spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
+        // What makes every refusal and every terminal branch below read this as
+        // a reviewer rather than as a ticket agent.
+        reviewer: true, builderModel, sameProvider, sha: checkout.sha, baseBranch: checkout.baseBranch,
+        exitMarker,
+        promptCarriesLimitText: textCarriesLimitPhrase(issue.title, issue.body),
+      }
+      this.agents.set(session, agent)
+      this.#watchdog(agent).catch((e) => this.log(`watchdog ${session} failed:`, e.message))
+      const named = spawnModelId(this.routing, model)
+      const note = sameProvider ? ` — **${SAME_PROVIDER_STAMP}**, so this is the weaker check` : ''
+      return `🔎 cross-checking ${repo}#${ticket} → \`${session}\` on **${named}**${note} — it reads \`${checkout.sha.slice(0, 12)}\` and writes nothing`
+    } catch (e) {
+      this.agents.delete(session)
+      this.deps.removeConfigDir(cfgDir)
+      this.deps.forgetAgentToken(this.dataDir, session)
+      if (checkout) await this.#removeReviewCheckout(repo, ticket, checkout.path)
+      this.store.logEvent('reviewer_spawn_failed', { repo, ticket, agent: session, error: e.message })
+      return `⚠️ the cross-check of ${repo}#${ticket} could not start: ${e.message} — the builder is untouched`
+    }
+  }
+
+  // Is this agent the cross-check reviewer? The NAME is the authority, not the
+  // record: a daemon restart empties the agents map, and a reviewer whose record
+  // is missing must still be refused every write tool rather than falling
+  // through to the builder's path with the builder's ticket in hand.
+  #isReviewer(agentName) {
+    return REVIEW_SESSION_RE.test(String(agentName ?? ''))
+  }
+
+  // The refusal a reviewer gets for every tool but `notify` and `report_result`.
+  // Returns null for anyone else, so a caller can put one line in front of a
+  // tool and change nothing for a builder. index.mjs uses it for `ask_human`
+  // and `publish_preview`; the two that push and gate check it themselves.
+  toolRefusal(agentName, tool) {
+    if (!this.#isReviewer(agentName)) return null
+    const w = this.agents.get(agentName)
+    const ticket = w?.ticket ?? String(agentName).match(REVIEW_SESSION_RE)?.[1] ?? '?'
+    const where = w?.repo ? `${w.repo}#${ticket}` : `#${ticket}`
+    this.store.logEvent('reviewer_tool_refused', { repo: w?.repo, ticket, agent: agentName, tool })
+    return `❌ \`${agentName}\` is the CROSS-CHECK REVIEWER on ${where}, and \`${tool}\` is not yours. A reviewer writes nothing: no tracker write, no push, no merge, no gate, no preview, no question. Read the diff, the ticket and the checkout, run the tests, then call report_result with your verdict — a doubt you cannot settle belongs IN the verdict.`
+  }
+
+  // The reviewer session live on a ticket, if any (#164). The attach reply and
+  // the return path (#165) ask this rather than guessing at the name.
+  reviewerSession(ticket) {
+    const session = reviewSessionFor(ticket)
+    return this.agents.has(session) ? session : null
+  }
+
+  // The captured verdict for a ticket. Memory first, then the artifact on disk,
+  // so a restart between the reviewer's last word and the return path costs
+  // nothing.
+  verdictFor(ticket) {
+    const held = this.verdicts.get(String(ticket))
+    if (held) return held
+    try {
+      return JSON.parse(fs.readFileSync(this.#verdictFile(ticket), 'utf8'))
+    } catch {
+      return null
+    }
+  }
+
+  #verdictFile(ticket) {
+    return path.join(this.dataDir, 'verdicts', `${ticket}.json`)
+  }
+
+  // What the reviewer's `report_result` produces: one artifact the daemon holds,
+  // ready for the return path (#165). Nothing is posted to the tracker here —
+  // ADR-0010 puts the pull-request comment on the return path, beside the
+  // builder's judgement of the same text.
+  //
+  // The same-provider stamp is written HERE, at the top of the verdict, and by
+  // curia rather than by the reviewer: which provider a model ran on is curia's
+  // own record of what it spawned, and a reviewer's account of it would be one
+  // more thing to trust.
+  async #captureVerdict(agentName, result, w) {
+    const journal = this.#readJournal()
+    let spawn = null
+    for (const ev of journal) {
+      if (ev.type === 'reviewer_spawned' && ev.agent === agentName) spawn = ev
+    }
+    const ticket = String(w?.ticket ?? spawn?.ticket ?? String(agentName).match(REVIEW_SESSION_RE)?.[1] ?? '')
+    const repo = w?.repo ?? spawn?.repo ?? null
+    if (!ticket) {
+      this.store.logEvent('verdict_skipped', { agent: agentName, reason: 'no ticket is bound to this reviewer' })
+      return 'result recorded — curia could not tell which ticket this reviewer was reading, so no verdict was captured'
+    }
+    const sameProvider = w?.sameProvider ?? Boolean(spawn?.same_provider)
+    const text = String(result.summary ?? '').trim()
+    const verdict = {
+      repo,
+      ticket,
+      agent: agentName,
+      model: w?.model ?? spawn?.model ?? null,
+      builder_model: w?.builderModel ?? spawn?.builder_model ?? null,
+      same_provider: sameProvider,
+      sha: w?.sha ?? spawn?.sha ?? null,
+      status: result.status,
+      // The stamp rides IN the text, because the text is what a human and the
+      // builder read. The flag beside it is for the daemon.
+      verdict: sameProvider ? `**${SAME_PROVIDER_STAMP}**\n\n${text}` : text,
+      details: result.details ?? null,
+      at: new Date().toISOString(),
+    }
+    let held = true
+    try {
+      fs.mkdirSync(path.dirname(this.#verdictFile(ticket)), { recursive: true })
+      fs.writeFileSync(this.#verdictFile(ticket), JSON.stringify(verdict, null, 2))
+    } catch (e) {
+      held = false
+      this.log(`could not write the verdict for ${repo}#${ticket}: ${e.message}`)
+    }
+    this.verdicts.set(ticket, verdict)
+    this.store.logEvent('verdict_captured', {
+      repo, ticket, agent: agentName, model: verdict.model, status: result.status,
+      same_provider: sameProvider, chars: verdict.verdict.length, on_disk: held,
+    })
+    const named = spawnModelId(this.routing, verdict.model ?? '')
+    const stamp = sameProvider ? ` (**${SAME_PROVIDER_STAMP}**)` : ''
+    this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
+    return `verdict captured${held ? '' : ' in memory only — writing the artifact FAILED'}. Nothing was posted, pushed or resolved: curia holds this text and hands it on. Your work here is done — stop.`
+  }
+
   // ---- readiness watchdog ------------------------------------------------------
 
   // Poll the pane every 2 s up to ready_timeout_s. Composer marker ⇒ ready;
@@ -1065,13 +1364,13 @@ export class Dispatcher {
       } catch (e) {
         this.log(`mute respawn of ${agent.session} on ${model} failed:`, e.message)
         const released = await this.#releaseClaim(agent, `respawn after a mute agent failed: ${e.message}`)
-        this.notify(agent.ticket, `⚠️ \`${agent.session}\` had no curia tools and the respawn on **${model}** failed: ${e.message} — ${released ? 'claim released, ticket re-frontiered' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
+        this.notify(agent.ticket, `⚠️ \`${agent.session}\` had no curia tools and the respawn on **${model}** failed: ${e.message} — ${this.#releaseTail(agent, released)}`)
         return
       }
     }
 
     const released = await this.#releaseClaim(agent, 'no tool channel, twice')
-    this.notify(agent.ticket, `🚫 \`${agent.session}\` reached its composer with **no curia tools** twice — refusing to dispatch #${agent.ticket} again on this fault. ${released ? 'Claim released, ticket re-frontiered.' : 'Claim release FAILED: the issue is still assigned; reconcile will retry.'} The MCP client connects once at startup and never retries, so the side channel has to be up BEFORE the agent (\`/state\`, then the daemon log for the last \`side_channel_ready\`).`)
+    this.notify(agent.ticket, `🚫 \`${agent.session}\` reached its composer with **no curia tools** twice — refusing to dispatch #${agent.ticket} again on this fault — ${this.#releaseTail(agent, released)}. The MCP client connects once at startup and never retries, so the side channel has to be up BEFORE the agent (\`/state\`, then the daemon log for the last \`side_channel_ready\`).`)
   }
 
   // The backstop at the far end (#194). The Stop hook rides curl, not MCP
@@ -1149,7 +1448,7 @@ export class Dispatcher {
         // release path true exhaustion takes.
         this.log(`respawn of ${agent.session} on ${next} failed:`, e.message)
         const released = await this.#releaseClaim(agent, `respawn after ${limit.scope} usage limit failed: ${e.message}`)
-        this.notify(agent.ticket, `⚠️ \`${agent.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} and the respawn on **${next}** failed: ${e.message} — ${released ? 'claim released, ticket re-frontiered' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
+        this.notify(agent.ticket, `⚠️ \`${agent.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} and the respawn on **${next}** failed: ${e.message} — ${this.#releaseTail(agent, released)}`)
         // the binding stays (#140): a claim release is not a ticket-terminal state
         return
       }
@@ -1199,7 +1498,10 @@ export class Dispatcher {
     // nothing publishes. The caller's kill is an ordered teardown, which removes
     // the container before tmux (see the killSession wrapper), so the old
     // bindings are already released.
-    const ports = sandbox ? (agent.ports ?? await this.#allocatePorts(sandbox)) : null
+    // #164: a reviewer publishes nothing — it starts no dev server and
+    // `publish_preview` is refused for it — so a respawn must not allocate three
+    // host ports a builder could have had.
+    const ports = agent.reviewer ? [] : (sandbox ? (agent.ports ?? await this.#allocatePorts(sandbox)) : null)
     this.#armAgent({
       session: agent.session, ticket: agent.ticket, harness: nextHarness,
       model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir, view, sandbox,
@@ -1249,6 +1551,19 @@ export class Dispatcher {
   // The other direction needs nothing: a private clone is an ordinary
   // repository, and the bare path drives it exactly as it drives a worktree.
   async #reshapeWorkspace(agent, sandbox) {
+    // #164: a review checkout is a detached HEAD at a PUSHED sha, so it holds
+    // nothing that exists nowhere else — a shape change is a re-create, not a
+    // refusal. The refusal below exists to protect a builder's unlanded commits,
+    // and a reviewer has none by construction.
+    if (agent.reviewer) {
+      if (Boolean(sandbox) === isPrivateClone(agent.wtPath)) return
+      await this.#removeReviewCheckout(agent.repo, agent.ticket, agent.wtPath)
+      const made = await this.deps.createReviewCheckout(this.root, agent.repo, agent.ticket, { sandbox: Boolean(sandbox) })
+      agent.wtPath = made.path
+      agent.sha = made.sha
+      agent.baseBranch = made.baseBranch
+      return
+    }
     if (!sandbox || isPrivateClone(agent.wtPath)) return
     let unpushed = true
     let why = 'it holds commits that exist nowhere else'
@@ -1273,6 +1588,23 @@ export class Dispatcher {
   // carries, and the agent record keeps only the title.
   async #rewritePrompt(agent, view, ports = null) {
     if (view.wt === agent.promptView) return
+    // #164: a reviewer respawned down the fallback chain must be handed the
+    // REVIEWER's prompt again. Writing the builder's here would give an agent
+    // with no claim and no branch a full set of ticket standing orders.
+    if (agent.reviewer) {
+      const reviewed = await this.deps.fetchIssue(agent.repo, agent.ticket)
+      agent.promptFile = this.deps.writeReviewPrompt(agent.cfgDir, reviewed, {
+        repo: agent.repo,
+        wtPath: view.wt,
+        branch: branchFor(agent.ticket),
+        baseBranch: agent.baseBranch,
+        sha: agent.sha,
+        model: spawnModelId(this.routing, agent.model),
+        builderModel: spawnModelId(this.routing, agent.builderModel),
+      })
+      agent.promptView = view.wt
+      return
+    }
     const issue = await this.deps.fetchIssue(agent.repo, agent.ticket)
     const mapNumber = await this.#mapNumberFor(agent.repo, issue)
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
@@ -1301,6 +1633,18 @@ export class Dispatcher {
   // session is positively gone.
   async #releaseClaim(agent, reason, { keepCredentials = false } = {}) {
     this.agents.delete(agent.session)
+    // #164: a reviewer holds NO claim — the builder holds the ticket's only one,
+    // and it is still working. Unclaiming here would release a live agent's
+    // ticket back onto the frontier over a fault in the second agent, which is
+    // the one way a cross-check could damage the thing it exists to check. This
+    // is the choke point for every path that ends an agent badly, so the guard
+    // lives here rather than in each of them.
+    if (agent.reviewer) {
+      if (!keepCredentials) this.deps.removeCredentials(agent.cfgDir ?? cfgDirFor(this.root, agent.session))
+      await this.#removeReviewCheckout(agent.repo, agent.ticket, agent.wtPath)
+      this.store.logEvent('reviewer_ended', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason })
+      return true
+    }
     let released = false
     let failure = null
     const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
@@ -1322,6 +1666,17 @@ export class Dispatcher {
       this.store.logEvent('unclaim_failed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason, error: failure ?? 'no viewer login' })
     }
     return released
+  }
+
+  // What a failure message says about the claim after #releaseClaim ran. Two
+  // agents can sit on one ticket since #164, and only one of them has a claim to
+  // say anything about — so the sentence is chosen where the fact is known,
+  // rather than repeated at four call sites that would each have to remember.
+  #releaseTail(agent, released) {
+    if (agent.reviewer) return 'the cross-check ends with no verdict; the builder and its claim are untouched'
+    return released
+      ? 'claim released, ticket re-frontiered'
+      : 'claim release FAILED: the issue is still assigned; reconcile will retry'
   }
 
   // ---- the merge-gated ending (#54) ---------------------------------------------
@@ -1347,6 +1702,12 @@ export class Dispatcher {
   // rejection. The agent still never pushes: the containment boundary of #40/#41
   // is unchanged, only its timing.
   async openPullRequest(agentName, { summary = '' } = {}) {
+    // #164, and FIRST: this call pushes. A reviewer that has misread its own
+    // kind must not be one tool call away from putting a branch on the remote,
+    // for the same reason a charting agent must not — and here the branch it
+    // would push is the BUILDER's.
+    const refused = this.toolRefusal(agentName, 'open_pull_request')
+    if (refused) return `${refused} Nothing was pushed.`
     const b = this.#bindingFor(agentName)
     if (b.error) return `❌ ${b.error} — nothing was pushed`
     const { w, ticket, repo, wtPath, branch, basePath } = b
@@ -1394,6 +1755,11 @@ export class Dispatcher {
   // the ticket from the spawn binding. #40 recorded the alternative as a live
   // limit: an agent can hand ask_human any `preview_url` string it likes.
   async requestReview(agentName, { summary = '', charting = '' } = {}) {
+    // #164: the reviewer is what a gate ASKS ABOUT, never what opens one. A
+    // reviewer at the gate would put its own reading in front of the operator as
+    // if it were the work, on a ticket it is not building.
+    const refused = this.toolRefusal(agentName, 'request_review')
+    if (refused) return { ok: false, text: refused }
     const b = this.#bindingFor(agentName)
     if (b.error) return { ok: false, text: `❌ ${b.error} — no review was requested` }
     const { w, ticket, repo, branch } = b
@@ -1486,6 +1852,23 @@ export class Dispatcher {
   // failed `git log` is worse than letting one unfinished ticket through to the
   // repair path.
   async #endingState(agentName) {
+    // #164: a reviewer's ending is one call, and none of the reads below say
+    // anything true about it — the commits are the builder's, the pull request is
+    // the builder's, and the review gate is the builder's. Answered from the
+    // name, so it holds after a restart too.
+    if (this.#isReviewer(agentName)) {
+      const w = this.agents.get(agentName)
+      const ticket = String(w?.ticket ?? String(agentName).match(REVIEW_SESSION_RE)?.[1] ?? '')
+      return {
+        reviewer: true,
+        ticket,
+        repo: w?.repo ?? null,
+        // `blocks` is what bounds the nudge budget, and it is counted per AGENT
+        // — so the reviewer's own nudges are counted, not the builder's.
+        ...this.#epochScan(ticket, agentName),
+        hasResult: Boolean(w?.resultReceived) || fs.existsSync(path.join(this.dataDir, 'results', `${agentName}.json`)),
+      }
+    }
     const b = this.#bindingFor(agentName)
     if (b.error) return { error: b.error }
     const { w, ticket, repo, wtPath, branch, basePath } = b
@@ -1588,6 +1971,18 @@ export class Dispatcher {
     const w = this.agents.get(agentName)
     if (w) w.resultReceived = true
     if (!result) return 'result recorded'
+
+    // #164: a reviewer's result IS the verdict, and nothing else happens on it.
+    // Branched before every line below, because all of them act on a ticket —
+    // and a reviewer that reached the resolve path would close the builder's.
+    if (this.#isReviewer(agentName)) {
+      try {
+        return await this.#captureVerdict(agentName, result, w)
+      } catch (e) {
+        this.store.logEvent('verdict_failed', { agent: agentName, error: e.message })
+        return `result recorded — but curia could not capture the verdict: ${e.message}`
+      }
+    }
 
     // The ticket comes from the SPAWN BINDING (the agent record, else the
     // session name), never from `result.ticket` — that field is agent-supplied,
@@ -1857,6 +2252,11 @@ export class Dispatcher {
   }
 
   async onAgentDone(agentName) {
+    // #164: the reviewer's ending has none of the ticket's terminal acts in it —
+    // no preview to withdraw, no claim to settle, no workspace lease to end, no
+    // thread label to release. All of those belong to the builder, which is
+    // still alive on the same ticket.
+    if (this.#isReviewer(agentName)) return this.#reviewerDone(agentName)
     const w = this.agents.get(agentName)
     const m = agentName.match(SESSION_RE)
     const ticket = w?.ticket ?? (m ? m[1] : agentName)
@@ -1920,6 +2320,54 @@ export class Dispatcher {
       this.notify(ticket, `⚠️ \`${agentName}\` stopped WITHOUT reporting a result — session kept for post-mortem (\`/attach ${ticket}\`)`)
       // the agent the confirm described has exited, whatever the pane holds (#94)
       this.lapseConfirmsFor(agentName, `\`${agentName}\` stopped without a result`)
+    }
+  }
+
+  // The reviewer's terminal state (#164). Two outcomes, and the difference is
+  // whether the verdict landed:
+  //
+  //   verdict in  — the reviewer did its whole job. The session and the checkout
+  //                 go, because the artifact is what survives and the checkout is
+  //                 a re-creatable read-only copy of a pushed sha.
+  //   no verdict  — the pane and the checkout are the post-mortem evidence, the
+  //                 same rule a result-less builder gets.
+  //
+  // Nothing here touches the ticket, the claim or the thread label. The builder
+  // holds all three and is still working.
+  async #reviewerDone(agentName) {
+    const w = this.agents.get(agentName)
+    const ticket = String(w?.ticket ?? agentName.match(REVIEW_SESSION_RE)?.[1] ?? agentName)
+    const hasResult = Boolean(w?.resultReceived)
+      || fs.existsSync(path.join(this.dataDir, 'results', `${agentName}.json`))
+    if (!hasResult) {
+      if (w) w.state = 'failed'
+      this.store.logEvent('reviewer_abnormal_exit', { repo: w?.repo, ticket, agent: agentName })
+      this.notify(ticket, `⚠️ \`${agentName}\` stopped WITHOUT a verdict — session and checkout kept for post-mortem (\`/attach ${ticket}\` names both). The builder is untouched: nothing about #${ticket} changed.`)
+      return
+    }
+    this.store.logEvent('lifecycle_closed', { repo: w?.repo, ticket, agent: agentName, kind: 'reviewer' })
+    await this.deps.killSession(agentName).catch(() => {})
+    this.agents.delete(agentName)
+    this.deps.removeCredentials(w?.cfgDir ?? cfgDirFor(this.root, agentName))
+    const removed = await this.#removeReviewCheckout(w?.repo, ticket, w?.wtPath)
+    this.notify(ticket, `✅ \`${agentName}\` finished — verdict captured; session closed${removed ? ', checkout removed' : ', checkout kept'}`)
+    this.lapseConfirmsFor(agentName, `\`${agentName}\` finished`)
+  }
+
+  // The reviewer's checkout is a detached HEAD at a PUSHED sha, so it holds
+  // nothing that exists nowhere else — which is exactly why it may be removed
+  // without the evidence dance a builder's worktree needs. Failing to remove it
+  // is rubble, never risk: the next cross-check on this ticket recreates it.
+  async #removeReviewCheckout(repo, ticket, wtPath = null) {
+    if (!repo) return false
+    const target = wtPath ?? reviewPathFor(this.root, repo, ticket)
+    if (!fs.existsSync(target)) return true
+    try {
+      await this.deps.removeWorktree(basePathFor(this.root, repo), target)
+      return true
+    } catch (e) {
+      this.log(`review checkout ${target} could not be removed (${e.message}) — the next cross-check recreates it`)
+      return false
     }
   }
 
@@ -1995,7 +2443,13 @@ export class Dispatcher {
   async cancel(n, { by } = {}) {
     const ticket = String(n)
     const session = `curia-${ticket}`
-    if (!this.agents.has(session) && !(await this.deps.hasSession(session).catch(() => false))) {
+    const live = this.agents.has(session) || await this.deps.hasSession(session).catch(() => false)
+    if (!live) {
+      // #164: a reviewer can outlive its builder — the builder finished, or was
+      // cancelled first — and `cancel <n>` has to reach it either way, because
+      // it is the only verb that ends an agent on this ticket.
+      const reviewer = await this.#teardownReviewer(ticket, { by })
+      if (reviewer) return reviewer
       return `nothing to cancel — no live agent on #${ticket}`
     }
     return this.#teardown(ticket, { by })
@@ -2145,6 +2599,9 @@ export class Dispatcher {
   async #teardown(ticket, { by } = {}) {
     const session = `curia-${ticket}`
     const w = this.agents.get(session)
+    // #164: cancelling a ticket ends every agent on it. A reviewer left reading
+    // a diff whose builder is gone burns a slot on a verdict nobody will use.
+    const reviewerLine = await this.#teardownReviewer(ticket, { by })
     await this.#withdrawPreview(ticket, 'ticket cancelled')
     await this.deps.killSession(session).catch(() => {})
     // The other half of #47: this is the one path that KNOWS the agent is
@@ -2193,7 +2650,7 @@ export class Dispatcher {
     const tail = w
       ? (released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
       : ' (was untracked; GitHub claim untouched)'
-    const msg = `⚰️ \`${session}\` cancelled — session killed${tail}`
+    const msg = `⚰️ \`${session}\` cancelled — session killed${tail}${reviewerLine ? `\n${reviewerLine}` : ''}`
     this.notify(ticket, msg)
     // the agent is positively gone ⇒ any OTHER open confirm on it lapses (#94)
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
@@ -2202,6 +2659,28 @@ export class Dispatcher {
     // belongs in the thread its history lives in. The label comes off when
     // the ticket itself closes (reconcile's sweep reads GitHub for that).
     return msg
+  }
+
+  // End a live cross-check reviewer on this ticket, if there is one (#164).
+  // Returns the line to say about it, or null when there was nothing to end.
+  // Untracked sessions are torn down too — the reviewer's whole state is one
+  // pane and one throwaway checkout, so there is nothing here to keep.
+  async #teardownReviewer(ticket, { by } = {}) {
+    const session = reviewSessionFor(ticket)
+    const w = this.agents.get(session)
+    if (!w && !(await this.deps.hasSession(session).catch(() => false))) return null
+    await this.deps.killSession(session).catch(() => {})
+    for (const r of this.#openEscalationsFor(session)) {
+      this.cancelEscalation(r.id, { by: 'cancel' })
+      this.store.logEvent('escalation_orphaned', { id: r.id, agent: session, ticket })
+    }
+    this.agents.delete(session)
+    const removed = await this.#removeReviewCheckout(w?.repo ?? this.#epochRepo(ticket), ticket, w?.wtPath)
+    this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
+    this.deps.forgetAgentToken(this.dataDir, session)
+    this.store.logEvent('reviewer_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
+    this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
+    return `⚰️ \`${session}\` cancelled too — the cross-check ends with no verdict${removed ? ', checkout removed' : ', checkout kept'}`
   }
 
   // ---- resume --------------------------------------------------------------------
@@ -2291,6 +2770,9 @@ export class Dispatcher {
       ticket: w.ticket,
       title: w.title,
       model: w.model,
+      // #164: two agents can sit on one ticket now, so a row has to say which
+      // one it is. Without it `/status` shows the same ticket twice.
+      reviewer: Boolean(w.reviewer),
       state: reviewing.has(w.session) ? 'awaiting-review' : w.state,
       uptime_s: w.spawnedAt ? Math.round((Date.now() - w.spawnedAt) / 1000) : null,
       result_received: w.resultReceived,
@@ -2355,6 +2837,19 @@ export class Dispatcher {
     // handles exactly that shape.
     if (w.resultReceived || fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`))) {
       return this.onAgentDone(session)
+    }
+    // #164: a reviewer that died holds no claim to settle and no question to
+    // keep open. Say it in the thread and leave the checkout — the builder is
+    // still working on the same ticket, and a second press starts a fresh
+    // reviewer over this checkout.
+    if (w.reviewer) {
+      this.agents.delete(session)
+      this.store.logEvent('agent_died', { repo, ticket, agent: session, kind: 'reviewer' })
+      this.lapseConfirmsFor(session, `\`${session}\` died`)
+      this.deps.removeCredentials(w.cfgDir ?? cfgDirFor(this.root, session))
+      this.log(`liveness sweep: reviewer ${session} is gone with no teardown order`)
+      this.notify(ticket, `⚰️ \`${session}\` is gone without a teardown order and left NO verdict — nothing about #${ticket} changed. Ask for the cross-check again to start a fresh reviewer.`)
+      return
     }
     this.agents.delete(session)
     this.store.logEvent('agent_died', { repo, ticket, agent: session })
@@ -2435,15 +2930,21 @@ export class Dispatcher {
       this.log(`reconcile: tmux session list indeterminate this pass (${ctx.sessionsError}) — skipping session adoption, orphan sweep and dead-claim release`)
     }
 
+    // #164: reviewers hold no claim, so they need no viewer identity — only a
+    // determinate session list. Run before the three sweeps below, because
+    // adoption is what puts a live reviewer into `this.agents` and every one of
+    // them reads that map to decide what is abandoned.
+    if (ctx.sessions) await this.#reconcileReviewers(ctx)
+
     // The credential sweep needs only a DETERMINATE session list, not the
     // viewer identity: a cfg dir whose session is gone belongs to no live
     // agent whoever owns the ticket.
-    if (ctx.sessions) this.#sweepAbandonedCredentials(ctx.sessions)
+    if (ctx.sessions) this.#sweepAbandonedCredentials(ctx.allSessions)
 
     // Same rule for the containers (#156): a determinate session list is all
     // this needs, because a container whose pane is gone belongs to no live
     // agent whoever owns the ticket.
-    if (ctx.sessions) await this.#sweepContainers(ctx.sessions)
+    if (ctx.sessions) await this.#sweepContainers(ctx.allSessions)
 
     // And for the agent tokens (#159). The teardown paths that destroy a config
     // dir forget the token beside it, but the two terminal states that KEEP the
@@ -2452,7 +2953,7 @@ export class Dispatcher {
     // tmux positively says the session is gone.
     if (ctx.sessions) {
       const swept = this.deps.sweepAgentTokens(this.dataDir, [
-        ...ctx.sessions, ...this.agents.keys(), ...this.inFlight,
+        ...ctx.allSessions, ...this.agents.keys(), ...this.inFlight,
       ])
       for (const agent of swept) this.log(`reconcile: forgot the loopback token of dead ${agent}`)
     }
@@ -2536,15 +3037,26 @@ export class Dispatcher {
     // "no server"); null when the read failed and the list is indeterminate
     let sessions = null
     let sessionsError = null
+    // #164: two lists off one read. `sessions` stays the BUILDER sessions,
+    // because every ticket pass below reasons about a claim a reviewer does not
+    // hold; `allSessions` is what the resource sweeps (containers, credentials,
+    // tokens) need, because a live reviewer owns all three and a sweep blind to
+    // it would collect them out from under a running agent.
+    let reviewSessions = null
     try {
-      sessions = (await this.deps.listSessions()).filter((s) => SESSION_RE.test(s))
+      const live = await this.deps.listSessions()
+      sessions = live.filter((s) => SESSION_RE.test(s))
+      reviewSessions = live.filter((s) => REVIEW_SESSION_RE.test(s))
     } catch (e) {
       sessionsError = e.message
     }
     const failedRepos = new Set()
     const issueCache = new Map()
 
-    const ctx = { journal, epochs, login, sessions, sessionsError, failedRepos }
+    const ctx = {
+      journal, epochs, login, sessions, reviewSessions, sessionsError, failedRepos,
+      allSessions: sessions ? [...sessions, ...reviewSessions] : null,
+    }
     ctx.getIssue = async (repo, n) => {
       const key = `${repo}#${n}`
       if (!issueCache.has(key)) {
@@ -2665,6 +3177,72 @@ export class Dispatcher {
     }
   }
 
+  // Live `curia-review-<n>` sessions (#164): re-adopt the ones the journal can
+  // describe, sweep the ones it cannot.
+  //
+  // Adoption is not a nicety here — it is what keeps the verdict. A reviewer's
+  // one output travels through `report_result`, and `onResult` needs a record to
+  // know which ticket the verdict is about. Its agent token survives a restart
+  // on disk, so the call itself still arrives; without the record the daemon
+  // would authenticate the reviewer and then throw its verdict away.
+  //
+  // There is no GitHub read and no claim decision, because a reviewer holds
+  // neither. The journal is the whole source, exactly as it is for the model and
+  // harness of a re-adopted builder (#187).
+  async #reconcileReviewers({ journal, reviewSessions }) {
+    for (const session of reviewSessions) {
+      if (this.agents.has(session) || this.inFlight.has(session)) continue
+      let spawn = null
+      for (const ev of journal) {
+        if (ev.type === 'reviewer_spawned' && ev.agent === session) spawn = ev
+      }
+      if (!spawn) {
+        // A reviewer curia cannot describe cannot be resumed, cannot report and
+        // cannot be attributed to a ticket. Sweeping is the honest answer: the
+        // cross-check is one press away from starting again.
+        this.store.logEvent('orphan_reviewer_swept', { agent: session })
+        await this.deps.killSession(session).catch(() => {})
+        try {
+          this.deps.removeConfigDir(cfgDirFor(this.root, session))
+        } catch (e) {
+          this.log(`reconcile: could not remove the config dir of swept reviewer ${session} (${e.message})`)
+        }
+        this.deps.forgetAgentToken(this.dataDir, session)
+        this.log(`reconcile: swept reviewer ${session} — the journal says nothing about it`)
+        continue
+      }
+      const ticket = String(spawn.ticket)
+      const cfgDir = cfgDirFor(this.root, session)
+      this.agents.set(session, {
+        repo: spawn.repo,
+        ticket,
+        title: '',
+        session,
+        // A FRESH instance id, the same rule adoption gives a builder: a confirm
+        // bound before the restart must lapse rather than match this agent.
+        instance: `${session}@adopted-${Date.now()}`,
+        wtPath: spawn.checkout ?? reviewPathFor(this.root, spawn.repo, ticket),
+        cfgDir,
+        promptFile: path.join(cfgDir, 'prompt.md'),
+        model: spawn.model ?? null,
+        requestedModel: spawn.model ?? null,
+        harness: spawn.harness ?? null,
+        provider: this.routing.models[spawn.model]?.provider ?? null,
+        ports: null,
+        sandbox: spawn.sandbox ?? null,
+        spawnedAt: null,
+        state: 'ready',
+        resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
+        reviewer: true,
+        builderModel: spawn.builder_model ?? null,
+        sameProvider: Boolean(spawn.same_provider),
+        sha: spawn.sha ?? null,
+        baseBranch: spawn.base_branch ?? null,
+      })
+      this.log(`reconcile: re-adopted live reviewer ${session} (${spawn.repo}#${ticket})`)
+    }
+  }
+
   // `git worktree remove --force` on an orphan used to be free: the worktree
   // held at most a local commit nothing depended on. Since #41 the daemon is
   // expected to push that branch and open a PR, so a sweep that fires before the
@@ -2765,7 +3343,9 @@ export class Dispatcher {
       return // no cfg root yet — nothing was ever seeded
     }
     for (const dir of dirs) {
-      if (!SESSION_RE.test(dir)) continue
+      // #164: a reviewer's config dir holds the same credential copy a
+      // builder's does, and it is abandoned by the same rule.
+      if (!SESSION_RE.test(dir) && !REVIEW_SESSION_RE.test(dir)) continue
       if (sessions.includes(dir) || this.agents.has(dir) || this.inFlight.has(dir)) continue
       const cfgDir = cfgDirFor(this.root, dir)
       if (!fs.existsSync(path.join(cfgDir, '.credentials.json'))) continue

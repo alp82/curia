@@ -170,6 +170,26 @@ The rule that an agent's repo and ticket come from the spawn record, never from 
 **Exit marker**:
 The nonce line the spawn wrapper echoes into the pane when the harness command ends, with its status. It is what tells a dead spawn apart from a slow one.
 
+### The cross-check
+
+**Cross-check**:
+A second reading of a builder's diff by a model on the other provider. The operator asks for it. Nothing starts one by itself. See [ADR-0010](docs/adr/0010-the-cross-check.md).
+
+**Builder**:
+The agent that works a ticket, in the cross-check's vocabulary. It holds the ticket's claim and it stays alive while the reviewer reads.
+
+**Reviewer**:
+The agent of a cross-check. It reads the diff, the ticket and a checkout, runs the tests, and ends with the verdict. It writes nothing: no tracker write, no push, no merge, no gate, no preview and no question. Its session is `curia-review-<n>`, and it is attachable and sandboxed as any agent.
+
+**Pairing table**:
+The `review:` section of `routing.yaml`, keyed by the builder's provider. An anthropic builder gets `gpt`, an openai builder gets `opus`. A `review-model:<name>` label on the ticket beats it.
+
+**Review checkout**:
+The reviewer's own checkout, at `repos/<owner>__<repo>/review/<n>`. It is a detached HEAD at the pushed tip of `curia/<n>`, because git refuses the same branch in two worktrees. It carries no branch, so there is nothing in it to commit onto.
+
+**Verdict**:
+The reviewer's one output: the text of its `report_result` summary. The daemon captures it as `data/verdicts/<n>.json` and holds it for the return path. A verdict read on the builder's own provider carries the stamp "same provider — cross-provider was cooling" at its top, written by curia.
+
 ### Human in the loop
 
 **Escalation**:
@@ -317,17 +337,18 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Daemon** (`daemon/`): one Node process, no build step. It owns dispatch, escalations, routing, previews, the attach surfaces, and reconcile.
 - **Bridge**: the Discord module inside the daemon. Thread-per-ticket rendering, buttons, image passthrough both directions.
 - **Router**: the deterministic command router inside the daemon. It parses the five verbs from Discord slash commands or REST.
-- **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`.
+- **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`. A cross-check adds a reviewer beside one, in `curia-review-<n>`.
 - **Surfaces**: the shared ttyd terminal and the timeline, both published with Tailscale Serve. Previews take their own port range.
-- **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, skills) and `routing.yaml` (models, defaults, fallbacks).
+- **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing).
 
 ## State homes
 
 - **GitHub**: ticket state, labels, claims, sub-issue parentage, map bodies, branches, pull requests. The source of truth.
 - **Journal** (`daemon/data/events.jsonl`): every durable curia event.
+- **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, and previews.
-- **Workspace root** (`~/curia-work`): base clones, worktrees or private clones, agent config dirs.
+- **Workspace root** (`~/curia-work`): base clones, worktrees or private clones, review checkouts, agent config dirs.
 - **Host credential stores** (`~/.claude`, `~/.codex`): shared with bare-pane agents, which hold no copy. A sandboxed agent cannot reach them, so it gets the model credential copied into its container environment.
 - **docker**: the live agent containers and the two shared cache volumes.
 
