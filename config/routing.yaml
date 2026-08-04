@@ -135,8 +135,14 @@ backends:
     # lane it also restores the SHARED credential store: a container copies
     # `auth.json` and freezes on it, a bare pane symlinks the host's own file.
     sandbox: docker
-    # UNMEASURED, and deliberately loose until #158 takes the reading (#194).
-    # Nothing here says the codex CLI starts its MCP servers on the claude
-    # lane's clock, and the cost of guessing low is a healthy worker killed —
-    # so this lane waits a minute and catches the fault late instead.
-    tool_channel_grace_s: 60
+    # MEASURED on the box, three live dispatches, 2026-08-04 (#158,
+    # docs/live-checks/158). This lane does NOT behave like the claude one. Its
+    # handshake and its composer marker land within ~100 ms of each other and in
+    # EITHER order: 844 ms ahead, 82 ms ahead, then 106 ms behind. Where the
+    # claude handshake led the marker by 1.3-2.9 s in every sample, this one
+    # straddles it.
+    #
+    # So this lane gets more room than the claude lane's 15 s, not because it is
+    # slower but because its ordering is not established: 20 s is about 200x the
+    # largest lag seen, and still catches a mute worker about 22 s after spawn.
+    tool_channel_grace_s: 20

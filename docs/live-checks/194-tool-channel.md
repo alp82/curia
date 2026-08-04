@@ -92,7 +92,6 @@ against a fault that used to consume a whole session unnoticed.
 
 Checked at the end of it:
 
-- `tmux -L curia ls` — no session; the pane and its container are gone.
 - `gh issue view 170` — **no assignee**, open. The ticket is back on the frontier.
 - The daemon log carries the reason in words, twice: `curia-170 reached its composer and sent no /mcp request (grace window) — attempt 1`.
 
@@ -114,3 +113,14 @@ the proof the box came back healthy.
 - **The codex lane.** Its window is a conservative guess until #158.
 - **A respawn that fails.** The mute path releases the claim exactly as the cap-hit path does,
   and both now run through one respawn function. Unit-tested only.
+
+## One correction, made while checking #158
+
+The teardown after the refusal was first read with `tmux -L curia ls`, which answers about a
+socket named `curia`. **The daemon uses the DEFAULT socket** (`tmux.mjs` runs bare `tmux`), so
+that command reported "no such file" about a socket nobody writes, and it would have said the
+same with a live worker on the pane. The reading proved nothing.
+
+Re-read on the right socket during the #158 check: `tmux ls` says `no server running` and
+`docker ps` lists no `curia-*` container, with the box idle. So the conclusion holds and the
+evidence for it did not. Anything checking for a live pane on this box reads `tmux ls`.
