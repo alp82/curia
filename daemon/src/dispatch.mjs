@@ -382,7 +382,7 @@ export class Dispatcher {
 
   // `reuse` is the resume contract (#81): inherit the surviving worktree
   // instead of recreating it — see #dispatch.
-  async start(ticketArg, { repo, model, harness, instruction = null, by, reuse = false, threadId = null } = {}) {
+  async start(ticketArg, { repo, model, instruction = null, by, reuse = false, threadId = null } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -433,7 +433,7 @@ export class Dispatcher {
 
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
-      return (await this.#dispatch(theRepo, n, issue, { model, harness, instruction, by, reuse, threadId })) ?? this.#exhaustedReply()
+      return (await this.#dispatch(theRepo, n, issue, { model, instruction, by, reuse, threadId })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
     }
@@ -502,7 +502,7 @@ export class Dispatcher {
   // `reuse` (the resume contract, #81): a surviving worktree is inherited as it
   // stands — uncommitted files and local commits included — instead of being
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
-  async #dispatch(repo, n, issue, { model, harness, instruction = null, by, reuse = false, threadId = null }) {
+  async #dispatch(repo, n, issue, { model, instruction = null, by, reuse = false, threadId = null }) {
     const session = `curia-${n}`
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     // The type label, read once and used twice: it names the thread (#93) and
@@ -533,8 +533,14 @@ export class Dispatcher {
     // providers, and so can cross harnesses. Reading it off `modelName` was
     // invisible while every model was a claude one; with a codex harness it would
     // seed a claude config dir and then spawn codex into it.
+    //
+    // Nothing overrides it any more (#177). An operator pin could only ever
+    // agree with this line or contradict it, and a contradiction spawned
+    // `codex --model opus` — not a model. The fallback chain is why the pin
+    // could not be judged at parse time either: the model spawned here is not
+    // always the model typed. `review` reads its harness the same way.
     const useModel = cands[0]
-    const harnessName = harness ?? this.routing.models[useModel].harness
+    const harnessName = this.routing.models[useModel].harness
     if (!this.routing.harnesses[harnessName]) {
       return `❌ unknown harness \`${harnessName}\` — configured harnesses: ${Object.keys(this.routing.harnesses).join(', ')}`
     }
@@ -2690,10 +2696,10 @@ export class Dispatcher {
   // ---- resume --------------------------------------------------------------------
 
   // The resume contract (#81): a fresh agent on the ticket, inheriting the
-  // surviving worktree, never the conversation. A live agent is refused flat —
-  // resume means "the agent is gone", and the teardown-and-redispatch offer
-  // already lives on `start`.
-  async resume(n, { repo, model, harness, by, threadId } = {}) {
+  // surviving worktree and — since #177 — the model of the last spawn, never
+  // the conversation. A live agent is refused flat — resume means "the agent is
+  // gone", and the teardown-and-redispatch offer already lives on `start`.
+  async resume(n, { repo, model, by, threadId } = {}) {
     const ticket = String(n)
     const session = `curia-${ticket}`
     if (this.agents.has(session) || this.inFlight.has(session) || await this.deps.hasSession(session).catch(() => false)) {
@@ -2706,7 +2712,26 @@ export class Dispatcher {
     // that is no longer a map degrades to an ordinary dispatch and the inherited
     // sentence is dropped, never refused (the `!reuse` clause in start).
     const { instruction } = this.#epochCharting(ticket, session)
-    return this.start(ticket, { repo, model, harness, instruction, by, reuse: true, threadId })
+    return this.start(ticket, { repo, model: model ?? this.#inheritedModel(session), instruction, by, reuse: true, threadId })
+  }
+
+  // What a resume runs on (#177). Resume re-routed from the labels, so a ticket
+  // that ran on gpt came back on opus: `resume` supplied no model and the
+  // journal was never asked. The worktree was inherited and the lane was not.
+  //
+  // The MODEL is what is inherited, and the harness follows it. `routing.yaml`
+  // is the authority on which harness a model runs on, so a journalled harness
+  // that disagrees with the config today is exactly the contradiction the other
+  // half of #177 closes — the journal answers the one question config cannot,
+  // which is which ROW was picked.
+  //
+  // Two degradations, both back to ordinary routing rather than a refusal,
+  // because the surviving worktree is resumable either way: a session with no
+  // spawn in the journal (the journal was rotated, or the agent predates this),
+  // and a label `routing.yaml` no longer carries (a row renamed or removed).
+  #inheritedModel(session) {
+    const last = this.#epochSpawn(this.#readJournal(), session)?.model ?? null
+    return last && this.routing.models?.[last] ? last : undefined
   }
 
   // Bulk resume (#81): every surviving worktree without a live agent, behind

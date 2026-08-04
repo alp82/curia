@@ -2776,6 +2776,82 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
     assert.match(await d.resumeAll({ by: 'test' }), /nothing to resume/)
   })
 
+  // #177: resume re-routed from the labels, so a ticket that ran on gpt came
+  // back on opus — the worktree was inherited and the lane was not. The journal
+  // held the answer all along: `agent_spawned` states the model of each spawn.
+  //
+  // TWO_LANE is what makes these readable: `sonnet` is the untyped default on
+  // the claude harness and `gpt` is on codex, so the model and the harness both
+  // move, or neither does.
+  describe('resume inherits the model (#177)', () => {
+    const journalSpawn = (fields) => fs.appendFileSync(
+      path.join(tmp, 'data', 'events.jsonl'),
+      JSON.stringify({ type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', ...fields }) + '\n',
+    )
+
+    test('a resumed ticket comes back on the model the dead agent ran on, and on its harness', async () => {
+      journalSpawn({ model: 'gpt', harness: 'codex' })
+      const d = makeDispatcher({}, { routing: TWO_LANE })
+      await d.resume('42', { repo: 'o/r', by: 'test' })
+      const agent = d.agents.get('curia-42')
+      assert.equal(agent.model, 'gpt')
+      assert.equal(agent.harness, 'codex')
+    })
+
+    test('the LAST spawn wins — a respawn down the fallback chain is what actually ran', async () => {
+      journalSpawn({ model: 'sonnet', harness: 'claude' })
+      journalSpawn({ model: 'gpt', harness: 'codex' })
+      const d = makeDispatcher({}, { routing: TWO_LANE })
+      await d.resume('42', { repo: 'o/r', by: 'test' })
+      assert.equal(d.agents.get('curia-42').model, 'gpt')
+    })
+
+    test('a typed model beats the inheritance', async () => {
+      journalSpawn({ model: 'gpt', harness: 'codex' })
+      const d = makeDispatcher({}, { routing: TWO_LANE })
+      await d.resume('42', { repo: 'o/r', model: 'sonnet', by: 'test' })
+      const agent = d.agents.get('curia-42')
+      assert.equal(agent.model, 'sonnet')
+      // the harness follows the model, never the journal
+      assert.equal(agent.harness, 'claude')
+    })
+
+    test('no spawn in the journal degrades to ordinary routing rather than refusing', async () => {
+      const d = makeDispatcher({}, { routing: TWO_LANE })
+      const reply = await d.resume('42', { repo: 'o/r', by: 'test' })
+      assert.match(reply, /dispatched o\/r#42/)
+      assert.equal(d.agents.get('curia-42').model, 'sonnet') // TWO_LANE's untyped default
+    })
+
+    test('a journalled model routing.yaml no longer carries degrades the same way', async () => {
+      journalSpawn({ model: 'a-row-since-deleted', harness: 'codex' })
+      const d = makeDispatcher({}, { routing: TWO_LANE })
+      const reply = await d.resume('42', { repo: 'o/r', by: 'test' })
+      assert.match(reply, /dispatched o\/r#42/)
+      assert.equal(d.agents.get('curia-42').model, 'sonnet')
+    })
+
+    // The journal states a harness beside the model, and it is NOT read: config
+    // is the authority on which harness a model runs on. A stale harness with a
+    // current model is the `codex --model opus` contradiction by another road.
+    test('a journalled harness that config contradicts is ignored, not honored', async () => {
+      journalSpawn({ model: 'gpt', harness: 'claude' })
+      const d = makeDispatcher({}, { routing: TWO_LANE })
+      await d.resume('42', { repo: 'o/r', by: 'test' })
+      assert.equal(d.agents.get('curia-42').harness, 'codex')
+    })
+
+    // resume all takes no model, so each ticket inherits its own.
+    test('resume all leaves every ticket on its own inherited model', async () => {
+      fs.mkdirSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42'), { recursive: true })
+      journalSpawn({ model: 'gpt', harness: 'codex' })
+      const d = makeDispatcher({}, { routing: TWO_LANE })
+      await d.resumeAll({ by: 'test' })
+      await waitFor(() => d.agents.has('curia-42'))
+      assert.equal(d.agents.get('curia-42').model, 'gpt')
+    })
+  })
+
   test('status carries waiting-where and the recent cancelled and finished', async () => {
     const journal = path.join(tmp, 'data', 'events.jsonl')
     fs.appendFileSync(journal, JSON.stringify({ type: 'agent_cancelled', repo: 'o/r', ticket: '3' }) + '\n')

@@ -77,14 +77,26 @@ describe('canonicalFor', () => {
     assert.equal(canonicalFor('start', { ticket: '85' }), 'start 85')
     assert.equal(canonicalFor('start', { ticket: '85', repo: 'alp82/curia' }), 'start alp82/curia#85')
     assert.equal(
-      canonicalFor('start', { ticket: '85', model: 'claude-sonnet-5', harness: 'codex' }),
-      'start 85 model=claude-sonnet-5 harness=codex',
+      canonicalFor('start', { ticket: '85', model: 'claude-sonnet-5' }),
+      'start 85 model=claude-sonnet-5',
     )
     assert.equal(canonicalFor('cancel', { ticket: '85' }), 'cancel 85')
     assert.equal(canonicalFor('cancel', { ticket: 'all' }), 'cancel all')
     assert.equal(canonicalFor('resume', { ticket: '85' }), 'resume 85')
     assert.equal(canonicalFor('resume', { ticket: 'all' }), 'resume all')
     assert.equal(canonicalFor('attach', { ticket: '85' }), 'attach 85')
+  })
+
+  // #177. The tool no longer declares a harness field, but the model on the
+  // other end of this seam writes the arguments — a hallucinated one must not
+  // reach the router as text it refuses.
+  test('a harness argument is dropped rather than composed into the text', () => {
+    assert.equal(canonicalFor('start', { ticket: '85', model: 'opus', harness: 'codex' }), 'start 85 model=opus')
+  })
+
+  test('resume carries the model override, and resume all drops it', () => {
+    assert.equal(canonicalFor('resume', { ticket: '85', model: 'gpt' }), 'resume 85 model=gpt')
+    assert.equal(canonicalFor('resume', { ticket: 'all', model: 'gpt' }), 'resume all')
   })
 
   test('an unknown verb throws instead of posting garbage to /command', () => {

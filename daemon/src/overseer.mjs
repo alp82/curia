@@ -35,8 +35,8 @@ export function canonicalFor(verb, args = {}) {
       return 'status'
     case 'start': {
       let text = `start ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
+      // #177 removed `harness=`: the harness follows the model.
       if (args.model) text += ` model=${args.model}`
-      if (args.harness) text += ` harness=${args.harness}`
       // The map instruction (#160) rides LAST, after a bare `--`, because it is
       // the one argument that is a whole sentence. Whitespace is collapsed here:
       // the seam is one line of text, and the router splits it on whitespace, so
@@ -48,8 +48,12 @@ export function canonicalFor(verb, args = {}) {
       return text
     }
     case 'cancel':
+      return `cancel ${args.ticket}`
+    // #177: resume takes the same model override start takes. `all` takes none,
+    // so the argument is dropped rather than composed into text the router
+    // refuses.
     case 'resume':
-      return `${verb} ${args.ticket}`
+      return `resume ${args.ticket}${args.model && args.ticket !== 'all' ? ` model=${args.model}` : ''}`
     case 'attach':
       return `attach ${args.ticket}`
     default:
@@ -78,15 +82,15 @@ export function buildVerbTools(command) {
     tool('start', 'Claim a ticket and dispatch an agent on it. Use the repo field when the ticket number alone is ambiguous. Started on a MAP issue, this dispatches a charting agent that updates the map instead — pass the operator\'s sentence as the instruction.', {
       ticket: ticketArg,
       repo: repoArg,
-      model: z.string().optional().describe('model override'),
-      harness: z.string().optional().describe('harness override (claude | codex)'),
+      model: z.string().optional().describe('model override — the harness follows it, so there is no harness argument'),
       instruction: z.string().optional().describe('MAP DISPATCHES ONLY: what the operator wants changed on the map, in their own words ("update the landing page map so that X"). The charting agent reads it as its first input. Leave it out and the agent asks the operator what should change. A ticket dispatch refuses it.'),
     }, run('start')),
     tool('cancel', 'Cancel the agent on a ticket, or "all" for every agent. Destructive, so the daemon posts ✅/❌ buttons and executes ONLY after the operator presses ✅. Call this directly when asked — never seek confirmation in conversation first, and never report the cancel as done: report that the confirm was posted.', {
       ticket: bulkArg,
     }, run('cancel')),
-    tool('resume', 'Fresh agent on a ticket, inheriting its surviving worktree. "all" resumes every resumable ticket.', {
+    tool('resume', 'Fresh agent on a ticket, inheriting its surviving worktree and the model the dead agent ran on. "all" resumes every resumable ticket, each on its own model.', {
       ticket: bulkArg,
+      model: z.string().optional().describe('model override — otherwise the model the dead agent ran on. Ignored for "all".'),
     }, run('resume')),
     tool('attach', 'Get the attach links (timeline + browser terminal) for a live agent.', {
       ticket: ticketArg,

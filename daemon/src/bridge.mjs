@@ -43,9 +43,14 @@ const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 // Every argument form the router takes is a form the operator types, so every
 // one of them belongs here: the bare number, `all`, the repo-qualified
 // `curia#170` and `alp82/curia#170` that `start` accepts (see parseCommand),
-// and the trailing `model=`/`harness=` overrides. The repo-qualified form is
+// and the trailing `model=` override. The repo-qualified form is
 // what this map's own notes tell the operator to type, so missing it repeated
 // the exact miss the ticket is about.
+//
+// `harness=` stays in this shape after #177 removed it from every surface, and
+// that is the "drawn wide" rule doing its job: an operator typing it in a thread
+// gets the hint that sends them to #curia, where the router names the rule. The
+// note queue swallowing it silently is the miss this regex exists to stop.
 export const COMMAND_SHAPED =
   /^\s*(cancel|stop|pause|resume|status|start|attach)(?:\s+(all|#?\d+|[\w.-]+(?:\/[\w.-]+)?#\d+))?(?:\s+(?:model|harness)=[\w.-]+)*\s*[.!?]*\s*$/i
 
@@ -110,16 +115,20 @@ const SLASH_MANIFEST = [
   new SlashCommandBuilder().setName('status').setDescription('Agents running, waiting on input, and recent endings'),
   new SlashCommandBuilder().setName('start').setDescription('Dispatch an agent on a ticket, or a charting agent on a map')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or a map number').setRequired(true))
+    // #177 removed the `harness` option: the harness follows the model, so the
+    // only values this could carry were a no-op or a broken spawn.
     .addStringOption((o) => o.setName('model').setDescription('Model override'))
-    .addStringOption((o) => o.setName('harness').setDescription('Harness override'))
     // #160. Optional, so an old client-side manifest still sends a valid
     // `/start` — it just cannot carry a sentence, and the charting agent then
     // asks what should change, which is the right degradation.
     .addStringOption((o) => o.setName('instruction').setDescription('MAP ONLY: what should change on the map')),
   new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket, or all of them')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
-  new SlashCommandBuilder().setName('resume').setDescription('Fresh agent on a ticket, inheriting its surviving worktree')
-    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
+  new SlashCommandBuilder().setName('resume').setDescription('Fresh agent on a ticket, inheriting its worktree and its model')
+    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true))
+    // #177: resume inherits the model of the dead agent, and this is the way
+    // out. `resume all` ignores it — see parseCommand.
+    .addStringOption((o) => o.setName('model').setDescription('Model override — otherwise the model the dead agent ran on')),
   new SlashCommandBuilder().setName('attach').setDescription('Get the attach handle for a live session')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true)),
 ]
@@ -161,11 +170,17 @@ export function expandCommand(i) {
       const instruction = (need('instruction') ?? '').replace(/\s+/g, ' ').trim()
       return `start ${ticket}`
         + (opt('model') ? ' model=' + opt('model') : '')
-        + (opt('harness') ? ' harness=' + opt('harness') : '')
         + (instruction ? ` -- ${instruction}` : '')
     }
+    // #177: `resume all model=x` is not a command the router takes, so the
+    // option is dropped on the bulk form rather than expanded into a refusal.
+    case 'resume': {
+      const ticket = need('ticket')
+      if (!ticket) return { error: 'missing' }
+      const model = ticket === 'all' ? null : opt('model')
+      return `resume ${ticket}${model ? ' model=' + model : ''}`
+    }
     case 'cancel':
-    case 'resume':
     case 'attach': {
       const ticket = need('ticket')
       if (!ticket) return { error: 'missing' }
