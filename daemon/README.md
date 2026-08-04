@@ -20,6 +20,7 @@ The daemon expects these on the box before the first boot:
 
 - `DISCORD_BOT_TOKEN` — CuriaBot token. Omit to run REST-only (escalations stay answerable via `POST /answer`).
 - `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty.
+- `CURIA_AGENT_GH_TOKEN_<OWNER>` — the scoped GitHub token a worker gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. See [the agent's GitHub authority](#the-agents-github-authority-155) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271), `NUDGE_MS` (default 30 min).
 - `OVERSEER_MODEL` (default `claude-haiku-4-5`) and `OVERSEER_FALLBACK_MODEL` (default `claude-sonnet-5`) — the overseer session models (#92).
 
@@ -130,6 +131,24 @@ The worker never picks the public port, because `tailscale serve` will publish *
 Lifecycle: the rule is withdrawn when the ticket ends — clean finish, result-less exit, or `/cancel` — and reconcile sweeps anything in range that no live `curia-<n>` session claims. That sweep is the only thing that can see a rule left by a **previous** daemon process, since `tailscale serve --bg` config lives in tailscaled, not here; an indeterminate `serve status` skips the sweep rather than reading as "no live tickets" and withdrawing previews under review.
 
 Verified live: refusals for all three curia surfaces and for a dead port; a worker that started its own dev server, published it, and had the page load **on the phone** over the tailnet; a second concurrent preview taking the next port; both sweep branches (kept while its session lives, withdrawn once nothing claims it) with the attach rule untouched throughout. Previews still carry the tailnet-membership-only posture: #151 gated the attach and timeline surfaces, and did not reach previews. A worker's dev server is published to the whole tailnet with no identity check.
+
+## The agent's GitHub authority (#155)
+
+A worker used to reach GitHub through the host's `~/.config/gh/hosts.yml` login, which is the whole account: every repo, every scope. It now gets a scoped fine-grained PAT as `GH_TOKEN`, which `gh` prefers over `hosts.yml` natively, so every wayfinder operation keeps working with no code that knows the token exists.
+
+**One token per resource owner.** That is what a fine-grained PAT is: the creation form has a single resource-owner dropdown, and the watch list spans `alp82` and the `getalfredo` org. So the key carries the owner and the daemon picks by the ticket's own repo. An owner with no key keeps the inherited host login, and the daemon says so at boot with a `WARNING` naming the missing key.
+
+The permissions are **Contents**, **Issues** and **Pull requests** read/write, plus **Commit statuses** read so `gh pr checks` answers. Nothing else. The rule is grant content, never execution or persistence: Secrets, Variables, Webhooks, Workflows, Environments and Actions-write each hand a compromised worker either a way to run code or a way to keep reach after it dies.
+
+The daemon is deliberately **not** on this token. Its own `gh` keeps the host login, because it must reach every watched repo, and a repo added to `curia.yaml` but left off a token would break dispatch with no signal. A bare `GH_TOKEN` in `.env` would re-authenticate the daemon too, silently, by sitting in its environment.
+
+The value is read at boot, so a quoted or padded token refuses the boot instead of reaching a worker as a 401 mid-resolve. Boot also asks GitHub once per watched repo, with the token that repo's worker would get, and warns when the token cannot reach it or expires within 14 days. An expired token does not degrade to the host login. It fails every `gh` call, so the warning is the whole defense.
+
+That probe has one blind spot, measured rather than assumed: **a public repo left off the token's selection cannot be detected by any read.** Every fine-grained PAT reads public repositories, and the repo payload's `permissions` object describes the underlying user rather than the token grant — the `getalfredo` token reports `push: true` on `alp82/curia`, which it cannot possibly write. A private repo outside the selection does answer 404, and that is the case the probe catches. There is no harmless write, so no write probe runs at boot.
+
+Note for org repos: an organization can cap fine-grained PAT lifetime, and `getalfredo` caps it at 366 days. So an org token cannot be permanent, and its expiry is a calendar item until the GitHub App lands. The full transcript is in [docs/live-checks/155-agent-github-token.md](../docs/live-checks/155-agent-github-token.md).
+
+A GitHub App with one-hour installation tokens is the later, cleaner form, and it stays in the map's fog. It is not a drop-in: an installation token dies after an hour and `GH_TOKEN` is fixed at pane spawn, so the daemon would have to refresh into a per-worker `gh` config dir that `gh` re-reads on each call.
 
 ## What a worker knows (#57)
 

@@ -1,7 +1,7 @@
 # ADR-0006: Worker containment and standing orders
 
-**Status**: accepted (2026-07)
-**Provenance**: [Build preview-link allocation (#40)](https://github.com/alp82/curia/issues/40), [Close the loop: the worker resolves its ticket (#41)](https://github.com/alp82/curia/issues/41), [Align the worker's standing orders with the wayfinder skill (#49)](https://github.com/alp82/curia/issues/49)
+**Status**: accepted (2026-07), amended 2026-08 (#155)
+**Provenance**: [Build preview-link allocation (#40)](https://github.com/alp82/curia/issues/40), [Close the loop: the worker resolves its ticket (#41)](https://github.com/alp82/curia/issues/41), [Align the worker's standing orders with the wayfinder skill (#49)](https://github.com/alp82/curia/issues/49), [Mint the scoped GitHub PAT and inject GH_TOKEN (#155)](https://github.com/alp82/curia/issues/155)
 
 ## Context
 
@@ -18,6 +18,7 @@ A dispatched worker holds `gh` and full read access, so its authority must be sh
 - Preview ports are daemon-allocated. The registry refuses curia's own surfaces and requires a live listener, because "publish this port" is a privileged request.
 - The evidence rule governs every read: a failed read is not evidence. Only a positive absent narrows a set. Every uncertain case fails toward keeping work.
 - Bounds are standing orders, not controls, and the docs say so plainly.
+- **Amended by [#155](https://github.com/alp82/curia/issues/155)**: the tracker half of "nothing else on the tracker" is now a control, not only an order. A worker reaches GitHub with a scoped fine-grained PAT as `GH_TOKEN` — one per resource owner, Contents/Issues/Pull requests read-write plus Commit statuses read — instead of the host's account-wide `gh` login. Read stays unbounded within those repos. Everything the token does not name is refused by GitHub rather than by a standing order.
 
 ## Consequences
 

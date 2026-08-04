@@ -252,9 +252,79 @@ export function hostStorageDir(backend = 'claude') {
   return harnessFor(backend).hostStore()
 }
 
-// The whole per-worker env: config isolated, credentials shared.
-export function workerEnv(cfgDir, backend = 'claude') {
-  return harnessFor(backend).env(cfgDir)
+// ---- the worker's GitHub authority (#155) ------------------------------------
+//
+// A worker gets a scoped fine-grained PAT as `GH_TOKEN` instead of the host's
+// account-wide `~/.config/gh/hosts.yml` login. `gh` prefers `GH_TOKEN` over
+// `hosts.yml` natively, so every wayfinder operation a worker runs keeps working
+// with no code that knows the token exists.
+//
+// ONE TOKEN PER RESOURCE OWNER, because that is what a fine-grained PAT is: the
+// creation form has a single resource-owner dropdown, and curia's watch list
+// spans two owners (`alp82` and the `getalfredo` org). A single key would hand
+// every worker one owner's token and break the other owner's repos, so the key
+// carries the owner and the daemon picks by the ticket's own repo.
+//
+// The DAEMON is deliberately not on this token. Its own `gh` keeps the host
+// login, because it must reach every watched repo, and a repo added to
+// `curia.yaml` but left off a token would break dispatch with no signal. A bare
+// `GH_TOKEN` in `daemon/.env` would re-authenticate the daemon too, silently, by
+// sitting in its environment — hence a prefixed key.
+//
+// The key says AGENT where the rest of this file still says worker: it is
+// operator-facing config, and renaming it later would cost a coordinated edit of
+// every `.env` plus a restart. The code sweep is #184.
+const GH_TOKEN_KEY = 'CURIA_AGENT_GH_TOKEN'
+
+// A GitHub token as GitHub writes one — `github_pat_…`, `ghp_…`, `gho_…`: word
+// characters and nothing else. The value travels as `env K=V` in tmux argv (and
+// as `-e` on the container's command line later), so a stray quote or space from
+// a hand-edited `.env` line has to be refused where it is read. `gh` answers a
+// quoted token with a plain 401, and nothing on the box would name the quote.
+const GH_TOKEN_RE = /^[A-Za-z0-9_]+$/
+
+// `alp82/curia` → `CURIA_AGENT_GH_TOKEN_ALP82`. An owner is a GitHub login, so
+// the only character to fold is the hyphen.
+export function ghTokenKeyFor(repo) {
+  const owner = String(repo ?? '').split('/')[0]
+  if (!owner) return null
+  return `${GH_TOKEN_KEY}_${owner.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+}
+
+function readGhToken(env, key) {
+  const raw = env[key]
+  if (raw === undefined) return null
+  const token = raw.trim()
+  if (!token) return null
+  if (!GH_TOKEN_RE.test(token)) {
+    throw new Error(`bad ${key} in daemon/.env: a GitHub token is word characters only — drop the quotes and any trailing text`)
+  }
+  return token
+}
+
+// The token for one repo, or null. Null is the pre-#155 reach: the worker
+// inherits the host login, which is what an owner with no token yet must keep
+// getting, or watching a new owner would break every dispatch to it.
+export function workerGhToken(repo, env = process.env) {
+  const key = ghTokenKeyFor(repo)
+  return key ? readGhToken(env, key) : null
+}
+
+// Every token key the environment carries, read once so a malformed value
+// refuses the BOOT rather than reaching a worker as a 401 mid-resolve. Returns
+// the owners that are scoped, for the boot line.
+export function assertGhTokens(env = process.env) {
+  return Object.keys(env)
+    .filter((k) => k.startsWith(`${GH_TOKEN_KEY}_`))
+    .filter((k) => readGhToken(env, k) !== null)
+    .map((k) => ({ key: k, token: readGhToken(env, k) }))
+}
+
+// The whole per-worker env: config isolated, credentials shared, GitHub scoped.
+export function workerEnv(cfgDir, backend = 'claude', { repo = null, env = process.env } = {}) {
+  const base = harnessFor(backend).env(cfgDir)
+  const token = workerGhToken(repo, env)
+  return token ? { ...base, GH_TOKEN: token } : base
 }
 
 // TOML basic string. The values here are daemon-generated paths and a loopback

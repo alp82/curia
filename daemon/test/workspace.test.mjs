@@ -7,7 +7,7 @@ import path from 'node:path'
 
 import { execFileSync } from 'node:child_process'
 import {
-  seedConfigDir, workerEnv, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
+  seedConfigDir, workerEnv, workerGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
   writeHarness, removeCredentials, untrustedProjectConfig,
   createWorktree, remoteBranchExists,
 } from '../src/workspace.mjs'
@@ -58,6 +58,64 @@ describe('per-worker config dir (#53)', () => {
     assert.notEqual(env.CLAUDE_CONFIG_DIR, env.CLAUDE_SECURESTORAGE_CONFIG_DIR)
     // an absolute path, not the empty-string form (see workerEnv's note)
     assert.ok(path.isAbsolute(env.CLAUDE_SECURESTORAGE_CONFIG_DIR))
+  })
+
+  // #155: the worker's GitHub authority is a scoped PAT, not the host's
+  // account-wide `gh` login.
+  describe('the scoped worker PAT (#155)', () => {
+    const cfgDir = () => path.join(tmp, 'cfg', 'curia-3')
+    const env = {
+      CURIA_AGENT_GH_TOKEN_ALP82: 'github_pat_11ALP82',
+      CURIA_AGENT_GH_TOKEN_GETALFREDO: 'github_pat_11ORG',
+    }
+
+    test('the token reaches the worker as GH_TOKEN, on both lanes', () => {
+      assert.equal(workerEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
+      assert.equal(workerEnv(cfgDir(), 'codex', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
+      // the isolation it rides beside is untouched
+      assert.equal(workerEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).CLAUDE_CONFIG_DIR, cfgDir())
+    })
+
+    // The reason the key carries an owner at all: a fine-grained PAT has one
+    // resource owner, and the watch list spans two.
+    test('each resource owner gets its own token', () => {
+      assert.equal(workerGhToken('alp82/alperortac.com', env), 'github_pat_11ALP82')
+      assert.equal(workerGhToken('getalfredo/landing-page', env), 'github_pat_11ORG')
+      assert.equal(ghTokenKeyFor('getalfredo/landing-page'), 'CURIA_AGENT_GH_TOKEN_GETALFREDO')
+      // a login's one foldable character
+      assert.equal(ghTokenKeyFor('some-org/repo'), 'CURIA_AGENT_GH_TOKEN_SOME_ORG')
+    })
+
+    test('an owner with no token leaves the worker on the inherited host login', () => {
+      // absent, empty and whitespace all mean "not configured" — an operator who
+      // commented the line out and one who blanked it get the same box
+      const blanks = { CURIA_AGENT_GH_TOKEN_EMPTY: '', CURIA_AGENT_GH_TOKEN_PAD: '   ' }
+      for (const repo of ['other/repo', 'empty/repo', 'pad/repo']) {
+        assert.equal('GH_TOKEN' in workerEnv(cfgDir(), 'claude', { repo, env: { ...env, ...blanks } }), false)
+        assert.equal(workerGhToken(repo, { ...env, ...blanks }), null)
+      }
+      // and a spawn with no repo at all — the overseer's reuse of workerEnv
+      assert.equal('GH_TOKEN' in workerEnv(cfgDir(), 'claude', { env }), false)
+    })
+
+    // The value travels as `env K=V` in tmux argv, and `gh` answers a quoted
+    // token with a bare 401 — so the refusal has to name the fault here.
+    test('a quoted or padded token refuses rather than reaching a worker', () => {
+      assert.equal(workerGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: ' github_pat_11ABC \n' }), 'github_pat_11ABC')
+      for (const bad of ['"github_pat_11ABC"', "'github_pat_11ABC'", 'github_pat_11ABC # the scoped one', 'gh p_11ABC']) {
+        assert.throws(() => workerGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: bad }), /CURIA_AGENT_GH_TOKEN_ALP82/)
+      }
+    })
+
+    // Boot reads every key, so a typo in an owner curia is not dispatching to
+    // today still refuses the boot rather than waiting to bite.
+    test('boot reads every configured key and names the scoped owners', () => {
+      assert.deepEqual(assertGhTokens(env).map((t) => t.key),
+        ['CURIA_AGENT_GH_TOKEN_ALP82', 'CURIA_AGENT_GH_TOKEN_GETALFREDO'])
+      assert.deepEqual(assertGhTokens({ PATH: '/usr/bin' }), [])
+      assert.throws(() => assertGhTokens({ ...env, CURIA_AGENT_GH_TOKEN_OTHER: '"quoted"' }),
+        /CURIA_AGENT_GH_TOKEN_OTHER/)
+    })
   })
 
   test('the worker env lifts the 300 s MCP idle abort (#104)', () => {
@@ -210,7 +268,7 @@ describe('the codex worker harness (#39)', () => {
 
   test('CODEX_HOME is the whole isolation, and no Claude variable leaks into it', () => {
     const { cfgDir } = dirs(1)
-    assert.deepEqual(workerEnv(cfgDir, 'codex'), { CODEX_HOME: cfgDir })
+    assert.deepEqual(workerEnv(cfgDir, 'codex', { env: {} }), { CODEX_HOME: cfgDir })
   })
 
   // The #53 property, reached by the opposite mechanism: codex FOLLOWS the link

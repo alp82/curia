@@ -48,7 +48,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount } from '../src/github.mjs'
+import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount, probeAgentToken, tokenExpiryDays } from '../src/github.mjs'
 
 // Small fixture builder -- keeps the field-notes ground truth readable below.
 // assignees/labels use the real gh shape: arrays of objects, not strings.
@@ -288,5 +288,76 @@ describe('agentOnlyChainCount', () => {
       typed(mkIssue(3, { blockedBy: 1 }), 'research'), // no edge entry ⇒ blocked
     ]
     assert.equal(agentOnlyChainCount({ items, edges: {} }), 0)
+  })
+})
+
+// #155: the boot probe on an agent token. Every shape below was measured
+// against the real API with the real tokens before it was written down.
+describe('the agent token boot probe (#155)', () => {
+  const reply = (status, body, headers = {}) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (k) => headers[k.toLowerCase()] ?? null },
+    json: async () => body,
+  })
+
+  test('a reachable repo answers ok, and carries the token expiry when there is one', async () => {
+    let seen = null
+    const res = await probeAgentToken('getalfredo/landing-page', 'github_pat_x', {
+      fetchImpl: async (url, opts) => {
+        seen = { url, auth: opts.headers.authorization }
+        return reply(200, { full_name: 'getalfredo/landing-page' },
+          { 'github-authentication-token-expiration': '2027-08-05 06:20:31 UTC' })
+      },
+    })
+    assert.equal(seen.url, 'https://api.github.com/repos/getalfredo/landing-page')
+    assert.equal(seen.auth, 'Bearer github_pat_x')
+    assert.deepEqual(res, { ok: true, expiresAt: '2027-08-05 06:20:31 UTC' })
+  })
+
+  // The header is ABSENT on a no-expiration token — that absence is the fact,
+  // not a missing reading.
+  test('a token that never expires carries no expiry header', async () => {
+    const res = await probeAgentToken('alp82/curia', 'github_pat_x',
+      { fetchImpl: async () => reply(200, { full_name: 'alp82/curia' }) })
+    assert.deepEqual(res, { ok: true, expiresAt: null })
+    assert.equal(tokenExpiryDays(res.expiresAt), null)
+  })
+
+  // Each of these three was produced by a real token against the real API.
+  test('a refusal keeps GitHub\'s own reason, which is what names the fix', async () => {
+    const cases = [
+      [404, 'Not Found', /HTTP 404: Not Found/],
+      [403, "The 'getalfredo' organization forbids access via a fine-grained personal access tokens if the token's lifetime is greater than 366 days.", /forbids access.*366 days/],
+      [401, 'Bad credentials', /HTTP 401: Bad credentials/],
+    ]
+    for (const [status, message, expected] of cases) {
+      const res = await probeAgentToken('alp82/x', 'github_pat_x',
+        { fetchImpl: async () => reply(status, { message }) })
+      assert.equal(res.ok, false)
+      assert.equal(res.status, status)
+      assert.match(res.message, expected)
+    }
+  })
+
+  test('a non-JSON body still reports its status rather than throwing', async () => {
+    const res = await probeAgentToken('alp82/x', 'github_pat_x', {
+      fetchImpl: async () => ({
+        ok: false, status: 502, headers: { get: () => null },
+        json: async () => { throw new Error('not json') },
+      }),
+    })
+    assert.deepEqual(res, { ok: false, status: 502, message: 'HTTP 502', expiresAt: null })
+  })
+
+  // GitHub writes `2027-08-05 06:20:31 UTC`, which Date.parse rejects outright.
+  test('the expiry header parses, and a garbled one reads as unknown', () => {
+    const now = Date.parse('2026-08-04T00:00:00Z')
+    assert.equal(tokenExpiryDays('2027-08-05 06:20:31 UTC', now), 366)
+    assert.equal(tokenExpiryDays('2026-08-10 00:00:00 UTC', now), 6)
+    assert.equal(tokenExpiryDays('2026-08-01 00:00:00 UTC', now), -3)
+    for (const bad of [null, undefined, '', 'sometime soon']) {
+      assert.equal(tokenExpiryDays(bad, now), null)
+    }
   })
 })

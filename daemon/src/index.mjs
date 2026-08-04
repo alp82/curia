@@ -34,6 +34,8 @@ import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
+import { assertGhTokens, ghTokenKeyFor, workerGhToken } from './workspace.mjs'
+import { probeAgentToken, tokenExpiryDays } from './github.mjs'
 import { ensureTtyd, assertServe, serveOff, attachBase, attachUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './identity.mjs'
@@ -66,6 +68,45 @@ fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
 const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
 const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
 const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
+
+// #155: the worker's own GitHub authority — one scoped fine-grained PAT per
+// resource owner. Read at BOOT so a malformed value refuses the boot rather than
+// reaching a worker as a 401 in the middle of a resolve, and said out loud per
+// watched owner, because an owner with no token silently keeps the host's
+// account-wide login and that is the thing this ticket exists to end. The daemon
+// itself never uses these (see workerGhToken).
+for (const { key, token } of assertGhTokens()) log(`worker GitHub token ${key} (…${token.slice(-4)})`)
+for (const owner of new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))) {
+  const key = ghTokenKeyFor(owner)
+  if (!workerGhToken(`${owner}/x`)) log(`WARNING: no ${key} — workers on ${owner}/* inherit the host gh login (account-wide)`)
+}
+
+// And the same tokens against GitHub itself, once per watched repo. A token's
+// repository list lives on GitHub rather than in `.env`, so nothing local can
+// tell that a newly watched repo was left off it. Detached from the boot chain
+// on purpose: this is one network round-trip per repo, and GitHub being slow or
+// down must never hold up a daemon whose other duties do not need it. See
+// probeAgentToken for the one case it cannot see.
+const TOKEN_EXPIRY_WARN_DAYS = 14
+Promise.all(curiaConfig.watch.map(async ({ repo }) => {
+  const token = workerGhToken(repo)
+  if (!token) return
+  try {
+    const { ok, message, expiresAt } = await probeAgentToken(repo, token)
+    const key = ghTokenKeyFor(repo)
+    if (!ok) {
+      log(`WARNING: ${key} cannot reach ${repo} (${message}) — an agent on it will fail at its first gh call`)
+      return
+    }
+    const days = tokenExpiryDays(expiresAt)
+    if (days === null) return
+    if (days <= TOKEN_EXPIRY_WARN_DAYS) log(`WARNING: ${key} expires in ${days} day(s), on ${expiresAt} — mint a new one before it dies`)
+    else log(`${key} reaches ${repo}, expires in ${days} days`)
+  } catch (e) {
+    // A network failure is a fact about the network, not about the token.
+    log(`could not check the agent token for ${repo} (${e.message}) — not treating that as a bad token`)
+  }
+})).catch(() => {})
 
 const store = new EscalationStore(DATA)
 

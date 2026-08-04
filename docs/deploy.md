@@ -31,9 +31,8 @@ Getting it wrong 403s every attach. Fixing it is an edit plus a restart, over ss
 
 ## The env file
 
-Three keys:
-
 - `DISCORD_BOT_TOKEN`, `DISCORD_ALLOWED_USERS` — copied from the dev box.
+- `CURIA_AGENT_GH_TOKEN_ALP82`, `CURIA_AGENT_GH_TOKEN_GETALFREDO` — the scoped GitHub tokens agents get as `GH_TOKEN` ([#155](https://github.com/alp82/curia/issues/155)). One per resource owner, because a fine-grained PAT has exactly one. Adding a repo to an owner already covered is an edit on the token page and does **not** change the value, so it costs no edit here and no restart. A new owner needs a new token and a new key.
 - `CLAUDE_CODE_OAUTH_TOKEN` — a long-lived subscription token from `claude setup-token` (decision [#100](https://github.com/alp82/curia/issues/100)). The unit loads the file with `EnvironmentFile`, so the token reaches the daemon and flows into every worker.
 
 **One daemon at a time.** The Discord bot token must live in exactly one running daemon. Before you start the local daemon for development, stop the service: `ssh alp@coinmatica.net sudo /bin/systemctl stop curia`.

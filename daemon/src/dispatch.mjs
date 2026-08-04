@@ -535,7 +535,7 @@ export class Dispatcher {
 
       const cmd = buildSpawnCmd(this.routing, backendName, useModel, promptFile)
       const exitMarker = newExitMarker()
-      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir, backendName), shellCmd: cmd, exitMarker })
+      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir, backendName, { repo }), shellCmd: cmd, exitMarker })
       // The instance id (#94): what a button confirm binds to. Unique per
       // DISPATCH, not per ticket, so a confirm can never outlive the worker
       // the operator read about and hit its successor.
@@ -820,7 +820,7 @@ export class Dispatcher {
         // nonce would let the previous life's exit line — still on screen for
         // a moment — read as the successor's death.
         const exitMarker = newExitMarker()
-        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir, nextBackend), shellCmd: cmd, exitMarker })
+        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir, nextBackend, { repo: worker.repo }), shellCmd: cmd, exitMarker })
         worker.exitMarker = exitMarker
         worker.model = next
         worker.backend = nextBackend
