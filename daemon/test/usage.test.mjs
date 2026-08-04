@@ -25,7 +25,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   AccountUsage, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
-  readTranscriptMeters, windowFromModel, windowLabel, workerMeters,
+  readTranscriptMeters, modelName, windowFromModel, windowLabel, workerMeters,
   USAGE_ATTEMPT_MS, USAGE_STALE_MS, WINDOW_STALE_MS,
 } from '../src/usage.mjs'
 
@@ -292,7 +292,9 @@ describe('workerMeters', () => {
     models: {
       opus: { provider: 'anthropic', backend: 'claude' },
       stale: { provider: 'anthropic', backend: 'claude', context_window: 200000 },
-      gpt: { provider: 'openai', backend: 'codex', reasoning_effort: 'high', context_window: 258400 },
+      // The shape routing.yaml actually carries: the key is the routing label
+      // and `id` is the model. #179 is about which of the two a human sees.
+      gpt: { provider: 'openai', backend: 'codex', id: 'gpt-5.6-sol', reasoning_effort: 'high', context_window: 258400 },
     },
   }
   // The live lookup, stubbed at the shape workerMeters uses it through. The
@@ -348,7 +350,27 @@ describe('workerMeters', () => {
       backend: 'claude', cfgDir: d, model: 'opus', routing, account: null, models: lookup({}), now: NOW,
     })
     assert.equal(m.ctxPct, null)
-    assert.equal(m.model, 'opus')
+    // A window it cannot find costs the context figure and nothing else — the
+    // transcript still named the model, so the model meter stands.
+    assert.equal(m.model, 'claude-opus-5')
+  })
+
+  test('the meter names the MODEL, not the routing label (#179)', () => {
+    // Three sources, best evidence first. The claude lane states its own model
+    // on every turn, so the label `opus` gives way to what actually ran.
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 79998, 0)])
+    const m = workerMeters({
+      backend: 'claude', cfgDir: d, model: 'opus', routing, account: null, models: lookup({}), now: NOW,
+    })
+    assert.equal(m.model, 'claude-opus-5')
+    // And the codex lane states none, so `models.gpt.id` answers instead. This
+    // is the fault #179 was raised on: `gpt` about a Sol 5.6 worker.
+    assert.equal(modelName('gpt', routing.models.gpt), 'gpt-5.6-sol')
+    // Last resort: a lane that states neither keeps the label. The claude lane
+    // sits here for its first seconds, which is why no `id` is pinned for it.
+    assert.equal(modelName('opus', routing.models.opus), 'opus')
+    assert.equal(modelName(null, null), null)
   })
 
   test('an over-window request is reported at its real size, never clamped', () => {
@@ -376,13 +398,14 @@ describe('workerMeters', () => {
     const account = { windows: () => { throw new Error('must not be called') } }
     const m = workerMeters({ backend: 'codex', cfgDir: d, model: 'gpt', routing, account, now: NOW })
     assert.equal(m.ctxPct, 50)
+    assert.equal(m.model, 'gpt-5.6-sol')
     assert.equal(m.effort, 'high')
     assert.deepEqual(m.windows, [{ label: '5h', pct: 3, elapsedPct: 50 }])
   })
 
   test('the effort and the model survive a worker with no transcript yet', () => {
     const m = workerMeters({ backend: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
-    assert.deepEqual(m, { model: 'gpt', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
+    assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
   })
 })
 

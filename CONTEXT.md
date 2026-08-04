@@ -78,6 +78,12 @@ The ordered act: claim, prepare, spawn. A failure before the spawn releases the 
 **Routing rule**:
 The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<type>` default table. No intelligence sits in the dispatch path. `wayfinder:map` is a row in that table like any other type.
 
+**Routing label**:
+A key under `models:` in `routing.yaml`. It is the dispatch vocabulary that `model:<x>` and `/start <ticket> <label>` speak. It is not a model: the label `gpt` names the model `gpt-5.6-sol`.
+
+**Model name**:
+What curia tells a human is running. Best evidence first: the model the transcript states, then `models.<label>.id`, then the routing label. The status line and the composer-ready message say this. Cooling, fallback and the `/workers` list keep the routing label, because they speak about dispatch.
+
 **Backend**:
 The agent CLI a worker runs under: claude or codex.
 _Avoid_: worker lane.
@@ -254,7 +260,7 @@ The timeline's refusal to send text while a native terminal dialog holds the pan
 One Discord message per worker, written by the daemon, that says what the worker is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
 
 **Meter**:
-A number the status line carries beside the state: the model, its reasoning effort, the context percent, and the account usage bars. Each meter has its own source and drops alone when that source is silent.
+A number the status line carries beside the state: the model name, its reasoning effort, the context percent, and the account usage bars. Each meter has its own source and drops alone when that source is silent. Meters drop from the tail when the line runs out of columns. The model is the exception: the escalation title is cut to keep it.
 
 **Account bars**:
 The 5-hour and 7-day usage windows. They are an account fact, not a worker fact, so every worker on a provider shows the same reading.

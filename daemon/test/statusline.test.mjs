@@ -36,6 +36,10 @@ describe('StatusLine', () => {
       // The meter source the daemon injects (#146). Fed by hand here so the
       // suite never reads a transcript or an account cache; `meters` returns
       // the model the line was told about, plus whatever the tests set.
+      //
+      // The label passes straight through, which is workerMeters' last-resort
+      // branch (#179): a lane that states no model of its own keeps its routing
+      // label. The test below covers the branch where the two differ.
       meters: (session, model) => ({ model, ...meters }),
     })
   })
@@ -217,10 +221,34 @@ describe('StatusLine', () => {
     assert.equal(posts.at(-1).text, `▶️ \`curia-6\`${GROUP_SEP}working`)
   })
 
-  test('the state and the escalation title win over the meters when the line runs long', async () => {
-    // A waiting line carrying a full-length title starts at 116 columns, so it
-    // keeps the model and the context and loses the usage bars — the right
-    // thing to lose, because a worker blocked on a question burns no quota.
+  test('the base sentence names the MODEL the meters state, not the routing label (#179)', async () => {
+    // The codex lane's fault: the label is `gpt` and the model is
+    // `gpt-5.6-sol`. The dispatched sentence and the meter run are one line, so
+    // both take their name from the same place — and the name arrives once.
+    const l = new StatusLine({
+      post: async (ticket, text) => { posts.push({ ticket, text }); return { threadId: 't', messageId: 'm' } },
+      edit: async () => true,
+      get: () => null,
+      log: () => {},
+      meters: () => ({ model: 'gpt-5.6-sol', effort: 'high', ctxPct: 12, windows: null }),
+    })
+    l.onEvent({ type: 'worker_spawned', worker: 'curia-4', ticket: '4', model: 'gpt' })
+    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    const dispatched = posts.at(-1).text
+    assert.match(dispatched, /dispatched on \*\*gpt-5\.6-sol\*\*/)
+    assert.equal(dispatched.match(/gpt-5\.6-sol/g).length, 1, 'the model arrives once')
+    assert.ok(!dispatched.includes('**gpt**'), 'the routing label never stands in for it')
+
+    l.onEvent({ type: 'worker_ready', worker: 'curia-4', ticket: '4', model: 'gpt', ts: 'T' })
+    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    assert.equal(posts.at(-1).text, `▶️ \`curia-4\`${GROUP_SEP}working${GROUP_SEP}**gpt-5.6-sol** high${GROUP_SEP}ctx 12%`)
+  })
+
+  test('the escalation title yields columns to the model, never the other way round (#179)', async () => {
+    // #146 appended meters to a finished base and stopped at the first one too
+    // wide, so a full-length title pushed the model — first in value order —
+    // off the line, and every meter behind it too. The line then said nothing
+    // at all about the model. Now the title takes the cut instead.
     meters = {
       effort: 'high',
       ctxPct: 41,
@@ -232,10 +260,37 @@ describe('StatusLine', () => {
     line.onEvent({ type: 'esc_open', id: 'esc-9', worker: 'curia-8', ticket: '8', kind: 'choice', prompt: title, ts: new Date().toISOString() })
     await drain()
     const text = posts.at(-1).text
-    assert.ok(text.includes(title), 'the escalation title survives whole')
     assert.ok(visibleWidth(text) <= LINE_BUDGET, `${visibleWidth(text)} columns is over the ${LINE_BUDGET} budget`)
-    assert.ok(!text.includes('5h') && !text.includes('7d'), 'the bars go')
-    assert.ok(!text.includes('**gpt**'), 'a maximal title leaves room for nothing else')
+    assert.ok(text.includes('**gpt** high'), 'the model survives the longest title there is')
+    assert.ok(text.includes('Which of these seven candidate shades'), 'and the title still reads as one')
+    assert.ok(text.includes('…'), 'it paid for the model in its own tail')
+    assert.ok(!text.includes('5h') && !text.includes('7d'), 'the bars still go — a blocked worker burns no quota')
+  })
+
+  test('a title that cannot reach the floor is left whole and the meter drops (#179)', async () => {
+    // The trade has a bottom. Below TITLE_FLOOR a title stops being a title, so
+    // a base with no columns to spare keeps its words and loses the meter —
+    // which is #146's behaviour, held as the floor case rather than the rule.
+    //
+    // No model name is 70 columns wide, and with a title capped at 80 no real
+    // line reaches this floor today. The guard is for the day LINE_BUDGET drops
+    // or a meter grows, so the probe drives it directly.
+    const WIDE = 'wide-'.repeat(14)
+    const l = new StatusLine({
+      post: async (ticket, text) => { posts.push({ ticket, text }); return { threadId: 't', messageId: 'm' } },
+      edit: async () => true,
+      get: (id) => records.get(id),
+      log: () => {},
+      meters: () => ({ model: WIDE, effort: null, ctxPct: null, windows: null }),
+    })
+    const title = 'Which of these seven candidate shades of blue should the launch banner use'
+    records.set('esc-7', { id: 'esc-7', worker: 'curia-7', ticket: '7', kind: 'choice' })
+    l.onEvent({ type: 'esc_open', id: 'esc-7', worker: 'curia-7', ticket: '7', kind: 'choice', prompt: title, ts: 'T' })
+    await Promise.all([...l.workers.values()].map((w) => w.chain))
+    const text = posts.at(-1).text
+    assert.ok(text.includes(title), 'the title survives whole')
+    assert.ok(!text.includes(WIDE), 'and the meter is what goes')
+    assert.ok(visibleWidth(text) <= LINE_BUDGET, `${visibleWidth(text)} columns is over the ${LINE_BUDGET} budget`)
   })
 
   test('the meters degrade one at a time, tail first, as the base grows', async () => {
@@ -267,10 +322,9 @@ describe('StatusLine', () => {
       kept.push(survivors.length)
     }
     assert.equal(kept[0], ORDER.length, 'a short title keeps every meter')
-    // promptTitle caps a title at 80 chars, cutting at a word boundary, which
-    // bounds how long the base can get. So there IS a floor, and the model —
-    // the most valuable meter — is always above it.
-    assert.ok(kept.at(-1) >= 1, 'the model survives even the longest title')
+    // The model is not one of the things a long title can cost (#179): the
+    // title gives up columns for it first. Every step keeps at least the model.
+    assert.ok(kept.every((k) => k >= 1), `a step lost the model: ${kept.join(',')}`)
     assert.ok(kept.at(-1) < ORDER.length, 'and a long title does cost meters')
     for (let i = 1; i < kept.length; i += 1) {
       assert.ok(kept[i] <= kept[i - 1], `a longer title kept MORE meters: ${kept.join(',')}`)

@@ -114,6 +114,13 @@ one that will not fit in `LINE_BUDGET` (130 columns). A `waiting` line carrying 
 title starts near 116 columns, so the model group — first in the order — is the one that goes,
 and everything after it goes with it. The line then says nothing about the model at all.
 
+**What shipped** ([#179](https://github.com/alp82/curia/issues/179)): both. `workerMeters` now
+resolves a model NAME from three sources, best evidence first — the model the transcript states,
+then `models.<label>.id`, then the routing label. That is the same order #178 settled for the
+context denominator, asked about the same fact. The status line and the composer-ready message
+both say it. And the meter run no longer loses to the base: a `waiting` line cuts its escalation
+title far enough to keep the model, down to a floor of 24 columns.
+
 ## 4. A bounds finding, not a context one
 
 The probe's 38 MCP tools are curia's six (`ask_human`, `notify`, `open_pull_request`,

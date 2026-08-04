@@ -36,10 +36,16 @@ export const GROUP_SEP = ' · '
 //
 // Set against the two real shapes. A full working line measures 86 columns and
 // always survives whole. A `waiting` line carrying an 80-character escalation
-// title starts at 116, so it keeps the model and the context and loses the
-// usage bars — which is the right thing to lose, because a worker blocked on a
-// question is burning no quota at all.
+// title starts near 116, so it loses the usage bars — which is the right thing
+// to lose, because a worker blocked on a question is burning no quota at all.
+//
+// The model is the exception, and #179 made it one. See #fit below: the title
+// yields columns to the model rather than the other way round.
 export const LINE_BUDGET = 130
+
+// The narrowest an escalation title may be cut to buy columns for the model
+// (#179). Below this a title stops being a title, and no meter is worth that.
+export const TITLE_FLOOR = 24
 
 // What the line costs a reader, not what it costs a string. Markdown syntax
 // renders to nothing, and an emoji renders about two columns wide, so
@@ -173,10 +179,13 @@ export class StatusLine {
   // state now, so it reads once, in one place, beside the effort it was picked
   // with. `dispatched` keeps it inline — there is no transcript yet, so the
   // model IS the dispatch news.
-  #base(session, state, detail) {
+  //
+  // `model` is what the meters call the model (#179), not the routing label the
+  // event carried — one line must not name the same thing two ways.
+  #base(session, state, detail, model) {
     switch (state) {
       case 'dispatched':
-        return `⚙️ \`${session}\`${GROUP_SEP}dispatched on **${detail.model}** — waiting for the composer`
+        return `⚙️ \`${session}\`${GROUP_SEP}dispatched on **${model}** — waiting for the composer`
       case 'working':
         return `▶️ \`${session}\`${GROUP_SEP}working`
       case 'stalled':
@@ -205,19 +214,48 @@ export class StatusLine {
     }
   }
 
+  // The base, cut so that the most valuable meter still fits (#179). #146
+  // appended meters to a finished base and stopped at the first one too wide,
+  // so a long escalation title pushed the MODEL group — first in value order —
+  // off the line, and every meter behind it went too. A `waiting` line then
+  // said nothing at all about the model, which is the one fact this surface
+  // exists to carry.
+  //
+  // So the base yields instead. The escalation title is the only part of any
+  // base that grows, and it is already a cut of a longer prompt, so cutting it
+  // a little further costs less than losing the model. Two guards keep the
+  // trade honest: the title never goes below TITLE_FLOOR, and a title that
+  // cannot reach that width is left whole and the meter drops as before.
+  #fit(session, state, detail, model, parts) {
+    const base = this.#base(session, state, detail, model)
+    const title = detail.esc?.title
+    if (!parts.length || !title) return base
+    const room = LINE_BUDGET - visibleWidth(`${GROUP_SEP}${parts[0]}`)
+    if (visibleWidth(base) <= room) return base
+    // One column of the allowance pays for the ellipsis promptTitle appends.
+    const max = title.length - (visibleWidth(base) - room) - 1
+    if (max < TITLE_FLOOR) return base
+    const esc = { ...detail.esc, title: promptTitle(title, max) }
+    return this.#base(session, state, { ...detail, esc }, model)
+  }
+
   #text(session, state, detail, model) {
-    const base = this.#base(session, state, detail)
-    if (!METERED.has(state)) return base
+    if (!METERED.has(state)) return this.#base(session, state, detail, model)
     let parts
+    let named = model
     try {
-      parts = meterParts(this.meters(session, model))
+      const m = this.meters(session, model)
+      // What the meters call the model wins over the routing label the event
+      // carried, on the meter run AND in the base sentence (#179).
+      named = m?.model ?? model
+      parts = meterParts(m)
     } catch (e) {
       this.log(`status line meters for ${session} failed: ${e.message}`)
-      return base
+      return this.#base(session, state, detail, model)
     }
     // `dispatched` already names the model in its own sentence.
-    if (state === 'dispatched') parts = parts.filter((p) => !p.startsWith(`**${model}**`))
-    let text = base
+    if (state === 'dispatched') parts = parts.filter((p) => !p.startsWith(`**${named}**`))
+    let text = this.#fit(session, state, detail, named, parts)
     for (const part of parts) {
       const next = `${text}${GROUP_SEP}${part}`
       if (visibleWidth(next) > LINE_BUDGET) break // value order: the tail goes first
