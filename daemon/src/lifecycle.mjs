@@ -165,10 +165,10 @@ export const CHARTING_NEVER = [
 export const REVIEW_ENDING = [
   {
     key: 'verdict',
-    prose: ({ repo, ticket }) => [
-      `Call \`report_result\` exactly once, with the verdict as its \`summary\` and \`${repo}#${ticket}\``,
-      'as its ticket. That text IS your output: curia captures it and holds it. Nothing else you do',
-      'reaches anyone.',
+    prose: ({ ticket }) => [
+      `Call \`report_result\` exactly once, with the verdict as its \`summary\` and \`${ticket}\` as its`,
+      'ticket — the bare number, not a qualified one. That text IS your output: curia captures it and',
+      'holds it. Nothing else you do reaches anyone.',
     ],
     todo: (s) => (s.hasResult ? null : 'call `report_result` once, with your verdict as the summary'),
   },
