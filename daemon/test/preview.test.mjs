@@ -366,3 +366,56 @@ describe('the published link points at the page, not the site root (#68)', () =>
     assert.equal(reg.get('7'), null)
   })
 })
+
+// #157: a sandboxed worker's dev server runs inside its container, and the box
+// reaches it only through the three ports that container publishes. So the
+// allocation, not a probe, is what says the port is the worker's own.
+//
+// The probe is not merely weaker here — it is false. docker binds the host port
+// for the container's whole life, so a connect succeeds whether or not a server
+// was ever started inside, and succeeds even when the server bound `localhost`
+// inside the container, where nothing outside can reach it. Measured on docker
+// 29.6.2 and on the box's 20.10.17.
+describe('the published-port bound (#157)', () => {
+  // A probe that fails the test if it is consulted at all.
+  const neverProbed = async () => { throw new Error('the probe must not run for a published port') }
+
+  test('a port outside the published set is refused, and the refusal names the three', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: neverProbed, log: () => {} })
+    const r = await reg.publish('7', 3000, { base: BASE, published: [9000, 9001, 9002] })
+    assert.equal(r.ok, false)
+    assert.match(r.reason, /9000, 9001, 9002/, 'a worker cannot discover its ports — the refusal has to state them')
+    assert.match(r.reason, /0\.0\.0\.0/, 'and has to say how to bind, since a localhost bind inside the container fails silently')
+    assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
+    assert.equal(reg.get('7'), null)
+  })
+
+  test('a published port is published without probing anything', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: neverProbed, log: () => {} })
+    const r = await reg.publish('7', 9001, { base: BASE, published: [9000, 9001, 9002], path: '/curia-check' })
+    assert.equal(r.ok, true)
+    assert.equal(r.target, '127.0.0.1', 'docker publishes on 127.0.0.1 by name — there is no address family left to discover')
+    assert.ok(calls.some((c) => c === `tailscale serve --bg --https=${DEFAULT_RANGE.from} http://127.0.0.1:9001`))
+    assert.equal(r.url, `https://${BASE}:${DEFAULT_RANGE.from}/curia-check`)
+  })
+
+  test("curia's own surfaces stay refused even if they reach the published set", async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ reserved: [4271], exec, isLive: neverProbed, log: () => {} })
+    const r = await reg.publish('7', 4271, { base: BASE, published: [4271] })
+    assert.equal(r.ok, false, 'containment is by port and no allocation may argue with it')
+    assert.match(r.reason, /curia's own surfaces/)
+    assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
+  })
+
+  test('a worker with no published ports keeps the probe — the bare path until #158', async () => {
+    const { exec, calls } = fakeExec()
+    const reg = new PreviewRegistry({ exec, isLive: neverLive, log: () => {} })
+    const r = await reg.publish('7', 3000, { base: BASE, published: null })
+    assert.equal(r.ok, false)
+    assert.match(r.reason, /nothing is listening/)
+    assert.equal(calls.filter((c) => c.includes('--bg')).length, 0)
+  })
+})

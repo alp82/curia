@@ -6,6 +6,15 @@
 //   daemon: publish_preview(port, path)  -> tailscale serve --bg --https=<serve-port> http://<target>:<dev-port>
 //   human:  https://<box>.<tailnet>.ts.net:<serve-port><path>
 //
+// A SANDBOXED worker (#156) runs the dev server inside its container, and the
+// daemon reaches it only through one of the three host ports that container
+// publishes — so #157 gives `publish` a second shape, picked by whether the
+// caller has published ports:
+//
+//   worker: npm run dev -- --host 0.0.0.0 --port 9000   (inside the container)
+//   docker: 127.0.0.1:9000 -> container 9000
+//   daemon: the rule points at 127.0.0.1:9000, as it always did
+//
 // Why the daemon allocates: a worker choosing its own Serve port would collide
 // with other workers and with the attach rule, and — the sharper reason —
 // `tailscale serve` publishes ANY localhost port to the whole tailnet. The
@@ -16,8 +25,10 @@
 //   - reserved ports are refused outright (the daemon's own port, the ttyd
 //     port, the attach Serve port) — publishing the daemon port would hand the
 //     escalation-answer surface to the tailnet with no auth at all;
-//   - the dev port must be a LIVE localhost listener, so a worker cannot
-//     reserve a rule pointing at a port something else may bind later;
+//   - the dev port must be the worker's own: one of the three ports its
+//     container publishes, or — on the bare path, until #158 retires it — a
+//     LIVE localhost listener, so a worker cannot reserve a rule pointing at a
+//     port something else may bind later;
 //   - the Serve port comes from the configured range only, never from the
 //     worker.
 //
@@ -178,13 +189,21 @@ export class PreviewRegistry {
 
   // Allocate + publish. Idempotent per ticket: a repeat call for the same dev
   // port returns the existing allocation rather than burning a second port.
-  async publish(ticket, devPort, { base, path: rawPath } = {}) {
+  //
+  // `published` is the caller's own container ports (#157), or null for a bare
+  // worker. It is the whole bound where it is present: a sandboxed worker can
+  // reach the host on those three ports and on nothing else, so a fourth number
+  // is a mistake to name rather than a port to probe.
+  async publish(ticket, devPort, { base, path: rawPath, published = null } = {}) {
     const key = String(ticket)
     if (!Number.isInteger(devPort) || devPort < 1 || devPort > 65535) {
       return this.#refuse(`dev port must be a port number (got ${JSON.stringify(devPort)})`)
     }
     if (this.reserved.has(devPort)) {
       return this.#refuse(`refusing to publish port ${devPort} — it is one of curia's own surfaces (daemon API, ttyd, attach), and publishing it would expose it to the whole tailnet`)
+    }
+    if (published && !published.includes(devPort)) {
+      return this.#refuse(`port ${devPort} is not one of your published ports (${published.join(', ')}) — your dev server runs inside a container, and those are the only ports this box can reach it on. Bind it to 0.0.0.0 on one of them, then publish that port`)
     }
     const norm = normalizePreviewPath(rawPath)
     if (!norm.ok) return this.#refuse(norm.reason)
@@ -199,9 +218,24 @@ export class PreviewRegistry {
       this.byTicket.set(key, entry)
       return { ok: true, ...entry, reused: true }
     }
-    const target = await this.isLive(devPort)
-    if (!target) {
-      return this.#refuse(`nothing is listening on port ${devPort} — probed both 127.0.0.1 and [::1]. Start the dev server first, then publish (a rule pointing at a dead port would publish whatever binds it next)`)
+    // The published-port case skips the probe, because on a published port the
+    // probe cannot answer the question any more. docker binds the host port for
+    // the container's whole life — a `docker-proxy` on 127.0.0.1:<p>, measured
+    // on docker 29.6.2 and on the box's 20.10.17 — so a connect succeeds whether
+    // or not the worker ever started a server, and even when it bound `localhost`
+    // INSIDE the container, where the proxy accepts and then resets. A probe that
+    // always says "live" is not a weaker check, it is a false one; the allocation
+    // is the real check, and the human's own eyes are what find a dead page.
+    //
+    // It also answers what the probe answered second: which address the rule
+    // points at. docker publishes on 127.0.0.1 by name (see sandbox.mjs), so
+    // there is no address family left to discover.
+    let target = '127.0.0.1'
+    if (!published) {
+      target = await this.isLive(devPort)
+      if (!target) {
+        return this.#refuse(`nothing is listening on port ${devPort} — probed both 127.0.0.1 and [::1]. Start the dev server first, then publish (a rule pointing at a dead port would publish whatever binds it next)`)
+      }
     }
 
     let served

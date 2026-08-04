@@ -705,7 +705,7 @@ function buildMcpServer(worker, ticket) {
   // the worker declares what it changed, once, in the same call.
   server.tool(
     'publish_preview',
-    'Publish a dev server you have started on localhost as an HTTPS preview link the human can open from any device. Start the server FIRST (it must be listening), then call this with its port and the path of the page you want looked at — without a path the link opens the site root, which is usually not what you changed. Call it again with a different path to move the link. Returns the URL; curia puts it in the review gate itself, so you never need to repeat it in your own text. The link is withdrawn automatically when this ticket finishes.',
+    'Publish a dev server you have started as an HTTPS preview link the human can open from any device. Start the server FIRST, then call this with the port it bound and the path of the page you want looked at — without a path the link opens the site root, which is usually not what you changed. Call it again with a different path to move the link. Returns the URL; curia puts it in the review gate itself, so you never need to repeat it in your own text. The link is withdrawn automatically when this ticket finishes.',
     {
       dev_port: z.number().int(),
       path: z.string().optional().describe('The path of the page to review, e.g. "/curia-check" or "/blog/post?draft=1". Defaults to "/". A path on this dev server only — never a host or a scheme.'),
@@ -717,7 +717,12 @@ function buildMcpServer(worker, ticket) {
       } catch (e) {
         return { content: [{ type: 'text', text: `preview unavailable: could not resolve this box's tailnet name (${e.message})` }] }
       }
-      const r = await previews.publish(ticket, dev_port, { base, path })
+      // #157: a sandboxed worker's three published ports are its whole reach
+      // onto this box, so they are the bound `publish_preview` checks against.
+      // A bare worker has none, and keeps the liveness probe until #158 retires
+      // that path.
+      const published = dispatcher.workers.get(worker)?.ports ?? null
+      const r = await previews.publish(ticket, dev_port, { base, path, published })
       store.logEvent('preview', {
         worker, ticket, dev_port, path: r.path ?? path ?? null,
         ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,

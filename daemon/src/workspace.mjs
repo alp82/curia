@@ -851,7 +851,7 @@ export function writeHarness({
 // has to mean for an instruction that decides what the whole session does.
 // The text is never shell-substituted — the spawn template reads this file with
 // `$(cat …)` — so it needs no quoting rules of its own.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, instruction = null }) {
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, instruction = null, ports = null }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
   const n = issue.number
   const branch = branchFor(n)
@@ -903,11 +903,26 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
       : ['- This ticket carries no `wayfinder:` type label.']),
   ]
 
+  // #157: a container reaches the box on three published ports and on nothing
+  // else, so the numbers are a PARAMETER of this session — the worker cannot
+  // discover them, and a dev server on any other port is invisible to the human
+  // it was started for. `0.0.0.0` is said here rather than left to the CLI's
+  // defaults: a server on `localhost` inside the container is unreachable from
+  // the host, and it fails as a connection reset at the preview link rather than
+  // as anything the worker can see (measured, #157).
+  const portLines = ports?.length && !charting ? [
+    `- You run inside a container. Its three preview ports are **${ports.join(', ')}**, the same numbers`,
+    `  inside and out. A dev server must bind \`0.0.0.0\` on one of them — \`--host 0.0.0.0 --port ${ports[0]}\`,`,
+    '  or whatever your framework calls that. A server on `localhost`, or on any other port, is reachable',
+    '  by nothing outside this container, and `publish_preview` takes no other port.',
+  ] : []
+
   const allParams = [
     `- The tracker is **GitHub**, repo \`${repo}\`, reached with the \`gh\` CLI. Do not fall back to a`,
     '  local-markdown tracker: this repo carries `docs/agents/issue-tracker.md`.',
     ...params,
     `- Your worktree is ${wtPath}, on branch \`${branch}\`.`,
+    ...portLines,
   ]
 
   const bounds = [
@@ -970,8 +985,14 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes.',
     '- `notify` — a status line for the human. Returns at once.',
-    '- `publish_preview` — publish a dev server you have started on localhost as an HTTPS link. Start the',
-    '  server FIRST, then call this with the port it bound and the path of the page to look at.',
+    ...(portLines.length ? [
+      '- `publish_preview` — publish a dev server you have started as an HTTPS link. Start the server FIRST,',
+      `  bound to \`0.0.0.0\` on one of your three ports (${ports.join(', ')}), then call this with that port`,
+      '  and the path of the page to look at.',
+    ] : [
+      '- `publish_preview` — publish a dev server you have started on localhost as an HTTPS link. Start the',
+      '  server FIRST, then call this with the port it bound and the path of the page to look at.',
+    ]),
     '- `open_pull_request` — curia pushes your branch and opens or updates the pull request. You never push.',
     '- `request_review` — the one gate. curia shows the human the pull request, the preview, the ticket and',
     '  your proposed charting, and blocks until they approve or reject. **You never write a link yourself.**',

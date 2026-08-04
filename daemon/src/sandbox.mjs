@@ -292,6 +292,48 @@ export async function stopContainer(name, { exec = execFileP, docker = DOCKER_BI
 // Every container curia started that is still running, by session name. Docker
 // is the state home for this: the in-memory worker map is a cache (#9), and a
 // restarted daemon has to be able to find the containers its predecessor left.
+// The host ports one live container publishes, ascending — the preview bound
+// (#157) for a worker this process never spawned. A daemon restart adopts the
+// workers its predecessor left (reconcile), and their records come back with
+// every spawn-time fact missing; without this, an adopted worker either loses
+// `publish_preview` for the rest of its life or gets it back unbounded.
+//
+// Read from the container rather than from the journal, for the same reason
+// listContainers is: the journal states what the daemon INTENDED at spawn, and
+// docker states what is published now. Absence is positive — no such container
+// yields no ports, and every publish is then refused, which is the safe
+// direction for a bound.
+//
+// Shape verified on docker 29.6.2 and on the box's 20.10.17, identically:
+//   {"9000/tcp":[{"HostIp":"127.0.0.1","HostPort":"9000"}]}
+export async function containerPorts(name, { exec = execFileP, docker = DOCKER_BIN } = {}) {
+  let stdout
+  try {
+    ({ stdout } = await exec(docker, [
+      'inspect', name, '--format', '{{json .NetworkSettings.Ports}}',
+    ], { timeout: 15_000 }))
+  } catch (e) {
+    const detail = `${e.stderr ?? ''}${e.message ?? ''}`
+    if (e.code === 'ENOENT' || /No such object|No such container/i.test(detail)) return []
+    throw new Error(`could not read the published ports of container ${name}: ${detail.trim().split('\n')[0]}`)
+  }
+  let map
+  try {
+    map = JSON.parse(stdout.trim() || 'null')
+  } catch {
+    return []
+  }
+  if (!map || typeof map !== 'object') return []
+  const ports = new Set()
+  for (const bindings of Object.values(map)) {
+    for (const b of bindings ?? []) {
+      const port = Number(b?.HostPort)
+      if (Number.isInteger(port) && port > 0) ports.add(port)
+    }
+  }
+  return [...ports].sort((a, b) => a - b)
+}
+
 export async function listContainers({ exec = execFileP, docker = DOCKER_BIN } = {}) {
   try {
     const { stdout } = await exec(docker, [

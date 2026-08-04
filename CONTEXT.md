@@ -117,7 +117,7 @@ The one daemon-owned clone per watched repo. Its push URL is disabled.
 A sandboxed worker's own blobless clone, at the same per-ticket path, on the same branch. A container cannot use a worktree, whose `.git` points into a base clone it never sees. Both shapes retire to one when the bare path goes.
 
 **Published port**:
-One of the three loopback ports a worker's container publishes, the same number inside and out. A worker binds its dev server on one of them, and a preview rule points at it.
+One of the three loopback ports a worker's container publishes, the same number inside and out. The prompt names them, a worker binds its dev server to `0.0.0.0` on one of them, and a preview rule points at it. They are the whole bound on `publish_preview` for a sandboxed worker.
 
 **Config dir**:
 The worker's private agent config home. It holds the prompt, the skills, and the harness. It holds no credentials.
@@ -138,7 +138,7 @@ The per-backend files curia writes so a worker reaches the side channel and the 
 The boundary around a worker: one Docker container per worker, holding its own clone and cfg dir and nothing else of the box. It denies host HOME, the daemon's secrets and state, sibling worktrees, and the tmux socket. The network stays open. The pane runs the container, so every attach surface is unchanged.
 
 **Sandbox switch**:
-`backends.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per backend, shipped off, claude lane first.
+`backends.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per backend. The claude lane is on and soaking, the codex lane follows.
 
 **Worker image**:
 The one image every worker container runs. It carries both agent CLIs at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.

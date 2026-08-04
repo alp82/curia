@@ -99,11 +99,12 @@ backends:
     # #156, from the sandbox decision (#148): `docker` puts each worker in its
     # own container, `none` runs the bare tmux pane every worker ran in before.
     #
-    # Shipped OFF, and the claude lane is the one that flips first — but only
-    # after previews reach a container ([#157]), because a container worker
-    # binds a dev server on a port the host cannot see until then. The codex
+    # ON since #157, which was the condition: a container worker binds its dev
+    # server on one of the three ports its container publishes, and the daemon
+    # reaches it there. The claude lane is the one that soaks first. The codex
     # lane follows at #158, and the bare path is deleted there rather than here.
-    sandbox: none
+    # `none` is the way back, and it needs no other change.
+    sandbox: docker
   # `--dangerously-bypass-hook-trust` is what makes the Stop hook fire without an
   # interactive "Hooks need review" prompt that no one is there to answer. curia
   # writes that hook itself, into a config dir it owns; the flag is not scoped to

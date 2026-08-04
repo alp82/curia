@@ -36,7 +36,8 @@ import { ensureWorkerImage } from './image.mjs'
 import { mintWorkerToken, forgetWorkerToken, sweepWorkerTokens } from './workertoken.mjs'
 import {
   GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, ENV_FILE, PORTS_PER_WORKER,
-  allocatePorts, dockerRunCmd, listContainers, modelCredential, stopContainer, writeEnvFile,
+  allocatePorts, containerPorts, dockerRunCmd, listContainers, modelCredential, stopContainer,
+  writeEnvFile,
 } from './sandbox.mjs'
 import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
@@ -78,7 +79,7 @@ const DEFAULT_DEPS = {
   seedConfigDir, writeHarness, writePrompt,
   ensureTtyd, assertServe, serveOff,
   // the worker sandbox (#156)
-  ensureWorkerImage, stopContainer, listContainers, allocatePorts,
+  ensureWorkerImage, stopContainer, listContainers, allocatePorts, containerPorts,
   // the per-worker token on the loopback surface (#159)
   mintWorkerToken, forgetWorkerToken, sweepWorkerTokens,
   // resolve + land (#41), merge-gated (#54)
@@ -557,17 +558,22 @@ export class Dispatcher {
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
       this.#assertNoPlantedConfig(wtPath, backendName)
       this.#armWorker({ session, ticket: n, backend: backendName, model: useModel, wtPath, cfgDir, view, sandbox })
+      // #157: the prompt NAMES the published ports, so they are allocated before
+      // it is written and handed to the container after. The allocation is a
+      // bind probe and a set lookup — nothing is held until `docker run`, so a
+      // failure between here and the spawn leaks no port.
+      const ports = sandbox ? await this.#allocatePorts(sandbox) : null
       // The type label reaches the prompt (#49 decision 2): it is the only thing
       // that stops a dispatched `wayfinder:grilling` worker from standing in for
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
-        repo, wtPath: view.wt, mapNumber, type: typeLabel, charting, instruction,
+        repo, wtPath: view.wt, mapNumber, type: typeLabel, charting, instruction, ports,
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
       const plan = await this.#spawnPlan({
         session, ticket: n, repo, backend: backendName, model: useModel,
-        wtPath, cfgDir, promptFile, view, sandbox,
+        wtPath, cfgDir, promptFile, view, sandbox, ports,
       })
       const container = plan.container
       const exitMarker = newExitMarker()
@@ -681,22 +687,31 @@ export class Dispatcher {
   // gets a `docker run` line and an EMPTY pane environment: the container
   // carries its own through `--env-file`, and a pane env would put every value
   // of it in `ps` — the cost #155 measured and asked this ticket not to repeat.
-  async #spawnPlan({ session, ticket, repo, backend, model, wtPath, cfgDir, promptFile, view, sandbox }) {
+  async #spawnPlan({ session, ticket, repo, backend, model, wtPath, cfgDir, promptFile, view, sandbox, ports }) {
     const backendCmd = buildSpawnCmd(this.routing, backend, model, path.join(view.cfg, path.basename(promptFile)))
     if (!sandbox) {
       return { container: null, shellCmd: backendCmd, env: workerEnv(cfgDir, backend, { repo }) }
     }
     const container = await this.#prepareContainer({
-      session, ticket, repo, backend, wtPath, cfgDir, spawnCmd: backendCmd, sandbox,
+      session, ticket, repo, backend, wtPath, cfgDir, spawnCmd: backendCmd, sandbox, ports,
     })
     return { container, shellCmd: container.shellCmd, env: {} }
   }
 
-  // Everything a container needs before the pane can start it: the image, the
-  // ports, and the environment file. Every step here can fail, and all of them
-  // run inside #dispatch's try — so a failure unclaims the ticket rather than
-  // leaving it assigned to a worker that never ran.
-  async #prepareContainer({ session, ticket, repo, backend, wtPath, cfgDir, spawnCmd, sandbox }) {
+  // Ports already handed to LIVE workers, so two dispatches landing together
+  // cannot publish the same host port. Everything else on the box is caught by
+  // the bind probe inside allocatePorts.
+  #allocatePorts(sandbox) {
+    const taken = [...this.workers.values()].flatMap((w) => w.ports ?? [])
+    return this.deps.allocatePorts(sandbox.ports, { count: PORTS_PER_WORKER, taken })
+  }
+
+  // Everything a container needs before the pane can start it: the image and
+  // the environment file. The ports arrive already allocated, because the prompt
+  // names them and is written first (#157). Every step here can fail, and all of
+  // them run inside #dispatch's try — so a failure unclaims the ticket rather
+  // than leaving it assigned to a worker that never ran.
+  async #prepareContainer({ session, ticket, repo, backend, wtPath, cfgDir, spawnCmd, sandbox, ports }) {
     // Built on demand rather than at boot: the tag is a content address, so a
     // pinned version bump or a Dockerfile edit names an image the box does not
     // have, and this is the first place that matters (#154).
@@ -719,12 +734,6 @@ export class Dispatcher {
       this.store.logEvent('worker_image_built', { worker: session, ticket, image: image.ref })
       this.log(`built the worker image ${image.ref} for ${session}`)
     }
-    // Ports already handed to LIVE workers, so two dispatches landing together
-    // cannot publish the same host port. Everything else on the box is caught
-    // by the bind probe inside allocatePorts.
-    const taken = [...this.workers.values()].flatMap((w) => w.ports ?? [])
-    const ports = await this.deps.allocatePorts(sandbox.ports, { count: PORTS_PER_WORKER, taken })
-
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
       ...workerEnv(GUEST_CFG, backend, { repo, sandboxed: true }),
       ...modelCredential(backend),
@@ -966,15 +975,22 @@ export class Dispatcher {
         const sandbox = this.#sandboxFor(nextBackend)
         await this.#reshapeWorkspace(worker, sandbox)
         const view = this.#viewFor(sandbox, worker.wtPath, worker.cfgDir)
+        // #157: the ports belong to the WORKER, not to one container. A
+        // same-shape respawn keeps its prompt (#rewritePrompt writes only when
+        // the view moved), so fresh numbers here would leave that prompt naming
+        // ports nothing publishes. The kill above is an ordered teardown, which
+        // removes the container before tmux (see the killSession wrapper), so the
+        // old bindings are already released.
+        const ports = sandbox ? (worker.ports ?? await this.#allocatePorts(sandbox)) : null
         this.#armWorker({
           session: worker.session, ticket: worker.ticket, backend: nextBackend,
           model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir, view, sandbox,
         })
-        await this.#rewritePrompt(worker, view)
+        await this.#rewritePrompt(worker, view, ports)
         const plan = await this.#spawnPlan({
           session: worker.session, ticket: worker.ticket, repo: worker.repo,
           backend: nextBackend, model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir,
-          promptFile: worker.promptFile, view, sandbox,
+          promptFile: worker.promptFile, view, sandbox, ports,
         })
         // A fresh marker per spawn: the old session is dead, and reusing its
         // nonce would let the previous life's exit line — still on screen for
@@ -1050,11 +1066,13 @@ export class Dispatcher {
     worker.wtPath = await this.deps.createPrivateClone(this.root, worker.repo, worker.ticket)
   }
 
-  // The prompt names the worktree twice, in the worker's own view of it, so a
-  // respawn that crossed the sandbox boundary has to write it again. The issue
-  // is re-read rather than remembered: the body is what the prompt carries, and
-  // the worker record keeps only the title.
-  async #rewritePrompt(worker, view) {
+  // The prompt names the worktree twice, in the worker's own view of it, and
+  // since #157 it names the published ports too — so a respawn that crossed the
+  // sandbox boundary has to write it again. The view is what says the boundary
+  // was crossed: it moves in exactly the two directions that change both facts.
+  // The issue is re-read rather than remembered: the body is what the prompt
+  // carries, and the worker record keeps only the title.
+  async #rewritePrompt(worker, view, ports = null) {
     if (view.wt === worker.promptView) return
     const issue = await this.deps.fetchIssue(worker.repo, worker.ticket)
     const mapNumber = await this.#mapNumberFor(worker.repo, issue)
@@ -1064,6 +1082,7 @@ export class Dispatcher {
       wtPath: view.wt,
       mapNumber,
       type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
+      ports,
     })
     worker.promptView = view.wt
   }
@@ -2340,12 +2359,27 @@ export class Dispatcher {
         }
         if (issue && issue.state === 'open' && (issue.assignees ?? []).some((a) => a.login === login)) {
           const wtPath = worktreePathFor(this.root, repo, n)
+          // #157: what the container publishes is the preview bound, and this
+          // record is being rebuilt with every spawn-time fact missing. Read it
+          // back from docker, which is where a running container's ports live —
+          // otherwise an adopted worker either loses `publish_preview` for the
+          // rest of its life, or keeps it with no bound and can publish another
+          // worker's port. Absence and an unreadable docker both yield null,
+          // which refuses every publish: the safe direction for a bound.
+          const ports = this.config.sandbox
+            ? await this.deps.containerPorts(session).catch((e) => {
+              this.log(`reconcile: could not read the published ports of ${session} (${e.message}) — previews are refused for it`)
+              return []
+            })
+            : []
           this.workers.set(session, {
             // a FRESH instance id: any confirm bound before the restart lapses
             // at boot rather than matching an adopted worker it never described
             repo, ticket: n, title: issue.title, session, instance: `${session}@adopted-${Date.now()}`,
             wtPath, cfgDir: cfgDirFor(this.root, session), promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
             model: null, requestedModel: null, backend: null, provider: null,
+            ports: ports.length ? ports : null,
+            sandbox: ports.length ? 'docker' : null,
             spawnedAt: null, state: 'ready',
             resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
           })

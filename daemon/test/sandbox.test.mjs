@@ -18,9 +18,10 @@ import { Dispatcher } from '../src/dispatch.mjs'
 import { loadCuriaConfig, loadRoutingConfig, assertSandboxConfig } from '../src/config.mjs'
 import {
   GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, PORTS_PER_WORKER,
-  allocatePorts, dockerGateway, dockerRunCmd, modelCredential, stopContainer, writeEnvFile,
+  allocatePorts, containerPorts, dockerGateway, dockerRunCmd, modelCredential, stopContainer,
+  writeEnvFile,
 } from '../src/sandbox.mjs'
-import { installSkills, seedConfigDir, workerEnv } from '../src/workspace.mjs'
+import { installSkills, seedConfigDir, workerEnv, writePrompt as realWritePrompt } from '../src/workspace.mjs'
 
 const PINS = {
   image: 'curia-worker',
@@ -396,6 +397,7 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     stopContainer: async () => true,
     listContainers: async () => [],
     allocatePorts: async () => [9000, 9001, 9002],
+    containerPorts: async () => [],
   }
   const d = new Dispatcher({
     config: {
@@ -542,5 +544,136 @@ describe('a sandboxed dispatch (#156)', () => {
     await d.start('42', { repo: 'o/r' })
     await d.cancel('42', { by: 'test' })
     await d.reconcile({ boot: false })
+  })
+})
+
+// ---- the preview bound (#157) ------------------------------------------------------------
+
+// The three published ports are what `publish_preview` checks a worker's dev
+// port against, so the daemon has to know them for every live worker — including
+// one it adopted after a restart and never spawned.
+describe('reading the published ports back from a container (#157)', () => {
+  // The shape docker returns, measured identically on 29.6.2 and on the box's
+  // 20.10.17.
+  const inspect = (json) => async () => ({ stdout: `${json}\n` })
+
+  test('the published host ports come back ascending', async () => {
+    const got = await containerPorts('curia-42', {
+      exec: inspect('{"9002/tcp":[{"HostIp":"127.0.0.1","HostPort":"9002"}],"9000/tcp":[{"HostIp":"127.0.0.1","HostPort":"9000"}]}'),
+    })
+    assert.deepEqual(got, [9000, 9002])
+  })
+
+  test('a container that publishes nothing yields nothing', async () => {
+    assert.deepEqual(await containerPorts('curia-42', { exec: inspect('{"3000/tcp":null}') }), [])
+    assert.deepEqual(await containerPorts('curia-42', { exec: inspect('null') }), [])
+  })
+
+  test('no such container is positive absence, and so is a box with no docker', async () => {
+    const gone = async () => { const e = new Error('Error: No such object: curia-42'); e.stderr = 'No such object: curia-42'; throw e }
+    assert.deepEqual(await containerPorts('curia-42', { exec: gone }), [])
+    const nodocker = async () => { const e = new Error('spawn docker ENOENT'); e.code = 'ENOENT'; throw e }
+    assert.deepEqual(await containerPorts('curia-42', { exec: nodocker }), [])
+  })
+
+  test('any other docker failure throws — an unreadable container is not an empty one', async () => {
+    const broken = async () => { throw new Error('Cannot connect to the Docker daemon') }
+    await assert.rejects(containerPorts('curia-42', { exec: broken }), /could not read the published ports/)
+  })
+})
+
+describe('the worker is told its ports (#157)', () => {
+  beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'sk-test' })
+  afterEach(() => { delete process.env.ANTHROPIC_API_KEY })
+
+  test('the prompt names the three ports and the address to bind them on', async () => {
+    const { d } = makeDispatcher()
+    await d.start('42', { repo: 'o/r' })
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    assert.match(prompt, /\*\*9000, 9001, 9002\*\*/, 'a worker cannot discover its ports — the prompt is the only place they exist for it')
+    assert.match(prompt, /bind `0\.0\.0\.0`/, 'a localhost bind inside the container is unreachable, and fails where the worker cannot see it')
+    assert.match(prompt, /publish_preview` takes no other port/)
+  })
+
+  test('a bare worker is told nothing about ports — it has none', async () => {
+    const { d } = makeDispatcher({}, {
+      routing: { ...SANDBOXED_ROUTING, backends: { claude: { ...SANDBOXED_ROUTING.backends.claude, sandbox: 'none' } } },
+      sandbox: undefined,
+    })
+    await d.start('42', { repo: 'o/r' })
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    assert.ok(!prompt.includes('preview ports'), 'the bare path publishes nothing, so there is no port list to state')
+  })
+
+  test('the ports are allocated before the prompt is written, and the container gets the same three', async () => {
+    const order = []
+    const { d, spawns } = makeDispatcher({
+      allocatePorts: async () => { order.push('allocate'); return [9010, 9011, 9012] },
+      writePrompt: (...args) => { order.push('prompt'); return realWritePrompt(...args) },
+    })
+    await d.start('42', { repo: 'o/r' })
+    assert.deepEqual(order, ['allocate', 'prompt'])
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    assert.match(prompt, /9010, 9011, 9012/)
+    assert.match(spawns[0].shellCmd, /-p 127\.0\.0\.1:9010:9010/)
+  })
+
+  test('a restart adopts a container worker with its bound, read back from docker', async () => {
+    const { d } = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...ISSUE, assignees: [{ login: 'me' }] }),
+      containerPorts: async (name) => (name === 'curia-42' ? [9000, 9001, 9002] : []),
+    })
+    await d.reconcile({ boot: false })
+    assert.deepEqual(d.workers.get('curia-42').ports, [9000, 9001, 9002])
+    assert.equal(d.workers.get('curia-42').sandbox, 'docker')
+  })
+
+  test('a container docker cannot describe leaves the worker with no bound, which refuses every publish', async () => {
+    const { d } = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...ISSUE, assignees: [{ login: 'me' }] }),
+      containerPorts: async () => { throw new Error('Cannot connect to the Docker daemon') },
+    })
+    await d.reconcile({ boot: false })
+    assert.equal(d.workers.get('curia-42').ports, null, 'a bound curia cannot state must not fall back to no bound at all')
+  })
+})
+
+describe('the ports belong to the worker, not to one container (#157)', () => {
+  beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'sk-test' })
+  afterEach(() => { delete process.env.ANTHROPIC_API_KEY })
+
+  const waitFor = async (pred, ms = 3000) => {
+    const until = Date.now() + ms
+    while (Date.now() < until) {
+      if (pred()) return
+      await new Promise((r) => setTimeout(r, 10))
+    }
+    throw new Error('timed out')
+  }
+
+  test('a usage-limit respawn publishes the same three ports the prompt already named', async () => {
+    const routing = {
+      ...SANDBOXED_ROUTING,
+      models: {
+        opus: { provider: 'anthropic', backend: 'claude' },
+        sonnet: { provider: 'anthropic', backend: 'claude' },
+      },
+      fallbacks: { opus: ['sonnet'] },
+    }
+    let allocations = 0
+    const { d, spawns } = makeDispatcher({
+      capturePane: async () => 'Opus usage limit reached | 1800000000',
+      allocatePorts: async () => { allocations += 1; return [9000 + (allocations * 10), 9001, 9002] },
+    }, { routing })
+
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => spawns.length > 1)
+    assert.equal(allocations, 1, 'a second allocation would leave the prompt naming ports nothing publishes')
+    assert.match(spawns[1].shellCmd, /-p 127\.0\.0\.1:9010:9010/)
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    assert.match(prompt, /9010, 9001, 9002/)
+    assert.deepEqual(d.workers.get('curia-42').ports, [9010, 9001, 9002])
   })
 })
