@@ -599,17 +599,48 @@ export function bar(pct, elapsedPct = null, width = BAR_WIDTH) {
   return clock >= width ? `${out}┃` : out
 }
 
+// What a line a human reads CALLS the model (#179). #146 rendered the routing
+// label, which is the key in `routing.yaml` and not a model at all. On the
+// claude lane the key `opus` reads like one and hid the mismatch. On the codex
+// lane the key is `gpt` while the model is `gpt-5.6-sol`, so the status line
+// said `gpt` about a Sol 5.6 worker.
+//
+// Three sources, best evidence first — the same order #178 settled for the
+// context denominator, because it is the same question asked about the same
+// fact:
+//
+//   1. what the transcript states about ITSELF: the concrete id the CLI
+//      resolved (`claude-opus-5`). An alias that moves under us corrects
+//      itself on the next turn.
+//   2. `models.<label>.id`: the name the CLI was ASKED for. This is the codex
+//      lane's whole fault, and `id` was already sitting beside the label.
+//   3. the routing label. Last resort, for a lane that states neither — which
+//      is the claude lane before its first turn lands. `opus` is an alias the
+//      CLI accepts, and pinning an `id` there would undo the alias-following
+//      #178 depends on, so the label stands for those first seconds.
+//
+// The label does not ride along beside the id. It is the DISPATCH vocabulary
+// (`model:gpt`, `/start 179 opus`) and the surfaces that speak it — cooling,
+// fallback, the `/workers` list — go on saying it. The status line answers
+// "what is running", and one name for that is the point.
+export function modelName(model, spec, stated = null) {
+  return stated ?? spec?.id ?? model ?? null
+}
+
 // Everything the status line can say about one worker beyond its state. Every
 // field is independently nullable — a missing source drops its meter, never the
 // line.
 export function workerMeters({ backend, cfgDir, model, routing, account, models, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = {
-    model: model ?? null, effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
+    model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
   }
   if (!backend || !cfgDir) return out
 
   const { ctx, windows } = readTranscriptMeters(backend, findTranscript(backend, cfgDir), now)
+  // The transcript's own word beats the config's, exactly as it does for the
+  // window on the line below.
+  out.model = modelName(model, spec, ctx?.model)
   // Best evidence first (#178). What the transcript states about ITSELF beats
   // what the API says about the model, which beats what a human wrote in a file
   // months ago and cannot be corrected by anything.

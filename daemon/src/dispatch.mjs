@@ -23,7 +23,10 @@ import {
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch,
 } from './github.mjs'
-import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, Cooling } from './routing.mjs'
+import {
+  resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
+  carriesLimitPhrase, Cooling,
+} from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
 import {
   ensureBaseClone, createWorktree, createPrivateClone, isPrivateClone, removeWorktree,
@@ -907,7 +910,12 @@ export class Dispatcher {
         const links = this.attachLinks
           ? await Promise.resolve(this.attachLinks(worker.ticket)).catch(() => null)
           : null
-        this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${worker.model}**${links ? '' : ` — \`/attach ${worker.ticket}\` to watch`}`, links ? { links } : {})
+        // The MODEL, not the routing label (#179). `worker.model` is the key in
+        // `routing.yaml`, so this message said `gpt` about a `gpt-5.6-sol`
+        // worker. There is no transcript yet, so the name the CLI was asked for
+        // is the best evidence there is.
+        const named = spawnModelId(this.routing, worker.model)
+        this.notify(worker.ticket, `✅ \`${worker.session}\` is at the composer on **${named}**${links ? '' : ` — \`/attach ${worker.ticket}\` to watch`}`, links ? { links } : {})
         return
       }
     }

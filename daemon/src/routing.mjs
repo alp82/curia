@@ -96,6 +96,9 @@ export const SAFE_SUBSTITUTION = /^[A-Za-z0-9._/-]+$/
 // broke that assumption: `model:gpt` is the label a human writes and
 // `codex --model gpt` is not a model. `models.<name>.id` is the CLI's name, and
 // the routing name stays the label vocabulary.
+//
+// It is also the best name a HUMAN has for the model before the first turn
+// lands (#179). A line that says what is running says this, not the label.
 export function spawnModelId(routing, model) {
   return routing.models?.[model]?.id ?? model
 }
