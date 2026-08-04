@@ -209,7 +209,7 @@ export class DiscordBridge {
     if (!this.guild) throw new Error('bot is in no guild')
     this.channel = await this.#ensureChannel(this.channelName)
     await this.#registerSlashCommands()
-    this.client.on('interactionCreate', (i) => this.#onInteraction(i).catch((e) => this.log('interaction error', e)))
+    this.client.on('interactionCreate', (i) => this.handleInteraction(i).catch((e) => this.log('interaction error', e)))
     this.client.on('messageCreate', (m) => this.#onMessage(m).catch((e) => this.log('message error', e)))
     this.#watchGateway()
     this.#setHealth('up', { reason: 'ready' })
@@ -311,6 +311,15 @@ export class DiscordBridge {
   // instead of falling back to a name that no longer says what happened.
   static doneName(name) {
     return name.replace(/^🎫/, '✅')
+  }
+
+  // A cancel swaps the same signal for ⚰️ — the agent was torn down (#200).
+  // ✅ would be a lie (nothing finished) and 🎫 was the whole complaint: a
+  // cancelled ticket read exactly like a running one in the thread list. The
+  // BINDING stays (#140), so a later dispatch takes the same thread back and
+  // labelName puts 🎫 on it again.
+  static cancelledName(name) {
+    return name.replace(/^🎫/, '⚰️')
   }
 
   // The thread a ticket's traffic lands in (#93): the journalled binding first.
@@ -474,7 +483,8 @@ export class DiscordBridge {
     // the meantime — it is not this ticket's to take back
     if (!this.bindings.bind(ticket, t.id).ok) return null
     if (t.archived) await t.setArchived(false).catch(() => {})
-    // the label goes back on, and a ✅ from an earlier release goes back to 🎫
+    // the label goes back on: a ✅ from an earlier release, or a ⚰️ from a
+    // cancel (#200), goes back to 🎫 because a ticket is being worked again
     const name = DiscordBridge.labelName(ticket, type)
     if (t.name !== name) await t.setName(name).catch(() => {})
     return t
@@ -493,6 +503,19 @@ export class DiscordBridge {
     await t.setName(DiscordBridge.doneName(t.name)).catch(() => {})
   }
 
+  // The cancel counterpart (#200), and the one difference is the binding: a
+  // cancel does NOT release it (#140 keeps the ticket's history where a later
+  // dispatch will land), so this renames and nothing else. Display only, like
+  // every other rename here — the journal's `agent_cancelled` is the truth.
+  async cancelTicket(ticket) {
+    if (!this.bindings) return
+    const bound = this.bindings.get(ticket)
+    if (!bound) return
+    const t = await this.client.channels.fetch(bound).catch(() => null)
+    if (!t || !t.name.startsWith('🎫')) return
+    await t.setName(DiscordBridge.cancelledName(t.name)).catch(() => {})
+  }
+
   #buttons(record) {
     const rows = []
     let row = new ActionRowBuilder()
@@ -501,7 +524,7 @@ export class DiscordBridge {
       row.addComponents(b)
     }
     // A confirm (#94) gets ✅/❌ and nothing else: declining IS the safe exit,
-    // and the record closes by lapsing with its agent, never by 🛑 Cancel.
+    // and the record closes by lapsing with its agent.
     if (record.kind === CONFIRM_KIND) {
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|approve`).setLabel('✅ Approve').setStyle(ButtonStyle.Danger))
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|reject`).setLabel('❌ Decline').setStyle(ButtonStyle.Secondary))
@@ -518,8 +541,13 @@ export class DiscordBridge {
           .setLabel(label.slice(0, 80)).setStyle(ButtonStyle.Primary))
       })
     }
-    push(new ButtonBuilder().setCustomId(`esc|${record.id}|cancel`).setLabel('🛑 Cancel').setStyle(ButtonStyle.Secondary))
-    rows.push(row)
+    // No cancel button (#200). It said it ended the agent and ended nothing:
+    // it closed the question record and handed the model a sentence, which the
+    // model read and asked again around. Ending an agent has ONE word and one
+    // place — `cancel <n>` in the command channel — and that word runs the
+    // teardown, which cancels this record on its way past. A question a human
+    // does not want answered gets their words as a reply.
+    if (row.components.length) rows.push(row)
     return rows
   }
 
@@ -725,8 +753,23 @@ export class DiscordBridge {
     return this.#editEscalationMessage(record, `✅ **answered** by <@${record.answered_by}> via ${record.answered_via}: \`${String(record.answer).slice(0, 200)}\``)
   }
 
+  // The mark says what HAPPENED and nothing else (#200). It used to promise a
+  // teardown no press ever ran — "ticket re-frontiers" under a button that
+  // only closed this record. Every remaining path here closes a question
+  // because its agent is gone, so the mark names which ending it was; only a
+  // Discord user id becomes a mention.
+  static cancelWords(by) {
+    switch (by) {
+      case 'cancel': return 'its agent was cancelled'
+      case 'agent-death': return 'its agent is gone'
+      case 'reconcile': return 'the daemon reconciled it away'
+      case 'rest': return 'it was cancelled over the REST seam'
+      default: return /^\d+$/.test(String(by)) ? `cancelled by <@${by}>` : `cancelled (${by})`
+    }
+  }
+
   markCancelled(record) {
-    return this.#editEscalationMessage(record, `❌ **cancelled** by <@${record.cancelled_by}> — agent gets an "aborted" result, ticket re-frontiers`)
+    return this.#editEscalationMessage(record, `⚰️ **cancelled** — ${DiscordBridge.cancelWords(record.cancelled_by)}. Nothing is waiting on this question.`)
   }
 
   markSuperseded(record) {
@@ -822,7 +865,9 @@ export class DiscordBridge {
     return saved
   }
 
-  async #onInteraction(i) {
+  // Public because a button press is a decision path worth testing (#200) —
+  // `start` wires it to the gateway, and a test hands it an interaction.
+  async handleInteraction(i) {
     if (!this.authorized(i.user.id)) {
       if (i.isRepliable()) await i.reply({ content: 'not authorized', ephemeral: true })
       return
@@ -847,11 +892,16 @@ export class DiscordBridge {
 
     if (i.isButton() && i.customId.startsWith('esc|')) {
       const [, id, action, value] = i.customId.split('|')
+      // A message posted before #200 still carries the old cancel button, and
+      // Discord keeps it pressable forever. The act it named is gone, so the
+      // press does NOTHING and names the one word that ends an agent. Doing
+      // the old thing quietly is what the ticket exists to stop.
       if (action === 'cancel') {
-        const result = this.handlers.cancel(id, { by: i.user.id })
-        await i.reply(result.ok
-          ? { content: `❌ cancelled **${result.record.id}**` }
-          : { content: `already closed (${result.reason})`, ephemeral: true })
+        const ticket = this.handlers.get(id)?.ticket
+        await i.reply({
+          content: `⚠️ this button is gone — say \`cancel ${ticket ?? '<n>'}\` in <#${this.channel.id}> to end the agent, or reply here to answer`,
+          ephemeral: true,
+        })
         return
       }
       const record = this.handlers.get(id)

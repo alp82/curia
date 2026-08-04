@@ -222,7 +222,7 @@ export class Dispatcher {
     // explicit thread, or a fresh one); release(ticket, reason) takes it off —
     // called on every terminal state. Inert by default so tests and a
     // bridgeless daemon run unchanged.
-    this.threads = threads ?? { bind: async () => ({ ok: true }), release: async () => {} }
+    this.threads = threads ?? { bind: async () => ({ ok: true }), release: async () => {}, cancelled: async () => {} }
     this.log = log
     this.cooling = cooling ?? new Cooling()
     this.dataDir = dataDir
@@ -2658,6 +2658,10 @@ export class Dispatcher {
     // claim, but the ticket goes back to the frontier — a later dispatch
     // belongs in the thread its history lives in. The label comes off when
     // the ticket itself closes (reconcile's sweep reads GitHub for that).
+    //
+    // The NAME does change (#200): 🎫 → ⚰️, so the thread list says a cancel
+    // happened without a message opened. A later dispatch relabels it 🎫.
+    await Promise.resolve(this.threads.cancelled?.(ticket)).catch((e) => this.log(`thread rename for ${session} failed:`, e.message))
     return msg
   }
 

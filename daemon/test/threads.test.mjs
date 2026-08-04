@@ -390,6 +390,7 @@ const OPEN_ISSUE = {
 let dir
 let binds
 let releases
+let cancels
 let escalations
 
 beforeEach(() => {
@@ -397,6 +398,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(dir, 'data', 'results'), { recursive: true })
   binds = []
   releases = []
+  cancels = []
   escalations = []
 })
 
@@ -443,6 +445,7 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
     threads: {
       bind: async (ticket, opts) => { binds.push({ ticket, ...opts }); return { ok: true } },
       release: async (ticket, reason) => { releases.push({ ticket, reason }) },
+      cancelled: async (ticket) => { cancels.push(ticket) },
     },
     log: () => {},
     dataDir: path.join(dir, 'data'),
@@ -509,6 +512,20 @@ describe('Dispatcher thread binding (#93)', () => {
     await d.start('42', { repo: 'o/r' })
     assert.match(await d.cancel('42', { by: 'test' }), /cancelled/)
     assert.deepEqual(releases, [], 'a later dispatch belongs in the thread its history lives in')
+  })
+
+  test('a cancel renames the thread so the list shows it, with no message opened (#200)', async () => {
+    const d = makeDispatcher()
+    await d.start('42', { repo: 'o/r' })
+    await d.cancel('42', { by: 'test' })
+    assert.deepEqual(cancels, ['42'], 'the binding stays and the signal changes: 🎫 → ⚰️')
+  })
+
+  test('a rename that fails does not fail the cancel (#200)', async () => {
+    const d = makeDispatcher()
+    d.threads.cancelled = async () => { throw new Error('discord is down') }
+    await d.start('42', { repo: 'o/r' })
+    assert.match(await d.cancel('42', { by: 'test' }), /cancelled/, 'the agent is dead either way')
   })
 
   test('a finished agent (result recorded) releases the label; an abnormal exit keeps it', async () => {

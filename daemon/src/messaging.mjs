@@ -11,8 +11,8 @@
 //   🔗 link                                            down, a lapsed confirm
 //
 // Button LABELS are UI chrome, not messages: the ✅/❌ confirm pair is fixed
-// by #94, and the 🛑 Cancel withdraw button stays visually distinct from
-// ❌ Reject on purpose.
+// by #94. There is no cancel button any more (#200) — ending an agent is
+// `cancel <n>` in the command channel, and nowhere else.
 
 export const SIGNALS = {
   work: '⚙️',
