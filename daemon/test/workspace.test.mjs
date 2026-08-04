@@ -431,6 +431,19 @@ describe('the codex agent harness (#39)', () => {
     // contents of this directory?" and the agent never reaches its composer
     assert.match(toml, new RegExp(`\\[projects\\."${wtPath}"\\]\\ntrust_level = "trusted"`))
     assert.match(toml, /\[features\]\nhooks = true/)
+
+    // #172: the tool set is a control. These three are `stable` and default TRUE
+    // on the pinned codex, and they carry the `codex_apps` namespace — plugin
+    // search, install and uninstall, `_update_app_permissions` — plus
+    // `resume_agent` and `close_agent`. curia never configured any of them.
+    //
+    // Asserted as whole lines under `[features]`, because codex ignores a key it
+    // does not know IN SILENCE: a rename upstream turns this into a no-op that
+    // reads exactly like a bound lane. The live read of `codex features list` is
+    // the other half of this guard (docs/live-checks/172).
+    for (const feature of ['apps', 'plugins', 'multi_agent']) {
+      assert.match(toml, new RegExp(`^${feature} = false$`, 'm'), `${feature} must be off: curia never configured it`)
+    }
     assert.match(toml, /\[mcp_servers\.curia\]\nurl = "http:\/\/127\.0\.0\.1:4271\/mcp\?agent=curia-6&ticket=6"/)
 
     // codex's 300 s tool-call deadline is a HARD one, so #34's keepalive — which
