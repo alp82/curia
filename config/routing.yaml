@@ -96,6 +96,14 @@ backends:
   claude:
     template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"'
     ready: '⏵⏵|bypass permissions'
+    # #156, from the sandbox decision (#148): `docker` puts each worker in its
+    # own container, `none` runs the bare tmux pane every worker ran in before.
+    #
+    # Shipped OFF, and the claude lane is the one that flips first — but only
+    # after previews reach a container ([#157]), because a container worker
+    # binds a dev server on a port the host cannot see until then. The codex
+    # lane follows at #158, and the bare path is deleted there rather than here.
+    sandbox: none
   # `--dangerously-bypass-hook-trust` is what makes the Stop hook fire without an
   # interactive "Hooks need review" prompt that no one is there to answer. curia
   # writes that hook itself, into a config dir it owns; the flag is not scoped to
@@ -109,3 +117,5 @@ backends:
   codex:
     template: 'codex --model {model} --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat {prompt_file})"'
     ready: '·\s[~/]'
+    # The codex lane joins the container at #158, after the claude lane soaks.
+    sandbox: none

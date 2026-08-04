@@ -98,6 +98,13 @@ sandbox:                                   # #154, building the decision at #148
   # owns the mounted clone and cfg dir — the daemon runs as `alp` (1000) on
   # the box — or the worker cannot write its own worktree.
   agent_uid: 1000
+  # #156: the loopback ports each container publishes, three per worker, as
+  # `127.0.0.1:<p>:<p>` — the same number inside and out, so the port a worker
+  # binds is the port a preview rule points at. The range must hold
+  # 3 × max_concurrent, and it must not touch the preview range: those are the
+  # tailnet-facing HTTPS ports, these are the plain ports they proxy to.
+  port_from: 9000
+  port_to: 9299
 
 preview:                                   # #40, implementing #8: one Serve port per preview
   port_from: 8500                          # must not contain attach.serve_port — the sweep

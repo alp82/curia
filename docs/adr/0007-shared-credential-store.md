@@ -54,3 +54,15 @@ So the daemon takes one minimal completion for its headers, on the cheapest mode
 **Seeding the box's cache file from a workstation.** Curia must run on a server alone, and a stranger must be able to run it on their own VPS. A source that needs a second machine is not a source.
 
 **Switching the box to a `claude /login` lineage.** It brings back the expiring access token that [#100](https://github.com/alp82/curia/issues/100) chose the setup token to avoid, and rule 1 forbids the daemon refreshing it.
+
+## Narrowing: a sandboxed worker cannot share the store (#156)
+
+A container denies the host HOME, and the store lives there. So a worker under [ADR-0012](0012-one-container-per-worker.md) gets the model credential COPIED into its environment through an env file, in the same precedence order the probe above uses: `ANTHROPIC_API_KEY`, then `CLAUDE_CODE_OAUTH_TOKEN`, then the stored credential.
+
+That is the frozen-credential shape this ADR exists to avoid, accepted knowingly and only this far:
+
+- **The deployment box gives out a token that does not rotate.** It authenticates with `CLAUDE_CODE_OAUTH_TOKEN`, the `claude setup-token` credential of [#100](https://github.com/alp82/curia/issues/100), so a container holds a copy of a long-lived value rather than a snapshot of a rotating one.
+- **A box on a rotating login is the case that breaks.** There the copy is an access token, and a worker outliving it dies mid-ticket exactly as [#53](https://github.com/alp82/curia/issues/53) described. The refusal is loud rather than silent: a dispatch with no credential to copy fails before the claim is spent.
+- **Nothing here writes a credential.** Rule 1 of the extension above is unchanged, and the container has no path back to the host store to rotate anything.
+
+The bare path keeps sharing the store. The two lanes differ only while both exist.

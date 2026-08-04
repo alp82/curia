@@ -188,8 +188,101 @@ export async function hasUnpushedWork(wtPath, branch, defaultBranch) {
 }
 
 // Branch is kept deliberately (salvage; re-frontier is the recovery).
+//
+// Two workspace shapes since #156, and one caller: the bare path's worktree,
+// which git must unregister from its base clone, and the sandbox's private
+// clone, which owns its whole `.git` and is just a directory. A worktree marks
+// itself with a `.git` FILE pointing into the base; a clone has a `.git`
+// directory. `git worktree remove` on a clone fails with "is not a working
+// tree", so the shape is read rather than assumed.
 export async function removeWorktree(base, wtPath) {
+  if (isPrivateClone(wtPath)) {
+    fs.rmSync(wtPath, { recursive: true, force: true })
+    return
+  }
   await git(base, ['worktree', 'remove', '--force', wtPath])
+}
+
+// A standalone clone (#156) rather than a worktree cut from the base clone.
+// `.git` is a directory in the first case and a file in the second.
+export function isPrivateClone(wtPath) {
+  try {
+    return fs.statSync(path.join(wtPath, '.git')).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+// ---- the sandbox's private clone (#156, from #148) ---------------------------
+//
+// A container worker gets its OWN clone instead of a worktree cut from the
+// shared base, because a worktree's `.git` is a file pointing into the base
+// clone: mounting only the worktree would give the container a repository with
+// no object store, and mounting the base as well would hand every worker every
+// other worker's branches and commits.
+//
+// `--filter=blob:none` is what keeps that affordable. A blobless clone fetches
+// commits and trees now and blobs on demand, so a per-ticket clone costs
+// seconds rather than a full history download per dispatch.
+//
+// The remote is forced to HTTPS, and no push URL is disabled here: the base
+// clone's `no_push://` trick exists because MANY workers share that clone, and
+// a private clone the worker owns has nothing to protect from itself.
+export async function createPrivateClone(root, repo, n, { identity = null } = {}) {
+  const wt = worktreePathFor(root, repo, n)
+  const branch = branchFor(n)
+  if (fs.existsSync(wt)) fs.rmSync(wt, { recursive: true, force: true })
+  fs.mkdirSync(path.dirname(wt), { recursive: true })
+  // `gh repo clone` rather than `git clone`: it carries the daemon's own login,
+  // so a private watched repo clones with no credential helper set up on the
+  // box. Everything after `--` is passed through to git.
+  await execFileP('gh', ['repo', 'clone', repo, wt, '--', '--filter=blob:none'], {
+    maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS,
+  })
+  // gh follows the box's `git_protocol` setting, which may be ssh — and the
+  // container holds no ssh key by design. HTTPS with GH_TOKEN is the one way a
+  // worker reaches the remote (#155).
+  await git(wt, ['remote', 'set-url', 'origin', `https://github.com/${repo}.git`])
+  // What the container pushes and fetches with. `gh` is in the image and
+  // `GH_TOKEN` is in its environment, so the helper resolves to the worker's
+  // own scoped token rather than to any account on the box.
+  await git(wt, ['config', 'credential.helper', '!gh auth git-credential'])
+  // The container HOME carries no gitconfig, so an unset identity would fail
+  // the worker's first commit with "please tell me who you are". Copied from
+  // the box rather than invented: authorship stays what the bare path produced.
+  const who = identity ?? await hostGitIdentity()
+  await git(wt, ['config', 'user.name', who.name])
+  await git(wt, ['config', 'user.email', who.email])
+
+  const start = await remoteBranchExists(wt, branch)
+    ? `origin/${branch}`
+    : `origin/${await defaultBranchOf(wt)}`
+  await git(wt, ['checkout', '-B', branch, start])
+
+  const excludeFile = path.join(wt, '.git', 'info', 'exclude')
+  fs.mkdirSync(path.dirname(excludeFile), { recursive: true })
+  fs.appendFileSync(excludeFile, '\n.mcp.json\n.claude/\n.curia-prompt.md\n')
+  return wt
+}
+
+// The box's own git identity. A daemon on a box with none still has to be able
+// to dispatch, so this falls back rather than refusing — but the fallback is a
+// visible one, not a guess at who the operator is.
+export async function hostGitIdentity() {
+  const read = async (key) => {
+    try {
+      const { stdout } = await execFileP('git', ['config', '--global', key], { timeout: GIT_TIMEOUT_MS })
+      return stdout.trim()
+    } catch {
+      return ''
+    }
+  }
+  const name = await read('user.name')
+  const email = await read('user.email')
+  return {
+    name: name || 'curia worker',
+    email: email || 'curia@users.noreply.github.com',
+  }
 }
 
 // Full removal where the worktree is destroyed anyway (cancel, orphan sweep);
@@ -321,8 +414,13 @@ export function assertGhTokens(env = process.env) {
 }
 
 // The whole per-worker env: config isolated, credentials shared, GitHub scoped.
-export function workerEnv(cfgDir, backend = 'claude', { repo = null, env = process.env } = {}) {
-  const base = harnessFor(backend).env(cfgDir)
+//
+// `sandboxed` (#156) changes one thing and says so: a container cannot share
+// the host credential store, because the host HOME is what the boundary denies.
+// `cfgDir` is then the path INSIDE the container, and the model credential
+// rides the env file instead (sandbox.mjs).
+export function workerEnv(cfgDir, backend = 'claude', { repo = null, env = process.env, sandboxed = false } = {}) {
+  const base = harnessFor(backend).env(cfgDir, { sandboxed })
   const token = workerGhToken(repo, env)
   return token ? { ...base, GH_TOKEN: token } : base
 }
@@ -335,8 +433,13 @@ function toml(value) {
   return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
 }
 
-function curiaMcpUrl(daemonPort, worker, ticket) {
-  return `http://127.0.0.1:${daemonPort}/mcp?worker=${worker}&ticket=${ticket}`
+// The daemon's own address, as the worker reaches it. A bare pane reaches it on
+// loopback; a container's loopback is the container, so it reaches the same
+// listener through the docker host gateway instead (#156).
+export const LOOPBACK = '127.0.0.1'
+
+function curiaMcpUrl(daemonPort, worker, ticket, host = LOOPBACK) {
+  return `http://${host}:${daemonPort}/mcp?worker=${worker}&ticket=${ticket}`
 }
 
 // How long codex may wait on one curia tool call. Its default is 300 s, and it
@@ -358,8 +461,8 @@ const CODEX_TOOL_TIMEOUT_S = 86_400
 // The Stop hook, identical on both lanes: POST the hook's own stdin payload to
 // the daemon, which answers `{decision:"block", reason}` while a step of the
 // ending is outstanding (#54).
-function stopHookCommand(daemonPort, worker) {
-  return `curl -s -X POST 'http://127.0.0.1:${daemonPort}/worker_done?worker=${worker}' -H 'Content-Type: application/json' -d @-`
+function stopHookCommand(daemonPort, worker, host = LOOPBACK) {
+  return `curl -s -X POST 'http://${host}:${daemonPort}/worker_done?worker=${worker}' -H 'Content-Type: application/json' -d @-`
 }
 
 const HARNESS = {
@@ -389,9 +492,17 @@ const HARNESS = {
     // covers one that did not. One day, the same bound as
     // CODEX_TOOL_TIMEOUT_S below; the 90 s transport-drop watchdog still
     // aborts a call whose daemon actually died.
-    env: (cfgDir) => ({
+    //
+    // A CONTAINER cannot have that (#156): the host store lives in the host
+    // HOME, which is the first thing the boundary denies. The variable is
+    // dropped rather than pointed somewhere else, so Claude Code falls back to
+    // CLAUDE_CONFIG_DIR — the worker's own mounted dir — and the credential
+    // arrives as an environment variable instead (sandbox.mjs). That is the
+    // frozen-credential shape #53 fixed for the bare path, accepted back by
+    // #148 as the sandbox's one remaining host-secret exposure.
+    env: (cfgDir, { sandboxed = false } = {}) => ({
       CLAUDE_CONFIG_DIR: cfgDir,
-      CLAUDE_SECURESTORAGE_CONFIG_DIR: path.join(os.homedir(), '.claude'),
+      ...(sandboxed ? {} : { CLAUDE_SECURESTORAGE_CONFIG_DIR: path.join(os.homedir(), '.claude') }),
       CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(86_400_000),
     }),
 
@@ -421,16 +532,16 @@ const HARNESS = {
     // MCP on, bypass permissions, Stop hook → /worker_done) — spike #29 shapes
     // with per-worker substitution. Both land in the worktree and are hidden from
     // git by the base clone's info/exclude (see ensureBaseClone).
-    harness: ({ wtPath, worker, ticket, daemonPort }) => {
+    harness: ({ wtPath, worker, ticket, daemonPort, daemonHost }) => {
       fs.writeFileSync(path.join(wtPath, '.mcp.json'), JSON.stringify({
-        mcpServers: { curia: { type: 'http', url: curiaMcpUrl(daemonPort, worker, ticket) } },
+        mcpServers: { curia: { type: 'http', url: curiaMcpUrl(daemonPort, worker, ticket, daemonHost) } },
       }, null, 2))
       const dotClaude = path.join(wtPath, '.claude')
       fs.mkdirSync(dotClaude, { recursive: true })
       fs.writeFileSync(path.join(dotClaude, 'settings.json'), JSON.stringify({
         enableAllProjectMcpServers: true,
         permissions: { defaultMode: 'bypassPermissions' },
-        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker) }] }] },
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker, daemonHost) }] }] },
       }, null, 2))
     },
   },
@@ -480,7 +591,7 @@ const HARNESS = {
     // hasTrustDialogAccepted: without it the first spawn stops at a "Do you trust
     // the contents of this directory?" prompt and the worker never reaches its
     // composer (observed, before this line existed).
-    harness: ({ wtPath, cfgDir, worker, ticket, daemonPort, reasoningEffort }) => {
+    harness: ({ wtPath, cfgDir, worker, ticket, daemonPort, daemonHost, reasoningEffort }) => {
       fs.writeFileSync(path.join(cfgDir, 'config.toml'), [
         '# Written by the curia daemon per worker. Never hand-edited.',
         '',
@@ -497,12 +608,12 @@ const HARNESS = {
         'trust_level = "trusted"',
         '',
         '[mcp_servers.curia]',
-        `url = ${toml(curiaMcpUrl(daemonPort, worker, ticket))}`,
+        `url = ${toml(curiaMcpUrl(daemonPort, worker, ticket, daemonHost))}`,
         `tool_timeout_sec = ${CODEX_TOOL_TIMEOUT_S}`,
         '',
       ].join('\n'))
       fs.writeFileSync(path.join(cfgDir, 'hooks.json'), JSON.stringify({
-        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker) }] }] },
+        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, worker, daemonHost) }] }] },
       }, null, 2))
     },
   },
@@ -576,7 +687,14 @@ export function defaultSkillsRoot() {
 // Rebuilt from nothing on every seed: a config dir reused across dispatches
 // must not keep a link to a skill that has since left the list, and a dangling
 // link to a skill removed from the host must not survive either.
-export function installSkills(cfgDir, skills) {
+//
+// A CONTAINER gets copies instead (#156). The link points at a host path the
+// container does not mount, and on this box that path is itself a link into
+// `~/.agents/skills`, so mounting the skills root would only move the dangling
+// link one level. A worker with silently no skills is #57's own failure, so the
+// tree is dereferenced and copied — a few hundred kilobytes per worker, and it
+// cannot go stale inside one ticket.
+export function installSkills(cfgDir, skills, { copy = false } = {}) {
   const dir = path.join(cfgDir, 'skills')
   fs.rmSync(dir, { recursive: true, force: true })
   const names = skills?.install ?? []
@@ -591,7 +709,8 @@ export function installSkills(cfgDir, skills) {
     if (!fs.existsSync(path.join(src, 'SKILL.md'))) {
       throw new Error(`skill "${name}" has no SKILL.md under ${skills.root} — refusing to spawn a worker without its configured skill set`)
     }
-    fs.symlinkSync(src, path.join(dir, name), 'dir')
+    if (copy) fs.cpSync(src, path.join(dir, name), { recursive: true, dereference: true })
+    else fs.symlinkSync(src, path.join(dir, name), 'dir')
   }
   return names
 }
@@ -603,7 +722,12 @@ export function installSkills(cfgDir, skills) {
 // `skills` is the validated config section ({ root, install }); omitting it
 // installs nothing, which is what every test double and every caller with no
 // skills configured gets.
-export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude') {
+//
+// `wtPath` is the worktree AS THE WORKER SEES IT (#156): the claude seed writes
+// it as a `projects` key, which Claude Code matches against its own cwd — and a
+// container's cwd is the mount point, not the host path. Everything this
+// function WRITES goes to `cfgDir`, which is always the host path.
+export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude', { sandboxed = false } = {}) {
   const h = harnessFor(backend)
   fs.mkdirSync(cfgDir, { recursive: true })
   // No credential is COPIED here — every lane shares the host's own store
@@ -622,14 +746,26 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, backend = 'claude')
   // MCP connectors, no saved permission mode (#23/#29). Both CLIs read
   // `<config dir>/skills/<name>/SKILL.md`, so #57's install is backend-blind —
   // a curia skill loaded and ran under codex unchanged.
-  installSkills(cfgDir, skills)
+  installSkills(cfgDir, skills, { copy: sandboxed })
 }
 
 // The curia side channel: the MCP server the worker's tools come from, and the
 // Stop hook that enforces the ending (#54). Where it lands is the backend's
 // business — see the HARNESS table.
-export function writeHarness({ wtPath, cfgDir, worker, ticket, daemonPort, backend = 'claude', reasoningEffort = null }) {
-  harnessFor(backend).harness({ wtPath, cfgDir, worker, ticket, daemonPort, reasoningEffort })
+//
+// Three paths since #156, and they are not interchangeable. `hostWtPath` is
+// where the claude lane's two files are WRITTEN. `wtPath` is the worktree as
+// the worker sees it, which is what the codex lane's `[projects.<path>]` key
+// must match. `daemonHost` is how the worker reaches back: loopback from a bare
+// pane, the docker host gateway from a container.
+export function writeHarness({
+  wtPath, cfgDir, worker, ticket, daemonPort, backend = 'claude', reasoningEffort = null,
+  hostWtPath = wtPath, daemonHost = LOOPBACK,
+}) {
+  harnessFor(backend).harness({
+    wtPath: backend === 'claude' ? hostWtPath : wtPath,
+    cfgDir, worker, ticket, daemonPort, daemonHost, reasoningEffort,
+  })
 }
 
 // Prompt file lives in the config dir, not the worktree.
@@ -653,6 +789,13 @@ export function writeHarness({ wtPath, cfgDir, worker, ticket, daemonPort, backe
 // tool at all — told to invoke it in prose the call comes back "cannot be used
 // with Skill tool". A prompt whose first line is `/wayfinder` loads the full
 // skill text. That is the only working form, verified both directions.
+//
+// `wtPath` here is the worktree AS THE WORKER SEES IT (#156). The prompt names
+// it twice — the parameter block and the write bound — and both are read by a
+// model that will `cd` there, so a container worker must be told its mount
+// point rather than the host path behind it. The file itself is written to
+// `cfgDir`, which is always the host path.
+//
 // `charting` (#160) is the map dispatch: the issue in hand IS the map, and the
 // worker's job is to change it rather than to resolve a ticket under it. Three
 // things move — the `/wayfinder` invocation carries no ticket, the params say

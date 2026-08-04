@@ -13,8 +13,13 @@ import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 import { PROBE_MODEL } from './usage.mjs'
 import { DEFAULT_TIMELINE_INDEX } from './timeline.mjs'
 import { DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS } from './image.mjs'
+import { DEFAULT_CONTAINER_PORTS, PORTS_PER_WORKER } from './sandbox.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
+
+// How a backend's workers are contained (#156). `none` is the bare tmux pane
+// every worker ran in before the sandbox; `docker` is one container per worker.
+const SANDBOX_MODES = ['none', 'docker']
 
 // Every reasoning effort any configured model accepts, unioned.
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
@@ -250,6 +255,32 @@ export function loadCuriaConfig(file) {
     if (!fs.existsSync(DOCKERFILE)) {
       fail(file, `sandbox is configured but ${DOCKERFILE} is missing — the image has no recipe`)
     }
+    // The ports each container publishes on loopback (#156, from #148). Three
+    // per worker, so the range has to hold `3 × max_concurrent` before every
+    // slot can run sandboxed — checked here rather than discovered by the
+    // dispatch that finds none free with a claim already taken.
+    const sbRange = { from: sb.port_from ?? DEFAULT_CONTAINER_PORTS.from, to: sb.port_to ?? DEFAULT_CONTAINER_PORTS.to }
+    for (const [key, v] of [['port_from', sbRange.from], ['port_to', sbRange.to]]) {
+      if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(file, `sandbox.${key} must be a port number`)
+    }
+    if (sbRange.to < sbRange.from) fail(file, `sandbox.port_to (${sbRange.to}) must not be below sandbox.port_from (${sbRange.from})`)
+    const need = PORTS_PER_WORKER * d.max_concurrent
+    if (sbRange.to - sbRange.from + 1 < need) {
+      fail(file, `sandbox ports ${sbRange.from}-${sbRange.to} hold ${sbRange.to - sbRange.from + 1} ports, and ${d.max_concurrent} concurrent workers publishing ${PORTS_PER_WORKER} each need ${need}`)
+    }
+    // Every other surface on this box is a port a container must never
+    // shadow: publishing over the preview range would make `tailscale serve`
+    // and docker fight for the same listener, and publishing over an attach
+    // port would take that surface down.
+    for (const [name, port] of [...ports, ['the daemon port', Number(process.env.PORT ?? 4271)]]) {
+      if (port >= sbRange.from && port <= sbRange.to) {
+        fail(file, `sandbox port range ${sbRange.from}-${sbRange.to} contains ${name} (${port}) — a container would publish over it`)
+      }
+    }
+    if (!(sbRange.to < range.from || sbRange.from > range.to)) {
+      fail(file, `sandbox port range ${sbRange.from}-${sbRange.to} overlaps the preview range ${range.from}-${range.to}`)
+    }
+    sb.ports = sbRange
     cfg.sandbox = sb
   }
 
@@ -337,10 +368,38 @@ export function loadRoutingConfig(file) {
     } catch (e) {
       fail(file, `backends.${name}.ready is not a valid regex: ${e.message}`)
     }
+    // The sandbox switch (#156, rollout rule of #148): per backend, default
+    // off, so the claude lane goes first and the codex lane follows after the
+    // soak (#158). A backend with no key runs the bare pane exactly as before.
+    b.sandbox = b.sandbox ?? 'none'
+    if (!SANDBOX_MODES.includes(b.sandbox)) {
+      fail(file, `backends.${name}.sandbox must be one of ${SANDBOX_MODES.join('|')} (got ${JSON.stringify(b.sandbox)})`)
+    }
+    // The container command is single-quoted inside the pane's shell (see
+    // sandbox.mjs), which is what keeps `$(cat <prompt>)` expanding INSIDE the
+    // container. A template carrying its own single quote breaks that, and the
+    // failure would be a worker whose command line came apart at spawn.
+    if (b.sandbox === 'docker' && b.template.includes("'")) {
+      fail(file, `backends.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one, or set backends.${name}.sandbox: none`)
+    }
   }
   for (const [name, m] of Object.entries(cfg.models)) {
     if (!cfg.backends[m.backend]) fail(file, `models.${name}.backend names unknown backend "${m.backend}"`)
   }
 
   return cfg
+}
+
+// The one thing neither file can check alone (#156): the sandbox switch lives
+// in routing.yaml and the image pins live in curia.yaml, so a backend switched
+// to docker against a curia.yaml with no `sandbox:` section would fail at the
+// first dispatch — with a claim already taken — instead of at boot.
+export function assertSandboxConfig(curiaCfg, routingCfg) {
+  const on = Object.entries(routingCfg.backends ?? {})
+    .filter(([, b]) => b.sandbox === 'docker')
+    .map(([name]) => name)
+  if (on.length && !curiaCfg.sandbox) {
+    throw new Error(`backends ${on.join(', ')} run \`sandbox: docker\`, but config/curia.yaml carries no \`sandbox:\` section — a container has no image to run and no pins to build one from`)
+  }
+  return on
 }

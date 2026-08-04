@@ -27,7 +27,8 @@ import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
-import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
+import { assertSandboxConfig, loadCuriaConfig, loadRoutingConfig } from './config.mjs'
+import { dockerGateway } from './sandbox.mjs'
 import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
@@ -68,6 +69,9 @@ fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
 const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
 const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
 const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
+// The one check neither file can make alone (#156): the switch is in
+// routing.yaml, the image pins are in curia.yaml.
+const SANDBOXED_BACKENDS = assertSandboxConfig(curiaConfig, routingConfig)
 
 // #155: the worker's own GitHub authority — one scoped fine-grained PAT per
 // resource owner. Read at BOOT so a malformed value refuses the boot rather than
@@ -838,14 +842,42 @@ async function readBody(req) {
 // route (POST /command → router.handle, POST /reconcile → dispatcher.reconcile)
 // both hangs the request AND raises an unhandled rejection, which Node ≥15
 // turns into an uncaught exception that kills the daemon.
-const httpServer = http.createServer((req, res) => {
+const requestListener = (req, res) => {
   handleRequest(req, res).catch((e) => {
     log(`request ${req.method} ${req.url} failed: ${e.message}`)
     if (res.writableEnded) return
     if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ error: e.message }))
   })
-})
+}
+
+const httpServer = http.createServer(requestListener)
+
+// The same surface, reachable from inside a worker container (#156). A
+// container's own loopback is the container, so the MCP side channel and the
+// Stop hook cannot use 127.0.0.1 — they reach the box on the docker bridge
+// gateway, which docker resolves for them as `host.docker.internal`.
+//
+// A SECOND listener rather than a wider bind: 0.0.0.0 would put /answer and
+// /command on every interface this box has, including the tailnet, with no auth
+// in front of either. The bridge address is reachable from containers and from
+// this host, and from nothing else.
+//
+// Every container on the box can reach it, which is the `?worker=` spoofing
+// hole #159 exists to close. It is not new — the bare pane could always reach
+// the loopback port — but the container is where a real boundary now sits.
+async function listenForContainers() {
+  if (!SANDBOXED_BACKENDS.length) return
+  const gateway = await dockerGateway()
+  await new Promise((resolve, reject) => {
+    const srv = http.createServer(requestListener)
+    srv.once('error', reject)
+    srv.listen(PORT, gateway, () => {
+      log(`curia daemon also listening on http://${gateway}:${PORT} — the side channel for ${SANDBOXED_BACKENDS.join(', ')} containers`)
+      resolve(srv)
+    })
+  })
+}
 
 async function handleRequest(req, res) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
@@ -1007,7 +1039,13 @@ httpServer.listen(PORT, '127.0.0.1', () => {
   // thrown: tailscale being down must not stop the daemon booting. Both
   // surfaces then refuse every caller until a later /attach retries the
   // resolution, which is the fail-closed direction.
-  resolveServeHosts()
+  // A sandboxed lane with no reachable side channel would spawn workers whose
+  // every `ask_human` and whose Stop hook fail, so this one is LOUD — but it
+  // still does not stop the boot: the bare lanes are unaffected, and a dispatch
+  // onto a sandboxed backend fails on its own with the reason in the log.
+  listenForContainers()
+    .catch((e) => log(`WARNING: no container-facing listener (${e.message}) — a sandboxed worker cannot reach ask_human or the Stop hook`))
+    .then(() => resolveServeHosts())
     .catch((e) => log(`WARNING: could not resolve this box's tailnet names (${e.message}) — both attach surfaces refuse every caller until this succeeds`))
     .then(() => Promise.all([timeline.start(), identityProxy.start()]))
     // boot reconcile (#33): re-derive live workers from GitHub + tmux + journal,

@@ -108,10 +108,16 @@ The layer that hosts worker sessions and their attach: bare tmux, one shared tty
 _Avoid_: substrate (banned by the operator).
 
 **Worktree**:
-The worker's per-ticket git worktree, on branch `curia/<n>`, cut from a shared base clone.
+The worker's per-ticket git worktree, on branch `curia/<n>`, cut from a shared base clone. The bare path's workspace shape.
 
 **Base clone**:
 The one daemon-owned clone per watched repo. Its push URL is disabled.
+
+**Private clone**:
+A sandboxed worker's own blobless clone, at the same per-ticket path, on the same branch. A container cannot use a worktree, whose `.git` points into a base clone it never sees. Both shapes retire to one when the bare path goes.
+
+**Published port**:
+One of the three loopback ports a worker's container publishes, the same number inside and out. A worker binds its dev server on one of them, and a preview rule points at it.
 
 **Config dir**:
 The worker's private agent config home. It holds the prompt, the skills, and the harness. It holds no credentials.
@@ -129,7 +135,10 @@ The hard limits in the standing orders. Read anything. Write only inside the wor
 The per-backend files curia writes so a worker reaches the side channel and the Stop hook.
 
 **Sandbox**:
-The boundary around a worker: one Docker container per worker, holding its own clone and cfg dir and nothing else of the box. It denies host HOME, the daemon's secrets and state, sibling worktrees, and the tmux socket. The network stays open.
+The boundary around a worker: one Docker container per worker, holding its own clone and cfg dir and nothing else of the box. It denies host HOME, the daemon's secrets and state, sibling worktrees, and the tmux socket. The network stays open. The pane runs the container, so every attach surface is unchanged.
+
+**Sandbox switch**:
+`backends.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per backend, shipped off, claude lane first.
 
 **Worker image**:
 The one image every worker container runs. It carries both agent CLIs at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
@@ -303,8 +312,9 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Journal** (`daemon/data/events.jsonl`): every durable curia event.
 - **tmux**: the live worker sessions.
 - **tailscaled**: the Serve rules for attach, timeline, and previews.
-- **Workspace root** (`~/curia-work`): base clones, worktrees, worker config dirs.
-- **Host credential stores** (`~/.claude`, `~/.codex`): shared with workers. Workers hold no copy.
+- **Workspace root** (`~/curia-work`): base clones, worktrees or private clones, worker config dirs.
+- **Host credential stores** (`~/.claude`, `~/.codex`): shared with bare-pane workers, which hold no copy. A sandboxed worker cannot reach them, so it gets the model credential copied into its container environment.
+- **docker**: the live worker containers and the two shared cache volumes.
 
 Everything else is a cache that reconcile can rebuild.
 

@@ -10,6 +10,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 - [ADR-0002](0002-thin-custom-daemon.md): A thin custom daemon owns the unique logic and drives commodity parts. No adopted platform.
 - [ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md): Workers live in bare tmux, attach is one shared ttyd behind Tailscale Serve, workspaces are per-ticket worktrees.
+- [ADR-0012](0012-one-container-per-worker.md): Each worker runs in its own Docker container, started by its own tmux pane, holding its own clone and nothing else of the box.
 
 ## Dispatch and routing
 

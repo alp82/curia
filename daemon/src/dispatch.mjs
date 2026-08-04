@@ -26,11 +26,17 @@ import {
 import { resolveModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, Cooling } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
 import {
-  ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
+  ensureBaseClone, createWorktree, createPrivateClone, isPrivateClone, removeWorktree,
+  removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, workerEnv,
   untrustedProjectConfig,
 } from './workspace.mjs'
+import { ensureWorkerImage } from './image.mjs'
+import {
+  GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, ENV_FILE, PORTS_PER_WORKER,
+  allocatePorts, dockerRunCmd, listContainers, modelCredential, stopContainer, writeEnvFile,
+} from './sandbox.mjs'
 import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
@@ -67,9 +73,11 @@ const sleep = (ms) => sleepFor(ms, undefined, { ref: false })
 const DEFAULT_DEPS = {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   hasSession, listSessions, newSession, capturePane, killSession,
-  ensureBaseClone, createWorktree, removeWorktree, removeConfigDir, removeCredentials,
+  ensureBaseClone, createWorktree, createPrivateClone, removeWorktree, removeConfigDir, removeCredentials,
   seedConfigDir, writeHarness, writePrompt,
   ensureTtyd, assertServe, serveOff,
+  // the worker sandbox (#156)
+  ensureWorkerImage, stopContainer, listContainers, allocatePorts,
   // resolve + land (#41), merge-gated (#54)
   commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
   setPullRequestBody, deleteRemoteBranch,
@@ -209,7 +217,19 @@ export class Dispatcher {
     this.orderedKills = new Set()
     const realKill = this.deps.killSession
     const realSpawn = this.deps.newSession
-    this.deps.killSession = (name) => { this.orderedKills.add(name); return realKill(name) }
+    // Killing the pane usually takes the container with it (the `docker run`
+    // client forwards the signal), but a client killed outright leaves it
+    // running — see stopContainer. Every ordered teardown goes through here —
+    // cancel, finish, the limit respawn, the orphan sweep — so one removal
+    // covers all four, and a box running no containers pays one idempotent
+    // "no such container" per kill.
+    this.deps.killSession = async (name) => {
+      this.orderedKills.add(name)
+      if (this.config.sandbox) {
+        await this.deps.stopContainer(name).catch((e) => this.log(`container teardown for ${name} failed:`, e.message))
+      }
+      return realKill(name)
+    }
     this.deps.newSession = (opts) => { this.orderedKills.delete(opts.name); return realSpawn(opts) }
     this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
@@ -508,11 +528,24 @@ export class Dispatcher {
       // every caller resolves the issue through #resolveRepo → fetchIssue, so
       // the body is always present
       const full = issue
-      const base = await this.deps.ensureBaseClone(this.root, repo)
+      // Two workspace shapes since #156, picked by the backend's sandbox mode:
+      // a worktree cut from the shared base clone for a bare pane, a private
+      // blobless clone for a container. A container cannot use a worktree — its
+      // `.git` is a file pointing into a base clone the container cannot see.
+      const sandbox = this.#sandboxFor(backendName)
       const surviving = worktreePathFor(this.root, repo, n)
-      const wtPath = reuse && fs.existsSync(surviving)
-        ? surviving
-        : await this.deps.createWorktree(base, n)
+      const inherited = reuse && fs.existsSync(surviving)
+      let wtPath
+      if (sandbox) {
+        if (inherited && !isPrivateClone(surviving)) {
+          throw new Error(`${surviving} is a worktree of the shared base clone, and a container cannot use one — this ticket was last dispatched on the bare path. \`cancel ${n}\` first (that removes the worktree), or dispatch it on a backend with \`sandbox: none\``)
+        }
+        wtPath = inherited ? surviving : await this.deps.createPrivateClone(this.root, repo, n)
+      } else {
+        const base = await this.deps.ensureBaseClone(this.root, repo)
+        wtPath = inherited ? surviving : await this.deps.createWorktree(base, n)
+      }
+      const view = this.#viewFor(sandbox, wtPath, cfgDir)
       // A charting worker's map is the issue in hand. Naming it as the map (and
       // not asking #mapNumberFor for a parent) is what puts the `/wayfinder`
       // line on the prompt and arms #assertTracker: a charting worker without
@@ -520,22 +553,22 @@ export class Dispatcher {
       const mapNumber = charting ? Number(n) : await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber)
       this.#assertNoPlantedConfig(wtPath, backendName)
-      this.deps.seedConfigDir(cfgDir, wtPath, this.config.skills, backendName)
-      this.deps.writeHarness({
-        wtPath, cfgDir, worker: session, ticket: n, daemonPort: this.daemonPort,
-        backend: backendName, reasoningEffort: this.routing.models[useModel].reasoning_effort ?? null,
-      })
+      this.#armWorker({ session, ticket: n, backend: backendName, model: useModel, wtPath, cfgDir, view, sandbox })
       // The type label reaches the prompt (#49 decision 2): it is the only thing
       // that stops a dispatched `wayfinder:grilling` worker from standing in for
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
-        repo, wtPath, mapNumber, type: typeLabel, charting, instruction,
+        repo, wtPath: view.wt, mapNumber, type: typeLabel, charting, instruction,
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
-      const cmd = buildSpawnCmd(this.routing, backendName, useModel, promptFile)
+      const plan = await this.#spawnPlan({
+        session, ticket: n, repo, backend: backendName, model: useModel,
+        wtPath, cfgDir, promptFile, view, sandbox,
+      })
+      const container = plan.container
       const exitMarker = newExitMarker()
-      await this.deps.newSession({ name: session, cwd: wtPath, env: workerEnv(cfgDir, backendName, { repo }), shellCmd: cmd, exitMarker })
+      await this.deps.newSession({ name: session, cwd: wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
       // The instance id (#94): what a button confirm binds to. Unique per
       // DISPATCH, not per ticket, so a confirm can never outlive the worker
       // the operator read about and hit its successor.
@@ -543,12 +576,22 @@ export class Dispatcher {
       this.store.logEvent('worker_spawned', {
         repo, ticket: n, worker: session, instance, model: useModel, backend: backendName,
         kind: charting ? 'charting' : 'ticket', instruction: charting ? instruction : null,
+        // The journal is the state home for what a restart cannot re-derive
+        // from tmux: which image this worker runs and which ports it published.
+        ...(container ? { sandbox: 'docker', image: container.image, ports: container.ports } : {}),
       })
 
       const worker = {
         repo, ticket: n, title: full.title, session, instance, wtPath, cfgDir, promptFile,
         model: useModel, requestedModel: modelName, backend: backendName,
         provider: this.routing.models[useModel].provider,
+        // #156: null for a bare pane, the published loopback ports for a
+        // container. #157 hands them to `publish_preview` as its port bound.
+        ports: container?.ports ?? null,
+        sandbox: container ? 'docker' : null,
+        // which view the prompt on disk was written in (#156) — a respawn that
+        // crosses the sandbox boundary has to write it again
+        promptView: view.wt,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
         // #160: which ending this worker is held to, and what the operator
         // asked for. Journalled beside it (worker_spawned above) so a daemon
@@ -590,6 +633,103 @@ export class Dispatcher {
       // ticket-terminal state — the retry's traffic belongs in the same thread.
       return `⚠️ dispatch of ${repo}#${n} failed before the worker could run: ${e.message} — ${released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'}`
     }
+  }
+
+  // The sandbox settings for a backend, or null when it runs the bare pane
+  // (#156). The switch is per backend and ships off (#148's rollout: claude
+  // first, codex after the soak at #158), so this is what every sandbox branch
+  // in this file keys on.
+  #sandboxFor(backend) {
+    if (this.routing.backends?.[backend]?.sandbox !== 'docker') return null
+    if (!this.config.sandbox) {
+      throw new Error(`backend "${backend}" is set to \`sandbox: docker\`, but config/curia.yaml carries no \`sandbox:\` section — there is no image to run`)
+    }
+    return this.config.sandbox
+  }
+
+  // What the WORKER calls its two directories, and how it reaches the daemon
+  // (#156). Identical to the host paths outside a container; the mount points
+  // and the docker host gateway inside one.
+  #viewFor(sandbox, wtPath, cfgDir) {
+    return sandbox
+      ? { wt: GUEST_WT, cfg: GUEST_CFG, daemonHost: GUEST_DAEMON_HOST }
+      : { wt: wtPath, cfg: cfgDir, daemonHost: '127.0.0.1' }
+  }
+
+  // Seed the config dir and write the harness, in the worker's own view of the
+  // paths. Shared by the first dispatch and by the cross-backend respawn a
+  // usage limit forces — those two used to differ by omission, and a sandbox
+  // mode that changes with the backend is exactly where that costs.
+  #armWorker({ session, ticket, backend, model, wtPath, cfgDir, view, sandbox = null }) {
+    this.deps.seedConfigDir(cfgDir, view.wt, this.config.skills, backend, { sandboxed: Boolean(sandbox) })
+    this.deps.writeHarness({
+      wtPath: view.wt, hostWtPath: wtPath, cfgDir, worker: session, ticket,
+      daemonPort: this.daemonPort, daemonHost: view.daemonHost,
+      backend, reasoningEffort: this.routing.models[model].reasoning_effort ?? null,
+    })
+  }
+
+  // What tmux is asked to run, and in what environment. A sandboxed backend
+  // gets a `docker run` line and an EMPTY pane environment: the container
+  // carries its own through `--env-file`, and a pane env would put every value
+  // of it in `ps` — the cost #155 measured and asked this ticket not to repeat.
+  async #spawnPlan({ session, ticket, repo, backend, model, wtPath, cfgDir, promptFile, view, sandbox }) {
+    const backendCmd = buildSpawnCmd(this.routing, backend, model, path.join(view.cfg, path.basename(promptFile)))
+    if (!sandbox) {
+      return { container: null, shellCmd: backendCmd, env: workerEnv(cfgDir, backend, { repo }) }
+    }
+    const container = await this.#prepareContainer({
+      session, ticket, repo, backend, wtPath, cfgDir, spawnCmd: backendCmd, sandbox,
+    })
+    return { container, shellCmd: container.shellCmd, env: {} }
+  }
+
+  // Everything a container needs before the pane can start it: the image, the
+  // ports, and the environment file. Every step here can fail, and all of them
+  // run inside #dispatch's try — so a failure unclaims the ticket rather than
+  // leaving it assigned to a worker that never ran.
+  async #prepareContainer({ session, ticket, repo, backend, wtPath, cfgDir, spawnCmd, sandbox }) {
+    // Built on demand rather than at boot: the tag is a content address, so a
+    // pinned version bump or a Dockerfile edit names an image the box does not
+    // have, and this is the first place that matters (#154).
+    //
+    // A cold build takes about four minutes, and it runs INSIDE the dispatch —
+    // so the thread is told, once, rather than going quiet between the claim
+    // and the spawn. `npm run build-worker-image` ahead of a bump keeps the
+    // dispatch path warm.
+    let said = false
+    const image = await this.deps.ensureWorkerImage(sandbox, {
+      onLine: (line) => {
+        if (!said) {
+          said = true
+          this.notify(ticket, `🧱 building the worker image — the first dispatch after a pin or Dockerfile change waits for it (about four minutes)`)
+        }
+        this.log(`[image ${session}] ${line}`)
+      },
+    })
+    if (image.built) {
+      this.store.logEvent('worker_image_built', { worker: session, ticket, image: image.ref })
+      this.log(`built the worker image ${image.ref} for ${session}`)
+    }
+    // Ports already handed to LIVE workers, so two dispatches landing together
+    // cannot publish the same host port. Everything else on the box is caught
+    // by the bind probe inside allocatePorts.
+    const taken = [...this.workers.values()].flatMap((w) => w.ports ?? [])
+    const ports = await this.deps.allocatePorts(sandbox.ports, { count: PORTS_PER_WORKER, taken })
+
+    const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
+      ...workerEnv(GUEST_CFG, backend, { repo, sandboxed: true }),
+      ...modelCredential(backend),
+      // The container's own HOME. `--user <uid>` bypasses the image's USER, and
+      // git and both CLIs write there; an unset HOME lands them in `/`, which
+      // the agent cannot write.
+      HOME: '/home/agent',
+      TERM: 'xterm-256color',
+    })
+    const shellCmd = dockerRunCmd({
+      name: session, ticket, image: image.ref, cfgDir, wtPath, envFile, spawnCmd, ports, sandbox,
+    })
+    return { image: image.ref, ports, shellCmd }
   }
 
   // The belt behind the prompt naming the tracker (#57 step 3, #49 decision 2).
@@ -809,18 +949,32 @@ export class Dispatcher {
       // easier to trust than a branch that has to be right about when it matters.
       const nextBackend = this.routing.models[next].backend
       try {
-        this.deps.seedConfigDir(worker.cfgDir, worker.wtPath, this.config.skills, nextBackend)
-        this.deps.writeHarness({
-          wtPath: worker.wtPath, cfgDir: worker.cfgDir, worker: worker.session,
-          ticket: worker.ticket, daemonPort: this.daemonPort, backend: nextBackend,
-          reasoningEffort: this.routing.models[next].reasoning_effort ?? null,
+        // The two lanes need not agree about the sandbox (#148's rollout puts
+        // claude in a container first and codex after the soak), so a
+        // cross-provider fallback can also cross the boundary. Everything the
+        // worker reads names its paths — the prompt, the harness, the config
+        // dir — so the whole arming runs again in the NEW view, and the
+        // workspace itself may have to change shape.
+        const sandbox = this.#sandboxFor(nextBackend)
+        await this.#reshapeWorkspace(worker, sandbox)
+        const view = this.#viewFor(sandbox, worker.wtPath, worker.cfgDir)
+        this.#armWorker({
+          session: worker.session, ticket: worker.ticket, backend: nextBackend,
+          model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir, view, sandbox,
         })
-        const cmd = buildSpawnCmd(this.routing, nextBackend, next, worker.promptFile)
+        await this.#rewritePrompt(worker, view)
+        const plan = await this.#spawnPlan({
+          session: worker.session, ticket: worker.ticket, repo: worker.repo,
+          backend: nextBackend, model: next, wtPath: worker.wtPath, cfgDir: worker.cfgDir,
+          promptFile: worker.promptFile, view, sandbox,
+        })
         // A fresh marker per spawn: the old session is dead, and reusing its
         // nonce would let the previous life's exit line — still on screen for
         // a moment — read as the successor's death.
         const exitMarker = newExitMarker()
-        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: workerEnv(worker.cfgDir, nextBackend, { repo: worker.repo }), shellCmd: cmd, exitMarker })
+        await this.deps.newSession({ name: worker.session, cwd: worker.wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
+        worker.ports = plan.container?.ports ?? null
+        worker.sandbox = plan.container ? 'docker' : null
         worker.exitMarker = exitMarker
         worker.model = next
         worker.backend = nextBackend
@@ -856,6 +1010,54 @@ export class Dispatcher {
     if (suppressed) this.notify(worker.ticket, suppressed)
     if (!released) this.notify(worker.ticket, `⚠️ \`${worker.session}\`: claim release FAILED: the issue is still assigned; reconcile will retry`)
     // the binding stays (#140): exhaustion re-frontiers the ticket, it does not end it
+  }
+
+  // A container cannot use a worktree cut from the shared base clone: its
+  // `.git` is a file pointing into a base the container never sees. So a
+  // respawn that crosses INTO the sandbox has to replace the workspace with a
+  // private clone — and it may only do that when the old one holds nothing.
+  //
+  // Unpushed work refuses the reshape, and "cannot tell" refuses it too: the
+  // same evidence rule the orphan sweep runs on, for the same reason. The
+  // caller's catch then releases the claim, so the ticket is re-frontiered and
+  // the next dispatch prepares the right shape from the start — the workspace
+  // survives for a human either way.
+  //
+  // The other direction needs nothing: a private clone is an ordinary
+  // repository, and the bare path drives it exactly as it drives a worktree.
+  async #reshapeWorkspace(worker, sandbox) {
+    if (!sandbox || isPrivateClone(worker.wtPath)) return
+    let unpushed = true
+    let why = 'it holds commits that exist nowhere else'
+    try {
+      const base = basePathFor(this.root, worker.repo)
+      unpushed = await this.deps.hasUnpushedWork(worker.wtPath, branchFor(worker.ticket), await this.deps.defaultBranchOf(base))
+    } catch (e) {
+      why = `curia could not tell whether it holds unlanded commits (${e.message})`
+    }
+    if (unpushed) {
+      throw new Error(`the fallback backend runs in a container, and this ticket's workspace is a worktree of the shared base clone that a container cannot mount — ${why}, so curia will not replace it`)
+    }
+    await this.deps.removeWorktree(basePathFor(this.root, worker.repo), worker.wtPath)
+    worker.wtPath = await this.deps.createPrivateClone(this.root, worker.repo, worker.ticket)
+  }
+
+  // The prompt names the worktree twice, in the worker's own view of it, so a
+  // respawn that crossed the sandbox boundary has to write it again. The issue
+  // is re-read rather than remembered: the body is what the prompt carries, and
+  // the worker record keeps only the title.
+  async #rewritePrompt(worker, view) {
+    if (view.wt === worker.promptView) return
+    const issue = await this.deps.fetchIssue(worker.repo, worker.ticket)
+    const mapNumber = await this.#mapNumberFor(worker.repo, issue)
+    const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
+    worker.promptFile = this.deps.writePrompt(worker.cfgDir, issue, {
+      repo: worker.repo,
+      wtPath: view.wt,
+      mapNumber,
+      type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
+    })
+    worker.promptView = view.wt
   }
 
   // Drop the worker record and hand the ticket back to the frontier. Returns
@@ -1979,6 +2181,11 @@ export class Dispatcher {
     // worker whoever owns the ticket.
     if (ctx.sessions) this.#sweepAbandonedCredentials(ctx.sessions)
 
+    // Same rule for the containers (#156): a determinate session list is all
+    // this needs, because a container whose pane is gone belongs to no live
+    // worker whoever owns the ticket.
+    if (ctx.sessions) await this.#sweepContainers(ctx.sessions)
+
     // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
     // a TICKET-terminal state — the issue is positively closed (or positively
     // absent from every candidate repo). A dead worker or a released claim is
@@ -2269,6 +2476,35 @@ export class Dispatcher {
       this.deps.removeCredentials(cfgDir)
       this.store.logEvent('credentials_swept', { worker: dir })
       this.log(`reconcile: swept the OAuth credential copy of dead ${dir} (workspace kept)`)
+    }
+  }
+
+  // Containers whose pane is gone (#156). A container outlives the `docker run`
+  // client that started it, so a pane killed by anything other than curia — a
+  // reboot of tmux, a human's `tmux kill-session`, a crash — leaves one running
+  // with nobody attached, holding its three published ports and its mounts.
+  //
+  // Same discipline as every other sweep here: docker is the state home (a
+  // restarted daemon finds its predecessor's containers by label), and only a
+  // POSITIVELY known session list may condemn anything.
+  async #sweepContainers(sessions) {
+    if (!this.config.sandbox) return
+    let running = []
+    try {
+      running = await this.deps.listContainers()
+    } catch (e) {
+      this.log(`reconcile: container sweep skipped — ${e.message}`)
+      return
+    }
+    for (const name of running) {
+      if (sessions.includes(name) || this.workers.has(name) || this.inFlight.has(name)) continue
+      try {
+        await this.deps.stopContainer(name)
+        this.store.logEvent('orphan_container_swept', { worker: name })
+        this.log(`reconcile: swept orphan container ${name} — no pane holds it`)
+      } catch (e) {
+        this.log(`reconcile: could not remove orphan container ${name} (${e.message})`)
+      }
     }
   }
 
