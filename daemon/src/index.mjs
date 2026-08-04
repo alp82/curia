@@ -954,7 +954,7 @@ async function bindContainerListener() {
   return containerListener
 }
 
-// What a sandboxed dispatch must be able to say is true before it starts a
+// What a sandboxed dispatch must be able to say is true before it starts an
 // agent (#188). Two halves, because the first one alone was not enough on the
 // deployment box:
 //

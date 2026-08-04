@@ -131,7 +131,7 @@ describe('comment bodies', () => {
   test("curia's own comments are marked, so they can never pass for the agent's resolution", () => {
     // #54: open_pull_request comments on an OPEN ticket, and the
     // resolution-comment check asks "is there a comment by us since this
-    // dispatch". Unmarked, curia's link comment would answer that question for a
+    // dispatch". Unmarked, curia's link comment would answer that question for an
     // agent that wrote no resolution at all.
     assert.ok(prLinkComment({ branch: 'curia/42', commits: 1, url: 'u', state: 'opened' }).startsWith(MACHINE_MARKER))
     assert.ok(nonCleanComment({ agent: 'curia-42', result: { status: 'blocked' }, released: true }).startsWith(MACHINE_MARKER))

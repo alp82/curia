@@ -1863,7 +1863,7 @@ export class Dispatcher {
     const resultsFile = path.join(this.dataDir, 'results', `${agentName}.json`)
     const hasResult = Boolean(w?.resultReceived) || fs.existsSync(resultsFile)
 
-    // #47: the Stop hook fires when a TURN ends, which is not the same as a
+    // #47: the Stop hook fires when a TURN ends, which is not the same as an
     // agent ending. #35 caught the difference live — an agent that pushes
     // ask_human onto a background MCP task ends its turn while the call is
     // still pending, and every terminal act below then ran on a healthy blocked

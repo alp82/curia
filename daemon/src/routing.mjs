@@ -218,7 +218,7 @@ export function parseUsageLimit(paneText, provider = 'anthropic') {
 
 // Does this text carry a phrase that could FORGE a usage-limit signal? Checked
 // against every provider's vocabulary rather than the agent's own, for two
-// reasons: the answer is computed once from the ticket text at dispatch while a
+// reasons: the answer is computed once from the ticket text at dispatch while an
 // agent's provider CHANGES under it on a cross-provider fallback, and the
 // consequence of a match is a refusal to act — over-refusing falls through to
 // the ready-timeout path, which surfaces to a human, and that is the safe

@@ -103,7 +103,7 @@ export const ENDING = [
 // A map dispatch has a different ending, because it produces a different thing.
 // A ticket agent's output is CODE, so the ending is the merge gate: pull
 // request → review → merge → resolve. A charting agent's output is the MAP
-// ITSELF — issue bodies and child issues on the tracker — which is inside a
+// ITSELF — issue bodies and child issues on the tracker — which is inside an
 // agent's ordinary write bounds and cannot be staged in a branch at all. There
 // is nothing to push, so there is nothing for a review gate to show, and #149
 // settled the trade: no gate, an operator in the loop, and the strongest model.

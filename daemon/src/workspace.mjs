@@ -241,7 +241,7 @@ export async function createPrivateClone(root, repo, n, { identity = null } = {}
     maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS,
   })
   // gh follows the box's `git_protocol` setting, which may be ssh — and the
-  // container holds no ssh key by design. HTTPS with GH_TOKEN is the one way a
+  // container holds no ssh key by design. HTTPS with GH_TOKEN is the one way an
   // agent reaches the remote (#155).
   await git(wt, ['remote', 'set-url', 'origin', `https://github.com/${repo}.git`])
   // What the container pushes and fetches with. `gh` is in the image and
@@ -776,7 +776,7 @@ export function defaultSkillsRoot() {
   return path.join(os.homedir(), '.claude', 'skills')
 }
 
-// <cfgDir>/skills/<name> → <root>/<name>, symlinked rather than copied: a
+// <cfgDir>/skills/<name> → <root>/<name>, symlinked rather than copied: an
 // agent never writes a skill, so versions track the host with no snapshot to
 // go stale. That is the exact opposite of the credential case (#53), where the
 // agent DOES write and a symlink was replaced by a regular file — read-only
@@ -801,7 +801,7 @@ export function installSkills(cfgDir, skills, { copy = false } = {}) {
   for (const name of names) {
     const src = path.join(skills.root, name)
     // Config load already proved these exist, but the host can change under a
-    // running daemon. Refusing here costs one dispatch; the alternative is a
+    // running daemon. Refusing here costs one dispatch; the alternative is an
     // agent that silently lacks the skill it was dispatched to use, which is
     // the failure this whole ticket exists to end.
     if (!fs.existsSync(path.join(src, 'SKILL.md'))) {

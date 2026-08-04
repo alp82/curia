@@ -2326,7 +2326,7 @@ describe('awaiting review is not a dead claim (#54 item 5)', () => {
   const assignedToMe = { ...OPEN_ISSUE, assignees: [{ login: 'me' }] }
 
   test('an open pull request from curia/<n> keeps the claim', async () => {
-    // open + assigned + no live session + no result is ALSO the shape of a
+    // open + assigned + no live session + no result is ALSO the shape of an
     // agent whose box rebooted while a human sat on the gate.
     journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', agent: 'curia-42' }])
     const unclaimed = []

@@ -123,5 +123,5 @@ skills:                                    # #57, decision 1 of #49: what an age
     - code-review
     - diagnosing-bugs
   # Withheld on purpose: to-tickets, triage, to-spec, handoff — the
-  # charting-and-PM side. to-tickets is mass ticket creation in the hands of a
+  # charting-and-PM side. to-tickets is mass ticket creation in the hands of an
   # agent that now carries charting authority (#49).

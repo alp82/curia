@@ -1,4 +1,4 @@
-// The agent-note queue (#108 item 14, positive half): operator text in a
+// The agent-note queue (#108 item 14, positive half): operator text in an
 // agent-bound thread with no open escalation queues here and rides the
 // agent's next tool result. The grace window tags a note typed just after an
 // answered escalation with that escalation's id.
@@ -97,7 +97,7 @@ describe('agent-note queue', () => {
     assert.match(commandHint('resume', null, 'C1'), /say `resume <n>` there/)
   })
 
-  // #170: the reply promised "it reads this with its next tool result" for a
+  // #170: the reply promised "it reads this with its next tool result" for an
   // agent that had already died on its own command line. An hour of waiting
   // came out of that one sentence.
   test('the reply refuses to promise a delivery a dead agent cannot make', () => {

@@ -111,7 +111,7 @@ The proof brief is [`proof.md`](proof.md); what follows is what became of each i
   carries endurance instead.
 
 The page shows, besides those: **four frames of one real ticket** on a repo other than this one,
-captured by the operator on a phone, in a strip after the three claims; and **a dated stats line** a
+captured by the operator on a phone, in a strip after the three claims; and **a dated stats line** an
 agent regenerates from GitHub and the journal. `proof.md` holds the detail.
 
 ## What the page is honest about
