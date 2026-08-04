@@ -146,9 +146,12 @@ inventing an ending.
 
 ## Also found
 
-- **The daemon's loudest warning is invisible in `journalctl -u curia`.** Fault 1's line renders
-  as `[433B blob data]`, because it carries an em dash and the box locale is not UTF-8. It was
-  found only by decoding the journal as JSON. Several dispatch messages hide the same way.
+- **64 lines of the image build are invisible in `journalctl -u curia`**, each rendering as
+  `[NNNB blob data]`. Corrected by [#190](https://github.com/alp82/curia/issues/190), which
+  measured the rule: journalctl drops a message for a **control character** (the builder's ANSI
+  color, `apt`'s carriage-return redraws), never for an em dash or a length. Fault 1's warning
+  was **not** among the hidden lines — it printed in full at both boots, and the blob first read
+  as that warning is a build line four minutes later. Fixed there.
 - **The worker image was gone from the box** before this run, though #154 built it there and
   #181 read it back as `already built`. No docker delete event survives that far back, so
   nothing here names the cause. The box also runs Coolify, which prunes.
