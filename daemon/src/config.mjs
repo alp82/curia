@@ -6,7 +6,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
-import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE } from './preview.mjs'
+import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE, DEFAULT_PROXY_FROM } from './preview.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES } from './workspace.mjs'
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
@@ -146,6 +146,14 @@ export function loadCuriaConfig(file) {
   if (!(Number.isInteger(id.proxy_port) && id.proxy_port > 0 && id.proxy_port < 65536)) {
     fail(file, 'identity.proxy_port must be a port number')
   }
+  // #168: the base of the preview identity-proxy block, paired index-for-index
+  // with the preview range so the preview on 8501 proxies through 7701. One key
+  // rather than a range, because the width is the preview range's width and two
+  // keys that must agree are two ways to write one fact.
+  id.preview_proxy_from = id.preview_proxy_from ?? DEFAULT_PROXY_FROM
+  if (!(Number.isInteger(id.preview_proxy_from) && id.preview_proxy_from > 0 && id.preview_proxy_from < 65536)) {
+    fail(file, 'identity.preview_proxy_from must be a port number')
+  }
   cfg.identity = id
 
   // Five ports, one box: any collision means one surface silently shadows or
@@ -181,6 +189,25 @@ export function loadCuriaConfig(file) {
     }
   }
   cfg.preview = range
+
+  // #168: the derived proxy block. Its width is the preview range's width, and
+  // it gets the same treatment the preview range just got, in both directions.
+  // A collision here is the quiet kind — the daemon would boot, and the fault
+  // would surface as one preview refusing every caller because its proxy bound
+  // a port another surface already owned.
+  const proxyBlock = { from: id.preview_proxy_from, to: id.preview_proxy_from + (range.to - range.from) }
+  if (proxyBlock.to > 65535) {
+    fail(file, `identity.preview_proxy_from (${proxyBlock.from}) plus the preview range's width runs past port 65535 — the block is one port per preview port`)
+  }
+  for (const [name, port] of ports) {
+    if (port >= proxyBlock.from && port <= proxyBlock.to) {
+      fail(file, `the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to} contains ${name} (${port}) — a preview proxy would bind over it`)
+    }
+  }
+  if (!(proxyBlock.to < range.from || proxyBlock.from > range.to)) {
+    fail(file, `the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to} overlaps the preview range ${range.from}-${range.to} — the first is loopback, the second is tailnet-facing`)
+  }
+  cfg.identity.preview_proxy_block = proxyBlock
 
   // Agent skill set (#57). Optional section with defaults, but validated the
   // same either way: the daemon refuses to boot naming the missing skill
@@ -279,6 +306,12 @@ export function loadCuriaConfig(file) {
     }
     if (!(sbRange.to < range.from || sbRange.from > range.to)) {
       fail(file, `sandbox port range ${sbRange.from}-${sbRange.to} overlaps the preview range ${range.from}-${range.to}`)
+    }
+    // #168: a container publishing over a preview proxy port would take the gate
+    // in front of some other agent's preview, which is the un-gated dev server
+    // this block exists to stop.
+    if (!(sbRange.to < proxyBlock.from || sbRange.from > proxyBlock.to)) {
+      fail(file, `sandbox port range ${sbRange.from}-${sbRange.to} overlaps the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to}`)
     }
     sb.ports = sbRange
     cfg.sandbox = sb

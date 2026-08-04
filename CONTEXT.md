@@ -129,7 +129,7 @@ The one daemon-owned clone per watched repo. Its push URL is disabled.
 A sandboxed agent's own blobless clone, at the same per-ticket path, on the same branch. A container cannot use a worktree, whose `.git` points into a base clone it never sees. Both shapes retire to one when the bare path goes.
 
 **Published port**:
-One of the three loopback ports an agent's container publishes, the same number inside and out. The prompt names them, an agent binds its dev server to `0.0.0.0` on one of them, and a preview rule points at it. They are the whole bound on `publish_preview` for a sandboxed agent.
+One of the three loopback ports an agent's container publishes, the same number inside and out. The prompt names them, an agent binds its dev server to `0.0.0.0` on one of them, and that preview's identity proxy points at it. They are the whole bound on `publish_preview` for a sandboxed agent.
 
 **Config dir**:
 The agent's private config home for its harness. It holds the prompt, the skills, the harness settings, and on the claude path nothing else. It holds no credentials.
@@ -277,10 +277,10 @@ A tailnet HTTPS link to an agent's running dev server. The daemon allocates the 
 One `tailscale serve` handler. It lives in tailscaled and outlives the daemon, so reconcile sweeps stale rules.
 
 **Identity check**:
-The rule both attach surfaces admit a caller by: not a Funnel request, a Host this box serves, and a `Tailscale-User-Login` on the allowlist. Tailscale Serve stamps that login and overwrites a forged one, so a tailnet client cannot fake it. It fails closed.
+The rule every surface curia publishes through Serve admits a caller by: not a Funnel request, a Host this box serves, and a `Tailscale-User-Login` on the allowlist. Tailscale Serve stamps that login and overwrites a forged one, so a tailnet client cannot fake it. It fails closed. One allowlist covers the terminal, the timeline and previews alike.
 
 **Identity proxy**:
-The daemon's loopback proxy that carries the identity check for ttyd, which has nowhere to put one. The terminal's Serve rule points at the proxy, never at ttyd. The timeline applies the same check in-process.
+The daemon's loopback proxy that carries the identity check for a surface with nowhere to put one. The terminal's Serve rule points at the proxy, never at ttyd. A preview rule points at one of its own, never at the dev server, and its port is derived from the preview's Serve port. The timeline applies the same check in-process.
 
 **Escalation overlay**:
 Open escalations shown on the timeline from the daemon's record, because a transcript is silent while a question blocks.

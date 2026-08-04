@@ -79,7 +79,7 @@ describe('identityRefusal: fail-closed, every leg positive (#151)', () => {
 
   test('a login off the allowlist is refused by name', () => {
     const r = identityRefusal(served({ [LOGIN_HEADER]: 'mallory@example.com' }), { allow: ALLOW, hosts: HOSTS })
-    assert.match(r, /mallory@example\.com.*not on the attach identity allowlist/)
+    assert.match(r, /mallory@example\.com.*not on the identity allowlist/)
   })
 
   test('the login compares case-insensitively — an IdP may change the casing', () => {
@@ -202,7 +202,7 @@ describe('IdentityProxy in front of ttyd (#151)', () => {
     assert.ok(refusals.length >= 2)
     const stranger = refusals.find((j) => j.login === 'mallory@example.com')
     assert.ok(stranger, 'the refused login is recorded, not just the fact of a refusal')
-    assert.match(stranger.reason, /not on the attach identity allowlist/)
+    assert.match(stranger.reason, /not on the identity allowlist/)
     assert.equal(stranger.host, 'box.tail1234.ts.net:8443')
   })
 

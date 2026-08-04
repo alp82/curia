@@ -67,7 +67,7 @@ export function identityRefusal(headers = {}, { allow, hosts } = {}) {
   }
   if (!allow?.size) return 'the identity allowlist is empty — no caller can be admitted'
   if (!allow.has(String(login).toLowerCase())) {
-    return `"${login}" is not on the attach identity allowlist`
+    return `"${login}" is not on the identity allowlist`
   }
   return null
 }
@@ -121,12 +121,31 @@ export function resetTailnetSelfCache() {
 // ttyd keeps every flag it had. -O and the loopback bind stay load-bearing
 // (ADR-0003), and the Host header is forwarded UNCHANGED so -O still compares
 // what it always compared. The proxy adds a gate in front; it removes nothing.
+//
+// #168 gave the class a SECOND caller and moved nothing else: a preview rule
+// now points at one of these too, in front of an agent's dev server rather
+// than in front of ttyd.
+//
+//   tailnet ──Serve(:8501)──> identity proxy(:7701) ──> dev server(:9000)
+//
+// So the three strings that named ttyd became parameters, and the upstream
+// address did too — a bare agent's dev server can be on `localhost` rather
+// than 127.0.0.1 (preview.mjs's localhostTarget explains why). Nothing about
+// the PREDICATE differs between the two surfaces, which is the point: one
+// policy, one module, now three surfaces.
 export class IdentityProxy {
-  constructor({ port, targetPort, allow, hosts, log = console.log, journal = () => {} }) {
+  constructor({
+    port, targetPort, targetHost = '127.0.0.1', allow, hosts,
+    surface = 'attach', name = 'the terminal surface',
+    log = console.log, journal = () => {},
+  }) {
     this.port = port
     this.targetPort = targetPort
+    this.targetHost = targetHost
     this.allow = allow
     this.hosts = hosts
+    this.surface = surface
+    this.name = name
     this.log = log
     this.journal = journal
     this.server = null
@@ -141,13 +160,13 @@ export class IdentityProxy {
   // first fact that goes unrecorded is the one nobody can grep for afterwards.
   // A refused attach is rare by nature, so this does not flood.
   #record(req, reason, path) {
-    this.journal('attach_identity_refused', {
+    this.journal(`${this.surface}_identity_refused`, {
       reason,
       path,
       host: req.headers.host ?? null,
       login: req.headers[LOGIN_HEADER] ?? null,
     })
-    this.log(`attach: REFUSED ${path} — ${reason}`)
+    this.log(`${this.surface}: REFUSED ${path} — ${reason}`)
   }
 
   // Bind the loopback listener. A port that will not bind leaves the surface
@@ -159,8 +178,8 @@ export class IdentityProxy {
       const server = http.createServer((req, res) => this.#request(req, res))
       server.on('upgrade', (req, socket, head) => this.#upgrade(req, socket, head))
       server.once('error', (e) => {
-        this.log(`WARNING: the attach identity proxy could not bind 127.0.0.1:${this.port} (${e.message}) — the terminal surface is DOWN and will not be published`)
-        this.journal('attach_proxy_bind_failed', { port: this.port, error: e.message })
+        this.log(`WARNING: the ${this.surface} identity proxy could not bind 127.0.0.1:${this.port} (${e.message}) — ${this.name} is DOWN and will not be published`)
+        this.journal(`${this.surface}_proxy_bind_failed`, { port: this.port, error: e.message })
         this.listening = false
         resolve({ verified: false })
       })
@@ -168,7 +187,7 @@ export class IdentityProxy {
         this.server = server
         this.port = server.address().port // resolves port 0 (tests bind ephemerally)
         this.listening = true
-        this.log(`attach identity proxy on http://127.0.0.1:${this.port} → ttyd :${this.targetPort}`)
+        this.log(`${this.surface} identity proxy on http://127.0.0.1:${this.port} → ${this.targetHost}:${this.targetPort}`)
         resolve({ verified: true })
       })
     })
@@ -188,7 +207,7 @@ export class IdentityProxy {
       return res.end(`curia refused this request: ${reason}\n`)
     }
     const up = http.request(
-      { host: '127.0.0.1', port: this.targetPort, method: req.method, path: req.url, headers: req.headers },
+      { host: this.targetHost, port: this.targetPort, method: req.method, path: req.url, headers: req.headers },
       (upRes) => {
         res.writeHead(upRes.statusCode, upRes.statusMessage, upRes.headers)
         upRes.pipe(res)
@@ -197,7 +216,7 @@ export class IdentityProxy {
     up.on('error', (e) => {
       if (res.headersSent) return res.destroy()
       res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end(`the terminal surface is not answering on :${this.targetPort} (${e.message})\n`)
+      res.end(`${this.name} is not answering on :${this.targetPort} (${e.message})\n`)
     })
     req.pipe(up)
   }
@@ -213,7 +232,7 @@ export class IdentityProxy {
       return
     }
     const up = http.request({
-      host: '127.0.0.1',
+      host: this.targetHost,
       port: this.targetPort,
       method: req.method,
       path: req.url,
@@ -243,7 +262,7 @@ export class IdentityProxy {
       upRes.pipe(socket)
     })
     up.on('error', (e) => {
-      socket.end(`HTTP/1.1 502 Bad Gateway\r\nconnection: close\r\n\r\nthe terminal surface is not answering on :${this.targetPort} (${e.message})\n`)
+      socket.end(`HTTP/1.1 502 Bad Gateway\r\nconnection: close\r\n\r\n${this.name} is not answering on :${this.targetPort} (${e.message})\n`)
     })
     up.end()
   }

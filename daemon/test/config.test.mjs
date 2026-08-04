@@ -362,4 +362,54 @@ describe('timeline config (#74)', () => {
       /preview range 8444-8460 contains timeline\.serve_port \(8444\)/,
     )
   })
+
+  // #168: the derived proxy block gets the same treatment the preview range
+  // does. A collision here is the QUIET kind — the daemon would boot, and the
+  // fault would surface later as one preview refusing every caller because its
+  // gate bound a port another surface already held.
+  // `writeConfig` puts its argument straight after `identity: allow:`, at the
+  // same indent, so a bare `  preview_proxy_from:` line lands inside that block.
+  test('the derived proxy block is as wide as the preview range and pairs with it', () => {
+    const cfg = loadCuriaConfig(writeConfig(['preview:', '  port_from: 8500', '  port_to: 8509'].join('\n')))
+    assert.deepEqual(cfg.identity.preview_proxy_block, { from: 7700, to: 7709 })
+  })
+
+  test('a proxy block swallowing ttyd refuses the boot', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig('  preview_proxy_from: 7680')),
+      /identity-proxy block 7680-7779 contains attach\.ttyd_port \(7681\)/,
+    )
+  })
+
+  test('a proxy block overlapping the preview range refuses the boot', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig('  preview_proxy_from: 8550')),
+      /identity-proxy block 8550-8649 overlaps the preview range 8500-8599/,
+    )
+  })
+
+  test('a proxy block overlapping the sandbox range refuses the boot', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig([
+        '  preview_proxy_from: 9100',
+        'sandbox:',
+        '  image: curia-agent',
+        '  claude_version: 2.1.220',
+        '  codex_version: 0.146.0',
+        '  gh_version: 2.97.0',
+        '  playwright_version: 1.62.1',
+        '  agent_uid: 1000',
+        '  port_from: 9000',
+        '  port_to: 9299',
+      ].join('\n'))),
+      /sandbox port range 9000-9299 overlaps the preview identity-proxy block 9100-9199/,
+    )
+  })
+
+  test('a proxy block running past the last port refuses the boot', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig('  preview_proxy_from: 65500')),
+      /runs past port 65535/,
+    )
+  })
 })

@@ -45,6 +45,16 @@ identity:                                  # #151: the identity check in front o
   # with nowhere to put one: Serve(:8443) → proxy → ttyd(:7681). The timeline is
   # the daemon's own server, so it applies the same check in-process.
   proxy_port: 7682
+  # #168: the same check in front of preview rules, the third and last surface
+  # curia publishes through Serve. A preview is the operator's alone, so the
+  # `allow` list above serves it too and there is no second list.
+  #
+  # One proxy per LIVE preview, on a port DERIVED from this base: it pairs
+  # index-for-index with the preview range below, so the preview on 8501 always
+  # proxies through 7701 and `ss -ltn` on the box reads straight. The block is
+  # as wide as that range. The daemon refuses to boot if it touches any other
+  # port here, the preview range, or the sandbox range.
+  preview_proxy_from: 7700
 
 timeline:                                  # #74, landing #73: the grid-less attach surface —
   port: 4272                               # daemon-hosted loopback listener (transcript tail + send-keys)

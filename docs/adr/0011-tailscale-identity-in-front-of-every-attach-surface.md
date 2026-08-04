@@ -1,7 +1,7 @@
 # ADR-0011: Tailscale identity gates every attach surface
 
 **Status**: accepted (2026-08)
-**Provenance**: [Pick the substrate (#30)](https://github.com/alp82/curia/issues/30), [Land the timeline surface (#74)](https://github.com/alp82/curia/issues/74), [Harden the attach and timeline surfaces (#151)](https://github.com/alp82/curia/issues/151)
+**Provenance**: [Pick the substrate (#30)](https://github.com/alp82/curia/issues/30), [Land the timeline surface (#74)](https://github.com/alp82/curia/issues/74), [Harden the attach and timeline surfaces (#151)](https://github.com/alp82/curia/issues/151), [The identity check reaches preview rules (#168)](https://github.com/alp82/curia/issues/168)
 
 ## Context
 
@@ -55,8 +55,20 @@ leaves.
   ttyd and the timeline directly and can set any header. The box is already inside the trust
   boundary: agents share the host credential store ([ADR-0007](0007-shared-credential-store.md))
   and the tmux socket ([ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md)).
-- Preview rules are **not** covered. An agent's dev server still publishes to the whole tailnet
-  with no identity check. That is the next surface to take this treatment.
+- ~~Preview rules are **not** covered.~~ **Amended by [#168](https://github.com/alp82/curia/issues/168):
+  they are.** A preview rule points at a daemon-owned identity proxy in front of the agent's dev
+  server, one per live preview, on a port derived from the preview's own Serve port. Two things
+  followed from the operator's ruling that a preview is his alone and never shown to anyone else:
+  `identity.allow` serves all three surfaces with no second list, and no router was needed, because
+  reaching one preview through another's rule is not an escalation when one human is on the list.
+  A shared router would have had to pick a preview out of the client-controlled `Host` header, and
+  with one list there was nothing to buy by paying that.
+  Two consequences are new here rather than inherited. **The gate goes up before the rule**, so a
+  proxy that will not bind refuses `publish_preview` instead of publishing an un-gated dev server,
+  and a failed withdrawal keeps its gate up because the rule it failed to withdraw is still live.
+  And **the reconcile sweep re-checks a live preview's gate**, because a preview has no equivalent
+  of `/attach` — nobody asks curia for the link a second time — so the sweep is the only path that
+  can see a verified→unverified flip.
 - Any future surface published through Serve inherits this decision. Adding one without the check
   reopens what this closed.
 - A change in what Serve stamps would refuse every caller rather than admit them. That is the right

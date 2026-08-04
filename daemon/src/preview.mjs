@@ -36,11 +36,50 @@
 // tailscaled's own serve config, which SURVIVES daemon restarts — so a rule
 // outlives the process that made it, and reconcile must re-derive and sweep
 // (the same orphan discipline as the tmux sweep in #33/#19).
+//
+// #168 put the identity check (#151, ADR-0011) in front of this surface too —
+// the third and last thing curia publishes through Serve, and the one ADR-0011
+// named as still open. Until then a preview was gated on tailnet membership
+// alone, which is the posture #151 ended on the terminal and the timeline.
+//
+//   before:  tailnet ──Serve(:8501)──────────────────────> dev server(:9000)
+//   after:   tailnet ──Serve(:8501)──> proxy(:7701) ─────> dev server(:9000)
+//
+// Three things decided the shape, and the first was the operator's: a preview
+// is HIS ALONE, never shown to anyone else. So `identity.allow` serves all
+// three surfaces, and reaching one preview from another's rule is not an
+// escalation. That killed the shared-router design — it would have had to pick
+// a preview out of the `Host` header, which Serve passes through verbatim
+// (#151 fact 4), and with one list there is nothing to buy by paying that.
+//
+// So: ONE PROXY PER LIVE PREVIEW, which is IdentityProxy used exactly as attach
+// uses it, and no routing code anywhere. The bill is six idle listeners at
+// `agents.max_concurrent`, and the proxy port is DERIVED rather than allocated —
+// `identity.preview_proxy_from` pairs index-for-index with the preview range, so
+// the preview on 8501 always proxies through 7701, greppable in `ss -ltn` on the
+// box. A rule pointing at a proxy port also makes an ORPHAN rule harmless: the
+// old shape left a stale rule aimed at a docker-published port something else
+// could still be binding, and this one aims it at a dead loopback listener.
+//
+// Fail-closed in three places, the same posture attach runs under:
+//
+//   1. publish  — the proxy must bind and the host set must be non-empty before
+//                 the serve rule is written. Neither holds, publish refuses and
+//                 the agent gets the cause. Publishing anyway would put back
+//                 exactly what this ticket closed.
+//   2. sweep    — a live entry whose proxy stopped listening has its rule
+//                 withdrawn, rather than left published over an un-gated port.
+//   3. caller   — a 403 naming the reason, journalled `preview_identity_refused`.
 
 import net from 'node:net'
 import { execFileP } from './exec.mjs'
+import { IdentityProxy, serveHosts, tailnetSelf } from './identity.mjs'
 
 export const DEFAULT_RANGE = { from: 8500, to: 8599 }
+// Paired index-for-index with DEFAULT_RANGE. Clear of ttyd (7681) and the
+// attach identity proxy (7682), and config.mjs checks it against every other
+// port and range this box uses rather than trusting these numbers.
+export const DEFAULT_PROXY_FROM = 7700
 
 // `tailscale serve status --json` shape, verified live on this host:
 //   { "TCP": { "8443": { "HTTPS": true } },
@@ -146,20 +185,42 @@ export function previewUrl(base, servePort, path = '/') {
 }
 
 export class PreviewRegistry {
-  // `reserved` is the set of localhost ports a preview may never point AT.
+  // `reserved` is the set of localhost ports a preview may never point AT. The
+  // derived proxy block is NOT in it and does not need to be: the arithmetic
+  // lives here, so #refuseProxyBlock checks the whole block without index.mjs
+  // enumerating a hundred numbers into a Set.
   constructor({
     range = DEFAULT_RANGE,
     reserved = [],
     exec = execFileP,
     isLive = localhostTarget,
     log = console.log,
+    // #168. `allow` is the SAME set index.mjs hands the attach proxy and the
+    // timeline — one list for all three surfaces, by the operator's call.
+    allow = new Set(),
+    proxyFrom = DEFAULT_PROXY_FROM,
+    self = tailnetSelf,
+    Proxy = IdentityProxy,
+    journal = () => {},
   } = {}) {
     this.range = range
     this.reserved = new Set(reserved.filter((p) => Number.isInteger(p)))
     this.exec = exec
     this.isLive = isLive
     this.log = log
+    this.allow = allow
+    this.proxyFrom = proxyFrom
+    this.self = self
+    this.Proxy = Proxy
+    this.journal = journal
     this.byTicket = new Map() // ticket -> { servePort, devPort } — ephemeral (#9)
+    this.proxies = new Map() // servePort -> IdentityProxy — ephemeral, same as above
+  }
+
+  // The pairing. One line, deliberately, because every other part of the design
+  // reads it: the sweep, the reserved-block refusal and the box's own `ss` output.
+  proxyPortFor(servePort) {
+    return this.proxyFrom + (servePort - this.range.from)
   }
 
   get(ticket) {
@@ -201,6 +262,16 @@ export class PreviewRegistry {
     }
     if (this.reserved.has(devPort)) {
       return this.#refuse(`refusing to publish port ${devPort} — it is one of curia's own surfaces (daemon API, ttyd, attach), and publishing it would expose it to the whole tailnet`)
+    }
+    // #168: the derived proxy block is curia's own too, and it is the one
+    // reserved range that grows and shrinks with the previews themselves.
+    // Pointing a rule at another preview's PROXY would publish that preview on
+    // a second port whose Host the proxy does not answer to — every caller
+    // refused, and a surface silently double-listed. Same fault the reserved
+    // list already catches for identity.proxy_port, one range along.
+    const proxyTo = this.proxyPortFor(this.range.to)
+    if (devPort >= this.proxyFrom && devPort <= proxyTo) {
+      return this.#refuse(`refusing to publish port ${devPort} — ${this.proxyFrom}-${proxyTo} is curia's own preview identity-proxy block, one port per live preview`)
     }
     if (published && !published.includes(devPort)) {
       return this.#refuse(`port ${devPort} is not one of your published ports (${published.join(', ')}) — your dev server runs inside a container, and those are the only ports this box can reach it on. Bind it to 0.0.0.0 on one of them, then publish that port`)
@@ -256,18 +327,76 @@ export class PreviewRegistry {
 
     // If this ticket already had a different dev port, withdraw the stale rule
     // rather than leaking it — serve config outlives the process.
-    if (existing) await this.#serveOff(existing.servePort).catch(() => {})
+    if (existing) {
+      await this.#serveOff(existing.servePort).catch(() => {})
+      this.#stopProxy(existing.servePort)
+    }
 
-    await this.exec('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://${target}:${devPort}`])
+    // #168: the gate goes up BEFORE the rule, and a gate that will not go up
+    // refuses the publish. The order is the whole fail-closed property — a rule
+    // written first and gated second is an un-gated dev server on the tailnet
+    // for as long as the second step takes, and forever if it fails.
+    const gate = await this.#openGate(servePort, target, devPort)
+    if (!gate.ok) return this.#refuse(gate.reason)
+
+    // The rule points at the PROXY now, never at the dev server. That also
+    // makes an orphaned rule harmless: it aims at a loopback port that dies
+    // with the daemon, where the old shape aimed it at a docker-published port
+    // something else could still be binding.
+    await this.exec('tailscale', ['serve', '--bg', `--https=${servePort}`, `http://127.0.0.1:${gate.proxyPort}`])
     // The URL is kept on the entry, not only returned: the review gate (#54)
     // shows the human the preview link, and it must be the link this registry
     // actually allocated rather than a string an agent handed over. Resolving
     // the tailnet name again there would mean a second `tailscale` call inside a
     // blocking tool.
     const url = previewUrl(base, servePort, path)
-    this.byTicket.set(key, { servePort, devPort, target, path, url })
-    this.log(`preview for ticket ${key}: ${url} -> ${target}:${devPort}`)
-    return { ok: true, servePort, devPort, target, path, url, reused: false }
+    this.byTicket.set(key, { servePort, devPort, target, path, url, proxyPort: gate.proxyPort })
+    this.log(`preview for ticket ${key}: ${url} -> proxy :${gate.proxyPort} -> ${target}:${devPort}`)
+    return { ok: true, servePort, devPort, target, path, url, proxyPort: gate.proxyPort, reused: false }
+  }
+
+  // Stand up this preview's identity proxy. Returns the port the serve rule must
+  // point at, or the reason the preview cannot be published at all.
+  //
+  // Both legs are POSITIVE checks, ADR-0011's inversion of the reconcile rule:
+  // there an open question must not take a surface down, here an open question
+  // must not let a caller in. A box that cannot say its own name admits nobody,
+  // so a preview it cannot name is a preview it must not publish.
+  async #openGate(servePort, target, devPort) {
+    let hosts
+    try {
+      hosts = serveHosts({ ...(await this.self()), servePort })
+    } catch (e) {
+      return { ok: false, reason: `could not resolve this box's tailnet names (${e.message}) — refusing to publish a preview the identity check cannot verify` }
+    }
+    if (!hosts.size) {
+      return { ok: false, reason: 'this box resolved no tailnet name for the preview rule — refusing to publish a surface that cannot verify its own name' }
+    }
+    const proxyPort = this.proxyPortFor(servePort)
+    const proxy = new this.Proxy({
+      port: proxyPort,
+      targetHost: target,
+      targetPort: devPort,
+      allow: this.allow,
+      hosts,
+      surface: 'preview',
+      name: `the dev server behind this preview`,
+      log: this.log,
+      journal: this.journal,
+    })
+    const { verified } = await proxy.start()
+    if (!verified) {
+      return { ok: false, reason: `the preview identity proxy could not bind 127.0.0.1:${proxyPort} — refusing to publish an un-gated dev server to the tailnet` }
+    }
+    this.proxies.set(servePort, proxy)
+    return { ok: true, proxyPort: proxy.port }
+  }
+
+  #stopProxy(servePort) {
+    const proxy = this.proxies.get(servePort)
+    if (!proxy) return
+    proxy.stop()
+    this.proxies.delete(servePort)
   }
 
   // "handler does not exist" is POSITIVE ABSENCE, not a failed withdrawal —
@@ -290,10 +419,13 @@ export class PreviewRegistry {
     } catch (e) {
       // Keep the entry: an un-withdrawn rule is still published, and dropping
       // the record here would make the next sweep the only thing that could
-      // ever find it.
+      // ever find it. #168 adds the sharper half — the PROXY stays up too. A
+      // rule that is still published must keep its gate, or the failure to
+      // withdraw becomes the un-gated dev server this ticket closed.
       this.log(`WARNING: preview rule for ticket ${key} on :${entry.servePort} REMAINS PUBLISHED — withdrawal failed: ${e.message}`)
       return { ok: false, reason: e.message }
     }
+    this.#stopProxy(entry.servePort)
     this.byTicket.delete(key)
     return { ok: true, withdrawn: true, servePort: entry.servePort }
   }
@@ -320,8 +452,27 @@ export class PreviewRegistry {
     for (const [ticket, entry] of [...this.byTicket]) {
       if (!live.has(ticket)) {
         await this.#serveOff(entry.servePort).catch((e) => this.log(`preview withdraw for ${ticket} failed: ${e.message}`))
+        this.#stopProxy(entry.servePort)
         this.byTicket.delete(ticket)
         swept.push({ servePort: entry.servePort, ticket })
+        continue
+      }
+      // #168, the verified→unverified flip: attach re-checks its proxy on every
+      // /attach request, and a preview has no such path — nobody asks curia for
+      // a link a second time, the human just opens the one they were given. So
+      // the sweep is where a live preview's gate is re-checked, and a gate that
+      // stopped listening takes the RULE down with it rather than leaving it
+      // published over a port with no check in front of it any more.
+      //
+      // `listening` is this process's own boolean, so there is no failed read to
+      // classify here. That is why the fail-closed direction is safe to take.
+      if (!this.proxies.get(entry.servePort)?.listening) {
+        this.log(`WARNING: the identity proxy for ticket ${ticket}'s preview on :${entry.servePort} is not listening — withdrawing the rule rather than leaving the dev server un-gated`)
+        this.journal('preview_gate_lost', { ticket, servePort: entry.servePort, proxyPort: entry.proxyPort ?? null })
+        await this.#serveOff(entry.servePort).catch((e) => this.log(`preview withdraw for ${ticket} failed: ${e.message}`))
+        this.#stopProxy(entry.servePort)
+        this.byTicket.delete(ticket)
+        swept.push({ servePort: entry.servePort, ticket, ungated: true })
       }
     }
 

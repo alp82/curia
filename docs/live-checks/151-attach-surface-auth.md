@@ -118,6 +118,10 @@ ports bind the tailnet addresses alone. A caller off the tailnet has no route to
   the tmux socket ([ADR-0003](../adr/0003-tmux-ttyd-tailscale-worker-host.md)). Recorded, not chased.
 - **Preview rules** (`8500`–`8599`). A worker's dev server still publishes to the whole tailnet
   with no identity check. Out of this ticket's scope, which named the attach and timeline surfaces.
+  **Closed since, by [#168](https://github.com/alp82/curia/issues/168)** — see
+  [the preview live check](168-preview-identity.md). One note there corrects a string quoted in the
+  tables above: the allowlist refusal read "not on the **attach** identity allowlist" and now reads
+  "not on the identity allowlist", because one message serves three surfaces.
 - **A stolen device that is still on the tailnet under the allowed login.** Identity is per user,
   not per device. Revoking the node in the Tailscale admin console is the control there.
 

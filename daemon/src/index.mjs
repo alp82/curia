@@ -607,6 +607,13 @@ const previews = new PreviewRegistry({
     curiaConfig.timeline.port, curiaConfig.timeline.serve_port,
   ],
   log,
+  // #168: the identity check reaches the third surface. `identityAllow` is the
+  // SAME set object the attach proxy and the timeline hold — the operator's
+  // call that a preview is his alone, so one list serves all three. The proxy
+  // block is derived from this base, and the registry does its own arithmetic.
+  allow: identityAllow,
+  proxyFrom: curiaConfig.identity.preview_proxy_from,
+  journal: (type, detail) => store.logEvent(type, detail),
 })
 dispatcher.previews = previews // constructed after the dispatcher; teardown + sweep read it here
 
