@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
-import { EscalationStore, CONFIRM_KIND } from './store.mjs'
+import { EscalationStore, CONFIRM_KIND, noteDisposition } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
 import { readable } from './logline.mjs'
@@ -354,17 +354,20 @@ const gate = {
   queueAgentNote(threadId, text, by) {
     const agent = gate.agentForThread(threadId)
     if (!agent || !text?.trim()) return null
-    const { after } = store.queueAgentNote(agent, text.trim(), { by })
-    // `reads` is what the bridge promises the operator (#170). A `failed`
-    // agent — the early exit (#169), the ready timeout, the result-less exit
-    // — calls no more tools, so "it reads this with its next tool result" is a
-    // promise nothing can keep. The note still queues: the session-keyed queue
-    // hands it to whatever resumes on this session.
-    const reads = dispatcher.agents.get(agent)?.state !== 'failed'
-    log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}${reads ? '' : ' — that agent is not running'}`)
+    // `reads` is what the bridge promises the operator (#170), and #208 makes
+    // it the same flag that decides whether anything queues at all.
+    const { reads, instance } = noteDisposition(dispatcher.agents.get(agent))
     // the ticket rides along so the bridge can spell out `cancel <n>` when the
     // note is command-shaped (#108 item 23, #170)
-    return { agent, after, reads, ticket: store.ticketForThread(threadId) ?? null }
+    const ticket = store.ticketForThread(threadId) ?? null
+    if (!reads) {
+      log(`agent note refused for ${agent} — that agent is not running, so nothing was queued`)
+      store.logEvent('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
+      return { agent, after: null, reads, ticket }
+    }
+    const { after } = store.queueAgentNote(agent, text.trim(), { by, instance })
+    log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}`)
+    return { agent, after, reads, ticket }
   },
 }
 
@@ -725,7 +728,11 @@ function buildMcpServer(agent, ticket) {
   // every tool below appends the drain, so a note is never older than one
   // round-trip. A note tagged `after esc-N` is the follow-up the operator
   // typed just after answering that escalation.
-  const drainNotes = () => store.takeAgentNotes(agent).map((n) => ({
+  //
+  // The instance is read LIVE, never captured here: this server is built once
+  // per session and #208 makes the queue instance-addressed, so a note stamped
+  // for a predecessor must not ride out on a successor's tool result.
+  const drainNotes = () => store.takeAgentNotes(agent, dispatcher.agents.get(agent)?.instance ?? null).map((n) => ({
     type: 'text',
     text: `[operator note${n.after ? `, after ${n.after}` : ''}] ${n.text}`,
   }))

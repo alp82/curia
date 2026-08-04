@@ -90,6 +90,8 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE } = {}) {
     },
     openEscalations: () => [],
     cancel: () => ({ ok: true }),
+    // #208: no test here queues an operator note, so nothing ever expires
+    expireAgentNotes: () => 0,
   }
   const base = {
     viewerLogin: async () => 'me',

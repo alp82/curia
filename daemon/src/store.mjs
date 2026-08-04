@@ -56,6 +56,25 @@ export function normalizeEvent(ev) {
   return out
 }
 
+// #208, the caller's half of the rule — pure, so it can be checked without a
+// live gateway, for the reason queuedNoteReply is pure (#170). What operator
+// text typed in an agent's thread becomes, given the record the dispatcher
+// holds for the agent that owns the thread:
+//
+//   not running → nothing queues. The words were about what THAT agent was
+//                 doing, and it is gone. A queued one waits for a successor
+//                 that never heard them — the `cancel 166` typed at 15:13
+//                 and still pending against a 16:36 agent (#170).
+//   running     → it queues, stamped with the instance it was typed at, and
+//                 dies with that instance.
+//
+// `reads` keeps its one meaning (#170): the agent is running. A `failed`
+// record is the early exit (#169), the ready timeout, the result-less exit.
+export function noteDisposition(agent) {
+  const reads = agent?.state !== 'failed'
+  return { reads, instance: reads ? agent?.instance ?? null : null }
+}
+
 export class EscalationStore {
   constructor(dataDir) {
     this.dir = dataDir
@@ -166,13 +185,21 @@ export class EscalationStore {
       }
       case 'agent_note': {
         const arr = this.agentNotes.get(ev.agent) ?? []
-        arr.push({ text: ev.text, after: ev.after ?? null })
+        // An absent stamp is session-keyed on purpose (#208): the #139
+        // hand-off, and every note journalled before #208 was decided.
+        arr.push({ text: ev.text, after: ev.after ?? null, instance: ev.instance ?? null })
         this.agentNotes.set(ev.agent, arr)
         break
       }
       case 'agent_notes_drained': {
         const arr = this.agentNotes.get(ev.agent) ?? []
         arr.splice(0, ev.count)
+        break
+      }
+      case 'agent_notes_expired': {
+        const live = ev.live_instance ?? null
+        const arr = this.agentNotes.get(ev.agent) ?? []
+        this.agentNotes.set(ev.agent, arr.filter((n) => !n.instance || n.instance === live))
         break
       }
       case 'overseer_notes_drained': {
@@ -322,14 +349,20 @@ export class EscalationStore {
   // tagged with that escalation's id — "operator added, after esc-13" — the
   // follow-up-to-a-button case the finding measured. Journalled, so a daemon
   // restart keeps every undelivered note.
-  queueAgentNote(agent, text, { by = null, graceMs = 120_000, now = Date.now() } = {}) {
+  //
+  // `instance` is the #208 ruling: words typed at an agent die with THAT
+  // agent. The caller is what marks the two kinds apart, because the caller
+  // is the only one who knows who the words were for. Thread text names the
+  // instance that owned the thread; the #139 hand-off names none, because
+  // reaching the successor is its whole point.
+  queueAgentNote(agent, text, { by = null, instance = null, graceMs = 120_000, now = Date.now() } = {}) {
     const recent = [...this.escalations.values()]
       .filter((r) => r.agent === agent && r.status !== 'open' && r.closed_at)
       .sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)))
       .at(-1)
     const closedMs = recent ? now - Date.parse(recent.closed_at) : Infinity
     const after = Number.isFinite(closedMs) && closedMs <= graceMs ? recent.id : null
-    this._append({ type: 'agent_note', agent, text, after, by })
+    this._append({ type: 'agent_note', agent, text, after, by, instance })
     return { after }
   }
 
@@ -348,7 +381,24 @@ export class EscalationStore {
     return this.queueAgentNote(record.agent, text, { by: record.answered_by ?? null })
   }
 
-  takeAgentNotes(agent) {
+  // The #208 rule, in one predicate: a note stamped with an instance belongs
+  // to that instance and to nothing else. This drops every note naming an
+  // instance OTHER than the one now live on the session. Pass null when
+  // nothing is live, which is what every exit path does — then every stamped
+  // note goes. An unstamped note is session-keyed and never expires here.
+  //
+  // Two callers, one rule. The exit paths call it so the operator is told at
+  // the moment the words die. The drain calls it so a successor can never
+  // read them even if some exit path was missed.
+  expireAgentNotes(agent, liveInstance = null) {
+    const arr = this.agentNotes.get(agent) ?? []
+    const stale = arr.filter((n) => n.instance && n.instance !== liveInstance).length
+    if (stale) this._append({ type: 'agent_notes_expired', agent, live_instance: liveInstance, count: stale })
+    return stale
+  }
+
+  takeAgentNotes(agent, instance = null) {
+    this.expireAgentNotes(agent, instance)
     const notes = [...(this.agentNotes.get(agent) ?? [])]
     if (notes.length) this._append({ type: 'agent_notes_drained', agent, count: notes.length })
     return notes

@@ -494,7 +494,8 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
       sandbox,
     },
     routing,
-    store: { logEvent: (type, data) => { events.push({ type, ...data }); return { type } }, openEscalations: () => [], cancel: () => ({ ok: true }) },
+    // expireAgentNotes (#208): no test here queues a note, so nothing expires
+    store: { logEvent: (type, data) => { events.push({ type, ...data }); return { type } }, openEscalations: () => [], cancel: () => ({ ok: true }), expireAgentNotes: () => 0 },
     notify: (ticket, message) => notifies.push({ ticket, message }),
     log: (...a) => log.push(a.join(' ')),
     dataDir: path.join(tmp, 'data'),

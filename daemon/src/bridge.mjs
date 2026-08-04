@@ -87,13 +87,16 @@ export function commandHint(text, ticket, channelId) {
 // the note, and where the operator's words would have been a command.
 //
 // `q.reads === false` is positive evidence the agent is not running — the
-// early exit (#169), the ready timeout, the result-less exit. The note still
-// queues: the queue is session-keyed, so whatever resumes on this session gets
-// it (see store.queueRecordedAnswer). Anything else keeps the old promise.
+// early exit (#169), the ready timeout, the result-less exit. Nothing queues
+// then (#208): words typed at an agent die with that agent, so a dead one is
+// the end of them, and the line says that rather than promising a successor
+// will read them. The #139 hand-off is the one note that does cross, and it
+// comes from the daemon, not from this surface. Anything else keeps the old
+// promise.
 export function queuedNoteReply({ owner, q, text, channelId }) {
   const lines = [
     q.reads === false
-      ? `queued for \`${owner}\`, which is NOT running — nothing reads this until \`resume ${q.ticket ?? '<n>'}\``
+      ? `\`${owner}\` is NOT running, so nothing was queued: these words reached nobody. Start a fresh agent with \`resume ${q.ticket ?? '<n>'}\`, then say them again.`
       : `queued for \`${owner}\` — it reads this with its next tool result${q.after ? ` (noted as after ${q.after})` : ''}`,
   ]
   if (COMMAND_SHAPED.test(text ?? '')) lines.push(commandHint(text, q.ticket, channelId))
@@ -1001,7 +1004,9 @@ export class DiscordBridge {
       if (owner) {
         const q = this.handlers.queueAgentNote?.(m.channel.id, m.content ?? '', m.author.id)
         if (q) {
-          await m.react('📨').catch(() => {})
+          // 📨 means the words are in a queue. A dead agent queues nothing
+          // (#208), so the reaction says the same thing the reply does.
+          await m.react(q.reads === false ? '⚠️' : '📨').catch(() => {})
           // A command still queues — the operator may mean the word for the
           // agent — but the reply names the way out, so `cancel 166` typed at
           // an agent never dies silently as a note (#108 item 23, #170).
