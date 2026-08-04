@@ -87,8 +87,12 @@ describe('paceOf', () => {
 
   test('a window that already reset is expired, not 100% elapsed', () => {
     // The percentage beside it belongs to a window that no longer exists. The
-    // caller drops the reading rather than showing a full, stale bar.
-    assert.deepEqual(paceOf(resetsInSec(-1), 300 * MIN, NOW), { expired: true })
+    // caller drops that number rather than showing a full, stale bar — and the
+    // clock it gets back is the FRESH window's, one minute old (#187).
+    assert.deepEqual(paceOf(resetsInSec(-1), 300 * MIN, NOW), { expired: true, elapsedPct: 0 })
+    assert.deepEqual(paceOf(resetsInSec(-150), 300 * MIN, NOW), { expired: true, elapsedPct: 50 })
+    // A reading a whole window behind cannot say which window we are in.
+    assert.deepEqual(paceOf(resetsInSec(-300), 300 * MIN, NOW), { expired: true, elapsedPct: null })
   })
 
   test('an unstated or nonsense reset yields no pace, and keeps the reading', () => {
@@ -150,8 +154,11 @@ describe('transcript meters', () => {
     ])
   })
 
-  test('a window whose reset has passed is dropped, not shown stale', () => {
-    // An idle worker holds a reading from a window that has since reset.
+  test('a window whose reset has passed rolls over to a fresh one, and stays on the line', () => {
+    // An idle worker holds a reading from a window that has since reset. The
+    // 88% is about a window that ended, so it goes — and the window that
+    // started at that reset takes its place, 30 minutes into its five hours
+    // (#187). The bar used to leave the line instead.
     const file = write('x.jsonl', [
       codexCount({
         input: 10,
@@ -161,7 +168,24 @@ describe('transcript meters', () => {
       }),
     ])
     assert.deepEqual(readTranscriptMeters('codex', file, NOW).windows, [
+      { label: '5h', pct: 0, elapsedPct: 10, fresh: true },
       { label: '7d', pct: 41, elapsedPct: 90 },
+    ])
+  })
+
+  test('a reading a whole window behind has no clock, and says so', () => {
+    // Six hours after a five-hour window reset, WHICH window we are in is a
+    // guess. The fresh window still stands at 0%, and it renders a flat bar
+    // rather than a made-up clock position.
+    const file = write('y.jsonl', [
+      codexCount({
+        input: 10,
+        window: 100,
+        primary: { used_percent: 88, window_minutes: 300, resets_at: resetsInSec(-360) },
+      }),
+    ])
+    assert.deepEqual(readTranscriptMeters('codex', file, NOW).windows, [
+      { label: '5h', pct: 0, elapsedPct: null, fresh: true },
     ])
   })
 
@@ -199,7 +223,13 @@ describe('transcript meters', () => {
       }),
     ])
     const { windows, limits } = readTranscriptMeters('codex', file, NOW)
-    assert.deepEqual(windows, [{ label: '7d', pct: 41, elapsedPct: 90 }], 'the expired window is dropped from the bars')
+    // The bars roll the ended window over to a fresh one at 0% (#187). The raw
+    // reading keeps what the transcript states, which is what tells the cooling
+    // path that this window has already rolled and states no cap to wait for.
+    assert.deepEqual(windows, [
+      { label: '5h', pct: 0, elapsedPct: 10, fresh: true },
+      { label: '7d', pct: 41, elapsedPct: 90 },
+    ])
     assert.deepEqual(limits, [
       { label: '5h', usedPct: 99.4, windowMs: 300 * MIN, resetsAt: resetsInSec(-30) },
       { label: '7d', usedPct: 41, windowMs: 10080 * MIN, resetsAt: resetsInSec(1000) },
@@ -489,6 +519,37 @@ describe('workerMeters', () => {
     assert.deepEqual(m.windows, [{ label: '5h', pct: 3, elapsedPct: 50 }])
   })
 
+  test('the account bars survive a worker whose routing label is gone (#187)', () => {
+    // What a daemon restart used to cost. Reconcile rebuilt a live worker with
+    // no label, so there was no routing row, so `provider` was never
+    // `anthropic` and BOTH bars left the line. `ctx` stayed, because it reads
+    // the transcript. The backend is the evidence that survives, so it names
+    // the provider now.
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'run.jsonl'), [claudeTurn(2, 399998, 0)])
+    const account = { windows: () => [{ label: '5h', pct: 18, elapsedPct: 99 }] }
+    const m = workerMeters({
+      backend: 'claude', cfgDir: d, model: null, routing, account, models: lookup({ 'claude-opus-5': 1000000 }), now: NOW,
+    })
+    assert.deepEqual(m.windows, [{ label: '5h', pct: 18, elapsedPct: 99 }])
+    assert.equal(m.model, 'claude-opus-5', 'the transcript names it, label or no label')
+    assert.equal(m.ctxPct, 40)
+  })
+
+  test('a codex worker with no label still never takes the anthropic reading', () => {
+    // The other direction of the same change: the backend decides, and this
+    // backend is not anthropic's. A transcript with no rate limits in it yet
+    // must leave the bars empty rather than borrow another account's.
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'sessions', '2026', '08', '03', 'rollout-a.jsonl'), [
+      codexCount({ input: 129200, window: 258400 }),
+    ])
+    const account = { windows: () => { throw new Error('must not be called') } }
+    const m = workerMeters({ backend: 'codex', cfgDir: d, model: null, routing, account, now: NOW })
+    assert.equal(m.windows, null)
+    assert.equal(m.ctxPct, 50)
+  })
+
   test('the effort and the model survive a worker with no transcript yet', () => {
     const m = workerMeters({ backend: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
     assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
@@ -496,6 +557,13 @@ describe('workerMeters', () => {
 })
 
 describe('rendering', () => {
+  // An account reading whose 5 h window reset five minutes ago, in the shape
+  // the endpoint and the response headers both state.
+  const freshFive = {
+    five_hour: { utilization: 18, resets_at: resetsInIso(-5) },
+    seven_day: { utilization: 57, resets_at: resetsInIso(10080 * 0.4) },
+  }
+
   test('the mark reads PACE, not raw usage', () => {
     // 92% spent with the window nearly over is fine; 40% spent in the first
     // hour is not. Raw usage cannot tell those apart, which is the whole reason
@@ -552,6 +620,16 @@ describe('rendering', () => {
     // broken denominator (#178).
     assert.deepEqual(meterParts({ ctxPct: 100, ctxOver: false }), ['ctx 100%'])
     assert.deepEqual(meterParts({ ctxPct: 124, ctxOver: true }), ['ctx 124% ⚠️'])
+  })
+
+  test('a window that just reset renders as a fresh one, never as an absence (#187)', () => {
+    // The reading is five minutes into a new five-hour window: nothing spent,
+    // and the clock one cell in. The bar used to leave the line entirely here,
+    // and a reader could not tell a missing number from a zero.
+    assert.deepEqual(
+      meterParts({ model: null, ctxPct: null, windows: accountWindows(freshFive, NOW) }),
+      ['**5h** 🟨 ░┃░░░░░░░░░ 0%', '**7d** 🟨 ▓▓▓▓▓▓┃░░░░ 57%'],
+    )
   })
 
   test('a window with no clock keeps its bar and loses only its mark', () => {
@@ -629,10 +707,35 @@ describe('AccountUsage', () => {
     assert.equal(new AccountUsage({ home: dir, enabled: false, now: at() }).windows(), null)
   })
 
-  test('a window that already reset is dropped from the account reading too', () => {
+  test('a window that already reset rolls over on the account reading too', () => {
+    // #187: every 5 h reset used to take this bar off every worker line, for as
+    // long as the next probe took. Five minutes past the reset the window is
+    // five minutes old and empty, which is 2% of its clock and 0% spent.
     assert.deepEqual(accountWindows(payload(18, 57, { fiveIn: -5 }), NOW), [
+      { label: '5h', pct: 0, elapsedPct: 2, fresh: true },
       { label: '7d', pct: 57, elapsedPct: 60 },
     ])
+  })
+
+  test('a reset window makes its reading stale at once, whatever the file says', async () => {
+    // The old gate asked only how OLD the reading was, so a five-minute-old
+    // file whose 5 h window had just reset waited out USAGE_STALE_MS before
+    // anyone asked for a replacement (#187). The shared attempt stamp still
+    // bounds the probe rate — that lock is about spending quota, and it stands.
+    home()
+    creds('tok-1')
+    cache(payload(18, 57, { fiveIn: -5 }))
+    let calls = 0
+    const u = new AccountUsage({
+      home: dir,
+      now: at(),
+      env: env(),
+      fetchImpl: async () => { calls += 1; return { ok: true, status: 200, headers: limitHeaders(4, 58) } },
+    })
+    assert.deepEqual(u.windows().map((w) => w.pct), [0, 57], 'the fresh window serves while the probe runs')
+    await u.pending
+    assert.equal(calls, 1)
+    assert.deepEqual(u.windows().map((w) => w.pct), [4, 58])
   })
 
   test('a fresh reading is never refetched', () => {

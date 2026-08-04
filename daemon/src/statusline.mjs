@@ -285,6 +285,11 @@ export class StatusLine {
     // The model is sticky: only the spawn events carry it, and every state
     // after them still wants to say which model is running. A retry down the
     // fallback chain reposts `dispatched` with the new one (#13).
+    //
+    // Sticky is not durable, and #187 measured the difference: this Map dies
+    // with the process, so a line first drawn after a restart carries no model
+    // at all. The meters callback fills that in from the dispatcher's record,
+    // which reconcile rebuilds from the journal — see index.mjs.
     if (detail.model) w.model = detail.model
     const text = this.#text(session, state, detail, w.model)
     w.chain = w.chain.then(() => this.#apply(w, text, { fresh, move })).catch((e) => {

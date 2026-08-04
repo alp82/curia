@@ -7,6 +7,9 @@
 //
 //   model + effort  the routing pick and `models.<name>.reasoning_effort`.
 //                   The daemon already knows both at dispatch; nothing is read.
+//                   A DISPATCH is not a process, though — #187 measured what a
+//                   restart cost, because the label reached this function only
+//                   through memory. Reconcile now rebuilds it from the journal.
 //
 //   context %       the worker's own transcript tail, the same file the
 //                   timeline (#74) reads. Both lanes state their last request's
@@ -48,6 +51,10 @@
 //                   `rate_limits` beside every token count. The claude lane
 //                   states them nowhere: not in the transcript, and not in any
 //                   file the CLI writes on a headless box.
+//                   WHICH provider comes from the backend (#187). It used to
+//                   come from the dispatched label's routing row, which made an
+//                   account fact depend on a spawn-time one, and both bars left
+//                   the line whenever the label did.
 //
 // WHERE THE CLAUDE NUMBERS COME FROM (#162 settled this, and it is not where
 // #146 thought). `GET /api/oauth/usage` only answers a credential carrying the
@@ -99,6 +106,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { findTranscript } from './transcript.mjs'
+import { providerOf } from './routing.mjs'
 
 // A transcript grows to megabytes and only its tail carries the live numbers.
 // Generous enough that one very large final record still lands whole.
@@ -193,12 +201,21 @@ function resetMs(resetsAt) {
 //   {elapsedPct}       the pace signal — how far through the window we are
 //   {elapsedPct: null} no reset stated: keep the reading, show a flat bar
 //   {expired: true}    the window already reset, so the percentage beside it
-//                      belongs to a window that no longer exists. Drop it.
+//                      belongs to a window that no longer exists. Drop the
+//                      NUMBER — the caller replaces it with the fresh window
+//                      (#187), and `elapsedPct` here is that window's clock.
+//
+// The fresh window starts at the instant the old one reset, so its clock is
+// knowable while `now` is still inside it. Past that the reading is a window or
+// more behind and which window we are in is a guess, so there is no clock.
 export function paceOf(resetsAt, windowMs, now = Date.now()) {
   const at = resetMs(resetsAt)
   if (!Number.isFinite(at) || !Number.isFinite(windowMs) || windowMs <= 0) return { elapsedPct: null }
   const remaining = at - now
-  if (remaining <= 0) return { expired: true }
+  if (remaining <= 0) {
+    const since = -remaining
+    return { expired: true, elapsedPct: since < windowMs ? Math.round((since / windowMs) * 100) : null }
+  }
   // A reset further out than the window itself is not this window's reset.
   if (remaining > windowMs) return { elapsedPct: null }
   return { elapsedPct: Math.max(0, Math.min(100, Math.round(((windowMs - remaining) / windowMs) * 100))) }
@@ -216,13 +233,16 @@ export function windowLabel(minutes) {
 
 // The bars, from the raw slot readings. A worker that has been idle for hours
 // may hold a reading whose window has since reset. The percentage beside it is
-// then about a window that no longer exists, so the entry goes rather than
-// lying.
+// then about a window that no longer exists, so the window rolls over to a
+// fresh one at 0% and the bar stays on the line (#187). See accountWindows.
 function barsOf(limits, now) {
   const found = []
   for (const l of limits ?? []) {
     const pace = paceOf(l.resetsAt, l.windowMs, now)
-    if (pace.expired) continue
+    if (pace.expired) {
+      found.push({ label: l.label, pct: 0, elapsedPct: pace.elapsedPct, fresh: true })
+      continue
+    }
     found.push({ label: l.label, pct: Math.round(l.usedPct), elapsedPct: pace.elapsedPct })
   }
   return found.length ? found : null
@@ -234,8 +254,9 @@ function barsOf(limits, now) {
 // from the newest line that carries each — not every token_count carries both.
 //
 // `limits` is the slot reading itself, kept beside the bars it renders (#175):
-// the bars round the percentage and drop an expired window, and the cooling
-// path needs both of those facts unrounded and undropped.
+// the bars round the percentage and roll an expired window over to a fresh one
+// at 0%, and the cooling path needs the reading exactly as the transcript
+// states it — a rolled window states no cap to wait for.
 function codexTail(lines, now) {
   let ctx = null
   let limits = null
@@ -272,7 +293,7 @@ function codexTail(lines, now) {
 
 const TAILS = { claude: claudeTail, codex: codexTail }
 
-// { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct}] | null,
+// { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct, fresh?}] | null,
 //   limits: [{label, usedPct, windowMs, resetsAt}] | null }
 export function readTranscriptMeters(backend, file, now = Date.now()) {
   const tail = TAILS[backend]
@@ -501,13 +522,26 @@ export function payloadFromHeaders(headers) {
   return Object.keys(out).length ? out : null
 }
 
+// A window whose reset has passed ROLLS OVER — it does not leave the line
+// (#187, and the operator settled which of the three it is). Dropping the entry
+// took the 5 h bar off every worker line after every reset, for as long as the
+// next probe took, with no sign that the number was missing rather than zero.
+//
+// So the ended window is replaced by the one that started at its reset instant:
+// a fresh window, at 0%, with its own clock running. That is what a window
+// reset means, and it is the one reading that needs no probe to be true. The
+// entry is marked `fresh` so the probe still knows to go and measure it — see
+// AccountUsage#maybeFetch.
 export function accountWindows(payload, now = Date.now()) {
   const out = []
   for (const w of ANTHROPIC_WINDOWS) {
     const v = payload?.[w.key]
     if (!Number.isFinite(v?.utilization)) continue
     const p = paceOf(v.resets_at, w.ms, now)
-    if (p.expired) continue
+    if (p.expired) {
+      out.push({ label: w.label, pct: 0, elapsedPct: p.elapsedPct, fresh: true })
+      continue
+    }
     out.push({ label: w.label, pct: Math.round(v.utilization), elapsedPct: p.elapsedPct })
   }
   return out.length ? out : null
@@ -567,7 +601,14 @@ export class AccountUsage {
   #maybeFetch(best) {
     if (this.fetching || !this.fetchImpl) return
     const now = this.now()
-    if (best && now - best.at < USAGE_STALE_MS) return
+    // A reading goes stale at USAGE_STALE_MS, and AT ONCE when one of its
+    // windows resets: that window's number ended with it, whatever the age of
+    // the file it sits in (#187). The line shows the fresh window at 0% until
+    // the probe lands, and 0% is only true for the first minutes of it, so the
+    // measurement must not wait out another half hour. The shared attempt stamp
+    // below still bounds the probe rate, so the wait is ten minutes at most.
+    const rolled = best?.windows?.some((w) => w.fresh) ?? false
+    if (best && !rolled && now - best.at < USAGE_STALE_MS) return
     // The shared throttle: whoever touched the stamp last owns this window,
     // daemon or statusline.sh.
     if (now - mtimeMs(this.stampFile) < USAGE_ATTEMPT_MS) return
@@ -737,8 +778,16 @@ export function workerMeters({ backend, cfgDir, model, routing, account, models,
   // The transcript's own limits win — they are this provider's numbers,
   // measured at the worker's last turn. Only the anthropic lane needs the
   // account reading, because its transcript states none.
+  //
+  // The provider follows from the BACKEND when there is no routing row (#187).
+  // Keying the bars on the row made them a spawn-time fact: a worker the daemon
+  // adopted after a restart lost its label, lost its row with it, and both bars
+  // left the line while `ctx` — which reads the transcript — stayed. The bars
+  // are an account fact and have nothing to do with which label was dispatched.
   if (windows) out.windows = windows
-  else if (spec?.provider === 'anthropic') out.windows = account?.windows() ?? null
+  else if ((spec?.provider ?? providerOf(routing, backend)) === 'anthropic') {
+    out.windows = account?.windows() ?? null
+  }
   return out
 }
 

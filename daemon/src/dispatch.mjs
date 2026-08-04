@@ -1490,6 +1490,24 @@ export class Dispatcher {
     return out
   }
 
+  // What this session was last spawned ON (#187): the routing label and the
+  // backend. Same journal reduction as #epochRepo and #epochCharting, keyed by
+  // SESSION rather than by ticket — a re-dispatch down the fallback chain
+  // writes a second `worker_spawned` for the same session, and the last one is
+  // the model that is actually running.
+  //
+  // The journal is the only source for the label. The backend has on-disk
+  // evidence too (detectBackend), but the label names a row in `routing.yaml`
+  // that nothing on disk points back to.
+  #epochSpawn(journal, session) {
+    let out = null
+    for (const ev of journal) {
+      if (ev.type !== 'worker_spawned' || ev.worker !== session) continue
+      out = { model: ev.model ?? null, backend: ev.backend ?? null }
+    }
+    return out
+  }
+
   async #resolveTicket(workerName, repo, ticket, result, w) {
     const wtPath = w?.wtPath ?? worktreePathFor(this.root, repo, ticket)
     const login = await this.deps.viewerLogin().catch(() => null)
@@ -2409,12 +2427,21 @@ export class Dispatcher {
               return []
             })
             : []
+          // #187: the model and the backend are spawn-time facts, and the
+          // journal already wrote both down. Rebuilding the record without
+          // them cost the status line two meters: no model means no routing
+          // spec, and the account bars hang off that spec. The journal is the
+          // state home for what a restart cannot re-derive, so it answers here
+          // exactly as it does for the repo and the charting kind.
+          const spawn = this.#epochSpawn(journal, session)
           this.workers.set(session, {
             // a FRESH instance id: any confirm bound before the restart lapses
             // at boot rather than matching an adopted worker it never described
             repo, ticket: n, title: issue.title, session, instance: `${session}@adopted-${Date.now()}`,
             wtPath, cfgDir: cfgDirFor(this.root, session), promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
-            model: null, requestedModel: null, backend: null, provider: null,
+            model: spawn?.model ?? null, requestedModel: null,
+            backend: spawn?.backend ?? null,
+            provider: this.routing.models[spawn?.model]?.provider ?? null,
             ports: ports.length ? ports : null,
             sandbox: ports.length ? 'docker' : null,
             spawnedAt: null, state: 'ready',
