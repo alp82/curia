@@ -39,19 +39,47 @@ const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 // `cancel 166` was not, so the operator who typed the surface's OWN syntax got
 // no hint at all and waited an hour. A false positive here costs one extra
 // line under a queued note, so the shape is drawn wide on purpose.
-export const COMMAND_SHAPED = /^\s*(cancel|stop|pause|resume|status|start|attach)(\s+(#?\d+|all))?\s*[.!?]*\s*$/i
+//
+// Every argument form the router takes is a form the operator types, so every
+// one of them belongs here: the bare number, `all`, the repo-qualified
+// `curia#170` and `alp82/curia#170` that `start` accepts (see parseCommand),
+// and the trailing `model=`/`harness=` overrides. The repo-qualified form is
+// what this map's own notes tell the operator to type, so missing it repeated
+// the exact miss the ticket is about.
+export const COMMAND_SHAPED =
+  /^\s*(cancel|stop|pause|resume|status|start|attach)(?:\s+(all|#?\d+|[\w.-]+(?:\/[\w.-]+)?#\d+))?(?:\s+(?:model|harness)=[\w.-]+)*\s*[.!?]*\s*$/i
 
 // The command the operator meant. `stop` and `pause` are not verbs the surface
 // has — at an agent, cancel is what they ask for. `status` is the only one
 // that takes no ticket.
 const MEANT_VERB = { cancel: 'cancel', stop: 'cancel', pause: 'cancel', resume: 'resume', status: 'status', start: 'start', attach: 'attach' }
 
+// The argument the hint names, in the syntax the channel accepts.
+//
+// The operator's OWN argument wins over the thread's ticket. `cancel 138` typed
+// in the ticket-166 thread asks about 138, and the journal shows that exact
+// shape — a hint that answers `cancel 166` names the wrong ticket in the one
+// line that exists to fix the miss.
+//
+// What it names must also parse. `start` is the only verb that takes a
+// repo-qualified ticket, so `curia#170` survives there and reduces to its
+// number for the rest. A leading `#` goes everywhere: `cancel #166` is not a
+// command parseCommand accepts. `attach all` is not one either, so that falls
+// back to the thread's ticket.
+function hintArg(verb, typed, ticket) {
+  if (verb === 'status') return ''
+  const t = (typed ?? '').trim()
+  if (/^all$/i.test(t)) return verb === 'attach' ? ` ${ticket ?? '<n>'}` : ' all'
+  if (verb === 'start' && /#\d+$/.test(t)) return ` ${t}`
+  return ` ${/(\d+)$/.exec(t)?.[1] ?? ticket ?? '<n>'}`
+}
+
 // What to say under a note whose text was a command. The channel is the whole
 // point: commands are interpreted there and nowhere else.
 export function commandHint(text, ticket, channelId) {
-  const verb = MEANT_VERB[/^\s*([a-z]+)/i.exec(text ?? '')?.[1]?.toLowerCase()] ?? 'cancel'
-  const arg = verb === 'status' ? '' : ` ${ticket ?? '<n>'}`
-  return `commands run in <#${channelId}>, never in a ticket thread — say \`${verb}${arg}\` there`
+  const m = COMMAND_SHAPED.exec(text ?? '')
+  const verb = MEANT_VERB[m?.[1]?.toLowerCase()] ?? 'cancel'
+  return `commands run in <#${channelId}>, never in a ticket thread — say \`${verb}${hintArg(verb, m?.[2], ticket)}\` there`
 }
 
 // The whole reply under a queued note, as lines. Pure, and exported, because
