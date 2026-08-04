@@ -22,6 +22,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TOKEN_HEADER, mintWorkerToken } from '../src/workertoken.mjs'
+import { PROBE_MARK, PROBE_PATH } from '../src/sandbox.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -600,6 +601,21 @@ describe('the per-worker token on the worker routes (#159, real boot, both liste
     }
     // …and the same routes still answer the operator on loopback.
     assert.equal((await request(port, 'GET', '/state')).status, 200)
+  })
+
+  // #188: the one container-reachable route that needs no worker token, because
+  // the daemon sends it BEFORE any worker exists. A bind is not reachability —
+  // #185 had the daemon bound on the gateway while ufw dropped every packet from
+  // the bridge — so a dispatch proves the path with a container first.
+  test('the reachability probe answers a container that has no worker to be', async () => {
+    const res = await requestOn(GATEWAY, port, 'GET', PROBE_PATH)
+    assert.equal(res.status, 200)
+    assert.equal(JSON.parse(res.body).curia, PROBE_MARK, 'the marker is what says this is curia and not something else on the port')
+    // It says nothing else, and it leaves no trace: a wider route here would be
+    // a wider container surface than #159 left.
+    assert.deepEqual(Object.keys(JSON.parse(res.body)).sort(), ['curia', 'port'])
+    const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+    assert.ok(!journal.includes(PROBE_PATH), 'the probe journals nothing')
   })
 
   test('a container still reaches its own two routes, with its own token', async () => {

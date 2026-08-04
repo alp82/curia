@@ -17,9 +17,9 @@ import path from 'node:path'
 import { Dispatcher } from '../src/dispatch.mjs'
 import { loadCuriaConfig, loadRoutingConfig, assertSandboxConfig } from '../src/config.mjs'
 import {
-  GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, PORTS_PER_WORKER,
-  allocatePorts, containerPorts, dockerGateway, dockerRunCmd, modelCredential, stopContainer,
-  writeEnvFile,
+  GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, PORTS_PER_WORKER, PROBE_MARK, PROBE_PATH,
+  allocatePorts, containerPorts, dockerGateway, dockerRunCmd, modelCredential,
+  probeSideChannel, sourceAddressFor, stopContainer, writeEnvFile,
 } from '../src/sandbox.mjs'
 import { installSkills, seedConfigDir, workerEnv, writePrompt as realWritePrompt } from '../src/workspace.mjs'
 
@@ -141,24 +141,104 @@ describe('the docker host gateway (#156)', () => {
     assert.equal(got, '172.17.0.1')
   })
 
-  test('a bridge that states only a subnet falls back to the interface inside it', async () => {
+  test('a bridge that states only a subnet falls back to the address facing it', async () => {
     // the deployment box, measured: docker 20.10 reports no Gateway, and
     // `--add-host host-gateway` inside a container there resolves to 10.0.1.1
+    const asked = []
     const got = await dockerGateway({
       exec: inspect('[{"Subnet":"10.0.1.0/24"}]'),
-      interfaces: () => ({
-        lo: [{ family: 'IPv4', address: '127.0.0.1', internal: true }],
-        eth0: [{ family: 'IPv4', address: '5.6.7.8', internal: false }],
-        docker0: [{ family: 'IPv4', address: '10.0.1.1', internal: false }],
-      }),
+      sourceAddress: async (target) => { asked.push(target); return '10.0.1.1' },
     })
     assert.equal(got, '10.0.1.1')
+    assert.deepEqual(asked, ['10.0.1.1'], 'the probe target is an address inside the bridge subnet')
   })
 
   test('nothing to bind refuses loudly rather than leaving the side channel unreachable', async () => {
     await assert.rejects(
-      dockerGateway({ exec: inspect('[{"Subnet":"10.0.1.0/24"}]'), interfaces: () => ({}) }),
-      /nowhere to listen/,
+      dockerGateway({ exec: inspect('[{"Subnet":"10.0.1.0/24"}]'), sourceAddress: async () => null }),
+      /no route into its subnet/,
+    )
+  })
+
+  // #188: with no route to the bridge, the kernel answers off the DEFAULT route,
+  // and that address is the box's public one. Binding the worker routes there
+  // would publish them to the internet.
+  test('a source address outside the subnet is refused, not bound', async () => {
+    await assert.rejects(
+      dockerGateway({ exec: inspect('[{"Subnet":"10.0.1.0/24"}]'), sourceAddress: async () => '5.6.7.8' }),
+      /no route into its subnet/,
+    )
+  })
+
+  // The read this ticket exists for: it must not depend on an interface node can
+  // see, because docker leaves `docker0` NO-CARRIER until a container attaches
+  // and libuv then drops it from os.networkInterfaces().
+  test('the fallback read asks the routing table, and answers with no container up', async () => {
+    // 127.0.0.0/8 is routed on every box, carrier or not, and its source
+    // address is loopback — the same question `docker0` is asked.
+    const got = await sourceAddressFor('127.0.0.2')
+    assert.match(String(got), /^127\./)
+  })
+
+  // Measured while writing this: a box with a default route answers for almost
+  // ANY target, off that default route. So the read cannot be trusted on its own
+  // — the answer is the box's own LAN or public address whenever the subnet
+  // asked about is not routed, which is why dockerGateway checks membership
+  // rather than taking what it is handed.
+  test('an unrouted subnet answers off the DEFAULT route, which is why the caller checks', async () => {
+    const got = await sourceAddressFor('203.0.113.1') // TEST-NET-3, routed by nobody
+    assert.ok(got === null || !got.startsWith('203.0.113.'), 'the answer belongs to this box, not to the subnet asked about')
+  })
+
+  test('a target that is not an address yields no answer rather than a wrong one', async () => {
+    assert.equal(await sourceAddressFor('not.a.real.host.invalid'), null)
+  })
+})
+
+// ---- proving a container can reach the daemon (#188) -------------------------------
+
+describe('the side-channel probe (#188)', () => {
+  const ok = { stdout: JSON.stringify({ curia: PROBE_MARK, port: 4271 }) }
+
+  test('it runs curl in the image, against the gateway the container resolves', async () => {
+    let argv = null
+    await probeSideChannel({
+      image: 'curia-worker:test',
+      port: 4271,
+      exec: async (_bin, args) => { argv = args; return ok },
+    })
+    assert.ok(argv.includes('--rm'), 'the probe container never outlives its answer')
+    assert.deepEqual(
+      argv.slice(argv.indexOf('--add-host'), argv.indexOf('--add-host') + 2),
+      ['--add-host', `${GUEST_DAEMON_HOST}:host-gateway`],
+      'the probe resolves the daemon exactly the way a worker does',
+    )
+    assert.ok(argv.includes(`http://${GUEST_DAEMON_HOST}:4271${PROBE_PATH}`))
+  })
+
+  // #185 fault 2: ufw dropped the traffic, so the bind succeeded and the request
+  // timed out. A drop and a refusal point at different fixes, so they are said
+  // differently.
+  test('a timeout names the firewall', async () => {
+    const timedOut = Object.assign(new Error('Command failed'), { code: 28 })
+    await assert.rejects(
+      probeSideChannel({ image: 'i', port: 4271, exec: async () => { throw timedOut } }),
+      /drops traffic from the docker bridge/,
+    )
+  })
+
+  test('a refusal names the missing listener', async () => {
+    const refused = Object.assign(new Error('Command failed'), { code: 7 })
+    await assert.rejects(
+      probeSideChannel({ image: 'i', port: 4271, exec: async () => { throw refused } }),
+      /not listening on the bridge gateway/,
+    )
+  })
+
+  test('an answer that is not curia is refused — something else holds the port', async () => {
+    await assert.rejects(
+      probeSideChannel({ image: 'i', port: 4271, exec: async () => ({ stdout: '<html>nginx</html>' }) }),
+      /not curia's side channel/,
     )
   })
 })
@@ -394,6 +474,7 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     hasUnpushedWork: async () => false,
     findPullRequest: async () => null,
     ensureWorkerImage: async () => ({ ref: 'curia-worker:test', built: false }),
+    assertSideChannel: async () => '10.0.1.1',
     stopContainer: async () => true,
     listContainers: async () => [],
     allocatePorts: async () => [9000, 9001, 9002],
@@ -426,6 +507,46 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
 describe('a sandboxed dispatch (#156)', () => {
   beforeEach(() => { process.env.ANTHROPIC_API_KEY = 'sk-test' })
   afterEach(() => { delete process.env.ANTHROPIC_API_KEY })
+
+  // #188: a container with no side channel cannot reach ask_human, the Stop
+  // hook, or any curia tool. It is worse than no worker, because it claims the
+  // ticket and edits the worktree in silence — so the dispatch is refused.
+  test('an unreachable side channel refuses the dispatch and releases the claim', async () => {
+    const unclaimed = []
+    const { d, spawns, events } = makeDispatcher({
+      unclaim: async (repo, n) => { unclaimed.push(`${repo}#${n}`) },
+      assertSideChannel: async () => { throw new Error('the request timed out, so this box drops traffic from the docker bridge') },
+    })
+    const out = await d.start('42', { repo: 'o/r' })
+    assert.match(out, /dispatch of o\/r#42 failed/)
+    assert.match(out, /drops traffic from the docker bridge/)
+    assert.match(out, /cannot reach ask_human/)
+    assert.equal(spawns.length, 0, 'no container was started')
+    assert.deepEqual(unclaimed, ['o/r#42'])
+    assert.ok(events.some((e) => e.type === 'dispatch_unclaimed'))
+  })
+
+  test('the side channel is checked before the container starts, and journalled', async () => {
+    const order = []
+    const { d, events } = makeDispatcher({
+      assertSideChannel: async () => { order.push('checked'); return '10.0.1.1' },
+      newSession: async () => { order.push('spawned') },
+    })
+    await d.start('42', { repo: 'o/r' })
+    assert.deepEqual(order, ['checked', 'spawned'])
+    const ready = events.find((e) => e.type === 'side_channel_ready')
+    assert.equal(ready?.gateway, '10.0.1.1')
+  })
+
+  test('a bare-pane dispatch checks no side channel — it has no container', async () => {
+    let asked = false
+    const { d } = makeDispatcher(
+      { assertSideChannel: async () => { asked = true } },
+      { routing: { ...SANDBOXED_ROUTING, backends: { claude: { ...SANDBOXED_ROUTING.backends.claude, sandbox: 'none' } } }, sandbox: undefined },
+    )
+    await d.start('42', { repo: 'o/r' })
+    assert.equal(asked, false)
+  })
 
   test('the pane runs docker, with the image, the mounts and the ports', async () => {
     const { d, spawns } = makeDispatcher()

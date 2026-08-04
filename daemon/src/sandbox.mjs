@@ -19,9 +19,9 @@
 // open, because `gh` and web reach are what wayfinder runs on (#148); the
 // containment comes from the small readable set, not from egress rules.
 
+import dgram from 'node:dgram'
 import fs from 'node:fs'
 import net from 'node:net'
-import os from 'node:os'
 import path from 'node:path'
 import { execFileP } from './exec.mjs'
 import { DOCKER_BIN } from './image.mjs'
@@ -129,7 +129,7 @@ export async function allocatePorts(range, { count = PORTS_PER_WORKER, taken = [
 // Read from docker rather than hard-coded: 172.17.0.1 is only the default, and
 // a box whose bridge was configured differently would get a daemon listening
 // where no container looks.
-export async function dockerGateway({ exec = execFileP, interfaces = os.networkInterfaces } = {}) {
+export async function dockerGateway({ exec = execFileP, sourceAddress = sourceAddressFor } = {}) {
   const { stdout } = await exec(DOCKER_BIN, [
     'network', 'inspect', 'bridge', '--format', '{{json .IPAM.Config}}',
   ], { timeout: 15_000 })
@@ -144,16 +144,136 @@ export async function dockerGateway({ exec = execFileP, interfaces = os.networkI
   // A box that never configured one states only the SUBNET — measured on the
   // deployment box, whose docker 20.10 reports `{"Subnet":"10.0.1.0/24"}` and
   // nothing else, while `--add-host host-gateway` inside a container there
-  // resolves to 10.0.1.1. That address belongs to the host's own bridge
-  // interface, so it is read from the interface rather than guessed as "the
-  // first address in the subnet" — the guess is right today and is not a fact.
-  const addresses = Object.values(interfaces()).flat()
-    .filter((a) => a && a.family === 'IPv4' && !a.internal)
+  // resolves to 10.0.1.1. So the address is read off this box rather than
+  // guessed as "the first address in the subnet" — the guess is right today and
+  // is not a fact.
+  //
+  // The read is a ROUTE lookup (sourceAddressFor), and #188 is why. Reading the
+  // interface list instead answers only while a container is attached, which is
+  // the one moment the daemon does not need the answer.
   for (const { Subnet } of config) {
-    const host = addresses.find((a) => inSubnet(a.address, Subnet))
-    if (host) return host.address
+    const probe = addressInSubnet(Subnet, 1)
+    if (!probe) continue
+    const source = await sourceAddress(probe)
+    // The answer counts only if it SITS in the subnet it was asked about. A box
+    // with no route to the bridge falls through to its default route, and that
+    // answer is the box's PUBLIC address — binding the worker routes there
+    // would publish them to the internet instead of to the containers.
+    if (source && inSubnet(source, Subnet)) return source
   }
-  throw new Error('docker\'s default bridge network states no gateway address, and no interface on this box sits in its subnet — the daemon has nowhere to listen for its containers')
+  throw new Error('docker\'s default bridge network states no gateway address, and this box has no route into its subnet — the daemon has nowhere to listen for its containers')
+}
+
+// Which of this box's addresses faces `target`, asked of the kernel's routing
+// table rather than of the interface list. A UDP `connect` SENDS NOTHING: it is
+// a route lookup plus a local bind, and the socket's own address is then the
+// source the kernel would put on a packet to that target.
+//
+// This is the read #188 turns on. `os.networkInterfaces()` cannot answer it,
+// because libuv lists an interface only when IFF_UP *and* IFF_RUNNING are set,
+// and docker leaves `docker0` NO-CARRIER while no container is attached — the
+// address stays assigned and the route stays in the table, but node stops
+// seeing the interface. Measured on the deployment box in exactly that state:
+// `os.networkInterfaces().docker0` is undefined, `ip route` states
+// `10.0.1.0/24 ... src 10.0.1.1 linkdown`, and this returns 10.0.1.1.
+//
+// Never throws: an unroutable target is an answer of "none", and the caller
+// decides what that means.
+export function sourceAddressFor(target) {
+  return new Promise((resolve) => {
+    let sock
+    let settled = false
+    const done = (value) => {
+      if (settled) return
+      settled = true
+      try { sock?.close() } catch { /* already closed */ }
+      resolve(value)
+    }
+    try {
+      sock = dgram.createSocket('udp4')
+      sock.on('error', () => done(null))
+      // Port 9 is discard, and no datagram is ever sent to it.
+      sock.connect(9, target, () => {
+        try {
+          const address = sock.address()?.address ?? null
+          // A target that does not resolve still fires this callback, with the
+          // socket left on the wildcard. That is an unbound socket, not an
+          // address this box holds.
+          done(address === '0.0.0.0' ? null : address)
+        } catch {
+          done(null)
+        }
+      })
+    } catch {
+      done(null)
+    }
+  })
+}
+
+// The address `offset` steps into a CIDR — the probe target, not a claim about
+// what lives there.
+function addressInSubnet(cidr, offset) {
+  const [network, bits] = String(cidr ?? '').split('/')
+  const width = Number(bits)
+  if (!/^(\d{1,3}\.){3}\d{1,3}$/.test(network ?? '')) return null
+  if (!Number.isInteger(width) || width < 0 || width > 30) return null
+  const toInt = (ip) => ip.split('.').reduce((n, part) => (n * 256) + Number(part), 0)
+  const value = ((toInt(network) + offset) >>> 0)
+  return [24, 16, 8, 0].map((shift) => (value >>> shift) & 255).join('.')
+}
+
+// ---- proving the side channel ----------------------------------------------
+//
+// A bound listener is not a reachable one, and #185 paid for the difference: the
+// daemon bound the gateway, ufw dropped every packet from the bridge, and the
+// worker's request TIMED OUT rather than being refused. Nothing on the host side
+// could see it. Only a request FROM A CONTAINER crosses the same path a worker's
+// `ask_human` and Stop hook cross, so that is what the daemon sends.
+//
+// The route it asks for carries no state and no secret, and it is the one path
+// on the container-facing listener that needs no worker token — there is no
+// worker yet. `curl` is in the image (#154), and `--rm` collects the container
+// whatever the answer.
+export const PROBE_PATH = '/ping'
+export const PROBE_MARK = 'curia-side-channel'
+const PROBE_TIMEOUT_S = 5
+
+export async function probeSideChannel({
+  image, port, host = GUEST_DAEMON_HOST, exec = execFileP, docker = DOCKER_BIN,
+} = {}) {
+  const url = `http://${host}:${port}${PROBE_PATH}`
+  let stdout = ''
+  try {
+    ({ stdout } = await exec(docker, [
+      'run', '--rm', '--add-host', `${GUEST_DAEMON_HOST}:host-gateway`,
+      '--entrypoint', 'curl', assertSafe('the image', image),
+      '-sS', '-m', String(PROBE_TIMEOUT_S), url,
+    ], { timeout: 60_000 }))
+  } catch (e) {
+    throw new Error(`${probeFailure(e)} (${url})`)
+  }
+  // Something answered. It has to be THIS daemon: the bind proves nobody else
+  // holds the address on this box, and the marker proves nothing is proxying it.
+  if (!String(stdout).includes(PROBE_MARK)) {
+    throw new Error(`${url} is reachable from a container, but the answer is not curia's side channel — something else holds that address and port`)
+  }
+  return true
+}
+
+// curl states the failure mode in its exit code, and the two that matter point
+// at different fixes. 28 is a timeout, which means the packets are DROPPED, and
+// on this deployment box that was the firewall (docs/deploy.md carries the rule).
+// 7 is a refusal, which means the packets arrive and nothing is listening.
+function probeFailure(e) {
+  const detail = `${e.stderr ?? ''}${e.message ?? ''}`.trim().split('\n')[0]
+  if (e.code === 'ENOENT') return 'docker is not on this box, so no container can reach the daemon'
+  if (e.code === 28 || /timed out|Operation timeout/i.test(detail)) {
+    return 'a container cannot reach the daemon: the request timed out, so this box drops traffic from the docker bridge — see the ufw rule in docs/deploy.md'
+  }
+  if (e.code === 7 || /Failed to connect|Connection refused/i.test(detail)) {
+    return 'a container cannot reach the daemon: the connection was refused, so the traffic arrives and the daemon is not listening on the bridge gateway'
+  }
+  return `a container cannot reach the daemon: ${detail}`
 }
 
 // IPv4 CIDR membership, which is all this file needs and all node offers no

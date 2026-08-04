@@ -34,7 +34,7 @@ import { readable } from './logline.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { assertSandboxConfig, loadCuriaConfig, loadRoutingConfig } from './config.mjs'
-import { dockerGateway } from './sandbox.mjs'
+import { PROBE_MARK, PROBE_PATH, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
@@ -453,6 +453,12 @@ const dispatcher = new Dispatcher({
   cooling: new Cooling(),
   dataDir: DATA,
   daemonPort: PORT,
+  deps: {
+    // #188: the container-facing listener is this file's, so the check that a
+    // sandboxed dispatch can rely on it is this file's too. It binds lazily,
+    // and it proves the path with a container.
+    assertSideChannel,
+  },
 })
 
 // ---- the identity check (#151) ----------------------------------------------
@@ -897,17 +903,73 @@ const httpServer = http.createServer(listenerFor({ fromContainer: false }))
 // dispatching a worker of its own, or answering the operator's questions for
 // them, is the larger one behind it). And the two routes it does carry demand
 // the token the daemon minted for the worker they name.
-async function listenForContainers() {
-  if (!SANDBOXED_BACKENDS.length) return
+//
+// #188 makes the bind LAZY and repeatable rather than a one-shot at boot. The
+// boot attempt stays, because the ordinary case should be up before anything
+// asks — but a boot that cannot find the gateway no longer costs the daemon its
+// side channel for its whole life. Every sandboxed dispatch calls this again,
+// and a dispatch is the only thing that needs the answer.
+//
+// Idempotent by address: an unchanged gateway returns the listener already
+// bound, and a gateway that MOVED (docker restarted onto a different bridge)
+// closes the old one first. Leaving the old listener bound where no container
+// looks is the failure this exists to end.
+//
+// SINGLE FLIGHT, because callers are now concurrent: max_concurrent dispatches
+// can reach this together, and two of them binding the same address and port
+// would give the second an EADDRINUSE — a refused dispatch on a side channel
+// that is up, which is the wrong answer in the expensive direction.
+let containerListener = null
+let binding = null
+
+function listenForContainers() {
+  if (!binding) binding = bindContainerListener().finally(() => { binding = null })
+  return binding
+}
+
+async function bindContainerListener() {
+  if (!SANDBOXED_BACKENDS.length) return null
   const gateway = await dockerGateway()
-  await new Promise((resolve, reject) => {
+  if (containerListener) {
+    if (containerListener.address === gateway) return containerListener
+    log(`the docker bridge gateway moved from ${containerListener.address} to ${gateway} — rebinding the container side channel`)
+    const stale = containerListener
+    containerListener = null
+    await new Promise((resolve) => stale.server.close(resolve))
+  }
+  const server = await new Promise((resolve, reject) => {
     const srv = http.createServer(listenerFor({ fromContainer: true }))
-    srv.once('error', reject)
+    const onError = (e) => reject(e)
+    srv.once('error', onError)
     srv.listen(PORT, gateway, () => {
-      log(`curia daemon also listening on http://${gateway}:${PORT} — the side channel for ${SANDBOXED_BACKENDS.join(', ')} containers`)
+      srv.removeListener('error', onError)
+      // A runtime error after the bind must not reach an already-settled
+      // promise, and must not be an uncaught exception either.
+      srv.on('error', (e) => log(`the container side channel on ${gateway}:${PORT} errored: ${e.message}`))
       resolve(srv)
     })
   })
+  containerListener = { server, address: gateway }
+  log(`curia daemon also listening on http://${gateway}:${PORT} — the side channel for ${SANDBOXED_BACKENDS.join(', ')} containers`)
+  return containerListener
+}
+
+// What a sandboxed dispatch must be able to say is true before it starts a
+// worker (#188). Two halves, because the first one alone was not enough on the
+// deployment box:
+//
+//   1. the daemon is listening where the containers look — bound here and now,
+//      not at a boot that may have run before docker had a bridge;
+//   2. a container can actually REACH it, proved by a container.
+//
+// It throws, and #prepareContainer lets that throw refuse the dispatch. A
+// sandboxed worker with no side channel is worse than no worker: it burns a
+// claim, edits a worktree, and cannot say one word about any of it.
+async function assertSideChannel(image) {
+  const bound = await listenForContainers()
+  if (!bound) throw new Error('no backend runs in a container, so the daemon binds no side channel')
+  await probeSideChannel({ image, port: PORT })
+  return bound.address
 }
 
 async function handleRequest(req, res, { fromContainer = false } = {}) {
@@ -932,6 +994,16 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   const site = req.headers['sec-fetch-site']
   if (req.headers.origin !== undefined || (site && site !== 'same-origin' && site !== 'none')) {
     return json(403, { error: 'cross-origin request refused — this surface is for loopback tooling, not browsers' })
+  }
+
+  // The reachability probe (#188). It answers before every gate below it that
+  // could refuse a caller with no worker to be, because the question it asks is
+  // only "did this request cross the bridge and land on curia" — a probe runs
+  // before any worker exists, so it can carry no worker token. It reads nothing,
+  // writes nothing, and journals nothing: a route that said more would be a
+  // wider container surface than #159 left, for no gain.
+  if (url.pathname === PROBE_PATH) {
+    return json(200, { curia: PROBE_MARK, port: PORT })
   }
 
   // The container-facing listener is the worker surface and nothing more. A
@@ -1100,12 +1172,12 @@ httpServer.listen(PORT, '127.0.0.1', () => {
   // thrown: tailscale being down must not stop the daemon booting. Both
   // surfaces then refuse every caller until a later /attach retries the
   // resolution, which is the fail-closed direction.
-  // A sandboxed lane with no reachable side channel would spawn workers whose
-  // every `ask_human` and whose Stop hook fail, so this one is LOUD — but it
-  // still does not stop the boot: the bare lanes are unaffected, and a dispatch
-  // onto a sandboxed backend fails on its own with the reason in the log.
+  // A boot that cannot find the gateway is no longer a daemon that never binds
+  // one (#188): every sandboxed dispatch calls listenForContainers again, and
+  // refuses itself if the bind or the reachability probe fails. So this line is
+  // a note about the boot rather than a warning about the rest of the run.
   listenForContainers()
-    .catch((e) => log(`WARNING: no container-facing listener (${e.message}) — a sandboxed worker cannot reach ask_human or the Stop hook`))
+    .catch((e) => log(`no container-facing listener at boot (${e.message}) — the next sandboxed dispatch binds it, and refuses itself if it cannot`))
     .then(() => resolveServeHosts())
     .catch((e) => log(`WARNING: could not resolve this box's tailnet names (${e.message}) — both attach surfaces refuse every caller until this succeeds`))
     .then(() => Promise.all([timeline.start(), identityProxy.start()]))

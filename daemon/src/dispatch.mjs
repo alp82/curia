@@ -84,6 +84,13 @@ const DEFAULT_DEPS = {
   ensureTtyd, assertServe, serveOff,
   // the worker sandbox (#156)
   ensureWorkerImage, stopContainer, listContainers, allocatePorts, containerPorts,
+  // #188: the daemon owns the container-facing listener, so index.mjs supplies
+  // this one. The default REFUSES, which only a caller running a sandboxed
+  // backend can ever reach — and a sandboxed dispatch with nothing checking the
+  // side channel is the fault this ticket exists to end.
+  assertSideChannel: async () => {
+    throw new Error('nothing is wired to check the container side channel, so curia cannot tell whether a worker could reach it')
+  },
   // the per-worker token on the loopback surface (#159)
   mintWorkerToken, forgetWorkerToken, sweepWorkerTokens,
   // resolve + land (#41), merge-gated (#54)
@@ -737,6 +744,22 @@ export class Dispatcher {
     if (image.built) {
       this.store.logEvent('worker_image_built', { worker: session, ticket, image: image.ref })
       this.log(`built the worker image ${image.ref} for ${session}`)
+    }
+    // The side channel, before the worker rather than after it (#188). This is
+    // the LAST thing checked and the first thing a worker needs: `ask_human`,
+    // the Stop hook and every curia tool ride it, so a container started without
+    // it runs blind — it claims the ticket, edits its worktree, and cannot say
+    // one word to anyone. `curia-179` did exactly that.
+    //
+    // It sits after the image because the probe is a container and needs one,
+    // and because a box whose image has to build first would otherwise be
+    // refused on a fault the build might outlast. Failing here unclaims the
+    // ticket through #dispatch's own catch, so the refusal costs nothing.
+    try {
+      const gateway = await this.deps.assertSideChannel(image.ref)
+      this.store.logEvent('side_channel_ready', { worker: session, ticket, gateway })
+    } catch (e) {
+      throw new Error(`refusing to start a sandboxed worker for #${ticket}: ${e.message}. A worker in a container with no side channel cannot reach ask_human, the Stop hook, or any curia tool`)
     }
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
       ...workerEnv(GUEST_CFG, backend, { repo, sandboxed: true }),

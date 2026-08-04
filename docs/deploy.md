@@ -87,6 +87,18 @@ Read the bridge subnet and the gateway off the box first — `docker network ins
 
 This rule is host state. No file in this repo carries it, so a rebuilt box needs it again.
 
+Since [#188](https://github.com/alp82/curia/issues/188) the daemon no longer trusts the rule to
+be there. Every sandboxed dispatch first binds the gateway, then sends one throwaway container
+at `GET /ping`, and refuses the dispatch if the answer does not come back. A **timeout** in that
+refusal names this rule. A **refused connection** means the traffic arrives and the daemon is
+not listening. Check the rule by hand the same way:
+
+```
+docker run --rm --add-host host.docker.internal:host-gateway --entrypoint curl \
+  $(docker images --format '{{.Repository}}:{{.Tag}}' | grep curia-worker | head -1) \
+  -sS -m 5 http://host.docker.internal:4271/ping
+```
+
 ## Logs
 
 ```
