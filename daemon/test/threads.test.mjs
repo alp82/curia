@@ -89,6 +89,55 @@ describe('EscalationStore ticket-thread bindings', () => {
     store.bindTicketThread('85', 't-9')
     assert.equal(store.lastThreadForTicket('85'), 't-9')
   })
+
+  // #197. #140 keeps a binding through a cancel so a `resume` lands back in the
+  // ticket's own history. A fresh dispatch typed in ANOTHER thread is not a
+  // resume, and before this it was refused silently — the agent went on
+  // reporting into a thread nobody had open.
+  test('a rebind moves a live binding and names the thread it left', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    store.bindTicketThread('169', 't-old')
+    const r = store.rebindTicketThread('169', 't-new', 'dispatched-from-another-thread')
+    assert.deepEqual(r, { ok: true, threadId: 't-new', moved: true, from: 't-old' })
+    assert.equal(store.threadForTicket('169'), 't-new')
+    assert.equal(store.ticketForThread('t-old'), undefined, 'the old thread is free again')
+    assert.equal(store.ticketForThread('t-new'), '169')
+  })
+
+  test('a rebind to the thread already bound is a no-op, not a pair of events', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    store.bindTicketThread('169', 't-1')
+    const before = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').length
+    assert.deepEqual(store.rebindTicketThread('169', 't-1'), { ok: true, threadId: 't-1', moved: false })
+    assert.equal(fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').length, before)
+  })
+
+  test('a rebind refuses a thread that already carries another ticket (#93 holds)', () => {
+    const store = new EscalationStore(tmp())
+    store.bindTicketThread('169', 't-1')
+    store.bindTicketThread('117', 't-2')
+    assert.deepEqual(store.rebindTicketThread('169', 't-2'), { ok: false, reason: 'thread-bound', ticket: '117' })
+    assert.equal(store.threadForTicket('169'), 't-1', 'the refused move changes nothing')
+  })
+
+  test('an unbound ticket rebinds cleanly, with nothing to leave', () => {
+    const store = new EscalationStore(tmp())
+    const r = store.rebindTicketThread('169', 't-new')
+    assert.deepEqual(r, { ok: true, threadId: 't-new', moved: true, from: null })
+  })
+
+  test('a rebind replays across a restart, and the old thread stays the history', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    store.bindTicketThread('169', 't-old')
+    store.rebindTicketThread('169', 't-new')
+    const reborn = new EscalationStore(dir)
+    assert.equal(reborn.threadForTicket('169'), 't-new')
+    assert.equal(reborn.ticketForThread('t-old'), undefined)
+    assert.equal(reborn.lastThreadForTicket('169'), 't-new', '#140 backstop follows the move')
+  })
 })
 
 // ---- the display-only label (bridge.mjs) ------------------------------------

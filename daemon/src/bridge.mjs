@@ -391,6 +391,12 @@ export class DiscordBridge {
         if (t && t.name !== name) await t.setName(name).catch(() => {})
         return r
       }
+      // The ticket is bound to ANOTHER thread, and the operator is typing in
+      // this one (#197). Move it, and say so at both ends — the old thread is
+      // where the ticket's history is, and somebody may still be watching it.
+      // Before this, the refusal was returned silently and the dispatch went on
+      // talking into a thread nobody had open.
+      if (r.reason === 'ticket-bound') return this.#moveTicket(ticket, type, threadId, r.threadId)
       if (r.reason !== 'thread-bound') return r
       return this.#bindFreshThread(ticket, type, threadId)
     }
@@ -422,6 +428,36 @@ export class DiscordBridge {
           `🔗 ${DiscordBridge.labelName(ticket, type)} continues in its own thread — ${DiscordBridge.threadLink(this.guild.id, thread.id)}`,
         )).catch(() => {})
       }
+    }
+    return r
+  }
+
+  // Carry a ticket from the thread it was bound to into the one the operator
+  // just dispatched from (#197). The old thread keeps its history and gets a
+  // pointer; the new one gets a pointer back, so neither is a dead end.
+  //
+  // A tracker with no `rebind` falls back to the old behavior — the refusal,
+  // returned as it was — rather than pretending the move happened.
+  async #moveTicket(ticket, type, threadId, fromThreadId) {
+    if (!this.bindings.rebind) return { ok: false, reason: 'ticket-bound', threadId: fromThreadId }
+    const r = this.bindings.rebind(ticket, threadId, 'dispatched-from-another-thread')
+    if (!r.ok) return r
+    const name = DiscordBridge.labelName(ticket, type)
+    const to = await this.client.channels.fetch(threadId).catch(() => null)
+    if (to && to.name !== name) await to.setName(name).catch(() => {})
+    const from = await this.client.channels.fetch(fromThreadId).catch(() => null)
+    if (from) {
+      await from.send(smallPrint(
+        `🔗 ${name} moved to ${DiscordBridge.threadLink(this.guild.id, threadId)} — dispatched from there, so it reports there now.`,
+      )).catch(() => {})
+      // 🎫 → ✅ on the thread being left, the same signal releaseTicket uses
+      if (from.name.startsWith('🎫')) await from.setName(DiscordBridge.doneName(from.name)).catch(() => {})
+    }
+    if (to) {
+      const fromName = from?.name ? `“${from.name}”` : 'another thread'
+      await to.send(smallPrint(
+        `🔗 ${name} moved here from ${fromName} — ${DiscordBridge.threadLink(this.guild.id, fromThreadId)} holds what it said before.`,
+      )).catch(() => {})
     }
     return r
   }

@@ -371,6 +371,30 @@ export class EscalationStore {
     return { ok: true, threadId }
   }
 
+  // Move a live binding to another thread (#197).
+  //
+  // #140 keeps a binding through cancel and agent death on purpose, so a
+  // `resume` lands back where the ticket's history and recorded answers are.
+  // What it did not consider is a fresh dispatch typed in a DIFFERENT thread:
+  // that is not a resume, it is the operator standing somewhere new and saying
+  // "do this here", and `bindTicketThread` refused it as `ticket-bound` — so
+  // every status line, notify and question went on going to a thread nobody was
+  // reading. Silent, and indistinguishable from an agent that never started.
+  //
+  // Returns the released thread so the caller can say where the ticket went.
+  // Refuses when the target already holds another ticket, because one thread
+  // carries at most one ticket (#93) and that rule is not this one's to break.
+  rebindTicketThread(ticket, threadId, reason = 'rebound') {
+    const t = String(ticket)
+    const current = this.ticketThreads.get(t)
+    if (current === threadId) return { ok: true, threadId, moved: false }
+    const holding = this.threadTickets.get(threadId)
+    if (holding && holding !== t) return { ok: false, reason: 'thread-bound', ticket: holding }
+    if (current) this._append({ type: 'thread_released', ticket: t, thread_id: current, reason })
+    this._append({ type: 'thread_bound', ticket: t, thread_id: threadId })
+    return { ok: true, threadId, moved: true, from: current ?? null }
+  }
+
   // Returns the released thread id, or null when nothing was bound (then no
   // event is written — release is idempotent).
   releaseTicketThread(ticket, reason) {

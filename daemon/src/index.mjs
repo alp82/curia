@@ -1284,6 +1284,8 @@ if (process.env.DISCORD_BOT_TOKEN) {
         bindings: {
           get: (ticket) => store.threadForTicket(ticket),
           bind: (ticket, threadId) => store.bindTicketThread(ticket, threadId),
+          // #197: an explicit dispatch typed in another thread moves the ticket
+          rebind: (ticket, threadId, reason) => store.rebindTicketThread(ticket, threadId, reason),
           release: (ticket, reason) => store.releaseTicketThread(ticket, reason),
           // the dispatch backstop (#140): the last binding, released or not
           last: (ticket) => store.lastThreadForTicket(ticket),
