@@ -6,6 +6,9 @@ Curia watches your GitHub issues, sends a coding agent at the ones that are read
 everything that needs you — a question, a preview, an approval — to whatever device you are holding.
 Your box, your subscription, your repos.
 
+The page is <https://curia.sh>. It makes the same promise to a reader who has not cloned anything
+yet. This file sets curia up on your machine, and shows you around the code.
+
 ## What it does
 
 - Reads what is takeable across every watched repo, in dependency order.
@@ -20,7 +23,7 @@ Your box, your subscription, your repos.
 
 ## Where it stands
 
-- Proof of concept. First commit 2026-07-21. One person runs it.
+- First commit 2026-07-21. One person runs it. You would be the second.
 - Setup is manual and takes an evening. It gets simpler. There is no package yet.
 - Tailscale and Discord are required. There is no web UI.
 - Attach and preview links are open to anything on your tailnet.
@@ -200,4 +203,8 @@ Logs are the daemon's output. Under systemd: `journalctl -u curia -f`.
 
 - `CONTEXT.md` — the words curia uses.
 - `docs/adr/` — the decisions behind the design.
+- `daemon/src/` — the daemon itself: the dispatch loop, the Discord bridge, the MCP tools an agent
+  calls.
+- `config/` — the two files you edit: what curia watches, and which model each label gets.
+- `docs/landing-page/` — the brief, the build notes and the hosting record for <https://curia.sh>.
 - `daemon/README.md` and `docs/deploy.md` — the operator's own box, not yours.

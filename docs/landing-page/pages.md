@@ -87,6 +87,22 @@ This is propagation, not a broken setting. The API is the authority on whether e
 the edge catches up on its own. If plain HTTP is still serving 200 a day later, that is worth
 chasing — before then it is not.
 
+## The repo's homepage field
+
+The repository's own **homepage** field is `https://curia.sh`. GitHub shows it in the About box at
+the top right of the repository page, and it is how a reader who arrives at the code finds the page.
+It was empty until 2026-08-04.
+
+No agent can write it. Like the custom domain and the DNS above, it is a setting outside a
+worktree, so the operator ran it from one instruction in
+[Bring the README into line with the page](https://github.com/alp82/curia/issues/117):
+
+> Open <https://github.com/alp82/curia>, click the gear next to About, put `https://curia.sh` in
+> the Website field, and click Save changes.
+
+The **Description** field beside it is a separate string, and it is not the page URL. Nothing in
+this map governs it.
+
 ## Verifying it
 
 From any box:
@@ -97,6 +113,7 @@ curl -sSI http://curia.sh | head -1         # HTTP/1.1 301 -> https://curia.sh/
 curl -sSI https://www.curia.sh | head -1    # HTTP/2 301 -> https://curia.sh/
 dig +short A curia.sh                       # the four 185.199.x.153 addresses
 gh api repos/alp82/curia/pages --jq '{cname,status,https_enforced,source}'
+gh repo view alp82/curia --json homepageUrl # https://curia.sh
 ```
 
 Checked 2026-08-02: `https://curia.sh/` serves 200; `www.curia.sh` and `alp82.github.io/curia` both
