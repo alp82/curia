@@ -299,11 +299,19 @@ const gate = {
     }
     return result
   },
+  // The record-level void: a question closes because nothing can receive its
+  // answer any more. Every caller is a death — the cancel teardown, the
+  // agent-death sweep, reconcile, the REST seam. #200 took the 🛑 button
+  // away, so no human reaches this against a LIVE agent, and the settled text
+  // is a fact for whatever transport is still holding the promise rather than
+  // an instruction to a model. Prose in a tool result was the whole fault:
+  // the agent read "stop this line of work", and asked the same question
+  // again a minute later.
   cancel(id, { by }) {
     const result = store.cancel(id, { by })
     if (result.ok) {
       log(`escalation ${result.record.id} cancelled`)
-      settle(result.record, `aborted: a human cancelled this escalation — stop this line of work and end the turn; the ticket will be re-dispatched`)
+      settle(result.record, `aborted: this question was cancelled — nobody is waiting for an answer to it`)
       if (bridge) bridge.markCancelled(result.record).catch(() => {})
     }
     return result
@@ -397,8 +405,9 @@ function lapseEscalation(id, reason) {
 // who was merely asleep would drop the work on the floor.
 function askReview(agent, ticket, promptText) {
   const { record, answered } = openEscalation({ agent, ticket, kind: REVIEW_KIND, prompt: promptText })
-  // The final status separates an approval-or-rejection from a 🛑 Cancel, which
-  // settles the same promise with an "aborted" text.
+  // The final status separates an approval-or-rejection from a cancel — a
+  // gate whose agent was torn down (#200) settles the same promise with an
+  // "aborted" text, and the status is what tells the two apart.
   return answered.then(({ text }) => ({ text, status: store.get(record.id)?.status ?? 'answered' }))
 }
 
@@ -415,6 +424,12 @@ const threads = {
   async release(ticket, reason) {
     if (bridge) return bridge.releaseTicket(ticket, reason)
     store.releaseTicketThread(ticket, reason)
+  },
+  // A cancel renames and keeps the binding (#200, #140). With the bridge down
+  // there is nothing to do: no journal line carries a thread NAME, and the
+  // next dispatch relabels the thread anyway.
+  async cancelled(ticket) {
+    if (bridge) return bridge.cancelTicket(ticket)
   },
 }
 

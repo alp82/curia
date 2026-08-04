@@ -103,6 +103,9 @@ The command brain of curia. The standing design is one brain with three skins (D
 **The five verbs**:
 `frontier`, `start`, `status`, `cancel`, `attach`. The whole command surface, identical over Discord and REST.
 
+**Cancel**:
+The one act that ends a running agent. It kills the session, removes the worktree and releases the GitHub claim. It closes every open question of that agent, and the ticket goes back to the frontier. The word has one place: `cancel <n>` in the command channel. No button on a question ends anything.
+
 ### Agents
 
 **Agent**:
@@ -204,7 +207,7 @@ The half-hour re-post of an open escalation into its thread.
 The Discord module. It renders and captures. It never interprets.
 
 **Thread-per-ticket**:
-One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread.
+One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread. The name carries the state at a glance: 🎫 bound, ✅ finished, ⚰️ cancelled.
 
 **Notify**:
 A fire-and-forget line of agent prose into the ticket thread.
