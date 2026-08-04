@@ -53,7 +53,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase } from '../src/routing.mjs'
+import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
 
 const routing = {
   defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
@@ -354,6 +354,23 @@ describe('two providers (#39, restoring #13)', () => {
     cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
     cooling.coolProvider('openai', new Date(Date.now() + 3600_000))
     assert.deepEqual(candidates(twoLane, 'opus', cooling), [])
+  })
+
+  // #187: the status line asks which provider a worker belongs to, and the
+  // label it used to ask with is a spawn-time fact the daemon loses on a
+  // restart. The backend survives on disk, so it answers instead.
+  test('a backend states its provider, taken from the models configured on it', () => {
+    assert.equal(providerOf(twoLane, 'claude'), 'anthropic')
+    assert.equal(providerOf(twoLane, 'codex'), 'openai')
+  })
+
+  test('an unknown backend, and a backend two providers claim, answer nothing', () => {
+    assert.equal(providerOf(twoLane, 'gemini'), null)
+    assert.equal(providerOf(twoLane, null), null)
+    assert.equal(providerOf(undefined, 'claude'), null)
+    // A guess here would put one account's bars on the other account's worker.
+    const split = { models: { ...twoLane.models, other: { provider: 'openai', backend: 'claude' } } }
+    assert.equal(providerOf(split, 'claude'), null)
   })
 
   // #13's "never upgrade bulk work to fable" is structural, not remembered:

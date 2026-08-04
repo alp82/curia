@@ -103,6 +103,27 @@ export function spawnModelId(routing, model) {
   return routing.models?.[model]?.id ?? model
 }
 
+// Which provider a backend belongs to, as `routing.yaml` states it (#187).
+//
+// A provider is normally read off the routing row of the model a worker was
+// dispatched on. That row needs a label, and a label is a spawn-time fact: a
+// lab session never had one, and a re-adopted worker holds one only because the
+// journal remembered it. The backend is weaker evidence, and it survives on
+// disk (detectBackend), so it answers when the label cannot.
+//
+// Config stays the authority — no table of backends and providers is written
+// here. The answer comes from what every configured model on that backend says,
+// and only when they all say the same thing. Two providers under one backend is
+// a config a caller must not be given a guess about.
+export function providerOf(routing, backend) {
+  if (!backend) return null
+  const found = new Set()
+  for (const spec of Object.values(routing?.models ?? {})) {
+    if (spec?.backend === backend && spec.provider) found.add(spec.provider)
+  }
+  return found.size === 1 ? [...found][0] : null
+}
+
 export function buildSpawnCmd(routing, backend, model, promptFile) {
   const b = routing.backends?.[backend]
   if (!b) {
