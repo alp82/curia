@@ -187,7 +187,10 @@ export class EscalationStore {
         const arr = this.agentNotes.get(ev.agent) ?? []
         // An absent stamp is session-keyed on purpose (#208): the #139
         // hand-off, and every note journalled before #208 was decided.
-        arr.push({ text: ev.text, after: ev.after ?? null, instance: ev.instance ?? null })
+        // `label` is what the note calls itself on the agent's tool result
+        // (#165). Absent means the operator typed it, which is every note
+        // journalled before the cross-check had a way back.
+        arr.push({ text: ev.text, after: ev.after ?? null, instance: ev.instance ?? null, label: ev.label ?? null })
         this.agentNotes.set(ev.agent, arr)
         break
       }
@@ -355,14 +358,19 @@ export class EscalationStore {
   // is the only one who knows who the words were for. Thread text names the
   // instance that owned the thread; the #139 hand-off names none, because
   // reaching the successor is its whole point.
-  queueAgentNote(agent, text, { by = null, instance = null, graceMs = 120_000, now = Date.now() } = {}) {
+  // `label` names the SENDER on the agent's tool result (#165). It defaults to
+  // the operator, because for every caller but the cross-check return path the
+  // words are a human's. The cross-check verdict rides this same queue and must
+  // not read as something the operator typed: it is a second model's reading,
+  // and the builder judges it rather than obeying it.
+  queueAgentNote(agent, text, { by = null, instance = null, label = null, graceMs = 120_000, now = Date.now() } = {}) {
     const recent = [...this.escalations.values()]
       .filter((r) => r.agent === agent && r.status !== 'open' && r.closed_at)
       .sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)))
       .at(-1)
     const closedMs = recent ? now - Date.parse(recent.closed_at) : Infinity
     const after = Number.isFinite(closedMs) && closedMs <= graceMs ? recent.id : null
-    this._append({ type: 'agent_note', agent, text, after, by, instance })
+    this._append({ type: 'agent_note', agent, text, after, by, instance, label })
     return { after }
   }
 

@@ -15,7 +15,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
-import { endingProse, CHARTING_NEVER, REVIEWER_NEVER } from './lifecycle.mjs'
+import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
@@ -1198,6 +1198,26 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '- `report_result` — exactly once, at the very end.',
   ]
 
+  // #165, ADR-0010: the gate's third button. The builder is told this at spawn
+  // time and told it again in the tool result that hands it the verdict, because
+  // the press can land days into a ticket and this prompt may be far behind.
+  const crossCheck = charting ? [] : [
+    '',
+    '## The cross-check (a third button on the gate)',
+    '',
+    'The review gate has a third button beside approve and reject. It is pressable on every round. The',
+    'operator presses it to put a reviewer on the OTHER provider onto your diff. It answers nothing:',
+    'nothing merges and nothing is rejected.',
+    '',
+    'The press does not end your `request_review` call. You stay in it, idle, holding your claim and your',
+    'worktree, while the reviewer reads. The call then returns with the verdict, and this is your duty:',
+    '',
+    ...dutyLines(),
+    '',
+    'The reviewer never gets a reply and never reads the same diff twice. curia posts the verdict and your',
+    'question on the pull request by itself, so you post neither.',
+  ]
+
   const body = [
     ...invocation,
     `# ${repo}#${n}: ${issue.title}`,
@@ -1237,6 +1257,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
         '  tells you which one. It also verifies the resolution afterwards and repairs what is missing, so an',
         '  honest `report_result` matters more than a perfect run.',
       ]),
+    ...crossCheck,
     '',
   ].join('\n')
   fs.writeFileSync(promptFile, body)

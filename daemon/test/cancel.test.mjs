@@ -64,9 +64,11 @@ describe('no cancel button on an escalation (#200)', () => {
     assert.deepEqual(ids, ['esc|esc-2|idx|0', 'esc|esc-2|idx|1'])
   })
 
-  test('a review gate keeps ✅/❌ and loses the cancel', async () => {
+  // #165 added the third button. The rule this test pins is unchanged: none of
+  // the three ends the agent, and `cancel <n>` is still the only word that does.
+  test('a review gate keeps ✅/❌/🔎 and loses the cancel', async () => {
     const ids = await render({ id: 'esc-3', ticket: '200', agent: 'curia-200', kind: REVIEW_KIND, prompt: 'done?' })
-    assert.deepEqual(ids, ['esc|esc-3|opt|approve', 'esc|esc-3|opt|reject'],
+    assert.deepEqual(ids, ['esc|esc-3|opt|approve', 'esc|esc-3|opt|reject', 'esc|esc-3|opt|cross-check'],
       'a rejection is the "no" a gate already had; ending the agent is `cancel <n>`')
   })
 

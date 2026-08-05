@@ -43,8 +43,11 @@ import {
   allocatePorts, containerPorts, dockerRunCmd, listContainers, modelCredential, stopContainer,
   writeEnvFile,
 } from './sandbox.mjs'
-import { resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment } from './resolve.mjs'
-import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND } from './lifecycle.mjs'
+import {
+  resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment,
+  verdictComment, judgementComment, verdictNote,
+} from './resolve.mjs'
+import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, normalizeEvent } from './store.mjs'
 import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
 
@@ -266,6 +269,10 @@ export class Dispatcher {
     // agents map: `data/verdicts/<ticket>.json` is what survives a restart, and
     // verdictFor() reads it back. The return path (#165) takes it from here.
     this.verdicts = new Map()
+    // Builders parked at the gate waiting for a verdict (#165), ticket ->
+    // { agent, resolve }. Process-scoped on purpose: the thing waiting is a live
+    // MCP call, and a daemon restart kills the call before it kills this map.
+    this.reviewWaits = new Map()
     this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
     this.autoTimer = null
@@ -1172,7 +1179,17 @@ export class Dispatcher {
     const named = spawnModelId(this.routing, verdict.model ?? '')
     const stamp = sameProvider ? ` (**${SAME_PROVIDER_STAMP}**)` : ''
     this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
-    return `verdict captured${held ? '' : ' in memory only — writing the artifact FAILED'}. Nothing was posted, pushed or resolved: curia holds this text and hands it on. Your work here is done — stop.`
+    // The return path (#165). It runs INSIDE the reviewer's own tool call, so a
+    // failure in it must never fail the capture: the verdict is already held,
+    // and a reviewer told its work failed would be told a lie about the one
+    // thing it did. Every step inside reports itself on the surfaces instead.
+    try {
+      await this.#deliverVerdict(verdict)
+    } catch (e) {
+      this.store.logEvent('verdict_delivery_failed', { repo, ticket, agent: agentName, error: e.message })
+      this.notify(ticket, `⚠️ the verdict on #${ticket} is captured, but curia's return path failed — ${e.message}. The builder may still be waiting at the gate.`)
+    }
+    return `verdict captured${held ? '' : ' in memory only — writing the artifact FAILED'}. curia has posted it on the pull request and handed it to the builder, which judges it and puts it to a human. You push nothing, resolve nothing and answer nothing further — your work here is done, so stop.`
   }
 
   // ---- readiness watchdog ------------------------------------------------------
@@ -1677,6 +1694,10 @@ export class Dispatcher {
       if (!keepCredentials) this.deps.removeCredentials(agent.cfgDir ?? cfgDirFor(this.root, agent.session))
       await this.#removeReviewCheckout(agent.repo, agent.ticket, agent.wtPath)
       this.store.logEvent('reviewer_ended', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason })
+      // #165: this is the choke point for every bad ending, and a builder parked
+      // at the gate is waiting on THIS agent. Ending it without settling the
+      // wait would park the builder forever on a second agent that is gone.
+      this.#endReviewWait(agent.ticket, `the reviewer ended — ${reason}`)
       return true
     }
     let released = false
@@ -1836,8 +1857,16 @@ export class Dispatcher {
       this.store.logEvent('review_answered', { repo, ticket, agent: agentName, approved: false, status })
       return { ok: true, aborted: true, text: `${answer}\n\n(the review gate was ${status}, not answered — do not merge and do not resolve anything)` }
     }
-    const { approved, feedback } = classifyReviewAnswer(answer)
-    this.store.logEvent('review_answered', { repo, ticket, agent: agentName, approved, via: 'gate' })
+    const { approved, crossCheck, feedback } = classifyReviewAnswer(answer)
+    this.store.logEvent('review_answered', {
+      repo, ticket, agent: agentName, approved, via: 'gate',
+      ...(crossCheck ? { outcome: 'cross-check' } : {}),
+    })
+    // #165, ADR-0010: the third button. The gate had two answers and now has
+    // three, and this one answers NOTHING — nothing merges, nothing is rejected,
+    // and the round ends where it started. What it does is put a second model on
+    // the diff and hold the builder here until that model has read it.
+    if (crossCheck) return await this.#runCrossCheck(agentName, { repo, ticket, w })
     if (approved) {
       return {
         ok: true,
@@ -1855,6 +1884,199 @@ export class Dispatcher {
         'Do not merge and do not resolve. Make the changes, commit, call open_pull_request again, then',
         'request_review again.',
       ].join('\n'),
+    }
+  }
+
+  // ---- the cross-check press and the way back (#165, ADR-0010) -----------------
+
+  // The press, from inside the gate call the operator answered.
+  //
+  // The builder does not return here. It stays inside `request_review` until the
+  // verdict lands, and that is what ADR-0010's "the builder stays idle and keeps
+  // its own slot" buys: a parked agent is nearly free (ADR-0005), it holds its
+  // claim, its worktree and its whole context, and nothing has to wake it up.
+  // The alternative — return now, let the turn end, wake it later — has no way
+  // to wake it: an operator note rides a TOOL RESULT, and a stopped agent makes
+  // no tool calls. So the note rides this one.
+  async #runCrossCheck(agentName, { repo, ticket, w }) {
+    if (w) w.state = 'cross-checking'
+    this.store.logEvent('cross_check_requested', { repo, ticket, agent: agentName })
+    // `crossCheck` never throws — every failure comes back as a line and leaves
+    // the builder untouched. What decides here is the RECORD, not that line: a
+    // reviewer in the agents map is the thing that can produce a verdict, and
+    // parking on anything less would park on a sentence.
+    const spawned = await this.crossCheck(ticket, { repo, by: 'review gate' })
+    if (!this.agents.has(reviewSessionFor(ticket))) {
+      if (w) w.state = 'ready'
+      this.store.logEvent('cross_check_returned', { repo, ticket, agent: agentName, ok: false, why: 'not spawned' })
+      return {
+        ok: true,
+        approved: false,
+        crossCheck: true,
+        text: [
+          'CROSS-CHECK — the operator pressed the third button, and curia could not start the reviewer:',
+          spawned,
+          '',
+          'Nothing was approved and nothing was rejected. Fix what the line names if it is yours to fix,',
+          'then call request_review again. The button is there on every round.',
+        ].join('\n'),
+      }
+    }
+    this.notify(ticket, `⏸️ \`${agentName}\` is idle at the gate while the cross-check reads — it holds its claim, its worktree and its slot, and it wakes when the verdict lands`)
+    const out = await this.#awaitVerdict(ticket, agentName)
+    if (w) w.state = 'ready'
+    this.store.logEvent('cross_check_returned', { repo, ticket, agent: agentName, ok: out.ok, why: out.why ?? null })
+    if (!out.ok) {
+      return {
+        ok: true,
+        approved: false,
+        crossCheck: true,
+        text: [
+          `CROSS-CHECK ENDED WITH NO VERDICT — ${out.why}.`,
+          '',
+          'Nothing was approved and nothing was rejected, and there is nothing for you to judge. Call',
+          'request_review again when you are ready. The operator can press the button again.',
+        ].join('\n'),
+      }
+    }
+    // The verdict itself is NOT in this text. It is already on the note queue,
+    // and the drain appends it to this very tool result — so the builder reads
+    // the duty and the findings in one turn, and the durable record of what it
+    // was handed is the journalled note rather than this string.
+    return {
+      ok: true,
+      approved: false,
+      crossCheck: true,
+      text: [
+        'CROSS-CHECK — the operator pressed the third button, so this gate was neither approved nor',
+        `rejected. \`${out.verdict.agent}\` read your diff on **${spawnModelId(this.routing, out.verdict.model ?? '')}**,`,
+        'and its verdict rides in this same tool result as a note. Read it, then:',
+        '',
+        ...dutyLines(),
+      ].join('\n'),
+    }
+  }
+
+  // Park the builder until this ticket's verdict lands. One waiter per ticket:
+  // a second press cannot exist while the first is parked, because the builder
+  // that would press is the one inside this call.
+  #awaitVerdict(ticket, agentName) {
+    const key = String(ticket)
+    this.#endReviewWait(key, 'a newer cross-check replaced it')
+    return new Promise((resolve) => {
+      this.reviewWaits.set(key, { agent: agentName, resolve })
+    })
+  }
+
+  #settleReviewWait(ticket, outcome) {
+    const wait = this.reviewWaits.get(String(ticket))
+    if (!wait) return false
+    this.reviewWaits.delete(String(ticket))
+    wait.resolve(outcome)
+    return true
+  }
+
+  // Every way a cross-check can end WITHOUT a verdict goes through here: the
+  // reviewer died, its respawn failed, it was cancelled, it exhausted the
+  // fallback chain. Missing one of them would leave the builder parked forever
+  // on a second agent that is already gone — the one failure a cross-check must
+  // never cause, because the builder holds the ticket's only claim.
+  #endReviewWait(ticket, why) {
+    return this.#settleReviewWait(ticket, { ok: false, why })
+  }
+
+  // What the daemon does the moment a verdict lands (ADR-0010's return path).
+  // Three acts, in this order, and each one is independent of the others:
+  //
+  //   1. the pull-request comment — the durable record, per ADR-0001. It is
+  //      posted whether or not any builder is still alive to read the verdict.
+  //   2. the note queue — how the verdict reaches the BUILDER.
+  //   3. the parked gate call — woken, so the note drains onto its result.
+  //
+  // The comment goes first because it is the one act that outlives everything
+  // here. A builder that is gone, a park that timed out with the daemon: the
+  // verdict is still on the pull request, and the operator can read it.
+  async #deliverVerdict(verdict) {
+    const ticket = String(verdict.ticket)
+    const builder = `curia-${ticket}`
+    const posted = await this.#commentOnPullRequest(verdict.repo, ticket, verdictComment(verdict))
+    this.store.logEvent('verdict_commented', {
+      repo: verdict.repo, ticket, agent: verdict.agent, ok: posted.ok, why: posted.why ?? null,
+    })
+    if (!posted.ok) {
+      this.notify(ticket, `⚠️ the cross-check verdict could NOT be posted on the pull request — ${posted.why}. curia still holds it, and the builder still gets it.`)
+    }
+    const w = this.agents.get(builder)
+    if (!w) {
+      this.store.logEvent('verdict_undelivered', { repo: verdict.repo, ticket, agent: builder, reason: 'no builder is running' })
+      this.notify(ticket, `📭 the verdict on #${ticket} has nowhere to go — \`${builder}\` is not running. It is on the pull request, and \`resume ${ticket}\` puts an agent back on the ticket.`)
+      return
+    }
+    // #208's rule, and the caller is what marks the note: these words are for
+    // THIS builder. A successor must not read a verdict about a diff it did not
+    // write.
+    this.store.queueAgentNote?.(builder, verdictNote(verdict), {
+      instance: w.instance ?? null, label: 'cross-check verdict',
+    })
+    this.#settleReviewWait(ticket, { ok: true, verdict })
+  }
+
+  // The builder's judgement, as the second comment (ADR-0010). The daemon holds
+  // both texts already: it spawned the reviewer, and the judgement IS the
+  // escalation prompt of the plain question the duty asks for. So no agent write
+  // bound widens — the agent asks a question, and curia records what it asked.
+  //
+  // The FIRST question after a verdict is the judgement, and there is only one:
+  // `judged` on the artifact closes it, and a later cross-check on the same
+  // ticket writes a fresh artifact that opens it again.
+  //
+  // The mark goes on BEFORE the comment, deliberately. Two questions can
+  // interleave across the gh round-trip below, and of the two failures — no
+  // comment, or the same judgement posted twice — the silent one is the safer,
+  // because the operator is told when it happens and the text is in the thread
+  // either way.
+  async noteJudgement(agentName, prompt) {
+    const m = String(agentName ?? '').match(SESSION_RE)
+    if (!m) return false
+    const ticket = m[1]
+    const verdict = this.verdictFor(ticket)
+    if (!verdict || verdict.judged) return false
+    verdict.judged = true
+    this.verdicts.set(ticket, verdict)
+    try {
+      fs.writeFileSync(this.#verdictFile(ticket), JSON.stringify(verdict, null, 2))
+    } catch (e) {
+      this.log(`could not mark the verdict for #${ticket} judged: ${e.message}`)
+    }
+    const posted = await this.#commentOnPullRequest(verdict.repo, ticket, judgementComment(agentName, prompt))
+    this.store.logEvent('judgement_commented', {
+      repo: verdict.repo, ticket, agent: agentName, ok: posted.ok, why: posted.why ?? null,
+    })
+    if (!posted.ok) {
+      this.notify(ticket, `⚠️ \`${agentName}\`'s judgement of the cross-check could NOT be posted on the pull request — ${posted.why}. The question itself is in this thread.`)
+    }
+    return posted.ok
+  }
+
+  // A comment on the pull request this ticket's branch opened. GitHub gives a
+  // pull request and an issue one number space and one comment endpoint, so this
+  // is `commentIssue` against the PR's number — the same seam, no new authority.
+  // Every failure is a returned reason, never a throw: nothing here is worth
+  // failing a verdict over.
+  async #commentOnPullRequest(repo, ticket, body) {
+    if (!repo) return { ok: false, why: 'curia cannot tell which repo this ticket belongs to' }
+    let pr = null
+    try {
+      pr = await this.deps.findPullRequest(repo, branchFor(ticket))
+    } catch (e) {
+      return { ok: false, why: `the pull-request read failed (${e.message})` }
+    }
+    if (!pr) return { ok: false, why: `no pull request is open for \`${branchFor(ticket)}\`` }
+    try {
+      await this.deps.commentIssue(repo, pr.number, body)
+      return { ok: true, url: pr.url }
+    } catch (e) {
+      return { ok: false, why: `the comment failed (${e.message})` }
     }
   }
 
@@ -1964,7 +2186,7 @@ export class Dispatcher {
     }
     const block = await this.#humanBlockEvidence(agentName)
     if (block.blocked) {
-      this.#recordHumanBlock(agentName, block.open)
+      this.#recordHumanBlock(agentName, block.open, { crossCheck: block.crossCheck })
       return { allow: true, terminal: false }
     }
 
@@ -2263,6 +2485,14 @@ export class Dispatcher {
   // evidence, and its safe direction is the block.
   async #humanBlockEvidence(agentName) {
     const open = this.#openEscalationsFor(agentName)
+    // #165: a builder parked on a cross-check verdict is blocked in exactly the
+    // same sense, and it has NO open escalation to show for it — the press
+    // closed the gate record. Without this the Stop hook would nudge it toward
+    // the `request_review` it is already sitting in, and the terminal path would
+    // treat an idle agent as a finished one.
+    if (this.#parkedOnCrossCheck(agentName)) {
+      return { blocked: true, gone: false, open, crossCheck: true }
+    }
     if (!open.length) return { blocked: false, gone: false, open }
     let gone = false
     try {
@@ -2273,15 +2503,28 @@ export class Dispatcher {
     return { blocked: !gone, gone, open }
   }
 
-  #recordHumanBlock(agentName, open) {
+  // Is this agent the builder parked inside `request_review` on a verdict
+  // (#165)? The wait map is the record, and it is keyed by ticket — the agent
+  // name is checked too, so a wait a previous dispatch of the same ticket left
+  // behind cannot vouch for a fresh agent.
+  #parkedOnCrossCheck(agentName) {
+    const ticket = this.agents.get(agentName)?.ticket ?? String(agentName).match(SESSION_RE)?.[1] ?? null
+    return ticket != null && this.reviewWaits.get(String(ticket))?.agent === agentName
+  }
+
+  #recordHumanBlock(agentName, open, { crossCheck = false } = {}) {
     const w = this.agents.get(agentName)
     const reviewing = open.some((r) => r.kind === REVIEW_KIND)
-    if (w) w.state = reviewing ? 'awaiting-review' : 'blocked'
+    if (w) w.state = crossCheck ? 'cross-checking' : (reviewing ? 'awaiting-review' : 'blocked')
     const ticket = w?.ticket ?? agentName.match(SESSION_RE)?.[1] ?? agentName
     this.store.logEvent('agent_blocked_on_human', {
       agent: agentName, ticket, repo: w?.repo,
-      escalations: open.map((r) => r.id), awaiting_review: reviewing,
+      escalations: open.map((r) => r.id), awaiting_review: reviewing, cross_check: crossCheck,
     })
+    if (crossCheck) {
+      this.log(`agent_done ${agentName}: turn ended parked on a cross-check verdict — idle, not gone`)
+      return
+    }
     this.log(`agent_done ${agentName}: turn ended with ${open.map((r) => r.id).join(', ')} still open — ${reviewing ? 'awaiting review' : 'blocked on a human'}, not gone`)
   }
 
@@ -2313,9 +2556,9 @@ export class Dispatcher {
     // strand a question a human is still being asked. Nothing terminal happens;
     // the Stop that follows the answer is judged on its own, with no open
     // escalation left to defer on.
-    const { blocked, open } = await this.#humanBlockEvidence(agentName)
+    const { blocked, open, crossCheck } = await this.#humanBlockEvidence(agentName)
     if (blocked) {
-      this.#recordHumanBlock(agentName, open)
+      this.#recordHumanBlock(agentName, open, { crossCheck })
       return
     }
     if (open.length) {
@@ -2378,6 +2621,10 @@ export class Dispatcher {
     if (!hasResult) {
       if (w) w.state = 'failed'
       this.store.logEvent('reviewer_abnormal_exit', { repo: w?.repo, ticket, agent: agentName })
+      // #165: the builder may be parked at the gate on this reviewer. It is
+      // released with the truth — no verdict — rather than left waiting on a
+      // pane that is being kept only as evidence.
+      this.#endReviewWait(ticket, 'the reviewer stopped without producing one')
       this.notify(ticket, `⚠️ \`${agentName}\` stopped WITHOUT a verdict — session and checkout kept for post-mortem (\`/attach ${ticket}\` names both). The builder is untouched: nothing about #${ticket} changed.`)
       return
     }
@@ -2744,6 +2991,10 @@ export class Dispatcher {
     this.deps.forgetAgentToken(this.dataDir, session)
     this.store.logEvent('reviewer_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
+    // #165: a cancel of the reviewer alone releases the builder back to the
+    // gate. A cancel of both settles the same wait, and the builder's own MCP
+    // call dies with its session a moment later — settling twice is a no-op.
+    this.#endReviewWait(ticket, 'the reviewer was cancelled')
     return `⚰️ \`${session}\` cancelled too — the cross-check ends with no verdict${removed ? ', checkout removed' : ', checkout kept'}`
   }
 

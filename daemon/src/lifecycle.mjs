@@ -272,8 +272,53 @@ export function reviewGateText({ repo, ticket, title, summary, charting, links }
 // approve merges code no one read.
 const APPROVE_RE = /^(approve|approved|lgtm)$/i
 
+// The third button (#165, ADR-0010). The 🔎 button sends this literal word, and
+// an operator who types it in the thread means the same thing. It is neither
+// half of the two-way answer: nothing merges and nothing is rejected, so the
+// narrow-set rule above costs nothing here — a press the operator did not mean
+// spends quota on a second reading and ends where it started.
+export const CROSS_CHECK_ANSWER = 'cross-check'
+const CROSS_CHECK_RE = /^cross[- ]?check$/i
+
 export function classifyReviewAnswer(text) {
   const t = String(text ?? '').trim()
-  if (APPROVE_RE.test(t)) return { approved: true, feedback: '' }
-  return { approved: false, feedback: t }
+  if (APPROVE_RE.test(t)) return { approved: true, crossCheck: false, feedback: '' }
+  if (CROSS_CHECK_RE.test(t)) return { approved: false, crossCheck: true, feedback: '' }
+  return { approved: false, crossCheck: false, feedback: t }
 }
+
+// ---- the builder's duty after a cross-check (#165, ADR-0010) -----------------
+//
+// ONE copy, read twice, the same discipline `ENDING` runs on. The builder is
+// told this in its standing orders at spawn time (workspace.mjs), and told it
+// again in the tool result that hands it the verdict (dispatch.mjs) — hours or
+// days later, in a context that may no longer hold the prompt.
+//
+// The shape ADR-0010 fixes: the verdict is not an authority. The builder judges
+// it, the operator decides, and the gate that follows is a plain
+// approve-or-reject about the final code.
+// One bullet per entry, its own lines — the CHARTING_NEVER shape, so both
+// readers render it the same way.
+export const CROSS_CHECK_DUTY = [
+  [
+    'Judge every finding on its own, and say whether you agree or disagree with it. A reviewer that',
+    'read the diff cold can be wrong, and saying so is your job — not deferring to it.',
+  ],
+  [
+    'Write one summary with a recommendation, and send it with `ask_human`. A plain question, never a',
+    'gate: the operator decides what happens to a finding, and you get the first word, not the last.',
+  ],
+  [
+    'Act only on the answer they give you. Then call `request_review` again, and that gate is a pure',
+    'approve-or-reject about the final code.',
+  ],
+  [
+    'A finding that sits beyond this ticket becomes a charting line in that gate. Never open a fault',
+    'ticket for it yourself.',
+  ],
+]
+
+// The bullet block both readers print. One function, so the prompt and the tool
+// result can never drift into two renderings of one list.
+export const dutyLines = (indent = '') => CROSS_CHECK_DUTY
+  .flatMap(([first, ...rest]) => [`${indent}- ${first}`, ...rest.map((l) => `${indent}  ${l}`)])

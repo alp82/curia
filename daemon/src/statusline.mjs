@@ -65,7 +65,12 @@ export function visibleWidth(text) {
 
 // The states a meter says anything true about. A finished, stalled or dead
 // agent has no live context and no reason to carry account bars.
-const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 'executing'])
+const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 'cross-checking', 'executing'])
+
+// The literal the 🔎 button sends (#165). Matched here rather than imported as
+// the regex, because this file reads the ANSWER off a journal event and an
+// operator may have typed the word instead of pressing the button.
+const CROSS_CHECK_RE = /^cross[- ]?check$/i
 
 export class StatusLine {
   // post(ticket, text) -> {threadId, messageId} | null (bridge down)
@@ -150,8 +155,18 @@ export class StatusLine {
         if (r.kind === REVIEW_KIND && ev.answer === 'approve') {
           return this.#set(r.agent, r.ticket, 'executing', {})
         }
+        // A cross-check press is not "working": the builder goes idle inside the
+        // gate call and waits (#165). `cross_check_requested` below says so, and
+        // it lands right behind this event — so this line does not guess.
+        if (r.kind === REVIEW_KIND && CROSS_CHECK_RE.test(String(ev.answer ?? ''))) return
         return this.#set(r.agent, r.ticket, 'working', {})
       }
+      // #165: the builder's own line while a second agent reads its diff. The
+      // reviewer draws its own line beside it, off its `agent_spawned`.
+      case 'cross_check_requested':
+        return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts })
+      case 'cross_check_returned':
+        return this.#set(ev.agent, ev.ticket, 'working', {})
       case 'esc_cancel':
       case 'esc_lapse': {
         const r = this.get(ev.id)
@@ -209,6 +224,10 @@ export class StatusLine {
       case 'awaiting-review': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
         return `🔎 \`${session}\`${GROUP_SEP}awaiting review — **[${detail.esc.id}]**${waited ? ` — ${waited}` : ''}`
+      }
+      case 'cross-checking': {
+        const waited = elapsedLabel(detail.at, this.now())
+        return `⏸️ \`${session}\`${GROUP_SEP}idle at the gate — a cross-check is reading its diff${waited ? ` — ${waited}` : ''}`
       }
       case 'executing':
         return `🚀 \`${session}\`${GROUP_SEP}executing approved writes`
