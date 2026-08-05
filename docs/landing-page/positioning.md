@@ -57,10 +57,16 @@ Rests on:
 
 ### 2. Any device is a full seat
 
-Five verbs over Discord. One thread per ticket. Questions arrive with buttons, results arrive as
+Nine verbs over Discord. One thread per ticket. Questions arrive with buttons, results arrive as
 per-ticket HTTPS preview links, and a live agent can be attached from a phone or a desktop at the
 same time. Four or more tickets have run at once on one small box, at about 0.5 GB per agent
 measured.
+
+The count was **five** when this brief was settled on 2026-08-01. `USAGE` in
+`daemon/src/commands.mjs` now lists nine — `tickets`, `next`, `status`, `start`, `map`, `cancel`,
+`resume`, `attach`, `review` — so the page says nine
+([Polish the live page](https://github.com/alp82/curia/issues/137), 2026-08-05). A reader can check
+the number against that file in one click, which is why it is regenerated rather than rounded.
 
 Rests on:
 
@@ -97,9 +103,11 @@ it.
 Settled in [Decide what proof of curia working goes on the page](https://github.com/alp82/curia/issues/114).
 The proof brief is [`proof.md`](proof.md); what follows is what became of each item.
 
-- **This page was charted, decided and written by curia itself** — agents dispatched from a Discord
+- **This page was planned, decided and written by curia itself** — agents dispatched from a Discord
   thread, grilling the operator, opening pull requests, and merging on approval. **On the page**, as
   a line pointing at the merged pull requests, each stamped by the daemon with its session and model.
+  The page said "charted" until 2026-08-05. That word is on this brief's own banned list of internal
+  vocabulary, so [Polish the live page](https://github.com/alp82/curia/issues/137) replaced it.
 - **The rehearsal survived two daemon restarts inside one pass** — one while an agent's question was
   open, one while the review gate was open. Both recovered. **Not on the page.** It stays where it is
   above, backing claim 2.
