@@ -1324,6 +1324,25 @@ describe('button confirms: the interpreted cancel path (#94)', () => {
     assert.ok(d.agents.has('curia-42'))
   })
 
+  // #218: the reply used to say "in the ticket thread" for every cancel, which
+  // was the fault written down. The confirm renders where the command was
+  // typed, and the same threadId decides the words, so the two cannot disagree.
+  test('the reply names where the buttons actually went', async () => {
+    const d = makeDispatcher()
+    d.agents.set('curia-42', liveAgent())
+    assert.match(await d.requestCancel('42', { threadId: 'thread-9' }), /buttons in this thread/)
+
+    d.agents.set('curia-42', liveAgent('curia-42@2'))
+    assert.match(await d.requestCancel('42', {}), /buttons in #curia/,
+      'typed outside any thread, the confirm lands in the command channel')
+  })
+
+  test('the bulk reply names the place too — one verb, one rule', async () => {
+    const d = makeDispatcher({ listSessions: async () => ['curia-42'] })
+    assert.match(await d.requestCancelAll({ threadId: 'thread-9' }), /agent\(s\) in this thread/)
+    assert.match(await d.requestCancelAll({}), /agent\(s\) in #curia/)
+  })
+
   test('requestCancel with nothing live refuses without opening a confirm', async () => {
     const d = makeDispatcher()
     assert.match(await d.requestCancel('42', {}), /nothing to cancel/)

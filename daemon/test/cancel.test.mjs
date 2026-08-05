@@ -42,7 +42,9 @@ describe('no cancel button on an escalation (#200)', () => {
     bridge = new DiscordBridge({
       token: 'x', allowedUsers: [], dataDir: tmp(), handlers: {}, log: () => {},
     })
-    bridge.channel = { id: 'C' }
+    // A confirm renders in the channel when no thread was named (#218), so the
+    // channel has to be able to carry a message here.
+    bridge.channel = { id: 'C', send: async (payload) => { sent.push(payload); return { id: 'm-C' } } }
     bridge.client = { channels: { fetch: async () => thread } }
     bridge.ensureThread = async () => thread
   })
@@ -217,5 +219,111 @@ describe('the mark on a cancelled question (#200)', () => {
     assert.match(edited.content, /⚰️ \*\*cancelled\*\* — its agent was cancelled/)
     assert.doesNotMatch(edited.content, /re-frontiers/, 'the button never did that; the mark stops saying it did')
     assert.deepEqual(edited.components, [], 'a closed record has no buttons left')
+  })
+})
+
+// A confirm is addressed to the OPERATOR, about a command the operator typed
+// one second ago. It used to render in the ticket's own labeled thread, which
+// an operator standing anywhere else never reads, so the cancel waited forever
+// on a press nobody was shown. The rule settled here is who a record is
+// addressed to, not which ticket it names.
+describe('where a confirm renders (#218)', () => {
+  let bridge, store, posts, threads
+
+  const makeThread = (id) => ({
+    id,
+    send: async (payload) => { posts.push({ where: id, ...payload }); return { id: `m-${id}` } },
+  })
+
+  const target = (ticket) => ({ session: `curia-${ticket}`, ticket, instance: `curia-${ticket}@1` })
+
+  const confirm = (extra = {}) => ({
+    id: 'esc-7', agent: 'overseer', kind: CONFIRM_KIND, prompt: 'Cancel it?',
+    ticket: '208', action: { verb: 'cancel', targets: [target('208')] }, ...extra,
+  })
+
+  beforeEach(() => {
+    posts = []
+    store = new EscalationStore(tmp())
+    threads = new Map()
+    for (const id of ['t-208', 't-209', 't-origin']) threads.set(id, makeThread(id))
+    store.bindTicketThread('208', 't-208')
+    store.bindTicketThread('209', 't-209')
+
+    bridge = new DiscordBridge({
+      token: 'x', allowedUsers: [], dataDir: tmp(), handlers: {}, log: () => {},
+      bindings: {
+        get: (t) => store.threadForTicket(t),
+        bind: (t, id) => store.bindTicketThread(t, id),
+        release: (t, r) => store.releaseTicketThread(t, r),
+        last: (t) => store.lastThreadForTicket(t),
+      },
+    })
+    bridge.guild = { id: 'G' }
+    bridge.channel = {
+      id: 'C',
+      send: async (payload) => { posts.push({ where: 'C', ...payload }); return { id: 'm-C' } },
+      threads: { create: async () => { throw new Error('no fresh thread expected') } },
+    }
+    bridge.client = { channels: { fetch: async (id) => threads.get(id) ?? null } }
+  })
+
+  const isPointer = (p) => p.content.startsWith('🔗')
+  const rendered = () => posts.find((p) => !isPointer(p))
+  const pointers = () => posts.filter(isPointer)
+
+  test('a confirm on a NUMBERED ticket renders where the command was typed', async () => {
+    const ids = await bridge.renderEscalation(confirm({ origin_thread_id: 't-origin' }))
+    assert.equal(ids.threadId, 't-origin', '`cancel 208` and `cancel all` are one verb, so they land one way')
+    assert.equal(rendered().where, 't-origin')
+  })
+
+  test('a confirm typed outside any thread renders in the channel, not the ticket thread', async () => {
+    const ids = await bridge.renderEscalation(confirm({ origin_thread_id: null }))
+    assert.equal(ids.threadId, 'C', 'the channel is where the operator is standing')
+    assert.equal(rendered().where, 'C')
+  })
+
+  test('a confirm whose origin thread is gone falls back to the channel', async () => {
+    const ids = await bridge.renderEscalation(confirm({ origin_thread_id: 't-deleted' }))
+    assert.equal(ids.threadId, 'C', 'a deleted thread carries no traffic, and the ticket thread is still the wrong place')
+  })
+
+  test('every other kind keeps the ticket thread, the review gate above all', async () => {
+    const gate = await bridge.renderEscalation({
+      id: 'esc-8', agent: 'curia-208', kind: REVIEW_KIND, ticket: '208', prompt: 'done?', origin_thread_id: 't-origin',
+    })
+    assert.equal(gate.threadId, 't-208', 'the gate is an agent escalation, and its history is the ticket conversation')
+
+    const question = await bridge.renderEscalation({
+      id: 'esc-9', agent: 'curia-208', kind: 'free-text', ticket: '208', prompt: 'which?', origin_thread_id: 't-origin',
+    })
+    assert.equal(question.threadId, 't-208')
+    assert.deepEqual(pointers(), [], 'only a confirm leaves a pointer, because only a confirm moves')
+  })
+
+  test('the ticket thread gets a pointer naming where the buttons are (#197 at both ends)', async () => {
+    await bridge.renderEscalation(confirm({ origin_thread_id: 't-origin' }))
+    const [pointer, ...rest] = pointers()
+    assert.deepEqual(rest, [], 'one pointer, one target')
+    assert.equal(pointer.where, 't-208')
+    assert.match(pointer.content, /esc-7/)
+    assert.match(pointer.content, /`curia-208`/)
+    assert.match(pointer.content, /channels\/G\/t-origin/, 'the pointer links the thread the buttons are in')
+  })
+
+  test('`cancel all` points into every target thread that has one, and creates none', async () => {
+    await bridge.renderEscalation(confirm({
+      ticket: 'all', origin_thread_id: 't-origin',
+      action: { verb: 'cancel', targets: [target('208'), target('209'), target('777')] },
+    }))
+    assert.deepEqual(pointers().map((p) => p.where), ['t-208', 't-209'],
+      '#777 has no bound thread, and a pointer never creates one')
+  })
+
+  test('the thread the confirm is already in gets no pointer to itself', async () => {
+    await bridge.renderEscalation(confirm({ origin_thread_id: 't-208' }))
+    assert.equal(rendered().where, 't-208')
+    assert.deepEqual(pointers(), [], 'the buttons are right there')
   })
 })

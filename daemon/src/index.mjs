@@ -69,6 +69,9 @@ const NUDGE_MS = Number(process.env.NUDGE_MS ?? 30 * 60 * 1000) // ~30-min re-nu
 // CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
 // fixture dir so a test run never writes into the real journal.
 const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
+// The command channel. The bridge opens it; the dispatcher names it, because a
+// confirm typed outside any thread renders there (#218).
+const CHANNEL = process.env.CURIA_CHANNEL ?? 'curia'
 fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
 // Daemon-owned, never mounted into a container: one agent's token is unreadable
 // by every other agent (#159).
@@ -475,6 +478,7 @@ const dispatcher = new Dispatcher({
   cooling: new Cooling(),
   dataDir: DATA,
   daemonPort: PORT,
+  channelName: CHANNEL,
   deps: {
     // #188: the container-facing listener is this file's, so the check that a
     // sandboxed dispatch can rely on it is this file's too. It binds lazily,
@@ -1336,7 +1340,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
         token: process.env.DISCORD_BOT_TOKEN,
         allowedUsers: allowed,
         guildId: process.env.CURIA_GUILD_ID,
-        channelName: process.env.CURIA_CHANNEL ?? 'curia',
+        channelName: CHANNEL,
         dataDir: DATA,
         handlers: gate,
         // the journalled ticket↔thread map (#93) — the bridge holds no state
