@@ -19,7 +19,7 @@ import crypto from 'node:crypto'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
-  selectLane, frontierForRepo, agentOnlyChainCount, commentIssue, closeIssue, setIssueBody, issueComments,
+  selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, commentIssue, closeIssue, setIssueBody, issueComments,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch,
 } from './github.mjs'
@@ -68,11 +68,12 @@ const SESSION_RE = /^curia-(\d+)$/
 const REVIEW_SESSION_RE = /^curia-review-(\d+)$/
 export const reviewSessionFor = (n) => `curia-review-${n}`
 
-// The label that makes a dispatch a CHARTING one (#160): `start curia#<map>` on
-// the map's own issue spawns an agent that updates the map, not one that
-// resolves a ticket under it. Everything that branches on it reads this
-// constant, and the journal records the answer per spawn so a restarted daemon
-// still knows which kind of agent it adopted.
+// The label a CHARTING dispatch needs (#160): `map curia#<n>` on a map's own
+// issue spawns an agent that updates the map, not one that resolves a ticket
+// under it. Since #221 the VERB decides the kind and this label is the check on
+// it — `start` never charts, whatever the label says. Everything that branches
+// on it reads this constant, and the journal records the answer per spawn so a
+// restarted daemon still knows which kind of agent it adopted.
 const MAP_LABEL = 'wayfinder:map'
 
 // The tracker doc every watched repo is meant to carry (#57 step 3). The
@@ -390,9 +391,14 @@ export class Dispatcher {
 
   // ---- start -----------------------------------------------------------------
 
+  // `start` has ONE meaning (#221): work the thing. On a ticket it dispatches
+  // that ticket. On a map it dispatches the map's next takeable ticket, which
+  // is what an operator reaching for `start` on a map wants — it never charts,
+  // and charting has its own verb (`map <n>`, see chart below).
+  //
   // `reuse` is the resume contract (#81): inherit the surviving worktree
   // instead of recreating it — see #dispatch.
-  async start(ticketArg, { repo, model, instruction = null, by, reuse = false, threadId = null } = {}) {
+  async start(ticketArg, { repo, model, by, reuse = false, threadId = null } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -417,20 +423,15 @@ export class Dispatcher {
       const { repo: theRepo, issue } = resolved
 
       if (issue.state !== 'open') return `❌ ${theRepo}#${n} is ${issue.state} — nothing to dispatch`
-      // An instruction rides a MAP dispatch and nothing else (#160/#149). A
-      // ticket agent's brief is its ticket body, which a human wrote and other
-      // sessions can read — an operator sentence that only exists in one spawn
-      // prompt would steer the work with no durable record of it. Refuse rather
-      // than drop it silently, and name where the sentence does belong.
+      // `start` on a MAP number (#221). It used to spawn a charting agent, which
+      // gave one verb two meanings — the fault class #184 exists to kill, on the
+      // command surface itself. It now means what it means everywhere else:
+      // work the next thing. The map's own frontier is that thing.
       //
-      // `!reuse` scopes it to an instruction a human actually typed. A resume
-      // carries the previous dispatch's instruction forward from the journal,
-      // and a map that has lost its label since then must degrade to an ordinary
-      // dispatch — not refuse a verb the operator typed no instruction on. The
-      // stale sentence is dropped rather than used: writePrompt renders one only
-      // on a charting dispatch.
-      if (instruction && !reuse && !hasLabel(issue, MAP_LABEL)) {
-        return `❌ ${theRepo}#${n} is not a \`${MAP_LABEL}\` issue, and an instruction rides a map dispatch only — put it in the ticket body, or send it as a note in the ticket's thread once the agent is up`
+      // A resume is exempt. It names a session, not a subject, so redirecting it
+      // to another number would resume the wrong agent.
+      if (!reuse && hasLabel(issue, MAP_LABEL)) {
+        return await this.#startNextOfMap(theRepo, n, issue, { model, by, threadId })
       }
       const anomalies = []
       const assignees = (issue.assignees ?? []).map((a) => a.login)
@@ -443,7 +444,92 @@ export class Dispatcher {
 
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
-      return (await this.#dispatch(theRepo, n, issue, { model, instruction, by, reuse, threadId })) ?? this.#exhaustedReply()
+      return (await this.#dispatch(theRepo, n, issue, { model, by, reuse, threadId })) ?? this.#exhaustedReply()
+    } finally {
+      this.inFlight.delete(session)
+    }
+  }
+
+  // `start <map>` → the map's next takeable ticket (#221). The ordering is the
+  // frontier's own — ascending issue number, the order `tickets` prints and the
+  // auto loop walks — so "next" means the same thing on every surface.
+  //
+  // The candidates are filtered exactly as `next` filters them: a number whose
+  // session is already live or already starting is skipped rather than refused,
+  // because the operator asked for the next takeable one and that one is taken.
+  // A ticket the frontier offers can still refuse itself further down (`start`
+  // re-reads the issue), and that refusal is returned as it stands — inventing a
+  // second candidate would dispatch a ticket the operator never saw named.
+  async #startNextOfMap(repo, mapNo, mapIssue, { model, by, threadId }) {
+    let items
+    try {
+      items = filterTakeable(await this.deps.mapFrontier(repo, mapNo))
+    } catch (e) {
+      return `❌ could not read the frontier of ${repo}#${mapNo} (${e.message}) — try again, or \`start\` one of its tickets by number`
+    }
+    for (const item of items.sort((a, b) => a.number - b.number)) {
+      const session = `curia-${item.number}`
+      if (this.agents.has(session) || this.inFlight.has(session)) continue
+      if (await this.deps.hasSession(session).catch(() => false)) continue
+      // The operator typed a map number and gets an agent on a different one.
+      // Which ticket, and why, rides the REPLY — it belongs where they typed
+      // the command (#218's rule), and a notify here would open a Discord
+      // thread on the map, which nothing else in curia ever does.
+      const picked = `🗺️ next takeable ticket of **${mapIssue.title}** is ${repo}#${item.number} **${item.title}**`
+      return `${picked}\n${await this.start(String(item.number), { repo, model, by, threadId })}`
+    }
+    // Nothing takeable is the ordinary end of a map, not a fault. Name the other
+    // verb here: an operator who typed `start <map>` meaning "update the map" is
+    // exactly the operator standing in front of this message.
+    return `❌ ${repo}#${mapNo} **${mapIssue.title}** has no takeable ticket — every child is closed, blocked, or already claimed. \`tickets\` shows the frontier, and \`map ${mapNo} -- <what should change>\` updates the map itself`
+  }
+
+  // ---- map (the charting dispatch) ---------------------------------------------
+
+  // `map <n> [-- <instruction>]` (#221, carrying #160's mechanics): the operator's
+  // own verb for updating a map. It spawns a CHARTING agent on the map issue,
+  // which edits the map and its tickets and ends on its edits plus one
+  // `report_result` — no close, no pull request, no review gate.
+  //
+  // Three things it does NOT do, each on purpose:
+  //
+  //   1. **It never claims the map** (#221). #160 claimed it to serialise the
+  //      body edits, and the operator ruled that wrong: a map is never on a
+  //      frontier, so the assignee bought nothing but a lie on the issue. The
+  //      lock that replaces it was already here — a charting agent on map #147
+  //      runs in session `curia-147`, and the two guards below refuse a second
+  //      one. The `tmux has-session` guard is the load-bearing half: it asks
+  //      tmux rather than daemon memory, so it survives a restart and catches a
+  //      session reconcile has not adopted yet.
+  //   2. **It reads no assignee or blocked-by anomaly.** Those are frontier
+  //      facts and a map is never on one. A map left assigned by a pre-#221
+  //      dispatch must not lock charting out forever.
+  //   3. **It refuses a non-map** rather than degrading to a ticket dispatch.
+  //      The two verbs mean different things now, so guessing which one the
+  //      operator meant is the ambiguity this ticket removed.
+  async chart(mapArg, { repo, model, instruction = null, by, reuse = false, threadId = null } = {}) {
+    const n = String(mapArg)
+    const session = `curia-${n}`
+    // The whole lock, in the same shape and the same order `start` uses.
+    if (this.inFlight.has(session)) return `⚙️ \`${session}\` is already starting`
+    if (this.agents.has(session)) {
+      const w = this.agents.get(session)
+      return `▶️ \`${session}\` is already charting ${w.repo ?? '?'}#${w.ticket ?? n} (state **${w.state ?? '?'}**) — \`cancel ${n}\` first, or \`attach ${n}\``
+    }
+    this.inFlight.add(session)
+    try {
+      if (await this.deps.hasSession(session)) {
+        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${n}\` tears it down, then \`map ${n}\` again`
+      }
+      const resolved = await this.#resolveRepo(n, repo)
+      if (resolved.error) return resolved.error
+      const { repo: theRepo, issue } = resolved
+
+      if (issue.state !== 'open') return `❌ ${theRepo}#${n} is ${issue.state} — a closed map is not charted; reopen it first`
+      if (!hasLabel(issue, MAP_LABEL)) {
+        return `❌ ${theRepo}#${n} is not a \`${MAP_LABEL}\` issue — \`map\` updates a map, and \`start ${n}\` is how a ticket gets worked`
+      }
+      return (await this.#dispatch(theRepo, n, issue, { model, instruction, by, reuse, threadId, charting: true })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
     }
@@ -512,7 +598,7 @@ export class Dispatcher {
   // `reuse` (the resume contract, #81): a surviving worktree is inherited as it
   // stands — uncommitted files and local commits included — instead of being
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
-  async #dispatch(repo, n, issue, { model, instruction = null, by, reuse = false, threadId = null }) {
+  async #dispatch(repo, n, issue, { model, instruction = null, by, reuse = false, threadId = null, charting = false }) {
     const session = `curia-${n}`
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     // The type label, read once and used twice: it names the thread (#93) and
@@ -523,7 +609,16 @@ export class Dispatcher {
     // ROUTING — resolveModel reads `defaults.map` off the same loop — and unlike
     // any other for everything downstream of it: the prompt, the ending, the
     // tools curia will answer, and what report_result does.
-    const charting = typeLabel === MAP_LABEL
+    //
+    // The CALLER says which kind this is (#221), where #160 read it off the
+    // label: `start` never charts and `chart` always does, so a label alone can
+    // no longer answer the question. The label is still checked, as a belt —
+    // both mistakes are expensive (a charting agent on the ticket ending closes
+    // the map; a ticket agent on the charting ending lands no work), and this is
+    // the one place both are visible.
+    if (charting && typeLabel !== MAP_LABEL) {
+      return `❌ ${repo}#${n} is not a \`${MAP_LABEL}\` issue — curia dispatches no charting agent on it`
+    }
     const modelName = resolveModel(this.routing, labels, model)
     if (!this.routing.models[modelName]) {
       return `❌ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
@@ -556,13 +651,25 @@ export class Dispatcher {
     }
 
     const login = await this.deps.viewerLogin()
-    // The claim on a MAP is not a claim on a ticket — nothing takes a map off a
-    // frontier, because a map is never on one. What it buys is the serialisation
-    // the map body needs: `start`'s own "already assigned" anomaly refuses a
-    // second charting agent on the same map, and #withMapLock cannot help here
-    // because the agent, not the daemon, does the writing.
-    await this.deps.claim(repo, n, login)
-    this.store.logEvent('dispatch_claimed', { repo, ticket: n, agent: session, by: by ?? 'unknown', kind: charting ? 'charting' : 'ticket' })
+    // NO DISPATCH CLAIMS A MAP (#221). #160 claimed it to serialise the body
+    // edits; the operator ruled the claim wrong, because a claim's whole meaning
+    // is "off the frontier" and a map is never on one — so on a map it said
+    // nothing true and made the issue read as worked when it was being edited.
+    //
+    // What replaces it is the session name, which was already doing the work:
+    // a charting agent on map #147 is `curia-147`, and `chart` refuses a second
+    // one on the in-memory table and then on `tmux has-session` itself. That
+    // second guard is why this is a real lock and not an optimistic one — it
+    // asks tmux, so it survives a daemon restart.
+    //
+    // The journal line goes with it: `dispatch_claimed` records a claim, and
+    // recording one that never happened would send reconcile looking for an
+    // assignee to release. `agent_spawned` marks the epoch for a map instead —
+    // every epoch reader takes either event.
+    if (!charting) {
+      await this.deps.claim(repo, n, login)
+      this.store.logEvent('dispatch_claimed', { repo, ticket: n, agent: session, by: by ?? 'unknown', kind: 'ticket' })
+    }
 
     // The ticket label goes on at the claim (#93): `start` binds the thread it
     // ran in, an autonomous dispatch opens and binds a fresh one — so every
@@ -678,17 +785,27 @@ export class Dispatcher {
       // the bot (filterTakeable drops it from every frontier) while disarming
       // the very mechanism built to release it. unclaim_failed is NOT matched
       // by closedAfterEpoch, so the next reconcile retries the release.
+      //
+      // A charting dispatch took no claim (#221), so there is none to release
+      // and an unclaim here would be a write against an issue curia never
+      // touched. The failure message says so rather than reporting a release
+      // that did not happen.
       let released = false
-      try {
-        await this.deps.unclaim(repo, n, login)
-        released = true
-        this.store.logEvent('dispatch_unclaimed', { repo, ticket: n, agent: session, reason: e.message })
-      } catch (unclaimErr) {
-        this.store.logEvent('unclaim_failed', { repo, ticket: n, agent: session, reason: e.message, error: unclaimErr.message })
+      if (!charting) {
+        try {
+          await this.deps.unclaim(repo, n, login)
+          released = true
+          this.store.logEvent('dispatch_unclaimed', { repo, ticket: n, agent: session, reason: e.message })
+        } catch (unclaimErr) {
+          this.store.logEvent('unclaim_failed', { repo, ticket: n, agent: session, reason: e.message, error: unclaimErr.message })
+        }
       }
       // The binding stays (#140): a failed dispatch is a claim release, not a
       // ticket-terminal state — the retry's traffic belongs in the same thread.
-      return `⚠️ dispatch of ${repo}#${n} failed before the agent could run: ${e.message} — ${released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'}`
+      const claimTail = charting
+        ? 'the map was never claimed, so nothing was released — `map ' + n + '` again when the cause is fixed'
+        : released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'
+      return `⚠️ dispatch of ${repo}#${n} failed before the agent could run: ${e.message} — ${claimTail}`
     }
   }
 
@@ -1706,6 +1823,15 @@ export class Dispatcher {
       this.#endReviewWait(agent.ticket, `the reviewer ended — ${reason}`)
       return true
     }
+    // #221: a charting agent holds no claim either, for the reason a reviewer
+    // holds none — nothing put one there. Unclaiming here would write to a map
+    // curia never assigned, and on a map an operator HAS assigned by hand it
+    // would quietly undo them. Same choke point, same guard, one line apart.
+    if (agent.charting) {
+      if (!keepCredentials) this.deps.removeCredentials(agent.cfgDir ?? cfgDirFor(this.root, agent.session))
+      this.store.logEvent('charting_ended', { repo: agent.repo, map: agent.ticket, ticket: agent.ticket, agent: agent.session, reason })
+      return true
+    }
     let released = false
     let failure = null
     const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
@@ -1735,6 +1861,9 @@ export class Dispatcher {
   // rather than repeated at four call sites that would each have to remember.
   #releaseTail(agent, released) {
     if (agent.reviewer) return 'the cross-check ends with no verdict; the builder and its claim are untouched'
+    // #221: a map dispatch claims nothing, so there is no claim to report on.
+    // What the operator needs instead is that the map may be half-edited.
+    if (agent.charting) return 'the map was never claimed, so nothing was released — whatever the agent already wrote to the map STANDS'
     return released
       ? 'claim released, ticket re-frontiered'
       : 'claim release FAILED: the issue is still assigned; reconcile will retry'
@@ -2378,28 +2507,30 @@ export class Dispatcher {
     return text
   }
 
-  // The map dispatch's whole ending (#160). Three acts, and each one is the
-  // opposite of the ticket path's:
+  // The map dispatch's whole ending (#160, narrowed by #221). Two acts now:
   //
   //   1. COMMENT — curia posts the agent's summary on the map, so the change
   //      has a dated record beside the body it changed. The ticket path only
   //      comments as a repair; here it is the point.
-  //   2. UNCLAIM — the map goes back to unassigned. The ticket path closes; a
-  //      map is the standing artifact and closing it would take the whole effort
-  //      off every frontier.
-  //   3. Nothing else. No close, no Decisions-so-far line, no branch, no
-  //      merge check.
+  //   2. Nothing else. No unclaim (#221 took the claim away, so there is
+  //      nothing to release), no close, no Decisions-so-far line, no branch,
+  //      no merge check. A map is the standing artifact, and closing it would
+  //      take the whole effort off every frontier.
   //
   // The map edits themselves are NOT verified or repaired here, and cannot be:
   // curia has no expected value for a charting session, which is the same reason
   // #49 gave for having no verification gate at all. What the daemon can do is
   // say plainly what it did and did not check.
   async #finishCharting(agentName, repo, ticket, result, w, instruction) {
-    const record = w ?? { repo, ticket, session: agentName }
+    // `charting: true` is asserted, never inherited: this function is reached
+    // only through #epochCharting saying so, and after a restart `w` is null —
+    // the case where reading the flag off the record would silently unclaim a
+    // map curia never assigned (#221).
+    const record = { ...(w ?? { repo, ticket, session: agentName }), charting: true }
     // The agent is still alive at report_result, so its credential copy stays
     // until the session is positively gone — the #noteNonClean rule, same
     // reason (#34's snapshot bound).
-    const released = await this.#releaseClaim(record, 'charting agent reported in', { keepCredentials: true })
+    await this.#releaseClaim(record, 'charting agent reported in', { keepCredentials: true })
     let noted = false
     try {
       await this.deps.commentIssue(repo, ticket, chartingComment({
@@ -2410,12 +2541,13 @@ export class Dispatcher {
       this.log(`could not post the charting summary on ${repo}#${ticket}: ${e.message}`)
     }
     this.store.logEvent('charting_finished', {
-      repo, map: ticket, ticket, agent: agentName, status: result.status, commented: noted, released,
+      repo, map: ticket, ticket, agent: agentName, status: result.status, commented: noted,
     })
     const clean = result.status === 'resolved'
     const bits = [
       noted ? 'summary posted on the map' : '⚠️ the summary comment could NOT be posted',
-      released ? 'map unassigned' : '⚠️ the map is still assigned to the bot; reconcile will retry',
+      // #221: nothing to unassign — the dispatch never claimed the map.
+      'the map was never claimed',
       'the map stays open',
     ]
     this.notify(ticket, `${clean ? '🗺️' : '↩️'} ${repo}#${ticket} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`)
@@ -2939,25 +3071,31 @@ export class Dispatcher {
     // does not match, so reconcile retries the release); and the untracked
     // branch — whose own message says the GitHub claim was untouched —
     // writes no unclaim event at all.
+    //
+    // A cancelled MAP dispatch has no claim to release (#221) — the same guard
+    // #releaseClaim carries, at the other teardown path.
+    const charting = Boolean(w?.charting) || (!w && this.#epochCharting(ticket, session).charting)
     let released = false
     let failure = null
     if (w) {
       await this.deps.removeWorktree(basePathFor(this.root, w.repo), w.wtPath).catch((e) => this.log(`worktree removal for ${session} failed:`, e.message))
-      const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
-      if (login) {
-        try {
-          await this.deps.unclaim(w.repo, ticket, login)
-          released = true
-        } catch (e) {
-          failure = e.message
-          this.log(`unclaim ${w.repo}#${ticket} failed:`, e.message)
+      if (!charting) {
+        const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
+        if (login) {
+          try {
+            await this.deps.unclaim(w.repo, ticket, login)
+            released = true
+          } catch (e) {
+            failure = e.message
+            this.log(`unclaim ${w.repo}#${ticket} failed:`, e.message)
+          }
         }
       }
     }
     this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
     this.deps.forgetAgentToken(this.dataDir, session)
     this.agents.delete(session)
-    if (w) {
+    if (w && !charting) {
       if (released) {
         this.store.logEvent('dispatch_unclaimed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown' })
       } else {
@@ -2968,7 +3106,9 @@ export class Dispatcher {
     // above cannot carry it because an untracked cancel writes none.
     this.store.logEvent('agent_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
     const tail = w
-      ? (released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
+      ? (charting
+        ? ', checkout removed — the map was never claimed, and whatever the agent already wrote to it STANDS'
+        : released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
       : ' (was untracked; GitHub claim untouched)'
     const msg = `⚰️ \`${session}\` cancelled — session killed${tail}${reviewerLine ? `\n${reviewerLine}` : ''}`
     this.notify(ticket, msg)
@@ -3027,11 +3167,19 @@ export class Dispatcher {
     // A resumed map dispatch inherits the instruction that rode the original
     // one (#160). Without it the fresh charting agent would open by asking what
     // should change — a question the operator already answered, into a session
-    // that is gone. `start` re-reads the label and decides again, so an issue
-    // that is no longer a map degrades to an ordinary dispatch and the inherited
-    // sentence is dropped, never refused (the `!reuse` clause in start).
-    const { instruction } = this.#epochCharting(ticket, session)
-    return this.start(ticket, { repo, model: model ?? this.#inheritedModel(session), instruction, by, reuse: true, threadId })
+    // that is gone.
+    //
+    // #221 moved the decision here from the label. `resume` names a SESSION, and
+    // what that session was doing is a journal fact — reading it off the issue
+    // would send a resumed charting agent to `start`, which on a map number now
+    // dispatches a child ticket instead. So a charting epoch resumes through
+    // `chart`, and `chart` refuses an issue that has since lost the map label
+    // rather than guessing: there is no map left to chart, and `start <n>` is
+    // the verb for what the issue has become.
+    const { charting, instruction } = this.#epochCharting(ticket, session)
+    const inherited = { repo, model: model ?? this.#inheritedModel(session), by, reuse: true, threadId }
+    if (charting) return this.chart(ticket, { ...inherited, instruction })
+    return this.start(ticket, inherited)
   }
 
   // What a resume runs on (#177). Resume re-routed from the labels, so a ticket
@@ -3224,21 +3372,24 @@ export class Dispatcher {
     // request keeps the claim (awaiting review), anything else releases it.
     // Unreadable evidence decides nothing — reconcile retries.
     let claimLine
-    try {
-      const outcome = await this.#settleDeadClaim({ repo, ticket, session })
-      // A released MAP claim is not a re-frontiering: a map is never on a
-      // frontier, so nothing will pick it up again on its own (#160). Saying so
-      // matters — the operator has to know the next move is theirs.
-      const charting = this.#epochCharting(ticket, session).charting
-      claimLine = {
-        kept: 'its pull request is open and awaiting review, so the claim stays',
-        released: charting
-          ? 'the map is unassigned again, and whatever this agent already wrote to it STANDS'
-          : 'claim released, ticket re-frontiered',
-        'not-ours': charting ? 'the map is no longer claimed by curia' : 'the ticket is no longer claimed by curia',
-      }[outcome]
-    } catch (e) {
-      claimLine = `the claim decision failed (${e.message}) — reconcile will retry`
+    // A map dispatch holds no claim (#221), so there is no claim decision to
+    // take and #settleDeadClaim would read GitHub twice to answer "not ours".
+    // What the operator needs is the other fact: a map is never on a frontier,
+    // so nothing picks this up again on its own, and the half-finished edits are
+    // already live on the body.
+    if (this.#epochCharting(ticket, session).charting) {
+      claimLine = 'the map was never claimed, and whatever this agent already wrote to it STANDS'
+    } else {
+      try {
+        const outcome = await this.#settleDeadClaim({ repo, ticket, session })
+        claimLine = {
+          kept: 'its pull request is open and awaiting review, so the claim stays',
+          released: 'claim released, ticket re-frontiered',
+          'not-ours': 'the ticket is no longer claimed by curia',
+        }[outcome]
+      } catch (e) {
+        claimLine = `the claim decision failed (${e.message}) — reconcile will retry`
+      }
     }
     const escLine = open.length
       ? ` ${open.length} open question(s) — ${open.map((r) => `**${r.id}**`).join(', ')} — stay answerable: an answer there is recorded and handed to the resumed agent.`

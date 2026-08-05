@@ -13,6 +13,10 @@
 //       (field-notes contract 6: the repo-qualified form, needed so a user
 //       can satisfy the ambiguity-refusal path's recommended qualified
 //       `owner/repo#n` reply -- plan.md step 8's `start`.)
+//     'map <n> [model=x] [-- <instruction>]'
+//                                       -> { verb: 'map', ticket, model?, instruction? }
+//       (#221: charting's own verb. `start` no longer means charting on a map
+//       number, so the instruction moved off it with the meaning.)
 //     'cancel <n>' | 'cancel all'      -> { verb: 'cancel', ticket } | { verb: 'cancel', all: true }
 //     'resume <n> [model=x]'           -> { verb: 'resume', ticket, model? }
 //     'resume all'                     -> { verb: 'resume', all: true }
@@ -146,18 +150,44 @@ describe('parseCommand', () => {
     assert.equal(c.model, 'opus')
   })
 
-  // #160: the map instruction. Every other argument on this seam is one
-  // whitespace-free token, because the seam is a line that gets split on
-  // whitespace — a whole operator sentence needs a boundary, and `--` is it.
-  test('start carries a free-text instruction after a bare --', () => {
-    const c = parseCommand('start 147 -- update the landing page map so that X')
-    assert.equal(c.verb, 'start')
+  // #221: `start` carries NO instruction. It stopped meaning charting, so the
+  // one argument that was a whole sentence went with the meaning.
+  test('start refuses an instruction', () => {
+    assert.equal(parseCommand('start 147 -- update the landing page map so that X'), null)
+    assert.equal(parseCommand('start 147 model=opus -- do X'), null)
+  })
+
+  test('the refusal names the verb that does take one, like harness= does', async () => {
+    const router = new CommandRouter({
+      dispatcher: { routing: { harnesses: {} }, config: { watch: [] } },
+      attach: {},
+      log: () => {},
+    })
+    const reply = await router.handle('start 147 -- update the map', 'user-1')
+    assert.match(reply, /`start` carries no instruction/)
+    assert.match(reply, /map <n> -- <sentence>/)
+  })
+
+  test('a bare -- inside a longer start line is still refused, not silently dropped', () => {
+    // The dangerous shape: parsing this as `start 147` would dispatch a ticket
+    // and throw the operator's sentence away with no word said.
+    assert.equal(parseCommand('start cur#147 model=opus -- add a ticket'), null)
+  })
+
+  // #160's instruction, moved to `map` by #221. Every other argument on this
+  // seam is one whitespace-free token, because the seam is a line that gets
+  // split on whitespace — a whole operator sentence needs a boundary, and `--`
+  // is it.
+  test('map carries a free-text instruction after a bare --', () => {
+    const c = parseCommand('map 147 -- update the landing page map so that X')
+    assert.equal(c.verb, 'map')
     assert.equal(c.ticket, '147')
     assert.equal(c.instruction, 'update the landing page map so that X')
   })
 
   test('the instruction sits after the options, and takes everything to the end', () => {
-    const c = parseCommand('start cur#147 model=opus -- add a ticket, then wire it -- and say so')
+    const c = parseCommand('map cur#147 model=opus -- add a ticket, then wire it -- and say so')
+    assert.equal(c.verb, 'map')
     assert.equal(c.repoArg, 'cur')
     assert.equal(c.model, 'opus')
     // from the FIRST `--` onward, so a sentence carrying one survives the round
@@ -165,38 +195,72 @@ describe('parseCommand', () => {
     assert.equal(c.instruction, 'add a ticket, then wire it -- and say so')
   })
 
-  test('a start with no -- carries no instruction at all', () => {
-    assert.equal(parseCommand('start 147').instruction, undefined)
-    assert.equal(parseCommand('start 147 model=opus').instruction, undefined)
+  test('map takes the same issue-reference forms start takes', () => {
+    // One parser behind both verbs (#221): the repo-qualified forms the
+    // ambiguity refusals recommend by name have to parse back on either.
+    assert.equal(parseCommand('map alp82/curia#147').repo, 'alp82/curia')
+    assert.equal(parseCommand('map alp82/curia#147').ticket, '147')
+    assert.equal(parseCommand('map cur#147').repoArg, 'cur')
+    assert.equal(parseCommand('map 147 model=opus').model, 'opus')
+    assert.equal(parseCommand('map'), null)
+    assert.equal(parseCommand('map banana'), null)
+  })
+
+  test('a map with no -- carries no instruction at all', () => {
+    // The agent then opens with the "what should change?" escalation (#160).
+    assert.equal(parseCommand('map 147').instruction, undefined)
+    assert.equal(parseCommand('map 147 model=opus').instruction, undefined)
   })
 
   test('a bare -- with nothing after it is refused, not read as an empty instruction', () => {
     // It would silently dispatch the "what should change?" escalation the
     // operator was trying to skip.
-    assert.equal(parseCommand('start 147 --'), null)
-    assert.equal(parseCommand('start 147 --   '), null)
+    assert.equal(parseCommand('map 147 --'), null)
+    assert.equal(parseCommand('map 147 --   '), null)
   })
 
   test('an option AFTER the -- is instruction text, not a refused option', () => {
-    const c = parseCommand('start 147 -- use model=opus wording in the note')
+    const c = parseCommand('map 147 -- use model=opus wording in the note')
     assert.equal(c.model, undefined)
     assert.equal(c.instruction, 'use model=opus wording in the note')
   })
 
-  test('the instruction reaches the dispatcher', async () => {
+  test('the instruction reaches the dispatcher, on chart and never on start', async () => {
     const seen = []
     const router = new CommandRouter({
       dispatcher: {
         routing: { harnesses: { claude: {} } },
         config: { watch: [{ repo: 'alp82/curia' }] },
-        start: async (ticket, opts) => { seen.push({ ticket, ...opts }); return 'ok' },
+        start: async (ticket, opts) => { seen.push({ verb: 'start', ticket, ...opts }); return 'ok' },
+        chart: async (ticket, opts) => { seen.push({ verb: 'map', ticket, ...opts }); return 'ok' },
       },
       attach: {},
       log: () => {},
     })
-    await router.handle('start 147 -- chart the cooling signal', 'user-1')
+    await router.handle('map 147 -- chart the cooling signal', 'user-1')
+    assert.equal(seen[0].verb, 'map')
     assert.equal(seen[0].ticket, '147')
     assert.equal(seen[0].instruction, 'chart the cooling signal')
+    await router.handle('start 147', 'user-1')
+    assert.equal(seen[1].verb, 'start')
+    assert.equal(seen[1].instruction, undefined)
+  })
+
+  test('map resolves a fuzzy repo through the same matcher start uses', async () => {
+    const seen = []
+    const router = new CommandRouter({
+      dispatcher: {
+        routing: { harnesses: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }] },
+        chart: async (ticket, opts) => { seen.push({ ticket, ...opts }); return 'ok' },
+      },
+      attach: {},
+      log: () => {},
+    })
+    await router.handle('map cur#147 -- do X', 'user-1')
+    assert.equal(seen[0].repo, 'alp82/curia')
+    const reply = await router.handle('map nope#147', 'user-1')
+    assert.match(reply, /no watched repo matches/)
   })
 
   test('cancel', () => {

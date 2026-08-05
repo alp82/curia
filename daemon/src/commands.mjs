@@ -13,10 +13,11 @@ import { clampList } from './messaging.mjs'
 // against the watch list (see #matchRepo), so `cur` is as valid as `alp82/curia`.
 const REPOISH_RE = /^[\w./-]+$/
 
-// The instruction separator on `start` (#160). Every other argument on this
-// seam is one whitespace-free token, because the seam itself is one line of
-// text that gets split on whitespace — and a map dispatch has to carry a whole
-// operator sentence ("update the landing page map so that X").
+// The instruction separator on `map` (#160, moved off `start` by #221). Every
+// other argument on this seam is one whitespace-free token, because the seam
+// itself is one line of text that gets split on whitespace — and a map update
+// has to carry a whole operator sentence ("update the landing page map so that
+// X").
 //
 // A bare `--` is the boundary: everything before it parses as before, and
 // everything after it is the instruction, joined back with single spaces. The
@@ -24,6 +25,13 @@ const REPOISH_RE = /^[\w./-]+$/
 // so a sentence that itself contains ` -- ` survives canonicalFor → parseCommand
 // unchanged.
 const INSTRUCTION_SEP = '--'
+
+// #221: `start` carries no instruction any more, because it no longer charts.
+// The parser refuses the shape and the router names the verb that does take
+// one — the same treatment `harness=` got, and for the same reason: an operator
+// with muscle memory deserves the rule, not the whole catalogue.
+const START_INSTRUCTION_RE = /^start\b.*(^|\s)--(\s|$)/
+const START_INSTRUCTION_GONE = '`start` carries no instruction — it works a ticket. `start <map>` now dispatches that map\'s next takeable ticket, and `map <n> -- <sentence>` is how a map itself is updated.'
 
 // #177: `harness=` is gone from every surface. The harness is a FUNCTION of the
 // model — `models.<x>.harness` holds one value — so every value the daemon could
@@ -34,8 +42,50 @@ const INSTRUCTION_SEP = '--'
 const HARNESS_OPT_RE = /(^|\s)harness=/
 const HARNESS_GONE = '`harness=` is gone — the harness follows the model, so `model=` is the whole override. To run a model on another harness, add a row to `routing.yaml`.'
 
+// An issue reference plus `model=` options, shared by `start` and `map` (#221).
+// Both verbs name an issue in a watched repo and both take the model override;
+// only `map` takes a trailing instruction. Written once so the two verbs cannot
+// drift apart on the repo-qualified forms, which the ambiguity refusals
+// recommend by name and therefore have to parse back.
+function parseIssueRef(cmd, rest, { instruction: takesInstruction = false } = {}) {
+  if (!rest.length) return null
+  let m
+  if ((m = rest[0].match(/^(\d+)$/))) {
+    cmd.ticket = m[1]
+  } else if ((m = rest[0].match(/^([\w.-]+\/[\w.-]+)#(\d+)$/))) {
+    // field-notes contract 6: the repo-qualified form the ambiguity
+    // refusal recommends must itself parse
+    cmd.repo = m[1]
+    cmd.ticket = m[2]
+  } else if ((m = rest[0].match(/^([\w.-]+)#(\d+)$/))) {
+    // the fuzzy form `tickets`/`next` accept — the overseer reuses it on
+    // start, so an unslashed repo resolves through the same matcher
+    cmd.repoArg = m[1]
+    cmd.ticket = m[2]
+  } else {
+    return null
+  }
+  const sep = takesInstruction ? rest.indexOf(INSTRUCTION_SEP) : -1
+  const opts = sep === -1 ? rest.slice(1) : rest.slice(1, sep)
+  for (const opt of opts) {
+    const om = opt.match(/^model=([\w.-]+)$/)
+    if (!om) return null
+    cmd.model = om[1]
+  }
+  if (sep !== -1) {
+    // `--` with nothing after it is a typo, not an empty instruction: it
+    // would dispatch the "what should change?" escalation the operator was
+    // trying to skip.
+    const instruction = rest.slice(sep + 1).join(' ').trim()
+    if (!instruction) return null
+    cmd.instruction = instruction
+  }
+  return cmd
+}
+
 // 'tickets [repo]' | 'next [repo]' | 'status'
-// | 'start <n>|<owner/repo#n> [model=x] [-- <instruction>]'
+// | 'start <n>|<owner/repo#n> [model=x]'
+// | 'map <n>|<owner/repo#n> [model=x] [-- <instruction>]'
 // | 'cancel <n>|all' | 'resume <n> [model=x]' | 'resume all' | 'attach <n>'
 // — anything else ⇒ null.
 export function parseCommand(text) {
@@ -51,42 +101,16 @@ export function parseCommand(text) {
     }
     case 'status':
       return rest.length ? null : { verb: 'status' }
-    case 'start': {
-      if (!rest.length) return null
-      const cmd = { verb: 'start' }
-      let m
-      if ((m = rest[0].match(/^(\d+)$/))) {
-        cmd.ticket = m[1]
-      } else if ((m = rest[0].match(/^([\w.-]+\/[\w.-]+)#(\d+)$/))) {
-        // field-notes contract 6: the repo-qualified form the ambiguity
-        // refusal recommends must itself parse
-        cmd.repo = m[1]
-        cmd.ticket = m[2]
-      } else if ((m = rest[0].match(/^([\w.-]+)#(\d+)$/))) {
-        // the fuzzy form `tickets`/`next` accept — the overseer reuses it on
-        // start, so an unslashed repo resolves through the same matcher
-        cmd.repoArg = m[1]
-        cmd.ticket = m[2]
-      } else {
-        return null
-      }
-      const sep = rest.indexOf(INSTRUCTION_SEP)
-      const opts = sep === -1 ? rest.slice(1) : rest.slice(1, sep)
-      for (const opt of opts) {
-        const om = opt.match(/^model=([\w.-]+)$/)
-        if (!om) return null
-        cmd.model = om[1]
-      }
-      if (sep !== -1) {
-        // `--` with nothing after it is a typo, not an empty instruction: it
-        // would dispatch the "what should change?" escalation the operator was
-        // trying to skip.
-        const instruction = rest.slice(sep + 1).join(' ').trim()
-        if (!instruction) return null
-        cmd.instruction = instruction
-      }
-      return cmd
-    }
+    // One meaning for one verb (#221): `start` works the thing. On a ticket it
+    // dispatches that ticket; on a map it dispatches the map's next takeable
+    // ticket. It never charts, and it never carries an instruction.
+    case 'start':
+      return parseIssueRef({ verb: 'start' }, rest)
+    // The map-update verb (#221), replacing `start <map> -- <instruction>`.
+    // The operator's own word, ruled over `chart` on the grounds that it is the
+    // word they already reach for.
+    case 'map':
+      return parseIssueRef({ verb: 'map' }, rest, { instruction: true })
     case 'cancel': {
       if (rest.length !== 1) return null
       if (rest[0] === 'all') return { verb, all: true }
@@ -142,7 +166,8 @@ const USAGE = [
   '`next [repo]` — dispatch the next takeable ticket',
   '`status` — agents running, agents waiting on input, recent cancelled and finished',
   '`start <n>|repo#<n> [model=x]` — claim + dispatch an agent (repo: any unambiguous part of the name)',
-  '`start <map> -- <instruction>` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after `--` is what it should change',
+  '`start <map>` — dispatch that map\'s next takeable ticket',
+  '`map <n> [-- <instruction>]` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after `--` is what it should change',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree and the model it last ran on',
   '`attach <n>` — timeline + browser-terminal links for a live agent',
@@ -168,7 +193,9 @@ export class CommandRouter {
   async handle(canonical, userId, { threadId = null, interpreted = false } = {}) {
     const cmd = parseCommand(canonical)
     if (!cmd) {
-      const why = HARNESS_OPT_RE.test(canonical) ? `${HARNESS_GONE}\n` : ''
+      let why = ''
+      if (HARNESS_OPT_RE.test(canonical)) why = `${HARNESS_GONE}\n`
+      else if (START_INSTRUCTION_RE.test(canonical)) why = `${START_INSTRUCTION_GONE}\n`
       return `❌ could not parse \`${canonical}\`\n${why}${USAGE}`
     }
     try {
@@ -189,13 +216,17 @@ export class CommandRouter {
         case 'status':
           return await this.#status()
         case 'start': {
-          if (cmd.repoArg) {
-            const repo = this.#matchRepo(cmd.repoArg)
-            if (repo.error) return repo.error
-            cmd.repo = repo.repo
-          }
+          const repo = this.#dispatchRepo(cmd)
+          if (repo.error) return repo.error
           return await this.dispatcher.start(cmd.ticket, {
-            repo: cmd.repo, model: cmd.model, instruction: cmd.instruction,
+            repo: repo.repo, model: cmd.model, by: userId, threadId,
+          })
+        }
+        case 'map': {
+          const repo = this.#dispatchRepo(cmd)
+          if (repo.error) return repo.error
+          return await this.dispatcher.chart(cmd.ticket, {
+            repo: repo.repo, model: cmd.model, instruction: cmd.instruction,
             by: userId, threadId,
           })
         }
@@ -218,6 +249,14 @@ export class CommandRouter {
       this.log(`command "${canonical}" failed:`, e.message)
       return `⚠️ \`${cmd.verb}\` failed: ${e.message}`
     }
+  }
+
+  // The repo a dispatch verb runs against: the qualified form as typed, or the
+  // fuzzy one resolved against the watch list. `start` and `map` share it
+  // (#221) so one verb cannot accept a repo shape the other refuses.
+  #dispatchRepo(cmd) {
+    if (!cmd.repoArg) return { repo: cmd.repo }
+    return this.#matchRepo(cmd.repoArg)
   }
 
   // #81: a repo argument matches on any unambiguous substring of a watched

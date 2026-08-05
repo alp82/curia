@@ -103,36 +103,48 @@ describe('canonicalFor', () => {
     assert.throws(() => canonicalFor('reboot', {}))
   })
 
-  // #160: the map instruction crosses the same canonical-text seam as every
-  // other argument, so the two ends are pinned against each other here and in
-  // commands.test.mjs.
-  test('a map instruction rides start last, after a bare --', () => {
+  // #160's instruction crosses the same canonical-text seam as every other
+  // argument, so the two ends are pinned against each other here and in
+  // commands.test.mjs. #221 moved it from `start` to `map`.
+  test('a map instruction rides map last, after a bare --', () => {
     assert.equal(
-      canonicalFor('start', { ticket: '147', instruction: 'update the map so that X' }),
-      'start 147 -- update the map so that X',
+      canonicalFor('map', { ticket: '147', instruction: 'update the map so that X' }),
+      'map 147 -- update the map so that X',
     )
     assert.equal(
-      canonicalFor('start', { ticket: '147', repo: 'cur', model: 'opus', instruction: 'add a ticket' }),
-      'start cur#147 model=opus -- add a ticket',
+      canonicalFor('map', { ticket: '147', repo: 'cur', model: 'opus', instruction: 'add a ticket' }),
+      'map cur#147 model=opus -- add a ticket',
     )
   })
 
   test('the instruction is collapsed to one line — the seam is one line of text', () => {
     assert.equal(
-      canonicalFor('start', { ticket: '147', instruction: '  add a ticket\nthen wire it  ' }),
-      'start 147 -- add a ticket then wire it',
+      canonicalFor('map', { ticket: '147', instruction: '  add a ticket\nthen wire it  ' }),
+      'map 147 -- add a ticket then wire it',
     )
   })
 
   test('an empty instruction posts no -- at all', () => {
-    assert.equal(canonicalFor('start', { ticket: '147', instruction: '' }), 'start 147')
-    assert.equal(canonicalFor('start', { ticket: '147', instruction: '   ' }), 'start 147')
+    assert.equal(canonicalFor('map', { ticket: '147', instruction: '' }), 'map 147')
+    assert.equal(canonicalFor('map', { ticket: '147', instruction: '   ' }), 'map 147')
+  })
+
+  // #221: `start` no longer charts, so it can no longer carry a sentence. A
+  // model that writes one anyway must not produce text the router refuses —
+  // the same treatment `harness=` gets above.
+  test('an instruction handed to start is dropped, never composed into the text', () => {
+    assert.equal(canonicalFor('start', { ticket: '147', instruction: 'update the map' }), 'start 147')
+    assert.equal(
+      canonicalFor('start', { ticket: '147', model: 'opus', instruction: 'update the map' }),
+      'start 147 model=opus',
+    )
+    assert.ok(parseCommand(canonicalFor('start', { ticket: '147', instruction: 'x' })))
   })
 
   test('what canonicalFor writes, parseCommand reads back', () => {
-    const text = canonicalFor('start', { ticket: '147', model: 'opus', instruction: 'chart the fog -- all of it' })
+    const text = canonicalFor('map', { ticket: '147', model: 'opus', instruction: 'chart the fog -- all of it' })
     assert.deepEqual(parseCommand(text), {
-      verb: 'start', ticket: '147', model: 'opus', instruction: 'chart the fog -- all of it',
+      verb: 'map', ticket: '147', model: 'opus', instruction: 'chart the fog -- all of it',
     })
   })
 })

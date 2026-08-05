@@ -1,7 +1,7 @@
 # ADR-0008: Resolved means merged
 
 **Status**: accepted (2026-07)
-**Provenance**: [The PR gap (#48)](https://github.com/alp82/curia/issues/48), [Build the merge-gated resolution lifecycle (#54)](https://github.com/alp82/curia/issues/54), [Map dispatch (#160)](https://github.com/alp82/curia/issues/160)
+**Provenance**: [The PR gap (#48)](https://github.com/alp82/curia/issues/48), [Build the merge-gated resolution lifecycle (#54)](https://github.com/alp82/curia/issues/54), [Map dispatch (#160)](https://github.com/alp82/curia/issues/160), [Map updates get their own verb (#221)](https://github.com/alp82/curia/issues/221)
 
 ## Context
 
@@ -19,11 +19,13 @@ The full-loop rehearsal closed a ticket and wrote its map pointer while the code
 
 ## Deviations
 
-**The map dispatch (#160, deciding #149).** `start` on a map's own issue spawns a charting agent, and this ADR does not apply to it. A charting agent's output is the map itself — issue bodies and child issues, inside an ordinary agent's write bounds — so there is no branch to stage it in, nothing for a pull request to carry, and nothing for a review gate to show. It therefore never merges, never resolves, and never closes the map. It ends on two steps: edit the map, then `report_result`. Curia posts that summary as a comment on the map and unassigns it.
+**The map dispatch (#160, deciding #149; the verb moved by #221).** `map <n>` on a map's own issue spawns a charting agent, and this ADR does not apply to it. A charting agent's output is the map itself — issue bodies and child issues, inside an ordinary agent's write bounds — so there is no branch to stage it in, nothing for a pull request to carry, and nothing for a review gate to show. It therefore never merges, never resolves, and never closes the map. It ends on two steps: edit the map, then `report_result`. Curia posts that summary as a comment on the map.
 
 What replaces the gate is the operator, per [#149](https://github.com/alp82/curia/issues/149): the dispatch is a deliberate act carrying their own instruction, and the map routes to the strongest claude-harness model. Two things hold the exception in place rather than leaving it to the prompt. The daemon refuses `open_pull_request` and `request_review` on a charting agent, so an agent that has misread its own kind is not one call away from pushing a branch. And the dispatch's kind is journalled at the spawn, so a restarted daemon still knows which of the two endings it is holding an agent to — reading a charting agent as a ticket one would close the map, which takes a whole effort off every frontier.
 
-The claim keeps its second meaning here: assigning the map takes nothing off a frontier, and stops a second charting agent from editing the same body under the first.
+**The verb and the claim ([#221](https://github.com/alp82/curia/issues/221)).** #160 put charting on `start`, which gave one word two meanings: `start <n>` worked a ticket and `start <map>` charted. The operator ruled the overload confusing after using it. `start` now has one meaning everywhere — work the thing — and on a map number it dispatches that map's next takeable ticket. Charting has its own verb.
+
+No dispatch claims a map. #160 assigned the map to serialize the body edits, and a claim's whole meaning is "off a frontier" — a map is never on one, so the assignee said nothing true and made the issue read as worked. The lock that replaces it was already there: a charting agent on map #147 runs in session `curia-147`, and `map 147` is refused while that session lives. The check asks `tmux has-session` rather than daemon memory, so it survives a restart and catches a session reconcile has not adopted yet. It is per box, and there is one box.
 
 The #54 sketch made the gate a bare `ask_human(approve-reject)`. It shipped as its own tool and escalation kind, `request_review`, for three reasons the plain form cannot meet: the daemon composes every link from its own records so an agent cannot forge them, the daemon can tell the gate apart from any other block, and the approval becomes a durable journal fact only the daemon can stage. The gate requires a concrete `charting` field, per [ADR-0006](0006-worker-containment-and-standing-orders.md).
 

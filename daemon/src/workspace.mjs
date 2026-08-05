@@ -1131,8 +1131,10 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     `- **This is a MAP DISPATCH.** ${repo}#${n} is the map itself, not a ticket under it. Your job is to`,
     '  CHANGE THE MAP: its body sections, and its child tickets. Do not choose a frontier ticket, and do',
     '  not resolve one. The skill\'s step "choose the ticket" does not apply to this session.',
-    `- The map is ${repo}#${n} — ${ticketUrl}. curia has loaded it for you, and has assigned it to`,
-    '  you while you work, so a second charting agent cannot edit it under you.',
+    `- The map is ${repo}#${n} — ${ticketUrl}. curia has loaded it for you. It has NOT assigned the map`,
+    '  to you, and no dispatch ever does (#221): a claim means "off the frontier", and a map is never on',
+    '  one. What keeps a second charting agent off this body is the session name — curia refuses a second',
+    `  \`map ${n}\` while yours runs. So leave the map's assignee exactly as you found it.`,
     ...(instruction
       ? [
         '- **What the operator asked for**, in their own words:',
