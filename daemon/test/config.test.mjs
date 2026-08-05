@@ -416,6 +416,7 @@ describe('timeline config (#74)', () => {
         '  codex_version: 0.146.0',
         '  gh_version: 2.97.0',
         '  playwright_version: 1.62.1',
+        '  ttyd_version: 1.7.7',
         '  agent_uid: 1000',
         '  port_from: 9000',
         '  port_to: 9299',

@@ -49,7 +49,7 @@ export const BUILD_TIMEOUT_MS = 10 * 60_000
 // Every ARG the Dockerfile declares, in the order it declares them. Kept as
 // one list because it is the contract between the two files: an ARG added
 // there and missed here would build with the empty string and pin nothing.
-const BUILD_ARGS = ['CLAUDE_VERSION', 'CODEX_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'AGENT_UID']
+const BUILD_ARGS = ['CLAUDE_VERSION', 'CODEX_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION', 'AGENT_UID']
 
 // The pins as they are named in config/curia.yaml, mapped to the ARG each one
 // feeds. `agent_uid` is the one that is not a version: it must match the host
@@ -59,6 +59,7 @@ export const SANDBOX_KEYS = {
   codex_version: 'CODEX_VERSION',
   gh_version: 'GH_VERSION',
   playwright_version: 'PLAYWRIGHT_VERSION',
+  ttyd_version: 'TTYD_VERSION',
   agent_uid: 'AGENT_UID',
 }
 

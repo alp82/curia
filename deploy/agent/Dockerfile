@@ -22,6 +22,7 @@ ARG CLAUDE_VERSION
 ARG CODEX_VERSION
 ARG GH_VERSION
 ARG PLAYWRIGHT_VERSION
+ARG TTYD_VERSION
 # The agent uid must match the host user that owns the mounted clone and cfg
 # dir, or the agent cannot write its own worktree. The box runs the daemon as
 # uid 1000 (`alp`).
@@ -35,7 +36,10 @@ ENV LANG=C.UTF-8 \
 
 # git, gh, curl, ripgrep and build essentials are the set #148 named. procps
 # and less are what make an interactive shell usable (`ps`, the git pager);
-# ca-certificates is what makes every https fetch below work at all.
+# ca-certificates is what makes every https fetch below work at all. tmux is
+# for the daemon's own test suite (#231): without it, three describes in
+# tmux.test.mjs — the #141 wedged-tmux classification guard — skip in every
+# agent container. Unpinned like the rest of the apt set.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -46,7 +50,8 @@ RUN set -eux; \
       less \
       procps \
       python3 \
-      ripgrep; \
+      ripgrep \
+      tmux; \
     rm -rf /var/lib/apt/lists/*
 
 # gh from the upstream release, not from apt: Debian 12 ships gh 2.23 (2023),
@@ -60,6 +65,21 @@ RUN set -eux; \
     install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${arch}/bin/gh" /usr/local/bin/gh; \
     rm -rf /tmp/gh.tgz "/tmp/gh_${GH_VERSION}_linux_${arch}"; \
     gh --version
+
+# ttyd, also for the daemon's test suite (#231): attach.test.mjs reads the
+# real binary's `--version` output, and skips wherever TTYD_BIN is absent.
+# The release ships a static binary named by uname arch, not dpkg arch.
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) ttyd_arch=x86_64 ;; \
+      arm64) ttyd_arch=aarch64 ;; \
+      *) echo "no ttyd release asset for this arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/ttyd \
+      "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}"; \
+    chmod 0755 /usr/local/bin/ttyd; \
+    ttyd --version
+ENV TTYD_BIN=/usr/local/bin/ttyd
 
 # Both harnesses, at the exact versions the box runs. The npm cache from this
 # layer is dropped rather than left in the image: the run-time cache is a
@@ -113,6 +133,7 @@ LABEL org.opencontainers.image.title="curia agent" \
       curia.claude-version="${CLAUDE_VERSION}" \
       curia.codex-version="${CODEX_VERSION}" \
       curia.gh-version="${GH_VERSION}" \
+      curia.ttyd-version="${TTYD_VERSION}" \
       curia.playwright-version="${PLAYWRIGHT_VERSION}" \
       curia.npm-cache="/cache/npm" \
       curia.browsers="/cache/playwright-browsers" \

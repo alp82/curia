@@ -26,6 +26,7 @@ const PINS = {
   codex_version: '0.146.0',
   gh_version: '2.97.0',
   playwright_version: '1.62.1',
+  ttyd_version: '1.7.7',
   agent_uid: 1000,
 }
 
@@ -84,6 +85,7 @@ describe('the image tag (#154)', () => {
       CODEX_VERSION: '0.146.0',
       GH_VERSION: '2.97.0',
       PLAYWRIGHT_VERSION: '1.62.1',
+      TTYD_VERSION: '1.7.7',
       AGENT_UID: '1000',
     })
     const dockerfile = fs.readFileSync(DOCKERFILE, 'utf8')
@@ -138,6 +140,7 @@ describe('sandbox config (#154)', () => {
     '  codex_version: 0.146.0',
     '  gh_version: 2.97.0',
     '  playwright_version: 1.62.1',
+    '  ttyd_version: 1.7.7',
     '  agent_uid: 1000',
   ]
 
@@ -154,7 +157,7 @@ describe('sandbox config (#154)', () => {
   })
 
   test('a missing pin is refused, naming the key', () => {
-    for (const key of ['claude_version', 'codex_version', 'gh_version', 'playwright_version']) {
+    for (const key of ['claude_version', 'codex_version', 'gh_version', 'playwright_version', 'ttyd_version']) {
       const lines = FULL.filter((l) => !l.trim().startsWith(`${key}:`))
       assert.throws(() => loadCuriaConfig(writeConfig(lines)), new RegExp(`sandbox\\.${key}`))
     }

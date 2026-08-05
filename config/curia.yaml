@@ -105,6 +105,10 @@ sandbox:                                   # #154, building the decision at #148
   # install on demand into the shared volume (#148), and this is the version
   # whose dependency list the build installs.
   playwright_version: 1.62.1
+  # ttyd exists in the image only for the daemon's own test suite (#231):
+  # attach.test.mjs reads the real binary. Pinned to what the box runs — read
+  # it off the box with `ttyd --version` before bumping.
+  ttyd_version: 1.7.7
   # The uid inside the container. It must equal the uid of the host user that
   # owns the mounted clone and cfg dir — the daemon runs as `alp` (1000) on
   # the box — or the agent cannot write its own worktree.

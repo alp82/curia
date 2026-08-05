@@ -490,6 +490,7 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       '  codex_version: 1.0.0',
       '  gh_version: 1.0.0',
       '  playwright_version: 1.0.0',
+      '  ttyd_version: 1.0.0',
       '  port_from: 9400',
       '  port_to: 9410',
       '',

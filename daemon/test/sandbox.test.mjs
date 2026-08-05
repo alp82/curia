@@ -29,6 +29,7 @@ const PINS = {
   codex_version: '0.146.0',
   gh_version: '2.97.0',
   playwright_version: '1.62.1',
+  ttyd_version: '1.7.7',
   agent_uid: 1000,
   ports: { from: 9000, to: 9299 },
 }
@@ -372,6 +373,7 @@ function curiaConfigWith(sandboxOver, dir) {
     '  codex_version: 0.146.0',
     '  gh_version: 2.97.0',
     '  playwright_version: 1.62.1',
+    '  ttyd_version: 1.7.7',
     '  agent_uid: 1000',
     ...Object.entries(sandboxOver).map(([k, v]) => `  ${k}: ${v}`),
   ].join('\n'))
