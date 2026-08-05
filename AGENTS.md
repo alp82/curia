@@ -13,3 +13,7 @@ The five canonical triage roles, using default label strings (`needs-triage`, `n
 ### Domain docs
 
 Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Daemon tests
+
+Run `npm test` in `daemon/`. The suite must be green. Never read a failure or a cancelled test as pre-existing. A cancelled test is a suite that died before it started, and it proves nothing. See [the daemon README](daemon/README.md#the-test-suite).

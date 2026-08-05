@@ -11,12 +11,14 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { parse } from 'yaml'
 
 import { loadCuriaConfig } from '../src/config.mjs'
 import {
   BUILD_CONTEXT, DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS,
   buildArgs, imageDigest, agentImageRef,
 } from '../src/image.mjs'
+import { withSeededHome } from './fixtures/skills.mjs'
 
 const PINS = {
   image: 'curia-agent',
@@ -184,7 +186,13 @@ describe('sandbox config (#154)', () => {
 describe('the shipped config (#154)', () => {
   test('config/curia.yaml pins the image, and its pins build the shipped ref', () => {
     const file = path.resolve(import.meta.dirname, '..', '..', 'config', 'curia.yaml')
-    const cfg = loadCuriaConfig(file)
+    // The shipped config names the OPERATOR's skills root, `~/.claude/skills`.
+    // A HOME the test owns lets the whole document load on any box (#212),
+    // instead of only on the box that carries those skills. Seeded from the
+    // config's OWN list, so this test says nothing about which skills the
+    // operator installs — it is about the image pins.
+    const installs = parse(fs.readFileSync(file, 'utf8')).skills?.install
+    const cfg = withSeededHome(() => loadCuriaConfig(file), installs)
     assert.ok(cfg.sandbox, 'the shipped config has no sandbox section')
     const ref = agentImageRef(cfg.sandbox)
     assert.match(ref.ref, /^curia-agent:\d[\w.]*-\d[\w.]*-[0-9a-f]{8}$/)

@@ -17,26 +17,16 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { PROBE_MARK, PROBE_PATH } from '../src/sandbox.mjs'
+import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer()
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address()
-      srv.close(() => resolve(port))
-    })
-    srv.once('error', reject)
-  })
-}
 
 // http.request, not fetch: full control over Origin/Sec-Fetch-Site headers
 // with no client-side forbidden-header opinions in the way.
@@ -61,7 +51,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
   let tmp
   let child
   let port
-  let childLog = ''
+  let watch
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-index-test-'))
@@ -96,6 +86,9 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       'identity:',
       '  allow: [tester@example.com]',
       `  proxy_port: ${proxyPort}`,
+      // #212: the fixture owns its skills root, so this boot depends on
+      // nothing under the host's HOME.
+      ...skillsYaml(seedSkillsRoot(tmp)),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -123,19 +116,13 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (c) => { childLog += c })
-    child.stderr.on('data', (c) => { childLog += c })
+    watch = watchDaemon(child)
 
-    const deadline = Date.now() + 10_000
-    // poll until the real server answers
-    for (;;) {
+    await waitForBoot(watch, async () => {
       try {
-        const res = await request(port, 'GET', '/state')
-        if (res.status === 200) break
-      } catch { /* not listening yet */ }
-      if (Date.now() > deadline) throw new Error(`daemon did not come up in time; log:\n${childLog}`)
-      await new Promise((r) => setTimeout(r, 100))
-    }
+        return (await request(port, 'GET', '/state')).status === 200
+      } catch { return false }
+    }, 'the /state route')
   })
 
   after(() => {
@@ -193,10 +180,9 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
   let tmp
   let child
   let port
-  let childLog = ''
+  let watch
 
   const bootDaemon = async () => {
-    childLog = ''
     child = spawn(process.execPath, [DAEMON], {
       env: {
         ...process.env,
@@ -209,17 +195,12 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (c) => { childLog += c })
-    child.stderr.on('data', (c) => { childLog += c })
-    const deadline = Date.now() + 10_000
-    for (;;) {
+    watch = watchDaemon(child)
+    await waitForBoot(watch, async () => {
       try {
-        const res = await request(port, 'GET', '/state')
-        if (res.status === 200) return
-      } catch { /* not listening yet */ }
-      if (Date.now() > deadline) throw new Error(`daemon did not come up in time; log:\n${childLog}`)
-      await new Promise((r) => setTimeout(r, 100))
-    }
+        return (await request(port, 'GET', '/state')).status === 200
+      } catch { return false }
+    }, 'the /state route')
   }
 
   const killDaemon = () => new Promise((resolve) => {
@@ -258,6 +239,9 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
       'identity:',
       '  allow: [tester@example.com]',
       `  proxy_port: ${proxyPort}`,
+      // #212: the fixture owns its skills root, so this boot depends on
+      // nothing under the host's HOME.
+      ...skillsYaml(seedSkillsRoot(tmp)),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -308,8 +292,10 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
     assert.equal(note.after, id, 'tagged with the escalation it answers')
 
     // the surface half: the thread hears where the answer went (bridge down ⇒ log)
-    assert.match(childLog, /`curia-7` is not running/)
-    assert.match(childLog, /resume 7/)
+    // `watch` is remade at every boot, so this reads the SECOND daemon's log
+    // and nothing the first one said.
+    assert.match(watch.log(), /`curia-7` is not running/)
+    assert.match(watch.log(), /resume 7/)
   })
 })
 
@@ -327,7 +313,7 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
   let port
   let servePort
   let tsLog
-  let childLog = ''
+  let watch
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-index-attach-test-'))
@@ -372,6 +358,9 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       'identity:',
       '  allow: [tester@example.com]',
       `  proxy_port: ${proxyPort}`,
+      // #212: the fixture owns its skills root, so this boot depends on
+      // nothing under the host's HOME.
+      ...skillsYaml(seedSkillsRoot(tmp)),
       'timeline:',
       `  port: ${tlPort}`,
       `  serve_port: ${tlServePort}`,
@@ -402,15 +391,10 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (c) => { childLog += c })
-    child.stderr.on('data', (c) => { childLog += c })
+    watch = watchDaemon(child)
 
     // wait past BOOT reconcile (it runs its own withdrawal), then start clean
-    const deadline = Date.now() + 20_000
-    while (!/boot reconcile done/.test(childLog)) {
-      if (Date.now() > deadline) throw new Error(`boot reconcile did not finish in time; log:\n${childLog}`)
-      await new Promise((r) => setTimeout(r, 100))
-    }
+    await waitForBoot(watch, () => /boot reconcile done/.test(watch.log()), 'the end of boot reconcile', 20_000)
     fs.writeFileSync(tsLog, '')
   })
 
@@ -455,7 +439,7 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
   let tmp
   let child
   let port
-  let childLog = ''
+  let watch
   const GATEWAY = '127.0.0.2'
 
   const mint = (agent) => mintAgentToken(path.join(tmp, 'data'), agent)
@@ -497,6 +481,9 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       'identity:',
       '  allow: [tester@example.com]',
       `  proxy_port: ${proxyPort}`,
+      // #212: the fixture owns its skills root, so this boot depends on
+      // nothing under the host's HOME.
+      ...skillsYaml(seedSkillsRoot(tmp)),
       'sandbox:',
       '  image: curia-agent-test',
       '  claude_version: 1.0.0',
@@ -533,18 +520,14 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (c) => { childLog += c })
-    child.stderr.on('data', (c) => { childLog += c })
+    watch = watchDaemon(child)
 
-    const deadline = Date.now() + 15_000
-    for (;;) {
+    await waitForBoot(watch, async () => {
       try {
-        if ((await request(port, 'GET', '/state')).status === 200
-          && (await requestOn(GATEWAY, port, 'POST', '/agent_done?agent=curia-0')).status === 403) break
-      } catch { /* not listening yet */ }
-      if (Date.now() > deadline) throw new Error(`daemon did not bring up both listeners; log:\n${childLog}`)
-      await new Promise((r) => setTimeout(r, 100))
-    }
+        return (await request(port, 'GET', '/state')).status === 200
+          && (await requestOn(GATEWAY, port, 'POST', '/agent_done?agent=curia-0')).status === 403
+      } catch { return false }
+    }, 'both listeners', 15_000)
   })
 
   after(() => {

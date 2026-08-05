@@ -12,28 +12,18 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { classifyFault, installCrashGuard } from '../src/health.mjs'
+import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
 const INDUCE = pathToFileURL(path.join(DIR, 'fixtures', 'induce-fault.mjs')).href
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer()
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address()
-      srv.close(() => resolve(port))
-    })
-    srv.once('error', reject)
-  })
-}
 
 function request(port, method, urlPath, { headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
@@ -207,6 +197,9 @@ async function writeConfig(cfgDir, tmp) {
     'identity:',
     '  allow: [tester@example.com]',
     `  proxy_port: ${proxyPort}`,
+    // #212: the fixture owns its skills root, so this boot depends on nothing
+    // under the host's HOME.
+    ...skillsYaml(seedSkillsRoot(tmp)),
     '',
   ].join('\n'))
   fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -223,19 +216,14 @@ async function writeConfig(cfgDir, tmp) {
   ].join('\n'))
 }
 
-async function waitForDaemon(port, child, log) {
-  const deadline = Date.now() + 10_000
-  for (;;) {
-    try {
-      if ((await request(port, 'GET', '/state')).status === 200) return
-    } catch { /* not listening yet */ }
-    if (Date.now() > deadline) throw new Error(`daemon did not come up; log:\n${log()}`)
-    await sleep(100)
-  }
-}
+const waitForDaemon = (port, watch) => waitForBoot(watch, async () => {
+  try {
+    return (await request(port, 'GET', '/state')).status === 200
+  } catch { return false }
+}, 'the /state route')
 
 describe('the daemon survives the gateway crash it died of (real boot, induced)', () => {
-  let tmp, child, port, dataDir, childLog = ''
+  let tmp, child, port, dataDir, watch
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-health-test-'))
@@ -258,9 +246,8 @@ describe('the daemon survives the gateway crash it died of (real boot, induced)'
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (c) => { childLog += c })
-    child.stderr.on('data', (c) => { childLog += c })
-    await waitForDaemon(port, child, () => childLog)
+    watch = watchDaemon(child)
+    await waitForDaemon(port, watch)
   })
 
   after(() => {
@@ -283,10 +270,10 @@ describe('the daemon survives the gateway crash it died of (real boot, induced)'
       if (!transient) await sleep(150)
     }
 
-    assert.ok(transient, `no daemon_transient was journalled; log:\n${childLog}`)
+    assert.ok(transient, `no daemon_transient was journalled; log:\n${watch.log()}`)
     assert.match(transient.message, /Opening handshake has timed out/)
     assert.equal(transient.origin, 'uncaughtException')
-    assert.equal(child.exitCode, null, `the daemon died anyway; log:\n${childLog}`)
+    assert.equal(child.exitCode, null, `the daemon died anyway; log:\n${watch.log()}`)
 
     // the surface still works...
     const state = await request(port, 'GET', '/state')
@@ -301,7 +288,7 @@ describe('the daemon survives the gateway crash it died of (real boot, induced)'
 })
 
 describe('a planted logic bug still kills the daemon (real boot, induced)', () => {
-  let tmp, child, port, dataDir, childLog = ''
+  let tmp, child, port, dataDir, watch
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-health-fault-'))
@@ -324,9 +311,8 @@ describe('a planted logic bug still kills the daemon (real boot, induced)', () =
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (c) => { childLog += c })
-    child.stderr.on('data', (c) => { childLog += c })
-    await waitForDaemon(port, child, () => childLog)
+    watch = watchDaemon(child)
+    await waitForDaemon(port, watch)
   })
 
   after(() => {
@@ -340,9 +326,9 @@ describe('a planted logic bug still kills the daemon (real boot, induced)', () =
       child.once('exit', (c) => resolve(c))
       setTimeout(() => resolve(null), 8_000)
     })
-    assert.equal(code, 1, `the guard must not keep a broken daemon alive; log:\n${childLog}`)
+    assert.equal(code, 1, `the guard must not keep a broken daemon alive; log:\n${watch.log()}`)
     const fault = events(dataDir).find((e) => e.type === 'daemon_fault')
-    assert.ok(fault, `no daemon_fault journalled; log:\n${childLog}`)
+    assert.ok(fault, `no daemon_fault journalled; log:\n${watch.log()}`)
     assert.match(fault.message, /planted logic bug/)
     assert.equal(fault.transient, false)
   })
