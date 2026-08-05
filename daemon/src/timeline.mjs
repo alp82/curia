@@ -103,6 +103,13 @@ const KEYS = { escape: 'Escape', 'ctrl-c': 'C-c', enter: 'Enter', up: 'Up', tab:
 export const DIALOG_MARKERS = [
   /Enter to [^·\n]{1,60}·/, // "Enter to <verb> …" joined to more chrome by a middot
   /↑\/↓ to navigate/, // belt and braces should the select footer reword its verb
+  // The codex spelling, captured live on #176 (trust prompt and /model picker):
+  //   "Press enter to continue"
+  //   "Press enter to confirm or esc to go back"
+  // No middot and no arrows, so neither claude marker sees it. Same veto
+  // applies: both captures replace the composer AND the status footer, so the
+  // codex ready marker ("· <cwd>") and a real dialog never share a tail.
+  /Press enter to [^\n]{1,60}/,
 ]
 
 export function detectDialog(pane, composerRe = null) {

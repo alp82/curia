@@ -229,10 +229,24 @@ function codexToolBrief(name, args) {
   return firstLine(JSON.stringify(args), 160)
 }
 
+// A codex tool output is a plain string on the classic tools and an ARRAY of
+// content blocks on 0.146's exec harness — and the array is the only path an
+// image takes to the model (measured on #176: an MCP `image` block arrives as
+// `{type:"input_image", image_url:"data:…"}`). Flatten to text, with each
+// image standing in as [image] — the claude harness's own spelling — so a
+// message whose only cargo is a screenshot renders as something rather than
+// as "[object Object]".
+function codexOutputText(output) {
+  if (!Array.isArray(output)) return String(output ?? '')
+  return output
+    .map((b) => (String(b?.type ?? '').includes('image') ? '[image]' : String(b?.text ?? '')))
+    .filter((s) => s.trim()).join('\n')
+}
+
 // exec_command outputs open with a bookkeeping preamble; the human wants the
 // command's own first line.
 function codexResultText(output) {
-  const s = String(output ?? '')
+  const s = codexOutputText(output)
   const m = /^Output:\n?/m.exec(s)
   return m ? s.slice(m.index + m[0].length) : s
 }
@@ -242,13 +256,19 @@ function codexItems(e) {
   if (e.type === 'response_item') {
     const p = e.payload ?? {}
     if (p.type === 'message') {
-      const text = (p.content ?? [])
+      if (p.role !== 'assistant' && p.role !== 'user') return [] // developer: injected context, not conversation
+      const parts = p.content ?? []
+      const text = parts
         .filter((c) => c?.type === 'output_text' || c?.type === 'input_text')
         .map((c) => c.text).filter((t) => t?.trim()).join('\n')
-      if (!text) return []
-      if (p.role === 'assistant') return [{ kind: 'say', at, text }]
-      if (p.role === 'user') return [{ kind: 'prompt', at, text }]
-      return [] // developer: injected context, not conversation
+      const out = []
+      if (text) out.push({ kind: p.role === 'assistant' ? 'say' : 'prompt', at, text })
+      // #176 gap 9: an image block used to render as NO item at all, where the
+      // claude harness shows [image] (its user-message image case). Same note here.
+      for (const c of parts) {
+        if (String(c?.type ?? '').includes('image')) out.push({ kind: 'note', at, text: '[image]' })
+      }
+      return out
     }
     if (p.type === 'function_call') {
       const args = codexArgs(p.arguments)
@@ -263,13 +283,20 @@ function codexItems(e) {
       }
       return [item]
     }
-    if (p.type === 'function_call_output') {
+    if (p.type === 'function_call_output' || p.type === 'custom_tool_call_output') {
       const text = codexResultText(p.output)
-      const exit = /Process exited with code (\d+)/.exec(String(p.output ?? ''))
+      const exit = /Process exited with code (\d+)/.exec(codexOutputText(p.output))
       return [{
         kind: 'result', at, forId: p.call_id, ok: exit ? exit[1] === '0' : true,
         brief: firstLine(text, 300), lines: text.split('\n').length,
       }]
+    }
+    // 0.146's exec harness (measured on #176): MCP calls no longer arrive as
+    // namespaced function_calls — the model writes a custom_tool_call named
+    // `exec` whose `input` is JS driving `tools.mcp__<server>__<tool>`. The
+    // input is a raw string, not JSON arguments.
+    if (p.type === 'custom_tool_call') {
+      return [{ kind: 'tool', at, id: p.call_id ?? p.id, name: p.name, brief: firstLine(String(p.input ?? ''), 160) }]
     }
     if (p.type === 'tool_search_call') return [{ kind: 'tool', at, id: p.id, name: 'tool_search', brief: firstLine(p.query ?? '') }]
     if (p.type === 'tool_search_output') return [{ kind: 'result', at, forId: p.id, ok: true, brief: '', lines: 1 }]

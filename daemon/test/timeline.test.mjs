@@ -39,6 +39,32 @@ const PANE_FORGED = [
 ].join('\n')
 const COMPOSER_RE = /⏵⏵|bypass permissions/
 
+// The codex family, captured live on #176 (codex 0.146, scratch CODEX_HOME on
+// the deployment host): the directory-trust prompt and the /model picker,
+// verbatim. Both replace the composer and the status footer.
+const PANE_CODEX_TRUST = [
+  '> You are in /home/alp/dev/projects/curia',
+  '  Do you trust the contents of this directory?',
+  '› 1. Yes, continue',
+  '  2. No, quit',
+  '  Press enter to continue',
+].join('\n')
+const PANE_CODEX_MODEL_PICKER = [
+  '  Select Model and Effort',
+  '› 1. gpt-5.6-sol (current)  Latest frontier agentic coding model.',
+  '  2. gpt-5.6-terra          Balanced agentic coding model for everyday work.',
+  '  Press enter to confirm or esc to go back',
+].join('\n')
+const PANE_CODEX_COMPOSER = [
+  '› Run /review on my current changes',
+  '  gpt-5.6-sol default · /root/wt/curia-176',
+].join('\n')
+const PANE_CODEX_FORGED = [
+  '• The ticket says: "Press enter to continue" while one is up.',
+  PANE_CODEX_COMPOSER,
+].join('\n')
+const CODEX_COMPOSER_RE = /·\s[~/]/ // routing.yaml harnesses.codex.ready
+
 let tmp
 before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-timeline-')) })
 after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
@@ -169,6 +195,51 @@ describe('codex reader', () => {
     assert.equal(out.items[0].ok, false)
   })
 
+  // 0.146's exec harness, measured live on #176: MCP calls arrive as a
+  // custom_tool_call named `exec` with raw JS as `input`, and its output is an
+  // ARRAY of content blocks rather than a string.
+  test('a custom_tool_call renders as a tool with the script as brief — #176', () => {
+    const { items } = parseLine('codex', JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'custom_tool_call', call_id: 'c4', name: 'exec', input: 'const r = await tools.mcp__curia__ask_human({});\nmore' },
+    }))
+    assert.equal(items[0].kind, 'tool')
+    assert.equal(items[0].name, 'exec')
+    assert.equal(items[0].brief, 'const r = await tools.mcp__curia__ask_human({});')
+    assert.equal(items[0].id, 'c4')
+  })
+
+  test('an array output flattens; an input_image block renders as [image] — #176 gap 9', () => {
+    // Verbatim shape from the live capture: the MCP image block reaches the
+    // model as input_image with a data: URL.
+    const out = parseLine('codex', JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'custom_tool_call_output', call_id: 'c4', output: [
+        { type: 'input_text', text: 'Script completed\nWall time 0.0 seconds\nOutput:\n' },
+        { type: 'input_text', text: 'Here is the human answer, one image attached.' },
+        { type: 'input_image', image_url: 'data:image/png;base64,iVBOR…', detail: 'original' },
+      ] },
+    }))
+    assert.equal(out.items[0].kind, 'result')
+    assert.equal(out.items[0].forId, 'c4')
+    assert.equal(out.items[0].ok, true)
+    assert.equal(out.items[0].brief, 'Here is the human answer, one image attached.')
+    // function_call_output grew the same array form (measured on the `wait` tool)
+    const fn = parseLine('codex', JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'function_call_output', call_id: 'c5', output: [{ type: 'input_text', text: 'Script completed\nOutput:\nok' }] },
+    }))
+    assert.equal(fn.items[0].brief, 'ok')
+  })
+
+  test('a message whose only cargo is an image renders [image], not nothing — #176 gap 9', () => {
+    const { items } = parseLine('codex', JSON.stringify({
+      type: 'response_item',
+      payload: { type: 'message', role: 'user', content: [{ type: 'input_image', image_url: 'data:image/png;base64,x' }] },
+    }))
+    assert.deepEqual(items, [{ kind: 'note', at: null, text: '[image]' }])
+  })
+
   test('assistant and user messages render; developer messages do not', () => {
     const mk = (role, ctype) => JSON.stringify({
       type: 'response_item',
@@ -254,6 +325,18 @@ describe('detectDialog', () => {
   test('the classifier sees only the pane tail', () => {
     const scrolledPast = PANE_ASK_QUESTION + '\n' + Array.from({ length: 25 }, (_, i) => `line ${i}`).join('\n')
     assert.equal(detectDialog(scrolledPast, COMPOSER_RE), null)
+  })
+
+  test('the codex dialog family — captured live on #176', () => {
+    // Both captures replaced the composer and the "<model> <effort> · <cwd>"
+    // status footer, so the codex ready marker never shares a tail with them.
+    assert.equal(detectDialog(PANE_CODEX_TRUST, CODEX_COMPOSER_RE).hint, 'Press enter to continue')
+    assert.match(detectDialog(PANE_CODEX_MODEL_PICKER, CODEX_COMPOSER_RE).hint, /Press enter to confirm/)
+  })
+
+  test('a codex footer phrase in scrollback is vetoed by the codex status footer', () => {
+    assert.equal(detectDialog(PANE_CODEX_FORGED, CODEX_COMPOSER_RE), null)
+    assert.equal(detectDialog(PANE_CODEX_COMPOSER, CODEX_COMPOSER_RE), null)
   })
 })
 
