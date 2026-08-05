@@ -129,6 +129,15 @@ export class StatusLine {
     this.timer = null
   }
 
+  // The live state this line holds for a session (#236) — the direct answer
+  // under a thread question reads it. Null for a session this line never saw,
+  // which is every agent adopted after a daemon restart until its next
+  // transition; the caller falls back to the dispatcher's record then.
+  stateOf(session) {
+    const w = this.agents.get(session)
+    return w ? { state: w.state, detail: w.detail } : null
+  }
+
   refresh() {
     for (const [session, w] of this.agents) {
       if (!METERED.has(w.state)) continue

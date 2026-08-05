@@ -374,7 +374,23 @@ const gate = {
     }
     const { after } = store.queueAgentNote(agent, text.trim(), { by, instance })
     log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}`)
-    return { agent, after, reads, ticket }
+    // #236: the facts a status question needs, gathered from records the
+    // daemon already holds — the status line's state machine, the dispatch
+    // record's spawn time, the journal's last word about the agent. The bridge
+    // composes the direct answer from these (statusAnswer) when the note is
+    // question-shaped; a missing fact drops that fact there, never the reply.
+    const live = dispatcher.agents.get(agent)
+    const sl = statusLine.stateOf(agent)
+    // A restart empties the status line's memory; the dispatch record still
+    // says whether the agent reached its composer.
+    const state = sl?.state ?? (live?.state === 'spawning' ? 'dispatched' : live ? 'working' : null)
+    const status = state ? {
+      state,
+      spawned_at: live?.spawnedAt ? new Date(live.spawnedAt).toISOString() : null,
+      esc: sl?.detail?.esc ?? null,
+      last: store.lastAgentEvent(agent),
+    } : null
+    return { agent, after, reads, ticket, status }
   },
 }
 

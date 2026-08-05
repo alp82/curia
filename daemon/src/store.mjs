@@ -75,6 +75,9 @@ export function noteDisposition(agent) {
   return { reads, instance: reads ? agent?.instance ?? null : null }
 }
 
+// The events lastAgentEvent must not count (#236) — see _apply.
+const NOTE_EVENTS = new Set(['agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused'])
+
 export class EscalationStore {
   constructor(dataDir) {
     this.dir = dataDir
@@ -88,6 +91,7 @@ export class EscalationStore {
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
     this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
+    this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.seq = 0
     this._replay()
   }
@@ -113,6 +117,14 @@ export class EscalationStore {
   }
 
   _apply(ev, { replay }) {
+    // The last thing the journal says about an agent (#236): the direct answer
+    // under a question in its thread reads it as progress evidence. The
+    // note-queue family is excluded, because the question itself queues a note
+    // one line above this read — an answer that reported the question as the
+    // agent's last act would always be about itself.
+    if (ev.agent && ev.ts && !NOTE_EVENTS.has(ev.type)) {
+      this.lastAgentEvents.set(ev.agent, { type: ev.type, ts: ev.ts })
+    }
     switch (ev.type) {
       case 'esc_open': {
         const n = Number(ev.id.split('-')[1])
@@ -503,5 +515,11 @@ export class EscalationStore {
   // Generic operational events (notify, result, agent_done…) share the journal.
   logEvent(type, data) {
     return this._append({ type, ...data })
+  }
+
+  // The journal's last word about an agent (#236): { type, ts } or null.
+  // Replay fills it, so a restarted daemon still answers "what did it last do".
+  lastAgentEvent(agent) {
+    return this.lastAgentEvents.get(agent) ?? null
   }
 }

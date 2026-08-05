@@ -26,7 +26,7 @@ import {
 import { safeLeaf } from './images.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
-import { chunkMessage, smallPrint } from './messaging.mjs'
+import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
@@ -107,6 +107,54 @@ export function commandHint(text, ticket, channelId) {
   return `commands run in <#${channelId}>, never in a ticket thread — say \`${verb}${hintArg(verb, m?.[2], ticket)}\` there`
 }
 
+// A note that ASKS something (#236). The live miss was "whats taking so long"
+// — no question mark anywhere — so a trailing `?` alone is too narrow: a `?`
+// anywhere counts, and so does a leading interrogative or auxiliary word.
+// Drawn eager on purpose, like COMMAND_SHAPED: the note queues either way
+// (point 3 of the ticket), so a false "question" costs one extra status line
+// and a miss costs the operator a direct answer they were ruled to get.
+export const QUESTION_SHAPED =
+  /\?|^\s*(what|whats|why|how|hows|when|whens|where|wheres|who|whos|which|is|are|am|was|were|do|does|did|can|could|will|would|should|has|have|had|any)\b/i
+
+// The direct answer curia owes an operator question (#236), composed from
+// records and nothing else — the journal, the status line's state machine,
+// the dispatch record. No model reads the question: a responder model would
+// be the general chat surface the ticket rules out, and records cannot make
+// a fact up. The status family is the scope; a question about the work itself
+// still rides the queue to the agent, one line below this.
+//
+// `s` is the facts the daemon gathered (see queueAgentNote in index.mjs):
+// { state, spawned_at, esc: {id, title, opened_at}|null, last: {type, ts}|null }.
+// Null when a fact is missing drops that fact, never the answer — and no
+// state at all returns null, so the receipt stands alone.
+export function statusAnswer(owner, s, now = Date.now()) {
+  if (!s?.state) return null
+  // Blocked on the operator: the one answer where "taking so long" has a
+  // cause with a name. The title is already promptTitle-cut at esc_open.
+  if ((s.state === 'waiting' || s.state === 'awaiting-review') && s.esc) {
+    const waited = s.esc.opened_at ? elapsedLabel(s.esc.opened_at, now) : null
+    const what = s.state === 'waiting'
+      ? `is waiting on **[${s.esc.id}]**${s.esc.title ? ` — ${s.esc.title}` : ''}`
+      : `awaits review on **[${s.esc.id}]**`
+    return `⏳ \`${owner}\` ${what}${waited ? ` (${waited} now)` : ''} — it does nothing until that is answered.`
+  }
+  const verb = {
+    dispatched: 'is starting — no composer yet',
+    working: 'is working',
+    'cross-checking': 'is idle while a cross-check reads its diff',
+    executing: 'is executing approved writes',
+    resolving: 'is resolving the ticket',
+    stalled: 'stalled before its composer',
+  }[s.state] ?? `is ${s.state}`
+  const since = s.spawned_at ? elapsedLabel(s.spawned_at, now) : null
+  const last = s.last ? elapsedLabel(s.last.ts, now) : null
+  const facts = [
+    since ? `dispatched ${since} ago` : null,
+    last ? `last journal event \`${s.last.type}\`, ${last} ago` : null,
+  ].filter(Boolean)
+  return `▶️ \`${owner}\` ${verb}${facts.length ? ` — ${facts.join(', ')}` : ''}.`
+}
+
 // The whole reply under a queued note, as lines. Pure, and exported, because
 // the two facts it carries are the ones #170 got wrong: WHETHER anything reads
 // the note, and where the operator's words would have been a command.
@@ -118,12 +166,22 @@ export function commandHint(text, ticket, channelId) {
 // will read them. The #139 hand-off is the one note that does cross, and it
 // comes from the daemon, not from this surface. Anything else keeps the old
 // promise.
-export function queuedNoteReply({ owner, q, text, channelId }) {
-  const lines = [
+// #236 put the direct answer FIRST: an operator question got only the queue
+// receipt — honest and useless — so a question-shaped note now opens with what
+// curia's records say, and the receipt becomes the second line. The note still
+// queues (a question about the work itself is the agent's to answer), and a
+// dead agent keeps its one line — "NOT running" already IS the direct answer.
+export function queuedNoteReply({ owner, q, text, channelId, now = Date.now() }) {
+  const lines = []
+  if (q.reads !== false && q.status && QUESTION_SHAPED.test(text ?? '')) {
+    const answer = statusAnswer(owner, q.status, now)
+    if (answer) lines.push(answer)
+  }
+  lines.push(
     q.reads === false
       ? `\`${owner}\` is NOT running, so nothing was queued: these words reached nobody. Start a fresh agent with \`resume ${q.ticket ?? '<n>'}\`, then say them again.`
       : `queued for \`${owner}\` — it reads this with its next tool result${q.after ? ` (noted as after ${q.after})` : ''}`,
-  ]
+  )
   if (COMMAND_SHAPED.test(text ?? '')) lines.push(commandHint(text, q.ticket, channelId))
   return lines
 }

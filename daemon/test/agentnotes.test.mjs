@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { EscalationStore, noteDisposition } from '../src/store.mjs'
-import { COMMAND_SHAPED, commandHint, queuedNoteReply } from '../src/bridge.mjs'
+import { COMMAND_SHAPED, QUESTION_SHAPED, commandHint, queuedNoteReply, statusAnswer } from '../src/bridge.mjs'
 import { parseCommand } from '../src/commands.mjs'
 
 describe('agent-note queue', () => {
@@ -287,6 +287,96 @@ describe('agent-note queue', () => {
         JSON.stringify({ ts: '2026-08-01T00:00:00Z', type: 'agent_note', agent: 'curia-166', text: 'from before', after: null }) + '\n')
       const reborn = new EscalationStore(dir)
       assert.deepEqual(reborn.takeAgentNotes('curia-166', 'curia-166@2').map((n) => n.text), ['from before'])
+    })
+  })
+
+  // #236: an operator question in a ticket thread got only the queue receipt —
+  // honest and useless. A question-shaped note now opens with a direct answer
+  // composed from records; the receipt is the second line, and the note still
+  // queues for the agent.
+  describe('a question gets a direct answer, never only the receipt (#236)', () => {
+    const status = {
+      state: 'working',
+      spawned_at: new Date(Date.now() - 18 * 60_000).toISOString(),
+      esc: null,
+      last: { type: 'notify', ts: new Date(Date.now() - 2 * 60_000).toISOString() },
+    }
+
+    test('the live miss is detected — no question mark anywhere', () => {
+      for (const s of ['whats taking so long', "what's the hold up", 'is it stuck?', 'how long has this run', 'still going?', 'did the tests pass', 'any progress']) {
+        assert.ok(QUESTION_SHAPED.test(s), `"${s}" should read as a question`)
+      }
+    })
+
+    test('plain notes are not questions — the receipt stays the whole reply', () => {
+      for (const s of ['look at the logs', 'also check mobile', 'cancel 166', 'use the staging box first', 'D could be mentioned as well']) {
+        assert.ok(!QUESTION_SHAPED.test(s), `"${s}" should read as prose`)
+      }
+    })
+
+    test('a question opens with the status answer, and the receipt follows', () => {
+      const lines = queuedNoteReply({ owner: 'curia-81', q: { reads: true, ticket: '81', status }, text: 'whats taking so long', channelId: 'C1' })
+      assert.equal(lines.length, 2)
+      assert.match(lines[0], /`curia-81` is working/)
+      assert.match(lines[0], /dispatched 18 min ago/)
+      assert.match(lines[0], /last journal event `notify`, 2 min ago/)
+      assert.match(lines[1], /queued for `curia-81`/)
+    })
+
+    test('prose gets no answer line — the reply is the receipt alone', () => {
+      const lines = queuedNoteReply({ owner: 'curia-81', q: { reads: true, ticket: '81', status }, text: 'look at the logs', channelId: 'C1' })
+      assert.equal(lines.length, 1)
+      assert.match(lines[0], /queued for/)
+    })
+
+    test('no facts, no answer — the receipt must not gain an empty line', () => {
+      const lines = queuedNoteReply({ owner: 'curia-81', q: { reads: true, ticket: '81', status: null }, text: 'is it stuck?', channelId: 'C1' })
+      assert.equal(lines.length, 1)
+      assert.match(lines[0], /queued for/)
+    })
+
+    test('a dead agent keeps its one line — NOT running already is the answer', () => {
+      const lines = queuedNoteReply({ owner: 'curia-81', q: { reads: false, ticket: '81', status }, text: 'whats taking so long', channelId: 'C1' })
+      assert.equal(lines.length, 1)
+      assert.match(lines[0], /NOT running/)
+    })
+
+    test('a question that is also a command gets all three lines, in order', () => {
+      const lines = queuedNoteReply({ owner: 'curia-81', q: { reads: true, ticket: '81', status }, text: 'status?', channelId: 'C1' })
+      assert.equal(lines.length, 3)
+      assert.match(lines[0], /is working/)
+      assert.match(lines[1], /queued for/)
+      assert.match(lines[2], /commands run in <#C1>/)
+    })
+
+    test('waiting names the escalation, its title, and who is blocked on whom', () => {
+      const now = Date.now()
+      const line = statusAnswer('curia-81', {
+        state: 'waiting',
+        spawned_at: new Date(now - 60 * 60_000).toISOString(),
+        esc: { id: 'esc-12', title: 'Approve the plan', opened_at: new Date(now - 40 * 60_000).toISOString() },
+        last: null,
+      }, now)
+      assert.match(line, /waiting on \*\*\[esc-12\]\*\*/)
+      assert.match(line, /Approve the plan/)
+      assert.match(line, /40 min now/)
+      assert.match(line, /does nothing until that is answered/)
+    })
+
+    test('a missing fact drops that fact, never the answer', () => {
+      const line = statusAnswer('curia-81', { state: 'working', spawned_at: null, esc: null, last: null })
+      assert.equal(line, '▶️ `curia-81` is working.')
+      assert.equal(statusAnswer('curia-81', null), null)
+      assert.equal(statusAnswer('curia-81', { state: null }), null)
+    })
+
+    test('the journal answers "what did it last do" — and the note itself never counts', () => {
+      store.logEvent('notify', { agent: 'curia-81', ticket: '81', message: 'built the page' })
+      store.queueAgentNote('curia-81', 'whats taking so long', { by: 'alp' })
+      assert.equal(store.lastAgentEvent('curia-81').type, 'notify')
+      // replay fills it too — a restarted daemon still answers
+      assert.equal(new EscalationStore(dir).lastAgentEvent('curia-81').type, 'notify')
+      assert.equal(store.lastAgentEvent('curia-unknown'), null)
     })
   })
 
