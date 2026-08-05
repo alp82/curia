@@ -19,7 +19,6 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import http from 'node:http'
-import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,22 +26,13 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/types.js'
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
+import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
 
 const KEEPALIVE_MS = 150
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer()
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address()
-      srv.close(() => resolve(port))
-    })
-    srv.once('error', reject)
-  })
-}
 
 function request(port, method, urlPath, { headers = {}, body = null } = {}) {
   return new Promise((resolve, reject) => {
@@ -75,7 +65,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
   let tmp
   let child
   let port
-  let childLog = ''
+  let watch
 
   // Since #159 the daemon serves /mcp only to an agent that presents the token
   // it minted for that name — so every client here arms itself the way a real
@@ -118,6 +108,9 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       'identity:',
       '  allow: [tester@example.com]',
       `  proxy_port: ${proxyPort}`,
+      // #212: the fixture owns its skills root, so this boot depends on
+      // nothing under the host's HOME.
+      ...skillsYaml(seedSkillsRoot(tmp)),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -146,14 +139,13 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
-    child.stdout.on('data', (c) => { childLog += c })
-    child.stderr.on('data', (c) => { childLog += c })
+    watch = watchDaemon(child)
 
-    await until(async () => {
+    await waitForBoot(watch, async () => {
       try {
         return (await request(port, 'GET', '/state')).status === 200
       } catch { return false }
-    }, `the daemon to listen; log:\n${childLog}`)
+    }, 'the /state route')
   })
 
   after(() => {

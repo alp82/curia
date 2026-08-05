@@ -13,12 +13,31 @@ import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
  import { DEFAULT_INDEX } from '../src/attach.mjs'
 import { DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
+import { seedSkillsRoot, skillsYaml, withSeededHome } from './fixtures/skills.mjs'
 
 let tmp
 let root
 
+// The one caller that needs a config with NO skills section at all: the test
+// that pins what the DEFAULT root is. Everyone else gets the fixture root.
+const OMIT_SKILLS = Symbol('omit the skills section')
+
+// The skills root the fixtures own (#212). Seeded per `tmp`, because each
+// describe below makes its own temp dir and tears it down again.
+const seeded = new Map()
+function fixtureSkills() {
+  if (!seeded.has(tmp)) seeded.set(tmp, seedSkillsRoot(tmp))
+  return skillsYaml(seeded.get(tmp)).join('\n')
+}
+
 // Base config with every other section valid, so a failure names the skills.
-function writeConfig(skillsYaml, attachExtra = '') {
+function writeConfig(extraYaml, attachExtra = '') {
+  const extra = extraYaml === OMIT_SKILLS ? '' : (extraYaml ?? '')
+  // A config that names no skills root reads the HOST's home directory, and
+  // the answer differs on the operator's box, in an agent container, and on a
+  // stranger's. So every fixture here names a root the test owns — but never
+  // over one the caller wrote, which is what the skills describe pins.
+  const skills = extraYaml === OMIT_SKILLS || /^skills:/m.test(extra) ? '' : fixtureSkills()
   const file = path.join(tmp, `curia-${Math.random().toString(36).slice(2)}.yaml`)
   fs.writeFileSync(file, [
     'watch:',
@@ -36,7 +55,8 @@ function writeConfig(skillsYaml, attachExtra = '') {
     attachExtra,
     'identity:',
     '  allow: [tester@example.com]',
-    skillsYaml ?? '',
+    extra,
+    skills,
     '',
   ].join('\n'))
   return file
@@ -82,18 +102,16 @@ describe('skills config (#57)', () => {
   })
 
   test('an omitted section takes the full default list, not silence', () => {
-    // Validated against the real host root, so this asserts the DEFAULT
-    // behaviour is loud — either it loads the nine, or it names the one
-    // missing skill. What it must never do is quietly install nothing.
-    let cfg = null
-    try {
-      cfg = loadCuriaConfig(writeConfig(null))
-    } catch (e) {
-      assert.match(e.message, /skills\.install names/)
-      return
-    }
-    assert.deepEqual(cfg.skills.install, DEFAULT_SKILLS)
-    assert.equal(cfg.skills.root, defaultSkillsRoot())
+    // Validated against a HOME the test owns, seeded at the path
+    // `defaultSkillsRoot()` names, so the DEFAULT is pinned on every box — the
+    // operator's, an agent container, a stranger's (#212). Before that this
+    // test had to tolerate its own failure, because the host might not carry
+    // the nine, and a tolerant test proves nothing.
+    withSeededHome(() => {
+      const cfg = loadCuriaConfig(writeConfig(OMIT_SKILLS))
+      assert.deepEqual(cfg.skills.install, DEFAULT_SKILLS)
+      assert.equal(cfg.skills.root, defaultSkillsRoot())
+    })
   })
 
   test('a leading ~ in the root is expanded, since YAML does not', () => {

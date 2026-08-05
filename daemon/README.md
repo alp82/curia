@@ -36,6 +36,16 @@ npm test           # unit tests
 
 One boot brings up everything: the HTTP surface, ttyd, the Discord bridge, the reconcile pass, and the overseer host. There is no second process. To verify a boot, look for `ready: guild=<guild> channel=#curia` in the log, then send a top-level message in `#curia` — a thread opens and the overseer answers in it.
 
+### The test suite
+
+`npm test` must be green. No failure here is expected. No count in the summary is a baseline to read past.
+
+**A cancelled test is not a skipped test.** A cancelled test is one whose suite died in its `before` hook. For a real-boot suite this means the daemon child never started, so the test proves nothing at all. Since #212 the boot wait watches the child as well as the port. A child that refuses to boot fails the wait in about one second. The message starts with `the real-boot fixture never got a daemon`, and the child's own stderr comes below it. See `test/fixtures/real-boot.mjs`.
+
+**No suite reads `$HOME`.** `loadCuriaConfig` checks `skills.install` against `skills.root`, and that root defaults to `~/.claude/skills`. So a fixture config that says nothing about skills asks the host a question the test cannot control. Every fixture config now names a skills root that the test seeds. See `test/fixtures/skills.mjs`. The two tests that pin the default root swap in a home directory they own. The suite gives the same answer on the operator's box, in an agent container, and on a stranger's machine.
+
+**Two host binaries stay optional.** The tmux describes in `tmux.test.mjs` need `tmux`. One version reader in `attach.test.mjs` needs `ttyd` at `TTYD_BIN`. Each one states why it skipped. An agent container carries neither binary, so a green run there shows one skipped test and three skipped describes.
+
 ## Surfaces
 
 Two of these routes are the AGENT's, and since #159 they are gated: `/mcp` and `/agent_done` take a per-agent token in the `X-Curia-Agent-Token` header, minted at spawn and written into that agent's own connection settings. Everything else is the operator's own and answers on loopback only. An agent container reaches the daemon on the docker bridge gateway, and that listener serves the two agent routes and nothing else.

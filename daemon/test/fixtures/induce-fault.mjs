@@ -30,6 +30,30 @@ import { WebSocket } from 'ws'
 const mode = process.env.CURIA_INDUCE
 const after = Number(process.env.CURIA_INDUCE_AFTER_MS ?? 1500)
 
+// The `after` clock starts when the daemon IS UP, not at preload (#212).
+// `--import` runs this file before the daemon's module graph even loads, so a
+// 600 ms timer used to be a race against the boot: measured in an agent
+// container the fault landed 18 ms after the listen, and a slower box would put
+// it BEFORE the listen. Both induced suites need the boot to have finished
+// first, so the clock waits for the daemon's own port to accept a connection.
+function armAfterBoot(fn) {
+  const port = Number(process.env.PORT)
+  if (!Number.isInteger(port) || port <= 0) return setTimeout(fn, after)
+  const tick = () => {
+    const probe = net.connect(port, '127.0.0.1')
+    probe.once('connect', () => {
+      probe.destroy()
+      console.log(`[induce] daemon is listening on ${port}; the fault is armed for ${after} ms from now`)
+      setTimeout(fn, after)
+    })
+    probe.once('error', () => {
+      probe.destroy()
+      setTimeout(tick, 25)
+    })
+  }
+  return tick()
+}
+
 // The exact shape WebSocketShard.destroy() leaves behind on a CONNECTING socket.
 function abandonConnectingSocket(onReady) {
   const blackhole = net.createServer(() => {})
@@ -47,11 +71,11 @@ function abandonConnectingSocket(onReady) {
 }
 
 if (mode === 'ws-handshake') {
-  setTimeout(() => abandonConnectingSocket(), after)
+  armAfterBoot(() => abandonConnectingSocket())
 } else if (mode === 'bug') {
-  setTimeout(() => {
+  armAfterBoot(() => {
     throw new TypeError('planted logic bug: this is not a network failure')
-  }, after)
+  })
 } else if (mode === 'live') {
   const require = createRequire(import.meta.url)
   const wsModule = require('ws')
