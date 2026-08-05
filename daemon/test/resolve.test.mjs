@@ -467,9 +467,9 @@ describe('landBranch', () => {
   function land({ commits = [{ sha: 'abc1234', subject: 'do it' }], pr = null, ...over } = {}) {
     return landBranch({
       repo: 'o/r', ticket: '42', title: 'a ticket', summary: 'what it does',
-      agent: 'curia-42', model: 'opus', wtPath: '/w/42', basePath: '/b', branch: 'curia/42',
+      agent: 'curia-42', model: 'opus', wtPath: '/w/42', branch: 'curia/42',
       deps: {
-        defaultBranchOf: async () => 'main',
+        defaultBranchOf: async (p) => { calls.push({ op: 'defaultBranch', path: p }); return 'main' },
         commitsOnBranch: async () => commits,
         pushBranch: async (wt, repo, branch) => { calls.push({ op: 'push', branch }); return 'abc1234' },
         findPullRequest: async () => pr,
@@ -485,16 +485,17 @@ describe('landBranch', () => {
     const out = await land()
     assert.equal(out.state, 'opened')
     assert.equal(out.url, 'https://github.com/o/r/pull/7')
-    assert.deepEqual(calls.map((c) => c.op), ['push', 'pr'])
-    assert.match(calls[1].body, /`abc1234` do it/)
-    assert.equal(calls[1].base, 'main')
+    assert.deepEqual(calls.map((c) => c.op), ['defaultBranch', 'push', 'pr'])
+    const pr = calls.find((c) => c.op === 'pr')
+    assert.match(pr.body, /`abc1234` do it/)
+    assert.equal(pr.base, 'main')
     assert.ok(journalled.some((e) => e.type === 'pr_opened'))
   })
 
   test('a later call after a rejection updates the SAME pull request in place', async () => {
     const out = await land({ pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } })
     assert.equal(out.state, 'updated')
-    assert.deepEqual(calls.map((c) => c.op), ['push', 'prEdit'])
+    assert.deepEqual(calls.map((c) => c.op), ['defaultBranch', 'push', 'prEdit'])
     assert.ok(!calls.some((c) => c.op === 'pr'), 'gh pr create fails on an existing open head')
     assert.ok(journalled.some((e) => e.type === 'pr_reused'))
   })
@@ -509,7 +510,15 @@ describe('landBranch', () => {
     const out = await land({ commits: [] })
     assert.equal(out.ok, false)
     assert.equal(out.state, 'no-commits')
-    assert.deepEqual(calls.map((c) => c.op), [])
+    assert.deepEqual(calls.map((c) => c.op), ['defaultBranch'])
     assert.ok(journalled.some((e) => e.type === 'land_skipped'))
+  })
+
+  // #238: a sandboxed dispatch has a private clone and NO base clone, so the
+  // default branch must be read from the workspace itself.
+  test('the default branch is read from the workspace, never from a base clone (#238)', async () => {
+    await land()
+    const read = calls.find((c) => c.op === 'defaultBranch')
+    assert.equal(read.path, '/w/42')
   })
 })

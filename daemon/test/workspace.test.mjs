@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process'
 import {
   seedConfigDir, agentEnv, agentGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
   writeConnectionSettings, removeCredentials, untrustedProjectConfig, plantedSkills, MCP_SERVER_NAME,
-  createWorktree, remoteBranchExists,
+  createWorktree, remoteBranchExists, defaultBranchOf,
 } from '../src/workspace.mjs'
 
 describe('per-agent config dir (#53)', () => {
@@ -282,6 +282,18 @@ describe('createWorktree start point (#54 item 6)', () => {
     assert.equal(fs.existsSync(path.join(wt, 'work.txt')), false)
     assert.match(git(wt, 'log', '-1', '--format=%s'), /base/)
     assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/77')
+  })
+
+  // #238: the landing path reads the default branch from the WORKSPACE, never
+  // from the base clone — a repo whose dispatches are all sandboxed has no base
+  // clone at all. Both workspace shapes must answer: a worktree resolves
+  // origin/HEAD through the shared common dir, a standalone clone owns its own.
+  test('defaultBranchOf answers from a worktree and from a standalone clone (#238)', async () => {
+    const wt = await createWorktree(base, 88)
+    assert.equal(await defaultBranchOf(wt), 'main')
+    const clone = path.join(tmp, 'private-clone')
+    execFileSync('git', ['clone', path.join(tmp, 'origin.git'), clone])
+    assert.equal(await defaultBranchOf(clone), 'main')
   })
 })
 

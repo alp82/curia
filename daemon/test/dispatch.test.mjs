@@ -2217,6 +2217,26 @@ describe('open_pull_request (#54 item 1)', () => {
     assert.match(reply, /no commits.*Commit your work first/s)
   })
 
+  // #238: `alp82/aistack` had only sandboxed dispatches, so `repos/…/base` never
+  // existed — and the landing path died on `defaultBranchOf(basePath)` with the
+  // agent's commits stranded in its clone. The default branch comes from the
+  // WORKSPACE, which exists for every agent that can call this tool at all.
+  test('landing reads the default branch from the workspace — a sandboxed repo has no base clone (#238)', async () => {
+    const seen = []
+    const d = makeDispatcher({
+      defaultBranchOf: async (p) => { seen.push(p); return 'main' },
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
+      createPullRequest: async () => 'https://github.com/o/r/pull/7',
+    })
+    const w = liveAgent(d)
+    assert.ok(!fs.existsSync(path.join(tmp, 'work', 'repos', 'o__r', 'base')), 'the shape under test: no base clone on disk')
+
+    const reply = await d.openPullRequest('curia-42', { summary: 's' })
+
+    assert.match(reply, /opened https/)
+    assert.deepEqual(seen, [w.wtPath])
+  })
+
   test('a failed push tells the agent its commits are safe, and journals the failure', async () => {
     const d = makeDispatcher({
       commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],

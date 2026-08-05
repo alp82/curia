@@ -261,10 +261,14 @@ export function prBody({ repo, ticket, title, summary, commits, agent, model }) 
 // A pull request that is no longer OPEN (merged or closed by an earlier
 // dispatch) is not reused — a merged pull request cannot carry new commits, so
 // the branch gets a fresh one.
+//
+// The default branch is read from the WORKSPACE, never from the base clone: a
+// repo whose dispatches are all sandboxed has private clones and no base clone
+// at all (#238). A worktree answers too, through its shared common dir.
 export async function landBranch({
-  repo, ticket, title, summary, agent, model, wtPath, basePath, branch, deps, journal,
+  repo, ticket, title, summary, agent, model, wtPath, branch, deps, journal,
 }) {
-  const defaultBranch = await deps.defaultBranchOf(basePath)
+  const defaultBranch = await deps.defaultBranchOf(wtPath)
   const commits = await deps.commitsOnBranch(wtPath, defaultBranch)
   if (!commits.length) {
     journal('land_skipped', { repo, ticket, agent, branch, reason: 'no commits on the branch' })
@@ -299,7 +303,7 @@ export async function landBranch({
 // the write is bracketed by a fresh read and a verifying re-read, and the line
 // itself is journalled.
 export async function resolveAndLand({
-  repo, ticket, agent, result, wtPath, basePath, branch, epochTs, login, model,
+  repo, ticket, agent, result, wtPath, branch, epochTs, login, model,
   deps, journal, withMapLock, log = () => {},
 }) {
   const out = { comment: 'unknown', close: 'unknown', map: { state: 'none' }, land: { state: 'skipped' }, repaired: [], warnings: [] }
@@ -402,9 +406,9 @@ export async function resolveAndLand({
   // merely pushed (#48) — plus the one repair that has no other cure: an agent
   // that committed and never opened a pull request would leave the ONLY copy of
   // its work in a worktree the lifecycle is about to stop protecting.
-  if (wtPath && basePath && branch) {
+  if (wtPath && branch) {
     try {
-      const defaultBranch = await deps.defaultBranchOf(basePath)
+      const defaultBranch = await deps.defaultBranchOf(wtPath)
       const commits = await deps.commitsOnBranch(wtPath, defaultBranch)
       if (!commits.length) {
         out.land = { state: 'no-commits' }
@@ -413,7 +417,7 @@ export async function resolveAndLand({
         if (!pr) {
           const landed = await landBranch({
             repo, ticket, title, summary: result.summary, agent, model,
-            wtPath, basePath, branch, deps, journal,
+            wtPath, branch, deps, journal,
           })
           out.land = { state: 'repaired', url: landed.url, commits: landed.commits, branch }
           out.repaired.push('pull request')

@@ -1802,8 +1802,7 @@ export class Dispatcher {
     let unpushed = true
     let why = 'it holds commits that exist nowhere else'
     try {
-      const base = basePathFor(this.root, agent.repo)
-      unpushed = await this.deps.hasUnpushedWork(agent.wtPath, branchFor(agent.ticket), await this.deps.defaultBranchOf(base))
+      unpushed = await this.deps.hasUnpushedWork(agent.wtPath, branchFor(agent.ticket), await this.deps.defaultBranchOf(agent.wtPath))
     } catch (e) {
       why = `curia could not tell whether it holds unlanded commits (${e.message})`
     }
@@ -1977,7 +1976,7 @@ export class Dispatcher {
     const repo = w?.repo ?? this.#epochRepo(ticket)
     if (!repo) return { error: `curia cannot tell which repo #${ticket} belongs to` }
     const wtPath = w?.wtPath ?? worktreePathFor(this.root, repo, ticket)
-    return { w, ticket, repo, wtPath, branch: branchFor(ticket), basePath: basePathFor(this.root, repo) }
+    return { w, ticket, repo, wtPath, branch: branchFor(ticket) }
   }
 
   // `open_pull_request` (#54 item 1). Landing left report_result because the
@@ -1994,7 +1993,7 @@ export class Dispatcher {
     if (refused) return `${refused} Nothing was pushed.`
     const b = this.#bindingFor(agentName)
     if (b.error) return `❌ ${b.error} — nothing was pushed`
-    const { w, ticket, repo, wtPath, branch, basePath } = b
+    const { w, ticket, repo, wtPath, branch } = b
     // #160: a map dispatch produces tracker writes, not code. Refused rather
     // than left to the prompt, because this call PUSHES — and a charting agent
     // that has misread its own kind must not be one tool call away from putting
@@ -2013,7 +2012,7 @@ export class Dispatcher {
     try {
       out = await landBranch({
         repo, ticket, title, summary, agent: agentName, model: w?.model ?? null,
-        wtPath, basePath, branch, deps: this.deps,
+        wtPath, branch, deps: this.deps,
         journal: (type, data) => this.store.logEvent(type, data),
       })
     } catch (e) {
@@ -2356,7 +2355,7 @@ export class Dispatcher {
     }
     const b = this.#bindingFor(agentName)
     if (b.error) return { error: b.error }
-    const { w, ticket, repo, wtPath, branch, basePath } = b
+    const { w, ticket, repo, wtPath, branch } = b
     const state = {
       ticket,
       repo,
@@ -2375,7 +2374,7 @@ export class Dispatcher {
     // carry a commit is pure cost.
     if (state.charting) return state
     try {
-      const commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(basePath))
+      const commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(wtPath))
       state.hasCommits = commits.length > 0
     } catch (e) {
       this.log(`stop hook ${agentName}: could not read commits on ${branch} (${e.message}) — not asking for a pull request`)
@@ -2578,7 +2577,6 @@ export class Dispatcher {
     const out = await resolveAndLand({
       repo, ticket, agent: agentName, result, login,
       wtPath: fs.existsSync(wtPath) ? wtPath : null,
-      basePath: basePathFor(this.root, repo),
       branch: branchFor(ticket),
       // comments are judged against this dispatch, so a resolution comment left
       // by an EARLIER dispatch of the same ticket does not count as this one's
@@ -2927,7 +2925,7 @@ export class Dispatcher {
       // is the indeterminate case).
       let commits = null
       try {
-        commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(basePath))
+        commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(wtPath))
       } catch { /* indeterminate ⇒ keep */ }
       if (commits === null || commits.length) {
         this.store.logEvent('lease_kept', { repo, ticket, agent: agentName, branch, reason: 'no pull request, and the branch may hold commits' })
@@ -3876,7 +3874,7 @@ export class Dispatcher {
     let unpushed = true
     let why = 'it holds commits that exist nowhere else'
     try {
-      unpushed = await this.deps.hasUnpushedWork(wt, branchFor(n), await this.deps.defaultBranchOf(base))
+      unpushed = await this.deps.hasUnpushedWork(wt, branchFor(n), await this.deps.defaultBranchOf(wt))
     } catch (e) {
       why = `curia could not tell whether it holds unlanded commits (${e.message})`
     }
