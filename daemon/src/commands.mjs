@@ -267,7 +267,9 @@ export class CommandRouter {
   async #status() {
     const { agents, untracked, recent = [] } = await this.dispatcher.status()
     if (!agents.length && !untracked.length && !recent.length) return 'no live agents'
-    const waitingStates = new Set(['blocked', 'awaiting-review'])
+    // #165: `cross-checking` is a waiting state too — the builder is parked
+    // inside its gate call while a second agent reads the diff.
+    const waitingStates = new Set(['blocked', 'awaiting-review', 'cross-checking'])
     const isWaiting = (w) => waitingStates.has(w.state) || (w.waiting_on ?? []).length > 0
     const line = (w) => {
       const uptime = w.uptime_s != null ? `${Math.floor(w.uptime_s / 60)}m${w.uptime_s % 60}s` : '—'

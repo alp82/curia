@@ -173,6 +173,59 @@ export function chartingComment({ agent, model, instruction, result }) {
   ].join('\n')
 }
 
+// ---- the cross-check, on the pull request (#165, ADR-0010) -------------------
+//
+// Two comments, and the daemon writes both because it already holds both texts:
+// it spawned the reviewer, and the builder's judgement is the escalation prompt
+// of the question the duty asks for. No agent write bound widens for either.
+//
+// They go on the PULL REQUEST, not on the ticket. The verdict is a reading of a
+// DIFF, and the diff is what a pull request is — a reader who opens it reads the
+// finding beside the line it names. ADR-0001 makes GitHub the durable home, and
+// this is the record that outlives the builder, the reviewer and the daemon.
+//
+// No MACHINE_MARKER on either: both are substantive, and a later check must not
+// skip over them.
+export function verdictComment({ agent, model, builder_model: builderModel, sha, verdict, same_provider: sameProvider }) {
+  return [
+    '## 🔎 Cross-check verdict',
+    '',
+    `\`${agent}\` on \`${model ?? '?'}\` read \`${String(sha ?? '').slice(0, 12)}\`.`
+      + ` The builder ran on \`${builderModel ?? '?'}\`.`,
+    '',
+    verdict || '(the reviewer said nothing)',
+    '',
+    '---',
+    '',
+    sameProvider
+      ? '_curia spawned this reviewer when the operator pressed 🔎 on the review gate. It ran on the builder\'s OWN provider, which is the weaker check. It wrote nothing anywhere: the verdict is its only output, and the builder judges it next._'
+      : '_curia spawned this reviewer when the operator pressed 🔎 on the review gate. It wrote nothing anywhere: the verdict is its only output, and the builder judges it next._',
+  ].join('\n')
+}
+
+export function judgementComment(agent, prompt) {
+  return [
+    '## 🔨 The builder answers the cross-check',
+    '',
+    String(prompt ?? '').trim() || '(nothing said)',
+    '',
+    '---',
+    '',
+    `_\`${agent}\` judged the verdict above and put this to the operator as a plain question. The operator decides, and the review gate that follows is a pure approve-or-reject._`,
+  ].join('\n')
+}
+
+// The same verdict, as the builder reads it on its note queue. Shorter than the
+// comment: the builder knows which ticket it is on and does not need the framing
+// a pull-request reader needs.
+export function verdictNote({ agent, model, verdict }) {
+  return [
+    `\`${agent}\` on \`${model ?? '?'}\` cross-checked your diff and returned this verdict.`,
+    '',
+    verdict || '(the reviewer said nothing)',
+  ].join('\n')
+}
+
 export function prLinkComment({ branch, commits, url, state }) {
   return machine([
     `🔗 curia pushed \`${branch}\` (${commits} commit${commits === 1 ? '' : 's'}) and ${state === 'updated' ? 'updated' : 'opened'} ${url}`,

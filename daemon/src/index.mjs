@@ -736,9 +736,14 @@ function buildMcpServer(agent, ticket) {
   // The instance is read LIVE, never captured here: this server is built once
   // per session and #208 makes the queue instance-addressed, so a note stamped
   // for a predecessor must not ride out on a successor's tool result.
+  //
+  // The label says WHO the words are from (#165). Every note an operator typed
+  // is an operator note; the cross-check verdict rides the same queue under its
+  // own name, because a verdict read as the operator's word would be obeyed
+  // instead of judged.
   const drainNotes = () => store.takeAgentNotes(agent, dispatcher.agents.get(agent)?.instance ?? null).map((n) => ({
     type: 'text',
-    text: `[operator note${n.after ? `, after ${n.after}` : ''}] ${n.text}`,
+    text: `[${n.label ?? 'operator note'}${n.after ? `, after ${n.after}` : ''}] ${n.text}`,
   }))
 
   server.tool(
@@ -860,6 +865,12 @@ function buildMcpServer(agent, ticket) {
       // in front of the operator on a ticket the reviewer is not building.
       const refused = dispatcher.toolRefusal(agent, 'ask_human')
       if (refused) return { content: [{ type: 'text', text: refused }] }
+      // #165, ADR-0010: the FIRST question after a cross-check verdict is the
+      // builder's judgement of it, and it lands as a second pull-request comment
+      // under the verdict. Fire-and-forget on purpose — a gh round-trip must not
+      // sit between the agent and the human it is asking.
+      dispatcher.noteJudgement(agent, payload.prompt)
+        .catch((e) => log(`judgement comment for ${agent} failed: ${e.message}`))
       const { files, refusals } = outboundImages(agent, images)
       const { record, answered } = openEscalation({ agent, ticket, ...payload, files })
       const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(payload.prompt))

@@ -208,14 +208,20 @@ The blocking tool an agent calls to ask a question. Kinds: free-text, choice, ap
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records.
 
 **Cross-check**:
-The operator's third choice at the review gate. Curia spawns a reviewer on the other provider, and the verdict returns to the builder.
+The operator's third choice at the review gate. Curia spawns a reviewer on the other provider, and the verdict returns to the builder. The press answers neither way: nothing merges and nothing is rejected.
 
 **Reviewer**:
 The agent a cross-check spawns. It reads the diff, the ticket, and a checkout it can run. It writes nothing and it ends with its verdict.
 _Avoid_: checker.
 
 **Verdict**:
-The reviewer's findings on one diff. It reaches the builder, and it lands as a pull-request comment.
+The reviewer's findings on one diff. It reaches the builder on its note queue, and it lands as a pull-request comment.
+
+**Judgement**:
+The builder's reading of a verdict. It agrees or disagrees with each finding and recommends what to do. It reaches the operator as a plain question, and it lands as the second pull-request comment.
+
+**Parked**:
+A builder idle inside its own gate call while a cross-check reads. It holds its claim, its worktree and its slot, and it wakes when the verdict lands.
 
 **First-valid-wins**:
 The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal.

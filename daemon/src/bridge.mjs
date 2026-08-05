@@ -24,7 +24,7 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder,
 } from 'discord.js'
 import { safeLeaf } from './images.mjs'
-import { REVIEW_KIND } from './lifecycle.mjs'
+import { REVIEW_KIND, CROSS_CHECK_ANSWER } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
 import { chunkMessage, smallPrint } from './messaging.mjs'
 
@@ -581,6 +581,15 @@ export class DiscordBridge {
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|approve`).setLabel('✅ Approve').setStyle(ButtonStyle.Success))
       push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|reject`).setLabel('❌ Reject').setStyle(ButtonStyle.Danger))
     }
+    // The third button (#165, ADR-0010), and only on the review gate: it puts a
+    // reviewer on the OTHER provider onto this diff. Secondary style on purpose
+    // — the two answers stay the coloured pair, because this one answers
+    // nothing. It rides beside them on every gate round.
+    if (record.kind === REVIEW_KIND) {
+      push(new ButtonBuilder()
+        .setCustomId(`esc|${record.id}|opt|${CROSS_CHECK_ANSWER}`)
+        .setLabel('🔎 Cross-check').setStyle(ButtonStyle.Secondary))
+    }
     if (record.kind === 'choice' && (record.options ?? []).length <= MAX_BUTTON_OPTIONS) {
       record.options.forEach((label, idx) => {
         push(new ButtonBuilder().setCustomId(`esc|${record.id}|idx|${idx}`)
@@ -614,6 +623,7 @@ export class DiscordBridge {
         record.prompt,
         '',
         '_✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words)._',
+        '_🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict._',
       ].join('\n')
     }
     // No blockquote (#95's markdown standard) — the prompt stands on its own line.
