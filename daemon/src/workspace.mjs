@@ -902,6 +902,69 @@ export function untrustedProjectConfig(wtPath, harness) {
   return fs.existsSync(planted) ? planted : null
 }
 
+// The skill roots each harness reads out of the WATCHED REPO itself, measured
+// against the pinned CLIs (#224, docs/live-checks/224). Codex reads the project
+// config dir plus `.agents/skills` at the spawn cwd; claude reads
+// `.claude/skills`. Neither CLI has a config key that turns a repo root off.
+const REPO_SKILL_ROOTS = {
+  codex: [['.codex', 'skills'], ['.agents', 'skills']],
+  claude: [['.claude', 'skills']],
+}
+
+// The name a SKILL.md claims in its frontmatter. Codex keys a skill on this
+// name and ignores the directory, so a plant can sit in an innocently named
+// directory (measured, #224). Claude keys on the directory name instead.
+function frontmatterName(text) {
+  if (!text.startsWith('---')) return null
+  const end = text.indexOf('\n---', 3)
+  if (end === -1) return null
+  return /^name:[ \t]*(.+?)[ \t]*$/m.exec(text.slice(0, end))?.[1] ?? null
+}
+
+// A skill the WATCHED REPO carries under a name curia installs (#224) — the
+// untrustedProjectConfig family, one step milder: model-invoked prose, not an
+// auto-run hook. The plant impersonates curia's own tooling, and what the model
+// then sees is a CLI internal that moves between versions: codex lists the
+// plant BESIDE the installed copy and FIRST, claude shadows it by directory
+// name — except for the names installed with `disable-model-invocation: true`
+// (`wayfinder`, `implement`), where the installed copy is hidden from the model
+// and the plant surfaces alone. All measured on the pinned CLIs. Refusing the
+// dispatch puts a human on it; a repo skill under a name curia does NOT install
+// stays welcome, because carrying skills is what a repo may legitimately do.
+//
+// Both name identities are checked on both harnesses: the split is a CLI
+// internal too, and a stricter read costs a refusal where a looser one costs a
+// plant that loads.
+export function plantedSkills(wtPath, harness, install) {
+  const installed = new Set(install ?? [])
+  if (!installed.size) return []
+  const found = []
+  for (const root of REPO_SKILL_ROOTS[harness] ?? []) {
+    const dir = path.join(wtPath, ...root)
+    let entries = []
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() && !e.isSymbolicLink()) continue
+      const skillMd = path.join(dir, e.name, 'SKILL.md')
+      let text
+      try {
+        text = fs.readFileSync(skillMd, 'utf8')
+      } catch {
+        continue
+      }
+      const names = new Set([e.name, frontmatterName(text)].filter(Boolean))
+      for (const name of names) {
+        if (installed.has(name)) found.push({ path: skillMd, name })
+      }
+    }
+  }
+  return found
+}
+
 // The skill set an agent gets (#57, decision 1 of #49). Before this, an agent
 // had NO skills at all, so the spawn prompt was the whole of its wayfinder
 // knowledge — which is why restating skill doctrine in the prompt was the

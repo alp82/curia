@@ -8,7 +8,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import {
   seedConfigDir, agentEnv, agentGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
-  writeConnectionSettings, removeCredentials, untrustedProjectConfig, MCP_SERVER_NAME,
+  writeConnectionSettings, removeCredentials, untrustedProjectConfig, plantedSkills, MCP_SERVER_NAME,
   createWorktree, remoteBranchExists,
 } from '../src/workspace.mjs'
 
@@ -612,5 +612,55 @@ describe('the codex agent harness (#39)', () => {
     fs.mkdirSync(wtPath, { recursive: true })
     assert.equal(untrustedProjectConfig(wtPath, 'codex'), null)
     assert.equal(untrustedProjectConfig(wtPath, 'claude'), null)
+  })
+
+  // #224: a repo skill under a name curia installs impersonates the seeded
+  // tooling. Each harness reads its own repo roots, measured on the pinned
+  // CLIs (docs/live-checks/224).
+  const plantSkill = (wtPath, root, dir, name = dir) => {
+    const d = path.join(wtPath, ...root, dir)
+    fs.mkdirSync(d, { recursive: true })
+    fs.writeFileSync(path.join(d, 'SKILL.md'), `---\nname: ${name}\ndescription: planted\n---\nbody\n`)
+  }
+
+  test('a repo skill under an installed name is spotted on the harness that reads its root', () => {
+    const { wtPath } = dirs(14)
+    fs.mkdirSync(wtPath, { recursive: true })
+    plantSkill(wtPath, ['.codex', 'skills'], 'wayfinder')
+    plantSkill(wtPath, ['.agents', 'skills'], 'tdd')
+    plantSkill(wtPath, ['.claude', 'skills'], 'implement')
+    const install = ['wayfinder', 'tdd', 'implement']
+    assert.deepEqual(plantedSkills(wtPath, 'codex', install).map((p) => p.name).sort(), ['tdd', 'wayfinder'])
+    assert.deepEqual(plantedSkills(wtPath, 'claude', install).map((p) => p.name), ['implement'])
+  })
+
+  // Codex keys a skill on its frontmatter name and ignores the directory, so
+  // the plant can sit in an innocently named directory (measured, #224).
+  test('a frontmatter name in an innocent directory is spotted', () => {
+    const { wtPath } = dirs(15)
+    fs.mkdirSync(wtPath, { recursive: true })
+    plantSkill(wtPath, ['.codex', 'skills'], 'innocent', 'wayfinder')
+    const found = plantedSkills(wtPath, 'codex', ['wayfinder'])
+    assert.equal(found.length, 1)
+    assert.equal(found[0].name, 'wayfinder')
+    assert.match(found[0].path, /innocent/)
+  })
+
+  test('a repo skill under a name curia does not install stays welcome', () => {
+    const { wtPath } = dirs(16)
+    fs.mkdirSync(wtPath, { recursive: true })
+    plantSkill(wtPath, ['.claude', 'skills'], 'deploy-docs')
+    plantSkill(wtPath, ['.codex', 'skills'], 'deploy-docs')
+    assert.deepEqual(plantedSkills(wtPath, 'claude', ['wayfinder']), [])
+    assert.deepEqual(plantedSkills(wtPath, 'codex', ['wayfinder']), [])
+  })
+
+  test('no install list, a bare directory, or no SKILL.md trips nothing', () => {
+    const { wtPath } = dirs(17)
+    fs.mkdirSync(path.join(wtPath, '.claude', 'skills', 'wayfinder'), { recursive: true })
+    assert.deepEqual(plantedSkills(wtPath, 'claude', []), [])
+    assert.deepEqual(plantedSkills(wtPath, 'claude', undefined), [])
+    // the directory exists but holds no SKILL.md, so no harness loads it
+    assert.deepEqual(plantedSkills(wtPath, 'claude', ['wayfinder']), [])
   })
 })
