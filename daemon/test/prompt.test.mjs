@@ -37,6 +37,12 @@ describe('the wayfinder invocation', () => {
     assert.equal(p.split('\n')[0], '/wayfinder https://github.com/o/r/issues/1 ticket #42')
   })
 
+  test('the claude spelling is what an unstated harness gets', () => {
+    // Every caller states the harness since #173. The default stays claude, so
+    // a test double or a caller written before it keeps the old prompt.
+    assert.equal(write({ mapNumber: 1 }), write({ mapNumber: 1, harness: 'claude' }))
+  })
+
   test('a ticket with no map does not invoke the skill at all', () => {
     // The skill works THROUGH a map; invoking it with nothing to work through
     // would have it chart one. The flat ready-for-agent lane (#10) is this case.
@@ -44,6 +50,44 @@ describe('the wayfinder invocation', () => {
     assert.ok(!p.includes('/wayfinder'))
     assert.equal(p.split('\n')[0], '# o/r#42: Close the loop')
     assert.match(p, /belongs to no map/)
+  })
+
+  // #173, gap 4 of the codex-lane inventory. `/wayfinder` is a claude
+  // mechanism: on codex the same line arrived as plain text and loaded
+  // nothing. `$wayfinder` is codex's own way of naming a skill, and codex
+  // answers it with "you must use that skill for that turn" plus "read its
+  // SKILL.md completely" (measured, docs/live-checks/173).
+  describe('the codex harness spells it its own way (#173)', () => {
+    test('a map ticket starts with the $wayfinder line', () => {
+      const p = write({ mapNumber: 1, harness: 'codex' })
+      assert.equal(p.split('\n')[0], '$wayfinder https://github.com/o/r/issues/1 ticket #42')
+      assert.ok(!p.includes('/wayfinder'), 'the claude slash command is gone, not doubled')
+    })
+
+    test('a map dispatch names the map and no ticket, on this harness too', () => {
+      const p = write({ mapNumber: 42, charting: true, harness: 'codex' })
+      assert.equal(p.split('\n')[0], '$wayfinder https://github.com/o/r/issues/42')
+    })
+
+    test('a mapless ticket invokes nothing, in either spelling', () => {
+      const p = write({ mapNumber: null, harness: 'codex' })
+      assert.ok(!p.includes('wayfinder '), 'no invocation without a map to work through')
+      assert.equal(p.split('\n')[0], '# o/r#42: Close the loop')
+    })
+
+    test('the sigil is the ONLY difference — the rest is one document', () => {
+      // The bounds, the tools and the ending are harness-blind on purpose: a
+      // human reading two agents' prompts side by side must read the same
+      // text. A rule that belongs to one lane belongs in the harness table,
+      // not here.
+      const codex = write({ mapNumber: 1, harness: 'codex' }).split('\n')
+      const claude = write({ mapNumber: 1, harness: 'claude' }).split('\n')
+      assert.deepEqual(codex.slice(1), claude.slice(1))
+    })
+
+    test('an unknown harness is refused, never quietly spelled the claude way', () => {
+      assert.throws(() => write({ mapNumber: 1, harness: 'gemini' }), /no agent harness/)
+    })
   })
 })
 
