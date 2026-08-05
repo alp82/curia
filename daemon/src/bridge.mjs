@@ -27,8 +27,18 @@ import { safeLeaf } from './images.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
 import { chunkMessage, smallPrint } from './messaging.mjs'
+import { ThreadRenamer } from './threadname.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
+
+// The signal position of a bound thread's name (#93, #199, #200). The live
+// glyphs — states a running agent can hold — are the only ones another state
+// may overwrite; ✅ and ⚰️ are terminal and only bindTicket's relabel takes
+// them back to 🎫. Candidates for ⏳/🔎 were picked for reading beside 🎫 in
+// a phone sidebar; each is one constant, swappable after a live judging round
+// like #146's.
+const STATE_GLYPHS = { waiting: '⏳', 'awaiting-review': '🔎' }
+const LIVE_GLYPH_RE = /^(?:🎫|⏳|🔎)/u
 
 // #108 item 23, widened by #170: a message that is nothing but a command,
 // typed at an agent thread — the shape that reads as "cancel the agent" but
@@ -240,6 +250,17 @@ export class DiscordBridge {
     // hygiene rather than the fix.
     this.client.on(Events.Error, (e) => this.#onError('client', e))
     this.client.on(Events.ShardError, (e, id) => this.#onError(`shard ${id}`, e))
+    // Every rename goes through the one budget-aware gate (#199). Creating a
+    // thread WITH a name spends nothing (measured), so only setName routes here.
+    this.renamer = new ThreadRenamer({
+      log: this.log,
+      apply: async (threadId, name) => {
+        const t = await this.client.channels.fetch(threadId).catch(() => null)
+        if (!t || t.name === name) return false
+        await t.setName(name)
+        return true
+      },
+    })
   }
 
   authorized(userId) {
@@ -267,6 +288,7 @@ export class DiscordBridge {
 
   async stop() {
     this.#setHealth('down', { reason: 'stopped' })
+    this.renamer.stop()
     await this.client.destroy()
   }
 
@@ -355,8 +377,14 @@ export class DiscordBridge {
   // Release swaps the signal and keeps the rest: `🎫 85 · grilling` becomes
   // `✅ 85 · grilling`. The finished ticket stays readable in the thread list
   // instead of falling back to a name that no longer says what happened.
+  //
+  // The signal position holds a FAMILY now (#199): 🎫 running, ⏳ waiting on
+  // the operator, 🔎 holding a review gate open — the live glyphs — and the
+  // terminal ✅ / ⚰️. Release and cancel swap ANY live glyph, because a ticket
+  // can finish or be torn down mid-question, and a guard that only knew 🎫
+  // would leave ⏳ on a thread nothing will ever clear.
   static doneName(name) {
-    return name.replace(/^🎫/, '✅')
+    return name.replace(LIVE_GLYPH_RE, '✅')
   }
 
   // A cancel swaps the same signal for ⚰️ — the agent was torn down (#200).
@@ -365,7 +393,26 @@ export class DiscordBridge {
   // BINDING stays (#140), so a later dispatch takes the same thread back and
   // labelName puts 🎫 on it again.
   static cancelledName(name) {
-    return name.replace(/^🎫/, '⚰️')
+    return name.replace(LIVE_GLYPH_RE, '⚰️')
+  }
+
+  // The agent's state, on the signal position of the thread NAME (#199): the
+  // thread list says who is blocked without a message opened. Same vocabulary
+  // as the status line — ⏳ waiting, 🔎 awaiting review — and 🎫 is "nobody is
+  // blocked on you". Display only, like every rename here: it swaps a live
+  // glyph and touches nothing else, so a released ✅, a ⚰️, or a hand-edited
+  // name is left alone. The blocked glyphs ride the renamer's reserve rule —
+  // they spend a slot only while a second stays free for the clear.
+  async flagTicket(ticket, state) {
+    if (!this.bindings) return
+    const bound = this.bindings.get(ticket)
+    if (!bound) return
+    const t = await this.client.channels.fetch(bound).catch(() => null)
+    if (!t || !LIVE_GLYPH_RE.test(t.name)) return
+    const glyph = STATE_GLYPHS[state] ?? '🎫'
+    const name = t.name.replace(LIVE_GLYPH_RE, glyph)
+    if (name === t.name) return
+    await this.renamer.set(t.id, name, { reserve: glyph !== '🎫' })
   }
 
   // The thread a ticket's traffic lands in (#93): the journalled binding first.
@@ -443,7 +490,7 @@ export class DiscordBridge {
       if (r.ok) {
         const t = await this.client.channels.fetch(threadId).catch(() => null)
         const name = DiscordBridge.labelName(ticket, type)
-        if (t && t.name !== name) await t.setName(name).catch(() => {})
+        if (t && t.name !== name) await this.renamer.set(t.id, name)
         return r
       }
       // The ticket is bound to ANOTHER thread, and the operator is typing in
@@ -499,14 +546,14 @@ export class DiscordBridge {
     if (!r.ok) return r
     const name = DiscordBridge.labelName(ticket, type)
     const to = await this.client.channels.fetch(threadId).catch(() => null)
-    if (to && to.name !== name) await to.setName(name).catch(() => {})
+    if (to && to.name !== name) await this.renamer.set(to.id, name)
     const from = await this.client.channels.fetch(fromThreadId).catch(() => null)
     if (from) {
       await from.send(smallPrint(
         `🔗 ${name} moved to ${DiscordBridge.threadLink(this.guild.id, threadId)} — dispatched from there, so it reports there now.`,
       )).catch(() => {})
-      // 🎫 → ✅ on the thread being left, the same signal releaseTicket uses
-      if (from.name.startsWith('🎫')) await from.setName(DiscordBridge.doneName(from.name)).catch(() => {})
+      // live glyph → ✅ on the thread being left, the same signal releaseTicket uses
+      if (LIVE_GLYPH_RE.test(from.name)) await this.renamer.set(from.id, DiscordBridge.doneName(from.name))
     }
     if (to) {
       const fromName = from?.name ? `“${from.name}”` : 'another thread'
@@ -532,7 +579,7 @@ export class DiscordBridge {
     // the label goes back on: a ✅ from an earlier release, or a ⚰️ from a
     // cancel (#200), goes back to 🎫 because a ticket is being worked again
     const name = DiscordBridge.labelName(ticket, type)
-    if (t.name !== name) await t.setName(name).catch(() => {})
+    if (t.name !== name) await this.renamer.set(t.id, name)
     return t
   }
 
@@ -545,8 +592,8 @@ export class DiscordBridge {
     this.bindings.release(ticket, reason)
     if (!bound) return
     const t = await this.client.channels.fetch(bound).catch(() => null)
-    if (!t || !t.name.startsWith('🎫')) return
-    await t.setName(DiscordBridge.doneName(t.name)).catch(() => {})
+    if (!t || !LIVE_GLYPH_RE.test(t.name)) return
+    await this.renamer.set(t.id, DiscordBridge.doneName(t.name))
   }
 
   // The cancel counterpart (#200), and the one difference is the binding: a
@@ -558,8 +605,8 @@ export class DiscordBridge {
     const bound = this.bindings.get(ticket)
     if (!bound) return
     const t = await this.client.channels.fetch(bound).catch(() => null)
-    if (!t || !t.name.startsWith('🎫')) return
-    await t.setName(DiscordBridge.cancelledName(t.name)).catch(() => {})
+    if (!t || !LIVE_GLYPH_RE.test(t.name)) return
+    await this.renamer.set(t.id, DiscordBridge.cancelledName(t.name))
   }
 
   #buttons(record) {

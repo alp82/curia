@@ -145,6 +145,10 @@ const statusLine = new StatusLine({
   post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
   edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
   remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
+  // The thread-name state glyph (#199): the status line derives the state,
+  // the bridge renders it. With the bridge down the flag is dropped — the
+  // next transition retries, and the name is display only.
+  flag: (ticket, state) => (bridge ? bridge.flagTicket(ticket, state) : null),
   get: (id) => store.get(id),
   log,
   // Same harness resolution the timeline uses: the dispatcher's word on what it

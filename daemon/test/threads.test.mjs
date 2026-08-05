@@ -156,6 +156,14 @@ describe('DiscordBridge label helpers', () => {
     assert.equal(DiscordBridge.doneName('deploy talk'), 'deploy talk')
   })
 
+  test('done and cancel swap ANY live glyph (#199) — a ticket can end mid-question', () => {
+    assert.equal(DiscordBridge.doneName('⏳ 85 · task'), '✅ 85 · task')
+    assert.equal(DiscordBridge.doneName('🔎 85 · task'), '✅ 85 · task')
+    assert.equal(DiscordBridge.cancelledName('⏳ 85 · task'), '⚰️ 85 · task')
+    assert.equal(DiscordBridge.cancelledName('🔎 85'), '⚰️ 85')
+    assert.equal(DiscordBridge.cancelledName('✅ 85 · task'), '✅ 85 · task', 'terminal glyphs are not live — left alone')
+  })
+
   test('threadLink composes from the ids the daemon already holds', () => {
     assert.equal(DiscordBridge.threadLink('G1', 'T9'), 'https://discord.com/channels/G1/T9')
   })
@@ -353,6 +361,58 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     store.bindTicketThread('119', 't-gone') // never registered ⇒ fetch misses
     await bridge.releaseTicket('119', 'finished')
     assert.equal(store.threadForTicket('119'), undefined)
+  })
+
+  test('release clears a waiting glyph too — never a stale ⏳ on a finished ticket (#199)', async () => {
+    const t = makeThread('t-wait', '⏳ 120 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(t)
+    store.bindTicketThread('120', 't-wait')
+    await bridge.releaseTicket('120', 'finished')
+    assert.deepEqual(renames, ['✅ 120 · task'])
+  })
+
+  // ---- the state glyph on the thread name (#199) -----------------------------
+
+  test('flagTicket swaps 🎫 for the state glyph and back, keeping the rest of the name', async () => {
+    const t = makeThread('t-flag', '🎫 121 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('121', 't-flag')
+
+    await bridge.flagTicket('121', 'waiting')
+    await bridge.flagTicket('121', 'working')
+    await bridge.flagTicket('121', 'working') // repeat: nothing to send
+    assert.deepEqual(renames, ['⏳ 121 · task', '🎫 121 · task'])
+  })
+
+  test('flagTicket renders awaiting-review as 🔎', async () => {
+    const t = makeThread('t-rev', '🎫 122 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('122', 't-rev')
+    await bridge.flagTicket('122', 'awaiting-review')
+    assert.deepEqual(renames, ['🔎 122 · task'])
+  })
+
+  test('flagTicket leaves terminal, hand-edited and unbound names alone', async () => {
+    const done = makeThread('t-done2', '✅ 123 · task')
+    const plain = makeThread('t-plain2', 'deploy talk')
+    const renames = []
+    done.setName = async (n) => { renames.push(n) }
+    plain.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(done)
+    bridge.registerThread(plain)
+    store.bindTicketThread('123', 't-done2')
+    store.bindTicketThread('124', 't-plain2')
+
+    await bridge.flagTicket('123', 'waiting')
+    await bridge.flagTicket('124', 'waiting')
+    await bridge.flagTicket('125', 'waiting') // never bound
+    assert.deepEqual(renames, [])
   })
 })
 

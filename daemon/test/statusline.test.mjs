@@ -97,6 +97,48 @@ describe('StatusLine', () => {
     assert.match(edits[0].text, /\[esc-3\].*1 h 15 min/)
   })
 
+  test('the thread flag follows the state and fires only on a real projection change (#199)', async () => {
+    const flags = []
+    const l = new StatusLine({
+      post: async () => ({ threadId: 't', messageId: 'm' }),
+      edit: async () => true,
+      get: (id) => records.get(id),
+      log: () => {},
+      flag: (ticket, state) => { flags.push({ ticket, state }) },
+    })
+    l.onEvent({ type: 'agent_spawned', agent: 'curia-9', ticket: '9', model: 'opus' })
+    l.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    records.set('e1', { id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', status: 'open' })
+    l.onEvent({ type: 'esc_open', id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'q?', ts: new Date().toISOString() })
+    l.onEvent({ type: 'esc_nudge', id: 'e1' }) // same state — no re-flag
+    l.onEvent({ type: 'esc_answer', id: 'e1', answer: 'yes' })
+    records.set('e2', { id: 'e2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, status: 'open' })
+    l.onEvent({ type: 'esc_open', id: 'e2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
+    l.onEvent({ type: 'esc_answer', id: 'e2', answer: 'approve' })
+    l.onEvent({ type: 'agent_done', agent: 'curia-9' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    assert.deepEqual(flags.map((f) => f.state), [
+      'working', 'waiting', 'working', 'awaiting-review', 'working',
+    ], 'ready, nudge, and done fire no flag — only real projection changes do')
+    assert.ok(flags.every((f) => f.ticket === '9'))
+  })
+
+  test('a dead agent keeps its last flag — a kept-answerable question stays flagged (#199)', async () => {
+    const flags = []
+    const l = new StatusLine({
+      post: async () => ({ threadId: 't', messageId: 'm' }),
+      edit: async () => true,
+      get: (id) => records.get(id),
+      log: () => {},
+      flag: (ticket, state) => { flags.push(state) },
+    })
+    records.set('e1', { id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', status: 'open' })
+    l.onEvent({ type: 'esc_open', id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'q?', ts: new Date().toISOString() })
+    l.onEvent({ type: 'agent_died', agent: 'curia-9', ticket: '9' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    assert.deepEqual(flags, ['waiting'], 'gone is not a projection — the ⏳ stands until an answer or a release')
+  })
+
   test('a confirm is the overseer talking — the agent line ignores it', async () => {
     records.set('esc-5', { id: 'esc-5', agent: 'overseer', kind: CONFIRM_KIND })
     line.onEvent({ type: 'esc_open', id: 'esc-5', agent: 'overseer', ticket: '9', kind: CONFIRM_KIND, prompt: 'cancel all?', ts: 'T' })

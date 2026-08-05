@@ -72,6 +72,23 @@ const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 
 // operator may have typed the word instead of pressing the button.
 const CROSS_CHECK_RE = /^cross[- ]?check$/i
 
+// The thread-NAME projection of the state (#199): what the signal glyph on the
+// thread list should say about who is blocked. `waiting` and `awaiting-review`
+// keep their names — the same vocabulary the line itself uses — and every
+// other live state collapses to `working`, because the list only answers one
+// question: does this ticket need the operator? Terminal states are absent on
+// purpose: release and cancel own the ✅/⚰️ rename, and a dead agent keeps its
+// last glyph — a question kept answerable (#139) is still a question.
+const NAME_FLAG = {
+  waiting: 'waiting',
+  'awaiting-review': 'awaiting-review',
+  dispatched: 'working',
+  working: 'working',
+  'cross-checking': 'working',
+  executing: 'working',
+  resolving: 'working',
+}
+
 export class StatusLine {
   // post(ticket, text) -> {threadId, messageId} | null (bridge down)
   // edit(ids, text) -> boolean — false means the message is gone; repost
@@ -80,7 +97,7 @@ export class StatusLine {
   // meters(session, model) -> see usage.agentMeters; null drops every meter
   constructor({
     post, edit, remove = async () => {}, get, log = console.log,
-    meters = () => null, refreshMs = 60_000, now = () => Date.now(),
+    meters = () => null, flag = () => {}, refreshMs = 60_000, now = () => Date.now(),
   }) {
     this.post = post
     this.edit = edit
@@ -88,6 +105,7 @@ export class StatusLine {
     this.get = get
     this.log = log
     this.meters = meters
+    this.flag = flag
     this.now = now
     this.refreshMs = refreshMs
     this.timer = null
@@ -297,7 +315,7 @@ export class StatusLine {
   #set(session, ticket, state, detail) {
     let w = this.agents.get(session)
     if (!w) {
-      w = { ticket, model: null, state, detail, text: null, ids: null, chain: Promise.resolve() }
+      w = { ticket, model: null, state, detail, text: null, ids: null, flag: null, chain: Promise.resolve() }
       this.agents.set(session, w)
     }
     // a respawn after done is a new run: leave the old line as history
@@ -319,6 +337,18 @@ export class StatusLine {
     // at all. The meters callback fills that in from the dispatcher's record,
     // which reconcile rebuilds from the journal — see index.mjs.
     if (detail.model) w.model = detail.model
+    // The thread name follows the state (#199) — told to the bridge, which
+    // holds no state of its own (#93). Only a real projection CHANGE fires,
+    // so the meter tick and same-state refreshes cost no rename budget; the
+    // comment on `post` applies here too — a failure is the bridge's to log,
+    // and the next transition retries.
+    const f = NAME_FLAG[state]
+    if (f && f !== w.flag) {
+      w.flag = f
+      Promise.resolve(this.flag(w.ticket, f)).catch((e) => {
+        this.log(`thread flag for ${session} failed: ${e.message}`)
+      })
+    }
     const text = this.#text(session, state, detail, w.model)
     w.chain = w.chain.then(() => this.#apply(w, text, { fresh, move })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
