@@ -444,6 +444,18 @@ describe('the codex agent harness (#39)', () => {
     for (const feature of ['apps', 'plugins', 'multi_agent']) {
       assert.match(toml, new RegExp(`^${feature} = false$`, 'm'), `${feature} must be off: curia never configured it`)
     }
+
+    // #207: the rest of the default-on registry, pinned off. Measured inert for
+    // a CLI agent on the pinned codex — these lines remove no capability today.
+    // They exist so the next version bump that DOES attach one of them to the
+    // CLI meets a stated choice (docs/live-checks/207). Same whole-line
+    // assertion, for the same silent-rename reason.
+    for (const feature of [
+      'browser_use', 'browser_use_external', 'browser_use_full_cdp_access',
+      'in_app_browser', 'computer_use', 'in_app_updates', 'skill_mcp_dependency_install',
+    ]) {
+      assert.match(toml, new RegExp(`^${feature} = false$`, 'm'), `${feature} must be off: curia never chose it (#207)`)
+    }
     assert.match(toml, /\[mcp_servers\.curia\]\nurl = "http:\/\/127\.0\.0\.1:4271\/mcp\?agent=curia-6&ticket=6"/)
 
     // codex's 300 s tool-call deadline is a HARD one, so #34's keepalive — which

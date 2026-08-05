@@ -780,10 +780,19 @@ const HARNESS = {
         // HTTPS, and the network is open because wayfinder needs `gh` and the
         // web.
         //
-        // `apps` and `plugins` are the namespace itself. `multi_agent` is the
-        // other half of the same tool set: `resume_agent` and `close_agent` come
-        // from there, and a curia agent works alone by design — one ticket, one
-        // agent, one review gate.
+        // `apps` and `plugins` are the namespace itself, and #207's live read
+        // confirmed both bite: the mcp-resource tools and `request_plugin_install`
+        // drop out of a real agent's tool set when they are false.
+        //
+        // `multi_agent` was written against `resume_agent` and `close_agent`, and
+        // #207 measured it as a no-op on 0.146: the family moved to
+        // `collaboration.*` and off the flag, and a live agent under this very
+        // table spawned a sub-agent (`Started /root/pong`,
+        // docs/live-checks/207). The operator then ruled the collaboration
+        // tools ALLOWED (2026-08-05): they are the codex spelling of claude's
+        // own subagents, which curia has never forbidden, and the review gate
+        // reads the output either way. The key stays because it is true to its
+        // name and costs nothing.
         //
         // The trap is the OPPOSITE shape to #180's, and it was measured both
         // ways. A key codex does not know is ignored in silence, so a rename
@@ -792,10 +801,29 @@ const HARNESS = {
         // So nothing here can quietly take curia's own MCP server down, and a
         // typo buys back the whole surface with nothing to say so. That is why
         // the guard is a live read of `codex features list` (docs/live-checks/172)
-        // rather than a unit test on the string this writes.
+        // rather than a unit test on the string this writes. `multi_agent` is
+        // that trap CAUGHT, one ticket later.
         'apps = false',
         'plugins = false',
         'multi_agent = false',
+        // The rest of the default-on registry curia never chose (#207). All
+        // seven were measured INERT for a CLI agent on the pinned codex: with
+        // all of them false, a live agent's tool set is byte-identical, in the
+        // TUI lane and the exec lane, bare and in the container. They gate the
+        // Codex desktop app and IDE surfaces, not this one — no browser or
+        // computer-use tool ever reached a CLI agent's definitions, and
+        // `in_app_updates = false` does not even remove `codex update` from the
+        // CLI. So these lines remove no capability today. They are a pin: each
+        // is `stable` and defaults to TRUE, so the next version bump that does
+        // attach one of them to the CLI meets a stated choice instead of a
+        // default nobody made (operator ruling, 2026-08-05, docs/live-checks/207).
+        'browser_use = false',
+        'browser_use_external = false',
+        'browser_use_full_cdp_access = false',
+        'in_app_browser = false',
+        'computer_use = false',
+        'in_app_updates = false',
+        'skill_mcp_dependency_install = false',
         '',
         `[projects.${toml(wtPath)}]`,
         'trust_level = "trusted"',
