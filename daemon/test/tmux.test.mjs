@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { hasSession, listSessions, newSession, capturePane, killSession, wrapShellCmd } from '../src/tmux.mjs'
+import { hasSession, listSessions, newSession, capturePane, killSession, wrapShellCmd, sendText, sendKey, PANE_WRITE_GAP_MS } from '../src/tmux.mjs'
 import { paneTail, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 
 // Inside any tmux pane — every curia agent runs there — tmux exports $TMUX,
@@ -237,5 +237,88 @@ describe('the exit wrapper, through a real shell', () => {
 
   test('an unsafe marker is refused before it is ever nested in bash -c', () => {
     assert.throws(() => wrapShellCmd('true', 'x"; rm -rf /; #'), /not quote-free/)
+  })
+})
+
+// #223, WITHOUT tmux, for the same reason the wrapper test above runs without
+// it: the property under test is the TIMING of the send-keys calls, and a fake
+// tmux on PATH records that timing anywhere. codex 0.146 folds keystrokes that
+// arrive inside about a second into one paste (measured live on #176), so an
+// Enter that follows its text milliseconds later becomes a newline and the
+// message never leaves the composer.
+describe('pane writes are spaced so a codex composer cannot fold them (#223)', () => {
+  // The widest fold window measured on codex 0.146. The gap must clear it.
+  const CODEX_PASTE_WINDOW_MS = 1_000
+
+  let tmp
+  let log
+  let savedPath
+
+  // Every call appends "<ms> <argv…>", so the log carries both the order and
+  // the spacing of the real execFile calls.
+  const FAKE = `#!/usr/bin/env node
+const fs = require('fs')
+fs.appendFileSync(process.env.CURIA_TMUX_LOG, Date.now() + ' ' + process.argv.slice(2).join(' ') + '\\n')
+`
+
+  const calls = () => fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => {
+    const at = line.slice(0, line.indexOf(' '))
+    return { at: Number(at), args: line.slice(at.length + 1) }
+  })
+
+  test.beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-paced-'))
+    log = path.join(tmp, 'calls.log')
+    fs.writeFileSync(path.join(tmp, 'tmux'), FAKE, { mode: 0o755 })
+    fs.writeFileSync(log, '')
+    process.env.CURIA_TMUX_LOG = log
+    savedPath = process.env.PATH
+    process.env.PATH = `${tmp}:${savedPath}`
+  })
+
+  test.afterEach(() => {
+    process.env.PATH = savedPath
+    delete process.env.CURIA_TMUX_LOG
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  test('the Enter lands a gap after the text, not milliseconds after it', async () => {
+    await sendText('curia-223a', 'ship it')
+    const c = calls()
+
+    assert.equal(c.length, 2)
+    assert.equal(c[0].args, 'send-keys -t =curia-223a: -l ship it')
+    assert.equal(c[1].args, 'send-keys -t =curia-223a: Enter')
+    assert.ok(
+      c[1].at - c[0].at > CODEX_PASTE_WINDOW_MS,
+      `the Enter landed ${c[1].at - c[0].at}ms after the text — inside codex's fold window, where it is a newline`,
+    )
+  })
+
+  test('two writers to one pane are serialised, so no write folds into another', async () => {
+    // The second fold: two devices posting /send milliseconds apart put the
+    // first message's Enter and the second message's text in one burst.
+    await Promise.all([sendText('curia-223b', 'first'), sendKey('curia-223b', 'Escape')])
+    const c = calls()
+
+    assert.deepEqual(c.map((x) => x.args), [
+      'send-keys -t =curia-223b: -l first',
+      'send-keys -t =curia-223b: Enter',
+      'send-keys -t =curia-223b: Escape',
+    ], 'writes must reach the pane in the order they were issued')
+    for (let i = 1; i < c.length; i++) {
+      assert.ok(
+        c[i].at - c[i - 1].at > CODEX_PASTE_WINDOW_MS,
+        `write ${i} landed ${c[i].at - c[i - 1].at}ms after write ${i - 1}`,
+      )
+    }
+  })
+
+  test('two panes do not wait on each other', async () => {
+    const started = Date.now()
+    await Promise.all([sendKey('curia-223c', 'Escape'), sendKey('curia-223d', 'Escape')])
+
+    assert.equal(calls().length, 2)
+    assert.ok(Date.now() - started < PANE_WRITE_GAP_MS, 'the gap is per pane; one agent must not delay another')
   })
 })

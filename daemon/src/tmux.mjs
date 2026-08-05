@@ -116,20 +116,87 @@ export async function capturePane(name) {
 
 export async function killSession(name) {
   await tmux(['kill-session', '-t', `=${name}`])
+  paneWrites.delete(name) // the pane is gone, and its pacing state goes with it
 }
 
+// ---------------------------------------------------------------------------
+// the write path, paced (#223)
+// ---------------------------------------------------------------------------
+//
 // The timeline surface's write path (#74): send-keys drives a session with
 // ZERO attached clients, so no geometry is negotiated and the pane never
 // learns how many devices exist (#72 leg 3). Same pane-scoped `=name:` target
 // as capturePane, for the same window-rename reason.
 //
-// -l sends the text LITERALLY (no key-name interpretation); the separate
-// Enter submits it.
-export async function sendText(name, text) {
-  await tmux(['send-keys', '-t', `=${name}:`, '-l', text])
-  await tmux(['send-keys', '-t', `=${name}:`, 'Enter'])
+// Every byte a caller writes into a pane goes through paneWrite, which holds
+// consecutive writes to the SAME pane at least PANE_WRITE_GAP_MS apart.
+//
+// codex 0.146 folds keystrokes that arrive inside about a second into one
+// PASTE — measured live on #176 (docs/live-checks/176-codex-attach-surfaces.md,
+// section 4). sendText used to send the text and the Enter as two send-keys
+// calls milliseconds apart, so on a codex pane the Enter landed inside that
+// window and became a NEWLINE: the message sat in the composer, no turn ever
+// started, and the timeline still reported "sent". Every timeline /send to a
+// codex agent was a silent no-op — #75's loss class again, on the write path.
+//
+// The gap is unconditional, not per-harness. A per-harness send would have to
+// pick its branch from the dispatcher's harness answer, which is null for a
+// re-adopted or lab session, and the wrong branch here fails SILENTLY — the
+// exact outcome this closes. The claude composer submits on a late Enter
+// exactly as it does on an immediate one (measured throughout #74/#75), so
+// both lanes pay the gap and neither lane can lose a message to a fold.
+//
+// The pacing also covers the fold nobody had to type by hand: two /send posts
+// from two devices, milliseconds apart, put the first message's Enter and the
+// second message's text in one burst, which loses the first submit the same
+// way. Writers are therefore QUEUED per pane as well as spaced. The queue is
+// what makes a send ATOMIC: the text and its Enter are one job, so another
+// device's Escape can no longer land between them and empty the composer the
+// Enter was about to submit.
+export const PANE_WRITE_GAP_MS = 1_500
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// name -> { at, chain }: `at` is when the last write to this pane finished,
+// `chain` is the tail of that pane's job queue. The queue is per pane, so one
+// agent's send never delays another's.
+const paneWrites = new Map()
+
+// job(write) runs with the pane to itself; each `write` waits out the gap
+// since the previous one, whoever made it.
+function paneJob(name, job) {
+  let state = paneWrites.get(name)
+  if (!state) {
+    state = { at: 0, chain: Promise.resolve() }
+    paneWrites.set(name, state)
+  }
+  const write = async (args) => {
+    const wait = state.at + PANE_WRITE_GAP_MS - Date.now()
+    if (wait > 0) await sleep(wait)
+    try {
+      await tmux(args)
+    } finally {
+      // A failed send-keys may still have put bytes in the pane, so it starts
+      // the next gap exactly as a successful one does.
+      state.at = Date.now()
+    }
+  }
+  const done = state.chain.then(() => job(write))
+  // The queue carries the swallowed copy: one failed job must not reject every
+  // job queued behind it.
+  state.chain = done.catch(() => {})
+  return done
 }
 
-export async function sendKey(name, key) {
-  await tmux(['send-keys', '-t', `=${name}:`, key])
+// -l sends the text LITERALLY (no key-name interpretation); the separate
+// Enter, one gap later, submits it.
+export function sendText(name, text) {
+  return paneJob(name, async (write) => {
+    await write(['send-keys', '-t', `=${name}:`, '-l', text])
+    await write(['send-keys', '-t', `=${name}:`, 'Enter'])
+  })
+}
+
+export function sendKey(name, key) {
+  return paneJob(name, (write) => write(['send-keys', '-t', `=${name}:`, key]))
 }
