@@ -982,6 +982,10 @@ describe('usage-limit respawn failure releases the claim (B3)', () => {
     assert.equal(credsRemoved.length, 1, 'the OAuth credential copy is collected on release')
     assert.equal(notifies.length, 1, 'exactly one notify')
     assert.match(notifies[0].message, /respawn on \*\*haiku\*\* failed/)
+    // #217: tmux exploding IS a fault, and this sentence must keep saying so —
+    // the refusal frame is for the other fact.
+    assert.ok(!/REFUSED/.test(notifies[0].message), 'a fault must not read as a decision')
+    assert.match(notifies[0].message, /^⚠️/)
   })
 })
 
@@ -2835,6 +2839,12 @@ describe('dispatching across two harnesses (#39)', () => {
     const msg = notifies.find((n) => /hooks\.json/.test(n.message))?.message
     assert.ok(msg, 'the operator is told which file refused the fallback')
     assert.match(msg, /once a harness that does not load it is warm/, 'the way out fits the fallback, not the dispatch')
+    // #217: curia would not, rather than curia could not. "failed" sends the
+    // operator looking for a fault that is not there.
+    assert.match(msg, /REFUSED to respawn it on \*\*gpt\*\*/)
+    assert.ok(!/failed/i.test(msg), 'a refusal is not a failure')
+    assert.match(msg, /^🚫/, 'the refusal icon, the same one the twice-mute refusal uses')
+    assert.match(msg, /claim released, ticket re-frontiered/, 'the claim tail is shared with the failure shape')
     // The lane still cooled: the refusal is about the NEXT harness, not the cap.
     assert.ok(events.some((e) => e.type === 'model_cooling' || e.type === 'provider_cooling'))
   })
@@ -2862,6 +2872,12 @@ describe('dispatching across two harnesses (#39)', () => {
     assert.ok(events.some((e) => e.type === 'agent_mute'))
     assert.ok(events.some((e) => e.type === 'dispatch_unclaimed' && /settings\.local\.json/.test(e.reason)))
     assert.equal(d.agents.has('curia-42'), false)
+    // #217: the mute lane carries the refusal too, and frames it the same way
+    // the cap lane does — one shape for one fact, on both call sites.
+    const msg = notifies.find((n) => /settings\.local\.json/.test(n.message))?.message
+    assert.ok(msg, 'the operator is told which file refused the respawn')
+    assert.match(msg, /had no curia tools and curia REFUSED to respawn it on \*\*sonnet\*\*/)
+    assert.ok(!/failed/i.test(msg), 'a refusal is not a failure')
   })
 })
 
