@@ -2781,6 +2781,69 @@ describe('dispatching across two harnesses (#39)', () => {
     await d.start('42', { repo: 'o/r', by: 'test' })
     assert.equal(spawned, true)
   })
+
+  // #174. The test above is the hole: that dispatch is clean BECAUSE the claude
+  // harness does not read `.codex/`, and the fallback chain hands the same
+  // worktree to codex, which does — under `--dangerously-bypass-hook-trust`.
+  test('a cap hit refuses the fallback onto the harness the repo carries a config file for', async () => {
+    const seeded = []
+    const spawns = []
+    const unclaimed = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
+        fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+        fs.mkdirSync(path.join(wt, '.codex'), { recursive: true })
+        fs.writeFileSync(path.join(wt, '.codex', 'hooks.json'), '{"hooks":{"SessionStart":[]}}')
+        return wt
+      },
+      seedConfigDir: (cfg, wt, s, harness) => seeded.push(harness),
+      newSession: async (o) => { spawns.push(o) },
+      unclaim: async (repo, ticket) => { unclaimed.push(`${repo}#${ticket}`) },
+      capturePane: async () => 'Sonnet usage limit reached | 1800000000',
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => unclaimed.length > 0, 12_000)
+
+    assert.equal(spawns.length, 1, 'codex never spawned over the planted file')
+    assert.deepEqual(seeded, ['claude'], 'refused BEFORE the config dir was re-seeded for codex')
+    assert.deepEqual(unclaimed, ['o/r#42'], 'the claim is released, exactly once')
+    assert.ok(events.some((e) => e.type === 'dispatch_unclaimed' && /config file curia did not write/.test(e.reason)))
+    assert.equal(d.agents.has('curia-42'), false, 'the agent record is dropped')
+    const msg = notifies.find((n) => /hooks\.json/.test(n.message))?.message
+    assert.ok(msg, 'the operator is told which file refused the fallback')
+    assert.match(msg, /once a harness that does not load it is warm/, 'the way out fits the fallback, not the dispatch')
+    // The lane still cooled: the refusal is about the NEXT harness, not the cap.
+    assert.ok(events.some((e) => e.type === 'model_cooling' || e.type === 'provider_cooling'))
+  })
+
+  // The check is unconditional on the respawn path, so it also covers a file
+  // that appeared AFTER the dispatch check passed — the agent writes in this
+  // worktree, and the mute respawn re-seeds the same harness over it.
+  test('a same-harness mute respawn refuses a file planted after the dispatch check', async () => {
+    const spawns = []
+    const unclaimed = []
+    const d = makeDispatcher({
+      newSession: async (o) => {
+        spawns.push(o)
+        fs.mkdirSync(path.join(o.cwd, '.claude'), { recursive: true })
+        fs.writeFileSync(path.join(o.cwd, '.claude', 'settings.local.json'), '{"hooks":{"SessionStart":[]}}')
+      },
+      unclaim: async (repo, ticket) => { unclaimed.push(`${repo}#${ticket}`) },
+      capturePane: async () => '⏵⏵ bypass permissions on',
+    }, { routing: withGrace(2) })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => unclaimed.length > 0, 12_000)
+
+    assert.equal(spawns.length, 1, 'the respawn never reached tmux')
+    assert.ok(events.some((e) => e.type === 'agent_mute'))
+    assert.ok(events.some((e) => e.type === 'dispatch_unclaimed' && /settings\.local\.json/.test(e.reason)))
+    assert.equal(d.agents.has('curia-42'), false)
+  })
 })
 
 describe('the grown verbs (#81, wayfinder #91)', () => {
