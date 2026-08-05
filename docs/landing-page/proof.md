@@ -97,6 +97,30 @@ grep -c 'repo:' config/curia.yaml                          # repos watched
 escalations answered and agents spawned come from here, and the line on the page must carry the
 since-date rather than read as a lifetime total.
 
+**An agent cannot count the journal.** It lives on the operator's box, outside the worktree, so the
+journal half of the line is an `ask_human` call, not a command
+([Polish the live page](https://github.com/alp82/curia/issues/137), 2026-08-05). Ask for the output
+of these two, run from the daemon data directory:
+
+```sh
+jq -r .type events.jsonl | sort | uniq -c
+jq -r 'select(.type=="esc_open")|.kind' events.jsonl | sort | uniq -c
+```
+
+Then read the three numbers off them:
+
+- **Agents spawned** — `agent_spawned` **plus** `worker_spawned`. The journal is append-only and
+  every line written before the #184 rename says `worker_spawned`, so `normalizeEvent` in
+  `daemon/src/store.mjs` rewrites the type on read. They are one event under two spellings, and a
+  count that takes only the new one is short by every agent before the rename.
+- **Questions asked** — `esc_open` minus the `review-gate` kind, because the gate is the third
+  number and one thing gets counted once.
+- **Review gates answered** — `review_answered`.
+
+**The page says "answered", not "approved".** The journal records that the human answered the gate,
+not which button they pressed, so the page claims the number it can count. The line said "approved"
+until 2026-08-05.
+
 **Tokens are not on the page.** The operator asked for them; curia never journals them. They exist
 only in the harness's own transcripts, for Claude and not Codex, and only for projects
 still on disk — the one number a reader could not check. **Handed to the production map
