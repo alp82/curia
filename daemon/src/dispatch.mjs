@@ -727,6 +727,9 @@ export class Dispatcher {
       wtPath: view.wt, hostWtPath: wtPath, cfgDir, agent: session, ticket,
       daemonPort: this.daemonPort, daemonHost: view.daemonHost, token,
       harness, reasoningEffort: this.routing.models[model].reasoning_effort ?? null,
+      // The codex harness turns this into its skill deny list (#171); the
+      // claude harness does not read it.
+      skills: this.config.skills,
     })
   }
 

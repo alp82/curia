@@ -341,19 +341,19 @@ describe('the codex agent harness (#39)', () => {
   // #158: a container mounts no host HOME, so the link resolves to nothing
   // inside it. `os.homedir()` reads $HOME on POSIX, which is what lets these
   // drive both the copy and the refusal without touching the real store.
-  describe('the sandboxed codex credential (#158)', () => {
-    const withHome = (fn) => {
-      const saved = process.env.HOME
-      const home = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-codex-home-'))
-      try {
-        process.env.HOME = home
-        return fn(home)
-      } finally {
-        process.env.HOME = saved
-        fs.rmSync(home, { recursive: true, force: true })
-      }
+  const withHome = (fn) => {
+    const saved = process.env.HOME
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-codex-home-'))
+    try {
+      process.env.HOME = home
+      return fn(home)
+    } finally {
+      process.env.HOME = saved
+      fs.rmSync(home, { recursive: true, force: true })
     }
+  }
 
+  describe('the sandboxed codex credential (#158)', () => {
     test('a container gets a read-only COPY, never the link', () => withHome((home) => {
       fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
       fs.writeFileSync(path.join(home, '.codex', 'auth.json'), '{"tokens":{"refresh_token":"r"}}')
@@ -408,6 +408,42 @@ describe('the codex agent harness (#39)', () => {
       removeCredentials(cfgDir)
       assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), false)
       assert.equal(fs.existsSync(host), true, 'the host store is never touched by a sweep')
+    }))
+  })
+
+  // #171: CODEX_HOME does not bound skills. The pinned codex also reads
+  // `$HOME/.agents/skills`, with no config key to turn the root off, so the
+  // harness writes one disable entry per host skill the seed did not install.
+  // The live half of this guard — codex ignores an unknown config key in
+  // silence — is `codex debug prompt-input` (docs/live-checks/171).
+  describe('the codex skill bound (#171)', () => {
+    const armed = (n, skills) => {
+      const { cfgDir, wtPath } = dirs(n)
+      fs.mkdirSync(wtPath, { recursive: true })
+      seedConfigDir(cfgDir, wtPath, null, 'codex')
+      writeConnectionSettings({ wtPath, cfgDir, agent: `curia-${n}`, ticket: n, daemonPort: 4271, harness: 'codex', token: TOKEN, skills })
+      return fs.readFileSync(path.join(cfgDir, 'config.toml'), 'utf8')
+    }
+
+    test('every host skill outside the install list is denied by name', () => withHome((home) => {
+      for (const name of ['wayfinder', 'to-tickets', 'handoff']) {
+        fs.mkdirSync(path.join(home, '.agents', 'skills', name), { recursive: true })
+      }
+      const toml = armed(30, { root: path.join(home, '.agents', 'skills'), install: ['wayfinder'] })
+      for (const name of ['to-tickets', 'handoff']) {
+        assert.match(toml, new RegExp(`\\[\\[skills\\.config\\]\\]\\nname = "${name}"\\nenabled = false`), `${name} is not installed, so the host root must not leak it`)
+      }
+      assert.equal(/name = "wayfinder"/.test(toml), false, 'an installed skill is never denied')
+    }))
+
+    test('the six planted .system skills are pinned off with the bundled key', () => withHome(() => {
+      const toml = armed(31, null)
+      assert.match(toml, /\[skills\]\nbundled = \{ enabled = false \}/)
+    }))
+
+    test('a host with no .agents/skills root gets the bundled pin and nothing to deny', () => withHome(() => {
+      const toml = armed(32, null)
+      assert.equal(/\[\[skills\.config\]\]/.test(toml), false)
     }))
   })
 

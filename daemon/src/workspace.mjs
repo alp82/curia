@@ -753,7 +753,7 @@ const HARNESS = {
     // hasTrustDialogAccepted: without it the first spawn stops at a "Do you trust
     // the contents of this directory?" prompt and the agent never reaches its
     // composer (observed, before this line existed).
-    connectionSettings: ({ wtPath, cfgDir, agent, ticket, daemonPort, daemonHost, reasoningEffort, token }) => {
+    connectionSettings: ({ wtPath, cfgDir, agent, ticket, daemonPort, daemonHost, reasoningEffort, token, skills }) => {
       writeSecretFile(path.join(cfgDir, 'config.toml'), [
         '# Written by the curia daemon per agent. Never hand-edited.',
         '',
@@ -824,6 +824,30 @@ const HARNESS = {
         'computer_use = false',
         'in_app_updates = false',
         'skill_mcp_dependency_install = false',
+        '',
+        // The skill bound (#171). #57's install list is the whole skill set an
+        // agent may see, and CODEX_HOME does not enforce it: codex also reads
+        // `$HOME/.agents/skills`, with no config key to turn that root off on
+        // the pinned codex. So the bound is subtractive — one disable entry per
+        // host skill the seed did not install, exact-name match, resolved
+        // against every root at load (verified live: the model-visible prompt
+        // then lists exactly the installed nine, docs/live-checks/171).
+        //
+        // `bundled` covers gap 2 of the same inventory: codex plants six skills
+        // of its own under `<cfgDir>/skills/.system` on every start,
+        // `skill-installer` — which installs more — among them. Nothing curia
+        // chose, so it is pinned off like the feature table above; false also
+        // deletes the planted cache dir (verified live). Same silent-rename
+        // caveat as `[features]`: an unknown key is ignored without a word, so
+        // the guard is the live read, not a unit test on this string.
+        '[skills]',
+        'bundled = { enabled = false }',
+        ...codexSkillDenyList(skills?.install).flatMap((name) => [
+          '',
+          '[[skills.config]]',
+          `name = ${toml(name)}`,
+          'enabled = false',
+        ]),
         '',
         `[projects.${toml(wtPath)}]`,
         'trust_level = "trusted"',
@@ -942,6 +966,42 @@ export function installSkills(cfgDir, skills, { copy = false } = {}) {
   return names
 }
 
+// The second skill root the codex harness reads, and the reason #171 exists.
+// CODEX_HOME does not bound skills: the pinned codex (0.146) reads
+// `$HOME/.agents/skills` unconditionally, beside `$CODEX_HOME/skills`
+// (source: core-skills root loader; measured with `codex debug prompt-input`
+// under a fresh CODEX_HOME — all 25 host skills appeared, the four #57
+// excludes among them, docs/live-checks/171). The claude harness has no such
+// root: the same isolated-config-dir check showed only the installed skill
+// plus Claude Code's own built-ins.
+function codexHostSkillsRoot() {
+  return path.join(os.homedir(), '.agents', 'skills')
+}
+
+// The names the host root would leak past the install list. Codex 0.146 has no
+// off switch for the root itself, so the bound is a per-name deny list in
+// config.toml, computed when the agent is armed. Canonicalisation makes the
+// name selector safe here: the installed nine are symlinks into the same host
+// tree, and a denied name is exactly a name the seed did not install.
+//
+// Computed at arm time, so a skill the operator adds to the host root DURING a
+// run leaks until the next arm. That race is accepted: the alternative is a
+// watcher on the operator's own skill tree.
+function codexSkillDenyList(install) {
+  const installed = new Set(install ?? [])
+  let entries = []
+  try {
+    entries = fs.readdirSync(codexHostSkillsRoot(), { withFileTypes: true })
+  } catch {
+    return []
+  }
+  return entries
+    .filter((e) => e.isDirectory() || e.isSymbolicLink())
+    .map((e) => e.name)
+    .filter((name) => !installed.has(name))
+    .sort()
+}
+
 // Pre-seed the per-agent config dir so no first-spawn dialog ever appears.
 // Harness-specific settings come from the HARNESS table; the two things every
 // harness gets are the skill set and a swept credential file.
@@ -990,7 +1050,7 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
 // pane, the docker host gateway from a container.
 export function writeConnectionSettings({
   wtPath, cfgDir, agent, ticket, daemonPort, harness = 'claude', reasoningEffort = null,
-  hostWtPath = wtPath, daemonHost = LOOPBACK, token,
+  hostWtPath = wtPath, daemonHost = LOOPBACK, token, skills = null,
 }) {
   // The connection settings are the ONLY way an agent learns its token (#159), so a caller
   // that forgot one would write connection settings whose every call the daemon then
@@ -1000,7 +1060,7 @@ export function writeConnectionSettings({
   }
   harnessDef(harness).connectionSettings({
     wtPath: harness === 'claude' ? hostWtPath : wtPath,
-    cfgDir, agent, ticket, daemonPort, daemonHost, reasoningEffort, token,
+    cfgDir, agent, ticket, daemonPort, daemonHost, reasoningEffort, token, skills,
   })
 }
 
