@@ -56,7 +56,7 @@ describe('StatusLine', () => {
     line.onEvent({ type: 'esc_open', id: 'esc-2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
     line.onEvent({ type: 'esc_answer', id: 'esc-2', answer: 'approve' })
     line.onEvent({ type: 'result', agent: 'curia-9', ticket: '9', status: 'resolved' })
-    line.onEvent({ type: 'agent_done', agent: 'curia-9' })
+    line.onEvent({ type: 'lifecycle_closed', agent: 'curia-9', ticket: '9' })
     await drain()
 
     const texts = posts.map((p) => p.text)
@@ -115,7 +115,7 @@ describe('StatusLine', () => {
     records.set('e2', { id: 'e2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, status: 'open' })
     l.onEvent({ type: 'esc_open', id: 'e2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
     l.onEvent({ type: 'esc_answer', id: 'e2', answer: 'approve' })
-    l.onEvent({ type: 'agent_done', agent: 'curia-9' })
+    l.onEvent({ type: 'lifecycle_closed', agent: 'curia-9', ticket: '9' })
     await Promise.all([...l.agents.values()].map((w) => w.chain))
     assert.deepEqual(flags.map((f) => f.state), [
       'working', 'waiting', 'working', 'awaiting-review',
@@ -138,7 +138,7 @@ describe('StatusLine', () => {
     l.onEvent({ type: 'esc_answer', id: 'e1', answer: 'cross-check' })
     l.onEvent({ type: 'cross_check_requested', agent: 'curia-9', ticket: '9', ts: 'T' })
     l.onEvent({ type: 'result', agent: 'curia-9', ticket: '9', status: 'resolved' })
-    l.onEvent({ type: 'agent_done', agent: 'curia-9' })
+    l.onEvent({ type: 'lifecycle_closed', agent: 'curia-9', ticket: '9' })
     await Promise.all([...l.agents.values()].map((w) => w.chain))
     assert.deepEqual(flags, ['working', 'awaiting-review'],
       'cross-checking and resolving fire no clear — the 🔎 stands until release swaps it for ✅')
@@ -220,9 +220,41 @@ describe('StatusLine', () => {
     assert.match(posts[1].text, /working/)
   })
 
+  // #240, observed live: curia-98 opened esc-133 (question 1 of 3 on a
+  // prototype ticket), the turn ended parked in the ask, the Stop hook fired,
+  // and the thread said 🏁 done under the unanswered question. The hook is a
+  // receipt of a TURN ending, not of the agent finishing.
+  test('a Stop-hook receipt while a question is open leaves the ⏳ line standing (#240)', async () => {
+    line.onEvent({ type: 'agent_ready', agent: 'curia-98', ticket: '98', model: 'opus', ts: 'T' })
+    records.set('esc-133', { id: 'esc-133', agent: 'curia-98', ticket: '98', kind: 'choice', prompt: 'question 1 of 3: which entry?', opened_at: new Date().toISOString(), status: 'open' })
+    line.onEvent({ type: 'esc_open', id: 'esc-133', agent: 'curia-98', ticket: '98', kind: 'choice', prompt: 'question 1 of 3: which entry?', ts: new Date().toISOString() })
+    line.onEvent({ type: 'agent_done', agent: 'curia-98', hook_event: 'Stop', stop_hook_active: false })
+    line.onEvent({ type: 'agent_blocked_on_human', agent: 'curia-98', ticket: '98', escalations: ['esc-133'], awaiting_review: false, cross_check: false, ts: new Date().toISOString() })
+    await drain()
+    assert.match(posts.at(-1).text, /⏳ .*waiting on \*\*\[esc-133\]\*\*/)
+    assert.ok(posts.every((p) => !p.text.includes('🏁')), 'no post ever said done')
+  })
+
+  test('a parked line redraws from agent_blocked_on_human alone — the restart case (#240)', async () => {
+    // No esc_open was seen live: the daemon restarted after the question
+    // opened, and the turn end is the first event about this session.
+    records.set('esc-7', { id: 'esc-7', agent: 'curia-5', ticket: '5', kind: 'choice', prompt: 'still here?', opened_at: new Date().toISOString(), status: 'open' })
+    line.onEvent({ type: 'agent_blocked_on_human', agent: 'curia-5', ticket: '5', escalations: ['esc-7'], awaiting_review: false, cross_check: false, ts: new Date().toISOString() })
+    await drain()
+    assert.equal(posts.length, 1)
+    assert.match(posts[0].text, /⏳ .*waiting on \*\*\[esc-7\]\*\* — still here\?/)
+  })
+
+  test('an abnormal exit says so — never 🏁 (#240)', async () => {
+    line.onEvent({ type: 'agent_ready', agent: 'curia-4', ticket: '4', model: 'opus', ts: 'T' })
+    line.onEvent({ type: 'agent_abnormal_exit', agent: 'curia-4', ticket: '4' })
+    await drain()
+    assert.match(posts.at(-1).text, /⚠️ .*stopped without a result — session kept for post-mortem/)
+  })
+
   test('a respawn after done starts a fresh message; the 🏁 line stands as history', async () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'opus' })
-    line.onEvent({ type: 'agent_done', agent: 'curia-2' })
+    line.onEvent({ type: 'lifecycle_closed', agent: 'curia-2', ticket: '2' })
     line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'sonnet' })
     await drain()
     assert.equal(posts.length, 3)
@@ -464,7 +496,7 @@ describe('StatusLine', () => {
     meters = { effort: null, ctxPct: 41, windows: [{ label: '5h', pct: 62 }] }
     line.onEvent({ type: 'agent_spawned', agent: 'curia-3', ticket: '3', model: 'opus' })
     line.onEvent({ type: 'agent_died', agent: 'curia-3', ticket: '3' })
-    line.onEvent({ type: 'agent_done', agent: 'curia-3' })
+    line.onEvent({ type: 'lifecycle_closed', agent: 'curia-3', ticket: '3' })
     await drain()
     assert.ok(!posts.at(-2).text.includes('ctx'))
     assert.ok(!posts.at(-1).text.includes('ctx'))

@@ -219,12 +219,35 @@ export class StatusLine {
         // the liveness sweep's event (#138) — the line stops saying "working"
         // about a killed agent and names the way out
         return this.#set(ev.agent, ev.ticket, 'gone', { ticket: ev.ticket })
-      case 'agent_done': {
-        // carries no ticket — only a session this line already tracks can end
-        const w = this.agents.get(ev.agent)
-        if (w) return this.#set(ev.agent, w.ticket, 'done', {})
+      case 'agent_done':
+        // A Stop-hook RECEIPT, not an ending (#240): the hook fires at every
+        // turn end, and a turn ends parked on an open escalation as a matter of
+        // course (#47) — the 🏁 that used to render here said "done" about an
+        // agent waiting on the operator's first answer, minutes into a HITL
+        // ticket. What the turn end MEANT is the dispatcher's verdict, and it
+        // journals that verdict as its own event; the cases below read those.
         return
+      case 'agent_blocked_on_human': {
+        // The turn ended parked (#47) — the line keeps naming whom it waits on.
+        // Live, this repeats what esc_open already drew; after a restart it is
+        // the only event that redraws a parked line before the next nudge.
+        if (ev.cross_check) return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts })
+        const recs = (ev.escalations ?? []).map((id) => this.get(id)).filter(Boolean)
+        const r = recs.find((x) => x.kind === REVIEW_KIND) ?? recs[0]
+        if (!r) return
+        return this.#set(ev.agent, ev.ticket, ev.awaiting_review ? 'awaiting-review' : 'waiting', {
+          esc: { id: r.id, title: promptTitle(r.prompt), opened_at: r.opened_at ?? ev.ts },
+        })
       }
+      case 'lifecycle_closed':
+        // the dispatcher's own verdict that the ending ran — carries the
+        // ticket, so a session first seen after a restart still gets its 🏁
+        return this.#set(ev.agent, ev.ticket, 'done', {})
+      case 'agent_abnormal_exit':
+      case 'reviewer_abnormal_exit':
+        // stopped without a result — the notify says so, and the line used to
+        // contradict it with a 🏁 read off the same Stop hook (#240)
+        return this.#set(ev.agent, ev.ticket, 'failed', {})
       default:
     }
   }
@@ -266,6 +289,8 @@ export class StatusLine {
         return `📦 \`${session}\`${GROUP_SEP}result received (**${detail.status}**) — resolving the ticket`
       case 'done':
         return `🏁 \`${session}\`${GROUP_SEP}done`
+      case 'failed':
+        return `⚠️ \`${session}\`${GROUP_SEP}stopped without a result — session kept for post-mortem`
       case 'gone':
         return `⚰️ \`${session}\`${GROUP_SEP}agent gone — \`resume ${detail.ticket}\``
       default:
