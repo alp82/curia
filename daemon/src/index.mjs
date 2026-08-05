@@ -921,6 +921,12 @@ function buildMcpServer(agent, ticket) {
       details: z.record(z.string(), z.any()).optional(),
     },
     async (result, extra) => {
+      // #237: a cross-check that has not been judged shuts this tool, and the
+      // refusal runs BEFORE anything persists — the `result` journal line, the
+      // results file and the ✅ thread post all read as "the ticket ended", and
+      // a refused result must leave none of the three.
+      const refusedText = dispatcher.resultRefusal(agent)
+      if (refusedText) return { content: [{ type: 'text', text: refusedText }, ...drainNotes()] }
       // The BOUND ticket is this event's ticket, not `result.ticket` (#202).
       // The spread wrote the agent's own argument onto the journal line, and
       // every surface keyed on that field then followed the agent's spelling:

@@ -218,7 +218,18 @@ export function endingProse(ctx) {
 // cannot comply — the loop #48 refused.
 export function outstanding(state) {
   if (state.hasResult) return []
-  return listFor(state).map((s) => (s.todo ? s.todo(state) : null)).filter(Boolean)
+  const items = listFor(state).map((s) => (s.todo ? s.todo(state) : null)).filter(Boolean)
+  // #237: the cross-check duty, ahead of every ordinary step. A builder that
+  // stops with a verdict unjudged is skipping the one act the operator ruled
+  // must precede any merge or report_result; a builder that stops while the
+  // reviewer still reads is one whose park a restart severed, and
+  // `request_review` is what re-parks it.
+  if (state.unjudgedVerdict) {
+    items.unshift('judge the cross-check verdict finding by finding, then put one summary with a recommendation to the operator with `ask_human` — the verdict is on the pull request if you no longer hold it')
+  } else if (state.crossCheckInFlight) {
+    items.unshift('a cross-check is still reading your diff — call `request_review`, which parks you until the verdict lands')
+  }
+  return items
 }
 
 // The `reason` a blocked Stop hands back to the agent. It is the only text the

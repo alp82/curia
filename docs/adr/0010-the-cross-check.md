@@ -30,3 +30,17 @@ One model builds a ticket, and one human approves it. That human is the only rea
 - The review gate now has three outcomes, so `request_review` is no longer a two-way answer. [ADR-0005](0005-escalation-contract.md) gains a button, not a new escalation kind.
 - The cross-check adds no authority. Every tracker write still passes the one gate the operator answers.
 - A verdict the operator never asked for cannot exist, so the reviewer burns no quota on a diff the operator was happy with.
+
+## Amendment: the duty is a control, not prose ([#237](https://github.com/alp82/curia/issues/237), 2026-08)
+
+On [#223](https://github.com/alp82/curia/issues/223) a daemon restart severed the parked gate call 20 seconds after the press. The builder's client retried `request_review`, the restarted daemon opened a plain approve/reject gate, and the merge beat the verdict by three seconds. No judgement, no question, no operator decision on any finding.
+
+The park is process-scoped and dies with the daemon. The reviewer record does not: reconcile re-adopts a live reviewer, and the verdict artifact survives on disk. So the daemon now asks those two records before it acts:
+
+- `request_review` with a live reviewer on the ticket re-parks the builder instead of opening a gate. The retry after a severed park is what lands here, so a restart mid-cross-check heals through the builder's own next move.
+- `request_review` with a captured, unjudged verdict is refused. The verdict rides back on the note queue, and the refusal states the duty.
+- `report_result` is refused in both states, at the wire and before anything persists. A refused result leaves no journal line, no results file, and no ✅ post.
+- The Stop hook's checklist names the duty, so a builder that stops instead of judging is held at it.
+- A verdict that lands after the ticket resolved says TOO LATE in the thread instead of the neutral holding line. The pull-request comment still lands, and reopening is the operator's call.
+
+A verdict binds only the dispatch that earned it: one captured before the ticket's last claim does not shut a later agent's gate. A resume is not a cut, so the duty survives it.

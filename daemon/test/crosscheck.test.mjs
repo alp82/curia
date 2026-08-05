@@ -16,7 +16,7 @@ import path from 'node:path'
 
 import { Dispatcher } from '../src/dispatch.mjs'
 import {
-  classifyReviewAnswer, CROSS_CHECK_ANSWER, CROSS_CHECK_DUTY, dutyLines, REVIEW_KIND,
+  classifyReviewAnswer, CROSS_CHECK_ANSWER, CROSS_CHECK_DUTY, dutyLines, outstanding, REVIEW_KIND,
 } from '../src/lifecycle.mjs'
 import { verdictComment, judgementComment, verdictNote } from '../src/resolve.mjs'
 import { writePrompt } from '../src/workspace.mjs'
@@ -666,5 +666,201 @@ describe('a parked builder reads as idle, never as working (#165)', () => {
       { type: 'esc_answer', id: 'esc-1', answer: 'rename the flag', ts: new Date().toISOString() },
     ])
     assert.match(line, /working/)
+  })
+})
+
+// ---- the gate and the ending cannot outrun the verdict (#237) ----------------
+//
+// The #223 ordering, replayed from the live journal: the daemon restarted 20 s
+// after the press, the parked call died with it, the builder's client retried
+// `request_review`, and the restarted daemon opened a PLAIN approve/reject gate
+// — so the operator approved and the merge beat the verdict by three seconds.
+// The reviewer record survives a restart (reconcile re-adopts it), so the gate
+// and `report_result` now ask it before they act.
+
+// The builder whose park a restart severed: the reviewer is live in the agents
+// map (reconcile put it back), and no wait exists — exactly the state the
+// retried `request_review` meets.
+function withAdoptedReviewer(d, over = {}) {
+  const r = {
+    repo: 'o/r', ticket: '42', session: 'curia-review-42', title: '',
+    instance: 'curia-review-42@adopted-1', wtPath: path.join(tmp, 'work', 'review', '42'),
+    cfgDir: path.join(tmp, 'work', 'cfg', 'curia-review-42'),
+    model: 'gpt', harness: 'codex', provider: 'openai', state: 'ready',
+    spawnedAt: null, resultReceived: false, reviewer: true,
+    builderModel: 'opus', sameProvider: false, sha: 'deadbeefcafe0123456789',
+    ...over,
+  }
+  d.agents.set('curia-review-42', r)
+  return r
+}
+
+// A captured verdict on disk, the artifact a restart also survives.
+function plantVerdict(over = {}) {
+  const v = {
+    repo: 'o/r', ticket: '42', agent: 'curia-review-42', model: 'gpt',
+    builder_model: 'opus', same_provider: false, sha: 'deadbeefcafe0123456789',
+    status: 'resolved', verdict: 'VERDICT: fail\n\nFINDINGS:\n- b.mjs:2 — wrong',
+    details: null, at: new Date().toISOString(), ...over,
+  }
+  const file = path.join(tmp, 'data', 'verdicts', '42.json')
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  fs.writeFileSync(file, JSON.stringify(v, null, 2))
+  return v
+}
+
+describe('request_review knows a cross-check is in flight (#237)', () => {
+  test('a live reviewer re-parks the builder — no plain gate opens', async () => {
+    let gateOpened = false
+    const d = makeDispatcher({}, {
+      askReview: async () => { gateOpened = true; return { text: 'approve', status: 'answered' } },
+    })
+    const w = withBuilder(d)
+    withAdoptedReviewer(d)
+
+    const call = d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    await waitFor(() => d.reviewWaits.has('42'))
+
+    assert.equal(gateOpened, false, 'the gate #223 was approved on must never open')
+    assert.equal(w.state, 'cross-checking')
+    assert.ok(typesOf().includes('cross_check_rejoined'))
+    assert.match(notifies.map((n) => n.message).join('\n'), /re-parked until the verdict lands/)
+
+    await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: pass' })
+    const r = await call
+    assert.equal(r.crossCheck, true)
+    assert.match(r.text, /rides in this same tool result as a note/)
+    assert.equal(gateOpened, false)
+    assert.equal(notes.at(-1).agent, 'curia-42', 'the verdict reached the rejoined builder')
+  })
+
+  test('an unjudged verdict shuts the gate and rides back as a note', async () => {
+    let gateOpened = false
+    const d = makeDispatcher({}, {
+      askReview: async () => { gateOpened = true; return { text: 'approve', status: 'answered' } },
+    })
+    withBuilder(d)
+    plantVerdict()
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(gateOpened, false)
+    assert.equal(r.ok, false)
+    assert.match(r.text, /UNJUDGED/)
+    assert.match(r.text, /Judge every finding/)
+    const requeued = notes.at(-1)
+    assert.equal(requeued.agent, 'curia-42')
+    assert.equal(requeued.label, 'cross-check verdict')
+    assert.match(requeued.text, /b\.mjs:2/)
+    assert.equal(events.find((e) => e.type === 'review_refused').reason, 'unjudged cross-check verdict')
+  })
+
+  test('a judged verdict opens the gate again — the duty ends where it should', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    withBuilder(d)
+    plantVerdict()
+    await d.noteJudgement('curia-42', 'finding 1: agree. finding 2: disagree. Recommendation: merge.')
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.equal(r.approved, true)
+  })
+
+  test('a verdict older than the ticket\'s last claim does not bind a fresh dispatch', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    withBuilder(d)
+    plantVerdict({ at: '2020-01-01T00:00:00.000Z' })
+    d.store.logEvent('dispatch_claimed', { repo: 'o/r', ticket: '42', agent: 'curia-42', kind: 'ticket' })
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.equal(r.approved, true, 'a dead dispatch\'s verdict must not shut every later gate')
+  })
+})
+
+describe('report_result cannot end a ticket around its cross-check (#237)', () => {
+  test('refused while the reviewer reads, and no result trace is left', async () => {
+    const d = makeDispatcher()
+    const w = withBuilder(d)
+    withAdoptedReviewer(d)
+
+    const text = await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+
+    assert.match(text, /report_result refused/)
+    assert.match(text, /request_review/)
+    assert.ok(!w.resultReceived, 'a refused result must not read as hasResult')
+    assert.equal(events.find((e) => e.type === 'result_refused').reason, 'cross-check in flight')
+    assert.ok(!typesOf().includes('ticket_resolved'), 'nothing on the tracker moved')
+  })
+
+  test('refused on an unjudged verdict, allowed after the judgement', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    plantVerdict()
+
+    const refused = await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+    assert.match(refused, /UNJUDGED/)
+    assert.equal(events.find((e) => e.type === 'result_refused').reason, 'unjudged cross-check verdict')
+
+    await d.noteJudgement('curia-42', 'judged, recommendation attached')
+    assert.equal(d.resultRefusal('curia-42'), null, 'the duty done is the whole condition')
+  })
+
+  test('the reviewer\'s own report_result is never the one refused', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    withAdoptedReviewer(d)
+
+    const said = await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: pass' })
+    assert.match(said, /verdict captured/)
+  })
+
+  test('the Stop-hook checklist names the duty ahead of every ordinary step', () => {
+    const judge = outstanding({ hasResult: false, unjudgedVerdict: true })
+    assert.match(judge[0], /judge the cross-check verdict/)
+    const wait = outstanding({ hasResult: false, crossCheckInFlight: true })
+    assert.match(wait[0], /cross-check is still reading/)
+    assert.deepEqual(
+      outstanding({ hasResult: true, unjudgedVerdict: true }), [],
+      'a reported result still ends the checklist — the wire refusal is what keeps this pair apart',
+    )
+  })
+})
+
+describe('a verdict that lost the race says so (#237)', () => {
+  test('the thread says TOO LATE, never the neutral holding line', async () => {
+    const d = makeDispatcher()
+    withBuilder(d, { resultReceived: true })
+    withAdoptedReviewer(d)
+
+    await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: fail' })
+
+    const said = notifies.map((n) => n.message).join('\n')
+    assert.match(said, /TOO LATE to gate anything/)
+    assert.ok(!/curia is holding it/.test(said), 'the neutral line is what read as a delivery on #223')
+    assert.ok(typesOf().includes('verdict_late'))
+    assert.equal(comments.filter((c) => /Cross-check verdict/.test(c.body)).length, 1,
+      'the durable record still lands on the pull request')
+  })
+
+  test('the journal alone proves late — a restart holds no builder record', async () => {
+    const d = makeDispatcher()
+    withAdoptedReviewer(d)
+    d.store.logEvent('reviewer_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-review-42' })
+    d.store.logEvent('ticket_resolved', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+
+    await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: fail' })
+
+    assert.ok(typesOf().includes('verdict_late'))
+    assert.match(notifies.map((n) => n.message).join('\n'), /TOO LATE/)
+  })
+
+  test('an on-time verdict keeps the holding line', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    const { gate } = await pressAndPark(d)
+    await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: pass' })
+    await gate
+
+    assert.match(notifies.map((n) => n.message).join('\n'), /curia is holding it/)
+    assert.ok(!typesOf().includes('verdict_late'))
   })
 })

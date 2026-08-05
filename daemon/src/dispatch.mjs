@@ -1340,7 +1340,17 @@ export class Dispatcher {
     })
     const named = spawnModelId(this.routing, verdict.model ?? '')
     const stamp = sameProvider ? ` (**${SAME_PROVIDER_STAMP}**)` : ''
-    this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
+    // #237: a verdict that lost the race says so, loudly, instead of the
+    // neutral holding line. On #223 the merge beat the verdict by three
+    // seconds, and "curia is holding it" read as a delivery — the operator had
+    // no word that the verdict gated nothing.
+    const late = this.#verdictIsLate(ticket)
+    if (late) {
+      this.store.logEvent('verdict_late', { repo, ticket, agent: agentName })
+      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — ⚠️ it arrived TOO LATE to gate anything: the ticket was resolved before the verdict landed. The verdict goes on the pull request; reopening is the operator's call.`)
+    } else {
+      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
+    }
     // The return path (#165). It runs INSIDE the reviewer's own tool call, so a
     // failure in it must never fail the capture: the verdict is already held,
     // and a reviewer told its work failed would be told a lie about the one
@@ -2058,6 +2068,42 @@ export class Dispatcher {
       }
     }
 
+    // #237: the gate must not open blind to a cross-check. A live reviewer on
+    // this ticket means a verdict is coming, and the builder asking for a gate
+    // is one whose park was severed — a restart killed the parked call, or the
+    // client aborted it. Opening a plain approve/reject gate here is how #223
+    // merged ahead of its verdict: two buttons, and no word that a second model
+    // was still reading. So the call re-parks instead, and returns exactly what
+    // the press would have returned.
+    if (this.#crossCheckInFlight(ticket)) {
+      this.store.logEvent('cross_check_rejoined', { repo, ticket, agent: agentName })
+      this.notify(ticket, `⏸️ \`${agentName}\` asked for the review gate while \`${reviewSessionFor(ticket)}\` is still reading its diff — re-parked until the verdict lands, no gate opened`)
+      if (w) w.state = 'cross-checking'
+      return await this.#parkForVerdict(agentName, { repo, ticket, w })
+    }
+    // #237, the other half of the same rule: a captured verdict this dispatch
+    // never judged shuts the gate too. The duty is the builder's next act toward
+    // the operator — judge every finding, one summary with a recommendation,
+    // sent as a plain ask_human — and a gate opened over an unjudged verdict is
+    // the duty skipped with nobody told. The verdict rides back on the note
+    // queue so the refusal and the findings land in one tool result.
+    const unjudged = this.#liveUnjudgedVerdict(ticket)
+    if (unjudged) {
+      this.store.logEvent('review_refused', { repo, ticket, agent: agentName, reason: 'unjudged cross-check verdict' })
+      this.store.queueAgentNote?.(agentName, verdictNote(unjudged), {
+        instance: w?.instance ?? null, label: 'cross-check verdict',
+      })
+      return {
+        ok: false,
+        text: [
+          `❌ no gate — a cross-check verdict on #${ticket} sits UNJUDGED, and judging it comes first.`,
+          'The verdict rides in this same tool result as a note (it is also on the pull request). Read it, then:',
+          '',
+          ...dutyLines(),
+        ].join('\n'),
+      }
+    }
+
     const title = w?.title ?? `#${ticket}`
     const links = [`Ticket: https://github.com/${repo}/issues/${ticket}`]
     let pr = null
@@ -2151,6 +2197,17 @@ export class Dispatcher {
       }
     }
     this.notify(ticket, `⏸️ \`${agentName}\` is idle at the gate while the cross-check reads — it holds its claim, its worktree and its slot, and it wakes when the verdict lands`)
+    return await this.#parkForVerdict(agentName, { repo, ticket, w })
+  }
+
+  // The park and everything after it, shared by the press and the rejoin (#237).
+  // The rejoin exists because the park itself is process-scoped: a daemon
+  // restart severs the parked MCP call, the builder's client sees an error, and
+  // the model's natural next move is `request_review` again. On #223 that retry
+  // opened a PLAIN approve/reject gate — the restarted daemon knew the reviewer
+  // (reconcile re-adopts it) and never asked — so the operator approved and the
+  // merge outran the verdict by three seconds.
+  async #parkForVerdict(agentName, { repo, ticket, w }) {
     const out = await this.#awaitVerdict(ticket, agentName)
     if (w) w.state = 'ready'
     this.store.logEvent('cross_check_returned', { repo, ticket, agent: agentName, ok: out.ok, why: out.why ?? null })
@@ -2211,6 +2268,82 @@ export class Dispatcher {
   // never cause, because the builder holds the ticket's only claim.
   #endReviewWait(ticket, why) {
     return this.#settleReviewWait(ticket, { ok: false, why })
+  }
+
+  // A cross-check that has not returned yet (#237). The reviewer record is the
+  // evidence, not the wait map: the wait map dies with the process, while a
+  // live reviewer survives a restart through reconcile — which is exactly the
+  // window this check exists for. A reviewer whose result already arrived is
+  // not in flight; its verdict is, and #liveUnjudgedVerdict holds that half.
+  #crossCheckInFlight(ticket) {
+    const reviewer = this.agents.get(reviewSessionFor(ticket))
+    return reviewer && !reviewer.resultReceived ? reviewer : null
+  }
+
+  // The captured verdict that still binds THIS dispatch, or null (#237). The
+  // artifact outlives the dispatch that earned it — resolve keeps the file, a
+  // cancel keeps the file — so an unjudged verdict counts only when it landed
+  // after the ticket's last claim. Without the cut, a verdict some dead
+  // dispatch never judged would shut every later agent's gate forever. A
+  // resume is deliberately NOT a cut: it continues the same dispatch, and the
+  // duty continues with it.
+  #liveUnjudgedVerdict(ticket) {
+    const v = this.verdictFor(ticket)
+    if (!v || v.judged) return null
+    let claimed = null
+    for (const ev of this.#readJournal()) {
+      if (ev.type === 'dispatch_claimed' && String(ev.ticket ?? '') === String(ticket) && ev.ts) claimed = ev.ts
+    }
+    if (claimed && v.at && v.at < claimed) return null
+    return v
+  }
+
+  // Did the ticket resolve before its verdict landed (#237)? The journal is
+  // the evidence — a `ticket_resolved` after the last `reviewer_spawned` means
+  // the merge outran the reviewer — and the builder's own record is the
+  // in-memory shortcut for the seconds before resolve journals anything.
+  #verdictIsLate(ticket) {
+    if (this.agents.get(`curia-${ticket}`)?.resultReceived) return true
+    let spawned = -1
+    let resolved = -1
+    this.#readJournal().forEach((ev, i) => {
+      if (String(ev.ticket ?? '') !== String(ticket)) return
+      if (ev.type === 'reviewer_spawned') spawned = i
+      if (ev.type === 'ticket_resolved') resolved = i
+    })
+    return spawned >= 0 && resolved > spawned
+  }
+
+  // The refusal a builder's `report_result` earns while its cross-check is
+  // unfinished (#237). The operator ruled the shape: after a verdict is
+  // captured, the builder's next act toward the operator is its judgement, and
+  // the ask must be answered before any merge or report_result. This runs at
+  // the wire, BEFORE the result is journalled or written to disk — a results
+  // file on disk reads as `hasResult` everywhere, and a refused result must
+  // not leave that trace.
+  resultRefusal(agentName) {
+    if (this.#isReviewer(agentName)) return null
+    const ticket = String(this.agents.get(agentName)?.ticket ?? String(agentName).match(SESSION_RE)?.[1] ?? '')
+    if (!ticket) return null
+    if (this.#epochCharting(ticket, agentName).charting) return null
+    if (this.#crossCheckInFlight(ticket)) {
+      this.store.logEvent('result_refused', { ticket, agent: agentName, reason: 'cross-check in flight' })
+      return [
+        `❌ report_result refused — \`${reviewSessionFor(ticket)}\` is still reading your diff, and a ticket`,
+        'cannot end around its own cross-check. Call `request_review`: it parks you until the verdict',
+        'lands, and hands you the findings to judge. Nothing was recorded and nothing was resolved.',
+      ].join('\n')
+    }
+    if (this.#liveUnjudgedVerdict(ticket)) {
+      this.store.logEvent('result_refused', { ticket, agent: agentName, reason: 'unjudged cross-check verdict' })
+      return [
+        `❌ report_result refused — a cross-check verdict on #${ticket} sits UNJUDGED, and the ask must be`,
+        'answered before any merge or report_result. The verdict is on the pull request. Then:',
+        '',
+        ...dutyLines(),
+      ].join('\n')
+    }
+    return null
   }
 
   // What the daemon does the moment a verdict lands (ADR-0010's return path).
@@ -2373,6 +2506,12 @@ export class Dispatcher {
     // end of every turn, and a `git log` against a checkout that will never
     // carry a commit is pure cost.
     if (state.charting) return state
+    // #237: the two cross-check states the ending must name, so the Stop hook
+    // holds a builder that stops instead of judging. A PARKED builder never
+    // reaches this read (#humanBlockEvidence answers first); the builder that
+    // does is one whose park was severed by a restart, which is the #223 shape.
+    state.crossCheckInFlight = Boolean(this.#crossCheckInFlight(ticket))
+    state.unjudgedVerdict = Boolean(this.#liveUnjudgedVerdict(ticket))
     try {
       const commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(wtPath))
       state.hasCommits = commits.length > 0
@@ -2452,6 +2591,14 @@ export class Dispatcher {
   // Returns the text the agent gets back as its tool result, so a failure the
   // daemon hit is visible to the one agent still able to react to it.
   async onResult(agentName, result = null) {
+    // #237 belt: the wire refuses ahead of persisting anything, and this covers
+    // every caller that reaches onResult directly. It sits before the
+    // resultReceived mark, because a refused result must not read as
+    // `hasResult` anywhere.
+    if (result) {
+      const refusedResult = this.resultRefusal(agentName)
+      if (refusedResult) return refusedResult
+    }
     const w = this.agents.get(agentName)
     if (w) w.resultReceived = true
     if (!result) return 'result recorded'
