@@ -1080,11 +1080,40 @@ export function writeConnectionSettings({
 // ordered ending — rendered from lifecycle.mjs's ENDING, the same structure the
 // Stop hook blocks with.
 //
-// THE FIRST LINE IS LOAD-BEARING (#57). `wayfinder` carries
+// THE FIRST LINE IS LOAD-BEARING (#57), AND IT IS SPELLED PER HARNESS (#173).
+//
+// On the claude harness the line is `/wayfinder`. `wayfinder` carries
 // `disable-model-invocation: true`, so a model cannot reach it through the Skill
 // tool at all — told to invoke it in prose the call comes back "cannot be used
 // with Skill tool". A prompt whose first line is `/wayfinder` loads the full
 // skill text. That is the only working form, verified both directions.
+//
+// On the codex harness that same line is plain text. Nothing expands it, and
+// the one codex agent on record reached the skill only by reading the file on
+// its own initiative (gap 4, docs/research/codex-lane-gaps.md). So this harness
+// gets its own spelling: `$wayfinder`. Codex states the rule itself, and it
+// reaches every codex model by one of two routes — inside `base_instructions`
+// for the gpt-5.6 family, or as a `### How to use skills` block appended to the
+// skills message for the older ones (measured, docs/live-checks/173):
+//
+//     "If the user names an available skill (with `$SkillName` or plain text)
+//      ... you must use that skill for that turn"
+//     "the main agent must read its `SKILL.md` completely before taking task
+//      actions"
+//
+// Two facts make that reachable here. Codex lists every installed skill with
+// its path, and it ignores `disable-model-invocation` — so `wayfinder` is on
+// the list this rule resolves against, which it is not on the claude lane.
+//
+// The sigil survives the spawn template: `"$(cat {prompt_file})"` substitutes
+// the file's text, and a substitution's output is never rescanned, so
+// `$wayfinder` reaches the model as those ten characters (verified by rendering
+// the daemon's own spawn line through `codex debug prompt-input`).
+//
+// Operator ruling (2026-08-05, #173): the codex-native invocation, not the
+// skill text inlined in the prompt. The known cost is codex's own next
+// sentence — "Do not carry skills across turns unless re-mentioned" — and a
+// ticket is many turns. The first codex map dispatch is what tests it.
 //
 // `wtPath` here is the worktree AS THE AGENT SEES IT (#156). The prompt names
 // it twice — the parameter block and the write bound — and both are read by a
@@ -1094,7 +1123,7 @@ export function writeConnectionSettings({
 //
 // `charting` (#160) is the map dispatch: the issue in hand IS the map, and the
 // agent's job is to change it rather than to resolve a ticket under it. Three
-// things move — the `/wayfinder` invocation carries no ticket, the params say
+// things move — the wayfinder invocation carries no ticket, the params say
 // what this dispatch is and what the operator asked for, and the ending is the
 // charting one (lifecycle.mjs). Everything else — bounds, tools, the tracker
 // line — is the same agent.
@@ -1107,16 +1136,20 @@ export function writeConnectionSettings({
 // has to mean for an instruction that decides what the whole session does.
 // The text is never shell-substituted — the spawn template reads this file with
 // `$(cat …)` — so it needs no quoting rules of its own.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, instruction = null, ports = null }) {
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, instruction = null, ports = null, harness = 'claude' }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
+  // An unknown harness would take the claude spelling of the invocation in
+  // silence, which is the failure #173 exists to end. harnessDef throws on a
+  // name no harness owns.
+  harnessDef(harness)
   const n = issue.number
   const branch = branchFor(n)
   const ticketUrl = `https://github.com/${repo}/issues/${n}`
   const mapUrl = mapNumber ? `https://github.com/${repo}/issues/${mapNumber}` : null
 
-  // A mapless ticket gets no `/wayfinder` line: the skill works THROUGH a map,
-  // and invoking it with nothing to work through would invent one. The flat
-  // ready-for-agent lane (#10) is exactly this case.
+  // A mapless ticket gets no wayfinder line at all, on either harness: the
+  // skill works THROUGH a map, and invoking it with nothing to work through
+  // would invent one. The flat ready-for-agent lane (#10) is exactly this case.
   //
   // A map dispatch names the map and NO ticket. That is the skill's "work
   // through the map" invocation, whose step 2 would pick a frontier ticket — so
@@ -1125,7 +1158,13 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   // still what has to load: fog of war, out of scope, ticket types, the map
   // body's shape and refer-by-name are all doctrine a charting agent needs and
   // curia does not restate.
-  const invocation = mapNumber ? [`/wayfinder ${mapUrl}${charting ? '' : ` ticket #${n}`}`, ''] : []
+  //
+  // One line, two spellings (#173, see the header above): `/wayfinder` is the
+  // claude slash command, `$wayfinder` is codex's own way of naming a skill.
+  // Everything after the sigil is identical, so a human reading two prompts
+  // side by side reads one document.
+  const sigil = harness === 'codex' ? '$wayfinder' : '/wayfinder'
+  const invocation = mapNumber ? [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, ''] : []
 
   const chartingParams = [
     `- **This is a MAP DISPATCH.** ${repo}#${n} is the map itself, not a ticket under it. Your job is to`,

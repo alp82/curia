@@ -2641,6 +2641,44 @@ describe('dispatching across two harnesses (#39)', () => {
     assert.ok(events.some((e) => e.type === 'agent_spawned' && e.harness === 'claude'))
   })
 
+  // #173: the wayfinder invocation is spelled per harness — `/wayfinder` on
+  // claude, `$wayfinder` on codex — so the prompt is no longer harness-blind.
+  // A cap hit hands the ticket to the OTHER provider, which is the other
+  // harness, and both harnesses run containers, so that hand-off moves no view
+  // at all. The harness is the whole signal that the prompt must be written
+  // again; without it the claude agent would inherit the codex spelling.
+  test('a cap hit that changes harness writes the prompt again, for the new one', async () => {
+    const written = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      writePrompt: (cfgDir, issue, opts) => { written.push(opts.harness); return path.join(cfgDir, 'prompt.md') },
+      capturePane: async () => "You've hit your usage limit. Upgrade to Plus to continue using Codex\n",
+    }, { routing: TWO_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await new Promise((r) => setTimeout(r, 2600))
+
+    assert.deepEqual(written, ['codex', 'claude'])
+  })
+
+  // The other half of the same guard: a respawn that stays on the harness and
+  // in the view keeps the prompt it has. Rewriting it would cost an issue read
+  // per mute, and #157's ports would have to be re-stated for nothing.
+  test('a same-harness respawn keeps its prompt', async () => {
+    const written = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      writePrompt: (cfgDir, issue, opts) => { written.push(opts.harness); return path.join(cfgDir, 'prompt.md') },
+      capturePane: async () => '  gpt-5.5 low · ~/curia-work/repos/o__r/wt/42\n',
+    }, { routing: { ...TWO_LANE, harnesses: { ...TWO_LANE.harnesses, codex: { ...TWO_LANE.harnesses.codex, toolChannelGraceS: 2 } } }, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.filter((e) => e.type === 'agent_spawned').length === 2, 12_000)
+
+    assert.deepEqual(written, ['codex'], 'the mute respawn re-used the prompt on disk')
+    d.agents.delete('curia-42')
+  })
+
   // #175: the codex pane states no reset instant, so this harness cooled a blind
   // hour. Its transcript states one, on the `token_count` event the status bars
   // already read. The shape below is the one usage.test.mjs pins.

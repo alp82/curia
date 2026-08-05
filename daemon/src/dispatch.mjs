@@ -743,6 +743,9 @@ export class Dispatcher {
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
         repo, wtPath: view.wt, mapNumber, type: typeLabel, charting, instruction, ports,
+        // #173: the wayfinder invocation is spelled per harness, so the prompt
+        // is no longer harness-blind.
+        harness: harnessName,
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
@@ -774,8 +777,11 @@ export class Dispatcher {
         ports: container?.ports ?? null,
         sandbox: container ? 'docker' : null,
         // which view the prompt on disk was written in (#156) — a respawn that
-        // crosses the sandbox boundary has to write it again
+        // crosses the sandbox boundary has to write it again — and which
+        // harness it was spelled for (#173), which a fallback across providers
+        // moves even when the view stands still
         promptView: view.wt,
+        promptHarness: harnessName,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
         // #160: which ending this agent is held to, and what the operator
         // asked for. Journalled beside it (agent_spawned above) so a daemon
@@ -1206,7 +1212,7 @@ export class Dispatcher {
         model, requestedModel: model, harness: harnessName,
         provider: this.routing.models[model].provider,
         ports: null, sandbox: plan.container ? 'docker' : null,
-        promptView: view.wt,
+        promptView: view.wt, promptHarness: harnessName,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
         // What makes every refusal and every terminal branch below read this as
         // a reviewer rather than as a ticket agent.
@@ -1698,11 +1704,11 @@ export class Dispatcher {
     await this.#reshapeWorkspace(agent, sandbox)
     const view = this.#viewFor(sandbox, agent.wtPath, agent.cfgDir)
     // #157: the ports belong to the AGENT, not to one container. A same-shape
-    // respawn keeps its prompt (#rewritePrompt writes only when the view
-    // moved), so fresh numbers here would leave that prompt naming ports
-    // nothing publishes. The caller's kill is an ordered teardown, which removes
-    // the container before tmux (see the killSession wrapper), so the old
-    // bindings are already released.
+    // respawn on the same harness keeps its prompt (#rewritePrompt writes only
+    // when the view or the harness moved), so fresh numbers here would leave
+    // that prompt naming ports nothing publishes. The caller's kill is an
+    // ordered teardown, which removes the container before tmux (see the
+    // killSession wrapper), so the old bindings are already released.
     // #164: a reviewer publishes nothing — it starts no dev server and
     // `publish_preview` is refused for it — so a respawn must not allocate three
     // host ports a builder could have had.
@@ -1711,7 +1717,7 @@ export class Dispatcher {
       session: agent.session, ticket: agent.ticket, harness: nextHarness,
       model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir, view, sandbox,
     })
-    await this.#rewritePrompt(agent, view, ports)
+    await this.#rewritePrompt(agent, view, nextHarness, ports)
     const plan = await this.#spawnPlan({
       session: agent.session, ticket: agent.ticket, repo: agent.repo,
       harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
@@ -1807,8 +1813,20 @@ export class Dispatcher {
   // was crossed: it moves in exactly the two directions that change both facts.
   // The issue is re-read rather than remembered: the body is what the prompt
   // carries, and the agent record keeps only the title.
-  async #rewritePrompt(agent, view, ports = null) {
-    if (view.wt === agent.promptView) return
+  //
+  // The HARNESS is the second reason to rewrite (#173). The wayfinder
+  // invocation is spelled per harness, and a fallback down the chain crosses
+  // providers by design — `opus` falls to `gpt`, which is the other harness.
+  // Both harnesses run containers today, so that fallback moves no view at all:
+  // without this the codex agent would inherit the claude spelling and load
+  // nothing. `nextHarness` is passed in rather than read off the record, which
+  // still names the harness this agent is leaving.
+  //
+  // A reviewer's prompt carries no invocation, so a harness-only move rewrites
+  // the same text for it. One guard for both is easier to trust than a branch
+  // about when the difference matters, and the cost is one issue read.
+  async #rewritePrompt(agent, view, nextHarness, ports = null) {
+    if (view.wt === agent.promptView && nextHarness === agent.promptHarness) return
     // #164: a reviewer respawned down the fallback chain must be handed the
     // REVIEWER's prompt again. Writing the builder's here would give an agent
     // with no claim and no branch a full set of ticket standing orders.
@@ -1824,6 +1842,7 @@ export class Dispatcher {
         builderModel: spawnModelId(this.routing, agent.builderModel),
       })
       agent.promptView = view.wt
+      agent.promptHarness = nextHarness
       return
     }
     const issue = await this.deps.fetchIssue(agent.repo, agent.ticket)
@@ -1835,8 +1854,10 @@ export class Dispatcher {
       mapNumber,
       type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
       ports,
+      harness: nextHarness,
     })
     agent.promptView = view.wt
+    agent.promptHarness = nextHarness
   }
 
   // Drop the agent record and hand the ticket back to the frontier. Returns
