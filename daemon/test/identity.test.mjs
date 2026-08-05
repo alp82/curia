@@ -254,6 +254,99 @@ describe('IdentityProxy in front of ttyd (#151)', () => {
   })
 })
 
+// #239: the preview surface rewrites Host once the identity check has passed —
+// framework dev servers (Vite's allowedHosts) refuse the tailnet name, so
+// forwarding it verbatim handed the operator a block page. Origin is left
+// untouched on purpose: Vite guards its HMR websocket with a URL token, not by
+// matching Origin (measured on 8.2.0), so the browser's real Origin keeps
+// telling the truth to any upstream that wants it.
+describe('IdentityProxy with rewriteHost: the preview surface (#239)', () => {
+  let harness, proxy, harnessHits
+  const upgraded = []
+
+  before(async () => {
+    harnessHits = []
+    harness = http.createServer((req, res) => {
+      harnessHits.push({ host: req.headers.host, xfh: req.headers['x-forwarded-host'], xfp: req.headers['x-forwarded-proto'] })
+      res.writeHead(200)
+      res.end('the app')
+    })
+    harness.on('upgrade', (req, socket) => {
+      harnessHits.push({ host: req.headers.host, origin: req.headers.origin, upgrade: true })
+      upgraded.push(socket)
+      socket.write('HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: Upgrade\r\n\r\n')
+    })
+    await new Promise((r) => harness.listen(0, '127.0.0.1', r))
+    proxy = new IdentityProxy({
+      port: 0,
+      targetPort: harness.address().port,
+      allow: ALLOW,
+      hosts: HOSTS,
+      surface: 'preview',
+      rewriteHost: true,
+      log: () => {},
+    })
+    const { verified } = await proxy.start()
+    assert.equal(verified, true)
+  })
+
+  after(() => {
+    for (const sock of upgraded) sock.destroy()
+    proxy.stop()
+    harness.closeAllConnections?.()
+    harness.close()
+  })
+
+  test('the dev server sees its own name, and the true one rides X-Forwarded-Host', async () => {
+    harnessHits.length = 0
+    const res = await req(proxy.port, '/', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(harnessHits, [{
+      host: `127.0.0.1:${harness.address().port}`,
+      xfh: 'box.tail1234.ts.net:8443',
+      xfp: 'https',
+    }])
+  })
+
+  test('the identity check still judges the ORIGINAL Host — the rewrite happens after, not instead', async () => {
+    harnessHits.length = 0
+    const res = await req(proxy.port, '/', { headers: served({ host: 'evil.example.com' }) })
+    assert.equal(res.status, 403, 'a rewrite that ran first would launder the forged Host it exists to catch')
+    assert.deepEqual(harnessHits, [])
+  })
+
+  test('the HMR-shaped upgrade gets the rewritten Host and its Origin untouched', async () => {
+    harnessHits.length = 0
+    const r = await new Promise((resolve, reject) => {
+      const sock = net.connect(proxy.port, '127.0.0.1', () => {
+        sock.write([
+          'GET /?token=abc HTTP/1.1',
+          'host: box.tail1234.ts.net:8443',
+          `${LOGIN_HEADER}: alp@example.com`,
+          'origin: https://box.tail1234.ts.net:8443',
+          'connection: Upgrade', 'upgrade: websocket',
+          'sec-websocket-version: 13', 'sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==',
+          'sec-websocket-protocol: vite-hmr',
+          '', '',
+        ].join('\r\n'))
+      })
+      let buf = ''
+      sock.on('data', (d) => {
+        buf += d
+        if (/\r\n\r\n/.test(buf)) { sock.destroy(); resolve(buf) }
+      })
+      sock.on('error', reject)
+      setTimeout(() => { sock.destroy(); reject(new Error(`no answer; got ${JSON.stringify(buf)}`)) }, 4000).unref?.()
+    })
+    assert.match(r, /101/)
+    assert.deepEqual(harnessHits, [{
+      host: `127.0.0.1:${harness.address().port}`,
+      origin: 'https://box.tail1234.ts.net:8443',
+      upgrade: true,
+    }])
+  })
+})
+
 // ---------------------------------------------------------------------------
 // The timeline's half: same predicate, applied in-process
 // ---------------------------------------------------------------------------

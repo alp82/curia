@@ -72,6 +72,7 @@
 //   3. caller   — a 403 naming the reason, journalled `preview_identity_refused`.
 
 import net from 'node:net'
+import http from 'node:http'
 import { execFileP } from './exec.mjs'
 import { IdentityProxy, serveHosts, tailnetSelf } from './identity.mjs'
 
@@ -179,6 +180,35 @@ export function normalizePreviewPath(input) {
   return { ok: true, path: `${url.pathname}${url.search}${url.hash}` }
 }
 
+// The publish probe (#239): one HTTP GET at the page the link will open, with
+// the same rewritten Host the proxy forwards — so publish verifies what the
+// OPERATOR will see, not just that a socket accepts. The dial check cannot do
+// this, and on a published container port it proves nothing at all (#157):
+// docker-proxy accepts for the container's whole life, then RESETS when nothing
+// is bound inside — which used to reach the operator as a bare 502 at the link.
+//
+// What the answer means:
+//   - any HTTP status  -> an app answered. The status is carried back to the
+//     agent, never judged here: a 404 on the stated path is the agent's to fix,
+//     and refusing on it would break every app that 302s or 401s its own root.
+//   - a socket error   -> no app will answer the operator either. Refused.
+//   - a timeout        -> NOT death. A dev server compiling its first page can
+//     take longer than any polite probe waits, so this passes with `slow`.
+export function probePreviewPage(target, port, { path = '/', timeout = 5000 } = {}) {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { host: target, port, path, headers: { host: `${target}:${port}` }, timeout },
+      (res) => {
+        res.resume()
+        resolve({ ok: true, status: res.statusCode })
+      },
+    )
+    req.on('timeout', () => { req.destroy(); resolve({ ok: true, status: null, slow: true }) })
+    req.on('error', (e) => resolve({ ok: false, error: e.code ?? e.message }))
+    req.end()
+  })
+}
+
 export function previewUrl(base, servePort, path = '/') {
   const suffix = String(path ?? '/')
   return `https://${base}:${servePort}${suffix.startsWith('/') ? suffix : `/${suffix}`}`
@@ -201,6 +231,7 @@ export class PreviewRegistry {
     proxyFrom = DEFAULT_PROXY_FROM,
     self = tailnetSelf,
     Proxy = IdentityProxy,
+    probe = probePreviewPage,
     journal = () => {},
   } = {}) {
     this.range = range
@@ -212,6 +243,7 @@ export class PreviewRegistry {
     this.proxyFrom = proxyFrom
     this.self = self
     this.Proxy = Proxy
+    this.probe = probe
     this.journal = journal
     this.byTicket = new Map() // ticket -> { servePort, devPort } — ephemeral (#9)
     this.proxies = new Map() // servePort -> IdentityProxy — ephemeral, same as above
@@ -285,9 +317,18 @@ export class PreviewRegistry {
     // this twice. Returning the stale URL here would reinstate #68 one call in.
     const existing = this.byTicket.get(key)
     if (existing && existing.devPort === devPort) {
+      // #239: the moved path gets the same probe a fresh publish gets — a
+      // repeat call is exactly the fix-the-link call, so handing back a link
+      // nobody verified would reinstate the fault one call in. A dead server
+      // refuses the MOVE and leaves the standing allocation alone: the rule and
+      // its gate are still published, and the sweep owns their teardown.
+      const p = await this.probe(existing.target, devPort, { path })
+      if (!p.ok) {
+        return this.#refuse(this.#probeReason(devPort, p, Boolean(published)))
+      }
       const entry = { ...existing, path, url: previewUrl(base, existing.servePort, path) }
       this.byTicket.set(key, entry)
-      return { ok: true, ...entry, reused: true }
+      return { ok: true, ...entry, reused: true, probeStatus: p.status ?? null }
     }
     // The published-port case skips the probe, because on a published port the
     // probe cannot answer the question any more. docker binds the host port for
@@ -336,6 +377,18 @@ export class PreviewRegistry {
     // refuses the publish. The order is the whole fail-closed property — a rule
     // written first and gated second is an un-gated dev server on the tailnet
     // for as long as the second step takes, and forever if it fails.
+    // #239: before anything is published, ask the app the question the link
+    // will ask — a GET at the stated page, carrying the Host the proxy will
+    // forward. This is where the container case gets its first real liveness
+    // check: the dial probe was dropped there because docker-proxy always
+    // accepts (#157), but it cannot fake an HTTP RESPONSE, so a dev server that
+    // is absent or bound to localhost inside the container refuses here with
+    // the cause, instead of publishing the 502 the operator used to find.
+    const page = await this.probe(target, devPort, { path })
+    if (!page.ok) {
+      return this.#refuse(this.#probeReason(devPort, page, Boolean(published)))
+    }
+
     const gate = await this.#openGate(servePort, target, devPort)
     if (!gate.ok) return this.#refuse(gate.reason)
 
@@ -351,8 +404,20 @@ export class PreviewRegistry {
     // blocking tool.
     const url = previewUrl(base, servePort, path)
     this.byTicket.set(key, { servePort, devPort, target, path, url, proxyPort: gate.proxyPort })
-    this.log(`preview for ticket ${key}: ${url} -> proxy :${gate.proxyPort} -> ${target}:${devPort}`)
-    return { ok: true, servePort, devPort, target, path, url, proxyPort: gate.proxyPort, reused: false }
+    this.log(`preview for ticket ${key}: ${url} -> proxy :${gate.proxyPort} -> ${target}:${devPort} (page answered ${page.slow ? 'slowly — probe timed out' : `HTTP ${page.status}`})`)
+    return { ok: true, servePort, devPort, target, path, url, proxyPort: gate.proxyPort, reused: false, probeStatus: page.status ?? null }
+  }
+
+  // The words a failed page probe hands the agent. The two socket errors mean
+  // different things on the two workspace shapes, and the container one names
+  // the fix (#157's known silent failure): docker accepted the connection, so
+  // the dev server inside is absent or bound to localhost.
+  #probeReason(devPort, p, sandboxed) {
+    const cause = p.error ?? 'no HTTP response'
+    if (sandboxed) {
+      return `the dev server on port ${devPort} accepted no HTTP request (${cause}) — your server runs inside a container, so it must bind 0.0.0.0:${devPort}, not localhost. Fix the bind, check the server is still up, then publish again`
+    }
+    return `the dev server on port ${devPort} accepted no HTTP request (${cause}) — check the server is still running, then publish again`
   }
 
   // Stand up this preview's identity proxy. Returns the port the serve rule must
@@ -380,6 +445,12 @@ export class PreviewRegistry {
       allow: this.allow,
       hosts,
       surface: 'preview',
+      // #239: the tailnet Host has done its one job (the identity check) by the
+      // time the proxy forwards, and framework dev servers refuse it — Vite's
+      // allowedHosts block page, delivered as the review-gate link. The proxy
+      // forwards the dev server's own name instead. Preview only: attach keeps
+      // the true Host because ttyd's -O compares Origin against it.
+      rewriteHost: true,
       name: `the dev server behind this preview`,
       log: this.log,
       journal: this.journal,

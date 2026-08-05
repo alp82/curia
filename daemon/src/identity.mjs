@@ -134,14 +134,33 @@ export function resetTailnetSelfCache() {
 // the PREDICATE differs between the two surfaces, which is the point: one
 // policy, one module, now three surfaces.
 export class IdentityProxy {
+  // `rewriteHost` (#239): forward `Host: <targetHost>:<targetPort>` instead of
+  // the client's own Host, once the identity check has passed. The original
+  // Host has exactly one job here — the rebinding check in identityRefusal —
+  // and after that it is poison downstream: framework dev servers (Vite's
+  // `server.allowedHosts`, and Next behind it) refuse any Host that is not
+  // localhost, so forwarding the tailnet name hands the operator a block page
+  // over a perfectly healthy app. The PREVIEW surface turns this on.
+  //
+  // Attach must NOT: ttyd's -O compares Origin against Host, so a rewritten
+  // Host there would break the guard this proxy exists to stand in front of.
+  // Hence opt-in, default off, and the timeline is in-process and unaffected.
+  //
+  // Origin is deliberately left untouched. Vite guards its HMR websocket with
+  // a token in the WS URL, not by matching Origin (measured on v8.2.0: any
+  // Origin + valid token upgrades, any Origin without one is 400) — so the
+  // rewrite costs no cross-site-WebSocket defense, and the browser's real
+  // Origin stays visible to any upstream that does want to judge it.
   constructor({
     port, targetPort, targetHost = '127.0.0.1', allow, hosts,
     surface = 'attach', name = 'the terminal surface',
+    rewriteHost = false,
     log = console.log, journal = () => {},
   }) {
     this.port = port
     this.targetPort = targetPort
     this.targetHost = targetHost
+    this.rewriteHost = rewriteHost
     this.allow = allow
     this.hosts = hosts
     this.surface = surface
@@ -154,6 +173,19 @@ export class IdentityProxy {
 
   #refusal(req) {
     return identityRefusal(req.headers, { allow: this.allow, hosts: this.hosts })
+  }
+
+  // The headers the upstream sees. With rewriteHost the true Host survives as
+  // X-Forwarded-Host (set only when Serve did not already set one), so an app
+  // composing absolute URLs still has somewhere standard to read the real name.
+  #forwardHeaders(req) {
+    if (!this.rewriteHost) return req.headers
+    return {
+      ...req.headers,
+      host: `${this.targetHost}:${this.targetPort}`,
+      'x-forwarded-host': req.headers['x-forwarded-host'] ?? req.headers.host ?? '',
+      'x-forwarded-proto': req.headers['x-forwarded-proto'] ?? 'https',
+    }
   }
 
   // One record per refusal, on the journal and in the log. #75's lesson: the
@@ -207,7 +239,7 @@ export class IdentityProxy {
       return res.end(`curia refused this request: ${reason}\n`)
     }
     const up = http.request(
-      { host: this.targetHost, port: this.targetPort, method: req.method, path: req.url, headers: req.headers },
+      { host: this.targetHost, port: this.targetPort, method: req.method, path: req.url, headers: this.#forwardHeaders(req) },
       (upRes) => {
         res.writeHead(upRes.statusCode, upRes.statusMessage, upRes.headers)
         upRes.pipe(res)
@@ -236,7 +268,7 @@ export class IdentityProxy {
       port: this.targetPort,
       method: req.method,
       path: req.url,
-      headers: req.headers,
+      headers: this.#forwardHeaders(req),
     })
     up.on('upgrade', (upRes, upSocket, upHead) => {
       const lines = [`HTTP/1.1 ${upRes.statusCode} ${upRes.statusMessage}`]

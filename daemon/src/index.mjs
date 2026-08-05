@@ -825,7 +825,14 @@ function buildMcpServer(agent, ticket) {
           links: [{ label: '🔗 open preview', url: r.url }],
         }).catch(() => {})
       }
-      return { content: [{ type: 'text', text: r.url }, ...drainNotes()] }
+      // #239: publish probed the page, and a status that is not a 2xx is worth
+      // a sentence — the link works, but the page the agent named answered 404
+      // or 500, and the agent is the one who can fix that before the human
+      // opens it. Not a refusal: apps legitimately 302 or 401 their own pages.
+      const note = Number.isInteger(r.probeStatus) && (r.probeStatus < 200 || r.probeStatus > 299)
+        ? `\n(note: this page answered HTTP ${r.probeStatus} — if that is not what you expect, fix the page or the path and publish again)`
+        : ''
+      return { content: [{ type: 'text', text: `${r.url}${note}` }, ...drainNotes()] }
     },
   )
 

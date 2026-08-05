@@ -17,7 +17,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   PreviewRegistry, parseServedPorts, previewUrl, normalizePreviewPath, DEFAULT_RANGE,
-  DEFAULT_PROXY_FROM,
+  DEFAULT_PROXY_FROM, probePreviewPage,
 } from '../src/preview.mjs'
 import { IdentityProxy, LOGIN_HEADER, serveHosts } from '../src/identity.mjs'
 import http from 'node:http'
@@ -83,8 +83,13 @@ class DeadProxy extends FakeProxy {
   constructor(opts) { super(opts); this.failBind = true }
 }
 
+// #239 gave publish an HTTP probe of the page itself. Faked green here for the
+// same reason the proxy is faked: the pre-#239 tests keep testing what they
+// were written to test, and the probe gets its own describe block below.
+const pageAnswers = async () => ({ ok: true, status: 200 })
+
 function mkReg(opts = {}) {
-  return new PreviewRegistry({ self: FAKE_SELF, Proxy: FakeProxy, ...opts })
+  return new PreviewRegistry({ self: FAKE_SELF, Proxy: FakeProxy, probe: pageAnswers, ...opts })
 }
 
 // The port the rule points at under the default range: the base of the derived
@@ -670,7 +675,12 @@ describe('#168: a real gate in front of a real dev server', () => {
   const REAL_PROXY_FROM = 17700
 
   test('an unstamped caller is refused and a stamped one reaches the page', async () => {
-    const dev = http.createServer((req, res) => { res.writeHead(200); res.end('the page under review') })
+    let seenHeaders = null
+    const dev = http.createServer((req, res) => {
+      seenHeaders = req.headers
+      res.writeHead(200)
+      res.end('the page under review')
+    })
     await new Promise((r) => dev.listen(0, '127.0.0.1', r))
     const devPort = dev.address().port
     const { exec } = fakeExec()
@@ -705,6 +715,12 @@ describe('#168: a real gate in front of a real dev server', () => {
       const stamped = await get({ host, [LOGIN_HEADER]: 'alp@example.com' })
       assert.equal(stamped.status, 200)
       assert.equal(stamped.body, 'the page under review')
+      // #239: the dev server sees its OWN name, never the tailnet one — the
+      // Host that framework dev servers refuse has done its identity work and
+      // stops here. The true name survives as X-Forwarded-Host.
+      assert.equal(seenHeaders.host, `127.0.0.1:${devPort}`)
+      assert.equal(seenHeaders['x-forwarded-host'], host)
+      assert.equal(seenHeaders['x-forwarded-proto'], 'https')
 
       const stranger = await get({ host, [LOGIN_HEADER]: 'mallory@example.com' })
       assert.equal(stranger.status, 403)
@@ -719,5 +735,139 @@ describe('#168: a real gate in front of a real dev server', () => {
       await reg.withdraw('7').catch(() => {})
       dev.close()
     }
+  })
+})
+
+// #239: the review-gate link opened on Vite's blocked-host page. The identity
+// proxy forwarded the tailnet Host verbatim (its rebinding job done), and
+// framework dev servers refuse any Host that is not their own. Two closures:
+// the proxy rewrites Host once the check has passed, and publish probes the
+// page with that same Host so a dead link is refused at publish time with the
+// cause, instead of reaching the operator as a block page or a 502.
+describe('#239: the preview link opens the app, not a block page', () => {
+  const RANGE = { from: 18510, to: 18519 }
+  const PROXY_FROM = 17710
+
+  test('a Vite-shaped server that refuses foreign Hosts serves its page through the gate', async () => {
+    // The stock behavior measured on Vite 8.2.0: any Host that is not the
+    // server's own name gets the allowedHosts block page as a 403.
+    const dev = http.createServer((req, res) => {
+      if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host ?? '')) {
+        res.writeHead(403)
+        return res.end(`Blocked request. This host ("${(req.headers.host ?? '').split(':')[0]}") is not allowed.`)
+      }
+      res.writeHead(200)
+      res.end('the app')
+    })
+    await new Promise((r) => dev.listen(0, '127.0.0.1', r))
+    const devPort = dev.address().port
+    const { exec } = fakeExec()
+    const reg = new PreviewRegistry({
+      range: RANGE,
+      proxyFrom: PROXY_FROM,
+      exec,
+      isLive: async () => '127.0.0.1',
+      log: () => {},
+      allow: new Set(['alp@example.com']),
+      self: async () => ({ dnsName: 'box.tail0000.ts.net', ips: [] }),
+      Proxy: IdentityProxy,
+    })
+    try {
+      const r = await reg.publish('9', devPort, { base: BASE })
+      assert.equal(r.ok, true, `publish refused: ${r.reason}`)
+      assert.equal(r.probeStatus, 200, 'the probe itself must carry the rewritten Host, or it reports the block page')
+
+      const page = await new Promise((resolve) => {
+        http.get({
+          host: '127.0.0.1',
+          port: PROXY_FROM,
+          path: '/',
+          headers: { host: `box.tail0000.ts.net:${RANGE.from}`, [LOGIN_HEADER]: 'alp@example.com' },
+        }, (res) => {
+          let body = ''
+          res.on('data', (c) => { body += c })
+          res.on('end', () => resolve({ status: res.statusCode, body }))
+        })
+      })
+      assert.equal(page.status, 200, `the operator got: ${page.body}`)
+      assert.equal(page.body, 'the app')
+    } finally {
+      await reg.withdraw('9').catch(() => {})
+      dev.close()
+    }
+  })
+
+  test('probePreviewPage: an HTTP answer passes with its status, unjudged', async () => {
+    const dev = http.createServer((req, res) => { res.writeHead(404); res.end('no such page') })
+    await new Promise((r) => dev.listen(0, '127.0.0.1', r))
+    try {
+      const p = await probePreviewPage('127.0.0.1', dev.address().port, { path: '/gone' })
+      assert.deepEqual(p, { ok: true, status: 404 })
+    } finally {
+      dev.close()
+    }
+  })
+
+  test('probePreviewPage: accepted-then-reset is a refusal — the docker-proxy shape (#157)', async () => {
+    const net = await import('node:net')
+    const trap = net.createServer((socket) => socket.destroy())
+    await new Promise((r) => trap.listen(0, '127.0.0.1', r))
+    try {
+      const p = await probePreviewPage('127.0.0.1', trap.address().port)
+      assert.equal(p.ok, false)
+      assert.ok(p.error, 'the socket error is the cause the agent is handed')
+    } finally {
+      trap.close()
+    }
+  })
+
+  test('publish refuses a page that will not answer, and the container message names the bind', async () => {
+    const reg = mkReg({
+      exec: fakeExec().exec,
+      isLive: alwaysLive,
+      log: () => {},
+      probe: async () => ({ ok: false, error: 'ECONNRESET' }),
+    })
+    const before = FakeProxy.made.length
+    const sandboxed = await reg.publish('11', 9000, { base: BASE, published: [9000, 9001, 9002] })
+    assert.equal(sandboxed.ok, false)
+    assert.match(sandboxed.reason, /ECONNRESET/)
+    assert.match(sandboxed.reason, /0\.0\.0\.0:9000/, 'the container case names the fix')
+    assert.equal(FakeProxy.made.length, before, 'the probe runs before the gate, so a refused publish stands no gate up')
+
+    const bare = await reg.publish('12', 9000, { base: BASE })
+    assert.equal(bare.ok, false)
+    assert.doesNotMatch(bare.reason, /container/, 'a bare agent is not told about a container it does not have')
+  })
+
+  test('a repeat publish probes the MOVED path, and a dead server refuses the move but keeps the link', async () => {
+    let probes = []
+    let fail = false
+    const reg = mkReg({
+      exec: fakeExec().exec,
+      isLive: alwaysLive,
+      log: () => {},
+      probe: async (target, port, { path }) => {
+        probes.push(path)
+        return fail ? { ok: false, error: 'ECONNREFUSED' } : { ok: true, status: 200 }
+      },
+    })
+    const first = await reg.publish('13', 9000, { base: BASE, path: '/a' })
+    assert.equal(first.ok, true)
+
+    fail = true
+    const moved = await reg.publish('13', 9000, { base: BASE, path: '/b' })
+    assert.equal(moved.ok, false)
+    assert.deepEqual(probes, ['/a', '/b'])
+    assert.equal(reg.get('13').path, '/a', 'the standing link is untouched — the sweep owns teardown, not a failed move')
+  })
+
+  test('the preview gate rewrites Host and attach does not — the flag reaches the proxy', async () => {
+    const reg = mkReg({ exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
+    const r = await reg.publish('14', 9000, { base: BASE })
+    assert.equal(r.ok, true)
+    assert.equal(FakeProxy.made.at(-1).rewriteHost, true)
+    assert.equal(new IdentityProxy({ port: 0, targetPort: 1 }).rewriteHost, false,
+      "off by default: ttyd's -O compares Origin against Host, so attach must forward it unchanged")
   })
 })
