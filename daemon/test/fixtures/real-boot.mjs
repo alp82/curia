@@ -16,7 +16,7 @@ import net from 'node:net'
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 // The phrase every real-boot failure carries, so one grep finds all of them.
-export const NO_DAEMON = 'the real-boot fixture never got a daemon'
+const NO_DAEMON = 'the real-boot fixture never got a daemon'
 
 const AND_SO = 'Nothing under this hook ran against a live daemon. A cancelled test here is a boot that FAILED, never a test that was skipped.'
 
