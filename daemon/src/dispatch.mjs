@@ -994,7 +994,12 @@ export class Dispatcher {
     const wayOut = where === 'respawn'
       ? 'The harness this agent was dispatched on does not load it, and the fallback harness does. Remove the file from the repo, or dispatch the ticket again once a harness that does not load it is warm'
       : 'Remove the file from the repo, or dispatch on another harness if only one harness loads it (`/start <ticket> <model>`)'
-    throw new Error(`${planted} is a config file curia did not write, and the ${harnessName} harness loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. ${wayOut}`)
+    const e = new Error(`${planted} is a config file curia did not write, and the ${harnessName} harness loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. ${wayOut}`)
+    // #217: this throw is curia DECLINING, not curia failing, and only here is
+    // that known — by the time it lands in a catch it is one more thrown Error.
+    // The mark is what lets the respawn callers frame it as the decision it is.
+    e.refusal = true
+    throw e
   }
 
   // Which wayfinder map, if any, owns this ticket — so the standing orders can
@@ -1541,9 +1546,10 @@ export class Dispatcher {
         this.notify(agent.ticket, `⚙️ \`${agent.session}\` reached its composer with **no curia tools** — its MCP client never connected, so nothing it did could have reached anyone. Respawned once on the same model (**${model}**); the model is not what failed.`)
         return
       } catch (e) {
-        this.log(`mute respawn of ${agent.session} on ${model} failed:`, e.message)
-        const released = await this.#releaseClaim(agent, `respawn after a mute agent failed: ${e.message}`)
-        this.notify(agent.ticket, `⚠️ \`${agent.session}\` had no curia tools and the respawn on **${model}** failed: ${e.message} — ${this.#releaseTail(agent, released)}`)
+        const verb = e.refusal ? 'refused' : 'failed'
+        this.log(`mute respawn of ${agent.session} on ${model} ${verb}:`, e.message)
+        const released = await this.#releaseClaim(agent, `respawn after a mute agent ${verb}: ${e.message}`)
+        this.notify(agent.ticket, this.#noRespawnNotify(agent, model, 'had no curia tools', e, released))
         return
       }
     }
@@ -1616,18 +1622,22 @@ export class Dispatcher {
     const cands = candidates(this.routing, agent.requestedModel, this.cooling)
     if (cands.length) {
       const next = cands[0]
+      // one name for what happened, so the respawned and the not-respawned
+      // sentence cannot drift apart
+      const cause = `hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`}`
       try {
         await this.#respawnOn(agent, next, { retry_after_limit: true })
-        this.notify(agent.ticket, `⚙️ \`${agent.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} — respawned on **${next}**`)
+        this.notify(agent.ticket, `⚙️ \`${agent.session}\` ${cause} — respawned on **${next}**`)
         return
       } catch (e) {
         // The old session is already dead. Letting this reject would strand the
         // GitHub claim in an agent record reconcile deliberately skips, making
         // it unrecoverable short of /cancel — so take the same
         // release path true exhaustion takes.
-        this.log(`respawn of ${agent.session} on ${next} failed:`, e.message)
-        const released = await this.#releaseClaim(agent, `respawn after ${limit.scope} usage limit failed: ${e.message}`)
-        this.notify(agent.ticket, `⚠️ \`${agent.session}\` hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`} and the respawn on **${next}** failed: ${e.message} — ${this.#releaseTail(agent, released)}`)
+        const verb = e.refusal ? 'refused' : 'failed'
+        this.log(`respawn of ${agent.session} on ${next} ${verb}:`, e.message)
+        const released = await this.#releaseClaim(agent, `respawn after ${limit.scope} usage limit ${verb}: ${e.message}`)
+        this.notify(agent.ticket, this.#noRespawnNotify(agent, next, cause, e, released))
         // the binding stays (#140): a claim release is not a ticket-terminal state
         return
       }
@@ -1904,6 +1914,25 @@ export class Dispatcher {
     return released
       ? 'claim released, ticket re-frontiered'
       : 'claim release FAILED: the issue is still assigned; reconcile will retry'
+  }
+
+  // What the thread says when a respawn did not happen (#217). #respawnOn throws
+  // for two facts the operator must not read as one:
+  //
+  //   could not   tmux exploded, the config dir would not seed. A fault, and the
+  //               operator goes and finds it.
+  //   would not   the planted-config refusal (#174). curia declining, and there
+  //               is no fault to find — "failed" sends them hunting for one.
+  //
+  // The error already carries which one it is, so the frame is chosen HERE,
+  // where that fact is known, rather than at the two call sites — the rule
+  // #releaseTail above follows, for the same reason. Everything else is shared:
+  // one shape, one verb swapped, so the two messages stay comparable.
+  #noRespawnNotify(agent, next, cause, e, released) {
+    const head = e.refusal
+      ? `🚫 \`${agent.session}\` ${cause} and curia REFUSED to respawn it on **${next}**`
+      : `⚠️ \`${agent.session}\` ${cause} and the respawn on **${next}** failed`
+    return `${head}: ${e.message} — ${this.#releaseTail(agent, released)}`
   }
 
   // ---- the merge-gated ending (#54) ---------------------------------------------
