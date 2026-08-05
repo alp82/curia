@@ -1367,6 +1367,8 @@ if (process.env.DISCORD_BOT_TOKEN) {
           release: (ticket, reason) => store.releaseTicketThread(ticket, reason),
           // the dispatch backstop (#140): the last binding, released or not
           last: (ticket) => store.lastThreadForTicket(ticket),
+          // the label's repo field (#235), read lazily off the journal
+          repoOf: (ticket) => store.repoForTicket(ticket),
         },
         log,
         onHealth: onBridgeHealth,

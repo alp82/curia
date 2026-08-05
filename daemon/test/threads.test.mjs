@@ -138,6 +138,26 @@ describe('EscalationStore ticket-thread bindings', () => {
     assert.equal(reborn.ticketForThread('t-old'), undefined)
     assert.equal(reborn.lastThreadForTicket('169'), 't-new', '#140 backstop follows the move')
   })
+
+  // #235: the journal's own dispatch lines are the repo index, so the label's
+  // lazy path outlives the dispatcher's in-memory record.
+  test('repoForTicket reads the journal dispatch lines, last wins, and survives a restart', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    assert.equal(store.repoForTicket('85'), undefined, 'never dispatched ⇒ no repo')
+    store.logEvent('dispatch_claimed', { repo: 'alp82/curia', ticket: '85', agent: 'curia-85' })
+    assert.equal(store.repoForTicket('85'), 'alp82/curia')
+    assert.equal(store.repoForTicket(85), 'alp82/curia', 'numeric and string tickets are the same key')
+    // agent_spawned indexes too — a map dispatch never writes dispatch_claimed (#221)
+    store.logEvent('agent_spawned', { repo: 'alp82/aistack', ticket: '90', agent: 'curia-90' })
+    assert.equal(store.repoForTicket('90'), 'alp82/aistack')
+    // the same number dispatched from another repo moves the pointer
+    store.logEvent('dispatch_claimed', { repo: 'getalfredo/landing-page', ticket: '85', agent: 'curia-85' })
+    assert.equal(store.repoForTicket('85'), 'getalfredo/landing-page')
+    const reborn = new EscalationStore(dir)
+    assert.equal(reborn.repoForTicket('85'), 'getalfredo/landing-page')
+    assert.equal(reborn.repoForTicket('90'), 'alp82/aistack')
+  })
 })
 
 // ---- the display-only label (bridge.mjs) ------------------------------------
@@ -147,6 +167,21 @@ describe('DiscordBridge label helpers', () => {
     assert.equal(DiscordBridge.labelName('85'), '🎫 85')
     assert.equal(DiscordBridge.labelName('85', 'grilling'), '🎫 85 · grilling')
     assert.equal(DiscordBridge.labelName('85', 'x'.repeat(200)).length, 100)
+  })
+
+  // #235: one number space serves four watched repos, so the label carries the
+  // repo as its own field, after the number. Short name, no owner prefix — the
+  // operator ruled the form.
+  test('labelName puts the repo between the number and the type, short name only', () => {
+    assert.equal(DiscordBridge.labelName('85', 'grilling', 'alp82/curia'), '🎫 85 · curia · grilling')
+    assert.equal(DiscordBridge.labelName('85', '', 'alp82/curia'), '🎫 85 · curia')
+    assert.equal(DiscordBridge.labelName('85', 'task', 'getalfredo/landing-page'), '🎫 85 · landing-page · task')
+    assert.equal(DiscordBridge.labelName('85', 'task', ''), '🎫 85 · task', 'no record ⇒ the two-field form')
+  })
+
+  test('the glyph swaps keep the repo field — they replace the signal only', () => {
+    assert.equal(DiscordBridge.doneName('🎫 85 · curia · grilling'), '✅ 85 · curia · grilling')
+    assert.equal(DiscordBridge.cancelledName('⏳ 85 · curia · task'), '⚰️ 85 · curia · task')
   })
 
   test('doneName swaps the ticket signal for the checkmark and keeps the rest', () => {
@@ -243,6 +278,33 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const r = await bridge.bindTicket('115', {})
     assert.equal(r.ok, true)
     assert.equal(created[0].name, '🎫 115')
+  })
+
+  // ---- the repo field on the label (#235) ------------------------------------
+
+  test('the dispatch hands the repo over and the fresh thread carries it', async () => {
+    const r = await bridge.bindTicket('107', { type: 'research', repo: 'alp82/curia' })
+    assert.equal(r.ok, true)
+    assert.equal(created[0].name, '🎫 107 · curia · research')
+  })
+
+  test('a bind without a repo reads the journal record instead of dropping the field', async () => {
+    bridge.bindings.repoOf = (t) => (String(t) === '128' ? 'alp82/aistack' : undefined)
+    const r = await bridge.bindTicket('128', { type: 'task' })
+    assert.equal(r.ok, true)
+    assert.equal(created[0].name, '🎫 128 · aistack · task')
+  })
+
+  test('the lazy path (ensureThread) carries the repo from the record too', async () => {
+    bridge.bindings.repoOf = () => 'alp82/curia'
+    const t = await bridge.ensureThread('130')
+    assert.equal(t.name, '🎫 130 · curia')
+    assert.equal(store.threadForTicket('130'), t.id)
+  })
+
+  test('ensureThread for a ticket with no record keeps the bare-number name', async () => {
+    const t = await bridge.ensureThread('131')
+    assert.equal(t.name, '🎫 131')
   })
 
   test('a bind onto an unbound issuing thread stays in place and takes the label as its name', async () => {
@@ -548,19 +610,19 @@ describe('Dispatcher thread binding (#93)', () => {
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:grilling' }] }),
     })
     assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /dispatched/)
-    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: 'grilling' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: 'grilling', repo: 'o/r' }])
   })
 
   test('an untyped ticket binds with an empty type — the number names the thread', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', threadId: 't-7' })
-    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: '' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: '', repo: 'o/r' }])
   })
 
   test('a dispatch with no issuing thread asks for a fresh bound thread (threadId null)', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', by: 'auto' })
-    assert.deepEqual(binds, [{ ticket: '42', threadId: null, type: '' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: null, type: '', repo: 'o/r' }])
   })
 
   test('a prepare failure keeps the label — a claim release is not ticket-terminal (#140)', async () => {

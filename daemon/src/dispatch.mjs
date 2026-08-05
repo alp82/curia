@@ -697,7 +697,7 @@ export class Dispatcher {
     // notify from here on lands in the labeled thread. Never fatal: with the
     // bridge down the first notify binds lazily instead.
     try {
-      await this.threads.bind(n, { threadId, type: typeLabel?.slice('wayfinder:'.length) ?? '' })
+      await this.threads.bind(n, { threadId, type: typeLabel?.slice('wayfinder:'.length) ?? '', repo })
     } catch (e) {
       this.log(`thread bind for ${repo}#${n} failed (${e.message}) — the first notify will bind lazily`)
     }

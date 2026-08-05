@@ -389,14 +389,18 @@ export class DiscordBridge {
     )
   }
 
-  // The ticket label as a thread rename (#93): `🎫 85 · grilling`. The ticket
-  // number and its `wayfinder:` type REPLACE whatever the thread was called —
-  // a thread list that reads "which ticket, what kind of work" is worth more
-  // than the prose title the conversation started under. Display only — the
-  // journal binding is the truth — so every half tolerates a rename that never
-  // landed or that someone edited by hand.
-  static labelName(ticket, type = '') {
-    return `🎫 ${ticket}${type ? ` · ${type}` : ''}`.slice(0, 100)
+  // The ticket label as a thread rename (#93): `🎫 85 · curia · grilling`. The
+  // ticket number, the repo, and the `wayfinder:` type REPLACE whatever the
+  // thread was called — a thread list that reads "which ticket, where, what
+  // kind of work" is worth more than the prose title the conversation started
+  // under. The repo field (#235): one number space serves four watched repos,
+  // so `🎫 85` alone names no tracker. Short name only, no owner prefix — the
+  // operator ruled the form. Display only — the journal binding is the truth —
+  // so every half tolerates a rename that never landed or that someone edited
+  // by hand.
+  static labelName(ticket, type = '', repo = '') {
+    const short = repo ? String(repo).split('/').pop() : ''
+    return `🎫 ${ticket}${short ? ` · ${short}` : ''}${type ? ` · ${type}` : ''}`.slice(0, 100)
   }
 
   // Release swaps the signal and keeps the rest: `🎫 85 · grilling` becomes
@@ -460,7 +464,7 @@ export class DiscordBridge {
       this.bindings.release(ticket, 'thread-gone')
     }
     const thread = await this.channel.threads.create({
-      name: DiscordBridge.labelName(ticket), autoArchiveDuration: 10080,
+      name: DiscordBridge.labelName(ticket, '', this.#repoOf(ticket)), autoArchiveDuration: 10080,
     })
     const r = this.bindings.bind(ticket, thread.id)
     if (!r.ok && r.threadId) {
@@ -469,6 +473,17 @@ export class DiscordBridge {
       if (winner) return winner
     }
     return thread
+  }
+
+  // The repo behind a ticket number, for the label's repo field (#235). From
+  // curia's own record — the journal's dispatch/spawn lines, indexed by the
+  // store — never from a string an agent typed (#202's rule). The lazy paths
+  // (ensureThread, a revive after a restart) have no dispatch in hand, so this
+  // read is what carries the field there. A ticket with no record answers ''
+  // and the label keeps the two-field form — never a guess off the watch list,
+  // because two repos can answer for one number.
+  #repoOf(ticket) {
+    return this.bindings?.repoOf?.(ticket) ?? ''
   }
 
   async #namedThread(name) {
@@ -508,13 +523,16 @@ export class DiscordBridge {
   // breadcrumbs link both ways — the origin learns where the work went, the
   // new thread names who sent it. Composition from ids the daemon holds at
   // bind time; no new state.
-  async bindTicket(ticket, { threadId = null, type = '' } = {}) {
+  async bindTicket(ticket, { threadId = null, type = '', repo = '' } = {}) {
     if (!this.bindings) return { ok: false, reason: 'no-bindings' }
+    // The dispatch hands the repo over (#235); a caller without one falls back
+    // to the journal's record, and a ticket with neither keeps the short label.
+    repo = repo || this.#repoOf(ticket)
     if (threadId) {
       const r = this.bindings.bind(ticket, threadId)
       if (r.ok) {
         const t = await this.client.channels.fetch(threadId).catch(() => null)
-        const name = DiscordBridge.labelName(ticket, type)
+        const name = DiscordBridge.labelName(ticket, type, repo)
         if (t && t.name !== name) await this.renamer.set(t.id, name)
         return r
       }
@@ -523,24 +541,24 @@ export class DiscordBridge {
       // where the ticket's history is, and somebody may still be watching it.
       // Before this, the refusal was returned silently and the dispatch went on
       // talking into a thread nobody had open.
-      if (r.reason === 'ticket-bound') return this.#moveTicket(ticket, type, threadId, r.threadId)
+      if (r.reason === 'ticket-bound') return this.#moveTicket(ticket, type, repo, threadId, r.threadId)
       if (r.reason !== 'thread-bound') return r
-      return this.#bindFreshThread(ticket, type, threadId)
+      return this.#bindFreshThread(ticket, type, repo, threadId)
     }
-    return this.#bindFreshThread(ticket, type, null)
+    return this.#bindFreshThread(ticket, type, repo, null)
   }
 
-  async #bindFreshThread(ticket, type, originThreadId) {
+  async #bindFreshThread(ticket, type, repo, originThreadId) {
     // The dispatch backstop (#140): an unbound ticket goes back to the thread
     // its journal last bound — that is where its history, breadcrumbs and
     // recorded answers live — and only opens a fresh thread when the old one
     // is gone from Discord or now carries another ticket.
-    const revived = await this.#reviveLastThread(ticket, type)
+    const revived = await this.#reviveLastThread(ticket, type, repo)
     let thread = revived
     let r = revived ? { ok: true, threadId: revived.id } : null
     if (!thread) {
       thread = await this.channel.threads.create({
-        name: DiscordBridge.labelName(ticket, type), autoArchiveDuration: 10080,
+        name: DiscordBridge.labelName(ticket, type, repo), autoArchiveDuration: 10080,
       })
       r = this.bindings.bind(ticket, thread.id)
     }
@@ -552,7 +570,7 @@ export class DiscordBridge {
       )).catch(() => {})
       if (origin) {
         await origin.send(smallPrint(
-          `🔗 ${DiscordBridge.labelName(ticket, type)} continues in its own thread — ${DiscordBridge.threadLink(this.guild.id, thread.id)}`,
+          `🔗 ${DiscordBridge.labelName(ticket, type, repo)} continues in its own thread — ${DiscordBridge.threadLink(this.guild.id, thread.id)}`,
         )).catch(() => {})
       }
     }
@@ -565,11 +583,11 @@ export class DiscordBridge {
   //
   // A tracker with no `rebind` falls back to the old behavior — the refusal,
   // returned as it was — rather than pretending the move happened.
-  async #moveTicket(ticket, type, threadId, fromThreadId) {
+  async #moveTicket(ticket, type, repo, threadId, fromThreadId) {
     if (!this.bindings.rebind) return { ok: false, reason: 'ticket-bound', threadId: fromThreadId }
     const r = this.bindings.rebind(ticket, threadId, 'dispatched-from-another-thread')
     if (!r.ok) return r
-    const name = DiscordBridge.labelName(ticket, type)
+    const name = DiscordBridge.labelName(ticket, type, repo)
     const to = await this.client.channels.fetch(threadId).catch(() => null)
     if (to && to.name !== name) await this.renamer.set(to.id, name)
     const from = await this.client.channels.fetch(fromThreadId).catch(() => null)
@@ -592,7 +610,7 @@ export class DiscordBridge {
   // The journal's last thread for a ticket, when it still exists on Discord
   // and is still free to take back (#140). Rebinds it — unarchived, relabeled
   // — or returns null so the caller opens a fresh thread instead.
-  async #reviveLastThread(ticket, type) {
+  async #reviveLastThread(ticket, type, repo) {
     const last = this.bindings.last?.(ticket)
     if (!last) return null
     const t = await this.client.channels.fetch(last).catch(() => null)
@@ -603,7 +621,7 @@ export class DiscordBridge {
     if (t.archived) await t.setArchived(false).catch(() => {})
     // the label goes back on: a ✅ from an earlier release, or a ⚰️ from a
     // cancel (#200), goes back to 🎫 because a ticket is being worked again
-    const name = DiscordBridge.labelName(ticket, type)
+    const name = DiscordBridge.labelName(ticket, type, repo)
     if (t.name !== name) await this.renamer.set(t.id, name)
     return t
   }

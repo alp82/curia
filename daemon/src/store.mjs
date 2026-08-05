@@ -87,6 +87,7 @@ export class EscalationStore {
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
     this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
+    this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
     this.seq = 0
     this._replay()
   }
@@ -208,6 +209,16 @@ export class EscalationStore {
       case 'overseer_notes_drained': {
         const arr = this.overseerNotes.get(ev.thread_id) ?? []
         arr.splice(0, ev.count)
+        break
+      }
+      case 'dispatch_claimed':
+      case 'agent_spawned': {
+        // The repo behind a ticket number (#235): the thread label's repo
+        // field reads it lazily, and the lazy path outlives the dispatcher's
+        // in-memory record — so the journal's own dispatch lines are the
+        // index. Last dispatch wins, the same rule the thread binding lives
+        // under.
+        if (ev.repo && ev.ticket != null) this.ticketRepos.set(String(ev.ticket), ev.repo)
         break
       }
       case 'overseer_session': {
@@ -476,6 +487,13 @@ export class EscalationStore {
   // its predecessor's history, breadcrumbs and recorded answers live in.
   lastThreadForTicket(ticket) {
     return this.lastTicketThreads.get(String(ticket))
+  }
+
+  // The repo of a ticket's last dispatch (#235), off the journal's
+  // `dispatch_claimed`/`agent_spawned` lines. Undefined for a ticket the
+  // daemon never dispatched — the label then keeps its two-field form.
+  repoForTicket(ticket) {
+    return this.ticketRepos.get(String(ticket))
   }
 
   boundTickets() {
