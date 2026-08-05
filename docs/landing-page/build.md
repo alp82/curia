@@ -77,6 +77,11 @@ at the same moment and `http.server` exits on `Address already in use`. Try 4001
 port you **actually** bound — which is why `publish_preview` takes a port rather than reading a
 configured one (#40).
 
+**Inside a container, port 4000 does not apply.** A sandboxed agent is reachable only on the three
+published ports its dispatch prompt names ([#157](https://github.com/alp82/curia/issues/157)). Bind
+one of them on all interfaces: `python3 -m http.server <port> --bind 0.0.0.0 --directory docs`.
+`publish_preview` refuses every other number, and the refusal names the ports that work.
+
 ## One source of truth: not wanted
 
 Asked whether the page, `README.md` and the self-host guide should render from one file, the operator
