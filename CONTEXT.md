@@ -331,6 +331,9 @@ The pass, at boot and on demand, that re-derives live state from GitHub, tmux, a
 **Epoch**:
 A ticket's latest dispatch. Journal reads count only events from the latest epoch.
 
+**Spawn line**:
+An `agent_spawned` event. It describes the agent whole, as it runs from that moment. One dispatch writes more than one of them, because a respawn down the fallback chain writes another. A respawn states every dispatch-time fact again, so the last line wins for every reader.
+
 **Orphan**:
 A live `curia-` session that every watched repo positively disowns. Reconcile sweeps it, unless it holds a result or unpushed work.
 

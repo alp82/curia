@@ -114,7 +114,9 @@ dispatches inside one hour pay one burnt spawn between them, not one each.
 
 ## Fault: a respawn erases the dispatch kind
 
-**Not fixed. The largest thing this check found.**
+**The largest thing this check found. Fixed by
+[#219](https://github.com/alp82/curia/issues/219): the respawn now states the
+kind, the instruction and the rest of the dispatch-time facts again.**
 
 #160 built two belts against a charting agent being read as a ticket agent,
 because that misreading closes the map. One is the pair of refusals on
@@ -188,7 +190,9 @@ agent is worth less than closing #219.
   Anything reading spawn-time facts out of the journal must decide which line it
   wants. #187 wants the last (the model that runs). #160 wants the first (the
   kind it was dispatched as). Reducing to "the last line wins" is wrong for at
-  least one reader.
+  least one reader. **[#219](https://github.com/alp82/curia/issues/219) settled
+  this at the writer instead**: a respawn states the dispatch-time facts again,
+  so both lines carry them and the last line is right for every reader.
 - **Back-to-back map dispatches inside the hour skip the burnt spawn**, because
   fable is still cooling. A check that expects to see fable → opus must leave an
   hour, or read `model_cooling` first.
