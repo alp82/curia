@@ -197,7 +197,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, attachLinks, deps }) {
+  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, attachLinks, channelName, deps }) {
     this.config = config
     this.routing = routing
     this.store = store
@@ -235,6 +235,9 @@ export class Dispatcher {
     // types /attach to see what just started. Optional; absent, the ready
     // message falls back to naming the verb.
     this.attachLinks = attachLinks ?? null
+    // The command channel's own name (#218). A confirm typed outside any thread
+    // renders in that channel, and the reply has to name it.
+    this.channelName = channelName ?? 'curia'
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)
@@ -2549,7 +2552,15 @@ export class Dispatcher {
       originThreadId: threadId,
     })
     if (!record) return '⚠️ could not open the confirm — nothing was cancelled'
-    return `⚙️ posted confirm **${record.id}** with ✅/❌ buttons in the ticket thread — nothing happens until ✅, and it lapses if the agent exits first`
+    return `⚙️ posted confirm **${record.id}** with ✅/❌ buttons ${this.#confirmPlace(threadId)} — nothing happens until ✅, and it lapses if the agent exits first`
+  }
+
+  // What the reply says about where the buttons are (#218). It read "in the
+  // ticket thread" for every cancel, which was the fault written down: the
+  // confirm renders where the command was typed. The same threadId decides both,
+  // so the words and the message can never disagree.
+  #confirmPlace(threadId) {
+    return threadId ? 'in this thread' : `in #${this.channelName}`
   }
 
   async requestCancelAll({ threadId = null } = {}) {
@@ -2564,7 +2575,7 @@ export class Dispatcher {
       originThreadId: threadId,
     })
     if (!record) return '⚠️ could not open the confirm — nothing was cancelled'
-    return `⚙️ posted confirm **${record.id}** for ${targets.length} agent(s) — nothing happens until ✅:\n${rows.join('\n')}`
+    return `⚙️ posted confirm **${record.id}** for ${targets.length} agent(s) ${this.#confirmPlace(threadId)} — nothing happens until ✅:\n${rows.join('\n')}`
   }
 
   // The executing path (#94): button → daemon. gate.answer calls this after

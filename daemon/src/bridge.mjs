@@ -629,15 +629,27 @@ export class DiscordBridge {
     return parts.join('\n')
   }
 
-  // Where a record renders: the labeled ticket thread — except a confirm on a
-  // pseudo-ticket ('all', #94), which has no labeled thread and lands in the
-  // conversation that asked for it.
+  // Where a record renders (#218). The rule is WHO the record is addressed to,
+  // not which ticket it names.
+  //
+  // A confirm is addressed to the operator, about a command the operator typed
+  // one second ago. Its agent field is `overseer`, and it has no history in the
+  // ticket thread. So it renders where the command was typed: the origin
+  // thread, or #curia itself when the command carried no thread. The old
+  // predicate read `record.ticket` instead, so `cancel all` landed where it was
+  // typed and `cancel 208` did not. One verb, two behaviors.
+  //
+  // Every OTHER kind is addressed to the ticket conversation and keeps the
+  // labeled thread. The review gate is the other ✅/❌ button and it is one of
+  // these: the agent asking is standing in that thread, and #140 and #197 both
+  // exist to hold it there.
   async #threadFor(record) {
-    if (record.origin_thread_id && !/^\d+$/.test(String(record.ticket))) {
+    if (record.kind !== CONFIRM_KIND) return this.ensureThread(record.ticket)
+    if (record.origin_thread_id) {
       const t = await this.client.channels.fetch(record.origin_thread_id).catch(() => null)
       if (t) return t
     }
-    return this.ensureThread(record.ticket)
+    return this.channel
   }
 
   // Speaker identities (#108 item 15): agent prose posts under a webhook
@@ -750,7 +762,7 @@ export class DiscordBridge {
     return target.send({ content: chunks.at(-1), components, files })
   }
 
-  // Render an escalation into its ticket thread; returns discord ids for the record.
+  // Render an escalation where #threadFor sends it; returns discord ids for the record.
   async renderEscalation(record, { files = [] } = {}) {
     const thread = await this.#threadFor(record)
     const rows = this.#buttons(record)
@@ -768,7 +780,34 @@ export class DiscordBridge {
       components: rows,
       files,
     })
+    await this.#pointFromTicketThreads(record, thread).catch((e) => this.log(`confirm pointer for ${record.id} failed: ${e.message}`))
     return { channelId: this.channel.id, threadId: thread.id, messageId: msg.id }
+  }
+
+  // The pointer at the other end (#218, the rule #197 set for a moved binding).
+  // A confirm renders where the operator typed the command, so a ticket thread
+  // read on its own would show its agent stop with nothing saying why. Leave one
+  // line in each target's thread naming where the buttons are. The outcome needs
+  // no second pointer: an approved cancel posts its own ⚰️ line there.
+  //
+  // Targets, not `record.ticket`, so `cancel 208` and `cancel all` follow one
+  // rule. A ticket with no bound thread gets nothing — a pointer must never be
+  // the thing that creates a thread — and so does the thread the confirm is
+  // already in, which needs no pointer to itself.
+  async #pointFromTicketThreads(record, thread) {
+    if (record.kind !== CONFIRM_KIND || !this.bindings || !this.guild) return
+    const verb = record.action?.verb ?? 'confirm'
+    const seen = new Set([thread.id])
+    for (const t of record.action?.targets ?? []) {
+      const bound = this.bindings.get(t.ticket)
+      if (!bound || seen.has(bound)) continue
+      seen.add(bound)
+      const where = await this.client.channels.fetch(bound).catch(() => null)
+      if (!where) continue
+      await this.#sendChunked(where, {
+        content: `🔗 **${record.id}**: a \`${verb}\` confirm for \`${t.session}\` waits in ${DiscordBridge.threadLink(this.guild.id, thread.id)}. The ✅/❌ buttons are there, not here.`,
+      }).catch((e) => this.log(`confirm pointer into ${bound} failed: ${e.message}`))
+    }
   }
 
   async #surfaceLinks(record) {
