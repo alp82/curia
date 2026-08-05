@@ -495,10 +495,20 @@ export class DiscordBridge {
     const bound = this.bindings.get(ticket)
     if (!bound) return
     const t = await this.client.channels.fetch(bound).catch(() => null)
-    if (!t || !LIVE_GLYPH_RE.test(t.name)) return
+    // The binding is re-checked AFTER the fetch: a release that landed during
+    // the await has dropped it, and a flag written past that point would put a
+    // live glyph back on a finished thread.
+    if (!t || !this.bindings.get(ticket)) return
+    // The base is the renamer's pending name, not the name Discord shows — the
+    // shown name lags whenever a rename is deferred (#199's budget), and a
+    // swap computed on the lagging name resurrects a glyph the gate already
+    // replaced. LIVE_GLYPH_RE misses ✅/⚰️ on purpose, so a flag that loses
+    // the race to release finds the terminal name here and dissolves.
+    const base = this.renamer.desired(t.id) ?? t.name
+    if (!LIVE_GLYPH_RE.test(base)) return
     const glyph = STATE_GLYPHS[state] ?? '🎫'
-    const name = t.name.replace(LIVE_GLYPH_RE, glyph)
-    if (name === t.name) return
+    const name = base.replace(LIVE_GLYPH_RE, glyph)
+    if (name === base) return
     await this.renamer.set(t.id, name, { reserve: glyph !== '🎫' })
   }
 
@@ -591,7 +601,9 @@ export class DiscordBridge {
       if (r.ok) {
         const t = await this.client.channels.fetch(threadId).catch(() => null)
         const name = DiscordBridge.labelName(ticket, type, repo)
-        if (t && t.name !== name) await this.renamer.set(t.id, name)
+        // the pending-name base again: skipping because Discord already shows
+        // the label would let a deferred ✅ land on freshly re-opened work
+        if (t && (this.renamer.desired(t.id) ?? t.name) !== name) await this.renamer.set(t.id, name)
         return r
       }
       // The ticket is bound to ANOTHER thread, and the operator is typing in
@@ -647,14 +659,16 @@ export class DiscordBridge {
     if (!r.ok) return r
     const name = DiscordBridge.labelName(ticket, type, repo)
     const to = await this.client.channels.fetch(threadId).catch(() => null)
-    if (to && to.name !== name) await this.renamer.set(to.id, name)
+    if (to && (this.renamer.desired(to.id) ?? to.name) !== name) await this.renamer.set(to.id, name)
     const from = await this.client.channels.fetch(fromThreadId).catch(() => null)
     if (from) {
       await from.send(smallPrint(
         `🔗 ${name} moved to ${DiscordBridge.threadLink(this.guild.id, threadId)} — dispatched from there, so it reports there now.`,
       )).catch(() => {})
-      // live glyph → ✅ on the thread being left, the same signal releaseTicket uses
-      if (LIVE_GLYPH_RE.test(from.name)) await this.renamer.set(from.id, DiscordBridge.doneName(from.name))
+      // live glyph → ✅ on the thread being left, the same signal releaseTicket
+      // uses — and the same pending-name base, for the same lag
+      const leftBase = this.renamer.desired(from.id) ?? from.name
+      if (LIVE_GLYPH_RE.test(leftBase)) await this.renamer.set(from.id, DiscordBridge.doneName(leftBase))
     }
     if (to) {
       const fromName = from?.name ? `“${from.name}”` : 'another thread'
@@ -680,21 +694,26 @@ export class DiscordBridge {
     // the label goes back on: a ✅ from an earlier release, or a ⚰️ from a
     // cancel (#200), goes back to 🎫 because a ticket is being worked again
     const name = DiscordBridge.labelName(ticket, type, repo)
-    if (t.name !== name) await this.renamer.set(t.id, name)
+    if ((this.renamer.desired(t.id) ?? t.name) !== name) await this.renamer.set(t.id, name)
     return t
   }
 
   // Release is the signal changing (#93): journal first, then swap 🎫 for ✅
   // and keep the rest of the name. Idempotent, and safe when the thread is
-  // already gone.
+  // already gone. The swap bases on the renamer's pending name (see
+  // flagTicket): a thread whose 🎫 label is still deferred shows no glyph at
+  // all, and a ✅ computed on THAT name would never happen — the ticket would
+  // finish and keep 🎫 forever once the label landed.
   async releaseTicket(ticket, reason) {
     if (!this.bindings) return
     const bound = this.bindings.get(ticket)
     this.bindings.release(ticket, reason)
     if (!bound) return
     const t = await this.client.channels.fetch(bound).catch(() => null)
-    if (!t || !LIVE_GLYPH_RE.test(t.name)) return
-    await this.renamer.set(t.id, DiscordBridge.doneName(t.name))
+    if (!t) return
+    const base = this.renamer.desired(t.id) ?? t.name
+    if (!LIVE_GLYPH_RE.test(base)) return
+    await this.renamer.set(t.id, DiscordBridge.doneName(base))
   }
 
   // The cancel counterpart (#200), and the one difference is the binding: a
@@ -706,8 +725,10 @@ export class DiscordBridge {
     const bound = this.bindings.get(ticket)
     if (!bound) return
     const t = await this.client.channels.fetch(bound).catch(() => null)
-    if (!t || !LIVE_GLYPH_RE.test(t.name)) return
-    await this.renamer.set(t.id, DiscordBridge.cancelledName(t.name))
+    if (!t) return
+    const base = this.renamer.desired(t.id) ?? t.name
+    if (!LIVE_GLYPH_RE.test(base)) return
+    await this.renamer.set(t.id, DiscordBridge.cancelledName(base))
   }
 
   #buttons(record) {

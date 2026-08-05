@@ -53,6 +53,17 @@ export class ThreadRenamer {
     return s
   }
 
+  // The name this gate currently intends for a thread — the pending desired
+  // if one exists, else null. Every glyph SWAP reads its base here first and
+  // falls back to the actual Discord name: the actual name lags whenever a
+  // rename is deferred or still in flight, and a swap computed on the lagging
+  // name resurrects the very glyph the gate already replaced. That was the
+  // stuck-🎫/stuck-🔎 bug on finished tickets — a status flag racing the
+  // release, each basing its swap on a name the other had already changed.
+  desired(threadId) {
+    return this.threads.get(threadId)?.desired?.name ?? null
+  }
+
   // Record the desired name and drain. Returns the chain so callers that need
   // the attempt to have happened (tests, teardown paths) can await it; the
   // chain never rejects.

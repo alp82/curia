@@ -118,9 +118,48 @@ describe('StatusLine', () => {
     l.onEvent({ type: 'agent_done', agent: 'curia-9' })
     await Promise.all([...l.agents.values()].map((w) => w.chain))
     assert.deepEqual(flags.map((f) => f.state), [
-      'working', 'waiting', 'working', 'awaiting-review', 'working',
-    ], 'ready, nudge, and done fire no flag — only real projection changes do')
+      'working', 'waiting', 'working', 'awaiting-review',
+    ], 'ready, nudge, and done fire no flag — and the approve→executing tail keeps 🔎, saving the rename slot the ✅ needs')
     assert.ok(flags.every((f) => f.ticket === '9'))
+  })
+
+  test('the funnel-into-done states keep the glyph they found — the ✅ slot stays free', async () => {
+    const flags = []
+    const l = new StatusLine({
+      post: async () => ({ threadId: 't', messageId: 'm' }),
+      edit: async () => true,
+      get: (id) => records.get(id),
+      log: () => {},
+      flag: (ticket, state) => { flags.push(state) },
+    })
+    l.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    records.set('e1', { id: 'e1', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, status: 'open' })
+    l.onEvent({ type: 'esc_open', id: 'e1', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
+    l.onEvent({ type: 'esc_answer', id: 'e1', answer: 'cross-check' })
+    l.onEvent({ type: 'cross_check_requested', agent: 'curia-9', ticket: '9', ts: 'T' })
+    l.onEvent({ type: 'result', agent: 'curia-9', ticket: '9', status: 'resolved' })
+    l.onEvent({ type: 'agent_done', agent: 'curia-9' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    assert.deepEqual(flags, ['working', 'awaiting-review'],
+      'cross-checking and resolving fire no clear — the 🔎 stands until release swaps it for ✅')
+  })
+
+  test('a cross-check that sends the builder back to work still clears the 🔎', async () => {
+    const flags = []
+    const l = new StatusLine({
+      post: async () => ({ threadId: 't', messageId: 'm' }),
+      edit: async () => true,
+      get: (id) => records.get(id),
+      log: () => {},
+      flag: (ticket, state) => { flags.push(state) },
+    })
+    records.set('e1', { id: 'e1', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, status: 'open' })
+    l.onEvent({ type: 'esc_open', id: 'e1', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
+    l.onEvent({ type: 'cross_check_requested', agent: 'curia-9', ticket: '9', ts: 'T' })
+    l.onEvent({ type: 'cross_check_returned', agent: 'curia-9', ticket: '9' })
+    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    assert.deepEqual(flags, ['awaiting-review', 'working'],
+      'resumed work is a real projection change — only the short tail into done keeps the glyph')
   })
 
   test('a dead agent keeps its last flag — a kept-answerable question stays flagged (#199)', async () => {

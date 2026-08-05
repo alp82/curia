@@ -74,19 +74,23 @@ const CROSS_CHECK_RE = /^cross[- ]?check$/i
 
 // The thread-NAME projection of the state (#199): what the signal glyph on the
 // thread list should say about who is blocked. `waiting` and `awaiting-review`
-// keep their names — the same vocabulary the line itself uses — and every
-// other live state collapses to `working`, because the list only answers one
-// question: does this ticket need the operator? Terminal states are absent on
-// purpose: release and cancel own the ✅/⚰️ rename, and a dead agent keeps its
-// last glyph — a question kept answerable (#139) is still a question.
+// keep their names — the same vocabulary the line itself uses — and `working`
+// clears them, because the list only answers one question: does this ticket
+// need the operator? Terminal states are absent on purpose: release and cancel
+// own the ✅/⚰️ rename, and a dead agent keeps its last glyph — a question
+// kept answerable (#139) is still a question.
+//
+// The states that FUNNEL INTO done are absent too: executing, cross-checking
+// and resolving keep the glyph they found. They live for a minute or two on
+// the way out of a ticket, and clearing 🔎 back to 🎫 for that tail spends
+// the rename slot the ✅ needs (#199's budget of 2 per 10 min) — which is how
+// the checkmark used to arrive ten minutes late. An approve that sends the
+// builder back to real work still clears: the next `working` transition fires.
 const NAME_FLAG = {
   waiting: 'waiting',
   'awaiting-review': 'awaiting-review',
   dispatched: 'working',
   working: 'working',
-  'cross-checking': 'working',
-  executing: 'working',
-  resolving: 'working',
 }
 
 export class StatusLine {

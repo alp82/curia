@@ -111,6 +111,15 @@ describe('ThreadRenamer', () => {
     assert.equal(applied.length, 2, 'the failure never poisons the chain')
   })
 
+  test('desired exposes the pending name — the base a glyph swap must build on', async () => {
+    assert.equal(renamer.desired('T'), null, 'a thread the gate never saw answers null')
+    await renamer.set('T', 'a')
+    await renamer.set('T', 'b')
+    await renamer.set('T', 'c') // budget out — c is desired, b is what Discord shows
+    assert.equal(applied.at(-1).name, 'b')
+    assert.equal(renamer.desired('T'), 'c', 'the deferred name is the intent, not the shown one')
+  })
+
   test('stop clears every pending wake-up', async () => {
     await renamer.set('T', 'a')
     await renamer.set('T', 'b')

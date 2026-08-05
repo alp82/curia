@@ -476,6 +476,50 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     await bridge.flagTicket('125', 'waiting') // never bound
     assert.deepEqual(renames, [])
   })
+
+  // ---- the rename race on a finishing ticket ---------------------------------
+  // A status flag and the release both swap the signal glyph, and each used to
+  // base its swap on the name Discord SHOWS — a name that lags whenever a
+  // rename sits deferred under #199's budget. The loser of the race then put
+  // its glyph on top of the winner's: a finished thread stuck on 🎫 or 🔎.
+  // Both callers base on the renamer's pending name now.
+
+  test('a stale flag cannot displace a pending ✅ — the finished ticket never goes back to 🔎', async () => {
+    const t = makeThread('t-late', '🎫 132 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('132', 't-late')
+    await bridge.flagTicket('132', 'waiting') // spend 1 — reserve keeps the second slot
+    await bridge.flagTicket('132', 'working') // spend 2 — the budget is out
+    assert.deepEqual(renames, ['⏳ 132 · task', '🎫 132 · task'])
+    // park a flag past its binding guard, inside the fetch, while release runs
+    let resume
+    const realFetch = bridge.client.channels.fetch
+    bridge.client.channels.fetch = (id) => new Promise((res) => { resume = () => res(realFetch(id)) })
+    const stale = bridge.flagTicket('132', 'awaiting-review')
+    bridge.client.channels.fetch = realFetch
+    await bridge.releaseTicket('132', 'finished')
+    assert.equal(bridge.renamer.desired('t-late'), '✅ 132 · task', 'the ✅ waits for a slot but it IS the intent')
+    resume(); await stale
+    assert.equal(bridge.renamer.desired('t-late'), '✅ 132 · task', 'the race loser dissolved on the terminal name')
+  })
+
+  test('a release whose 🎫 label is still deferred ends ✅, not stuck on the late label', async () => {
+    const t = makeThread('t-conv', 'deploy talk')
+    t.setName = async (n) => { t.name = n }
+    bridge.registerThread(t)
+    // burn the budget so the bind's label rename defers
+    await bridge.renamer.set('t-conv', 'deploy chat')
+    await bridge.renamer.set('t-conv', 'deploy talk')
+    const r = await bridge.bindTicket('133', { threadId: 't-conv', type: 'task' })
+    assert.equal(r.ok, true)
+    assert.equal(t.name, 'deploy talk', 'the label is deferred — Discord still shows the old name')
+    assert.equal(bridge.renamer.desired('t-conv'), '🎫 133 · task')
+    await bridge.releaseTicket('133', 'finished')
+    assert.equal(bridge.renamer.desired('t-conv'), '✅ 133 · task',
+      'the swap read the pending label, not the unlabeled shown name')
+  })
 })
 
 // ---- the thread context through the router (commands.mjs) --------------------
