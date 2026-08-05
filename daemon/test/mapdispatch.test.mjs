@@ -70,7 +70,18 @@ beforeEach(() => {
 
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
 
-function makeDispatcher(deps = {}, { issue = MAP_ISSUE } = {}) {
+// Poll until a condition holds — the watchdog paths below are timers, not
+// promises the caller can await.
+async function waitFor(cond, timeoutMs = 10_000) {
+  const until = Date.now() + timeoutMs
+  while (Date.now() < until) {
+    if (cond()) return
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  throw new Error('timed out waiting for a condition')
+}
+
+function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}) {
   const root = path.join(tmp, 'work')
   const dataDir = path.join(tmp, 'data')
   const config = {
@@ -143,7 +154,7 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE } = {}) {
   }
   const d = new Dispatcher({
     config,
-    routing: ROUTING,
+    routing,
     store,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     log: () => {},
@@ -466,6 +477,98 @@ describe('map <n> — the charting verb (#221)', () => {
     await d.start('42')
     assert.equal(events.find((e) => e.type === 'agent_spawned').kind, 'ticket')
     assert.ok(calls.includes('claim o/r#42'))
+  })
+})
+
+// ---- the respawn (#219) -------------------------------------------------------
+
+// A map dispatch that falls down the fallback chain used to lose the fact that
+// it was a map dispatch: the respawn wrote `agent_spawned` with the model and
+// the harness and nothing else, and #epochCharting keeps the LAST such line. So
+// the journal — the belt built for exactly the restart case — ended up
+// describing a charting agent as a ticket agent.
+//
+// Not an edge: while the account holds no fable credits, `map: fable` burns a
+// spawn on every map dispatch, so the respawn is the normal path. Measured live
+// on 2026-08-04 (`docs/live-checks/183-first-map-dispatch.md`).
+describe('a respawn restates the dispatch kind (#219)', () => {
+  const CHAIN = {
+    defaults: { untyped: 'sonnet', map: 'opus' },
+    models: {
+      sonnet: { provider: 'anthropic', harness: 'claude' },
+      opus: { provider: 'anthropic', harness: 'claude' },
+    },
+    fallbacks: { opus: ['sonnet'], sonnet: ['opus'] },
+    harnesses: ROUTING.harnesses,
+  }
+
+  // The first spawn hits a model-scoped cap and the second one is healthy — the
+  // shape of every map dispatch on the box today.
+  function capOnFirstSpawn() {
+    let spawns = 0
+    return {
+      newSession: async () => { spawns += 1 },
+      capturePane: async () => (spawns > 1 ? 'x' : 'Opus usage limit reached | 1800000000'),
+    }
+  }
+
+  const spawnsOf = () => events.filter((e) => e.type === 'agent_spawned')
+
+  test('the second line says charting, and carries the instruction again', async () => {
+    const d = makeDispatcher(capOnFirstSpawn(), { routing: CHAIN })
+    await d.chart('147', { instruction: 'do X' })
+    await waitFor(() => spawnsOf().length === 2)
+
+    const [first, second] = spawnsOf()
+    assert.equal(first.kind, 'charting')
+    assert.equal(second.model, 'sonnet', 'the respawn is the point of this test')
+    assert.equal(second.retry_after_limit, true)
+    assert.equal(second.kind, 'charting', 'the respawn erased the dispatch kind')
+    assert.equal(second.instruction, 'do X', 'the respawn erased the operator instruction')
+    // A respawn changes the process, not the dispatch, so the id that names the
+    // dispatch is restated rather than dropped.
+    assert.equal(second.instance, first.instance)
+    d.agents.delete('curia-147')
+  })
+
+  test('a restarted daemon reading only the journal still holds the map ending', async () => {
+    // The whole reason the kind is journalled: with no in-memory record left,
+    // `charting: false` here sends a map agent to the ticket ending, which
+    // CLOSES the map.
+    const d = makeDispatcher(capOnFirstSpawn(), { routing: CHAIN })
+    await d.chart('147', { instruction: 'do X' })
+    await waitFor(() => spawnsOf().length === 2)
+    d.agents.delete('curia-147') // as a restart leaves it
+    calls.length = 0
+
+    await d.onResult('curia-147', { ticket: '147', status: 'resolved', summary: 's' })
+    assert.ok(!calls.some((c) => String(c).startsWith('CLOSE')), 'the respawned map dispatch was closed as a ticket')
+    assert.ok(calls.some((c) => c === 'comment o/r#147'))
+    assert.ok(calls.some((c) => String(c).includes('do X')), 'the summary comment lost the operator instruction')
+  })
+
+  test('resume after a respawn charts the map, and does not dispatch a child', async () => {
+    // #221 made `start <map>` dispatch the map's next takeable child, so a
+    // resume that reads `ticket` off the journal does not fail loudly — it
+    // quietly works a different issue.
+    const d = makeDispatcher({ ...capOnFirstSpawn(), mapFrontier: async () => [] }, { routing: CHAIN })
+    await d.chart('147', { instruction: 'do X' })
+    await waitFor(() => spawnsOf().length === 2)
+    d.agents.delete('curia-147')
+
+    const reply = await d.resume('147')
+    assert.match(reply, /charting agent on map o\/r#147/)
+    assert.equal(spawnsOf().at(-1).kind, 'charting')
+    d.agents.delete('curia-147')
+  })
+
+  test('a ticket dispatch respawns as a ticket — the kind is stated, never absent', async () => {
+    const d = makeDispatcher(capOnFirstSpawn(), { issue: TICKET_ISSUE, routing: { ...CHAIN, defaults: { untyped: 'opus' } } })
+    await d.start('42')
+    await waitFor(() => spawnsOf().length === 2)
+    assert.equal(spawnsOf()[1].kind, 'ticket')
+    assert.equal(spawnsOf()[1].instruction, null)
+    d.agents.delete('curia-42')
   })
 })
 

@@ -76,6 +76,27 @@ export const reviewSessionFor = (n) => `curia-review-${n}`
 // restarted daemon still knows which kind of agent it adopted.
 const MAP_LABEL = 'wayfinder:map'
 
+// The three kinds an `agent_spawned` line can state, in one place (#219).
+//
+// THE RULE FOR THIS EVENT: a spawn line describes the agent WHOLE, as it runs
+// from that moment. A respawn changes the PROCESS, not the dispatch, so it
+// restates every dispatch-time fact its first line carried instead of leaving
+// them to the line before. That is what makes "the last line wins" correct for
+// every reader of this event at once:
+//
+//   #epochSpawn (#187)     wants the model that is ACTUALLY running, which the
+//                          last line holds.
+//   #epochCharting (#160)  wants the ending this agent is held to, which the
+//                          dispatch fixed and no respawn changes.
+//
+// Before #219 the respawn wrote neither `kind` nor `instruction`, so those two
+// readers wanted opposite lines and the second one lost. Teaching #epochCharting
+// to take the FIRST line of the epoch was refused: it reduces over the whole
+// journal by ticket, and a respawn line is itself an epoch boundary for
+// #epochScan and for reconcile — so no READER can tell a respawn from a
+// re-dispatch. The writer can. It knows which one it is.
+const spawnKind = ({ reviewer = false, charting = false }) => (reviewer ? 'reviewer' : charting ? 'charting' : 'ticket')
+
 // The tracker doc every watched repo is meant to carry (#57 step 3). The
 // wayfinder skill reads it to learn how this repo expresses maps and tickets;
 // without it the skill follows its own instruction to fall back to the
@@ -738,7 +759,7 @@ export class Dispatcher {
       const instance = `${session}@${Date.now()}`
       this.store.logEvent('agent_spawned', {
         repo, ticket: n, agent: session, instance, model: useModel, harness: harnessName,
-        kind: charting ? 'charting' : 'ticket', instruction: charting ? instruction : null,
+        kind: spawnKind({ charting }), instruction: charting ? instruction : null,
         // The journal is the state home for what a restart cannot re-derive
         // from tmux: which image this agent runs and which ports it published.
         ...(container ? { sandbox: 'docker', image: container.image, ports: container.ports } : {}),
@@ -1171,7 +1192,7 @@ export class Dispatcher {
       // own status line in the ticket thread is what ADR-0010 asks for, and this
       // is the one event that gives it one.
       this.store.logEvent('agent_spawned', {
-        repo, ticket, agent: session, model, harness: harnessName, kind: 'reviewer',
+        repo, ticket, agent: session, model, harness: harnessName, kind: spawnKind({ reviewer: true }),
       })
 
       const agent = {
@@ -1704,9 +1725,25 @@ export class Dispatcher {
     // makes the second window a real second reading rather than an echo.
     agent.mcpSeenAt = null
     agent.readyAt = null
+    // The whole line, not the delta (#219 — see `spawnKind` for the rule). What
+    // changed is the model, the harness and the container; what did NOT change
+    // is the dispatch this agent belongs to, and a reader that takes the last
+    // line gets a description of a ticket agent unless this says otherwise.
+    //
+    // `kind` and `instruction` have live readers: #epochCharting answers the two
+    // refused tools, the ending list, the result path and `resume`, which
+    // dispatches a CHILD ticket instead of resuming the map when this says
+    // `ticket`. `instance`, `sandbox`, `image` and `ports` have none today —
+    // reconcile reads a container's ports back from docker itself. They are
+    // restated anyway, because the spawn line is their stated state home and a
+    // fact that lives here must not be erased by a respawn.
     this.store.logEvent('agent_spawned', {
       repo: agent.repo, ticket: agent.ticket, agent: agent.session,
-      model: next, harness: nextHarness, ...journalData,
+      instance: agent.instance ?? null,
+      model: next, harness: nextHarness,
+      kind: spawnKind(agent), instruction: agent.instruction ?? null,
+      ...(plan.container ? { sandbox: 'docker', image: plan.container.image, ports: plan.container.ports } : {}),
+      ...journalData,
     })
     this.#watchdog(agent).catch((e) => this.log(`watchdog ${agent.session} failed:`, e.message))
   }
@@ -2441,6 +2478,11 @@ export class Dispatcher {
   // reads `agent_spawned` only, which is the event that states the kind, and a
   // number with no such event at all is a ticket — nothing was ever charted
   // under it, so there is no map to protect.
+  //
+  // LAST wins here, exactly as it does for #epochSpawn, and #219 is why that is
+  // safe: a respawn restates the kind rather than dropping it (see `spawnKind`).
+  // Before that fix every map dispatch that fell down the fallback chain ended
+  // its life describing itself as a ticket dispatch.
   #epochCharting(ticket, agentName) {
     const w = this.agents.get(agentName)
     if (w) return { charting: Boolean(w.charting), instruction: w.instruction ?? null }
@@ -2457,6 +2499,9 @@ export class Dispatcher {
   // SESSION rather than by ticket — a re-dispatch down the fallback chain
   // writes a second `agent_spawned` for the same session, and the last one is
   // the model that is actually running.
+  //
+  // This is the reader that fixes the direction for every other one: last wins,
+  // so the writer owes every line a complete description (#219, `spawnKind`).
   //
   // The journal is the only source for the label. The harness has on-disk
   // evidence too (detectHarness), but the label names a row in `routing.yaml`
