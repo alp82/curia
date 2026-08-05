@@ -827,11 +827,23 @@ export class Dispatcher {
   // loads one repo-carried config file without a prompt (codex under its
   // hook-trust bypass flag, claude by merging settings.local.json over the
   // settings curia writes), and hooks in it would run with no model in the loop.
-  #assertNoPlantedConfig(wtPath, harnessName) {
+  //
+  // #174: the dispatch is not the only spawn. The check is per HARNESS — one
+  // repo file exposes one harness — so it clears only the lane it ran against,
+  // and #respawnOn changes that lane. It runs there too, against the NEXT
+  // harness, which is what closes the hole: a claude dispatch in a repo carrying
+  // `.codex/hooks.json` passes here, and the cap-hit fallback to the codex lane
+  // would otherwise spawn codex over that file under its hook-trust bypass.
+  // `where` only picks the way out, because the two paths offer different ones:
+  // at dispatch the operator can name another harness, and on a fallback they
+  // cannot — the lane they came from is the cooling one.
+  #assertNoPlantedConfig(wtPath, harnessName, where = 'dispatch') {
     const planted = untrustedProjectConfig(wtPath, harnessName)
-    if (planted) {
-      throw new Error(`${planted} is a config file curia did not write, and the ${harnessName} harness loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. Remove the file from the repo, or dispatch on another harness if only one harness loads it (\`/start <ticket> <model>\`)`)
-    }
+    if (!planted) return
+    const wayOut = where === 'respawn'
+      ? 'The harness this agent was dispatched on does not load it, and the fallback harness does. Remove the file from the repo, or dispatch the ticket again once a harness that does not load it is warm'
+      : 'Remove the file from the repo, or dispatch on another harness if only one harness loads it (`/start <ticket> <model>`)'
+    throw new Error(`${planted} is a config file curia did not write, and the ${harnessName} harness loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. ${wayOut}`)
   }
 
   // Which wayfinder map, if any, owns this ticket — so the standing orders can
@@ -1489,6 +1501,22 @@ export class Dispatcher {
   // about when it matters.
   async #respawnOn(agent, next, journalData = {}) {
     const nextHarness = this.routing.models[next].harness
+    // #174: the planted-config refusal is per harness, and this is where the
+    // harness moves. It runs BEFORE #reshapeWorkspace and #armAgent, so a
+    // refusal costs the workspace and the config dir nothing — the same
+    // ordering the dispatch path keeps.
+    //
+    // Unconditional, for the reason the re-seed below is: a same-harness
+    // respawn tests a worktree the agent has been writing in since the dispatch
+    // check ran, and one path is easier to trust than a branch that has to be
+    // right about when it matters.
+    //
+    // The throw lands in the caller's catch, which is the failed-respawn path
+    // both callers already own: the old session is dead, so the claim is
+    // released, the ticket is re-frontiered and the workspace survives for a
+    // human. Falling FURTHER down the chain to a clean lane was refused
+    // deliberately — that routes around a planted file with nobody told.
+    this.#assertNoPlantedConfig(agent.wtPath, nextHarness, 'respawn')
     // The two harnesses need not agree about the sandbox (#148's rollout puts
     // claude in a container first and codex after the soak), so a fallback
     // across providers can also cross the boundary. Everything the agent reads
