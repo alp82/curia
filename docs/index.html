@@ -5,9 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia — many repos, one queue, driven from a phone</title>
 <meta name="description" content="Curia is a self-hosted dispatcher for coding agents. It reads what is takeable across every GitHub repo you watch, sends an agent at it, and brings every question, preview and approval to your phone.">
+<link rel="canonical" href="https://curia.sh/">
+<meta name="theme-color" content="#0e1013">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="curia">
 <meta property="og:title" content="curia — many repos, one queue, driven from a phone">
 <meta property="og:description" content="Self-hosted dispatcher for coding agents. Your box, your subscription, your keys.">
 <meta property="og:url" content="https://curia.sh/">
+<meta property="og:image" content="https://curia.sh/og.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="curia — many repos, one queue, driven from a phone. GitHub issues in, merged pull requests out.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="curia — many repos, one queue, driven from a phone">
+<meta name="twitter:description" content="Self-hosted dispatcher for coding agents. Your box, your subscription, your keys.">
+<meta name="twitter:image" content="https://curia.sh/og.png">
 <style>
   :root {
     --bg: #0e1013;
@@ -38,7 +51,9 @@
   .wordmark span { color: var(--dim); }
 
   h1 {
-    font-size: clamp(1.9rem, 7.5vw, 3rem);
+    /* The line break in the headline is hard, so the smallest size has to fit
+       a 320px phone without pushing the page sideways. */
+    font-size: clamp(1.45rem, 7.6vw, 3rem);
     line-height: 1.12;
     letter-spacing: -0.02em;
     margin: 1.5rem 0 0;
@@ -64,6 +79,7 @@
   p { margin: 0 0 0.85rem; }
 
   .claim { margin: 0 0 2.5rem; }
+  .claim:last-child { margin-bottom: 0; }
   .claim p { color: #c9ced6; max-width: 36rem; }
   .claim .under {
     font-family: var(--mono); font-size: 0.76rem; color: var(--dim);
@@ -71,7 +87,7 @@
   }
 
   /* --- proof strip -------------------------------------------------- */
-  .frames { display: grid; gap: 0.9rem; grid-template-columns: 1fr 1fr; }
+  .frames { display: grid; gap: 1.5rem 0.9rem; grid-template-columns: 1fr 1fr; }
   .frame figure { margin: 0; }
   .box {
     background: var(--panel); border: 1px dashed var(--line); border-radius: 6px;
@@ -99,7 +115,8 @@
   }
   .lb-bar {
     display: flex; align-items: center; gap: 1rem; justify-content: space-between;
-    padding: 0.9rem 1.25rem 1.6rem; color: var(--dim); font-size: 0.85rem;
+    padding: 0.9rem 1.25rem calc(1.6rem + env(safe-area-inset-bottom));
+    color: var(--dim); font-size: 0.85rem;
   }
   .lb-cap { flex: 1; text-align: center; line-height: 1.4; }
   .lb-bar button {
@@ -109,7 +126,8 @@
   }
   .lb-close {
     align-self: flex-end; background: none; border: 0; color: var(--dim);
-    font-family: var(--mono); font-size: 0.85rem; padding: 1rem 1.25rem; cursor: pointer;
+    font-family: var(--mono); font-size: 0.85rem; cursor: pointer;
+    padding: calc(1rem + env(safe-area-inset-top)) 1.25rem 1rem;
   }
   .lb-count { font-family: var(--mono); font-size: 0.75rem; }
   .frame figcaption {
@@ -160,15 +178,41 @@
   details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
   details.full .step h3 { font-size: 0.98rem; }
   .tabletitle { font-size: 0.98rem; margin: 2.25rem 0 0.75rem; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; table-layout: fixed; }
   td {
     border-top: 1px solid var(--line); padding: 0.6rem 0.6rem 0.6rem 0;
     vertical-align: top; color: #c9ced6;
   }
   td:first-child { width: 45%; }
+  /* A cell holds one long unbroken token on a phone, so it has to wrap rather
+     than push the whole page sideways. */
+  td code { overflow-wrap: anywhere; }
+  .under, .stats, .facts { overflow-wrap: break-word; }
   .readmore { color: var(--dim); font-size: 0.9rem; }
 
   footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+
+  /* --- phone -------------------------------------------------------- */
+  /* One narrow-screen block. It buys the text back the width the gutters
+     take, and it closes the gaps the desktop rhythm opens between blocks. */
+  @media (max-width: 30rem) {
+    .wrap { padding: 0 1rem; }
+    header.top { padding-top: 1.75rem; }
+    section { padding-top: 2.5rem; }
+    .rule { margin-top: 2.5rem; }
+    h2 { margin-bottom: 1.35rem; }
+    .lede { font-size: 1.02rem; }
+    .claim { margin-bottom: 2rem; }
+    .honest { padding: 1.25rem 1.1rem; }
+    .honest ul { padding-left: 1rem; }
+    .honest li { margin-bottom: 0.6rem; }
+    .need { padding: 0.9rem 1rem; margin-bottom: 1.75rem; }
+    .step { margin-bottom: 1.6rem; }
+    .frames { gap: 1.25rem 0.7rem; }
+    .frame figcaption { font-size: 0.78rem; }
+    details.full > summary { padding: 1.2rem 0; }
+    footer { padding: 2.5rem 0 3rem; }
+  }
 </style>
 </head>
 <body>
@@ -211,10 +255,10 @@
 
     <div class="claim">
       <h3>Any device is a full seat</h3>
-      <p>Five verbs over Discord, one thread per ticket. Questions arrive with buttons. Results
+      <p>Nine verbs over Discord, one thread per ticket. Questions arrive with buttons. Results
       arrive as HTTPS links on your tailnet. You can attach to a live agent's terminal from a phone
       and from a desktop at the same time, and neither one is the lesser seat.</p>
-      <div class="under">tickets · start 42 · status · attach 42 · resume 42<br>~0.5 GB per agent measured · four at once on one small box</div>
+      <div class="under">tickets · next · start 42 · status · attach 42 · resume 42 · cancel 42 · map 109 · review 42<br>~0.5 GB per agent measured · four at once on one small box</div>
     </div>
 
     <div class="claim">
@@ -255,16 +299,16 @@
     <p class="shotnote">Four phone screenshots of one real ticket, on a repo that is not this one.
     Tap one to read it.</p>
 
-    <p class="trail">This page was charted, decided and written by curia agents. Each one ended at a
+    <p class="trail">This page was planned, decided and written by curia agents. Each one ended at a
     review gate, and none of them merged itself.
     <a href="https://github.com/alp82/curia/pulls?q=is%3Apr+is%3Amerged">Read the merged pull requests</a>.</p>
 
     <div class="stats">
-      From GitHub, since the first commit on 21 Jul 2026 — 10 merged agent pull requests · 112
+      From GitHub, since the first commit on 21 Jul 2026 — 33 merged agent pull requests · 175
       issues closed · 3 repos watched.<br>
       From the daemon journal, since 1 Aug 2026 — 10 agents spawned · 43 questions asked ·
       7 review gates approved.<br>
-      Counted 2 Aug 2026.
+      Counted 5 Aug 2026.
     </div>
   </div>
 </section>
@@ -276,10 +320,10 @@
     <h2>What you are getting into</h2>
     <div class="honest">
       <ul>
-        <li><b>Curia is twelve days old.</b> First commit 21 July 2026.</li>
+        <li><b>Curia is fifteen days old.</b> First commit 21 July 2026.</li>
         <li><b>One person runs it.</b> You would be the second.</li>
-        <li><b>Setup is manual and takes an evening.</b> Node, tmux, Tailscale, a Discord bot, an
-        a harness, a GitHub repo. It gets simpler. There is no package yet.</li>
+        <li><b>Setup is manual and takes an evening.</b> Node, tmux, Tailscale, a Discord bot, a
+        harness, a GitHub repo. It gets simpler. There is no package yet.</li>
         <li><b>Tailscale and Discord are required.</b> There is no web UI.</li>
         <li><b>Agents use your own harness login.</b> An agent can do what you can do with it.</li>
       </ul>
