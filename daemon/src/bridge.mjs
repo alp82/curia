@@ -51,13 +51,17 @@ const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 // that is the "drawn wide" rule doing its job: an operator typing it in a thread
 // gets the hint that sends them to #curia, where the router names the rule. The
 // note queue swallowing it silently is the miss this regex exists to stop.
+// `map` joined the alternation with #221, for the reason every other verb is
+// here: it is a command now, and a command typed at an agent must not vanish
+// into the note queue. Only the bare form matches — `map 147 -- <sentence>`
+// runs past the end of this shape, and a sentence is what a note IS.
 export const COMMAND_SHAPED =
-  /^\s*(cancel|stop|pause|resume|status|start|attach)(?:\s+(all|#?\d+|[\w.-]+(?:\/[\w.-]+)?#\d+))?(?:\s+(?:model|harness)=[\w.-]+)*\s*[.!?]*\s*$/i
+  /^\s*(cancel|stop|pause|resume|status|start|map|attach)(?:\s+(all|#?\d+|[\w.-]+(?:\/[\w.-]+)?#\d+))?(?:\s+(?:model|harness)=[\w.-]+)*\s*[.!?]*\s*$/i
 
 // The command the operator meant. `stop` and `pause` are not verbs the surface
 // has — at an agent, cancel is what they ask for. `status` is the only one
 // that takes no ticket.
-const MEANT_VERB = { cancel: 'cancel', stop: 'cancel', pause: 'cancel', resume: 'resume', status: 'status', start: 'start', attach: 'attach' }
+const MEANT_VERB = { cancel: 'cancel', stop: 'cancel', pause: 'cancel', resume: 'resume', status: 'status', start: 'start', map: 'map', attach: 'attach' }
 
 // The argument the hint names, in the syntax the channel accepts.
 //
@@ -66,7 +70,7 @@ const MEANT_VERB = { cancel: 'cancel', stop: 'cancel', pause: 'cancel', resume: 
 // shape — a hint that answers `cancel 166` names the wrong ticket in the one
 // line that exists to fix the miss.
 //
-// What it names must also parse. `start` is the only verb that takes a
+// What it names must also parse. `start` and `map` are the verbs that take a
 // repo-qualified ticket, so `curia#170` survives there and reduces to its
 // number for the rest. A leading `#` goes everywhere: `cancel #166` is not a
 // command parseCommand accepts. `attach all` is not one either, so that falls
@@ -74,8 +78,14 @@ const MEANT_VERB = { cancel: 'cancel', stop: 'cancel', pause: 'cancel', resume: 
 function hintArg(verb, typed, ticket) {
   if (verb === 'status') return ''
   const t = (typed ?? '').trim()
-  if (/^all$/i.test(t)) return verb === 'attach' ? ` ${ticket ?? '<n>'}` : ' all'
-  if (verb === 'start' && /#\d+$/.test(t)) return ` ${t}`
+  // `cancel all` and `resume all` parse; `attach all` and `map all` do not, so
+  // those fall back to the thread's own ticket rather than name a line the
+  // router would refuse.
+  if (/^all$/i.test(t)) return (verb === 'attach' || verb === 'map') ? ` ${ticket ?? '<n>'}` : ' all'
+  // The repo-qualified form needs a REPO in front of the `#`. `/#\d+$/` also
+  // matched a bare `#170`, which no verb parses — found by #221's `map #147`
+  // case, and `start #170` had carried it since the hint shipped.
+  if ((verb === 'start' || verb === 'map') && /^[\w.-]+(?:\/[\w.-]+)?#\d+$/.test(t)) return ` ${t}`
   return ` ${/(\d+)$/.exec(t)?.[1] ?? ticket ?? '<n>'}`
 }
 
@@ -116,15 +126,21 @@ const SLASH_MANIFEST = [
   new SlashCommandBuilder().setName('next').setDescription('Dispatch the next takeable ticket')
     .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
   new SlashCommandBuilder().setName('status').setDescription('Agents running, waiting on input, and recent endings'),
-  new SlashCommandBuilder().setName('start').setDescription('Dispatch an agent on a ticket, or a charting agent on a map')
-    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or a map number').setRequired(true))
+  new SlashCommandBuilder().setName('start').setDescription('Dispatch an agent on a ticket, or on a map\'s next takeable ticket')
+    .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or a map number for its next ticket').setRequired(true))
     // #177 removed the `harness` option: the harness follows the model, so the
     // only values this could carry were a no-op or a broken spawn.
-    .addStringOption((o) => o.setName('model').setDescription('Model override'))
-    // #160. Optional, so an old client-side manifest still sends a valid
-    // `/start` — it just cannot carry a sentence, and the charting agent then
-    // asks what should change, which is the right degradation.
-    .addStringOption((o) => o.setName('instruction').setDescription('MAP ONLY: what should change on the map')),
+    // #221 removed `instruction`: `start` no longer charts, so it carries no
+    // sentence. A stale client-side manifest can still SEND one (#65), and the
+    // expansion drops it — see expandCommand.
+    .addStringOption((o) => o.setName('model').setDescription('Model override')),
+  // #221: charting's own verb, in the operator's own word. `instruction` stays
+  // optional, so a dispatch with no sentence opens with the "what should
+  // change?" escalation (#160) instead of being refused at the client.
+  new SlashCommandBuilder().setName('map').setDescription('Dispatch a charting agent that updates a map')
+    .addStringOption((o) => o.setName('ticket').setDescription('Map number').setRequired(true))
+    .addStringOption((o) => o.setName('instruction').setDescription('What should change on the map, in your own words'))
+    .addStringOption((o) => o.setName('model').setDescription('Model override')),
   new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket, or all of them')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
   new SlashCommandBuilder().setName('resume').setDescription('Fresh agent on a ticket, inheriting its worktree and its model')
@@ -162,16 +178,25 @@ export function expandCommand(i) {
     case 'tickets': return `tickets${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'next': return `next${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'status': return 'status'
+    // #221: `start` takes no instruction any more. A stale client-side manifest
+    // still sends the option, and putting it back into the canonical text would
+    // expand to a line the router refuses — so it is dropped here, exactly as
+    // #177 drops `harness`.
     case 'start': {
+      const ticket = need('ticket')
+      if (!ticket) return { error: 'missing' }
+      return `start ${ticket}${opt('model') ? ' model=' + opt('model') : ''}`
+    }
+    case 'map': {
       const ticket = need('ticket')
       if (!ticket) return { error: 'missing' }
       // The instruction rides LAST, after a bare `--` (#160), and its
       // whitespace is collapsed for the same reason canonicalFor collapses it:
       // this line is one line, and the router splits it on whitespace. This is
       // still expansion, not interpretation — the text is passed through, and
-      // whether a map may carry it is the dispatcher's ruling.
+      // whether the issue is a map is the dispatcher's ruling.
       const instruction = (need('instruction') ?? '').replace(/\s+/g, ' ').trim()
-      return `start ${ticket}`
+      return `map ${ticket}`
         + (opt('model') ? ' model=' + opt('model') : '')
         + (instruction ? ` -- ${instruction}` : '')
     }

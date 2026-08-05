@@ -169,7 +169,8 @@ Test it: send a normal message in `#curia`. A thread opens and answers you.
 Then use the commands, as Discord slash commands or as plain English in a thread:
 
 - `tickets` — what is takeable
-- `start <n>` — send an agent
+- `start <n>` — send an agent. On a map number, this sends one to the map's next takeable ticket.
+- `map <n> -- <what should change>` — send an agent that updates the map itself
 - `status` — who is running
 - `attach <n>` — that agent's terminal in your browser
 - `resume <n>` / `cancel <n>`

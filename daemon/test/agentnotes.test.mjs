@@ -95,6 +95,15 @@ describe('agent-note queue', () => {
     }
   })
 
+  // #221: `map` carries a whole operator sentence after `--`, and a sentence is
+  // what a note IS. Only the bare form is command-shaped, so the instruction
+  // form still queues as prose instead of being swallowed by the hint.
+  test('a map instruction is prose, and a bare map is a command', () => {
+    assert.ok(COMMAND_SHAPED.test('map 147'))
+    assert.ok(!COMMAND_SHAPED.test('map 147 -- add a ticket for the cooling signal'))
+    assert.ok(!COMMAND_SHAPED.test('map out the fallback chain before you start'))
+  })
+
   // The hint names a command the channel accepts, about the ticket the operator
   // asked about — not the one whose thread they happened to type it in.
   test('the operator\'s own argument wins over the thread it was typed in', () => {
@@ -108,9 +117,15 @@ describe('agent-note queue', () => {
     // `#166` and `curia#166` are not forms `cancel` takes — the number is
     assert.match(commandHint('cancel #166', '166', 'C1'), /say `cancel 166` there/)
     assert.match(commandHint('cancel curia#166', '166', 'C1'), /say `cancel 166` there/)
-    // `start` is the one verb that does take the repo-qualified ticket
+    // `start` and `map` are the verbs that take the repo-qualified ticket
     assert.match(commandHint('start curia#170', '166', 'C1'), /say `start curia#170` there/)
     assert.match(commandHint('start alp82/curia#170', '166', 'C1'), /say `start alp82\/curia#170` there/)
+    assert.match(commandHint('map curia#147', '166', 'C1'), /say `map curia#147` there/)
+    // A bare `#170` is not the repo-qualified form — it is the number with a
+    // `#` on it, and no verb parses that. Found by #221's `map #147` case, and
+    // `start` had carried the same miss.
+    assert.match(commandHint('start #170', '166', 'C1'), /say `start 170` there/)
+    assert.match(commandHint('map #147', '166', 'C1'), /say `map 147` there/)
     // `all` rides through on the verbs that take it, and not on the one that does not
     assert.match(commandHint('cancel all', '166', 'C1'), /say `cancel all` there/)
     assert.match(commandHint('attach all', '166', 'C1'), /say `attach 166` there/)
@@ -124,7 +139,10 @@ describe('agent-note queue', () => {
     const typed = [
       'cancel', 'Cancel', 'stop', 'pause', 'resume', 'status', 'cancel 166', 'cancel #166',
       'cancel curia#166', 'cancel all', 'resume 12', 'resume all', 'attach 166', 'attach all',
-      'start 170', 'start curia#170', 'start alp82/curia#170', 'start 170 model=sonnet',
+      'start 170', 'start curia#170', 'start alp82/curia#170', 'start 170 model=sonnet', 'start #170',
+      // #221: `map` is a verb now, so a bare one typed at an agent must reach
+      // the hint rather than the note queue.
+      'map', 'map 147', 'map #147', 'map curia#147', 'map all', 'map 147 model=opus',
     ]
     for (const t of typed) {
       assert.ok(COMMAND_SHAPED.test(t), `"${t}" should read as a command`)

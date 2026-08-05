@@ -35,13 +35,13 @@ The map section "Not yet specified": work that is coming but not yet sharp enoug
 The map changes: new tickets, graduated fog, blocking edges, scope rulings. They land two ways. A ticket agent proposes them at the review gate and writes them after the approval. A charting agent writes them as its whole job.
 
 **Map dispatch**:
-`start` on a map's own issue. The daemon spawns a charting agent instead of a ticket agent.
+`map <n>` on a map's own issue. The daemon spawns a charting agent instead of a ticket agent. It claims nothing. `start` on a map number is not this: it dispatches the map's next takeable ticket.
 
 **Charting agent**:
 The agent of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate.
 
 **Instruction**:
-The operator's sentence on a map dispatch, in their own words. It rides the dispatch and reaches the charting agent as the first thing it reads. With no instruction, the agent asks what should change.
+The operator's sentence on a map dispatch, in their own words. It rides the `map` verb after a bare `--`, and reaches the charting agent as the first thing it reads. With no instruction, the agent asks what should change. No other verb takes one.
 
 **Frontier**:
 The takeable tickets of a watched repo, in map order.
@@ -53,7 +53,10 @@ Open, not a pull request, no open blockers, no assignee.
 The rule that computes a repo's frontier. The map lane takes the children of open maps. The flat lane takes open `ready-for-agent` issues. A repo whose maps are all closed or deferred gets an empty frontier, never the flat fallback.
 
 **Claim**:
-The assignee on a ticket. A claim removes the ticket from every frontier. The daemon claims before it spawns. A claim on a map takes nothing off a frontier, because a map is never on one. It stops a second charting agent from editing the same body.
+The assignee on a ticket. A claim removes the ticket from every frontier. The daemon claims before it spawns. No dispatch ever claims a map: a map is never on a frontier, so a claim on one says nothing true.
+
+**Map lock**:
+What stops a second charting agent from editing one map body: the session name. A charting agent on map #147 is `curia-147`, and `map 147` is refused while that session lives. The check asks tmux, so it survives a daemon restart. It is per box, and there is one box.
 
 **Watched repo**:
 A repo on the watch list in `config/curia.yaml`. Curia dispatches only against watched repos.
@@ -100,8 +103,9 @@ The state where every candidate model is cooling. The frontier stays the queue, 
 **Overseer**:
 The command brain of curia. The standing design is one brain with three skins (Discord, text, voice). The shipped daemon uses a deterministic router instead.
 
-**The five verbs**:
-`frontier`, `start`, `status`, `cancel`, `attach`. The whole command surface, identical over Discord and REST.
+**The verbs**:
+`tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
+_Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
 
 **Resume**:
 A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree and the model of the last spawn, which the journal states. It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
@@ -242,7 +246,7 @@ _Avoid_: status line (that names the daemon's own line, below).
 The ordered close-out of a ticket: commit, pull request, preview, review gate, merge, resolve, result. One structure drives both the prompt and the Stop hook checklist.
 
 **Charting ending**:
-The ending of a map dispatch: edit the map, then report the result. Curia posts the summary on the map and unassigns it. No pull request, no review gate, no close.
+The ending of a map dispatch: edit the map, then report the result. Curia posts the summary on the map. No unassign, no pull request, no review gate, no close.
 
 **Stop hook**:
 The enforcement hook that fires at the end of every agent turn. It refuses a stop that leaves ending steps open, up to the stop budget, then lets go and reports the ticket unfinished.

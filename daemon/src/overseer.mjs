@@ -33,16 +33,20 @@ export function canonicalFor(verb, args = {}) {
       return `${verb}${args.repo ? ' ' + args.repo : ''}`
     case 'status':
       return 'status'
-    case 'start': {
-      let text = `start ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
-      // #177 removed `harness=`: the harness follows the model.
+    // #177 removed `harness=`: the harness follows the model. #221 removed the
+    // instruction: `start` no longer charts, so it carries no sentence.
+    case 'start':
+      return `start ${args.repo ? `${args.repo}#` : ''}${args.ticket}${args.model ? ` model=${args.model}` : ''}`
+    case 'map': {
+      let text = `map ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
       if (args.model) text += ` model=${args.model}`
-      // The map instruction (#160) rides LAST, after a bare `--`, because it is
-      // the one argument that is a whole sentence. Whitespace is collapsed here:
-      // the seam is one line of text, and the router splits it on whitespace, so
-      // a newline the model wrote would otherwise come back as a space anyway —
-      // collapsing it makes the canonical text the operator sees and the text
-      // the router parses the same string.
+      // The instruction (#160, moved here by #221) rides LAST, after a bare
+      // `--`, because it is the one argument that is a whole sentence.
+      // Whitespace is collapsed here: the seam is one line of text, and the
+      // router splits it on whitespace, so a newline the model wrote would
+      // otherwise come back as a space anyway — collapsing it makes the
+      // canonical text the operator sees and the text the router parses the
+      // same string.
       const instruction = String(args.instruction ?? '').replace(/\s+/g, ' ').trim()
       if (instruction) text += ` -- ${instruction}`
       return text
@@ -79,12 +83,17 @@ export function buildVerbTools(command) {
       repo: repoArg,
     }, run('next')),
     tool('status', 'Show the live agents: ticket, model, state, uptime, and who is waiting on input.', {}, run('status')),
-    tool('start', 'Claim a ticket and dispatch an agent on it. Use the repo field when the ticket number alone is ambiguous. Started on a MAP issue, this dispatches a charting agent that updates the map instead — pass the operator\'s sentence as the instruction.', {
+    tool('start', 'Claim a ticket and dispatch an agent to WORK it. Use the repo field when the ticket number alone is ambiguous. Given a MAP number, this dispatches that map\'s next takeable ticket — it does NOT update the map; the map tool does that.', {
       ticket: ticketArg,
       repo: repoArg,
       model: z.string().optional().describe('model override — the harness follows it, so there is no harness argument'),
-      instruction: z.string().optional().describe('MAP DISPATCHES ONLY: what the operator wants changed on the map, in their own words ("update the landing page map so that X"). The charting agent reads it as its first input. Leave it out and the agent asks the operator what should change. A ticket dispatch refuses it.'),
     }, run('start')),
+    tool('map', 'Dispatch a charting agent that UPDATES a map: add tickets, graduate fog, change scope, fix what the map says. Takes the map\'s own number. It edits the map and its tickets and closes nothing.', {
+      ticket: ticketArg,
+      repo: repoArg,
+      instruction: z.string().optional().describe('What the operator wants changed on the map, in their own words ("update the landing page map so that X"). The charting agent reads it as its first input. Leave it out and the agent asks the operator what should change.'),
+      model: z.string().optional().describe('model override — the harness follows it, so there is no harness argument'),
+    }, run('map')),
     tool('cancel', 'Cancel the agent on a ticket, or "all" for every agent. Destructive, so the daemon posts ✅/❌ buttons and executes ONLY after the operator presses ✅. Call this directly when asked — never seek confirmation in conversation first, and never report the cancel as done: report that the confirm was posted.', {
       ticket: bulkArg,
     }, run('cancel')),
@@ -98,7 +107,7 @@ export function buildVerbTools(command) {
   ]
 }
 
-export const ALLOWED_TOOLS = ['tickets', 'next', 'status', 'start', 'cancel', 'resume', 'attach']
+export const ALLOWED_TOOLS = ['tickets', 'next', 'status', 'start', 'map', 'cancel', 'resume', 'attach']
   .map((t) => `mcp__curia__${t}`)
 
 // ToolSearch is in here for the #83 gap, not for containment: with it
@@ -115,7 +124,7 @@ const SYSTEM_PROMPT = `You are the curia overseer. Curia is a personal orchestra
 You speak with one operator, in one Discord thread, in short Discord markdown. You act only through the curia tools. The daemon executes every effect.
 
 What you do:
-- Translate the operator's prose into the verbs: tickets, next, status, start, cancel, resume, attach.
+- Translate the operator's prose into the verbs: tickets, next, status, start, map, cancel, resume, attach.
 - Answer reasoning questions from tool output ("what should I start next?" — call tickets, then recommend one, with a one-line reason).
 - Report tool replies faithfully. Do not invent agents, tickets, or states.
 
@@ -123,7 +132,9 @@ Vocabulary the operator uses:
 - A "map" is a wayfinder map: a GitHub issue whose child tickets chart one effort. The operator names maps by topic ("the landing page map"). The \`tickets\` output groups tickets under their map's header line ("map #109 **The curia landing page**").
 - A map named in prose resolves to that map's header, never to repo-wide order: "continue with <map>" means \`start\` the FIRST ticket listed under that map's header. A repo can hold several maps — picking the repo's first takeable when the operator named a map dispatches the wrong ticket.
 - When a phrase names no repo or map you know, call \`tickets\` with no filter and match the phrase against the headers that come back before saying you cannot.
-- \`start\` on the MAP's own number is a map dispatch: a charting agent updates the map itself. Use it when the operator asks to CHANGE a map ("update the landing page map so that X", "add a ticket for Y", "the map is wrong about Z"). Put their sentence in the \`instruction\` field, in their own words — do not rewrite it and do not summarize it. "Continue with <map>" is not this: that starts the map's first ticket.
+- Two verbs take a map's own number, and they mean different things. \`start\` WORKS the map: it dispatches the map's next takeable ticket. \`map\` UPDATES the map: a charting agent edits the map itself.
+- Use \`map\` when the operator asks to CHANGE a map ("update the landing page map so that X", "add a ticket for Y", "the map is wrong about Z"). Put their sentence in the \`instruction\` field, in their own words. Do not rewrite it and do not summarize it.
+- Use \`start\` when the operator asks to work the map ("continue with <map>", "start the landing page map"). Either the map's own number or the ticket number listed under its header does this.
 
 Your memory goes stale:
 - Tool output from an earlier turn may be minutes or hours old, and the daemon, the trackers, and the operator all change state between your turns. Re-run \`tickets\` or \`status\` before you refuse, recommend, or report state. Never answer from a previous turn's tool output.
