@@ -516,6 +516,70 @@ describe('reconcile epoch scoping (criterion 7)', () => {
     assert.equal(w.harness, null)
     assert.equal(w.provider, null)
   })
+
+  test('a live charting session is adopted off the journal kind — a map holds no claim (#228)', async () => {
+    // #221 removed the map claim, so the assignee test above can never pass
+    // for a charting session. The journal's spawn line is the positive
+    // evidence instead, and the adopted record must restate the kind:
+    // #epochCharting trusts the in-memory record first, so a record without
+    // the field would hold this agent to the ticket ending.
+    const destroyed = []
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '7', agent: 'curia-7', model: 'sonnet', harness: 'claude', kind: 'charting', instruction: 'tighten the fog' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-7'],
+      fetchIssue: async () => ({ number: 7, title: 'a map', body: '', state: 'open', assignees: [], labels: [{ name: 'wayfinder:map' }] }),
+      killSession: async (s) => destroyed.push(`kill:${s}`),
+      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeConfigDir: (dir) => destroyed.push(`cfg:${dir}`),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(destroyed, [])
+    assert.ok(!typesOf().includes('orphan_swept'))
+    const w = d.agents.get('curia-7')
+    assert.equal(w.charting, true)
+    assert.equal(w.instruction, 'tighten the fog')
+  })
+
+  test('the charting evidence does not widen adoption: an unclaimed ticket session is still an orphan (#228)', async () => {
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', harness: 'claude', kind: 'ticket' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...OPEN_ISSUE }), // open, and assigned to nobody
+      killSession: async () => {},
+      removeWorktree: async () => {},
+      removeConfigDir: () => {},
+      hasUnpushedWork: async () => false,
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.ok(typesOf().includes('orphan_swept'))
+  })
+
+  test('a charting session on a CLOSED map is swept — the open gate holds for maps too (#228)', async () => {
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '7', agent: 'curia-7', model: 'sonnet', harness: 'claude', kind: 'charting' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-7'],
+      fetchIssue: async () => ({ number: 7, title: 'a map', body: '', state: 'closed', assignees: [], labels: [{ name: 'wayfinder:map' }] }),
+      killSession: async () => {},
+      removeWorktree: async () => {},
+      removeConfigDir: () => {},
+      hasUnpushedWork: async () => false,
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.ok(typesOf().includes('orphan_swept'))
+    assert.ok(!d.agents.has('curia-7'))
+  })
 })
 
 describe('the pane is untrusted text (B6)', () => {
@@ -2784,6 +2848,49 @@ describe('dispatching across two harnesses (#39)', () => {
     const reply = await d.start('42', { repo: 'o/r', by: 'test' })
     assert.match(reply, /config file curia did not write/)
     assert.equal(unclaimed, true)
+  })
+
+  // #224: a repo skill under a name curia installs is the same family as a
+  // planted config file — the model would read the repo's copy in place of, or
+  // beside, the one curia seeded.
+  test('a repo skill under an installed name refuses the dispatch and releases the claim', async () => {
+    let unclaimed = false
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
+        fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+        fs.mkdirSync(path.join(wt, '.claude', 'skills', 'wayfinder'), { recursive: true })
+        fs.writeFileSync(path.join(wt, '.claude', 'skills', 'wayfinder', 'SKILL.md'), '---\nname: wayfinder\n---\nplanted\n')
+        return wt
+      },
+      unclaim: async () => { unclaimed = true },
+      newSession: async () => { throw new Error('must never spawn') },
+    }, { routing: TWO_LANE, skills: { root: '/host/skills', install: ['wayfinder'] } })
+
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.match(reply, /repo-carried skill named `wayfinder`/)
+    assert.equal(unclaimed, true)
+  })
+
+  test('a repo skill under a name curia does not install dispatches fine', async () => {
+    let spawned = false
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
+        fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
+        fs.mkdirSync(path.join(wt, '.claude', 'skills', 'deploy-docs'), { recursive: true })
+        fs.writeFileSync(path.join(wt, '.claude', 'skills', 'deploy-docs', 'SKILL.md'), '---\nname: deploy-docs\n---\nrepo skill\n')
+        return wt
+      },
+      newSession: async () => { spawned = true },
+    }, { routing: TWO_LANE, skills: { root: '/host/skills', install: ['wayfinder'] } })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.equal(spawned, true)
   })
 
   test('the same repo dispatches fine on the claude harness, which never loads .codex/', async () => {

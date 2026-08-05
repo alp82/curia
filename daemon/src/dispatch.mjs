@@ -33,7 +33,7 @@ import {
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, agentEnv,
-  untrustedProjectConfig,
+  untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
 import { ensureAgentImage } from './image.mjs'
 import { transcriptReset } from './usage.mjs'
@@ -989,12 +989,19 @@ export class Dispatcher {
   // at dispatch the operator can name another harness, and on a fallback they
   // cannot — the lane they came from is the cooling one.
   #assertNoPlantedConfig(wtPath, harnessName, where = 'dispatch') {
-    const planted = untrustedProjectConfig(wtPath, harnessName)
-    if (!planted) return
     const wayOut = where === 'respawn'
       ? 'The harness this agent was dispatched on does not load it, and the fallback harness does. Remove the file from the repo, or dispatch the ticket again once a harness that does not load it is warm'
       : 'Remove the file from the repo, or dispatch on another harness if only one harness loads it (`/start <ticket> <model>`)'
-    const e = new Error(`${planted} is a config file curia did not write, and the ${harnessName} harness loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. ${wayOut}`)
+    const planted = untrustedProjectConfig(wtPath, harnessName)
+    // #224: the same family, one step milder — a repo skill under a name curia
+    // installs impersonates the seeded tooling, and on the codex harness it is
+    // listed to the model beside and before the installed copy. A repo skill
+    // under any other name stays welcome.
+    const plants = planted ? [] : plantedSkills(wtPath, harnessName, this.config.skills?.install)
+    if (!planted && !plants.length) return
+    const e = planted
+      ? new Error(`${planted} is a config file curia did not write, and the ${harnessName} harness loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. ${wayOut}`)
+      : new Error(`${plants[0].path} is a repo-carried skill named \`${plants[0].name}\`, a name curia installs, and the ${harnessName} harness loads it — the model would read the repo's copy in place of, or beside, the one curia seeded. ${wayOut}`)
     // #217: this throw is curia DECLINING, not curia failing, and only here is
     // that known — by the time it lands in a catch it is one more thrown Error.
     // The mark is what lets the respawn callers frame it as the decision it is.
@@ -3659,6 +3666,13 @@ export class Dispatcher {
     for (const session of sessions) {
       if (this.agents.has(session) || this.inFlight.has(session)) continue
       const n = session.match(SESSION_RE)[1]
+      // #228: the claim was the adoption evidence and #221 took it away for a
+      // map — no dispatch claims one, so a live charting session used to walk
+      // straight into the orphan branch here. The journal states the kind at
+      // every spawn (#219), and that line is the positive evidence now: this
+      // daemon (or its predecessor) spawned the session as charting. The map
+      // being open still gates adoption below, exactly as it does a builder.
+      const { charting, instruction } = this.#epochCharting(n, session)
       const epoch = epochs.get(n)
       const reposToCheck = epoch?.repo ? [epoch.repo] : this.config.watch.map((w) => w.repo)
       let adopted = false
@@ -3674,7 +3688,8 @@ export class Dispatcher {
           sawFailure = true
           continue
         }
-        if (issue && issue.state === 'open' && (issue.assignees ?? []).some((a) => a.login === login)) {
+        if (issue && issue.state === 'open'
+          && (charting || (issue.assignees ?? []).some((a) => a.login === login))) {
           const wtPath = worktreePathFor(this.root, repo, n)
           // #157: what the container publishes is the preview bound, and this
           // record is being rebuilt with every spawn-time fact missing. Read it
@@ -3708,6 +3723,11 @@ export class Dispatcher {
             ports: ports.length ? ports : null,
             sandbox: ports.length ? 'docker' : null,
             spawnedAt: null, state: 'ready',
+            // #228: restated on the record, because #epochCharting trusts the
+            // in-memory record FIRST — an adopted map agent with no `charting`
+            // field would read as a ticket one and be held to the ticket
+            // ending, which tries to close the map.
+            charting, instruction,
             resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
           })
           this.log(`reconcile: re-adopted live agent ${session} (${repo}#${n})`)
