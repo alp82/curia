@@ -265,7 +265,10 @@ function settle(record, text, attachments = []) {
 // journalled channel a resumed agent drains on its first tool result — and
 // say in the thread where the answer went.
 function handOffAnswer(record) {
-  if (!/^curia-\d+$/.test(record.agent)) return // synthetic/lab callers have no resume
+  // #241: a chat handle is resumable too — `resume chat-1` re-dispatches it and
+  // it drains the queue on its first tool result, exactly as a numbered one
+  // does. Only synthetic and lab callers are excluded here.
+  if (!/^curia-(\d+|chat-\d+)$/.test(record.agent)) return
   store.queueRecordedAnswer(record)
   const live = dispatcher.agents.has(record.agent)
   notifyThread(record.ticket, live
@@ -460,6 +463,17 @@ const threads = {
   // next dispatch relabels the thread anyway.
   async cancelled(ticket) {
     if (bridge) return bridge.cancelTicket(ticket)
+  },
+  // #241: a new-map session's thread moves from the handle `new` onto the map
+  // number the moment the agent creates the map. With the bridge down the
+  // journal still has to move, so the binding is written either way — only the
+  // rename is display, and only the rename is lost.
+  async adoptMap(handle, mapNumber, opts) {
+    if (bridge) return bridge.adoptMapThread(handle, mapNumber, opts)
+    const threadId = store.threadForTicket(handle)
+    if (!threadId) return { ok: false, reason: 'unbound' }
+    store.releaseTicketThread(handle, 'the map this session created now names it')
+    return store.bindTicketThread(String(mapNumber), threadId)
   },
 }
 
@@ -909,6 +923,21 @@ function buildMcpServer(agent, ticket) {
       // button press rides the answer itself — the grace window's best case.
       return { content: [...refusalNote, { type: 'text', text }, ...inboundContent(attachments), ...drainNotes()] }
     },
+  )
+
+  // #241: the one thing a NEW-map charting agent knows that the daemon cannot
+  // find out for itself. GitHub has no query for "the map this pane just made",
+  // so the number arrives on the side channel — which is the rule already
+  // (CONTEXT.md: curia never parses the terminal to learn agent state), not a
+  // new one. The dispatcher VERIFIES the number before taking it, so this
+  // remains a report the daemon checks rather than an account it believes.
+  server.tool(
+    'map_created',
+    'Tell curia the issue number of the `wayfinder:map` you just created. Call it as soon as the issue exists, not at the end: until you do, curia does not know which map is yours, so your thread keeps a placeholder name, another charting agent could be dispatched onto the same map, and your final summary has nowhere to land. curia checks the number is really an open map in this repo and refuses one that is not. Only an agent sent to chart a NEW map has this tool.',
+    { number: z.string().describe('The issue number of the map you created — the bare number, e.g. "250".') },
+    async ({ number }) => ({
+      content: [{ type: 'text', text: await dispatcher.adoptMap(agent, number) }, ...drainNotes()],
+    }),
   )
 
   // #41: this call now also closes the TICKET, not just curia's dispatch

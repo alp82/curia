@@ -263,6 +263,77 @@ describe('the charting prompt', () => {
   })
 })
 
+describe('the new-map prompt (#241)', () => {
+  const NEW_MAP_ISSUE = {
+    number: 'chat-1', title: 'new map: chart the next feature', body: 'chart the next feature',
+    state: 'open', assignees: [], labels: [{ name: 'wayfinder:map' }],
+  }
+  const write = (opts = {}) => {
+    const file = writePrompt(tmp, NEW_MAP_ISSUE, {
+      repo: 'o/r', wtPath: '/w/chat-1', mapNumber: null, type: 'wayfinder:map',
+      charting: true, newMap: true, instruction: 'read direction.md and chart the next feature', ...opts,
+    })
+    return fs.readFileSync(file, 'utf8')
+  }
+
+  test('the /wayfinder line names NO map — it is the skill\'s chart mode', () => {
+    // "Chart the map" starts from a loose idea. A map URL here would invoke
+    // "work through the map" against an issue that does not exist.
+    assert.equal(write().split('\n')[0], '/wayfinder')
+  })
+
+  test('it says the map does not exist and orders the chart mode from the top', () => {
+    const p = write()
+    assert.match(p, /\*\*This is a NEW-MAP DISPATCH\.\*\*/)
+    assert.match(p, /No map exists yet/)
+    assert.match(p, /"Chart the map" mode/)
+    assert.ok(!p.includes('This is a MAP DISPATCH'), 'the map-dispatch wording must not reach a new-map agent')
+    assert.ok(!p.includes('already CLAIMED it in your name'))
+  })
+
+  test('the operator\'s prose rides verbatim, as the loose idea and not a specification', () => {
+    const p = write()
+    assert.match(p, /> read direction\.md and chart the next feature/)
+    assert.match(p, /loose idea, not a specification/)
+  })
+
+  test('the adoption is ordered in the params AND in the ending', () => {
+    const p = write()
+    assert.match(p, /call `map_created` with its number/)
+    const ending = p.slice(p.indexOf('## How this ends'))
+    assert.match(ending, /map_created/)
+    assert.match(ending, /report_result/)
+    assert.ok(!/Only after the approval: merge it/.test(ending))
+  })
+
+  test('map_created is listed as a tool, and only here', () => {
+    assert.match(write(), /- `map_created`/)
+    const onAMap = writePrompt(tmp, MAP_ISSUE, {
+      repo: 'o/r', wtPath: '/w/147', mapNumber: 147, type: 'wayfinder:map', charting: true, instruction: 'x',
+    })
+    assert.ok(!fs.readFileSync(onAMap, 'utf8').includes('map_created'))
+  })
+
+  test('the write bound is the ONE map it creates, and no existing issue', () => {
+    const p = write()
+    assert.match(p, /the ONE `wayfinder:map` issue you create in o\/r/)
+    assert.match(p, /no existing issue is yours to edit/)
+    assert.match(p, /read-only checkout/)
+  })
+
+  test('it is told to create NO map when the grilling shows none is needed', () => {
+    // The skill says this too, and it is the finding most easily overridden by
+    // the pull to produce the artifact the dispatch named.
+    assert.match(write(), /If the grilling shows no map is needed/)
+  })
+
+  test('the HITL rule is stated — the destination is the operator\'s to settle', () => {
+    const p = write()
+    assert.match(p, /many `ask_human` calls, one question at a time/)
+    assert.match(p, /Never answer for them/)
+  })
+})
+
 // ---- the ending (#149 point 3) ------------------------------------------------
 
 describe('the charting checklist', () => {
@@ -724,6 +795,366 @@ describe('cancel on a map dispatch (#221)', () => {
 
 // ---- the phone's command surface ----------------------------------------------
 
+// ---- map with no issue: chart a NEW map (#241) --------------------------------
+//
+// The second shape of the verb, and the first curia agent that no issue answers
+// for. What this section pins is the consequence of that, not the parse (which
+// commands.test.mjs holds): the identity is a chat handle, the daemon learns the
+// map number through `map_created` and CHECKS it, and the ending owes that step.
+
+describe('map with no issue — the new-map dispatch (#241)', () => {
+  test('it spawns on a chat handle, claims nothing, and names the handle in the reply', async () => {
+    const d = makeDispatcher()
+    const reply = await d.chartNew({ repo: 'o/r', instruction: 'chart the next feature', by: 'u' })
+    assert.match(reply, /NEW map in o\/r/)
+    assert.match(reply, /curia-chat-1/)
+    assert.match(reply, /cancel chat-1/)
+    assert.ok(d.agents.has('curia-chat-1'))
+    const w = d.agents.get('curia-chat-1')
+    assert.equal(w.ticket, 'chat-1')
+    assert.equal(w.repo, 'o/r')
+    assert.equal(w.charting, true)
+    assert.equal(w.newMap, true)
+    assert.equal(w.mapNumber, null)
+    // no claim: there is no issue to assign, and #221's rule holds anyway
+    assert.deepEqual(calls.filter((c) => c.startsWith('claim')), [])
+  })
+
+  test('the handles ENUMERATE — two new maps chart side by side', async () => {
+    const d = makeDispatcher()
+    await d.chartNew({ repo: 'o/r', instruction: 'one', by: 'u' })
+    await d.chartNew({ repo: 'o/r', instruction: 'two', by: 'u' })
+    assert.deepEqual([...d.agents.keys()].sort(), ['curia-chat-1', 'curia-chat-2'])
+  })
+
+  test('the free index is read off TMUX, not only off the agents map', async () => {
+    // A restarted daemon holds no agents map. Handing chat-1 to a second agent
+    // would put two of them on one pane, one config dir and one thread.
+    const d = makeDispatcher({ listSessions: async () => ['curia-chat-1', 'curia-9'] })
+    await d.chartNew({ repo: 'o/r', instruction: 'one', by: 'u' })
+    assert.ok(d.agents.has('curia-chat-2'))
+  })
+
+  test('an indeterminate tmux list refuses rather than guessing an index', async () => {
+    const d = makeDispatcher({ listSessions: async () => { throw new Error('no server') } })
+    const reply = await d.chartNew({ repo: 'o/r', instruction: 'one', by: 'u' })
+    assert.match(reply, /indeterminate/)
+    assert.equal(d.agents.size, 0)
+  })
+
+  test('an unwatched repo and an empty instruction are both refused', async () => {
+    const d = makeDispatcher()
+    assert.match(await d.chartNew({ repo: 'o/nope', instruction: 'x' }), /not on the watch list/)
+    assert.match(await d.chartNew({ repo: 'o/r', instruction: '  ' }), /needs a sentence/)
+    assert.equal(d.agents.size, 0)
+  })
+
+  test('the spawn is journalled as charting AND as a new map', async () => {
+    const d = makeDispatcher()
+    await d.chartNew({ repo: 'o/r', instruction: 'chart the next feature', by: 'u' })
+    const spawn = events.filter((e) => e.type === 'agent_spawned').at(-1)
+    assert.equal(spawn.kind, 'charting')
+    assert.equal(spawn.newMap, true)
+    assert.equal(spawn.ticket, 'chat-1')
+    assert.equal(spawn.instruction, 'chart the next feature')
+  })
+
+  test('the routing reads the map row — a new map runs the model an old one does', async () => {
+    const d = makeDispatcher()
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    assert.equal(d.agents.get('curia-chat-1').model, 'opus')
+  })
+
+  test('no tracker doc refuses the dispatch — a mapless charting agent is the worst case', async () => {
+    const d = makeDispatcher({
+      createWorktree: async (b, n) => {
+        const wt = path.join(path.dirname(b), 'wt', String(n))
+        fs.mkdirSync(wt, { recursive: true })
+        return wt
+      },
+    })
+    const reply = await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    assert.match(reply, /charting a new map/)
+    assert.match(reply, /issue-tracker\.md/)
+    assert.equal(d.agents.size, 0)
+  })
+})
+
+describe('map_created — the daemon learns the number (#241)', () => {
+  const MADE = {
+    number: 250, title: 'The next feature', state: 'open', assignees: [],
+    labels: [{ name: 'wayfinder:map' }],
+  }
+
+  test('curia takes the map, journals it, and moves the thread onto it', async () => {
+    const moved = []
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MADE }) })
+    d.threads = {
+      bind: async () => ({ ok: true }),
+      release: async () => {},
+      cancelled: async () => {},
+      adoptMap: async (handle, n, opts) => { moved.push({ handle, n, ...opts }) },
+    }
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    const text = await d.adoptMap('curia-chat-1', '250')
+    assert.match(text, /o\/r#250/)
+    assert.equal(d.agents.get('curia-chat-1').mapNumber, '250')
+    assert.deepEqual(moved, [{ handle: 'chat-1', n: '250', repo: 'o/r', title: 'The next feature' }])
+    const ev = events.find((e) => e.type === 'map_adopted')
+    assert.equal(ev.map, '250')
+    assert.equal(ev.ticket, 'chat-1')
+  })
+
+  test('the number is CHECKED, never believed', async () => {
+    // A record curia writes from an agent's own account is not evidence (#40).
+    const cases = [
+      [{ ...MADE, state: 'closed' }, /is closed/],
+      [{ ...MADE, labels: [{ name: 'wayfinder:task' }] }, /carries no `wayfinder:map` label/],
+    ]
+    for (const [issue, re] of cases) {
+      const d = makeDispatcher({ fetchIssue: async () => ({ ...issue }) })
+      await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+      assert.match(await d.adoptMap('curia-chat-1', '250'), re)
+      assert.equal(d.agents.get('curia-chat-1').mapNumber, null)
+    }
+  })
+
+  test('an unreadable issue refuses and says to call again — it never adopts on a failed read', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => { throw new Error('gh exploded') } })
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    const text = await d.adoptMap('curia-chat-1', '250')
+    assert.match(text, /could not read/)
+    assert.match(text, /again/)
+    assert.equal(d.agents.get('curia-chat-1').mapNumber, null)
+  })
+
+  test('the same number twice is a no-op; a different one is refused', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MADE }) })
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    await d.adoptMap('curia-chat-1', '250')
+    assert.match(await d.adoptMap('curia-chat-1', '250'), /already taken/)
+    assert.match(await d.adoptMap('curia-chat-1', '251'), /already created o\/r#250/)
+    assert.equal(d.agents.get('curia-chat-1').mapNumber, '250')
+  })
+
+  test('a ticket agent and a map-dispatch agent are both refused', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MAP_ISSUE }) })
+    await d.chart('147', { repo: 'o/r', instruction: 'x', by: 'u' })
+    assert.match(await d.adoptMap('curia-147', '250'), /dispatched on an existing map/)
+    assert.match(await d.adoptMap('curia-999', '250'), /holds no record/)
+  })
+
+  test('a number that is not one is refused before any read', async () => {
+    let read = 0
+    const d = makeDispatcher({ fetchIssue: async () => { read += 1; return { ...MADE } } })
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    assert.match(await d.adoptMap('curia-chat-1', 'the map'), /is not one/)
+    assert.equal(read, 0)
+  })
+
+  test('`#250` is taken — the agent writes the number the way GitHub prints it', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MADE }) })
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    await d.adoptMap('curia-chat-1', '#250')
+    assert.equal(d.agents.get('curia-chat-1').mapNumber, '250')
+  })
+
+  test('the adopted map is LOCKED — `map 250` is refused while the chat runs', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MADE }) })
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    await d.adoptMap('curia-chat-1', '250')
+    const reply = await d.chart('250', { repo: 'o/r', by: 'u' })
+    assert.match(reply, /curia-chat-1/)
+    assert.match(reply, /cancel chat-1/)
+    assert.ok(!d.agents.has('curia-250'))
+  })
+})
+
+describe('the new-map ending (#241)', () => {
+  test('the checklist owes the map BEFORE the result', () => {
+    const items = outstanding({ newMap: true, charting: true, hasResult: false, mapAdopted: false })
+    assert.equal(items.length, 2)
+    assert.match(items[0], /map_created/)
+    assert.match(items[1], /report_result/)
+  })
+
+  test('an adopted map clears its step and leaves only the result', () => {
+    const items = outstanding({ newMap: true, charting: true, hasResult: false, mapAdopted: true })
+    assert.deepEqual(items.map((i) => /map_created/.test(i)), [false])
+  })
+
+  test('a reported result ends it, whatever the status — the same rule as every ending', () => {
+    assert.deepEqual(outstanding({ newMap: true, charting: true, hasResult: true, mapAdopted: false }), [])
+  })
+
+  test('a map dispatch is untouched by any of it', () => {
+    const items = outstanding({ charting: true, hasResult: false, mapAdopted: false })
+    assert.deepEqual(items.map((i) => /map_created/.test(i)), [false])
+  })
+})
+
+describe('report_result on a new-map dispatch (#241)', () => {
+  const MADE = {
+    number: 250, title: 'The next feature', state: 'open', assignees: [],
+    labels: [{ name: 'wayfinder:map' }],
+  }
+
+  test('the summary lands on the map the agent created, not on the handle', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MADE }) })
+    await d.chartNew({ repo: 'o/r', instruction: 'chart it', by: 'u' })
+    await d.adoptMap('curia-chat-1', '250')
+    calls.length = 0
+    await d.onResult('curia-chat-1', { status: 'resolved', summary: 'charted the map' })
+    assert.ok(calls.includes('comment o/r#250'), `expected a comment on the map, got ${JSON.stringify(calls)}`)
+    assert.ok(!calls.some((c) => String(c).startsWith('CLOSE')))
+    assert.ok(!calls.some((c) => String(c).startsWith('unclaim')))
+  })
+
+  test('a session that created NO map says so instead of posting nowhere', async () => {
+    const d = makeDispatcher()
+    await d.chartNew({ repo: 'o/r', instruction: 'chart it', by: 'u' })
+    calls.length = 0
+    const text = await d.onResult('curia-chat-1', { status: 'blocked', summary: 'the way was already clear' })
+    assert.match(text, /created NO map/)
+    assert.ok(!calls.some((c) => String(c).startsWith('comment')))
+    const ev = events.find((e) => e.type === 'charting_finished')
+    assert.equal(ev.map, null)
+    assert.equal(ev.commented, false)
+  })
+})
+
+describe('cancel and resume on a chat handle (#241)', () => {
+  const MADE = {
+    number: 250, title: 'The next feature', state: 'open', assignees: [],
+    labels: [{ name: 'wayfinder:map' }],
+  }
+
+  test('cancel claims nothing back and says whether a map was left behind', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MADE }) })
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    await d.adoptMap('curia-chat-1', '250')
+    const msg = await d.cancel('chat-1', { by: 'u' })
+    assert.match(msg, /o\/r#250\) STANDS/)
+    assert.ok(!calls.some((c) => String(c).startsWith('unclaim')))
+    assert.ok(!d.agents.has('curia-chat-1'))
+  })
+
+  test('cancel before any map says the tracker is untouched', async () => {
+    const d = makeDispatcher()
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    const msg = await d.cancel('chat-1', { by: 'u' })
+    assert.match(msg, /created no map yet/)
+  })
+
+  test('resume re-dispatches the SAME handle, with the instruction it rode', async () => {
+    const d = makeDispatcher()
+    await d.chartNew({ repo: 'o/r', instruction: 'read direction.md and chart it', by: 'u' })
+    d.agents.delete('curia-chat-1')
+    await d.resume('chat-1', { by: 'u' })
+    assert.ok(d.agents.has('curia-chat-1'), 'the handle must not be re-picked — its thread and worktree answer to it')
+    assert.equal(d.agents.get('curia-chat-1').instruction, 'read direction.md and chart it')
+  })
+
+  test('resume after the map exists names `map <n>` instead of charting a second one', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...MADE }) })
+    await d.chartNew({ repo: 'o/r', instruction: 'x', by: 'u' })
+    await d.adoptMap('curia-chat-1', '250')
+    d.agents.delete('curia-chat-1')
+    const reply = await d.resume('chat-1', { by: 'u' })
+    assert.match(reply, /already created o\/r#250/)
+    assert.match(reply, /map 250 --/)
+    assert.equal(d.agents.size, 0)
+  })
+})
+
+// A restarted daemon and a live chat pane. The fault this pins is the one #228
+// pinned for map dispatches: a session GitHub cannot speak for is swept as an
+// orphan, killing a charting agent mid-conversation. A chat handle is that case
+// permanently — `getIssue(repo, 'chat-1')` is a 404 forever.
+describe('reconcile and a live chat session (#241)', () => {
+  const MADE = {
+    number: 250, title: 'The next feature', state: 'open', assignees: [],
+    labels: [{ name: 'wayfinder:map' }],
+  }
+  const writeJournal = (lines) => {
+    fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  }
+
+  test('a spawn line in the journal is the positive evidence — it is adopted, not swept', async () => {
+    const killed = []
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: 'chat-1', agent: 'curia-chat-1', kind: 'charting', newMap: true, instruction: 'chart it', model: 'opus', harness: 'claude' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-chat-1'],
+      killSession: async (s) => { killed.push(s) },
+    })
+    await d.reconcile({ boot: false })
+    assert.deepEqual(killed, [])
+    const w = d.agents.get('curia-chat-1')
+    assert.ok(w, 'the live charting agent was swept instead of adopted')
+    assert.equal(w.charting, true)
+    assert.equal(w.newMap, true)
+    assert.equal(w.instruction, 'chart it')
+    assert.equal(w.model, 'opus')
+    assert.equal(w.repo, 'o/r')
+  })
+
+  test('the map it already created comes back on the record, so the lock holds', async () => {
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: 'chat-1', agent: 'curia-chat-1', kind: 'charting', newMap: true, model: 'opus', harness: 'claude' },
+      { type: 'map_adopted', repo: 'o/r', ticket: 'chat-1', agent: 'curia-chat-1', map: '250' },
+    ])
+    const d = makeDispatcher({ listSessions: async () => ['curia-chat-1'], fetchIssue: async () => ({ ...MADE }) })
+    await d.reconcile({ boot: false })
+    assert.equal(d.agents.get('curia-chat-1').mapNumber, '250')
+    assert.match(await d.chart('250', { repo: 'o/r' }), /curia-chat-1/)
+  })
+
+  test('a chat pane no dispatch explains is swept', async () => {
+    const killed = []
+    writeJournal([{ type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', kind: 'ticket' }])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-chat-7'],
+      killSession: async (s) => { killed.push(s) },
+    })
+    await d.reconcile({ boot: false })
+    assert.deepEqual(killed, ['curia-chat-7'])
+    assert.ok(!d.agents.has('curia-chat-7'))
+  })
+
+  test('a CLOSED map sweeps it — the subject is positively finished', async () => {
+    const killed = []
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: 'chat-1', agent: 'curia-chat-1', kind: 'charting', newMap: true, model: 'opus', harness: 'claude' },
+      { type: 'map_adopted', repo: 'o/r', ticket: 'chat-1', agent: 'curia-chat-1', map: '250' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-chat-1'],
+      fetchIssue: async () => ({ ...MADE, state: 'closed' }),
+      killSession: async (s) => { killed.push(s) },
+    })
+    await d.reconcile({ boot: false })
+    assert.deepEqual(killed, ['curia-chat-1'])
+  })
+
+  test('an UNREADABLE map neither adopts nor sweeps — a failed read is not evidence', async () => {
+    const killed = []
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: 'chat-1', agent: 'curia-chat-1', kind: 'charting', newMap: true, model: 'opus', harness: 'claude' },
+      { type: 'map_adopted', repo: 'o/r', ticket: 'chat-1', agent: 'curia-chat-1', map: '250' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-chat-1'],
+      fetchIssue: async () => { throw new Error('gh exploded') },
+      killSession: async (s) => { killed.push(s) },
+    })
+    await d.reconcile({ boot: false })
+    assert.deepEqual(killed, [])
+    assert.ok(!d.agents.has('curia-chat-1'), 'an indeterminate read must not adopt either')
+  })
+})
+
 describe('the /map slash expansion', () => {
   const interaction = (commandName, options) => ({
     commandName,
@@ -746,8 +1177,37 @@ describe('the /map slash expansion', () => {
     assert.equal(expandCommand(interaction('map', { ticket: '147', instruction: '  ' })), 'map 147')
   })
 
-  test('a /map with no ticket is the missing-option error, not `map null`', () => {
-    assert.deepEqual(expandCommand(interaction('map', {})), { error: 'missing' })
+  // #241 changed what "no ticket" means on this verb: it is now the NEW-map
+  // shape, not a stale manifest. So the error is its own kind, and the reply
+  // teaches the two shapes instead of telling the operator to restart Discord.
+  test('a /map with neither ticket nor instruction is the shape error', () => {
+    assert.deepEqual(expandCommand(interaction('map', {})), { error: 'map-shape' })
+    assert.deepEqual(expandCommand(interaction('map', { model: 'opus' })), { error: 'map-shape' })
+  })
+
+  test('an instruction with NO ticket expands to the new-map shape', () => {
+    assert.equal(
+      expandCommand(interaction('map', { instruction: 'chart the next feature' })),
+      'map -- chart the next feature',
+    )
+    assert.equal(
+      expandCommand(interaction('map', { instruction: 'chart it', repo: 'cur', model: 'opus' })),
+      'map cur model=opus -- chart it',
+    )
+  })
+
+  test('what the phone sends for a NEW map, the router reads back', () => {
+    const text = expandCommand(interaction('map', { instruction: 'read direction.md\nand chart it', repo: 'cur' }))
+    assert.deepEqual(parseCommand(text), {
+      verb: 'map', repoArg: 'cur', instruction: 'read direction.md and chart it',
+    })
+  })
+
+  // The repo option only means anything on the new-map shape: with a number,
+  // the repo is resolved from the number itself. Dropping it there keeps one
+  // meaning per option rather than two that disagree.
+  test('repo is ignored when a map number is given', () => {
+    assert.equal(expandCommand(interaction('map', { ticket: '147', repo: 'cur' })), 'map 147')
   })
 
   test('what the phone sends, the router reads back', () => {

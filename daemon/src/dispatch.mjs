@@ -49,9 +49,17 @@ import {
 } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, normalizeEvent } from './store.mjs'
-import { ensureTtyd, assertServe, serveOff } from './attach.mjs'
+import {
+  ensureTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
+} from './attach.mjs'
 
-const SESSION_RE = /^curia-(\d+)$/
+// A ticket session's name. Chat handles are in here since #241: an agent no
+// issue answers for — today, the one charting a map that does not exist yet —
+// is a ticket-lane session in every way that matters to reconcile, the orphan
+// sweep and the tool bindings. It just has a handle where the others have a
+// number. Every consumer treats the capture as a STRING already, because a
+// ticket id has always been one here.
+const SESSION_RE = new RegExp(`^curia-(\\d+|${CHAT_HANDLE_RE.source.replace(/^\^|\$$/g, '')})$`)
 
 // The cross-check reviewer's session name (#164, ADR-0010). Distinct from
 // `curia-<n>` by construction, and that is the point rather than a detail:
@@ -96,6 +104,36 @@ const MAP_LABEL = 'wayfinder:map'
 // #epochScan and for reconcile — so no READER can tell a respawn from a
 // re-dispatch. The writer can. It knows which one it is.
 const spawnKind = ({ reviewer = false, charting = false }) => (reviewer ? 'reviewer' : charting ? 'charting' : 'ticket')
+
+// How much of the operator's sentence becomes the session's name (#241).
+// It is a LABEL, not the map's title: the agent settles the real title with the
+// operator and writes it on the issue it creates. This one only has to say
+// which charting session this is, on the status line and in the thread name.
+const NEW_MAP_TITLE_MAX = 60
+
+// The issue record a new-map dispatch works from (#241). Nothing on GitHub
+// answers to it — the map does not exist — so it is synthesised from the
+// instruction, and every field is one #dispatch actually reads:
+//
+//   labels   routing. `wayfinder:map` is a row in the model table, and a new
+//            map must be charted by the same model an existing one is.
+//   title    the status line, the thread name, and the usage-limit guard.
+//   body     the usage-limit guard again: the operator's own sentence can
+//            carry the phrase that makes the watchdog cry cooling, so the
+//            text has to be visible to textCarriesLimitPhrase.
+//   number   the chat handle, which is what names the session.
+function newMapIssue(handle, instruction) {
+  const one = String(instruction).replace(/\s+/g, ' ').trim()
+  const short = one.length > NEW_MAP_TITLE_MAX ? `${one.slice(0, NEW_MAP_TITLE_MAX - 1).trimEnd()}…` : one
+  return {
+    number: handle,
+    title: `new map: ${short}`,
+    body: one,
+    labels: [{ name: MAP_LABEL }],
+    state: 'open',
+    assignees: [],
+  }
+}
 
 // The tracker doc every watched repo is meant to carry (#57 step 3). The
 // wayfinder skill reads it to learn how this repo expresses maps and tickets;
@@ -533,6 +571,17 @@ export class Dispatcher {
     const session = `curia-${n}`
     // The whole lock, in the same shape and the same order `start` uses.
     if (this.inFlight.has(session)) return `⚙️ \`${session}\` is already starting`
+    // #241: a chat agent that created this map takes its number as its own, so
+    // it holds this map's charting lock under a different session name. Without
+    // this the two would edit one body at once, which is the exact thing the
+    // session-name lock exists to stop.
+    const chat = this.#chatOnMap(n)
+    // Repo-scoped: two watched repos can both hold a #250, and refusing the
+    // other one's map because a chat is charting this one would be a lie about
+    // an issue nobody is touching.
+    if (chat && (!repo || repo === chat.repo)) {
+      return `▶️ \`${chat.session}\` is charting ${chat.repo ?? '?'}#${n} — it created that map and is still working on it. \`cancel ${chat.ticket}\` first, or \`attach ${chat.ticket}\``
+    }
     if (this.agents.has(session)) {
       const w = this.agents.get(session)
       return `▶️ \`${session}\` is already charting ${w.repo ?? '?'}#${w.ticket ?? n} (state **${w.state ?? '?'}**) — \`cancel ${n}\` first, or \`attach ${n}\``
@@ -554,6 +603,81 @@ export class Dispatcher {
     } finally {
       this.inFlight.delete(session)
     }
+  }
+
+  // ---- map with no issue (the new-map dispatch, #241) --------------------------
+
+  // `map [repo] -- <prose>`: a charting agent with NO map. It runs the wayfinder
+  // skill's CHART mode — name the destination, map the frontier breadth-first,
+  // then create the `wayfinder:map` issue and its first tickets. The operator's
+  // prose is the loose idea that mode starts from, which is why the parser makes
+  // it mandatory: there is no map body here to read the effort off instead.
+  //
+  // Three things are different from `chart`, and they all follow from the same
+  // fact — the issue does not exist yet:
+  //
+  //   1. **The identity is a CHAT HANDLE, not a number** (see attach.mjs). The
+  //      operator ruled these enumerated rather than singular: several new maps
+  //      may be charted at once, each in its own thread, and `chat-1` is what
+  //      `attach`, `cancel` and `resume` take. So there is no lock here — the
+  //      handle is picked free, and two of these never meet.
+  //   2. **The repo cannot be resolved from a number.** The caller supplies it —
+  //      the router fills in the only watched repo when there is one — so this
+  //      checks the watch list itself rather than asking #resolveRepo, which
+  //      answers "which repo owns #n" and no map owns anything yet.
+  //   3. **There is no issue to read.** The record #dispatch works from is
+  //      synthesised from the instruction, and it carries the map label so
+  //      routing picks the map model exactly as it does for `map <n>`.
+  //
+  // `handle` is passed only by resume, which is re-dispatching a chat that
+  // already has one — its thread, its worktree and its journal epoch all answer
+  // to that name, so picking a fresh index would strand all three.
+  async chartNew({ repo, model, instruction = null, by, reuse = false, threadId = null, handle = null } = {}) {
+    if (!String(instruction ?? '').trim()) {
+      return '❌ a new map needs a sentence to chart from — `map [repo] -- <what to chart>`'
+    }
+    if (!repo) return '❌ a new map needs a repo — nothing says where to create the issue'
+    if (!this.config.watch.some((w) => w.repo === repo)) return `❌ \`${repo}\` is not on the watch list`
+    // The index has to be free on the BOX, not merely in this process's memory:
+    // a restarted daemon holds no agents map, and handing a live pane's handle
+    // to a second agent would put two of them on one tmux session, one config
+    // dir and one thread. tmux is the authority the dispatch locks already ask.
+    let live = []
+    try {
+      live = await this.deps.listSessions()
+    } catch (e) {
+      return `❌ the tmux session list is indeterminate (${e.message}), so curia cannot pick a free chat handle — retry`
+    }
+    const chat = handle ?? nextChatHandle([...live, ...this.agents.keys(), ...this.inFlight])
+    const session = `curia-${chat}`
+    if (this.inFlight.has(session)) return `⚙️ \`${session}\` is already starting`
+    if (this.agents.has(session)) {
+      const w = this.agents.get(session)
+      return `▶️ \`${session}\` is already running (state **${w.state ?? '?'}**) — \`cancel ${chat}\` first, or \`attach ${chat}\``
+    }
+    this.inFlight.add(session)
+    try {
+      if (await this.deps.hasSession(session)) {
+        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${chat}\` tears it down, then \`map -- …\` again`
+      }
+      const issue = newMapIssue(chat, instruction)
+      return (await this.#dispatch(repo, chat, issue, {
+        model, instruction, by, reuse, threadId, charting: true,
+      })) ?? this.#exhaustedReply()
+    } finally {
+      this.inFlight.delete(session)
+    }
+  }
+
+  // The live chat agent that has already created map #n (#241), if there is one.
+  // `chart` asks so that `map <n>` on a map still being charted is refused by
+  // the same lock every other charting dispatch obeys: the session name is the
+  // lock, and after the adoption a chat session speaks for that number too.
+  #chatOnMap(n) {
+    for (const w of this.agents.values()) {
+      if (w.mapNumber && String(w.mapNumber) === String(n)) return w
+    }
+    return null
   }
 
   // Resolve which watched repo a bare ticket number belongs to. A number
@@ -621,6 +745,12 @@ export class Dispatcher {
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
   async #dispatch(repo, n, issue, { model, instruction = null, by, reuse = false, threadId = null, charting = false }) {
     const session = `curia-${n}`
+    // #241: a new-map dispatch is charting with no map, so there is no number to
+    // name anywhere below. Everything downstream reads THIS rather than a falsy
+    // mapNumber, because a mapless TICKET is also falsy and means the opposite
+    // thing (the flat lane, where no map is involved at all). Declared out here
+    // because the failure path names it too.
+    const newMap = charting && isChatHandle(n)
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     // The type label, read once and used twice: it names the thread (#93) and
     // it reaches the agent prompt (#49 decision 2). One read, so the thread a
@@ -729,8 +859,8 @@ export class Dispatcher {
       // not asking #mapNumberFor for a parent) is what puts the `/wayfinder`
       // line on the prompt and arms #assertTracker: a charting agent without
       // the tracker doc is exactly the agent that would chart into `.scratch/`.
-      const mapNumber = charting ? Number(n) : await this.#mapNumberFor(repo, full)
-      this.#assertTracker(repo, n, session, wtPath, mapNumber)
+      const mapNumber = charting ? (newMap ? null : Number(n)) : await this.#mapNumberFor(repo, full)
+      this.#assertTracker(repo, n, session, wtPath, mapNumber, { charting })
       this.#assertNoPlantedConfig(wtPath, harnessName)
       this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, wtPath, cfgDir, view, sandbox })
       // #157: the prompt NAMES the published ports, so they are allocated before
@@ -742,7 +872,7 @@ export class Dispatcher {
       // that stops a dispatched `wayfinder:grilling` agent from standing in for
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
-        repo, wtPath: view.wt, mapNumber, type: typeLabel, charting, instruction, ports,
+        repo, wtPath: view.wt, mapNumber, type: typeLabel, charting, newMap, instruction, ports,
         // #173: the wayfinder invocation is spelled per harness, so the prompt
         // is no longer harness-blind.
         harness: harnessName,
@@ -763,6 +893,11 @@ export class Dispatcher {
       this.store.logEvent('agent_spawned', {
         repo, ticket: n, agent: session, instance, model: useModel, harness: harnessName,
         kind: spawnKind({ charting }), instruction: charting ? instruction : null,
+        // #241: which of the two charting shapes this is. A restarted daemon
+        // reads it back the same way it reads the kind — without it, a resumed
+        // new-map agent would be sent to `chart new`, and `chart` refuses a
+        // handle no issue answers to.
+        ...(newMap ? { newMap: true } : {}),
         // The journal is the state home for what a restart cannot re-derive
         // from tmux: which image this agent runs and which ports it published.
         ...(container ? { sandbox: 'docker', image: container.image, ports: container.ports } : {}),
@@ -787,6 +922,10 @@ export class Dispatcher {
         // asked for. Journalled beside it (agent_spawned above) so a daemon
         // restart re-derives both — see #epochCharting.
         charting, instruction: charting ? instruction : null,
+        // #241: a new-map agent, and the map number it has created so far. The
+        // number arrives on the side channel (see adoptMap) rather than at the
+        // spawn, because nothing knows it yet.
+        newMap, mapNumber: null,
         // this spawn's exit marker (#169) — the watchdog's fail-fast signal
         exitMarker,
         // this ticket's own text can forge the usage-limit signal ⇒ the
@@ -795,6 +934,9 @@ export class Dispatcher {
       }
       this.agents.set(session, agent)
       this.#watchdog(agent).catch((e) => this.log(`watchdog ${session} failed:`, e.message))
+      if (newMap) {
+        return `⚙️ charting agent for a NEW map in ${repo} → \`${session}\` on **${useModel}** — it settles the destination with you, then creates the \`${MAP_LABEL}\` issue. \`attach ${n}\` to watch, \`cancel ${n}\` to end it`
+      }
       if (charting) {
         return `⚙️ charting agent on map ${repo}#${n} → \`${session}\` on **${useModel}**${instruction ? '' : ' — no instruction rode this dispatch, so it will ask what should change'} — watching for readiness`
       }
@@ -830,9 +972,12 @@ export class Dispatcher {
       // The binding stays (#140): a failed dispatch is a claim release, not a
       // ticket-terminal state — the retry's traffic belongs in the same thread.
       const claimTail = charting
-        ? 'the map was never claimed, so nothing was released — `map ' + n + '` again when the cause is fixed'
+        ? `nothing was claimed, so nothing was released — \`${newMap ? 'map -- <what to chart>' : `map ${n}`}\` again when the cause is fixed`
         : released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'
-      return `⚠️ dispatch of ${repo}#${n} failed before the agent could run: ${e.message} — ${claimTail}`
+      // #241: a new-map dispatch has no issue to name, so it names what it was
+      // for. `${repo}#new` would read as an issue number that does not exist.
+      const what = newMap ? `a new map in ${repo}` : `${repo}#${n}`
+      return `⚠️ dispatch of ${what} failed before the agent could run: ${e.message} — ${claimTail}`
     }
   }
 
@@ -970,11 +1115,16 @@ export class Dispatcher {
   // and #10 watches ANY plain repo through the flat lane — refusing those for a
   // missing doc would take that lane away. It gets a journal line instead, so
   // the absence is on the record either way.
-  #assertTracker(repo, n, session, wtPath, mapNumber) {
+  #assertTracker(repo, n, session, wtPath, mapNumber, { charting = false } = {}) {
     if (fs.existsSync(path.join(wtPath, TRACKER_DOC))) return
-    if (mapNumber) {
-      const what = String(mapNumber) === String(n) ? `map #${n}` : `map child #${n}`
-      throw new Error(`${repo} has no ${TRACKER_DOC}, so an agent on ${what} would fall back to the local-markdown tracker and write .scratch/ files instead of resolving on GitHub — run \`/setup-matt-pocock-skills\` in ${repo} first`)
+    // #241: a NEW-map dispatch has no map number and still must not run without
+    // the doc — it is the agent that would create the whole map in `.scratch/`,
+    // which is the worst version of this fault rather than an exempt one.
+    if (mapNumber || charting) {
+      const what = mapNumber
+        ? `an agent on ${String(mapNumber) === String(n) ? `map #${n}` : `map child #${n}`}`
+        : 'an agent charting a new map'
+      throw new Error(`${repo} has no ${TRACKER_DOC}, so ${what} would fall back to the local-markdown tracker and write .scratch/ files instead of resolving on GitHub — run \`/setup-matt-pocock-skills\` in ${repo} first`)
     }
     this.store.logEvent('tracker_doc_missing', { repo, ticket: n, agent: session })
   }
@@ -2499,7 +2649,12 @@ export class Dispatcher {
       // #160: which of the two endings this agent is held to. `outstanding`
       // picks the checklist off it, so a charting agent is never nudged toward
       // a pull request, a review or a merge it is forbidden to reach.
+      // #241 adds the third: a NEW-map dispatch owes one step more than a map
+      // dispatch — the map has to exist, and curia has to be told its number,
+      // or the session ends with its summary nowhere and its thread on a handle.
       charting: this.#epochCharting(ticket, agentName).charting,
+      newMap: this.#epochCharting(ticket, agentName).newMap,
+      mapAdopted: Boolean(this.#chartedMap(agentName, ticket, w)),
     }
     // A charting agent has one daemon-visible step, and it is not in git or on
     // GitHub — so the reads below are skipped whole. The Stop hook fires at the
@@ -2688,11 +2843,17 @@ export class Dispatcher {
   // its life describing itself as a ticket dispatch.
   #epochCharting(ticket, agentName) {
     const w = this.agents.get(agentName)
-    if (w) return { charting: Boolean(w.charting), instruction: w.instruction ?? null }
-    let out = { charting: false, instruction: null }
+    if (w) {
+      return {
+        charting: Boolean(w.charting), instruction: w.instruction ?? null, newMap: Boolean(w.newMap),
+      }
+    }
+    let out = { charting: false, instruction: null, newMap: false }
     for (const ev of this.#readJournal()) {
       if (ev.type !== 'agent_spawned' || String(ev.ticket ?? '') !== String(ticket)) continue
-      out = { charting: ev.kind === 'charting', instruction: ev.instruction ?? null }
+      // #241: which SHAPE of charting, restated by every respawn for the same
+      // reason the kind is (#219) — the last line has to describe the agent whole.
+      out = { charting: ev.kind === 'charting', instruction: ev.instruction ?? null, newMap: Boolean(ev.newMap) }
     }
     return out
   }
@@ -2778,27 +2939,128 @@ export class Dispatcher {
     // until the session is positively gone — the #noteNonClean rule, same
     // reason (#34's snapshot bound).
     await this.#releaseClaim(record, 'charting agent reported in', { keepCredentials: true })
+    // #241: WHICH map this summary belongs on. For `map <n>` the ticket IS the
+    // map. For a new-map dispatch the ticket is a chat handle, and the map is
+    // whatever the agent created and adopted — so a session that never adopted
+    // one has nowhere to post, and that is said out loud rather than failing
+    // quietly against an issue called `chat-1`.
+    const map = this.#chartedMap(agentName, ticket, w)
     let noted = false
-    try {
-      await this.deps.commentIssue(repo, ticket, chartingComment({
-        agent: agentName, model: w?.model ?? null, instruction, result,
-      }))
-      noted = true
-    } catch (e) {
-      this.log(`could not post the charting summary on ${repo}#${ticket}: ${e.message}`)
+    if (map) {
+      try {
+        await this.deps.commentIssue(repo, map, chartingComment({
+          agent: agentName, model: w?.model ?? null, instruction, result,
+        }))
+        noted = true
+      } catch (e) {
+        this.log(`could not post the charting summary on ${repo}#${map}: ${e.message}`)
+      }
     }
     this.store.logEvent('charting_finished', {
-      repo, map: ticket, ticket, agent: agentName, status: result.status, commented: noted,
+      repo, map: map ?? null, ticket, agent: agentName, status: result.status, commented: noted,
     })
     const clean = result.status === 'resolved'
     const bits = [
-      noted ? 'summary posted on the map' : '⚠️ the summary comment could NOT be posted',
+      map
+        ? (noted ? 'summary posted on the map' : '⚠️ the summary comment could NOT be posted')
+        : '⚠️ this session created NO map, so there is nowhere to post its summary — read the thread',
       // #221: nothing to unassign — the dispatch never claimed the map.
       'the map was never claimed',
-      'the map stays open',
+      map ? 'the map stays open' : 'nothing on the tracker was touched by curia',
     ]
-    this.notify(ticket, `${clean ? '🗺️' : '↩️'} ${repo}#${ticket} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`)
+    const what = map ? `${repo}#${map}` : `the new map in ${repo}`
+    this.notify(ticket, `${clean ? '🗺️' : '↩️'} ${what} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`)
     return `charting recorded — ${bits.join('; ')}. Nothing was closed, resolved or pushed.`
+  }
+
+  // ---- adoption: the daemon learns the new map's number (#241) -----------------
+
+  // The `map_created` tool. A new-map charting agent calls it the moment it has
+  // created the `wayfinder:map` issue, and from that call on the session speaks
+  // for that number: the status line names it, `map <n>` is refused while this
+  // agent lives, the thread becomes the map's thread, and the charting summary
+  // has somewhere to land.
+  //
+  // curia VERIFIES the number rather than believing it. The whole reason the
+  // side channel exists is that a daemon record built from an agent's own
+  // account is not evidence (#40's rule, and the review gate's links follow it
+  // too) — so this reads the issue, and refuses a number that is not an open
+  // map in this session's own repo. A refusal is a sentence the agent can act
+  // on, never a silent no-op.
+  //
+  // Idempotent: the same number twice is a no-op, and a DIFFERENT number is
+  // refused. One charting session charts one map — a second one would leave the
+  // first with no summary, no thread and no lock.
+  async adoptMap(agentName, numberArg) {
+    const raw = String(numberArg ?? '').trim().replace(/^#/, '')
+    if (!/^\d+$/.test(raw)) {
+      return `❌ map_created takes the issue NUMBER of the map you created — \`${numberArg}\` is not one`
+    }
+    if (this.#isReviewer(agentName)) {
+      return '❌ a cross-check reviewer writes nothing — it does not create maps. Put what you found in your verdict.'
+    }
+    const w = this.agents.get(agentName)
+    if (!w) return `❌ curia holds no record of \`${agentName}\`, so it cannot take a map for it`
+    if (!w.newMap) {
+      return w.charting
+        ? `❌ \`${agentName}\` was dispatched on an existing map (${w.repo}#${w.ticket}) — there is no new map to take. Edit that one.`
+        : '❌ map_created belongs to a charting agent that was sent to create a map. This session is working a ticket.'
+    }
+    if (w.mapNumber && String(w.mapNumber) !== raw) {
+      return `❌ this session already created ${w.repo}#${w.mapNumber}. One charting session charts one map — put the rest on that map, or say so and stop.`
+    }
+    let issue
+    try {
+      issue = await this.deps.fetchIssue(w.repo, raw)
+    } catch (e) {
+      return `❌ curia could not read ${w.repo}#${raw} (${e.message}) — create the issue first, then call map_created again`
+    }
+    if (issue.state !== 'open') return `❌ ${w.repo}#${raw} is ${issue.state} — a map is charted open`
+    if (!hasLabel(issue, MAP_LABEL)) {
+      return `❌ ${w.repo}#${raw} carries no \`${MAP_LABEL}\` label, so nothing on the tracker reads it as a map — add the label, then call map_created again`
+    }
+    if (w.mapNumber) return `already taken — ${w.repo}#${raw} is this session's map`
+    w.mapNumber = raw
+    w.title = issue.title
+    this.store.logEvent('map_adopted', {
+      repo: w.repo, ticket: w.ticket, map: raw, agent: agentName, title: issue.title,
+    })
+    // The thread follows the map (#241). Never fatal: a rename that does not
+    // happen costs a stale thread name, and the binding is journalled either way.
+    try {
+      await this.threads.adoptMap?.(w.ticket, raw, { repo: w.repo, title: issue.title })
+    } catch (e) {
+      this.log(`thread adoption for ${agentName} → ${w.repo}#${raw} failed (${e.message}) — the binding stays on the handle`)
+    }
+    this.notify(w.ticket, `🗺️ \`${agentName}\` created ${w.repo}#${raw} **${issue.title}** — curia has taken it as this session's map`)
+    return `curia has taken ${w.repo}#${raw} **${issue.title}** as this session's map. \`map ${raw}\` is refused while you run, and your report_result summary lands there.`
+  }
+
+  // WHICH map a charting session is responsible for (#241). On `map <n>` the
+  // ticket IS the map. On a new-map dispatch the ticket is the handle, and the
+  // map is whatever the agent created and reported — null until it does, which
+  // is a real state and not a fault: a session cancelled before it created
+  // anything has no map, and saying so beats posting to an issue called `new`.
+  #chartedMap(agentName, ticket, w) {
+    if (!isChatHandle(ticket)) return String(ticket)
+    const live = (w ?? this.agents.get(agentName))?.mapNumber
+    if (live) return String(live)
+    return this.#epochAdoptedMap(agentName)
+  }
+
+  // The number this session reported through `map_created`, read off the
+  // journal for an agent record this process never held (a restart mid-session,
+  // or a reconcile-adopted agent). Reset at every spawn line for the session, so
+  // a resumed handle does not inherit the map of the dispatch before it — that
+  // map exists now, and `map <n>` is the verb for it.
+  #epochAdoptedMap(agentName) {
+    let out = null
+    for (const ev of this.#readJournal()) {
+      if (ev.agent !== agentName) continue
+      if (ev.type === 'agent_spawned') out = null
+      else if (ev.type === 'map_adopted' && ev.map) out = String(ev.map)
+    }
+    return out
   }
 
   // A non-clean result resolves NOTHING — and the ticket has to actually come
@@ -3322,6 +3584,10 @@ export class Dispatcher {
     // A cancelled MAP dispatch has no claim to release (#221) — the same guard
     // #releaseClaim carries, at the other teardown path.
     const charting = Boolean(w?.charting) || (!w && this.#epochCharting(ticket, session).charting)
+    // #241: what a cancelled CHAT leaves behind is its map, if it made one —
+    // and nothing at all if it did not. Both are worth saying: "the edits
+    // stand" on a session that created nothing is a lie about the tracker.
+    const chartedMap = charting && isChatHandle(ticket) ? this.#chartedMap(session, ticket, w) : null
     let released = false
     let failure = null
     if (w) {
@@ -3352,9 +3618,14 @@ export class Dispatcher {
     // status's recent-cancelled view reads this event; the unclaim events
     // above cannot carry it because an untracked cancel writes none.
     this.store.logEvent('agent_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
+    const chartTail = isChatHandle(ticket)
+      ? (chartedMap
+        ? `, checkout removed — nothing was claimed, and the map it created (${w?.repo ? `${w.repo}#` : '#'}${chartedMap}) STANDS`
+        : ', checkout removed — nothing was claimed, and it had created no map yet, so the tracker is untouched')
+      : ', checkout removed — the map was never claimed, and whatever the agent already wrote to it STANDS'
     const tail = w
       ? (charting
-        ? ', checkout removed — the map was never claimed, and whatever the agent already wrote to it STANDS'
+        ? chartTail
         : released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
       : ' (was untracked; GitHub claim untouched)'
     const msg = `⚰️ \`${session}\` cancelled — session killed${tail}${reviewerLine ? `\n${reviewerLine}` : ''}`
@@ -3423,8 +3694,25 @@ export class Dispatcher {
     // `chart`, and `chart` refuses an issue that has since lost the map label
     // rather than guessing: there is no map left to chart, and `start <n>` is
     // the verb for what the issue has become.
-    const { charting, instruction } = this.#epochCharting(ticket, session)
+    const { charting, instruction, newMap } = this.#epochCharting(ticket, session)
     const inherited = { repo, model: model ?? this.#inheritedModel(session), by, reuse: true, threadId }
+    // #241: `resume chat-1` is the one resume whose subject may have changed
+    // shape while it ran. Once the agent created its map, that map EXISTS — and
+    // resume names a session, not a subject, so it must not quietly re-dispatch
+    // a "create a map" agent onto a repo that now has one. It names the verb
+    // that carries on instead, which is the same refusal `start <map>` gives
+    // when the operator reached for the wrong one.
+    //
+    // The handle is carried over, not re-picked: the thread, the worktree and
+    // the journal epoch all answer to it.
+    if (newMap) {
+      const adopted = this.#epochAdoptedMap(session)
+      const theRepo = repo ?? this.#epochRepo(ticket)
+      if (adopted) {
+        return `❌ \`${session}\` already created ${theRepo ? `${theRepo}#${adopted}` : `#${adopted}`} — that map exists now, so it is charted by number: \`map ${adopted} -- <what is left to do>\``
+      }
+      return this.chartNew({ ...inherited, instruction, repo: theRepo, handle: ticket })
+    }
     if (charting) return this.chart(ticket, { ...inherited, instruction })
     return this.start(ticket, inherited)
   }
@@ -3838,7 +4126,17 @@ export class Dispatcher {
       // every spawn (#219), and that line is the positive evidence now: this
       // daemon (or its predecessor) spawned the session as charting. The map
       // being open still gates adoption below, exactly as it does a builder.
-      const { charting, instruction } = this.#epochCharting(n, session)
+      const { charting, instruction, newMap } = this.#epochCharting(n, session)
+      // #241: a CHAT session has no issue to prove itself by. `getIssue(repo,
+      // 'chat-1')` is a 404, which every test below reads as "positively
+      // absent" — so a live charting agent would be swept as an orphan on the
+      // first pass after a restart. Its positive evidence is the journal: this
+      // daemon, or its predecessor, spawned this handle as a new-map dispatch.
+      // The same evidence #228 gave a map dispatch, for the same reason.
+      if (isChatHandle(n)) {
+        await this.#reconcileChatSession(session, n, { journal, epochs, charting, instruction, newMap, getIssue, skipRepo, failedRepos })
+        continue
+      }
       const epoch = epochs.get(n)
       const reposToCheck = epoch?.repo ? [epoch.repo] : this.config.watch.map((w) => w.repo)
       let adopted = false
@@ -3940,6 +4238,98 @@ export class Dispatcher {
       this.deps.forgetAgentToken(this.dataDir, session)
       this.log(`reconcile: swept orphan ${session}`)
     }
+  }
+
+  // A live `curia-chat-<i>` session (#241): re-adopt it, or sweep it.
+  //
+  // The evidence is inverted here, and it has to be. Every other pass in this
+  // file asks GitHub "do we still own this?" — a claim, an open issue, an
+  // assignee. A chat session owns no issue by definition, so GitHub can say
+  // nothing about it, and the evidence rule forbids reading that silence as a
+  // disowning. What speaks positively is the journal: a spawn line naming this
+  // handle as a new-map dispatch says curia (or its predecessor) started it.
+  //
+  // So there are exactly two ways to sweep one, and both are positive:
+  //
+  //   1. NO spawn line for the handle at all. Nothing curia ever did explains
+  //      this pane, which is what "orphan" has always meant.
+  //   2. It adopted a map, and that map is now CLOSED. The subject of the work
+  //      is positively finished — the same test that retires a builder.
+  //
+  // A `map_adopted` epoch whose map is open, or a chat with no map yet, is
+  // adopted. Adoption is what keeps its ending: `report_result` needs a record
+  // to post the charting summary against.
+  async #reconcileChatSession(session, handle, { journal, epochs, charting, instruction, newMap, getIssue, skipRepo, failedRepos }) {
+    const epoch = epochs.get(handle)
+    const spawn = this.#epochSpawn(journal, session)
+    const repo = epoch?.repo ?? null
+    if (!charting || !repo) {
+      this.store.logEvent('orphan_swept', { agent: session, ticket: handle, reason: 'no curia dispatch explains this chat handle' })
+      await this.deps.killSession(session).catch(() => {})
+      try {
+        this.deps.removeConfigDir(cfgDirFor(this.root, session))
+      } catch (e) {
+        this.log(`reconcile: could not remove the config dir of swept orphan ${session} (${e.message}) — leftovers stay for the next pass`)
+      }
+      this.deps.forgetAgentToken(this.dataDir, session)
+      this.log(`reconcile: swept orphan ${session} — no charting dispatch in the journal`)
+      return
+    }
+    const mapNumber = this.#epochAdoptedMap(session)
+    let title = `new map in ${repo}`
+    if (mapNumber && !failedRepos.has(repo)) {
+      let issue
+      try {
+        issue = await getIssue(repo, mapNumber)
+      } catch (e) {
+        // indeterminate ⇒ neither adopt on a guess nor sweep on one: leave the
+        // pane alone and let the next pass read it
+        skipRepo(repo, e)
+        return
+      }
+      if (issue && issue.state !== 'open') {
+        this.store.logEvent('orphan_swept', { agent: session, ticket: handle, reason: `${repo}#${mapNumber} is ${issue.state}` })
+        await this.deps.killSession(session).catch(() => {})
+        await this.#sweepWorktree(repo, handle, session)
+        try {
+          this.deps.removeConfigDir(cfgDirFor(this.root, session))
+        } catch (e) {
+          this.log(`reconcile: could not remove the config dir of swept orphan ${session} (${e.message}) — leftovers stay for the next pass`)
+        }
+        this.deps.forgetAgentToken(this.dataDir, session)
+        return
+      }
+      if (issue) title = issue.title
+    }
+    const ports = this.config.sandbox
+      ? await this.deps.containerPorts(session).catch((e) => {
+        this.log(`reconcile: could not read the published ports of ${session} (${e.message}) — previews are refused for it`)
+        return []
+      })
+      : []
+    const instance = `${session}@adopted-${Date.now()}`
+    this.agents.set(session, {
+      repo, ticket: handle, title, session, instance,
+      wtPath: worktreePathFor(this.root, repo, handle),
+      cfgDir: cfgDirFor(this.root, session),
+      promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
+      model: spawn?.model ?? null, requestedModel: null,
+      harness: spawn?.harness ?? null,
+      provider: this.routing.models[spawn?.model]?.provider ?? null,
+      ports: ports.length ? ports : null,
+      sandbox: ports.length ? 'docker' : null,
+      spawnedAt: null, state: 'ready',
+      // A chat handle is a new-map dispatch and nothing else today. The journal
+      // is still read for it (newMap above) so that the day a second kind of
+      // chat exists, this line is the one that has to change.
+      charting: true, instruction, newMap: newMap !== false,
+      // the map it had already created, restated on the record so #chartedMap
+      // and the `map <n>` lock answer without re-reading the journal
+      mapNumber: mapNumber ?? null,
+      resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
+    })
+    this.log(`reconcile: re-adopted live chat agent ${session} (${repo}${mapNumber ? `#${mapNumber}` : ', no map yet'})`)
+    this.expireNotesFor(session, handle, 'was adopted after a daemon restart', instance)
   }
 
   // Live `curia-review-<n>` sessions (#164): re-adopt the ones the journal can

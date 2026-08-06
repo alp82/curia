@@ -32,6 +32,47 @@ export function validSessionName(s) {
   return /^curia-[A-Za-z0-9._-]+$/.test(s)
 }
 
+// ---- the chat handle: an agent with no ticket (#241) ------------------------
+//
+// Every curia agent until now was named by an issue number, because every one
+// of them was dispatched ON an issue. `map -- <prose>` breaks that: it charts a
+// map that does not exist yet, so there is no number to name the session, the
+// tmux pane, the config dir or the thread with — and the operator still has to
+// reach it with `attach`, `cancel` and `resume`.
+//
+// The operator's ruling (#241): ENUMERATE the ticketless ones. `chat-1`,
+// `chat-2`, and so on — the lowest free index at dispatch — each with its own
+// thread, all of them live at once. That is deliberately a general principle
+// and not a new-map special case: a chat is any agent curia runs that no issue
+// answers for, and the next kind of one gets its handle from here too.
+//
+// So the handle IS the identity: session `curia-chat-1`, `attach chat-1`,
+// `cancel chat-1`, `resume chat-1`, and `chat-1` in the `status` list.
+//
+// It lives HERE because attach.mjs owns the session-name vocabulary and is the
+// one module the command surface and the dispatcher both already import. The
+// regex above takes it as it stands: session names were never numeric-only.
+export const CHAT_PREFIX = 'chat-'
+export const CHAT_HANDLE_RE = /^chat-\d+$/
+export const isChatHandle = (s) => CHAT_HANDLE_RE.test(String(s ?? ''))
+export const chatHandle = (i) => `${CHAT_PREFIX}${i}`
+export const chatSession = (i) => `curia-${chatHandle(i)}`
+
+// The lowest index no live session already holds. `taken` is every session name
+// curia knows about — its own table plus what tmux reports — because the index
+// has to be free on the BOX, not merely in this process's memory: the same rule
+// that makes the dispatch locks ask tmux rather than the agents map.
+export function nextChatHandle(taken = []) {
+  const used = new Set()
+  for (const s of taken) {
+    const m = String(s).match(/^curia-chat-(\d+)$/)
+    if (m) used.add(Number(m[1]))
+  }
+  let i = 1
+  while (used.has(i)) i += 1
+  return chatHandle(i)
+}
+
 function portLive(port) {
   return new Promise((resolve) => {
     const sock = net.connect({ host: '127.0.0.1', port, timeout: 750 })

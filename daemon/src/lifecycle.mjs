@@ -138,6 +138,46 @@ export const CHARTING_ENDING = [
   },
 ]
 
+// ---- the new-map ending (#241) ------------------------------------------------
+//
+// A third ending, and it is the charting one with a step in front of it. A map
+// dispatch is handed its map; a NEW-map dispatch has to bring one into being
+// first, and until it does, curia knows nothing to hang the session on: not
+// where the summary comment goes, not what the thread is called, not which map
+// `map <n>` must refuse while this agent lives.
+//
+// So the adoption is a STEP, not a courtesy. It is the one thing the daemon
+// cannot see for itself — GitHub has no query for "the map this pane just made"
+// — and the Stop hook holds the agent to it for exactly that reason. The tool
+// verifies the number before taking it (dispatch.mjs, adoptMap), so a step
+// reported is a step done.
+export const NEW_MAP_ENDING = [
+  {
+    key: 'chart',
+    prose: () => [
+      'Settle the destination and the scope WITH the operator, then create the `wayfinder:map` issue and',
+      'its first tickets yourself. Those tracker writes ARE the work. Nothing here is staged or merged.',
+    ],
+  },
+  {
+    key: 'adopt',
+    prose: () => [
+      'Call `map_created` with the number of the map you created, as soon as it exists — not at the end.',
+      'Until you do, curia does not know which map is yours: your thread keeps a handle for a name, a',
+      'second charting agent could be sent to the same map, and your summary has nowhere to land.',
+    ],
+    todo: (s) => (s.mapAdopted ? null : 'create the `wayfinder:map` issue, then call `map_created` with its number'),
+  },
+  {
+    key: 'report',
+    prose: () => [
+      'Call `report_result` exactly once, with `resolved` and a summary of what you charted.',
+      'curia posts that summary as a comment on the map you created. It never closes the map.',
+    ],
+    todo: (s) => (s.hasResult ? null : 'call `report_result` exactly once'),
+  },
+]
+
 // What a charting agent must NOT do — one bullet per entry, its own lines.
 // Prose only: the refusals themselves live in dispatch.mjs, and this is the
 // copy the model reads.
@@ -198,6 +238,7 @@ export const REVIEWER_NEVER = [
 
 const listFor = (state) => {
   if (state.reviewer) return REVIEW_ENDING
+  if (state.newMap) return NEW_MAP_ENDING
   return state.charting ? CHARTING_ENDING : ENDING
 }
 

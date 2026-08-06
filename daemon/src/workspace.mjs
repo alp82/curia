@@ -1199,7 +1199,7 @@ export function writeConnectionSettings({
 // has to mean for an instruction that decides what the whole session does.
 // The text is never shell-substituted — the spawn template reads this file with
 // `$(cat …)` — so it needs no quoting rules of its own.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, instruction = null, ports = null, harness = 'claude' }) {
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false, instruction = null, ports = null, harness = 'claude' }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
   // An unknown harness would take the claude spelling of the invocation in
   // silence, which is the failure #173 exists to end. harnessDef throws on a
@@ -1226,8 +1226,42 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   // claude slash command, `$wayfinder` is codex's own way of naming a skill.
   // Everything after the sigil is identical, so a human reading two prompts
   // side by side reads one document.
+  //
+  // A NEW-map dispatch (#241) names no map, because there is none: the bare
+  // sigil is the skill's OTHER invocation, "chart the map", which starts from a
+  // loose idea. The operator's sentence IS that idea, and it rides the params
+  // below rather than the invocation line — the line is one line, and this one
+  // is a paragraph the operator wrote.
   const sigil = harness === 'codex' ? '$wayfinder' : '/wayfinder'
-  const invocation = mapNumber ? [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, ''] : []
+  const invocation = newMap
+    ? [sigil, '']
+    : mapNumber ? [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, ''] : []
+
+  // The params of a NEW-map dispatch (#241). The difference from a map dispatch
+  // is one fact with consequences everywhere: the map does not exist. So this
+  // session runs the skill's CHART mode whole — name the destination, grill
+  // breadth-first, then create the map and the tickets it can already state —
+  // and it owes curia the number the moment it has one.
+  const newMapParams = [
+    '- **This is a NEW-MAP DISPATCH.** No map exists yet. Run the skill\'s "Chart the map" mode from the',
+    '  top: name the destination with the operator, map the frontier breadth-first, then create the',
+    `  \`wayfinder:map\` issue in ${repo} and the tickets you can already state. Its "work through the map"`,
+    '  mode does not apply — there is nothing to work through until you have built it.',
+    '- **The destination and the scope are the operator\'s to settle, not yours.** This is a HITL session:',
+    '  many `ask_human` calls, one question at a time, until the destination is sharp enough to write down.',
+    '  Never answer for them, and never chart around a question you could have asked.',
+    '- **The moment the map issue exists, call `map_created` with its number.** Not at the end — then.',
+    '  Until you do, curia does not know which map is yours: your thread has no name, another charting',
+    '  agent could be sent to the same map, and your summary at the end has nowhere to go.',
+    '- **If the grilling shows no map is needed** — the whole way is already clear, and one session could',
+    '  do it — say so and stop. The skill says this too. Report `blocked` with that finding, and create no',
+    '  map. An unnecessary map is worse than none.',
+    '- **What the operator asked for**, in their own words:',
+    '',
+    `  > ${instruction ?? '(nothing)'}`,
+    '',
+    '  This is the loose idea, not a specification. It is where the grilling starts.',
+  ]
 
   const chartingParams = [
     `- **This is a MAP DISPATCH.** ${repo}#${n} is the map itself, not a ticket under it. Your job is to`,
@@ -1252,7 +1286,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
       ]),
   ]
 
-  const params = charting ? chartingParams : [
+  const params = newMap ? newMapParams : charting ? chartingParams : [
     ...(mapNumber
       ? [`- The map is ${repo}#${mapNumber} — ${mapUrl}. curia has loaded it for you.`]
       : ['- This ticket belongs to no map, so there is no map to work through and no map line to append.']),
@@ -1288,7 +1322,15 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   const bounds = [
     '- **Read anything.** Zoom into any issue, map, sibling or closed ticket you need. Nothing here limits',
     '  reading.',
-    ...(charting
+    ...(newMap
+      ? [
+        `- **Write only:** the ONE \`wayfinder:map\` issue you create in ${repo}, and its child tickets.`,
+        '  Nothing else on the tracker — no existing issue is yours to edit, whatever you find while',
+        `  reading. And nothing on disk: ${wtPath} is a read-only checkout to you. A charting session`,
+        '  produces no code, no commit and no branch.',
+        "- Do not rewrite anyone else's text.",
+      ]
+      : charting
       ? [
         `- **Write only:** the map ${repo}#${n} and its child tickets. Nothing else on the tracker, and`,
         `  nothing on disk: ${wtPath} is a read-only checkout to you. A map dispatch produces no code, no`,
@@ -1366,6 +1408,12 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes. This is how you reach the operator who dispatched you.',
     '- `notify` — a status line for the human. Returns at once.',
+    ...(newMap ? [
+      '- `map_created` — tell curia the number of the map you created, the moment it exists. curia checks',
+      '  the issue is really an open `wayfinder:map` in this repo, then takes it as this session\'s map:',
+      '  the thread is renamed to it, `map <n>` on it is refused while you run, and your final summary',
+      '  lands there. Call it once, and never before the issue exists.',
+    ] : []),
     '- `report_result` — exactly once, at the very end. Its summary becomes curia\'s comment on the map.',
     '- `open_pull_request`, `request_review` and `publish_preview` belong to a ticket dispatch. curia',
     '  refuses the first two on a map dispatch, and there is nothing here to preview.',
@@ -1432,7 +1480,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '',
     '## How this ends',
     '',
-    ...endingProse({ repo, ticket: n, branch, mapNumber, charting }),
+    ...endingProse({ repo, ticket: n, branch, mapNumber, charting, newMap }),
     '',
     ...(charting
       ? [

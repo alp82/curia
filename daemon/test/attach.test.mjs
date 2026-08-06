@@ -11,7 +11,7 @@ import path from 'node:path'
 import {
   ttydArgv, ensureTtyd, verifiedHardenedArgv, canonicalArgv, WRAPPER_PATH, validSessionName,
   attachUrl, serveOff, DEFAULT_INDEX, CHROME_BASENAME, indexRefusal, readIndexStamp,
-  stampMeta, sha256, ttydVersion, TTYD_BIN,
+  stampMeta, sha256, ttydVersion, TTYD_BIN, isChatHandle, nextChatHandle,
 } from '../src/attach.mjs'
 
 const INDEX = '/opt/curia/attach-index.html'
@@ -254,5 +254,30 @@ describe('session-name gate', () => {
   test('attachUrl refuses an invalid session name', () => {
     assert.throws(() => attachUrl('host.ts.net', 8443, '42; x'))
     assert.equal(attachUrl('host.ts.net', 8443, '42'), 'https://host.ts.net:8443/?arg=curia-42')
+  })
+
+  // #241: an agent no issue answers for is named by a chat handle, and the
+  // wrapper whitelist has to take it as it stands — session names were never
+  // numeric-only, which is what makes this a widening of use, not of trust.
+  test('a chat handle is a valid session name and reaches attach', () => {
+    assert.ok(validSessionName('curia-chat-1'))
+    assert.ok(isChatHandle('chat-1'))
+    assert.ok(!isChatHandle('chat'))
+    assert.ok(!isChatHandle('chat-1; rm -rf /'))
+    assert.equal(attachUrl('host.ts.net', 8443, 'chat-2'), 'https://host.ts.net:8443/?arg=curia-chat-2')
+  })
+})
+
+describe('chat handles enumerate (#241)', () => {
+  test('the first free index wins, and gaps are reused', () => {
+    assert.equal(nextChatHandle([]), 'chat-1')
+    assert.equal(nextChatHandle(['curia-chat-1']), 'chat-2')
+    assert.equal(nextChatHandle(['curia-chat-1', 'curia-chat-2']), 'chat-3')
+    // chat-1 ended; its index comes back rather than counting up forever
+    assert.equal(nextChatHandle(['curia-chat-2', 'curia-chat-3']), 'chat-1')
+  })
+
+  test('numbered and reviewer sessions are not chat handles', () => {
+    assert.equal(nextChatHandle(['curia-147', 'curia-review-42', 'other-chat-1']), 'chat-1')
   })
 })
