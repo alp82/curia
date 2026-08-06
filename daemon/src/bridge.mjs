@@ -65,8 +65,12 @@ const LIVE_GLYPH_RE = /^(?:🎫|⏳|🔎)/u
 // here: it is a command now, and a command typed at an agent must not vanish
 // into the note queue. Only the bare form matches — `map 147 -- <sentence>`
 // runs past the end of this shape, and a sentence is what a note IS.
+// #241 adds the chat handle (`chat-1`) to the argument alternation, for the
+// same reason: it is what `cancel`, `resume` and `attach` take on an agent no
+// ticket answers for, so an operator typing it at that agent's own thread must
+// get the hint rather than have it queued as prose.
 export const COMMAND_SHAPED =
-  /^\s*(cancel|stop|pause|resume|status|start|map|attach)(?:\s+(all|#?\d+|[\w.-]+(?:\/[\w.-]+)?#\d+))?(?:\s+(?:model|harness)=[\w.-]+)*\s*[.!?]*\s*$/i
+  /^\s*(cancel|stop|pause|resume|status|start|map|attach)(?:\s+(all|#?\d+|chat-\d+|[\w.-]+(?:\/[\w.-]+)?#\d+))?(?:\s+(?:model|harness)=[\w.-]+)*\s*[.!?]*\s*$/i
 
 // The command the operator meant. `stop` and `pause` are not verbs the surface
 // has — at an agent, cancel is what they ask for. `status` is the only one
@@ -205,9 +209,14 @@ const SLASH_MANIFEST = [
   // #221: charting's own verb, in the operator's own word. `instruction` stays
   // optional, so a dispatch with no sentence opens with the "what should
   // change?" escalation (#160) instead of being refused at the client.
-  new SlashCommandBuilder().setName('map').setDescription('Dispatch a charting agent that updates a map')
-    .addStringOption((o) => o.setName('ticket').setDescription('Map number').setRequired(true))
-    .addStringOption((o) => o.setName('instruction').setDescription('What should change on the map, in your own words'))
+  // #241: `ticket` is no longer required. With one, this charts an existing
+  // map. Without one, `instruction` alone charts a NEW map — the agent settles
+  // the destination with the operator and creates the issue itself. Exactly one
+  // of the two must be present, and the expansion says which is missing.
+  new SlashCommandBuilder().setName('map').setDescription('Dispatch a charting agent on a map, or on no map yet')
+    .addStringOption((o) => o.setName('ticket').setDescription('Map number — leave empty to chart a NEW map'))
+    .addStringOption((o) => o.setName('instruction').setDescription('What should change on the map — or, with no map number, what to chart'))
+    .addStringOption((o) => o.setName('repo').setDescription('Which repo a NEW map is charted in (only needed when more than one is watched)'))
     .addStringOption((o) => o.setName('model').setDescription('Model override')),
   new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket, or all of them')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
@@ -257,13 +266,21 @@ export function expandCommand(i) {
     }
     case 'map': {
       const ticket = need('ticket')
-      if (!ticket) return { error: 'missing' }
       // The instruction rides LAST, after a bare `--` (#160), and its
       // whitespace is collapsed for the same reason canonicalFor collapses it:
       // this line is one line, and the router splits it on whitespace. This is
       // still expansion, not interpretation — the text is passed through, and
       // whether the issue is a map is the dispatcher's ruling.
       const instruction = (need('instruction') ?? '').replace(/\s+/g, ' ').trim()
+      // #241: no map number means the NEW-map shape, which needs the sentence.
+      // A `/map` carrying neither is the one shape no dispatcher can read, so
+      // it is refused HERE, naming both — the expansion can see it is wrong
+      // without interpreting anything.
+      if (!ticket) {
+        if (!instruction) return { error: 'map-shape' }
+        const repo = need('repo')
+        return `map${repo ? ' ' + repo : ''}${opt('model') ? ' model=' + opt('model') : ''} -- ${instruction}`
+      }
       return `map ${ticket}`
         + (opt('model') ? ' model=' + opt('model') : '')
         + (instruction ? ` -- ${instruction}` : '')
@@ -285,6 +302,19 @@ export function expandCommand(i) {
     default: return null
   }
 }
+
+// `/map` with neither a map number nor a sentence (#241). This is NOT the stale
+// manifest of missingOptionReply below: both options are optional now, and the
+// client sent exactly what it was told it could send. So the reply teaches the
+// two shapes instead of telling the operator to restart Discord.
+const MAP_SHAPE_REPLY = [
+  '❌ `/map` needs a **ticket**, an **instruction**, or both.',
+  '',
+  '• **ticket** alone — chart that existing map, and the agent asks what should change.',
+  '• **ticket** + **instruction** — chart that existing map, with your sentence as the brief.',
+  '• **instruction** alone — chart a **NEW** map: the agent settles the destination and the scope',
+  '  with you, then creates the `wayfinder:map` issue itself. Add **repo** when more than one is watched.',
+].join('\n')
 
 function missingOptionReply(commandName) {
   return [
@@ -616,6 +646,33 @@ export class DiscordBridge {
       return this.#bindFreshThread(ticket, type, repo, threadId)
     }
     return this.#bindFreshThread(ticket, type, repo, null)
+  }
+
+  // #241: the thread of a NEW-map charting session is bound to the handle
+  // `new`, because that word was the only name the session had. The moment the
+  // agent creates the map, this thread becomes THAT MAP's thread — the
+  // conversation that settled the destination is exactly the record a later
+  // `map <n>` should land back in, and #93's binding is what makes it land.
+  //
+  // Two acts, in order: the binding moves off the handle onto the number, then
+  // the name follows so the thread list reads as the map instead of as a
+  // sentence the operator typed once. A bind that refuses puts the handle back
+  // — an unbound thread would send the running agent's next notify into a
+  // fresh thread, which is worse than a stale name.
+  async adoptMapThread(handle, mapNumber, { repo = '' } = {}) {
+    if (!this.bindings) return { ok: false, reason: 'no-bindings' }
+    const threadId = this.bindings.get(handle)
+    if (!threadId) return { ok: false, reason: 'unbound' }
+    this.bindings.release(handle, 'the map this session created now names it')
+    const r = this.bindings.bind(String(mapNumber), threadId)
+    if (!r.ok) {
+      this.bindings.bind(handle, threadId)
+      return r
+    }
+    const name = DiscordBridge.labelName(mapNumber, 'map', repo)
+    const t = await this.client.channels.fetch(threadId).catch(() => null)
+    if (t && (this.renamer.desired(t.id) ?? t.name) !== name) await this.renamer.set(t.id, name)
+    return { ok: true, threadId }
   }
 
   async #bindFreshThread(ticket, type, repo, originThreadId) {
@@ -1141,7 +1198,8 @@ export class DiscordBridge {
       const canonical = expandCommand(i)
       if (!canonical) return
       if (typeof canonical === 'object') {
-        await i.reply({ content: missingOptionReply(i.commandName), ephemeral: true })
+        const content = canonical.error === 'map-shape' ? MAP_SHAPE_REPLY : missingOptionReply(i.commandName)
+        await i.reply({ content, ephemeral: true })
         return
       }
       await i.deferReply()

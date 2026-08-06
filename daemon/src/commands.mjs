@@ -6,7 +6,7 @@
 // so the slash reply itself stays fast (#18 seam: bridge macro-expands, this
 // router interprets — the stated deviation until the overseer session exists).
 
-import { validSessionName } from './attach.mjs'
+import { validSessionName, CHAT_HANDLE_RE } from './attach.mjs'
 import { clampList } from './messaging.mjs'
 
 // A repo argument is any single non-numeric token — #81 resolves it fuzzily
@@ -26,12 +26,32 @@ const REPOISH_RE = /^[\w./-]+$/
 // unchanged.
 const INSTRUCTION_SEP = '--'
 
+// What names ONE live agent on `cancel`, `resume` and `attach`: an issue
+// number, or a chat handle (#241). An agent no issue answers for — today, the
+// one charting a map that does not exist yet — is reached by its handle
+// instead: `cancel chat-1`. `all` is not here; it names every agent, and only
+// two of the three verbs take it.
+const AGENT_RE = new RegExp(`^(\\d+|${CHAT_HANDLE_RE.source.replace(/^\^|\$$/g, '')})$`)
+
 // #221: `start` carries no instruction any more, because it no longer charts.
 // The parser refuses the shape and the router names the verb that does take
 // one — the same treatment `harness=` got, and for the same reason: an operator
 // with muscle memory deserves the rule, not the whole catalogue.
 const START_INSTRUCTION_RE = /^start\b.*(^|\s)--(\s|$)/
 const START_INSTRUCTION_GONE = '`start` carries no instruction — it works a ticket. `start <map>` now dispatches that map\'s next takeable ticket, and `map <n> -- <sentence>` is how a map itself is updated.'
+
+// #241: `map` has two shapes, and a parse failure on the verb names both. The
+// second one carries no issue reference at all, so the FIRST shape's refusal
+// ("not a number") would be a lie about what the operator may type. Any `map`
+// that fails to parse gets this line, because both shapes are short enough to
+// state whole and the difference between them is the whole point.
+const MAP_VERB_RE = /^map(\s|$)/
+const MAP_SHAPES = [
+  '`map` takes one of two shapes:',
+  '• `map <n> [model=x] [-- <what should change>]` — chart an EXISTING map, by its own issue number.',
+  '• `map [repo] [model=x] -- <what to chart>` — chart a NEW map from your words. The sentence is',
+  '  required here, and it is the whole brief. Name the repo when more than one is watched.',
+].join('\n')
 
 // #177: `harness=` is gone from every surface. The harness is a FUNCTION of the
 // model — `models.<x>.harness` holds one value — so every value the daemon could
@@ -83,9 +103,47 @@ function parseIssueRef(cmd, rest, { instruction: takesInstruction = false } = {}
   return cmd
 }
 
+// The NEW-map shape of `map` (#241): `map [repo] [model=x] -- <prose>`. No issue
+// reference, because the issue does not exist yet — the prose is what the
+// charting agent chooses a destination and a scope from, with the operator.
+//
+// The instruction is MANDATORY here, and that asymmetry with `map <n>` is
+// deliberate. On an existing map a missing sentence has a safe meaning ("ask me
+// what should change", #160), because the map itself says what the effort is.
+// On a new map there is nothing to ask ABOUT, so a bare `map` is a refusal that
+// names both shapes rather than a session that opens with a blank question.
+//
+// The repo token is optional, and the ROUTER fills it in when exactly one repo
+// is watched (see #newMapRepo). It is parsed here as the same two forms
+// parseIssueRef takes — qualified `owner/repo` and the fuzzy part-of-a-name —
+// so the two shapes of one verb cannot drift apart on how a repo is named.
+function parseNewMap(rest) {
+  const sep = rest.indexOf(INSTRUCTION_SEP)
+  if (sep === -1) return null
+  const instruction = rest.slice(sep + 1).join(' ').trim()
+  if (!instruction) return null
+  const cmd = { verb: 'map', instruction }
+  for (const opt of rest.slice(0, sep)) {
+    const om = opt.match(/^model=([\w.-]+)$/)
+    if (om) {
+      if (cmd.model) return null
+      cmd.model = om[1]
+      continue
+    }
+    // one repo token, and never a bare number: `map 147 -- x` is the OTHER
+    // shape, and a number that failed to parse there must not silently become
+    // a new-map dispatch against a repo called "147"
+    if (cmd.repo || cmd.repoArg || /^\d+$/.test(opt) || !REPOISH_RE.test(opt)) return null
+    if (/^[\w.-]+\/[\w.-]+$/.test(opt)) cmd.repo = opt
+    else cmd.repoArg = opt
+  }
+  return cmd
+}
+
 // 'tickets [repo]' | 'next [repo]' | 'status'
 // | 'start <n>|<owner/repo#n> [model=x]'
 // | 'map <n>|<owner/repo#n> [model=x] [-- <instruction>]'
+// | 'map [repo] [model=x] -- <instruction>'
 // | 'cancel <n>|all' | 'resume <n> [model=x]' | 'resume all' | 'attach <n>'
 // — anything else ⇒ null.
 export function parseCommand(text) {
@@ -109,12 +167,15 @@ export function parseCommand(text) {
     // The map-update verb (#221), replacing `start <map> -- <instruction>`.
     // The operator's own word, ruled over `chart` on the grounds that it is the
     // word they already reach for.
+    // #241: two shapes. The issue-reference one is tried FIRST, so every form
+    // that parsed before still parses to exactly what it parsed to; the
+    // new-map one is the fallback, and it is the only shape with no number.
     case 'map':
-      return parseIssueRef({ verb: 'map' }, rest, { instruction: true })
+      return parseIssueRef({ verb: 'map' }, rest, { instruction: true }) ?? parseNewMap(rest)
     case 'cancel': {
       if (rest.length !== 1) return null
       if (rest[0] === 'all') return { verb, all: true }
-      if (/^\d+$/.test(rest[0])) return { verb, ticket: rest[0] }
+      if (AGENT_RE.test(rest[0])) return { verb, ticket: rest[0] }
       return null
     }
     // `resume` takes the same `model=` override `start` takes (#177). It needs
@@ -127,7 +188,7 @@ export function parseCommand(text) {
     case 'resume': {
       if (!rest.length) return null
       if (rest[0] === 'all') return rest.length === 1 ? { verb, all: true } : null
-      if (!/^\d+$/.test(rest[0])) return null
+      if (!AGENT_RE.test(rest[0])) return null
       const cmd = { verb, ticket: rest[0] }
       for (const opt of rest.slice(1)) {
         const om = opt.match(/^model=([\w.-]+)$/)
@@ -137,7 +198,7 @@ export function parseCommand(text) {
       return cmd
     }
     case 'attach': {
-      if (rest.length === 1 && /^\d+$/.test(rest[0])) return { verb, ticket: rest[0] }
+      if (rest.length === 1 && AGENT_RE.test(rest[0])) return { verb, ticket: rest[0] }
       return null
     }
     // The cross-check's daemon-side entry point (#164, ADR-0010). The operator
@@ -168,9 +229,11 @@ const USAGE = [
   '`start <n>|repo#<n> [model=x]` — claim + dispatch an agent (repo: any unambiguous part of the name)',
   '`start <map>` — dispatch that map\'s next takeable ticket',
   '`map <n> [-- <instruction>]` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after `--` is what it should change',
+  '`map [repo] -- <instruction>` — dispatch a charting agent with NO map: it settles the destination with you and creates the `wayfinder:map` issue itself',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree and the model it last ran on',
   '`attach <n>` — timeline + browser-terminal links for a live agent',
+  '`cancel chat-1` / `resume chat-1` / `attach chat-1` — the same three verbs on an agent no ticket answers for, such as one charting a NEW map. `status` lists its handle',
   '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
 ].join('\n')
 
@@ -196,6 +259,7 @@ export class CommandRouter {
       let why = ''
       if (HARNESS_OPT_RE.test(canonical)) why = `${HARNESS_GONE}\n`
       else if (START_INSTRUCTION_RE.test(canonical)) why = `${START_INSTRUCTION_GONE}\n`
+      else if (MAP_VERB_RE.test(canonical.trim())) why = `${MAP_SHAPES}\n`
       return `❌ could not parse \`${canonical}\`\n${why}${USAGE}`
     }
     try {
@@ -225,6 +289,18 @@ export class CommandRouter {
         case 'map': {
           const repo = this.#dispatchRepo(cmd)
           if (repo.error) return repo.error
+          // #241: no issue reference ⇒ the new-map shape. It needs a repo
+          // BEFORE the dispatch, because there is no issue number to resolve
+          // one from — `chart <n>` finds its repo by asking which watched repo
+          // owns that number, and a map that does not exist owns nothing.
+          if (!cmd.ticket) {
+            const target = repo.repo ? repo : this.#newMapRepo()
+            if (target.error) return target.error
+            return await this.dispatcher.chartNew({
+              repo: target.repo, model: cmd.model, instruction: cmd.instruction,
+              by: userId, threadId,
+            })
+          }
           return await this.dispatcher.chart(cmd.ticket, {
             repo: repo.repo, model: cmd.model, instruction: cmd.instruction,
             by: userId, threadId,
@@ -257,6 +333,18 @@ export class CommandRouter {
   #dispatchRepo(cmd) {
     if (!cmd.repoArg) return { repo: cmd.repo }
     return this.#matchRepo(cmd.repoArg)
+  }
+
+  // The repo a NEW-map dispatch runs against when the operator named none
+  // (#241). One watched repo means there is no question to ask, and asking it
+  // anyway would put a token in the way of the shortest form of the command.
+  // Two or more, and curia refuses rather than picking the first — a map is a
+  // standing artifact, and one charted into the wrong repo is a manual move.
+  #newMapRepo() {
+    const watched = (this.dispatcher.config?.watch ?? []).map((w) => w.repo)
+    if (watched.length === 1) return { repo: watched[0] }
+    if (!watched.length) return { error: '❌ no repo is on the watch list, so there is nowhere to chart a new map' }
+    return { error: `❌ ${watched.length} repos are watched, so a new map needs one named: ${watched.map((r) => `\`map ${r} -- …\``).join(' or ')}` }
   }
 
   // #81: a repo argument matches on any unambiguous substring of a watched

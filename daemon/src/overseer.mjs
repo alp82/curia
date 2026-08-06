@@ -38,7 +38,13 @@ export function canonicalFor(verb, args = {}) {
     case 'start':
       return `start ${args.repo ? `${args.repo}#` : ''}${args.ticket}${args.model ? ` model=${args.model}` : ''}`
     case 'map': {
-      let text = `map ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
+      // #241: with no map number this is the NEW-map shape, where the repo is a
+      // bare token rather than the `repo#n` qualifier — there is no `n` to
+      // qualify. The instruction is mandatory there, and a call that omits it
+      // composes a bare `map`, which the router refuses by naming both shapes.
+      let text = args.ticket
+        ? `map ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
+        : `map${args.repo ? ` ${args.repo}` : ''}`
       if (args.model) text += ` model=${args.model}`
       // The instruction (#160, moved here by #221) rides LAST, after a bare
       // `--`, because it is the one argument that is a whole sentence.
@@ -88,10 +94,10 @@ export function buildVerbTools(command) {
       repo: repoArg,
       model: z.string().optional().describe('model override — the harness follows it, so there is no harness argument'),
     }, run('start')),
-    tool('map', 'Dispatch a charting agent that UPDATES a map: add tickets, graduate fog, change scope, fix what the map says. Takes the map\'s own number. It edits the map and its tickets and closes nothing.', {
-      ticket: ticketArg,
+    tool('map', 'Dispatch a charting agent. WITH a map number it UPDATES that map: add tickets, graduate fog, change scope, fix what the map says. WITHOUT one it charts a NEW map: the agent settles the destination and the scope with the operator, then creates the `wayfinder:map` issue itself — use that form when the operator asks for a map that does not exist yet ("make a map for the next feature"), and put their words in the instruction. It closes nothing either way.', {
+      ticket: ticketArg.optional(),
       repo: repoArg,
-      instruction: z.string().optional().describe('What the operator wants changed on the map, in their own words ("update the landing page map so that X"). The charting agent reads it as its first input. Leave it out and the agent asks the operator what should change.'),
+      instruction: z.string().optional().describe('What the operator wants, in their own words. On an existing map: what should change ("update the landing page map so that X") — leave it out and the agent asks. On a NEW map it is REQUIRED: it is the whole brief the agent chooses a destination from.'),
       model: z.string().optional().describe('model override — the harness follows it, so there is no harness argument'),
     }, run('map')),
     tool('cancel', 'Cancel the agent on a ticket, or "all" for every agent. Destructive, so the daemon posts ✅/❌ buttons and executes ONLY after the operator presses ✅. Call this directly when asked — never seek confirmation in conversation first, and never report the cancel as done: report that the confirm was posted.', {
@@ -119,7 +125,7 @@ export const DISALLOWED_TOOLS = [
   'Task', 'TodoWrite', 'NotebookEdit', 'AskUserQuestion', 'ToolSearch',
 ]
 
-const SYSTEM_PROMPT = `You are the curia overseer. Curia is a personal orchestration daemon: it watches GitHub trackers, dispatches AI agents on tickets, and keeps the operator in the loop from any device. You are the command brain over its Discord surface.
+export const SYSTEM_PROMPT = `You are the curia overseer. Curia is a personal orchestration daemon: it watches GitHub trackers, dispatches AI agents on tickets, and keeps the operator in the loop from any device. You are the command brain over its Discord surface.
 
 You speak with one operator, in one Discord thread, in short Discord markdown. You act only through the curia tools. The daemon executes every effect.
 
@@ -135,6 +141,8 @@ Vocabulary the operator uses:
 - Two verbs take a map's own number, and they mean different things. \`start\` WORKS the map: it dispatches the map's next takeable ticket. \`map\` UPDATES the map: a charting agent edits the map itself.
 - Use \`map\` when the operator asks to CHANGE a map ("update the landing page map so that X", "add a ticket for Y", "the map is wrong about Z"). Put their sentence in the \`instruction\` field, in their own words. Do not rewrite it and do not summarize it.
 - Use \`start\` when the operator asks to work the map ("continue with <map>", "start the landing page map"). Either the map's own number or the ticket number listed under its header does this.
+- Use \`map\` with NO ticket when the operator asks for a map that does not exist YET: "create a new map for X", "chart a new map", "add a map for the next feature", "we need a map for Y". There is no number to give, and asking them for one is wrong — the whole point is that the map does not exist. Put their words in \`instruction\`, unchanged: it is the whole brief the charting agent settles the destination from. Add \`repo\` only when more than one repo is watched.
+- The test between the two shapes is whether the map EXISTS. A map you can name from \`tickets\` output takes its number. A map the operator is asking you to bring into being takes no number.
 
 Your memory goes stale:
 - Tool output from an earlier turn may be minutes or hours old, and the daemon, the trackers, and the operator all change state between your turns. Re-run \`tickets\` or \`status\` before you refuse, recommend, or report state. Never answer from a previous turn's tool output.

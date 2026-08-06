@@ -37,11 +37,17 @@ The map changes: new tickets, graduated fog, blocking edges, scope rulings. They
 **Map dispatch**:
 `map <n>` on a map's own issue. The daemon spawns a charting agent instead of a ticket agent. It claims nothing. `start` on a map number is not this: it dispatches the map's next takeable ticket.
 
+**New-map dispatch**:
+`map [repo] -- <prose>` with no issue. The daemon spawns a charting agent that has no map. The agent settles the destination with the operator, then creates the `wayfinder:map` issue itself. The prose is mandatory here: it is the loose idea the charting starts from.
+
+**Adoption**:
+The act that gives a new-map dispatch its map. The agent calls `map_created` with the number. curia checks the issue is an open map in that repo, then takes it as the session's map: the thread moves onto it, `map <n>` on it is refused, and the charting summary lands there.
+
 **Charting agent**:
-The agent of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate.
+The agent of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate. On a new-map dispatch it creates the map first.
 
 **Instruction**:
-The operator's sentence on a map dispatch, in their own words. It rides the `map` verb after a bare `--`, and reaches the charting agent as the first thing it reads. With no instruction, the agent asks what should change. No other verb takes one.
+The operator's sentence on a map dispatch, in their own words. It rides the `map` verb after a bare `--`, and reaches the charting agent as the first thing it reads. On an existing map it is optional: with none, the agent asks what should change. On a new map it is mandatory, because nothing else says what to chart. No other verb takes one.
 
 **Frontier**:
 The takeable tickets of a watched repo, in map order.
@@ -121,6 +127,9 @@ _Avoid_: worker (the old name, swept in #184).
 
 **Session**:
 The tmux session `curia-<n>`. The session name is the agent's identity everywhere.
+
+**Chat handle**:
+The name of an agent no issue answers for: `chat-1`, `chat-2`, the lowest free index at dispatch. It stands where a ticket number stands — the session `curia-chat-1`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. Today one kind of agent uses it: the new-map dispatch.
 
 **Agent host**:
 The layer that hosts agent sessions and their attach: bare tmux, one shared ttyd, Tailscale Serve.
@@ -253,6 +262,9 @@ The ordered close-out of a ticket: commit, pull request, preview, review gate, m
 
 **Charting ending**:
 The ending of a map dispatch: edit the map, then report the result. Curia posts the summary on the map. No unassign, no pull request, no review gate, no close.
+
+**New-map ending**:
+The charting ending with one step in front: create the map, adopt it with `map_created`, then report the result. The Stop hook holds the agent to the adoption, because it is the one fact the daemon cannot read for itself.
 
 **Stop hook**:
 The enforcement hook that fires at the end of every agent turn. It refuses a stop that leaves ending steps open, up to the stop budget, then lets go and reports the ticket unfinished.

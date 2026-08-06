@@ -11,7 +11,7 @@ import path from 'node:path'
 import { EscalationStore } from '../src/store.mjs'
 import { parseCommand } from '../src/commands.mjs'
 import {
-  OverseerHost, canonicalFor, buildVerbTools, ALLOWED_TOOLS, DISALLOWED_TOOLS,
+  OverseerHost, canonicalFor, buildVerbTools, ALLOWED_TOOLS, DISALLOWED_TOOLS, SYSTEM_PROMPT,
 } from '../src/overseer.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-test-'))
@@ -127,6 +127,31 @@ describe('canonicalFor', () => {
   test('an empty instruction posts no -- at all', () => {
     assert.equal(canonicalFor('map', { ticket: '147', instruction: '' }), 'map 147')
     assert.equal(canonicalFor('map', { ticket: '147', instruction: '   ' }), 'map 147')
+  })
+
+  // #241: the operator says "chart a new map for X" in prose, and the overseer
+  // reaches `map` with an instruction and NO ticket. The repo is a bare token
+  // here, not the `repo#n` qualifier — there is no n to qualify.
+  test('a map with no ticket composes the new-map shape', () => {
+    assert.equal(
+      canonicalFor('map', { instruction: 'chart the next feature' }),
+      'map -- chart the next feature',
+    )
+    assert.equal(
+      canonicalFor('map', { repo: 'cur', model: 'opus', instruction: 'chart the next feature' }),
+      'map cur model=opus -- chart the next feature',
+    )
+  })
+
+  test('the overseer is told when to reach for the new-map shape', () => {
+    // The prose triggers the operator actually uses. A vocabulary the system
+    // prompt does not carry is a verb the overseer never picks.
+    for (const phrase of ['create a new map', 'chart a new map', 'add a map']) {
+      assert.ok(
+        SYSTEM_PROMPT.toLowerCase().includes(phrase),
+        `the system prompt does not teach the phrase "${phrase}"`,
+      )
+    }
   })
 
   // #221: `start` no longer charts, so it can no longer carry a sentence. A

@@ -263,6 +263,105 @@ describe('parseCommand', () => {
     assert.match(reply, /no watched repo matches/)
   })
 
+  // ---- `map` with no issue: chart a NEW map from prose (#241) ----------------
+  //
+  // The second shape of one verb. It carries no issue reference because the
+  // issue does not exist yet, so the sentence after `--` is the whole input —
+  // and that is why it is mandatory here where `map <n>` makes it optional.
+
+  test('map with no issue parses the prose as the instruction', () => {
+    const c = parseCommand('map -- create new map for next feature. Read direction.md first')
+    assert.equal(c.verb, 'map')
+    assert.equal(c.ticket, undefined)
+    assert.equal(c.instruction, 'create new map for next feature. Read direction.md first')
+  })
+
+  test('a new map takes an optional repo and an optional model, in that shape', () => {
+    const c = parseCommand('map alp82/curia model=opus -- chart the next feature')
+    assert.equal(c.repo, 'alp82/curia')
+    assert.equal(c.model, 'opus')
+    assert.equal(c.ticket, undefined)
+    assert.equal(c.instruction, 'chart the next feature')
+    // the fuzzy repo form the other shape takes, on this one too
+    assert.equal(parseCommand('map cur -- chart it').repoArg, 'cur')
+    assert.equal(parseCommand('map cur -- chart it').repo, undefined)
+  })
+
+  test('the instruction is MANDATORY with no issue — a bare map is refused', () => {
+    // On an existing map a missing sentence means "ask me what should change"
+    // (#160). With no map there is nothing to ask about, so this is a refusal.
+    assert.equal(parseCommand('map'), null)
+    assert.equal(parseCommand('map --'), null)
+    assert.equal(parseCommand('map alp82/curia'), null)
+    assert.equal(parseCommand('map model=opus'), null)
+  })
+
+  test('a number before the -- is the OTHER shape, never a repo called 147', () => {
+    // `map 147 -- x` must keep parsing as an update of map 147. A number that
+    // fell through to the new-map parser would chart into a repo named "147".
+    assert.equal(parseCommand('map 147 -- do X').ticket, '147')
+    assert.equal(parseCommand('map 12 34 -- do X'), null)
+  })
+
+  test('one repo token and one model, never two of either', () => {
+    assert.equal(parseCommand('map cur other -- do X'), null)
+    assert.equal(parseCommand('map model=opus model=gpt -- do X'), null)
+  })
+
+  test('the refusal for a broken map names BOTH shapes', async () => {
+    const router = new CommandRouter({
+      dispatcher: { routing: { harnesses: { claude: {} } }, config: { watch: [{ repo: 'alp82/curia' }] } },
+      attach: {},
+      log: () => {},
+    })
+    const reply = await router.handle('map', 'user-1')
+    assert.match(reply, /map <n>/)
+    assert.match(reply, /map \[repo\]/)
+  })
+
+  test('a new map with one watched repo needs no repo token', async () => {
+    const seen = []
+    const router = new CommandRouter({
+      dispatcher: {
+        routing: { harnesses: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }] },
+        chartNew: async (opts) => { seen.push(opts); return 'ok' },
+      },
+      attach: {},
+      log: () => {},
+    })
+    await router.handle('map -- chart the next feature', 'user-1')
+    assert.equal(seen[0].repo, 'alp82/curia')
+    assert.equal(seen[0].instruction, 'chart the next feature')
+  })
+
+  test('a new map with two watched repos refuses rather than picking one', async () => {
+    const router = new CommandRouter({
+      dispatcher: {
+        routing: { harnesses: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }, { repo: 'alp82/other' }] },
+        chartNew: async () => 'dispatched',
+      },
+      attach: {},
+      log: () => {},
+    })
+    const reply = await router.handle('map -- chart the next feature', 'user-1')
+    assert.match(reply, /needs one named/)
+    // and the named form it recommends resolves through the same fuzzy matcher
+    const seen = []
+    const router2 = new CommandRouter({
+      dispatcher: {
+        routing: { harnesses: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }, { repo: 'alp82/other' }] },
+        chartNew: async (opts) => { seen.push(opts); return 'ok' },
+      },
+      attach: {},
+      log: () => {},
+    })
+    await router2.handle('map curia -- chart it', 'user-1')
+    assert.equal(seen[0].repo, 'alp82/curia')
+  })
+
   test('cancel', () => {
     const c = parseCommand('cancel 42')
     assert.equal(c.verb, 'cancel')

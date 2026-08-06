@@ -171,9 +171,13 @@ Then use the commands, as Discord slash commands or as plain English in a thread
 - `tickets` — what is takeable
 - `start <n>` — send an agent. On a map number, this sends one to the map's next takeable ticket.
 - `map <n> -- <what should change>` — send an agent that updates the map itself
+- `map -- <what to chart>` — send an agent with no map. It settles the destination with you, then creates the map issue itself. Name the repo (`map <repo> -- …`) when more than one is watched.
 - `status` — who is running
 - `attach <n>` — that agent's terminal in your browser
 - `resume <n>` / `cancel <n>`
+
+An agent that no ticket answers for gets a handle instead of a number — `chat-1`, `chat-2` — and the
+three verbs above take it: `attach chat-1`, `cancel chat-1`, `resume chat-1`. `status` lists it.
 
 ## 13. Keep it running
 
