@@ -182,6 +182,51 @@
   .rail h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
   .rail .more { display: block; margin-top: 8px; font-size: 12.5px; }
 
+  /* ---------- home variations ---------- */
+  .prov-strip { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; font-size: 12px; color: var(--ink-dim); }
+  .prov { display: flex; gap: 10px; align-items: center; }
+  .prov > b { font-family: ui-monospace, Menlo, monospace; color: var(--ink); font-size: 12.5px; }
+  .prov .meter-row .bar { flex: none; width: 76px; }
+  .prov .pnote { color: var(--bad); font-family: ui-monospace, Menlo, monospace; }
+  .h-sect { margin: 16px 0; }
+  .h-sect > h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); margin-bottom: 6px; font-weight: 700; }
+  .h-sect > h3 .hot { color: var(--warn); }
+  .h-row { display: flex; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; flex-wrap: wrap; }
+  .h-row:last-child { border-bottom: 0; }
+  .h-row .dot { align-self: center; }
+  .h-row .sess { font-weight: 700; }
+  .h-row .ticket { flex: 1; min-width: 180px; color: var(--ink-dim); }
+  .h-row .ctx { color: var(--ink-faint); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; }
+  .dot.working { background: var(--ok); }
+  .dot.needs-you { background: var(--warn); }
+  .dot.reading, .dot.parked { background: var(--ink-faint); }
+  .att-item { border-left: 3px solid var(--warn); background: var(--chip-warn-bg); border-radius: 0 8px 8px 0; padding: 9px 12px; font-size: 13px; margin-bottom: 8px; }
+  .att-item .who { font-family: ui-monospace, Menlo, monospace; font-weight: 700; margin-right: 8px; }
+  .att-item .dim { color: var(--ink-dim); font-size: 12px; }
+  .att-item .links { margin-top: 5px; }
+  .att-item.limit { border-left-color: var(--bad); background: var(--chip-bad-bg); }
+  .stat-tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 4px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; }
+  .tile .v { font-size: 22px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+  .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-top: 2px; }
+  .tile.warn { border-color: var(--warn); } .tile.warn .v { color: var(--warn); }
+  .split-cols { display: grid; grid-template-columns: 5fr 7fr; gap: 22px; align-items: start; }
+  @media (max-width: 900px) { .split-cols { grid-template-columns: 1fr; } }
+  .ticker { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-dim); }
+  .ticker time { color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin-right: 8px; }
+  .qcards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+  .qcard { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 11px 13px; display: flex; flex-direction: column; gap: 7px; }
+  .qcard.hot { border-color: var(--warn); }
+  .qcard .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .qcard .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13px; }
+  .qcard .state { font-size: 12px; color: var(--ink-dim); display: inline-flex; align-items: center; gap: 6px; }
+  .qcard .state.hot { color: var(--warn); font-weight: 600; }
+  .qcard .ticket { font-size: 12.5px; color: var(--ink-dim); }
+  .qcard .ticket .t { font-family: ui-monospace, Menlo, monospace; margin-right: 5px; }
+  .loglines { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--ink-dim); display: flex; flex-direction: column; }
+  .loglines .h-row { font-size: 12.5px; }
+
   /* ---------- agents table ---------- */
   .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
   table.agents { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 820px; background: var(--bg-raise); }
@@ -438,31 +483,106 @@ const activeModels = () => MODELS.filter(m => m.active);
 const goto = (s) => { screen = s; render(); };
 
 /* ================= screens ================= */
-function screenHome() {
+/* account facts said once: the provider strip replaces per-agent 5h/7d bars */
+const PROVIDERS = [
+  { name: "anthropic", h5: { pct: 58, clock: 48, pace: "on" }, d7: { pct: 22, clock: 41, pace: "behind" }, note: null },
+  { name: "openai", h5: { pct: 62, clock: 48, pace: "ahead" }, d7: { pct: 34, clock: 41, pace: "behind" }, note: "reset 16:00" }
+];
+function provStrip() {
+  return `<div class="prov-strip">${PROVIDERS.map(p => `<span class="prov"><b>${p.name}</b>
+    ${bar("5h", p.h5)}${bar("7d", p.d7)}${p.note ? `<span class="pnote">${p.note}</span>` : ""}</span>`).join("")}</div>`;
+}
+const stateWord = a => ({ "needs-you": "needs you", working: "working", reading: "reading diff", parked: "parked" }[a.state]);
+function attentionItems() {
+  return [
+    ...needsYou().map(a => `<div class="att-item"><span class="who">${a.sess}</span>${escT(a.esc.q)}
+      <span class="dim">· ${a.esc.kind}, open ${a.esc.age}</span>
+      <div class="links"><a href="#">answer in thread</a><a href="#">timeline</a></div></div>`),
+    ...LIMITS.map(l => `<div class="att-item limit"><span class="who">${l.provider}</span>${l.win} window at ${l.pct}%, ${l.note}
+      <div class="links"><a href="#" onclick="goto('agents');return false">who burns it</a></div></div>`)
+  ].join("");
+}
+function agentRow(a) {
+  return `<div class="h-row"><span class="dot ${a.state}"></span>
+    <span class="sess mono">${a.sess}</span>
+    <span class="ticket"><span class="mono">${a.ticket}</span> ${escT(a.title)}</span>
+    <span class="ctx num">ctx ${a.ctx}%</span>${agentLinks(a)}</div>`;
+}
+
+/* --- H1 triage: one attention list, then quiet rows --- */
+function homeTriage() {
   const ny = needsYou();
-  return `
-    ${ny.length ? `<div class="band needs"><h3>Needs you (${ny.length})</h3>
-      ${ny.map(a => `<div class="band-item"><span class="mono"><b>${a.sess}</b></span>
-        <span class="q">${escT(a.esc.q)}</span><span class="dim">open ${a.esc.age}</span>
-        <a href="#">answer</a><a href="#" onclick="goto('agents');return false">agent</a></div>`).join("")}</div>` : ""}
-    ${LIMITS.length ? `<div class="band limits"><h3>Approaching limits</h3>
-      ${LIMITS.map(l => `<div class="band-item"><span class="mono">${paceSq(l.pace)} <b>${l.provider}</b> ${l.win} ${l.pct}%</span>
-        <span class="dim">${l.note}</span>
-        <a href="#" onclick="goto('agents');return false">who burns it</a></div>`).join("")}</div>` : ""}
-    <div class="home-cols">
-      <div class="cards">
-        ${AGENTS.map(a => `<div class="card">
-          <div class="top"><span class="sess">${a.sess}</span>${statePill(a)}</div>
-          <div class="ticket"><span class="t">${a.ticket}</span>${escT(a.title)}</div>
-          <div class="facts"><span>${a.repo.split("/")[1]}</span><span>${a.model}</span><span>${paceSq(a.bars.h5.pace)} 5h ${a.bars.h5.pct}%</span></div>
-          ${meters(a)}
-          ${escBlock(a)}
-          ${agentLinks(a)}
-        </div>`).join("")}
-      </div>
-      <aside class="rail"><h3>Last events</h3>${feedList(FEED.slice(0, 5))}
-        <a class="more" href="#" onclick="goto('feed');return false">all events →</a></aside>
-    </div>`;
+  return `${provStrip()}
+    <div class="h-sect"><h3>${ny.length || LIMITS.length ? `<span class="hot">Needs you</span>` : "Needs you"} (${ny.length + LIMITS.length})</h3>
+      ${attentionItems() || `<span style="color:var(--ink-faint);font-size:13px">nothing waits on you</span>`}</div>
+    <div class="h-sect"><h3>Running (${AGENTS.length})</h3>${AGENTS.filter(a => !a.esc).map(agentRow).join("")}</div>
+    <div class="ticker">${FEED.slice(0, 3).map(f => `<span><time>${f.t}</time>${f.ev}</span>`).join("")}
+      <a href="#" onclick="goto('feed');return false" style="font-size:12.5px">all events →</a></div>`;
+}
+/* --- H2 quiet grid: minimal cards, color only on attention --- */
+function homeGrid() {
+  return `${provStrip()}
+    <div class="qcards">${AGENTS.map(a => `<div class="qcard ${a.esc ? "hot" : ""}">
+      <div class="top"><span class="sess">${a.sess}</span>
+        <span class="state ${a.esc ? "hot" : ""}"><span class="dot ${a.state}"></span>${stateWord(a)}</span></div>
+      <div class="ticket"><span class="t">${a.ticket}</span>${escT(a.title)}</div>
+      <div class="meter-row"><span class="lbl">ctx</span><span class="bar"><span class="fill ok" style="width:${a.ctx}%"></span></span><span class="pct num">${a.ctx}%</span></div>
+      ${escBlock(a)}${agentLinks(a)}</div>`).join("")}</div>
+    <div class="ticker">${FEED.slice(0, 3).map(f => `<span><time>${f.t}</time>${f.ev}</span>`).join("")}
+      <a href="#" onclick="goto('feed');return false" style="font-size:12.5px">all events →</a></div>`;
+}
+/* --- H3 split: attention left, fleet right --- */
+function homeSplit() {
+  return `<div class="split-cols">
+    <div><div class="h-sect" style="margin-top:0"><h3><span class="hot">Needs you</span> (${needsYou().length + LIMITS.length})</h3>${attentionItems()}</div>
+      <div class="h-sect"><h3>Last events</h3>${feedList(FEED.slice(0, 4))}
+        <a class="more" href="#" onclick="goto('feed');return false" style="font-size:12.5px;display:block;margin-top:8px">all events →</a></div></div>
+    <div><div class="h-sect" style="margin-top:0"><h3>Fleet (${AGENTS.length})</h3>${AGENTS.map(agentRow).join("")}</div>
+      ${provStrip()}</div></div>`;
+}
+/* --- H4 table: one compact table, attention rows first --- */
+function homeTable() {
+  const sorted = [...AGENTS].sort((a, b) => (b.esc ? 1 : 0) - (a.esc ? 1 : 0));
+  return `${provStrip()}
+    <div class="tbl-wrap"><table class="agents" style="min-width:640px">
+      <tr><th>session</th><th>state</th><th>ticket</th><th>ctx</th><th>links</th></tr>
+      ${sorted.map(a => `<tr class="${a.esc ? "esc-row" : ""}">
+        <td class="sess">${a.sess}</td>
+        <td><span class="state"><span class="dot ${a.state}"></span> ${stateWord(a)}</span></td>
+        <td><span class="mono" style="color:var(--ink-dim)">${a.ticket}</span> ${escT(a.title)}
+          ${a.esc ? `<div class="esc" style="margin-top:6px">${escT(a.esc.q)} <span class="age">· ${a.esc.age}</span>
+            <div class="links" style="margin-top:5px"><a href="#">answer in thread</a></div></div>` : ""}</td>
+        <td class="num">${a.ctx}%</td><td>${agentLinks(a)}</td></tr>`).join("")}
+    </table></div>
+    <div class="ticker">${FEED.slice(0, 3).map(f => `<span><time>${f.t}</time>${f.ev}</span>`).join("")}
+      <a href="#" onclick="goto('feed');return false" style="font-size:12.5px">all events →</a></div>`;
+}
+/* --- H5 pulse: numbers first, then attention, then a log --- */
+function homePulse() {
+  const ny = needsYou().length;
+  const prs = AGENTS.filter(a => a.links.pr).map(a => a.links.pr);
+  return `<div class="stat-tiles">
+      <div class="tile ${ny ? "warn" : ""}"><div class="v num">${ny}</div><div class="l">needs you</div></div>
+      <div class="tile"><div class="v num">${AGENTS.length}</div><div class="l">agents running</div></div>
+      <div class="tile"><div class="v num">${new Set(prs).size}</div><div class="l">open PRs</div></div>
+      <div class="tile"><div class="v num">16:00</div><div class="l">openai 5h reset</div></div></div>
+    <div class="h-sect">${attentionItems()}</div>
+    <div class="h-sect"><h3>Fleet</h3><div class="loglines">${AGENTS.map(agentRow).join("")}</div></div>
+    ${provStrip()}`;
+}
+const HOME_VARIANTS = {
+  triage: ["Triage", homeTriage],
+  grid: ["Grid", homeGrid],
+  split: ["Split", homeSplit],
+  table: ["Table", homeTable],
+  pulse: ["Pulse", homePulse]
+};
+let homeVariant = "triage";
+function screenHome() {
+  return `<div class="screen-head"><h2>Home</h2>
+    <span class="seg">${Object.entries(HOME_VARIANTS).map(([k, v]) =>
+      `<button class="${homeVariant === k ? "on" : ""}" onclick="homeVariant='${k}';render()">${v[0]}</button>`).join("")}</span></div>
+    ${HOME_VARIANTS[homeVariant][1]()}`;
 }
 
 function screenAgents() {
@@ -548,14 +668,12 @@ function drawEdges() {
 }
 window.addEventListener("resize", drawEdges);
 
+/* decided on this ticket: Cards and Tree stay, the rest retired */
 const FR_VARIANTS = {
-  columns: ["Columns", repos => repos.map(frColumns).join("")],
   cards: ["Cards", frCards],
-  graph: ["Graph", frGraph],
-  tree: ["Tree", repos => repos.map(frTree).join("")],
-  rail: ["Rail", repos => repos.map(frRail).join("")]
+  tree: ["Tree", repos => repos.map(frTree).join("")]
 };
-let frVariant = "columns";
+let frVariant = "cards";
 let frFilter = { repo: "all", typ: "all" };
 function frFiltered() {
   return FRONTIER
@@ -636,6 +754,7 @@ const SCREENS = {
 const _h = new URLSearchParams(location.hash.slice(1));
 let screen = SCREENS_KEYS(_h.get("s"));
 frVariant = FR_VARIANTS[_h.get("f")] ? _h.get("f") : frVariant;
+homeVariant = HOME_VARIANTS[_h.get("h")] ? _h.get("h") : homeVariant;
 function SCREENS_KEYS(s) { return ["home","agents","frontier","feed","settings"].includes(s) ? s : "home"; }
 function render() {
   const ny = needsYou().length;
