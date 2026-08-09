@@ -134,6 +134,16 @@
   .toast { font-size: 12.5px; color: var(--ink-dim); }
   .gh-connect { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 8px; }
   .gh-connect .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .set-grid-2 { grid-template-columns: repeat(auto-fit, minmax(300px, 460px)); }
+  .set-subnav { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+  .set-subnav button { border: 0; background: none; color: var(--ink-dim); padding: 7px 14px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .set-subnav button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+  .ledger-row { display: grid; grid-template-columns: 200px 1fr; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .ledger-row:first-child { padding-top: 2px; }
+  .ledger-row:last-child { border-bottom: 0; padding-bottom: 2px; }
+  .ledger-row .lab { font-weight: 600; font-size: 13px; display: block; }
+  .ledger-row .sub { font-size: 12px; color: var(--ink-dim); display: block; margin-top: 3px; }
+  @media (max-width: 700px) { .ledger-row { grid-template-columns: 1fr; gap: 8px; } }
 
   /* ---------- shell ---------- */
   .shell { display: grid; grid-template-columns: 172px 1fr; min-height: 100vh; }
@@ -566,18 +576,9 @@ function homeAllThree() {
     <div>${attentionCol()}</div>
     <div>${fleetTable(false)}<div style="margin-top:14px">${provStrip()}</div></div></div>`;
 }
-const HOME_VARIANTS = {
-  ps: ["Pulse+Split", homePulseSplit],
-  pt: ["Pulse+Table", homePulseTable],
-  st: ["Split+Table", homeSplitTable],
-  all: ["All three", homeAllThree]
-};
-let homeVariant = "ps";
+/* decided on this ticket: the home is "all three" — tiles, attention left, table right */
 function screenHome() {
-  return `<div class="screen-head"><h2>Home</h2>
-    <span class="seg">${Object.entries(HOME_VARIANTS).map(([k, v]) =>
-      `<button class="${homeVariant === k ? "on" : ""}" onclick="homeVariant='${k}';render()">${v[0]}</button>`).join("")}</span></div>
-    ${HOME_VARIANTS[homeVariant][1]()}`;
+  return `<div class="screen-head"><h2>Home</h2></div>${homeAllThree()}`;
 }
 
 function screenAgents() {
@@ -698,37 +699,96 @@ function screenFeed() {
   return `<h2>Feed</h2><div style="max-width:640px">${feedList(FEED)}</div>`;
 }
 
-function screenSettings() {
+/* --- settings pieces, shared by every variation --- */
+function tblModels() {
+  return `<table><tr><th>active</th><th>model</th><th>harness</th></tr>
+    ${MODELS.map((m, i) => `<tr class="${m.active ? "" : "inactive"}">
+      <td><input type="checkbox" ${m.active ? "checked" : ""} onchange="MODELS[${i}].active=this.checked;render()"></td>
+      <td class="mono">${m.id}</td><td class="mono">${m.harness}</td></tr>`).join("")}</table>`;
+}
+function tblDefaults() {
   const act = activeModels();
-  return `<h2>Settings</h2>
-  <div class="set-grid">
-    <div class="set-block"><h3>Models</h3>
-      <p class="hint">All models the harnesses can reach. Active models join the dispatch vocabulary.</p>
-      <table><tr><th>active</th><th>model</th><th>harness</th></tr>
-      ${MODELS.map((m, i) => `<tr class="${m.active ? "" : "inactive"}">
-        <td><input type="checkbox" ${m.active ? "checked" : ""} onchange="MODELS[${i}].active=this.checked;render()"></td>
-        <td class="mono">${m.id}</td><td class="mono">${m.harness}</td></tr>`).join("")}
-      </table>
-      <table style="margin-top:10px"><tr><th>ticket type</th><th>default model</th></tr>
-      ${DEFAULTS.map((d, i) => `<tr><td class="mono">${d.type}</td>
-        <td><select onchange="DEFAULTS[${i}].model=this.value">${act.map(m =>
-          `<option ${m.id === d.model ? "selected" : ""}>${m.id}</option>`).join("")}
-          ${act.some(m => m.id === d.model) ? "" : `<option selected>${d.model} (inactive)</option>`}</select></td></tr>`).join("")}
-      </table></div>
-    <div class="set-block"><h3>Projects</h3>
-      <div class="gh-connect"><span class="dot"></span>GitHub connected as <b class="mono">${GH.login}</b> <a href="#">manage</a></div>
-      <table>${GH.projects.map(p => `<tr><td class="mono">${p}</td><td style="text-align:right"><button class="btn sm">remove</button></td></tr>`).join("")}
-      <tr><td><select><option>add a repo…</option>${GH.repos.filter(r => !GH.projects.includes(r)).map(r => `<option>${r}</option>`).join("")}</select></td>
-      <td style="text-align:right"><button class="btn sm">add</button></td></tr></table></div>
-    <div class="set-block"><h3>Dispatch</h3>
-      <table><tr><td>max_concurrent</td><td><input type="number" value="${SETTINGS.maxConcurrent}"></td></tr>
-      <tr><td>nudge (minutes)</td><td><input type="number" value="${SETTINGS.nudgeMin}"></td></tr></table></div>
-  </div>
-  <div class="set-actions">
+  return `<table><tr><th>ticket type</th><th>default model</th></tr>
+    ${DEFAULTS.map((d, i) => `<tr><td class="mono">${d.type}</td>
+      <td><select onchange="DEFAULTS[${i}].model=this.value">${act.map(m =>
+        `<option ${m.id === d.model ? "selected" : ""}>${m.id}</option>`).join("")}
+        ${act.some(m => m.id === d.model) ? "" : `<option selected>${d.model} (inactive)</option>`}</select></td></tr>`).join("")}</table>`;
+}
+function tblProjects() {
+  return `<div class="gh-connect"><span class="dot"></span>GitHub connected as <b class="mono">${GH.login}</b> <a href="#">manage</a></div>
+    <table>${GH.projects.map(p => `<tr><td class="mono">${p}</td><td style="text-align:right"><button class="btn sm">remove</button></td></tr>`).join("")}
+    <tr><td><select><option>add a repo…</option>${GH.repos.filter(r => !GH.projects.includes(r)).map(r => `<option>${r}</option>`).join("")}</select></td>
+    <td style="text-align:right"><button class="btn sm">add</button></td></tr></table>`;
+}
+function tblDispatch() {
+  return `<table><tr><td>max_concurrent</td><td><input type="number" value="${SETTINGS.maxConcurrent}"></td></tr>
+    <tr><td>nudge (minutes)</td><td><input type="number" value="${SETTINGS.nudgeMin}"></td></tr></table>`;
+}
+function setActions() {
+  return `<div class="set-actions">
     <button class="btn primary" onclick="fakeSave()">Save to curia.yaml</button>
     <button class="btn danger" onclick="fakeRestart()">Restart daemon</button>
-    <span class="toast" id="toast"></span>
-  </div>`;
+    <span class="toast" id="toast"></span></div>`;
+}
+const SET_HINTS = {
+  models: "All models the harnesses can reach. Active models join the dispatch vocabulary.",
+  defaults: "The model each ticket type gets when no label says otherwise.",
+  projects: "The repos curia watches and dispatches against.",
+  dispatch: "How many agents run at once, and how often an open question re-posts."
+};
+const setBlock = (title, hint, body) => `<div class="set-block"><h3>${title}</h3><p class="hint">${hint}</p>${body}</div>`;
+
+/* --- V1 stack: one narrow column, uniform width --- */
+function setStack() {
+  return `<div style="max-width:560px">
+    ${setBlock("Models", SET_HINTS.models, tblModels())}
+    <div style="height:12px"></div>${setBlock("Defaults", SET_HINTS.defaults, tblDefaults())}
+    <div style="height:12px"></div>${setBlock("Projects", SET_HINTS.projects, tblProjects())}
+    <div style="height:12px"></div>${setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())}
+    ${setActions()}</div>`;
+}
+/* --- V2 sections: a sub-nav, one topic at a time --- */
+let setSection = "models";
+function setSections() {
+  const secs = { models: ["Models", () => tblModels() + `<div style="height:14px"></div>` + tblDefaults()],
+    projects: ["Projects", tblProjects], dispatch: ["Dispatch", tblDispatch] };
+  return `<div class="set-subnav">
+      ${Object.entries(secs).map(([k, v]) => `<button class="${setSection === k ? "on" : ""}"
+        onclick="setSection='${k}';render()">${v[0]}</button>`).join("")}</div>
+    <div style="max-width:560px">${setBlock(secs[setSection][0], SET_HINTS[setSection === "models" ? "models" : setSection], secs[setSection][1]())}
+    ${setActions()}</div>`;
+}
+/* --- V3 ledger: one card, label left, control right --- */
+function setLedger() {
+  const row = (lab, sub, body) => `<div class="ledger-row"><div><span class="lab">${lab}</span><span class="sub">${sub}</span></div><div>${body}</div></div>`;
+  return `<div class="set-block" style="max-width:760px">
+    ${row("Models", SET_HINTS.models, tblModels())}
+    ${row("Defaults", SET_HINTS.defaults, tblDefaults())}
+    ${row("Projects", SET_HINTS.projects, tblProjects())}
+    ${row("Dispatch", SET_HINTS.dispatch, tblDispatch())}
+  </div>${setActions()}`;
+}
+/* --- V4 grid: four equal cards, two by two --- */
+function setGrid() {
+  return `<div class="set-grid set-grid-2">
+    ${setBlock("Models", SET_HINTS.models, tblModels())}
+    ${setBlock("Defaults", SET_HINTS.defaults, tblDefaults())}
+    ${setBlock("Projects", SET_HINTS.projects, tblProjects())}
+    ${setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())}
+  </div>${setActions()}`;
+}
+const SET_VARIANTS = {
+  stack: ["Stack", setStack],
+  sections: ["Sections", setSections],
+  ledger: ["Ledger", setLedger],
+  grid: ["Grid", setGrid]
+};
+let setVariantKey = "stack";
+function screenSettings() {
+  return `<div class="screen-head"><h2>Settings</h2>
+    <span class="seg">${Object.entries(SET_VARIANTS).map(([k, v]) =>
+      `<button class="${setVariantKey === k ? "on" : ""}" onclick="setVariantKey='${k}';render()">${v[0]}</button>`).join("")}</span></div>
+    ${SET_VARIANTS[setVariantKey][1]()}`;
 }
 function fakeSave() {
   document.getElementById("toast").textContent = "Validated with the daemon loaders. Written atomically. Comments kept.";
@@ -749,7 +809,7 @@ const SCREENS = {
 const _h = new URLSearchParams(location.hash.slice(1));
 let screen = SCREENS_KEYS(_h.get("s"));
 frVariant = FR_VARIANTS[_h.get("f")] ? _h.get("f") : frVariant;
-homeVariant = HOME_VARIANTS[_h.get("h")] ? _h.get("h") : homeVariant;
+setVariantKey = SET_VARIANTS[_h.get("t")] ? _h.get("t") : setVariantKey;
 function SCREENS_KEYS(s) { return ["home","agents","frontier","feed","settings"].includes(s) ? s : "home"; }
 function render() {
   const ny = needsYou().length;
