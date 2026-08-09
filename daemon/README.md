@@ -12,7 +12,8 @@ The daemon expects these on the box before the first boot:
 - **Node 22+** with npm. The daemon is one Node process (`npm install`, then `npm start`).
 - **Claude Code, logged in.** Agents and the overseer share the host credential store at `~/.claude` (#53/#92). They have no login of their own. If the host is logged out, every agent and every overseer turn fails.
 - **`gh`, authenticated** for every watched repo. The daemon claims, comments, and closes tickets through it.
-- **`tmux`** — the agent host. **`ttyd`** at `TTYD_BIN` (default `~/.local/bin/ttyd`) for the browser terminal.
+- **`tmux`** — the agent host. Under compose (#260) the server lives in the `tmux` service and the daemon is a client over `CURIA_TMUX_SOCKET`. Unset, the default socket serves a dev box.
+- **`ttyd` on port 7681** for the browser terminal. The compose `ttyd` service runs it. The daemon health-checks the port and does not spawn ttyd.
 - **Tailscale** with Serve available. Attach links and preview links publish through `tailscale serve`.
 - **A Discord bot** in one guild, with the message-content intent, and its token in `.env`.
 
@@ -44,7 +45,7 @@ One boot brings up everything: the HTTP surface, ttyd, the Discord bridge, the r
 
 **No suite reads `$HOME`.** `loadCuriaConfig` checks `skills.install` against `skills.root`, and that root defaults to `~/.claude/skills`. So a fixture config that says nothing about skills asks the host a question the test cannot control. Every fixture config now names a skills root that the test seeds. See `test/fixtures/skills.mjs`. The two tests that pin the default root swap in a home directory they own. The suite gives the same answer on the operator's box, in an agent container, and on a stranger's machine.
 
-**Two host binaries stay optional.** The tmux describes in `tmux.test.mjs` need `tmux`. One version reader in `attach.test.mjs` needs `ttyd` at `TTYD_BIN`. Each one states why it skipped. An agent container carries neither binary, so a green run there shows one skipped test and three skipped describes.
+**One host binary stays optional.** The tmux describes in `tmux.test.mjs` need `tmux`, and each one states why it skipped. An agent container carries no tmux, so a green run there shows three skipped describes. Nothing needs a ttyd binary since #260 — `attach.test.mjs` pins the compose command instead.
 
 ## Surfaces
 

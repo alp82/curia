@@ -135,7 +135,6 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
         CURIA_CONFIG_DIR: cfgDir,
         CURIA_DATA_DIR: dataDir,
         PATH: `${shim}:${process.env.PATH}`,
-        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
         DISCORD_BOT_TOKEN: '',
         MCP_KEEPALIVE_MS: String(KEEPALIVE_MS),
       },

@@ -8,7 +8,7 @@
 //
 // The child gets a PATH shim so gh/tmux/tailscale are inert failing stubs
 // (boot reconcile must fail SAFE against fixtures, never reach the live box),
-// TTYD_BIN pointing nowhere (a missing binary degrades /attach by design),
+// no listener on the ttyd port (a down ttyd service degrades /attach by design),
 // and CURIA_CONFIG_DIR/CURIA_DATA_DIR in a temp dir so no real state is read
 // or written.
 
@@ -113,7 +113,6 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
         CURIA_CONFIG_DIR: cfgDir,
         CURIA_DATA_DIR: dataDir,
         PATH: `${shim}:${process.env.PATH}`,
-        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
         DISCORD_BOT_TOKEN: '', // REST-only: the gate must never depend on the bridge
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -192,7 +191,6 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
         CURIA_CONFIG_DIR: path.join(tmp, 'config'),
         CURIA_DATA_DIR: path.join(tmp, 'data'),
         PATH: `${path.join(tmp, 'shim')}:${process.env.PATH}`,
-        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
         DISCORD_BOT_TOKEN: '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -308,8 +306,8 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
 // refuse — `tailscale serve --bg` config survives daemon restarts, there is
 // no periodic reconcile (startAutoLoop only schedules dispatch ticks), and
 // the URL the rule serves is already sitting in the Discord thread. It also
-// exercises residual 5 through the shipped path: TTYD_BIN points nowhere, so
-// the spawn branch must come back verified:false instead of verified-by-hope.
+// exercises residual 5 through the shipped path: nothing listens on the ttyd
+// port, so the probe must come back verified:false instead of verified-by-hope.
 describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () => {
   let tmp
   let child
@@ -390,7 +388,6 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
         CURIA_CONFIG_DIR: cfgDir,
         CURIA_DATA_DIR: dataDir,
         PATH: `${shim}:${process.env.PATH}`,
-        TTYD_BIN: path.join(tmp, 'no-such-ttyd'), // spawn branch: no listener will ever come up
         DISCORD_BOT_TOKEN: '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -414,7 +411,7 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
     })
     assert.equal(res.status, 200)
     const { reply } = JSON.parse(res.body)
-    assert.match(reply, /could not be verified/, 'the URL is refused')
+    assert.match(reply, /down or stale/, "the URL is refused")
     const withdrawn = fs.readFileSync(tsLog, 'utf8').split('\n').filter(Boolean)
     assert.ok(
       withdrawn.some((l) => l.trim() === `serve --https=${servePort} off`),
@@ -519,7 +516,6 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
         CURIA_CONFIG_DIR: cfgDir,
         CURIA_DATA_DIR: dataDir,
         PATH: `${shim}:${process.env.PATH}`,
-        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
         DISCORD_BOT_TOKEN: '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

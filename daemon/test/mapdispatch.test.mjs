@@ -138,7 +138,7 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     seedConfigDir: seedConfigDirStub(),
     writeConnectionSettings: () => {},
     writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
-    ensureTtyd: async () => ({ verified: true }),
+    probeTtyd: async () => ({ verified: true }),
     assertServe: async () => {},
     serveOff: async () => {},
     commentIssue: async (repo, n, body) => calls.push(`comment ${repo}#${n}`, body),

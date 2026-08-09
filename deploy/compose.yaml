@@ -1,0 +1,156 @@
+# The box's supervisor (#259, executed by #260). Four services, all built
+# locally, all on the host network. systemd and /etc/sudoers.d/curia retired.
+#
+# THE DEPLOY RULE OUTRANKS THE RESTART FLAGS: `docker compose up -d` recreates
+# any changed service, and a recreated `tmux` service kills every live agent
+# (wayfinder #132 in compose clothes). A deploy names its targets:
+#
+#     docker compose up -d --build daemon dashboard
+#
+# Recreating `tmux`/`ttyd` is a deliberate act at zero live agents.
+#
+# Interpolated variables (`DOCKER_GID`) come from an uncommitted `.env` file
+# beside this one. `DOCKER_GID` is the host's `docker` group id — read it with
+# `getent group docker | cut -d: -f3`.
+
+name: curia
+
+volumes:
+  # The tmux server socket. The server lives in the `tmux` container; the
+  # daemon and ttyd are clients over this shared path. Same path in every
+  # container: /run/curia-tmux/default.
+  tmux-sock:
+
+services:
+  daemon:
+    build:
+      context: ..
+      dockerfile: deploy/daemon/Dockerfile
+    image: curia-daemon
+    # The #249 restart contract: POST /restart journals and exits nonzero,
+    # docker respawns. A clean exit stays down until the next deploy.
+    restart: on-failure
+    # host networking is load-bearing three times over: tailscale Serve targets
+    # host loopback, the preview identity proxies bind dynamic ports, and the
+    # daemon binds a listener on the docker bridge gateway for
+    # host.docker.internal:4271.
+    network_mode: host
+    user: "1000:1000"
+    group_add:
+      - "${DOCKER_GID:?host docker group id — getent group docker | cut -d: -f3}"
+    working_dir: /home/alp/curia/daemon
+    # npm install at start, not baked into the image: the code runs from the
+    # repo mount, so a deploy is `git pull` plus a restart. With a satisfied
+    # tree the install is a fast no-op.
+    command: ["bash", "-c", "npm install --no-fund --no-audit && exec node src/index.mjs"]
+    environment:
+      HOME: /home/alp
+      CURIA_TMUX_SOCKET: /run/curia-tmux/default
+    env_file:
+      - ../daemon/.env
+    volumes:
+      # docker-outside-of-docker: agent containers are siblings on host dockerd.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Serve state stays in host tailscaled; the CLI talks over this socket.
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+      # The same-path principle: host paths are data in this repo (curia.yaml,
+      # workspace_root, every composed `docker run -v` line), so every tree
+      # mounts at its identical path and no translation layer exists.
+      - /home/alp/curia:/home/alp/curia
+      - /home/alp/curia-work:/home/alp/curia-work
+      # read-write: the usage meters cache under ~/.claude/cache (#146).
+      - /home/alp/.claude:/home/alp/.claude
+      - /home/alp/.codex:/home/alp/.codex:ro
+      # gh auth for the tracker CLI; gh rewrites its own state, so read-write.
+      - /home/alp/.config/gh:/home/alp/.config/gh
+      - /home/alp/.gitconfig:/home/alp/.gitconfig:ro
+      - tmux-sock:/run/curia-tmux
+    depends_on:
+      - tmux
+
+  # Replaces KillMode=process: the tmux server that holds the agent panes lives
+  # OUTSIDE the daemon's lifecycle. A daemon restart never touches it. The
+  # attached `keeper` session is pid 1 (tty: true), so the server never exits
+  # while the container runs — and if it dies, the restart policy re-parks it.
+  tmux:
+    build:
+      context: ..
+      dockerfile: deploy/tmux/Dockerfile
+    image: curia-tmux
+    restart: unless-stopped
+    # A stop is a deliberate act at zero live agents, but give anything still
+    # winding down time before the SIGKILL.
+    stop_grace_period: 2m
+    network_mode: host
+    user: "1000:1000"
+    group_add:
+      - "${DOCKER_GID:?host docker group id — getent group docker | cut -d: -f3}"
+    tty: true
+    command: ["tmux", "-S", "/run/curia-tmux/default", "new-session", "-A", "-s", "keeper"]
+    environment:
+      HOME: /home/alp
+    volumes:
+      # Panes run `docker run` for sandboxed agents, against host dockerd.
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/alp/curia:/home/alp/curia
+      - /home/alp/curia-work:/home/alp/curia-work
+      - tmux-sock:/run/curia-tmux
+
+  # Shares the tmux image and the socket volume. The daemon no longer spawns
+  # ttyd; reconcile health-checks port 7681 instead. THE ARGV BELOW IS THE
+  # ATTACH SURFACE'S HARDENING and every flag is load-bearing — attach.test.mjs
+  # pins this command, so edit both together:
+  #   -O            refuse cross-origin WebSocket upgrades
+  #   -i 127.0.0.1  loopback only; the tailnet reaches it through the identity
+  #                 proxy (Serve :8443 → proxy :7682 → ttyd :7681)
+  #   -a + wrapper  ?arg= picks the session, whitelisted to ^curia- by the wrapper
+  #   -t/-I         the #69 surface: dom renderer, owned index
+  ttyd:
+    build:
+      context: ..
+      dockerfile: deploy/tmux/Dockerfile
+    image: curia-tmux
+    restart: unless-stopped
+    stop_grace_period: 30s
+    network_mode: host
+    user: "1000:1000"
+    group_add:
+      - "${DOCKER_GID:?host docker group id — getent group docker | cut -d: -f3}"
+    command:
+      [
+        "ttyd", "-W", "-a", "-O", "-p", "7681", "-i", "127.0.0.1",
+        "-t", "rendererType=dom",
+        "-I", "/home/alp/curia/daemon/assets/attach-index.html",
+        "/home/alp/curia/daemon/bin/curia-attach.sh",
+      ]
+    environment:
+      HOME: /home/alp
+      CURIA_TMUX_SOCKET: /run/curia-tmux/default
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /home/alp/curia:/home/alp/curia
+      - /home/alp/curia-work:/home/alp/curia-work
+      - tmux-sock:/run/curia-tmux
+    depends_on:
+      - tmux
+
+  # The #249 sidecar. It stays up while the daemon restarts, so the restart
+  # loop is visible on the page. Secret-free: no credentials on disk or in env
+  # — the tailscaled socket is a capability, not a secret.
+  # #263 stands the sidecar up and replaces the placeholder command.
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deploy/dashboard/Dockerfile
+    image: curia-dashboard
+    restart: unless-stopped
+    network_mode: host
+    user: "1000:1000"
+    command: ["node", "-e", "setInterval(() => {}, 2147483647)"]
+    environment:
+      HOME: /home/alp
+    volumes:
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+      # config only: the dashboard reads and rewrites curia.yaml, nothing else
+      # on disk.
+      - /home/alp/curia/config:/home/alp/curia/config

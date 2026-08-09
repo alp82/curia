@@ -147,7 +147,7 @@ function makeDispatcher(deps = {}, {
     seedConfigDir: seedConfigDirStub(),
     writeConnectionSettings: () => {},
     writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
-    ensureTtyd: async () => ({ verified: true }),
+    probeTtyd: async () => ({ verified: true }),
     assertServe: async () => {},
     serveOff: async () => {},
     // resolve + land (#41)
@@ -1741,7 +1741,7 @@ describe('an unverified ttyd listener is never published (F3)', () => {
     // still publishing the unverified listener tailnet-wide
     const calls = []
     const d = makeDispatcher({
-      ensureTtyd: async () => ({ verified: false }),
+      probeTtyd: async () => ({ verified: false }),
       assertServe: async () => { calls.push('serve') },
       serveOff: async ({ servePort }) => { calls.push(`off:${servePort}`) },
     })
@@ -1754,7 +1754,7 @@ describe('an unverified ttyd listener is never published (F3)', () => {
   test('verified:true ⇒ assertServe runs and nothing is withdrawn', async () => {
     const calls = []
     const d = makeDispatcher({
-      ensureTtyd: async () => ({ verified: true }),
+      probeTtyd: async () => ({ verified: true }),
       assertServe: async () => { calls.push('serve') },
       serveOff: async ({ servePort }) => { calls.push(`off:${servePort}`) },
     })
@@ -1768,7 +1768,7 @@ describe('an unverified ttyd listener is never published (F3)', () => {
     const calls = []
     const logs = []
     const d = makeDispatcher({
-      ensureTtyd: async () => ({ verified: false }),
+      probeTtyd: async () => ({ verified: false }),
       assertServe: async () => { calls.push('serve') },
       serveOff: async () => { throw new Error('tailscale exploded') },
     })

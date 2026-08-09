@@ -7,4 +7,6 @@ s="${1:-}"
 if [[ ! "$s" =~ ^curia-[A-Za-z0-9._-]+$ ]]; then
   echo "refused: '$s' is not a curia session"; sleep 3; exit 1
 fi
-exec tmux attach -t "$s"
+# #260: the tmux server lives in the `tmux` service; ttyd reaches it over the
+# shared socket volume. Unset (dev box) means the default socket.
+exec tmux ${CURIA_TMUX_SOCKET:+-S "$CURIA_TMUX_SOCKET"} attach -t "$s"

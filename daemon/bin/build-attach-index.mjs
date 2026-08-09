@@ -23,9 +23,26 @@
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { TTYD_BIN, DEFAULT_INDEX, CHROME_BASENAME, ttydVersion, stampMeta, sha256 } from '../src/attach.mjs'
+import { DEFAULT_INDEX, CHROME_BASENAME, stampMeta, sha256 } from '../src/attach.mjs'
+
+// #260: the daemon no longer spawns ttyd, so the binary is this builder's
+// concern alone. PATH by default; point TTYD_BIN at another binary to build
+// against it. The version this builds from must match deploy/tmux/Dockerfile's
+// TTYD_VERSION pin — attach.test.mjs holds the two together.
+const TTYD_BIN = process.env.TTYD_BIN ?? 'ttyd'
+
+// `ttyd --version` prints "ttyd version 1.7.7-40e79c7" and exits 0. Null on
+// any failure.
+function ttydVersion(bin = TTYD_BIN) {
+  try {
+    const out = execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000 })
+    return /ttyd version (\S+)/.exec(out)?.[1] ?? null
+  } catch {
+    return null
+  }
+}
 
 const OUT = DEFAULT_INDEX
 const CHROME = path.join(path.dirname(OUT), CHROME_BASENAME)

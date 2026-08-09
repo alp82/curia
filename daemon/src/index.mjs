@@ -44,7 +44,7 @@ import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeAgentToken, tokenExpiryDays } from './github.mjs'
-import { ensureTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
+import { probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
@@ -582,15 +582,13 @@ const attachApi = {
   async link(ticket, { session = `curia-${ticket}` } = {}) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
     if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
-    // Same rule as reconcile's #assertAttachSurface: only a listener verified
-    // as our hardened ttyd is ever published. Handing out a link would both
-    // assert the serve rule over an unverified listener and point a human at it.
+    // Same rule as reconcile's #assertAttachSurface: publish only over a live,
+    // agreed surface (#260: compose runs ttyd; the daemon health-checks it).
     // The #151 identity proxy is what the serve rule points at, so a proxy that
-    // is not up is exactly as disqualifying as an unverified ttyd — publishing
-    // ttyd directly would hand the tailnet the un-gated terminal this ticket
-    // closed.
+    // is not up is exactly as disqualifying as a dead ttyd — publishing ttyd
+    // directly would hand the tailnet the un-gated terminal this ticket closed.
     const { verified } = identityProxy.listening
-      ? await ensureTtyd({ ttydPort: curiaConfig.attach.ttyd_port, index: curiaConfig.attach.index, log })
+      ? await probeTtyd({ ttydPort: curiaConfig.attach.ttyd_port, index: curiaConfig.attach.index, log })
       : { verified: false }
     if (!verified) {
       // Refusing alone withdraws nothing: /attach runs on every request, so
@@ -603,12 +601,12 @@ const attachApi = {
       // withdraw the rule, then refuse.
       try {
         await serveOff({ servePort: curiaConfig.attach.serve_port, log })
-        log(`attach: ttyd listener on port ${curiaConfig.attach.ttyd_port} is UNVERIFIED — serve rule for :${curiaConfig.attach.serve_port} withdrawn`)
+        log(`attach: the ttyd surface on port ${curiaConfig.attach.ttyd_port} is not publishable — serve rule for :${curiaConfig.attach.serve_port} withdrawn`)
       } catch (e) {
-        log(`WARNING: ttyd listener on port ${curiaConfig.attach.ttyd_port} is UNVERIFIED and withdrawing the serve rule failed (${e.message}) — if a rule for :${curiaConfig.attach.serve_port} exists, the unverified listener REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${curiaConfig.attach.serve_port} off\` by hand`)
+        log(`WARNING: the ttyd surface on port ${curiaConfig.attach.ttyd_port} is not publishable and withdrawing the serve rule failed (${e.message}) — if a rule for :${curiaConfig.attach.serve_port} exists, a dead or unagreed surface REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${curiaConfig.attach.serve_port} off\` by hand`)
       }
       throw new Error(identityProxy.listening
-        ? `the listener on ttyd port ${curiaConfig.attach.ttyd_port} could not be verified as curia's hardened ttyd — refusing to publish it; kill it and re-run reconcile`
+        ? `the attach surface on ttyd port ${curiaConfig.attach.ttyd_port} is down or stale — is the compose ttyd service up? see the daemon log`
         : `the attach identity proxy is not up on port ${curiaConfig.identity.proxy_port} — refusing to publish the terminal surface without its identity check; see the daemon log for the bind failure`)
     }
     // Resolved before the rule goes up, not before the verification: the proxy

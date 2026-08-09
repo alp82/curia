@@ -7,8 +7,16 @@ import { execFileP } from './exec.mjs'
 // and a wedged one must never hold up boot reconcile.
 const TMUX_TIMEOUT_MS = 5_000
 
+// #260: under compose the tmux SERVER lives in its own container, parked on a
+// `keeper` session, and the daemon is a client over a shared socket volume —
+// that is what lets a daemon restart leave every agent pane alive. The socket
+// path arrives by env (compose sets /run/curia-tmux/default); unset means the
+// default socket, which is what a dev box wants.
+export const TMUX_SOCKET = process.env.CURIA_TMUX_SOCKET ?? null
+
 function tmux(args) {
-  return execFileP('tmux', args, { maxBuffer: 4 * 1024 * 1024, timeout: TMUX_TIMEOUT_MS })
+  return execFileP('tmux', TMUX_SOCKET ? ['-S', TMUX_SOCKET, ...args] : args,
+    { maxBuffer: 4 * 1024 * 1024, timeout: TMUX_TIMEOUT_MS })
 }
 
 // Positively no server ⇒ genuinely zero sessions. Anything else — tmux not on

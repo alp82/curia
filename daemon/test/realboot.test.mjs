@@ -194,7 +194,6 @@ describe('waitForBoot against the real daemon (real boot, refused)', () => {
         PORT: String(port),
         CURIA_CONFIG_DIR: cfgDir,
         CURIA_DATA_DIR: path.join(tmp, 'data-ok'),
-        TTYD_BIN: path.join(tmp, 'no-such-ttyd'),
         DISCORD_BOT_TOKEN: '',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

@@ -50,7 +50,7 @@ import {
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, normalizeEvent } from './store.mjs'
 import {
-  ensureTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
+  probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
 
 // A ticket session's name. Chat handles are in here since #241: an agent no
@@ -160,7 +160,7 @@ const DEFAULT_DEPS = {
   createPrivateClone, removeWorkspace, removeConfigDir, removeCredentials,
   createReviewCheckout, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt,
-  ensureTtyd, assertServe, serveOff,
+  probeTtyd, assertServe, serveOff,
   // the agent sandbox (#156)
   ensureAgentImage, stopContainer, listContainers, allocatePorts, containerPorts,
   // #188: the daemon owns the container-facing listener, so index.mjs supplies
@@ -4472,35 +4472,34 @@ export class Dispatcher {
   }
 
   // Asserted on every reconcile, never fatally — but the serve rule is only
-  // asserted over a listener ensureTtyd VERIFIED as our hardened one. Every
-  // loud-warning adopt branch returns verified:false; publishing that listener
-  // would hand a writable no-origin-check terminal (or an operator's bare
-  // shell on ttyd's default port) to every device on the tailnet. And because
-  // `tailscale serve --bg` config persists in tailscaled across daemon
-  // restarts, skipping assertServe alone does not withdraw a rule a previous
-  // run asserted — so the unverified branch actively turns the rule off.
+  // asserted over a surface probeTtyd calls publishable: the agreed index and
+  // a live listener on the ttyd port (#260 — compose runs ttyd; the daemon
+  // only health-checks it). And because `tailscale serve --bg` config persists
+  // in tailscaled across daemon restarts, skipping assertServe alone does not
+  // withdraw a rule a previous run asserted — so the refusing branch actively
+  // turns the rule off.
   // #151 added a second thing that must be positively up before the rule is
-  // asserted: the identity proxy the rule now POINTS AT. ttyd verified but the
+  // asserted: the identity proxy the rule now POINTS AT. ttyd live but the
   // proxy down would mean publishing 127.0.0.1:<ttyd_port> directly — the
-  // un-gated terminal this ticket exists to close — so it is refused exactly
-  // like an unverified ttyd, and the persisted rule is withdrawn.
+  // un-gated terminal that ticket exists to close — so it is refused exactly
+  // like a dead ttyd, and the persisted rule is withdrawn.
   async #assertAttachSurface() {
     const { serve_port: servePort, ttyd_port: ttydPort, index } = this.config.attach
     const proxyPort = this.config.identity?.proxy_port
     const proxyUp = this.identityProxy?.listening ?? false
     try {
       const { verified } = proxyUp
-        ? await this.deps.ensureTtyd({ ttydPort, index, log: this.log })
+        ? await this.deps.probeTtyd({ ttydPort, index, log: this.log })
         : { verified: false }
       if (!verified) {
         // Name the ACTUAL cause: a withdrawal blamed on the wrong half sends
         // the operator to kill a ttyd that was never the problem.
         const cause = proxyUp
-          ? `ttyd listener on port ${ttydPort} is UNVERIFIED`
+          ? `the ttyd surface on port ${ttydPort} is down or stale (is the compose ttyd service up?)`
           : `the attach identity proxy is not up on port ${proxyPort}, so the rule has nothing gated to point at`
         try {
           await this.deps.serveOff({ servePort, log: this.log })
-          this.log(`reconcile: ${cause} — serve rule for :${servePort} withdrawn; /attach stays down until it is fixed (kill the listener and re-run reconcile, or restart the daemon)`)
+          this.log(`reconcile: ${cause} — serve rule for :${servePort} withdrawn; /attach stays down until it is fixed (bring the service back and re-run reconcile, or restart the daemon)`)
         } catch (e) {
           this.log(`WARNING: ${cause} and withdrawing the serve rule failed (${e.message}) — if a rule for :${servePort} exists, an UNGATED listener REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${servePort} off\` by hand`)
         }

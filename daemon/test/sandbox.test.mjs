@@ -482,7 +482,7 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     removeWorkspace: async () => {},
     removeConfigDir: () => {},
     removeCredentials: () => {},
-    ensureTtyd: async () => ({ verified: true }),
+    probeTtyd: async () => ({ verified: true }),
     assertServe: async () => {},
     serveOff: async () => {},
     defaultBranchOf: async () => 'main',

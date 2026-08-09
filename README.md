@@ -33,7 +33,9 @@ yet. This file sets curia up on your machine, and shows you around the code.
 
 ## 1. The box
 
-Linux, always on. Node 22 or newer, tmux, ttyd, Tailscale. About 0.5 GB per running agent.
+Linux, always on. Node 22 or newer, tmux, Docker, Tailscale. About 0.5 GB per running agent.
+For the attach surface (`attach <n>` in the browser) you also need ttyd on port 7681 — the compose
+stack in step 13 runs it for you.
 
 ## 2. Tailscale
 
@@ -94,12 +96,10 @@ npm install
 ```
 DISCORD_BOT_TOKEN=<the bot token>
 DISCORD_ALLOWED_USERS=<your Discord user id>
-TTYD_BIN=/home/<you>/.local/bin/ttyd
 CURIA_AGENT_GH_TOKEN_<OWNER>=<a fine-grained GitHub PAT>
 ```
 
 - `DISCORD_ALLOWED_USERS` is the whole access check. Everyone on it can send agents at your repos.
-- **Set `TTYD_BIN`.** It defaults to `/home/alp/.local/bin/ttyd`. Leave it and attach is dead.
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` is what an agent uses to reach GitHub. Without it the agent inherits your own `gh` login, which is your whole account. Mint one [fine-grained PAT](https://github.com/settings/personal-access-tokens/new) per resource owner you watch, with **Contents**, **Issues** and **Pull requests** read/write plus **Commit statuses** read. Put the owner in the key, uppercased: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`.
 
 Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271), `NUDGE_MS` (30 min),
@@ -181,8 +181,16 @@ three verbs above take it: `attach chat-1`, `cancel chat-1`, `resume chat-1`. `s
 
 ## 13. Keep it running
 
-`deploy/curia.service` is a systemd unit. Replace the user and the paths. Keep the `PATH=` line:
-systemd's default path does not find `gh`, `tmux`, `tailscale` or `ttyd` under `~/.local/bin`.
+`deploy/compose.yaml` is a docker compose stack: the daemon, the dashboard sidecar, a tmux service
+that holds the agent panes, and ttyd for attach. Replace the `/home/alp` paths with yours, write
+`deploy/.env` with your docker group id (`DOCKER_GID=$(getent group docker | cut -d: -f3)`), then:
+
+```
+docker compose -f deploy/compose.yaml up -d --build
+```
+
+After that, deploy with `docker compose up -d --build daemon dashboard` — never a bare `up -d`,
+which would recreate the tmux service and kill every live agent.
 
 Restarting is safe. `daemon/data/events.jsonl` is the record; everything else is rebuilt from GitHub,
 tmux and Tailscale on boot. Open questions keep their Discord buttons across a restart.
@@ -199,10 +207,10 @@ tmux and Tailscale on boot. Open questions keep their Discord buttons across a r
 | The bridge refuses to start | `DISCORD_ALLOWED_USERS` is empty. |
 | Replies in a thread do nothing | The message content intent is off. |
 | `Speaker identities are off` in `#curia` | The bot role lacks Manage Webhooks. Grant it on the role, or as a `#curia` channel override. Agent prose keeps posting under the bot voice until you do. |
-| `spawned ttyd ... but no listener came up` | `TTYD_BIN` points at nothing. |
+| `no listener on ttyd port ...` | Nothing serves port 7681. Start the compose ttyd service, or your own ttyd. |
 | Attach and preview links never appear | Tailscale HTTPS certificates are off, or `--operator` was never set. |
 
-Logs are the daemon's output. Under systemd: `journalctl -u curia -f`.
+Logs are the daemon's output. Under compose: `docker compose -f deploy/compose.yaml logs -f daemon`.
 
 ## Where things are
 

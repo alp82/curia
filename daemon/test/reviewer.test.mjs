@@ -133,7 +133,7 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
       return { path: p, sha: 'deadbeefcafe0123456789', branch: `curia/${n}`, baseBranch: 'main' }
     },
     writeReviewPrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
-    ensureTtyd: async () => ({ verified: true }),
+    probeTtyd: async () => ({ verified: true }),
     assertServe: async () => {},
     serveOff: async () => {},
     commentIssue: async () => {},

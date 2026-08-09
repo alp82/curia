@@ -636,7 +636,7 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       removeWorkspace: async () => {}, removeConfigDir: () => {}, removeCredentials: () => {},
       seedConfigDir: seedConfigDirStub(), writeConnectionSettings: () => {},
       writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
-      ensureTtyd: async () => ({ verified: true }), assertServe: async () => {}, serveOff: async () => {},
+      probeTtyd: async () => ({ verified: true }), assertServe: async () => {}, serveOff: async () => {},
       commentIssue: async () => {}, closeIssue: async () => {}, setIssueBody: async () => {},
       issueComments: async () => [], findPullRequest: async () => null,
       createPullRequest: async () => 'url', setPullRequestBody: async () => {},
