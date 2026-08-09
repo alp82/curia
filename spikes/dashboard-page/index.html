@@ -212,6 +212,7 @@
   .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-top: 2px; }
   .tile.warn { border-color: var(--warn); } .tile.warn .v { color: var(--warn); }
   .split-cols { display: grid; grid-template-columns: 5fr 7fr; gap: 22px; align-items: start; }
+  .split-cols > div { min-width: 0; }
   @media (max-width: 900px) { .split-cols { grid-template-columns: 1fr; } }
   .ticker { margin-top: 14px; display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-dim); }
   .ticker time { color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin-right: 8px; }
@@ -509,75 +510,69 @@ function agentRow(a) {
     <span class="ctx num">ctx ${a.ctx}%</span>${agentLinks(a)}</div>`;
 }
 
-/* --- H1 triage: one attention list, then quiet rows --- */
-function homeTriage() {
-  const ny = needsYou();
-  return `${provStrip()}
-    <div class="h-sect"><h3>${ny.length || LIMITS.length ? `<span class="hot">Needs you</span>` : "Needs you"} (${ny.length + LIMITS.length})</h3>
-      ${attentionItems() || `<span style="color:var(--ink-faint);font-size:13px">nothing waits on you</span>`}</div>
-    <div class="h-sect"><h3>Running (${AGENTS.length})</h3>${AGENTS.filter(a => !a.esc).map(agentRow).join("")}</div>
-    <div class="ticker">${FEED.slice(0, 3).map(f => `<span><time>${f.t}</time>${f.ev}</span>`).join("")}
-      <a href="#" onclick="goto('feed');return false" style="font-size:12.5px">all events →</a></div>`;
-}
-/* --- H2 quiet grid: minimal cards, color only on attention --- */
-function homeGrid() {
-  return `${provStrip()}
-    <div class="qcards">${AGENTS.map(a => `<div class="qcard ${a.esc ? "hot" : ""}">
-      <div class="top"><span class="sess">${a.sess}</span>
-        <span class="state ${a.esc ? "hot" : ""}"><span class="dot ${a.state}"></span>${stateWord(a)}</span></div>
-      <div class="ticket"><span class="t">${a.ticket}</span>${escT(a.title)}</div>
-      <div class="meter-row"><span class="lbl">ctx</span><span class="bar"><span class="fill ok" style="width:${a.ctx}%"></span></span><span class="pct num">${a.ctx}%</span></div>
-      ${escBlock(a)}${agentLinks(a)}</div>`).join("")}</div>
-    <div class="ticker">${FEED.slice(0, 3).map(f => `<span><time>${f.t}</time>${f.ev}</span>`).join("")}
-      <a href="#" onclick="goto('feed');return false" style="font-size:12.5px">all events →</a></div>`;
-}
-/* --- H3 split: attention left, fleet right --- */
-function homeSplit() {
-  return `<div class="split-cols">
-    <div><div class="h-sect" style="margin-top:0"><h3><span class="hot">Needs you</span> (${needsYou().length + LIMITS.length})</h3>${attentionItems()}</div>
-      <div class="h-sect"><h3>Last events</h3>${feedList(FEED.slice(0, 4))}
-        <a class="more" href="#" onclick="goto('feed');return false" style="font-size:12.5px;display:block;margin-top:8px">all events →</a></div></div>
-    <div><div class="h-sect" style="margin-top:0"><h3>Fleet (${AGENTS.length})</h3>${AGENTS.map(agentRow).join("")}</div>
-      ${provStrip()}</div></div>`;
-}
-/* --- H4 table: one compact table, attention rows first --- */
-function homeTable() {
-  const sorted = [...AGENTS].sort((a, b) => (b.esc ? 1 : 0) - (a.esc ? 1 : 0));
-  return `${provStrip()}
-    <div class="tbl-wrap"><table class="agents" style="min-width:640px">
-      <tr><th>session</th><th>state</th><th>ticket</th><th>ctx</th><th>links</th></tr>
-      ${sorted.map(a => `<tr class="${a.esc ? "esc-row" : ""}">
-        <td class="sess">${a.sess}</td>
-        <td><span class="state"><span class="dot ${a.state}"></span> ${stateWord(a)}</span></td>
-        <td><span class="mono" style="color:var(--ink-dim)">${a.ticket}</span> ${escT(a.title)}
-          ${a.esc ? `<div class="esc" style="margin-top:6px">${escT(a.esc.q)} <span class="age">· ${a.esc.age}</span>
-            <div class="links" style="margin-top:5px"><a href="#">answer in thread</a></div></div>` : ""}</td>
-        <td class="num">${a.ctx}%</td><td>${agentLinks(a)}</td></tr>`).join("")}
-    </table></div>
-    <div class="ticker">${FEED.slice(0, 3).map(f => `<span><time>${f.t}</time>${f.ev}</span>`).join("")}
-      <a href="#" onclick="goto('feed');return false" style="font-size:12.5px">all events →</a></div>`;
-}
-/* --- H5 pulse: numbers first, then attention, then a log --- */
-function homePulse() {
+/* the winners of revision 4 — pulse, split, table — recombined */
+function statTiles() {
   const ny = needsYou().length;
   const prs = AGENTS.filter(a => a.links.pr).map(a => a.links.pr);
   return `<div class="stat-tiles">
-      <div class="tile ${ny ? "warn" : ""}"><div class="v num">${ny}</div><div class="l">needs you</div></div>
-      <div class="tile"><div class="v num">${AGENTS.length}</div><div class="l">agents running</div></div>
-      <div class="tile"><div class="v num">${new Set(prs).size}</div><div class="l">open PRs</div></div>
-      <div class="tile"><div class="v num">16:00</div><div class="l">openai 5h reset</div></div></div>
-    <div class="h-sect">${attentionItems()}</div>
-    <div class="h-sect"><h3>Fleet</h3><div class="loglines">${AGENTS.map(agentRow).join("")}</div></div>
-    ${provStrip()}`;
+    <div class="tile ${ny ? "warn" : ""}"><div class="v num">${ny}</div><div class="l">needs you</div></div>
+    <div class="tile"><div class="v num">${AGENTS.length}</div><div class="l">agents running</div></div>
+    <div class="tile"><div class="v num">${new Set(prs).size}</div><div class="l">open PRs</div></div>
+    <div class="tile"><div class="v num">16:00</div><div class="l">openai 5h reset</div></div></div>`;
+}
+/* showEsc: inline questions belong in the table only when no attention list sits beside it */
+function fleetTable(showEsc) {
+  const sorted = [...AGENTS].sort((a, b) => (b.esc ? 1 : 0) - (a.esc ? 1 : 0));
+  return `<div class="tbl-wrap"><table class="agents" style="min-width:560px">
+    <tr><th>session</th><th>state</th><th>ticket</th><th>ctx</th><th>links</th></tr>
+    ${sorted.map(a => `<tr class="${a.esc ? "esc-row" : ""}">
+      <td class="sess">${a.sess}</td>
+      <td><span class="state"><span class="dot ${a.state}"></span> ${stateWord(a)}</span></td>
+      <td><span class="mono" style="color:var(--ink-dim)">${a.ticket}</span> ${escT(a.title)}
+        ${showEsc && a.esc ? `<div class="esc" style="margin-top:6px">${escT(a.esc.q)} <span class="age">· ${a.esc.age}</span>
+          <div class="links" style="margin-top:5px"><a href="#">answer in thread</a></div></div>` : ""}</td>
+      <td class="num">${a.ctx}%</td><td>${agentLinks(a)}</td></tr>`).join("")}
+  </table></div>`;
+}
+function attentionCol() {
+  return `<div class="h-sect" style="margin-top:0"><h3><span class="hot">Needs you</span> (${needsYou().length + LIMITS.length})</h3>${attentionItems()}</div>
+    <div class="h-sect"><h3>Last events</h3>${feedList(FEED.slice(0, 4))}
+      <a class="more" href="#" onclick="goto('feed');return false" style="font-size:12.5px;display:block;margin-top:8px">all events →</a></div>`;
+}
+const eventTicker = () => `<div class="ticker">${FEED.slice(0, 3).map(f => `<span><time>${f.t}</time>${f.ev}</span>`).join("")}
+  <a href="#" onclick="goto('feed');return false" style="font-size:12.5px">all events →</a></div>`;
+
+/* --- combo: tiles over the split --- */
+function homePulseSplit() {
+  return `${statTiles()}<div class="split-cols" style="margin-top:16px">
+    <div>${attentionCol()}</div>
+    <div><div class="h-sect" style="margin-top:0"><h3>Fleet (${AGENTS.length})</h3>${AGENTS.map(agentRow).join("")}</div>
+      ${provStrip()}</div></div>`;
+}
+/* --- combo: tiles over the table --- */
+function homePulseTable() {
+  return `${statTiles()}<div style="margin-top:16px">${fleetTable(true)}</div>
+    ${eventTicker()}<div style="margin-top:14px">${provStrip()}</div>`;
+}
+/* --- combo: attention left, table right --- */
+function homeSplitTable() {
+  return `<div class="split-cols">
+    <div>${attentionCol()}</div>
+    <div>${fleetTable(false)}<div style="margin-top:14px">${provStrip()}</div></div></div>`;
+}
+/* --- combo: all three --- */
+function homeAllThree() {
+  return `${statTiles()}<div class="split-cols" style="margin-top:16px">
+    <div>${attentionCol()}</div>
+    <div>${fleetTable(false)}<div style="margin-top:14px">${provStrip()}</div></div></div>`;
 }
 const HOME_VARIANTS = {
-  triage: ["Triage", homeTriage],
-  grid: ["Grid", homeGrid],
-  split: ["Split", homeSplit],
-  table: ["Table", homeTable],
-  pulse: ["Pulse", homePulse]
+  ps: ["Pulse+Split", homePulseSplit],
+  pt: ["Pulse+Table", homePulseTable],
+  st: ["Split+Table", homeSplitTable],
+  all: ["All three", homeAllThree]
 };
-let homeVariant = "triage";
+let homeVariant = "ps";
 function screenHome() {
   return `<div class="screen-head"><h2>Home</h2>
     <span class="seg">${Object.entries(HOME_VARIANTS).map(([k, v]) =>
