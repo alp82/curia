@@ -156,6 +156,20 @@
     padding: 9px 14px; margin-bottom: 14px;
   }
   .model-mgr { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .act-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+  .act-row label { color: var(--ink-dim); display: inline-flex; gap: 5px; align-items: center; }
+  .act-box { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-inset); display: flex; flex-direction: column; gap: 7px; width: 100%; }
+  .att-item.gate { border-left-color: var(--accent); background: var(--chip-ok-bg); }
+  .dim-note { font-size: 12px; color: var(--ink-faint); }
+  .chat-wrap { max-width: 640px; display: flex; flex-direction: column; gap: 10px; }
+  .chat-note { font-size: 12.5px; color: var(--ink-dim); border: 1px dashed var(--line); border-radius: 8px; padding: 8px 12px; }
+  .chat-thread { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+  .chat-msg { max-width: 85%; border-radius: 12px; padding: 8px 12px; font-size: 13.5px; }
+  .chat-msg.you { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
+  .chat-msg.curia { align-self: flex-start; background: var(--bg-raise); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+  .chat-msg .meta { display: block; font-size: 10.5px; opacity: .75; margin-top: 3px; font-family: ui-monospace, Menlo, monospace; }
+  .chat-input { display: flex; gap: 8px; position: sticky; bottom: 0; background: var(--bg); padding: 8px 0; }
+  .chat-input input { flex: 1; padding: 8px 12px; font: 13.5px system-ui, sans-serif; }
   .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
   .btn[disabled] { opacity: .55; cursor: default; }
 
@@ -375,7 +389,8 @@ const AGENTS = [
     repo: "alp82/curia", model: "gpt-5.6-sol", label: "gpt", harness: "codex",
     state: "needs-you", ctx: 68,
     bars: { h5: { pct: 62, clock: 48, pace: "ahead" }, d7: { pct: 34, clock: 41, pace: "behind" } },
-    esc: { kind: "choice", q: "Two notes race the same expiry line. Drop the older note, or post both with stamps?", age: "12 min" },
+    esc: { kind: "choice", q: "Two notes race the same expiry line. Drop the older note, or post both with stamps?", age: "12 min",
+      options: ["Drop the older note", "Post both with stamps"] },
     links: { attach: "#", timeline: "#", pr: "#264", thread: "#", preview: null }
   },
   {
@@ -420,6 +435,9 @@ const FEED = [
 const LIMITS = [
   { provider: "openai", win: "5h", pct: 62, pace: "ahead", note: "ahead of the clock — reset 16:00" }
 ];
+/* the review gate is its own escalation kind — only the daemon opens it */
+const GATE = { open: true, ticket: "#261", pr: "#262", builder: "curia-261", title: "The status line keeps its meters" };
+const pushFeed = (tag, cls, ev) => FEED.unshift({ t: "now", tag, cls, ev });
 
 const FRONTIER = [
   {
@@ -492,12 +510,86 @@ function agentLinks(a) {
     <a href="${L.attach}">attach</a><a href="${L.timeline}">timeline</a>
     ${L.preview ? `<a href="#">preview ${L.preview}</a>` : ""}
     ${L.pr ? `<a href="#">PR ${L.pr}</a>` : `<span style="color:var(--ink-faint)">no PR yet</span>`}
-    <a href="${L.thread}">thread</a></div>`;
+    <a href="${L.thread}">thread</a>
+    <a href="#" onclick="noteFor=noteFor==='${a.sess}'?null:'${a.sess}';render();return false">note</a>
+    <a href="#" onclick="teleFor=teleFor==='${a.sess}'?null:'${a.sess}';render();return false">teleport</a>
+    <a href="#" style="color:var(--bad)" onclick="cancelAgent('${a.sess}');return false">cancel</a></div>
+    ${noteBox(a)}${teleLine(a)}`;
+}
+/* ---- verbs: every mutation is a fake against the canned data ---- */
+function answerEsc(sess, answer) {
+  const a = AGENTS.find(x => x.sess === sess);
+  if (!a || !a.esc) return;
+  a.esc = null; a.state = "working";
+  pushFeed("answer", "", `escalation for <b>${sess}</b> answered from dashboard: “${escT(answer)}” — first-valid-wins`);
+  render();
+}
+function answerEscText(sess, inputId) {
+  const v = document.getElementById(inputId).value.trim();
+  if (v) answerEsc(sess, v);
+}
+function gateAct(act) {
+  GATE.open = false;
+  if (act === "merge") { pushFeed("resolve", "", `<b>${GATE.ticket}</b> approved from dashboard — PR <b>${GATE.pr}</b> merges, resolve protocol runs`); }
+  else if (act === "reject") { pushFeed("gate", "warn", `<b>${GATE.ticket}</b> rejected from dashboard — notes return to <b>${GATE.builder}</b>`); }
+  else { pushFeed("spawn", "", `cross-check for <b>${GATE.ticket}</b> — reviewer spawns on gpt, <b>${GATE.builder}</b> parks`); }
+  render();
+}
+function startTicket(ri, ni) {
+  const n = FRONTIER[ri].nodes[ni];
+  if (n.dispatched) return;
+  n.dispatched = "curia-" + n.t.slice(1);
+  AGENTS.push({ sess: n.dispatched, ticket: n.t, title: n.title, repo: FRONTIER[ri].repo,
+    model: "claude-opus-5", label: "opus", harness: "claude", state: "working", ctx: 2,
+    bars: AGENTS[1].bars, esc: null, links: { attach: "#", timeline: "#", pr: null, thread: "#", preview: null } });
+  pushFeed("spawn", "", `<b>${n.dispatched}</b> spawned on claude-opus-5 — ${n.typ} default; claim, prepare, spawn`);
+  render();
+}
+function cancelAgent(sess) {
+  if (!confirm(`Cancel ${sess}? The session dies, the worktree goes, the claim releases.`)) return;
+  const i = AGENTS.findIndex(a => a.sess === sess);
+  if (i >= 0) AGENTS.splice(i, 1);
+  pushFeed("cancel", "bad", `<b>${sess}</b> cancelled from dashboard — ticket returns to the frontier`);
+  render();
+}
+let noteFor = null, noteMode = "queue", teleFor = null;
+function sendNote(sess, inputId) {
+  const v = document.getElementById(inputId).value.trim();
+  if (!v) return;
+  pushFeed("note", "", `note for <b>${sess}</b> ${noteMode === "queue" ? "queued — lands when this run finishes" : "interrupts — 3 s grace, then abort and inject"}: “${escT(v)}”`);
+  noteFor = null; render();
+}
+function noteBox(a) {
+  if (noteFor !== a.sess) return "";
+  const id = "note-" + a.sess;
+  return `<div class="act-box"><input type="text" id="${id}" placeholder="say something to ${a.sess}…" style="width:100%">
+    <div class="act-row">
+      <label><input type="radio" name="nm-${a.sess}" ${noteMode === "queue" ? "checked" : ""} onchange="noteMode='queue'"> queue after this run</label>
+      <label><input type="radio" name="nm-${a.sess}" ${noteMode === "interrupt" ? "checked" : ""} onchange="noteMode='interrupt'"> interrupt (3 s grace)</label>
+      <button class="btn sm primary" onclick="sendNote('${a.sess}','${id}')">send</button></div></div>`;
+}
+function teleLine(a) {
+  if (teleFor !== a.sess) return "";
+  return `<div class="act-box mono" style="font-size:12px">tmux attach -t ${a.sess} <span style="color:var(--ink-faint)">· or from any box:</span> curia attach ${a.ticket.replace("#", "") || a.sess}</div>`;
 }
 function escBlock(a) {
   if (!a.esc) return "";
+  const id = "esc-" + a.sess;
   return `<div class="esc"><span class="kind">${a.esc.kind}</span> <span class="age">· open ${a.esc.age}</span><br>${escT(a.esc.q)}
-    <div class="links" style="margin-top:6px"><a href="#">answer in thread</a><a href="#">open timeline</a></div></div>`;
+    ${a.esc.options ? `<div class="act-row" style="margin-top:7px">${a.esc.options.map(o =>
+      `<button class="btn sm" onclick="answerEsc('${a.sess}','${escT(o)}')">${escT(o)}</button>`).join("")}</div>` : ""}
+    <div class="act-row" style="margin-top:6px"><input type="text" id="${id}" placeholder="or answer free-form…" style="flex:1">
+      <button class="btn sm primary" onclick="answerEscText('${a.sess}','${id}')">answer</button></div>
+    <div class="links" style="margin-top:6px"><a href="#">open thread</a><a href="#">open timeline</a></div></div>`;
+}
+function gateBlock() {
+  if (!GATE.open) return "";
+  return `<div class="att-item gate"><span class="who">${GATE.builder}</span>review gate — <b>${GATE.ticket}</b> ${escT(GATE.title)} · PR <b>${GATE.pr}</b>
+    <div class="act-row" style="margin-top:7px">
+      <button class="btn sm primary" onclick="gateAct('merge')">Approve · merge</button>
+      <button class="btn sm" onclick="gateAct('cross')">Cross-check</button>
+      <button class="btn sm" style="color:var(--bad);border-color:var(--bad)" onclick="gateAct('reject')">Reject</button>
+      <a href="#" style="font-size:12px;align-self:center">diff</a></div></div>`;
 }
 function feedList(items) {
   return `<ul class="feed-list">${items.map(f =>
@@ -520,13 +612,22 @@ function provStrip() {
 const stateWord = a => ({ "needs-you": "needs you", working: "working", reading: "reading diff", parked: "parked" }[a.state]);
 function attentionItems() {
   return [
-    ...needsYou().map(a => `<div class="att-item"><span class="who">${a.sess}</span>${escT(a.esc.q)}
+    ...needsYou().map(a => {
+      const id = "att-" + a.sess;
+      return `<div class="att-item"><span class="who">${a.sess}</span>${escT(a.esc.q)}
       <span class="dim">· ${a.esc.kind}, open ${a.esc.age}</span>
-      <div class="links"><a href="#">answer in thread</a><a href="#">timeline</a></div></div>`),
+      ${a.esc.options ? `<div class="act-row" style="margin-top:7px">${a.esc.options.map(o =>
+        `<button class="btn sm" onclick="answerEsc('${a.sess}','${escT(o)}')">${escT(o)}</button>`).join("")}</div>` : ""}
+      <div class="act-row" style="margin-top:6px"><input type="text" id="${id}" placeholder="or answer free-form…" style="flex:1">
+        <button class="btn sm primary" onclick="answerEscText('${a.sess}','${id}')">answer</button></div>
+      <div class="links" style="margin-top:5px"><a href="#">open thread</a><a href="#">timeline</a></div></div>`;
+    }),
+    gateBlock(),
     ...LIMITS.map(l => `<div class="att-item limit"><span class="who">${l.provider}</span>${l.win} window at ${l.pct}%, ${l.note}
       <div class="links"><a href="#" onclick="goto('agents');return false">who burns it</a></div></div>`)
   ].join("");
 }
+const attnCount = () => needsYou().length + (GATE.open ? 1 : 0) + LIMITS.length;
 function agentRow(a) {
   return `<div class="h-row"><span class="dot ${a.state}"></span>
     <span class="sess mono">${a.sess}</span>
@@ -536,7 +637,7 @@ function agentRow(a) {
 
 /* the winners of revision 4 — pulse, split, table — recombined */
 function statTiles() {
-  const ny = needsYou().length;
+  const ny = needsYou().length + (GATE.open ? 1 : 0);
   const prs = AGENTS.filter(a => a.links.pr).map(a => a.links.pr);
   return `<div class="stat-tiles">
     <div class="tile ${ny ? "warn" : ""}"><div class="v num">${ny}</div><div class="l">needs you</div></div>
@@ -559,7 +660,7 @@ function fleetTable(showEsc) {
   </table></div>`;
 }
 function attentionCol() {
-  return `<div class="h-sect" style="margin-top:0"><h3><span class="hot">Needs you</span> (${needsYou().length + LIMITS.length})</h3>${attentionItems()}</div>
+  return `<div class="h-sect" style="margin-top:0"><h3><span class="hot">Needs you</span> (${attnCount()})</h3>${attentionItems()}</div>
     <div class="h-sect"><h3>Last events</h3>${feedList(FEED.slice(0, 4))}
       <a class="more" href="#" onclick="goto('feed');return false" style="font-size:12.5px;display:block;margin-top:8px">all events →</a></div>`;
 }
@@ -611,10 +712,13 @@ function screenAgents() {
 
 /* --- frontier variations --- */
 function frTree(r) {
+  const ri = FRONTIER.findIndex(x => x.repo === r.repo);
   return `<div class="fr-repo"><span class="eyebrow mono">${r.repo}</span>
-    ${r.nodes.map(n => `<div class="fr-group"><div class="fr-node"><span class="typ">${n.typ}</span><span class="t">${n.t}</span>${escT(n.title)}</div>
+    ${r.nodes.map(n => { const ni = FRONTIER[ri].nodes.indexOf(n); return `<div class="fr-group"><div class="fr-node"><span class="typ">${n.typ}</span><span class="t">${n.t}</span>${escT(n.title)}
+      ${n.dispatched ? `<span class="dim-note mono" style="margin-left:10px">⧗ ${n.dispatched}</span>`
+        : `<a href="#" style="margin-left:10px;font-size:12px" onclick="startTicket(${ri},${ni});return false">start</a>`}</div>
       ${n.kids.length ? `<div class="fr-kids">${n.kids.map(k => `<div class="fr-kid"><span class="t">${k.t}</span>${escT(k.title)}</div>`).join("")}</div>` : ""}
-    </div>`).join("")}</div>`;
+    </div>`; }).join("")}</div>`;
 }
 function frColumns(r) {
   return `<div class="fr-repo"><span class="eyebrow mono">${r.repo}</span>
@@ -636,13 +740,17 @@ function frRail(r) {
 }
 /* --- cards: big frontier cards on top, dimmed unblocks below --- */
 function frCards(repos) {
-  const bigs = repos.flatMap(r => r.nodes.map(n => ({ ...n, repo: r.repo })));
+  const bigs = repos.flatMap(r => r.nodes.map(n => ({ ...n, repo: r.repo, ri: FRONTIER.findIndex(x => x.repo === r.repo), ni: FRONTIER.find(x => x.repo === r.repo).nodes.indexOf(n) })));
   const kids = repos.flatMap(r => r.nodes.flatMap(n => n.kids.map(k => ({ ...k, repo: r.repo, from: n.t }))));
   return `<div class="frx-sect"><span class="eyebrow">takeable now (${bigs.length})</span>
     <div class="frx-big">${bigs.map(n => `<div class="frx-card">
       <div class="head"><span class="t">${n.t}</span><span class="typ">${n.typ}</span></div>
       <div class="title">${escT(n.title)}</div>
       <div class="foot"><span>${n.repo}</span><span>${n.kids.length ? `unblocks ${n.kids.length}` : "unblocks nothing yet"}</span></div>
+      <div class="act-row">${n.dispatched
+        ? `<span class="dim-note mono">⧗ dispatched — ${n.dispatched}</span>`
+        : `<button class="btn sm primary" onclick="startTicket(${n.ri},${n.ni})">start</button>
+           <span class="dim-note mono">→ claude-opus-5 (${n.typ} default)</span>`}</div>
     </div>`).join("")}</div></div>
   <div class="frx-sect"><span class="eyebrow">unblocked next (${kids.length})</span>
     <div class="frx-dim">${kids.map(k => `<div class="frx-dimcard"><span class="t">${k.t}</span>${escT(k.title)}
@@ -799,20 +907,49 @@ function fakeRestart() {
 }
 
 /* ================= shell ================= */
+/* --- chat: the timeline attach of a chat handle, embedded — no second chat surface --- */
+const CHAT = [
+  { who: "you", text: "status?" },
+  { who: "curia", text: "4 agents live. curia-255 waits on you (choice, 12 min). The review gate for #261 is open. openai runs ahead of its 5h clock, reset 16:00.", meta: "CuriaBot · mechanics" },
+  { who: "you", text: "what would you start next?" },
+  { who: "curia", text: "#256 is first on the curia frontier and unblocks two tickets. It routes to claude-opus-5 by the task default. Say “start 256” and I dispatch it.", meta: "overseer · curia-chat-2" }
+];
+function sendChat() {
+  const el = document.getElementById("chat-in");
+  const v = el.value.trim();
+  if (!v) return;
+  CHAT.push({ who: "you", text: v });
+  CHAT.push({ who: "curia", text: "(canned) Understood. In the real dashboard this pane is the timeline attach of a chat-handle session — the same surface as any agent, so nothing is reinvented here.", meta: "overseer · curia-chat-2" });
+  render();
+}
+function screenChat() {
+  return `<div class="screen-head"><h2>Chat</h2><span class="dim-note mono">curia-chat-2 · claude-opus-5</span></div>
+    <div class="chat-wrap">
+      <div class="chat-note">This pane embeds the <b>timeline attach</b> of a chat handle (curia-chat-2). One chat surface for
+        thread, phone, and dashboard — the composer, image paste, and history come from the timeline, not from a second chat UI.</div>
+      <div class="chat-thread">${CHAT.map(m => `<div class="chat-msg ${m.who}">${escT(m.text)}
+        ${m.meta ? `<span class="meta">${m.meta}</span>` : ""}</div>`).join("")}</div>
+      <div class="chat-input"><input type="text" id="chat-in" placeholder="talk to curia — verbs or prose…"
+        onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="btn primary" onclick="sendChat()">send</button></div>
+    </div>`;
+}
+
 const SCREENS = {
   home: ["Home", screenHome],
   agents: ["Agents", screenAgents],
   frontier: ["Frontier", screenFrontier],
   feed: ["Feed", screenFeed],
+  chat: ["Chat", screenChat],
   settings: ["Settings", screenSettings]
 };
 const _h = new URLSearchParams(location.hash.slice(1));
 let screen = SCREENS_KEYS(_h.get("s"));
 frVariant = FR_VARIANTS[_h.get("f")] ? _h.get("f") : frVariant;
 saveState = ["dirty", "saved", "applied"].includes(_h.get("b")) ? _h.get("b") : saveState;
-function SCREENS_KEYS(s) { return ["home","agents","frontier","feed","settings"].includes(s) ? s : "home"; }
+function SCREENS_KEYS(s) { return ["home","agents","frontier","feed","chat","settings"].includes(s) ? s : "home"; }
 function render() {
-  const ny = needsYou().length;
+  const ny = needsYou().length + (GATE.open ? 1 : 0);
   document.getElementById("app").innerHTML = `<div class="shell">
     <nav><span class="brand">curia</span>
       ${Object.entries(SCREENS).map(([k, v]) =>
