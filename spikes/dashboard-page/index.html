@@ -1,0 +1,523 @@
+<!-- PROTOTYPE — wayfinder #248. Three variants of the dashboard page, switchable via ?variant= (A/B/C).
+     Canned data only. The question: what does the page show, and how does it read?
+     Throwaway code. Do not wire, do not promote. -->
+<title>curia — dashboard prototype</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* ---------- tokens: dark-first ---------- */
+  :root {
+    --bg: #111417;
+    --bg-raise: #191e22;
+    --bg-inset: #0c0f11;
+    --line: #262d33;
+    --ink: #dde3e0;
+    --ink-dim: #8a94a6;
+    --ink-faint: #5a6472;
+    --accent: #4cc2a0;
+    --accent-ink: #0c1512;
+    --warn: #e0a83c;
+    --bad: #d95f57;
+    --ok: #4cc2a0;
+    --idle: #8a94a6;
+    --chip-warn-bg: #2b2114;
+    --chip-bad-bg: #2b1715;
+    --chip-ok-bg: #12241f;
+    --shadow: 0 6px 24px rgba(0,0,0,.45);
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f2f4f3; --bg-raise: #ffffff; --bg-inset: #e8ebe9;
+      --line: #d5dad6; --ink: #1d2420; --ink-dim: #5b6570; --ink-faint: #8b939e;
+      --accent: #157a5f; --accent-ink: #f2fdf9;
+      --warn: #9a6a10; --bad: #b03a32; --ok: #157a5f; --idle: #5b6570;
+      --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
+      --shadow: 0 6px 24px rgba(30,40,35,.12);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f2f4f3; --bg-raise: #ffffff; --bg-inset: #e8ebe9;
+    --line: #d5dad6; --ink: #1d2420; --ink-dim: #5b6570; --ink-faint: #8b939e;
+    --accent: #157a5f; --accent-ink: #f2fdf9;
+    --warn: #9a6a10; --bad: #b03a32; --ok: #157a5f; --idle: #5b6570;
+    --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
+    --shadow: 0 6px 24px rgba(30,40,35,.12);
+  }
+  :root[data-theme="dark"] {
+    --bg: #111417; --bg-raise: #191e22; --bg-inset: #0c0f11;
+    --line: #262d33; --ink: #dde3e0; --ink-dim: #8a94a6; --ink-faint: #5a6472;
+    --accent: #4cc2a0; --accent-ink: #0c1512;
+    --warn: #e0a83c; --bad: #d95f57; --ok: #4cc2a0; --idle: #8a94a6;
+    --chip-warn-bg: #2b2114; --chip-bad-bg: #2b1715; --chip-ok-bg: #12241f;
+    --shadow: 0 6px 24px rgba(0,0,0,.45);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding-bottom: 84px;
+  }
+  .mono, code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font: inherit; cursor: pointer; }
+  h1, h2, h3 { margin: 0; text-wrap: balance; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* ---------- shared atoms ---------- */
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.working { color: var(--ok); background: var(--chip-ok-bg); }
+  .pill.needs-you { color: var(--warn); background: var(--chip-warn-bg); }
+  .pill.parked { color: var(--idle); background: var(--bg-inset); }
+  .pill.reading { color: var(--ink-dim); background: var(--bg-inset); }
+  .pill.cooling { color: var(--bad); background: var(--chip-bad-bg); }
+
+  .bar { position: relative; height: 7px; border-radius: 4px; background: var(--bg-inset); overflow: hidden; min-width: 60px; }
+  .bar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; }
+  .bar .fill.ok { background: var(--ok); } .bar .fill.warn { background: var(--warn); } .bar .fill.bad { background: var(--bad); }
+  .bar .clock { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink-dim); }
+  .meter-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-dim); }
+  .meter-row .lbl { width: 2.2em; flex: none; font-family: ui-monospace, Menlo, monospace; }
+  .meter-row .pct { width: 3em; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+  .meter-row .bar { flex: 1; }
+
+  .links { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12.5px; }
+  .btn {
+    border: 1px solid var(--line); background: var(--bg-raise); color: var(--ink);
+    border-radius: 7px; padding: 6px 14px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+
+  .esc {
+    border-left: 3px solid var(--warn); background: var(--chip-warn-bg);
+    padding: 8px 10px; border-radius: 0 7px 7px 0; font-size: 13px;
+  }
+  .esc .kind { color: var(--warn); font-weight: 700; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+  .esc .age { color: var(--ink-dim); font-size: 12px; }
+
+  .eyebrow { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
+
+  /* feed */
+  .feed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .feed-list li { display: grid; grid-template-columns: 3.4em 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .feed-list li:last-child { border-bottom: 0; }
+  .feed-list time { color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding-top: 1px; }
+  .feed-list .ev b { font-weight: 600; }
+  .feed-list .tag { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--ink-dim); }
+  .feed-list li.warn .tag { color: var(--warn); }
+  .feed-list li.bad .tag { color: var(--bad); }
+
+  /* frontier */
+  .fr-repo { margin-bottom: 14px; }
+  .fr-repo > .eyebrow { margin-bottom: 6px; display: block; }
+  .fr-node {
+    border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    background: var(--bg-raise); border-radius: 7px; padding: 7px 10px; font-size: 13px;
+  }
+  .fr-node .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
+  .fr-node .typ { float: right; font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .fr-kids { margin: 0 0 10px 14px; padding-left: 14px; border-left: 1px dashed var(--line); }
+  .fr-kid { position: relative; margin-top: 6px; font-size: 12.5px; color: var(--ink-dim); }
+  .fr-kid::before { content: "└─"; position: absolute; left: -16px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .fr-kid .t { font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
+  .fr-group { margin-bottom: 10px; }
+
+  /* settings */
+  .set-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+  .set-block { border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 12px 14px; }
+  .set-block h3 { font-size: 13px; margin-bottom: 8px; }
+  .set-block table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .set-block td, .set-block th { padding: 4px 6px 4px 0; text-align: left; }
+  .set-block th { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  input[type=text], input[type=number], select {
+    background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
+  }
+  input[type=number] { width: 4.5em; }
+  .set-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  .toast { font-size: 12.5px; color: var(--ink-dim); }
+
+  /* ---------- variant A: fleet ---------- */
+  .vA header { display: flex; align-items: baseline; gap: 14px; padding: 16px 20px 10px; }
+  .vA header h1 { font-size: 17px; font-weight: 700; }
+  .vA header .sub { color: var(--ink-dim); font-size: 12.5px; }
+  .vA .needs-band { margin: 0 20px 14px; border: 1px solid var(--warn); border-radius: 10px; background: var(--chip-warn-bg); padding: 10px 14px; }
+  .vA .needs-band h2 { font-size: 12px; color: var(--warn); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
+  .vA .needs-item { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 13.5px; }
+  .vA .needs-item .q { font-weight: 600; }
+  .vA-cols { display: grid; grid-template-columns: 1fr 340px; gap: 18px; padding: 0 20px; align-items: start; }
+  .vA .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+  .vA .card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow); }
+  .vA .card .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .vA .card .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13.5px; }
+  .vA .card .ticket { font-size: 13px; }
+  .vA .card .ticket .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
+  .vA .card .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace; }
+  .vA .rail { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; }
+  .vA .rail h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
+  .vA section.wide { padding: 18px 20px 0; }
+  .vA section.wide h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
+  .vA .fr-flex { display: flex; gap: 22px; flex-wrap: wrap; }
+  .vA .fr-flex .fr-repo { flex: 1 1 300px; margin-bottom: 0; }
+  @media (max-width: 900px) { .vA-cols { grid-template-columns: 1fr; } }
+
+  /* ---------- variant B: wire ---------- */
+  .vB { max-width: 660px; margin: 0 auto; padding: 0 14px; }
+  .vB header { padding: 14px 2px 10px; display: flex; align-items: baseline; justify-content: space-between; }
+  .vB header h1 { font-size: 16px; }
+  .vB header .sub { color: var(--ink-dim); font-size: 12px; }
+  .vB .strip { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0 10px; display: flex; gap: 8px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+  .vB .chip { flex: none; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 7px 10px; font-size: 12px; min-width: 150px; }
+  .vB .chip.alert { border-color: var(--warn); }
+  .vB .chip .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; display: block; margin-bottom: 3px; }
+  .vB .chip .meter-row { margin-top: 4px; }
+  .vB .spine { padding: 6px 0; }
+  .vB .spine h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); padding: 12px 0 6px; }
+  .vB .feed-list li { padding: 9px 0; }
+  .vB .feed-list li .esc { margin-top: 6px; }
+  .vB details { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); margin: 12px 0; }
+  .vB details summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 13px; list-style: none; display: flex; justify-content: space-between; }
+  .vB details summary::after { content: "▸"; color: var(--ink-faint); }
+  .vB details[open] summary::after { content: "▾"; }
+  .vB details .inner { padding: 4px 14px 14px; border-top: 1px solid var(--line); }
+
+  /* ---------- variant C: console ---------- */
+  .vC { display: grid; grid-template-columns: 172px 1fr; min-height: calc(100vh - 84px); }
+  .vC nav { border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; background: var(--bg-inset); }
+  .vC nav .brand { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; padding: 0 10px 12px; }
+  .vC nav button { text-align: left; border: 0; background: none; color: var(--ink-dim); padding: 8px 10px; border-radius: 7px; font-size: 13.5px; display: flex; justify-content: space-between; }
+  .vC nav button.on { background: var(--bg-raise); color: var(--ink); font-weight: 600; }
+  .vC nav button .n { color: var(--warn); font-weight: 700; }
+  .vC main { padding: 18px 22px; min-width: 0; }
+  .vC main h2 { font-size: 15px; margin-bottom: 12px; }
+  .vC .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
+  .vC table.agents { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; background: var(--bg-raise); }
+  .vC table.agents th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .vC table.agents td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .vC table.agents tr:last-child td { border-bottom: 0; }
+  .vC table.agents .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; white-space: nowrap; }
+  .vC .esc-row td { background: var(--chip-warn-bg); }
+  .vC .statusbar { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 14px; font-family: ui-monospace, Menlo, monospace; flex-wrap: wrap; }
+  @media (max-width: 760px) {
+    .vC { grid-template-columns: 1fr; }
+    .vC nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; align-items: center; }
+    .vC nav .brand { padding: 0 10px 0 4px; }
+    .vC nav button { flex: none; gap: 6px; }
+  }
+
+  /* ---------- switcher ---------- */
+  #switcher {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 4px; z-index: 50;
+    background: var(--ink); color: var(--bg); border-radius: 999px; padding: 6px 8px;
+    box-shadow: var(--shadow); font-size: 13px;
+  }
+  #switcher button { background: none; border: 0; color: inherit; font-size: 15px; padding: 2px 10px; border-radius: 999px; }
+  #switcher button:hover { background: rgba(128,128,128,.25); }
+  #switcher .cur { font-family: ui-monospace, Menlo, monospace; font-weight: 700; padding: 0 6px; white-space: nowrap; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div id="app"></div>
+<div id="switcher">
+  <button id="sw-prev" aria-label="previous variant">←</button>
+  <span class="cur" id="sw-label"></span>
+  <button id="sw-next" aria-label="next variant">→</button>
+</div>
+
+<script>
+/* ================= canned data ================= */
+const AGENTS = [
+  {
+    sess: "curia-255", ticket: "#255", title: "The note queue drains in order",
+    repo: "alp82/curia", model: "gpt-5.6-sol", label: "gpt", harness: "codex",
+    state: "needs-you", ctx: 68,
+    bars: { h5: { pct: 62, clock: 48, pace: "ahead" }, d7: { pct: 34, clock: 41, pace: "behind" } },
+    esc: { kind: "choice", q: "Two notes race the same expiry line. Drop the older note, or post both with stamps?", age: "12 min" },
+    links: { attach: "#", timeline: "#", pr: "#264", thread: "#" }
+  },
+  {
+    sess: "curia-263", ticket: "#263", title: "The dashboard reads the daemon",
+    repo: "alp82/curia", model: "claude-opus-5", label: "opus", harness: "claude",
+    state: "working", ctx: 41,
+    bars: { h5: { pct: 58, clock: 48, pace: "on" }, d7: { pct: 22, clock: 41, pace: "behind" } },
+    esc: null,
+    links: { attach: "#", timeline: "#", pr: null, thread: "#" }
+  },
+  {
+    sess: "curia-review-263", ticket: "#263", title: "Cross-check of curia-263",
+    repo: "alp82/curia", model: "gpt-5.6-sol", label: "gpt", harness: "codex",
+    state: "reading", ctx: 23,
+    bars: { h5: { pct: 62, clock: 48, pace: "ahead" }, d7: { pct: 34, clock: 41, pace: "behind" } },
+    esc: null,
+    links: { attach: "#", timeline: "#", pr: "#264", thread: "#" }
+  },
+  {
+    sess: "curia-chat-1", ticket: "—", title: "New map: the box backs itself up",
+    repo: "alp82/curia", model: "claude-opus-5", label: "opus", harness: "claude",
+    state: "parked", ctx: 55,
+    bars: { h5: { pct: 58, clock: 48, pace: "on" }, d7: { pct: 22, clock: 41, pace: "behind" } },
+    esc: null,
+    links: { attach: "#", timeline: "#", pr: null, thread: "#" }
+  }
+];
+
+const FEED = [
+  { t: "14:52", tag: "escalation", cls: "warn", ev: "<b>curia-255</b> asks: two notes race the same expiry line — choice, open 12 min" },
+  { t: "14:47", tag: "landing", cls: "", ev: "PR <b>#264</b> opened for <b>#263</b> — curia/263 pushed, 14 files" },
+  { t: "14:41", tag: "spawn", cls: "", ev: "<b>curia-review-263</b> spawned — cross-check on gpt, builder parked" },
+  { t: "14:38", tag: "gate", cls: "warn", ev: "review gate for <b>#263</b> — operator chose cross-check" },
+  { t: "14:20", tag: "answer", cls: "", ev: "escalation for <b>curia-263</b> answered from phone — first-valid-wins" },
+  { t: "13:58", tag: "cooling", cls: "bad", ev: "<b>gpt</b> cooling — 5h window reached, stated reset 16:00" },
+  { t: "13:55", tag: "spawn", cls: "", ev: "<b>curia-255</b> spawned on gpt — routing label gpt, harness codex" },
+  { t: "13:41", tag: "resolve", cls: "", ev: "<b>#261</b> resolved — merged, map pointer written" },
+  { t: "13:12", tag: "reconcile", cls: "", ev: "reconcile pass clean — 3 sessions adopted, 0 orphans, serve rules asserted" },
+  { t: "12:58", tag: "nudge", cls: "", ev: "nudge reposted for <b>curia-255</b> — question open 30 min" }
+];
+
+const FRONTIER = [
+  {
+    repo: "alp82/curia",
+    nodes: [
+      { t: "#256", title: "The expiry line names its note", typ: "task", kids: [
+        { t: "#252", title: "The thread owner answers the orphan" },
+        { t: "#253", title: "Notes queue by default" }
+      ]},
+      { t: "#258", title: "The parked builder survives a restart", typ: "grilling", kids: [
+        { t: "#259", title: "The verdict lands twice, once each voice" }
+      ]},
+      { t: "#260", title: "The box cuts over to docker compose", typ: "task", kids: [] }
+    ]
+  },
+  {
+    repo: "alp82/aistack",
+    nodes: [
+      { t: "#31", title: "The measured layer gets a freshness stamp", typ: "task", kids: [
+        { t: "#32", title: "Stale readings gray out" }
+      ]}
+    ]
+  }
+];
+
+const SETTINGS = {
+  routing: [
+    { label: "opus", id: "claude-opus-5", harness: "claude" },
+    { label: "gpt", id: "gpt-5.6-sol", harness: "codex" },
+    { label: "haiku", id: "claude-haiku-4-5", harness: "claude" }
+  ],
+  defaults: [
+    { type: "research", label: "haiku" },
+    { type: "task", label: "opus" },
+    { type: "grilling", label: "opus" },
+    { type: "map", label: "opus" }
+  ],
+  maxConcurrent: 3,
+  watch: ["alp82/curia", "alp82/aistack"],
+  nudgeMin: 30
+};
+
+/* ================= shared render helpers ================= */
+const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const paceSq = p => p === "ahead" ? "🟥" : p === "on" ? "🟨" : "🟩";
+
+function statePill(a) {
+  const label = { "needs-you": "needs you", working: "working", reading: "reading diff", parked: "parked", cooling: "cooling" }[a.state];
+  return `<span class="pill ${a.state}">${label}</span>`;
+}
+function bar(lbl, b) {
+  const cls = b.pace === "ahead" ? "bad" : b.pace === "on" ? "warn" : "ok";
+  return `<div class="meter-row"><span class="lbl">${lbl}</span>
+    <span class="bar"><span class="fill ${cls}" style="width:${b.pct}%"></span><span class="clock" style="left:${b.clock}%"></span></span>
+    <span class="pct num">${b.pct}%</span></div>`;
+}
+function meters(a) {
+  return `<div class="meter-row"><span class="lbl">ctx</span>
+      <span class="bar"><span class="fill ${a.ctx > 80 ? "warn" : "ok"}" style="width:${Math.min(a.ctx,100)}%"></span></span>
+      <span class="pct num">${a.ctx}%</span></div>
+    ${bar("5h", a.bars.h5)}${bar("7d", a.bars.d7)}`;
+}
+function agentLinks(a) {
+  const L = a.links;
+  return `<div class="links">
+    <a href="${L.attach}">attach</a><a href="${L.timeline}">timeline</a>
+    ${L.pr ? `<a href="#">PR ${L.pr}</a>` : `<span style="color:var(--ink-faint)">no PR yet</span>`}
+    <a href="${L.thread}">thread</a></div>`;
+}
+function escBlock(a) {
+  if (!a.esc) return "";
+  return `<div class="esc"><span class="kind">${a.esc.kind}</span> <span class="age">· open ${a.esc.age}</span><br>${esc(a.esc.q)}
+    <div class="links" style="margin-top:6px"><a href="#">answer in thread</a><a href="#">open timeline</a></div></div>`;
+}
+function feedList(items) {
+  return `<ul class="feed-list">${items.map(f =>
+    `<li class="${f.cls}"><time>${f.t}</time><span class="ev"><span class="tag">${f.tag}</span> — ${f.ev}</span></li>`).join("")}</ul>`;
+}
+function frontierRepo(r) {
+  return `<div class="fr-repo"><span class="eyebrow mono">${r.repo}</span>
+    ${r.nodes.map(n => `<div class="fr-group"><div class="fr-node"><span class="typ">${n.typ}</span><span class="t">${n.t}</span>${esc(n.title)}</div>
+      ${n.kids.length ? `<div class="fr-kids">${n.kids.map(k => `<div class="fr-kid"><span class="t">${k.t}</span>${esc(k.title)}</div>`).join("")}</div>` : ""}
+    </div>`).join("")}</div>`;
+}
+function settingsForm(idPrefix) {
+  return `<div class="set-grid">
+    <div class="set-block"><h3>Model routing</h3>
+      <table><tr><th>label</th><th>model id</th><th>harness</th></tr>
+      ${SETTINGS.routing.map(r => `<tr><td class="mono">${r.label}</td><td><input type="text" value="${r.id}" size="16"></td><td class="mono">${r.harness}</td></tr>`).join("")}
+      </table>
+      <table style="margin-top:8px"><tr><th>ticket type</th><th>default label</th></tr>
+      ${SETTINGS.defaults.map(d => `<tr><td class="mono">${d.type}</td><td><select>${SETTINGS.routing.map(r => `<option ${r.label===d.label?"selected":""}>${r.label}</option>`).join("")}</select></td></tr>`).join("")}
+      </table></div>
+    <div class="set-block"><h3>Dispatch</h3>
+      <table><tr><td>max_concurrent</td><td><input type="number" value="${SETTINGS.maxConcurrent}"></td></tr>
+      <tr><td>nudge (minutes)</td><td><input type="number" value="${SETTINGS.nudgeMin}"></td></tr></table></div>
+    <div class="set-block"><h3>Watch list</h3>
+      <table>${SETTINGS.watch.map(w => `<tr><td><input type="text" value="${w}" size="18"></td><td><button class="btn" style="padding:2px 8px;font-size:12px">remove</button></td></tr>`).join("")}
+      <tr><td><input type="text" placeholder="owner/repo" size="18"></td><td><button class="btn" style="padding:2px 8px;font-size:12px">add</button></td></tr></table></div>
+  </div>
+  <div class="set-actions">
+    <button class="btn primary" onclick="fakeSave('${idPrefix}')">Save to curia.yaml</button>
+    <button class="btn danger" onclick="fakeRestart('${idPrefix}')">Restart daemon</button>
+    <span class="toast" id="${idPrefix}-toast"></span>
+  </div>`;
+}
+function fakeSave(p) {
+  document.getElementById(p + "-toast").textContent = "Validated with the daemon loaders. Written atomically. Comments kept.";
+}
+function fakeRestart(p) {
+  const t = document.getElementById(p + "-toast");
+  if (!confirm("Restart the daemon? Running agents keep their tmux sessions.")) return;
+  t.textContent = "Daemon exits nonzero. The supervisor respawns it. This page serves the last snapshot.";
+}
+const needsYou = () => AGENTS.filter(a => a.esc);
+
+/* ================= variant A: fleet ================= */
+function renderA(root) {
+  const ny = needsYou();
+  root.innerHTML = `<div class="vA">
+    <header><h1>curia</h1><span class="sub num">4 agents · 2 repos · reconcile clean · 13:12</span></header>
+    ${ny.length ? `<div class="needs-band"><h2>Needs you (${ny.length})</h2>
+      ${ny.map(a => `<div class="needs-item"><span class="mono"><b>${a.sess}</b></span>
+        <span class="q">${esc(a.esc.q)}</span><span class="esc-age" style="color:var(--ink-dim)">open ${a.esc.age}</span>
+        <a href="#">answer</a></div>`).join("")}</div>` : ""}
+    <div class="vA-cols">
+      <div class="cards">
+        ${AGENTS.map(a => `<div class="card">
+          <div class="top"><span class="sess">${a.sess}</span>${statePill(a)}</div>
+          <div class="ticket"><span class="t">${a.ticket}</span>${esc(a.title)}</div>
+          <div class="facts"><span>${a.repo.split("/")[1]}</span><span>${a.model}</span><span>${paceSq(a.bars.h5.pace)} 5h ${a.bars.h5.pct}%</span></div>
+          ${meters(a)}
+          ${escBlock(a)}
+          ${agentLinks(a)}
+        </div>`).join("")}
+      </div>
+      <aside class="rail"><h2>Feed</h2>${feedList(FEED)}</aside>
+    </div>
+    <section class="wide"><h2>Frontier — two levels</h2><div class="fr-flex">${FRONTIER.map(frontierRepo).join("")}</div></section>
+    <section class="wide"><h2>Settings</h2>${settingsForm("a")}</section>
+  </div>`;
+}
+
+/* ================= variant B: wire ================= */
+function renderB(root) {
+  const escFeed = needsYou().map(a =>
+    `<li class="warn"><time>now</time><span class="ev"><span class="tag">open question</span> — <b>${a.sess}</b>${escBlock(a)}</span></li>`).join("");
+  root.innerHTML = `<div class="vB">
+    <header><h1>curia — the wire</h1><span class="sub num">4 agents · 13:12 reconcile clean</span></header>
+    <div class="strip">
+      ${AGENTS.map(a => `<div class="chip ${a.esc ? "alert" : ""}">
+        <span class="sess">${a.sess}</span>${statePill(a)}
+        <div class="meter-row" style="margin-top:5px"><span class="lbl">ctx</span><span class="bar"><span class="fill ok" style="width:${a.ctx}%"></span></span><span class="pct num">${a.ctx}%</span></div>
+        <div class="links" style="margin-top:5px"><a href="#">attach</a><a href="#">timeline</a>${a.links.pr ? `<a href="#">PR</a>` : ""}</div>
+      </div>`).join("")}
+    </div>
+    <div class="spine">
+      <h2>Open questions</h2>
+      <ul class="feed-list">${escFeed || `<li><time></time><span class="ev" style="color:var(--ink-dim)">none — nothing waits on you</span></li>`}</ul>
+      <h2>Feed</h2>
+      ${feedList(FEED)}
+      <details><summary>Frontier — two levels</summary><div class="inner">${FRONTIER.map(frontierRepo).join("")}</div></details>
+      <details><summary>Settings</summary><div class="inner">${settingsForm("b")}</div></details>
+    </div>
+  </div>`;
+}
+
+/* ================= variant C: console ================= */
+let cScreen = "agents";
+function renderC(root) {
+  const ny = needsYou().length;
+  const screens = { agents: "Agents", frontier: "Frontier", feed: "Feed", settings: "Settings" };
+  let body = "";
+  if (cScreen === "agents") {
+    body = `<h2>Agents</h2>
+    <div class="statusbar num"><span>agents 4/${SETTINGS.maxConcurrent + 1}</span><span>🟨 anthropic 5h 58%</span><span>🟥 openai 5h 62%</span><span>cooling: none</span></div>
+    <div class="tbl-wrap"><table class="agents">
+      <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>5h</th><th>7d</th><th>links</th></tr>
+      ${AGENTS.map(a => `<tr class="${a.esc ? "esc-row" : ""}">
+        <td class="sess">${a.sess}</td><td>${statePill(a)}</td>
+        <td><span class="mono" style="color:var(--ink-dim)">${a.ticket}</span> ${esc(a.title)}${a.esc ? `<div class="esc" style="margin-top:6px">${esc(a.esc.q)} <span class="age">· ${a.esc.age}</span></div>` : ""}</td>
+        <td class="mono">${a.model}</td>
+        <td class="num">${a.ctx}%</td><td class="num">${paceSq(a.bars.h5.pace)} ${a.bars.h5.pct}%</td><td class="num">${paceSq(a.bars.d7.pace)} ${a.bars.d7.pct}%</td>
+        <td>${agentLinks(a)}</td></tr>`).join("")}
+    </table></div>`;
+  } else if (cScreen === "frontier") {
+    body = `<h2>Frontier — two levels</h2>${FRONTIER.map(frontierRepo).join("")}`;
+  } else if (cScreen === "feed") {
+    body = `<h2>Feed</h2><div style="max-width:640px">${feedList(FEED)}</div>`;
+  } else {
+    body = `<h2>Settings</h2>${settingsForm("c")}`;
+  }
+  root.innerHTML = `<div class="vC">
+    <nav><span class="brand">curia</span>
+      ${Object.entries(screens).map(([k, v]) =>
+        `<button class="${cScreen === k ? "on" : ""}" onclick="cScreen='${k}';render()">${v}${k === "agents" && ny ? ` <span class="n">${ny}</span>` : ""}</button>`).join("")}
+    </nav>
+    <main>${body}</main>
+  </div>`;
+}
+
+/* ================= switcher ================= */
+const VARIANTS = { A: ["Fleet", renderA], B: ["Wire", renderB], C: ["Console", renderC] };
+const KEYS = Object.keys(VARIANTS);
+function currentVariant() {
+  const q = new URLSearchParams(location.search).get("variant");
+  const h = (location.hash.match(/v=([A-C])/) || [])[1];
+  const v = (q || h || "A").toUpperCase();
+  return KEYS.includes(v) ? v : "A";
+}
+function setVariant(v) {
+  try {
+    if (location.protocol.startsWith("http")) {
+      const u = new URL(location); u.searchParams.set("variant", v); history.replaceState(null, "", u);
+    } else { location.hash = "v=" + v; }
+  } catch (e) { location.hash = "v=" + v; }
+  render();
+}
+function render() {
+  const v = currentVariant();
+  VARIANTS[v][1](document.getElementById("app"));
+  document.getElementById("sw-label").textContent = `${v} — ${VARIANTS[v][0]}`;
+  const ny = needsYou().length;
+  document.title = (ny ? `(${ny}) ` : "") + "curia — dashboard prototype";
+}
+function cycle(d) {
+  const i = (KEYS.indexOf(currentVariant()) + d + KEYS.length) % KEYS.length;
+  setVariant(KEYS[i]);
+}
+document.getElementById("sw-prev").onclick = () => cycle(-1);
+document.getElementById("sw-next").onclick = () => cycle(1);
+document.addEventListener("keydown", e => {
+  const t = e.target;
+  if (t.matches("input, textarea, select, [contenteditable]")) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+window.addEventListener("hashchange", render);
+render();
+</script>
