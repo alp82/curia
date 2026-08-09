@@ -189,7 +189,7 @@ that holds the agent panes, and ttyd for attach. Replace the `/home/alp` paths w
 docker compose -f deploy/compose.yaml up -d --build
 ```
 
-After that, deploy with `docker compose up -d --build daemon dashboard` — never a bare `up -d`,
+After that, deploy with `docker compose up -d --build --no-deps daemon dashboard` — never a bare `up -d`,
 which would recreate the tmux service and kill every live agent.
 
 Restarting is safe. `daemon/data/events.jsonl` is the record; everything else is rebuilt from GitHub,

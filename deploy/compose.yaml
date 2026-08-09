@@ -5,7 +5,7 @@
 # any changed service, and a recreated `tmux` service kills every live agent
 # (wayfinder #132 in compose clothes). A deploy names its targets:
 #
-#     docker compose up -d --build daemon dashboard
+#     docker compose up -d --build --no-deps daemon dashboard
 #
 # Recreating `tmux`/`ttyd` is a deliberate act at zero live agents.
 #
@@ -105,10 +105,12 @@ services:
   #                 proxy (Serve :8443 → proxy :7682 → ttyd :7681)
   #   -a + wrapper  ?arg= picks the session, whitelisted to ^curia- by the wrapper
   #   -t/-I         the #69 surface: dom renderer, owned index
+  # No build stanza: the tmux service owns the shared image. Two services
+  # building one tag in parallel mint two image IDs, and the container left on
+  # the untagged ID reads as "changed" to every later `up` — which is how a
+  # deploy once recreated tmux (the #132 class). Recreate both together:
+  # `docker compose up -d --build tmux ttyd`.
   ttyd:
-    build:
-      context: ..
-      dockerfile: deploy/tmux/Dockerfile
     image: curia-tmux
     restart: unless-stopped
     stop_grace_period: 30s
