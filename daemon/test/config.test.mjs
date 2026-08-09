@@ -14,6 +14,7 @@ import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
  import { DEFAULT_INDEX } from '../src/attach.mjs'
 import { DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
 import { seedSkillsRoot, skillsYaml, withSeededHome } from './fixtures/skills.mjs'
+import { sandboxYaml } from './fixtures/sandbox.mjs'
 
 let tmp
 let root
@@ -57,6 +58,9 @@ function writeConfig(extraYaml, attachExtra = '') {
     '  allow: [tester@example.com]',
     extra,
     skills,
+    // #195: `sandbox:` is required, so every base fixture carries it — unless
+    // the caller states its own, which is what the sandbox cases below do.
+    ...(/^sandbox:/m.test(extra) ? [] : sandboxYaml()),
     '',
   ].join('\n'))
   return file

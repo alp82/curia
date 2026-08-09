@@ -29,9 +29,9 @@ import {
 } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
 import {
-  ensureBaseClone, createWorktree, createPrivateClone, isPrivateClone, removeWorktree,
+  createPrivateClone, removeWorkspace,
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
-  seedConfigDir, writeConnectionSettings, writePrompt, basePathFor, worktreePathFor, cfgDirFor,
+  seedConfigDir, writeConnectionSettings, writePrompt, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, agentEnv,
   untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
@@ -157,7 +157,7 @@ const sleep = (ms) => sleepFor(ms, undefined, { ref: false })
 const DEFAULT_DEPS = {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   hasSession, listSessions, newSession, capturePane, killSession,
-  ensureBaseClone, createWorktree, createPrivateClone, removeWorktree, removeConfigDir, removeCredentials,
+  createPrivateClone, removeWorkspace, removeConfigDir, removeCredentials,
   createReviewCheckout, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt,
   ensureTtyd, assertServe, serveOff,
@@ -837,24 +837,13 @@ export class Dispatcher {
       // every caller resolves the issue through #resolveRepo → fetchIssue, so
       // the body is always present
       const full = issue
-      // Two workspace shapes since #156, picked by the harness's sandbox mode:
-      // a worktree cut from the shared base clone for a bare pane, a private
-      // blobless clone for a container. A container cannot use a worktree — its
-      // `.git` is a file pointing into a base clone the container cannot see.
-      const sandbox = this.#sandboxFor(harnessName)
+      // One workspace shape since #195: a private blobless clone the agent's
+      // container mounts. A container cannot use a worktree cut from a shared
+      // base clone — its `.git` is a file pointing into a base the container
+      // cannot see — and that whole shape went with the bare path.
       const surviving = worktreePathFor(this.root, repo, n)
       const inherited = reuse && fs.existsSync(surviving)
-      let wtPath
-      if (sandbox) {
-        if (inherited && !isPrivateClone(surviving)) {
-          throw new Error(`${surviving} is a worktree of the shared base clone, and a container cannot use one — this ticket was last dispatched on the bare path. \`cancel ${n}\` first (that removes the worktree), or dispatch it on a harness with \`sandbox: none\``)
-        }
-        wtPath = inherited ? surviving : await this.deps.createPrivateClone(this.root, repo, n)
-      } else {
-        const base = await this.deps.ensureBaseClone(this.root, repo)
-        wtPath = inherited ? surviving : await this.deps.createWorktree(base, n)
-      }
-      const view = this.#viewFor(sandbox, wtPath, cfgDir)
+      const wtPath = inherited ? surviving : await this.deps.createPrivateClone(this.root, repo, n)
       // A charting agent's map is the issue in hand. Naming it as the map (and
       // not asking #mapNumberFor for a parent) is what puts the `/wayfinder`
       // line on the prompt and arms #assertTracker: a charting agent without
@@ -862,17 +851,17 @@ export class Dispatcher {
       const mapNumber = charting ? (newMap ? null : Number(n)) : await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber, { charting })
       this.#assertNoPlantedConfig(wtPath, harnessName)
-      this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, wtPath, cfgDir, view, sandbox })
+      this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, wtPath, cfgDir })
       // #157: the prompt NAMES the published ports, so they are allocated before
       // it is written and handed to the container after. The allocation is a
       // bind probe and a set lookup — nothing is held until `docker run`, so a
       // failure between here and the spawn leaks no port.
-      const ports = sandbox ? await this.#allocatePorts(sandbox) : null
+      const ports = await this.#allocatePorts()
       // The type label reaches the prompt (#49 decision 2): it is the only thing
       // that stops a dispatched `wayfinder:grilling` agent from standing in for
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
-        repo, wtPath: view.wt, mapNumber, type: typeLabel, charting, newMap, instruction, ports,
+        repo, wtPath: GUEST_WT, mapNumber, type: typeLabel, charting, newMap, instruction, ports,
         // #173: the wayfinder invocation is spelled per harness, so the prompt
         // is no longer harness-blind.
         harness: harnessName,
@@ -881,7 +870,7 @@ export class Dispatcher {
 
       const plan = await this.#spawnPlan({
         session, ticket: n, repo, harness: harnessName, model: useModel,
-        wtPath, cfgDir, promptFile, view, sandbox, ports,
+        wtPath, cfgDir, promptFile, ports,
       })
       const container = plan.container
       const exitMarker = newExitMarker()
@@ -900,22 +889,20 @@ export class Dispatcher {
         ...(newMap ? { newMap: true } : {}),
         // The journal is the state home for what a restart cannot re-derive
         // from tmux: which image this agent runs and which ports it published.
-        ...(container ? { sandbox: 'docker', image: container.image, ports: container.ports } : {}),
+        sandbox: 'docker', image: container.image, ports: container.ports,
       })
 
       const agent = {
         repo, ticket: n, title: full.title, session, instance, wtPath, cfgDir, promptFile,
         model: useModel, requestedModel: modelName, harness: harnessName,
         provider: this.routing.models[useModel].provider,
-        // #156: null for a bare pane, the published loopback ports for a
-        // container. #157 hands them to `publish_preview` as its port bound.
-        ports: container?.ports ?? null,
-        sandbox: container ? 'docker' : null,
-        // which view the prompt on disk was written in (#156) — a respawn that
-        // crosses the sandbox boundary has to write it again — and which
-        // harness it was spelled for (#173), which a fallback across providers
-        // moves even when the view stands still
-        promptView: view.wt,
+        // #156: the published loopback ports. #157 hands them to
+        // `publish_preview` as its port bound.
+        ports: container.ports,
+        sandbox: 'docker',
+        // which harness the prompt on disk was spelled for (#173) — a fallback
+        // across providers moves it, and the codex agent would otherwise
+        // inherit the claude spelling of the wayfinder invocation
         promptHarness: harnessName,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
         // #160: which ending this agent is held to, and what the operator
@@ -981,40 +968,19 @@ export class Dispatcher {
     }
   }
 
-  // The sandbox settings for a harness, or null when it runs the bare pane
-  // (#156). The switch is per harness and ships off (#148's rollout: claude
-  // first, codex after the soak at #158), so this is what every sandbox branch
-  // in this file keys on.
-  #sandboxFor(harness) {
-    if (this.routing.harnesses?.[harness]?.sandbox !== 'docker') return null
-    if (!this.config.sandbox) {
-      throw new Error(`harness "${harness}" is set to \`sandbox: docker\`, but config/curia.yaml carries no \`sandbox:\` section — there is no image to run`)
-    }
-    return this.config.sandbox
-  }
-
-  // What the AGENT calls its two directories, and how it reaches the daemon
-  // (#156). Identical to the host paths outside a container; the mount points
-  // and the docker host gateway inside one.
-  #viewFor(sandbox, wtPath, cfgDir) {
-    return sandbox
-      ? { wt: GUEST_WT, cfg: GUEST_CFG, daemonHost: GUEST_DAEMON_HOST }
-      : { wt: wtPath, cfg: cfgDir, daemonHost: '127.0.0.1' }
-  }
-
-  // Seed the config dir and write the connection settings, in the agent's own view of the
-  // paths. Shared by the first dispatch and by the cross-harness respawn a
-  // usage limit forces — those two used to differ by omission, and a sandbox
-  // mode that changes with the harness is exactly where that costs.
-  #armAgent({ session, ticket, harness, model, wtPath, cfgDir, view, sandbox = null }) {
-    this.deps.seedConfigDir(cfgDir, view.wt, this.config.skills, harness, { sandboxed: Boolean(sandbox) })
+  // Seed the config dir and write the connection settings, in the agent's own
+  // view of the paths — the container's mount points, which is the only view
+  // there is since #195. Shared by the first dispatch and by the cross-harness
+  // respawn a usage limit forces.
+  #armAgent({ session, ticket, harness, model, wtPath, cfgDir }) {
+    this.deps.seedConfigDir(cfgDir, GUEST_WT, this.config.skills, harness, { sandboxed: true })
     // A FRESH secret per arm (#159), minted before the connection settings that carry it.
     // The cross-harness respawn arms again, so the pane a usage limit killed
     // stops being able to speak for this name the moment its successor is armed.
     const token = this.deps.mintAgentToken(this.dataDir, session)
     this.deps.writeConnectionSettings({
-      wtPath: view.wt, hostWtPath: wtPath, cfgDir, agent: session, ticket,
-      daemonPort: this.daemonPort, daemonHost: view.daemonHost, token,
+      wtPath: GUEST_WT, hostWtPath: wtPath, cfgDir, agent: session, ticket,
+      daemonPort: this.daemonPort, daemonHost: GUEST_DAEMON_HOST, token,
       harness, reasoningEffort: this.routing.models[model].reasoning_effort ?? null,
       // The codex harness turns this into its skill deny list (#171); the
       // claude harness does not read it.
@@ -1022,17 +988,15 @@ export class Dispatcher {
     })
   }
 
-  // What tmux is asked to run, and in what environment. A sandboxed harness
-  // gets a `docker run` line and an EMPTY pane environment: the container
-  // carries its own through `--env-file`, and a pane env would put every value
-  // of it in `ps` — the cost #155 measured and asked this ticket not to repeat.
-  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, view, sandbox, ports }) {
-    const harnessCmd = buildSpawnCmd(this.routing, harness, model, path.join(view.cfg, path.basename(promptFile)))
-    if (!sandbox) {
-      return { container: null, shellCmd: harnessCmd, env: agentEnv(cfgDir, harness, { repo }) }
-    }
+  // What tmux is asked to run, and in what environment. Always a `docker run`
+  // line and an EMPTY pane environment: the container carries its own through
+  // `--env-file`, and a pane env would put every value of it in `ps` — the cost
+  // #155 measured and asked #156 not to repeat.
+  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports }) {
+    const harnessCmd = buildSpawnCmd(this.routing, harness, model, path.join(GUEST_CFG, path.basename(promptFile)))
     const container = await this.#prepareContainer({
-      session, ticket, repo, harness, wtPath, cfgDir, spawnCmd: harnessCmd, sandbox, ports,
+      session, ticket, repo, harness, wtPath, cfgDir, spawnCmd: harnessCmd,
+      sandbox: this.config.sandbox, ports,
     })
     return { container, shellCmd: container.shellCmd, env: {} }
   }
@@ -1040,9 +1004,9 @@ export class Dispatcher {
   // Ports already handed to LIVE agents, so two dispatches landing together
   // cannot publish the same host port. Everything else on the box is caught by
   // the bind probe inside allocatePorts.
-  #allocatePorts(sandbox) {
+  #allocatePorts() {
     const taken = [...this.agents.values()].flatMap((w) => w.ports ?? [])
-    return this.deps.allocatePorts(sandbox.ports, { count: PORTS_PER_AGENT, taken })
+    return this.deps.allocatePorts(this.config.sandbox.ports, { count: PORTS_PER_AGENT, taken })
   }
 
   // Everything a container needs before the pane can start it: the image and
@@ -1324,16 +1288,14 @@ export class Dispatcher {
     const cfgDir = cfgDirFor(this.root, session)
     let checkout = null
     try {
-      const sandbox = this.#sandboxFor(harnessName)
-      checkout = await this.deps.createReviewCheckout(this.root, repo, ticket, { sandbox: Boolean(sandbox) })
-      const view = this.#viewFor(sandbox, checkout.path, cfgDir)
+      checkout = await this.deps.createReviewCheckout(this.root, repo, ticket)
       this.#assertNoPlantedConfig(checkout.path, harnessName)
-      this.#armAgent({ session, ticket, harness: harnessName, model, wtPath: checkout.path, cfgDir, view, sandbox })
+      this.#armAgent({ session, ticket, harness: harnessName, model, wtPath: checkout.path, cfgDir })
       // No published ports: a reviewer starts no dev server, and
       // `publish_preview` is one of the four tools curia refuses it. Three
       // ports per reviewer would be three ports a builder could not have.
       const promptFile = this.deps.writeReviewPrompt(cfgDir, issue, {
-        repo, wtPath: view.wt, branch: checkout.branch, baseBranch: checkout.baseBranch,
+        repo, wtPath: GUEST_WT, branch: checkout.branch, baseBranch: checkout.baseBranch,
         sha: checkout.sha, model: spawnModelId(this.routing, model),
         builderModel: spawnModelId(this.routing, builderModel),
       })
@@ -1341,7 +1303,7 @@ export class Dispatcher {
 
       const plan = await this.#spawnPlan({
         session, ticket, repo, harness: harnessName, model,
-        wtPath: checkout.path, cfgDir, promptFile, view, sandbox, ports: [],
+        wtPath: checkout.path, cfgDir, promptFile, ports: [],
       })
       const exitMarker = newExitMarker()
       await this.deps.newSession({ name: session, cwd: checkout.path, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
@@ -1353,7 +1315,7 @@ export class Dispatcher {
         repo, ticket, agent: session, builder: `curia-${ticket}`, model, harness: harnessName,
         builder_model: builderModel, same_provider: sameProvider, sha: checkout.sha,
         checkout: checkout.path, base_branch: checkout.baseBranch, by: by ?? 'unknown',
-        ...(plan.container ? { sandbox: 'docker', image: plan.container.image } : {}),
+        sandbox: 'docker', image: plan.container.image,
       })
       // `agent_spawned` too, and deliberately: the status line, the timeline and
       // every surface that draws an agent read that event. A reviewer with its
@@ -1368,8 +1330,8 @@ export class Dispatcher {
         wtPath: checkout.path, cfgDir, promptFile,
         model, requestedModel: model, harness: harnessName,
         provider: this.routing.models[model].provider,
-        ports: null, sandbox: plan.container ? 'docker' : null,
-        promptView: view.wt, promptHarness: harnessName,
+        ports: null, sandbox: 'docker',
+        promptHarness: harnessName,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
         // What makes every refusal and every terminal branch below read this as
         // a reviewer rather than as a ticket agent.
@@ -1861,42 +1823,39 @@ export class Dispatcher {
     // human. Falling FURTHER down the chain to a clean lane was refused
     // deliberately — that routes around a planted file with nobody told.
     this.#assertNoPlantedConfig(agent.wtPath, nextHarness, 'respawn')
-    // The two harnesses need not agree about the sandbox (#148's rollout puts
-    // claude in a container first and codex after the soak), so a fallback
-    // across providers can also cross the boundary. Everything the agent reads
-    // names its paths — the prompt, the connection settings, the config dir — so the whole
-    // arming runs again in the NEW view, and the workspace itself may have to
-    // change shape.
-    const sandbox = this.#sandboxFor(nextHarness)
-    await this.#reshapeWorkspace(agent, sandbox)
-    const view = this.#viewFor(sandbox, agent.wtPath, agent.cfgDir)
-    // #157: the ports belong to the AGENT, not to one container. A same-shape
-    // respawn on the same harness keeps its prompt (#rewritePrompt writes only
-    // when the view or the harness moved), so fresh numbers here would leave
-    // that prompt naming ports nothing publishes. The caller's kill is an
-    // ordered teardown, which removes the container before tmux (see the
-    // killSession wrapper), so the old bindings are already released.
+    // Everything the agent reads names its paths — the prompt, the connection
+    // settings, the config dir — so the whole arming runs again. The WORKSPACE
+    // no longer moves with it: both harnesses run containers since #158, and
+    // #195 deleted the other shape, so there is one workspace shape to respawn
+    // into and no reshape to do.
+    //
+    // #157: the ports belong to the AGENT, not to one container. A respawn on
+    // the same harness keeps its prompt (#rewritePrompt writes only when the
+    // harness moved), so fresh numbers here would leave that prompt naming
+    // ports nothing publishes. The caller's kill is an ordered teardown, which
+    // removes the container before tmux (see the killSession wrapper), so the
+    // old bindings are already released.
     // #164: a reviewer publishes nothing — it starts no dev server and
     // `publish_preview` is refused for it — so a respawn must not allocate three
     // host ports a builder could have had.
-    const ports = agent.reviewer ? [] : (sandbox ? (agent.ports ?? await this.#allocatePorts(sandbox)) : null)
+    const ports = agent.reviewer ? [] : (agent.ports ?? await this.#allocatePorts())
     this.#armAgent({
       session: agent.session, ticket: agent.ticket, harness: nextHarness,
-      model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir, view, sandbox,
+      model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
     })
-    await this.#rewritePrompt(agent, view, nextHarness, ports)
+    await this.#rewritePrompt(agent, nextHarness, ports)
     const plan = await this.#spawnPlan({
       session: agent.session, ticket: agent.ticket, repo: agent.repo,
       harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
-      promptFile: agent.promptFile, view, sandbox, ports,
+      promptFile: agent.promptFile, ports,
     })
     // A fresh marker per spawn: the old session is dead, and reusing its nonce
     // would let the previous life's exit line — still on screen for a moment —
     // read as the successor's death.
     const exitMarker = newExitMarker()
     await this.deps.newSession({ name: agent.session, cwd: agent.wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
-    agent.ports = plan.container?.ports ?? null
-    agent.sandbox = plan.container ? 'docker' : null
+    agent.ports = plan.container.ports
+    agent.sandbox = 'docker'
     agent.exitMarker = exitMarker
     agent.model = next
     agent.harness = nextHarness
@@ -1925,74 +1884,30 @@ export class Dispatcher {
       instance: agent.instance ?? null,
       model: next, harness: nextHarness,
       kind: spawnKind(agent), instruction: agent.instruction ?? null,
-      ...(plan.container ? { sandbox: 'docker', image: plan.container.image, ports: plan.container.ports } : {}),
+      sandbox: 'docker', image: plan.container.image, ports: plan.container.ports,
       ...journalData,
     })
     this.#watchdog(agent).catch((e) => this.log(`watchdog ${agent.session} failed:`, e.message))
   }
 
-  // A container cannot use a worktree cut from the shared base clone: its
-  // `.git` is a file pointing into a base the container never sees. So a
-  // respawn that crosses INTO the sandbox has to replace the workspace with a
-  // private clone — and it may only do that when the old one holds nothing.
-  //
-  // Unpushed work refuses the reshape, and "cannot tell" refuses it too: the
-  // same evidence rule the orphan sweep runs on, for the same reason. The
-  // caller's catch then releases the claim, so the ticket is re-frontiered and
-  // the next dispatch prepares the right shape from the start — the workspace
-  // survives for a human either way.
-  //
-  // The other direction needs nothing: a private clone is an ordinary
-  // repository, and the bare path drives it exactly as it drives a worktree.
-  async #reshapeWorkspace(agent, sandbox) {
-    // #164: a review checkout is a detached HEAD at a PUSHED sha, so it holds
-    // nothing that exists nowhere else — a shape change is a re-create, not a
-    // refusal. The refusal below exists to protect a builder's unlanded commits,
-    // and a reviewer has none by construction.
-    if (agent.reviewer) {
-      if (Boolean(sandbox) === isPrivateClone(agent.wtPath)) return
-      await this.#removeReviewCheckout(agent.repo, agent.ticket, agent.wtPath)
-      const made = await this.deps.createReviewCheckout(this.root, agent.repo, agent.ticket, { sandbox: Boolean(sandbox) })
-      agent.wtPath = made.path
-      agent.sha = made.sha
-      agent.baseBranch = made.baseBranch
-      return
-    }
-    if (!sandbox || isPrivateClone(agent.wtPath)) return
-    let unpushed = true
-    let why = 'it holds commits that exist nowhere else'
-    try {
-      unpushed = await this.deps.hasUnpushedWork(agent.wtPath, branchFor(agent.ticket), await this.deps.defaultBranchOf(agent.wtPath))
-    } catch (e) {
-      why = `curia could not tell whether it holds unlanded commits (${e.message})`
-    }
-    if (unpushed) {
-      throw new Error(`the fallback harness runs in a container, and this ticket's workspace is a worktree of the shared base clone that a container cannot mount — ${why}, so curia will not replace it`)
-    }
-    await this.deps.removeWorktree(basePathFor(this.root, agent.repo), agent.wtPath)
-    agent.wtPath = await this.deps.createPrivateClone(this.root, agent.repo, agent.ticket)
-  }
-
-  // The prompt names the worktree twice, in the agent's own view of it, and
-  // since #157 it names the published ports too — so a respawn that crossed the
-  // sandbox boundary has to write it again. The view is what says the boundary
-  // was crossed: it moves in exactly the two directions that change both facts.
-  // The issue is re-read rather than remembered: the body is what the prompt
-  // carries, and the agent record keeps only the title.
-  //
-  // The HARNESS is the second reason to rewrite (#173). The wayfinder
+  // The HARNESS is the one reason to rewrite the prompt (#173). The wayfinder
   // invocation is spelled per harness, and a fallback down the chain crosses
   // providers by design — `opus` falls to `gpt`, which is the other harness.
-  // Both harnesses run containers today, so that fallback moves no view at all:
-  // without this the codex agent would inherit the claude spelling and load
+  // Without this the codex agent would inherit the claude spelling and load
   // nothing. `nextHarness` is passed in rather than read off the record, which
   // still names the harness this agent is leaving.
   //
-  // A reviewer's prompt carries no invocation, so a harness-only move rewrites
-  // the same text for it. One guard for both is easier to trust than a branch
-  // about when the difference matters, and the cost is one issue read.
-  async #rewritePrompt(agent, view, nextHarness, ports = null) {
-    if (view.wt === agent.promptView && nextHarness === agent.promptHarness) return
+  // The agent's VIEW of its paths was the second reason until #195. There is
+  // one workspace shape now, so the prompt names `/workspace` whatever the
+  // harness — the view cannot move, and nothing has to watch it.
+  //
+  // The issue is re-read rather than remembered: the body is what the prompt
+  // carries, and the agent record keeps only the title. A reviewer's prompt
+  // carries no invocation, so a harness move rewrites the same text for it.
+  // One guard for both is easier to trust than a branch about when the
+  // difference matters, and the cost is one issue read.
+  async #rewritePrompt(agent, nextHarness, ports = null) {
+    if (nextHarness === agent.promptHarness) return
     // #164: a reviewer respawned down the fallback chain must be handed the
     // REVIEWER's prompt again. Writing the builder's here would give an agent
     // with no claim and no branch a full set of ticket standing orders.
@@ -2000,14 +1915,13 @@ export class Dispatcher {
       const reviewed = await this.deps.fetchIssue(agent.repo, agent.ticket)
       agent.promptFile = this.deps.writeReviewPrompt(agent.cfgDir, reviewed, {
         repo: agent.repo,
-        wtPath: view.wt,
+        wtPath: GUEST_WT,
         branch: branchFor(agent.ticket),
         baseBranch: agent.baseBranch,
         sha: agent.sha,
         model: spawnModelId(this.routing, agent.model),
         builderModel: spawnModelId(this.routing, agent.builderModel),
       })
-      agent.promptView = view.wt
       agent.promptHarness = nextHarness
       return
     }
@@ -2016,13 +1930,12 @@ export class Dispatcher {
     const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
     agent.promptFile = this.deps.writePrompt(agent.cfgDir, issue, {
       repo: agent.repo,
-      wtPath: view.wt,
+      wtPath: GUEST_WT,
       mapNumber,
       type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
       ports,
       harness: nextHarness,
     })
-    agent.promptView = view.wt
     agent.promptHarness = nextHarness
   }
 
@@ -3293,7 +3206,7 @@ export class Dispatcher {
     const target = wtPath ?? reviewPathFor(this.root, repo, ticket)
     if (!fs.existsSync(target)) return true
     try {
-      await this.deps.removeWorktree(basePathFor(this.root, repo), target)
+      await this.deps.removeWorkspace(target)
       return true
     } catch (e) {
       this.log(`review checkout ${target} could not be removed (${e.message}) — the next cross-check recreates it`)
@@ -3313,7 +3226,6 @@ export class Dispatcher {
   async #endWorkspaceLease(agentName, ticket, repo) {
     if (!repo) return 'worktree kept — curia could not tell which repo this ticket belongs to'
     const branch = branchFor(ticket)
-    const basePath = basePathFor(this.root, repo)
     const wtPath = worktreePathFor(this.root, repo, ticket)
 
     let pr
@@ -3344,7 +3256,7 @@ export class Dispatcher {
 
     let removed = false
     try {
-      await this.deps.removeWorktree(basePath, wtPath)
+      await this.deps.removeWorkspace(wtPath)
       removed = true
     } catch (e) {
       this.log(`lease end for ${repo}#${ticket}: worktree removal failed (${e.message})`)
@@ -3591,7 +3503,7 @@ export class Dispatcher {
     let released = false
     let failure = null
     if (w) {
-      await this.deps.removeWorktree(basePathFor(this.root, w.repo), w.wtPath).catch((e) => this.log(`worktree removal for ${session} failed:`, e.message))
+      await this.deps.removeWorkspace(w.wtPath).catch((e) => this.log(`workspace removal for ${session} failed:`, e.message))
       if (!charting) {
         const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
         if (login) {
@@ -4406,7 +4318,6 @@ export class Dispatcher {
   // indeterminate check keeps it too, the same evidence rule the rest of
   // reconcile runs on.
   async #sweepWorktree(repo, n, session) {
-    const base = basePathFor(this.root, repo)
     const wt = worktreePathFor(this.root, repo, n)
     let unpushed = true
     let why = 'it holds commits that exist nowhere else'
@@ -4420,7 +4331,7 @@ export class Dispatcher {
       this.log(`reconcile: kept orphan worktree ${wt} — ${why}`)
       return
     }
-    await this.deps.removeWorktree(base, wt).catch(() => {})
+    await this.deps.removeWorkspace(wt).catch(() => {})
   }
 
   // Dead claims: journal-claimed (dispatch_claimed keeps manual claims safe),

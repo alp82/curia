@@ -18,6 +18,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { classifyFault, installCrashGuard } from '../src/health.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
+import { sandboxYaml } from './fixtures/sandbox.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -200,6 +201,7 @@ async function writeConfig(cfgDir, tmp) {
     // #212: the fixture owns its skills root, so this boot depends on nothing
     // under the host's HOME.
     ...skillsYaml(seedSkillsRoot(tmp)),
+    ...sandboxYaml(),
     '',
   ].join('\n'))
   fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [

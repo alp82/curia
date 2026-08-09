@@ -34,6 +34,7 @@ import { resolveModel, candidates, Cooling } from '../src/routing.mjs'
 import { loadRoutingConfig } from '../src/config.mjs'
 import { expandCommand } from '../src/bridge.mjs'
 import { parseCommand } from '../src/commands.mjs'
+import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet', map: 'opus' },
@@ -59,6 +60,7 @@ let tmp
 let notifies
 let events
 let calls // every gh-ish effect the dispatcher ordered, in order
+let restoreCredential // #195: the model credential the container env file needs
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-mapdispatch-test-'))
@@ -66,9 +68,13 @@ beforeEach(() => {
   notifies = []
   events = []
   calls = []
+  restoreCredential = withTestCredential()
 })
 
-afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+afterEach(() => {
+  fs.rmSync(tmp, { recursive: true, force: true })
+  restoreCredential()
+})
 
 // Poll until a condition holds — the watchdog paths below are timers, not
 // promises the caller can await.
@@ -93,6 +99,8 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     attach: { ttyd_port: 7681, serve_port: 8443 },
     identity: { allow: ['tester@example.com'], proxy_port: 7682 },
     skills: null,
+    // #195: every dispatch prepares a container, so every Dispatcher needs pins
+    sandbox: TEST_PINS,
   }
   // The journal is a real file here: #epochCharting reads it back, which is the
   // whole point of journalling the kind — a restarted daemon must still know
@@ -123,17 +131,11 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     newSession: async () => {},
     capturePane: async () => '',
     killSession: async () => {},
-    ensureBaseClone: async (r, repo) => path.join(r, 'repos', repo.replace('/', '__'), 'base'),
-    createWorktree: async (b, n) => {
-      const wt = path.join(path.dirname(b), 'wt', String(n))
-      fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
-      fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
-      return wt
-    },
-    removeWorktree: async () => {},
+    ...containerDeps(),
+    removeWorkspace: async () => {},
     removeConfigDir: () => {},
     removeCredentials: () => {},
-    seedConfigDir: () => {},
+    seedConfigDir: seedConfigDirStub(),
     writeConnectionSettings: () => {},
     writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
     ensureTtyd: async () => ({ verified: true }),
@@ -867,9 +869,9 @@ describe('map with no issue — the new-map dispatch (#241)', () => {
 
   test('no tracker doc refuses the dispatch — a mapless charting agent is the worst case', async () => {
     const d = makeDispatcher({
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
-        fs.mkdirSync(wt, { recursive: true })
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         return wt
       },
     })

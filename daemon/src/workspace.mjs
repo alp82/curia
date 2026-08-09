@@ -1,9 +1,14 @@
 // Daemon-owned workspaces (#33 step 6). Layout under workspace_root:
-//   repos/<owner>__<repo>/base   — shared base clone (push-disabled)
-//   repos/<owner>__<repo>/wt/<n> — per-ticket worktrees
-//   cfg/curia-<n>                — per-agent config dir (+ prompt file);
-//                                  holds no credential of its own since #53
+//   repos/<owner>__<repo>/wt/<n>     — the agent's private clone
+//   repos/<owner>__<repo>/review/<n> — the reviewer's private clone (#164)
+//   cfg/curia-<n>                    — per-agent config dir (+ prompt file);
+//                                      holds no credential of its own since #53
 // Never Alp's working tree; nothing here is authoritative state.
+//
+// ONE shape since #195: every agent runs in a container, and a container cannot
+// mount a worktree cut from a shared base clone. The `repos/<...>/base` clone
+// and the worktrees cut from it were the bare tmux path, and they are gone —
+// from the code here, and by hand from the one box that carried leftovers.
 //
 // The config dir is per HARNESS since #39: `CLAUDE_CONFIG_DIR` for the claude
 // harness, `CODEX_HOME` for the codex one. See the HARNESS table below — it is the
@@ -33,17 +38,13 @@ const CLONE_TIMEOUT_MS = 600_000
 
 // SIGTERM, not the wrapper's SIGKILL default: git installs handlers that
 // remove its lock files on SIGTERM, and SIGKILL bypasses them — a fetch or
-// worktree add killed hard at the timeout leaves .git/index.lock or
-// refs/**.lock behind, and every later dispatch for that repo then fails in
-// ensureBaseClone/createWorktree until a human deletes the lock. One transient
-// network stall must not poison the base clone. (gh/tmux/tailscale keep
-// SIGKILL: none of them holds on-disk locks we depend on.)
+// checkout killed hard at the timeout leaves .git/index.lock or refs/**.lock
+// behind, and every later git call against that clone then fails until a human
+// deletes the lock. One transient network stall must not poison a workspace.
+// (gh/tmux/tailscale keep SIGKILL: none of them holds on-disk locks we depend
+// on.)
 function git(cwd, args, options = {}) {
   return execFileP('git', ['-C', cwd, ...args], { maxBuffer: 16 * 1024 * 1024, timeout: GIT_TIMEOUT_MS, killSignal: 'SIGTERM', ...options })
-}
-
-export function basePathFor(root, repo) {
-  return path.join(root, 'repos', repo.replace('/', '__'), 'base')
 }
 
 export function worktreePathFor(root, repo, n) {
@@ -52,39 +53,6 @@ export function worktreePathFor(root, repo, n) {
 
 export function cfgDirFor(root, session) {
   return path.join(root, 'cfg', session)
-}
-
-// Clone if missing, fetch if present; then disable pushing to origin.
-//
-// Be precise about what that buys: it stops `git push origin`
-// from the base clone and its worktrees, and nothing else. It is undone by one
-// `git remote set-url --push origin <real url>`, bypassed by an explicit-URL
-// push, and entirely irrelevant to the inherited `gh` credential the agent also
-// holds (`gh api -X PUT .../contents/...`, `gh pr create`, `gh issue edit`
-// never consult a push URL). It is a speed bump against an honest mistake, NOT
-// a control against an agent steered by hostile ticket text; the real belt is
-// the standing order in the prompt file plus the post-run manual check.
-//
-// Harness files are excluded via the clone's info/exclude, shared by all worktrees.
-export async function ensureBaseClone(root, repo) {
-  const base = basePathFor(root, repo)
-  if (!fs.existsSync(path.join(base, '.git'))) {
-    fs.mkdirSync(path.dirname(base), { recursive: true })
-    await execFileP('gh', ['repo', 'clone', repo, base], { maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS })
-  } else {
-    await git(base, ['fetch', 'origin', '--prune'], { timeout: CLONE_TIMEOUT_MS })
-  }
-  await git(base, ['remote', 'set-url', '--push', 'origin', 'no_push://disabled'])
-
-  const excludeFile = path.join(base, '.git', 'info', 'exclude')
-  const wanted = ['.mcp.json', '.claude/', '.curia-prompt.md']
-  const existing = fs.existsSync(excludeFile) ? fs.readFileSync(excludeFile, 'utf8') : ''
-  const missing = wanted.filter((l) => !existing.split('\n').includes(l))
-  if (missing.length) {
-    fs.mkdirSync(path.dirname(excludeFile), { recursive: true })
-    fs.appendFileSync(excludeFile, (existing && !existing.endsWith('\n') ? '\n' : '') + missing.join('\n') + '\n')
-  }
-  return base
 }
 
 export function branchFor(n) {
@@ -96,10 +64,10 @@ export async function defaultBranchOf(base) {
   return stdout.trim().replace('refs/remotes/origin/', '')
 }
 
-// Does origin already carry this ticket's branch? Read from the tracking ref,
-// which ensureBaseClone has just refreshed with `fetch --prune` — no second
-// network round-trip, and no dependency on `gh auth setup-git` for a private
-// repo (the reason pushBranch names its credential helper on the command line).
+// Does origin already carry this ticket's branch? Read from the tracking ref
+// the fresh clone just wrote — no second network round-trip, and no dependency
+// on `gh auth setup-git` for a private repo (the reason pushBranch names its
+// credential helper on the command line).
 //
 // `for-each-ref` rather than `rev-parse --verify`, because an absent ref must be
 // distinguishable from a failed read: for-each-ref exits 0 with empty output for
@@ -109,35 +77,6 @@ export async function defaultBranchOf(base) {
 export async function remoteBranchExists(base, branch) {
   const { stdout } = await git(base, ['for-each-ref', '--format=%(refname)', `refs/remotes/origin/${branch}`])
   return stdout.trim().length > 0
-}
-
-// Fresh worktree on branch curia/<n>, started from origin/curia/<n> WHERE THAT
-// EXISTS and from origin's default branch otherwise.
-//
-// The start point is #54 item 6. Re-dispatch used to force-reset the branch off
-// origin/HEAD and then push non-forced, which fails outright once a pull request
-// is open — and, worse, would have thrown away every commit already under
-// review. Now a re-dispatch continues the branch it finds, so the second agent
-// adds to the same pull request (the rejection loop's own shape, applied across
-// dispatches).
-//
-// -B is kept: the local branch must point at whichever start point was chosen,
-// and a stale worktree registration at the same path is removed first (worktree
-// add refuses an existing path).
-export async function createWorktree(base, n) {
-  const wt = path.join(path.dirname(base), 'wt', String(n))
-  const branch = branchFor(n)
-  const start = await remoteBranchExists(base, branch)
-    ? `origin/${branch}`
-    : `origin/${await defaultBranchOf(base)}`
-  if (fs.existsSync(wt)) {
-    await git(base, ['worktree', 'remove', '--force', wt]).catch(() => {})
-    fs.rmSync(wt, { recursive: true, force: true })
-  }
-  await git(base, ['worktree', 'prune'])
-  fs.mkdirSync(path.dirname(wt), { recursive: true })
-  await git(base, ['worktree', 'add', '-B', branch, wt, start])
-  return wt
 }
 
 // ---- the reviewer's checkout (#164, ADR-0010) --------------------------------
@@ -169,45 +108,30 @@ async function fetchTip(gitDir, repo, branch) {
 // branch at all: a DETACHED HEAD at the tip sha. That also states the reviewer's
 // posture on disk — there is no branch here to commit onto.
 //
-// Two shapes, the same two the builder has (#156): a worktree cut from the
-// shared base clone for a bare pane, a private blobless clone for a container,
-// which cannot use a worktree because its `.git` is a file pointing at a base
-// the container never mounts.
-export async function createReviewCheckout(root, repo, n, { sandbox = false } = {}) {
+// One shape, the same one the builder has: a private blobless clone the
+// reviewer's container mounts. The worktree shape went with the bare path
+// (#195) — a container cannot use a worktree, because its `.git` is a file
+// pointing at a base clone the container never mounts.
+export async function createReviewCheckout(root, repo, n) {
   const wt = reviewPathFor(root, repo, n)
   const branch = branchFor(n)
 
-  if (sandbox) {
-    if (fs.existsSync(wt)) fs.rmSync(wt, { recursive: true, force: true })
-    fs.mkdirSync(path.dirname(wt), { recursive: true })
-    await execFileP('gh', ['repo', 'clone', repo, wt, '--', '--filter=blob:none'], {
-      maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS,
-    })
-    await git(wt, ['remote', 'set-url', 'origin', `https://github.com/${repo}.git`])
-    await git(wt, ['config', 'credential.helper', '!gh auth git-credential'])
-    const sha = await fetchTip(wt, repo, branch)
-    await git(wt, ['checkout', '--detach', sha])
-    // The claude harness writes `.mcp.json` and `.claude/` into the checkout, and
-    // the reviewer reads `git status` to see what the diff touched — so curia's
-    // own files must not show up as the builder's changes.
-    const excludeFile = path.join(wt, '.git', 'info', 'exclude')
-    fs.mkdirSync(path.dirname(excludeFile), { recursive: true })
-    fs.appendFileSync(excludeFile, '\n.mcp.json\n.claude/\n.curia-prompt.md\n')
-    return { path: wt, sha, branch, baseBranch: await defaultBranchOf(wt) }
-  }
-
-  // The base clone's own info/exclude already hides the harness files from every
-  // worktree cut from it (ensureBaseClone), so this shape needs none of its own.
-  const base = await ensureBaseClone(root, repo)
-  const sha = await fetchTip(base, repo, branch)
-  if (fs.existsSync(wt)) {
-    await git(base, ['worktree', 'remove', '--force', wt]).catch(() => {})
-    fs.rmSync(wt, { recursive: true, force: true })
-  }
-  await git(base, ['worktree', 'prune'])
+  if (fs.existsSync(wt)) fs.rmSync(wt, { recursive: true, force: true })
   fs.mkdirSync(path.dirname(wt), { recursive: true })
-  await git(base, ['worktree', 'add', '--detach', wt, sha])
-  return { path: wt, sha, branch, baseBranch: await defaultBranchOf(base) }
+  await execFileP('gh', ['repo', 'clone', repo, wt, '--', '--filter=blob:none'], {
+    maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS,
+  })
+  await git(wt, ['remote', 'set-url', 'origin', `https://github.com/${repo}.git`])
+  await git(wt, ['config', 'credential.helper', '!gh auth git-credential'])
+  const sha = await fetchTip(wt, repo, branch)
+  await git(wt, ['checkout', '--detach', sha])
+  // The claude harness writes `.mcp.json` and `.claude/` into the checkout, and
+  // the reviewer reads `git status` to see what the diff touched — so curia's
+  // own files must not show up as the builder's changes.
+  const excludeFile = path.join(wt, '.git', 'info', 'exclude')
+  fs.mkdirSync(path.dirname(excludeFile), { recursive: true })
+  fs.appendFileSync(excludeFile, '\n.mcp.json\n.claude/\n.curia-prompt.md\n')
+  return { path: wt, sha, branch, baseBranch: await defaultBranchOf(wt) }
 }
 
 // ---- landing the work (#41) --------------------------------------------------
@@ -222,11 +146,19 @@ export async function commitsOnBranch(wtPath, defaultBranch) {
   })
 }
 
-// The daemon pushes; the agent never does (#41) — the same containment
-// boundary as preview allocation (#40). The base clone's push URL stays
-// disabled, so this goes out over an EXPLICIT URL with gh's credential helper
-// named on the command line: the daemon does not depend on `gh auth setup-git`
-// having been run for whoever owns the box.
+// KEPT by #195, which named this for deletion and then measured it. Both
+// callers are #54 repairs in resolve.mjs — `landBranch` when the agent never
+// called `open_pull_request`, and the unmerged-at-resolve push — and neither is
+// a bare-path mechanism. The workspace is a private clone on the HOST
+// filesystem, so the daemon still reaches it, and the repair still has no other
+// cure: an agent that committed and never pushed would otherwise leave the only
+// copy of its work in a workspace the lifecycle is about to stop protecting.
+//
+// The daemon pushes; the agent never does (#41) — the same containment boundary
+// as preview allocation (#40). This goes out over an EXPLICIT URL with gh's
+// credential helper named on the command line, so it carries the DAEMON's own
+// login rather than the agent's scoped token, and it does not depend on
+// `gh auth setup-git` having been run for whoever owns the box.
 //
 // Pushing an explicit URL does not move refs/remotes/origin/*, and
 // hasUnpushedWork() — which decides whether the orphan sweep is allowed to
@@ -260,28 +192,12 @@ export async function hasUnpushedWork(wtPath, branch, defaultBranch) {
 
 // Branch is kept deliberately (salvage; re-frontier is the recovery).
 //
-// Two workspace shapes since #156, and one caller: the bare path's worktree,
-// which git must unregister from its base clone, and the sandbox's private
-// clone, which owns its whole `.git` and is just a directory. A worktree marks
-// itself with a `.git` FILE pointing into the base; a clone has a `.git`
-// directory. `git worktree remove` on a clone fails with "is not a working
-// tree", so the shape is read rather than assumed.
-export async function removeWorktree(base, wtPath) {
-  if (isPrivateClone(wtPath)) {
-    fs.rmSync(wtPath, { recursive: true, force: true })
-    return
-  }
-  await git(base, ['worktree', 'remove', '--force', wtPath])
-}
-
-// A standalone clone (#156) rather than a worktree cut from the base clone.
-// `.git` is a directory in the first case and a file in the second.
-export function isPrivateClone(wtPath) {
-  try {
-    return fs.statSync(path.join(wtPath, '.git')).isDirectory()
-  } catch {
-    return false
-  }
+// One shape since #195: a private clone, which owns its whole `.git` and is
+// just a directory. The worktree arm — `git worktree remove` against a base
+// clone — went with the bare path, once the one box carrying a leftover
+// worktree was cleaned by hand.
+export async function removeWorkspace(wtPath) {
+  fs.rmSync(wtPath, { recursive: true, force: true })
 }
 
 // ---- the sandbox's private clone (#156, from #148) ---------------------------
@@ -325,15 +241,35 @@ export async function createPrivateClone(root, repo, n, { identity = null } = {}
   await git(wt, ['config', 'user.name', who.name])
   await git(wt, ['config', 'user.email', who.email])
 
-  const start = await remoteBranchExists(wt, branch)
-    ? `origin/${branch}`
-    : `origin/${await defaultBranchOf(wt)}`
-  await git(wt, ['checkout', '-B', branch, start])
+  await checkoutTicketBranch(wt, branch)
 
   const excludeFile = path.join(wt, '.git', 'info', 'exclude')
   fs.mkdirSync(path.dirname(excludeFile), { recursive: true })
   fs.appendFileSync(excludeFile, '\n.mcp.json\n.claude/\n.curia-prompt.md\n')
   return wt
+}
+
+// Put the workspace on `curia/<n>`, started from origin/curia/<n> WHERE THAT
+// EXISTS and from origin's default branch otherwise.
+//
+// The start point is #54 item 6. Re-dispatch used to force-reset the branch off
+// origin/HEAD and then push non-forced, which fails outright once a pull request
+// is open — and, worse, would have thrown away every commit already under
+// review. Now a re-dispatch continues the branch it finds, so the second agent
+// adds to the same pull request (the rejection loop's own shape, applied across
+// dispatches).
+//
+// -B is kept: the local branch must point at whichever start point was chosen.
+//
+// Its own function since #195, so the rule stays testable. It used to live in
+// `createWorktree`, which a test could drive against a local origin; the one
+// caller left clones through `gh`, which no unit test can reach.
+export async function checkoutTicketBranch(gitDir, branch) {
+  const start = await remoteBranchExists(gitDir, branch)
+    ? `origin/${branch}`
+    : `origin/${await defaultBranchOf(gitDir)}`
+  await git(gitDir, ['checkout', '-B', branch, start])
+  return start
 }
 
 // The box's own git identity. A daemon on a box with none still has to be able
@@ -739,7 +675,7 @@ const HARNESS = {
         return
       }
       if (!fs.existsSync(host)) {
-        throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach the host store — run \`codex login\` on this box, or set \`harnesses.codex.sandbox: none\``)
+        throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach the host store — run \`codex login\` on this box`)
       }
       fs.copyFileSync(host, dest)
       fs.chmodSync(dest, 0o400)

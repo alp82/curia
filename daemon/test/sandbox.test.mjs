@@ -15,7 +15,7 @@ import net from 'node:net'
 import path from 'node:path'
 
 import { Dispatcher } from '../src/dispatch.mjs'
-import { loadCuriaConfig, loadRoutingConfig, assertSandboxConfig } from '../src/config.mjs'
+import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
 import {
   GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, PORTS_PER_AGENT, PROBE_MARK, PROBE_PATH,
   allocatePorts, containerPorts, dockerGateway, dockerRunCmd, modelCredential,
@@ -307,35 +307,48 @@ describe('container teardown (#156)', () => {
 
 // ---- config ------------------------------------------------------------------------
 
-describe('the sandbox switch (#156)', () => {
-  const routingFile = (harnessExtra) => {
+// #195 deleted the per-harness `sandbox:` switch along with the bare pane it
+// selected. Every harness runs in a container, so the containment is no longer
+// a choice — what is left to validate is the pins in curia.yaml, which are now
+// mandatory, and the single-quote rule the docker command line imposes on every
+// harness template rather than on a switched-on one.
+describe('the container config (#156, #195)', () => {
+  const routingFile = (template) => {
     const file = path.join(tmp, 'routing.yaml')
     fs.writeFileSync(file, [
       'defaults: {untyped: opus}',
       'models: {opus: {provider: anthropic, harness: claude}}',
       'harnesses:',
       '  claude:',
-      '    template: \'claude --model {model} "$(cat {prompt_file})"\'',
+      `    template: ${template}`,
       "    ready: '⏵⏵'",
       "    tool_channel_grace_s: 15",
-      ...harnessExtra,
     ].join('\n'))
     return file
   }
 
-  test('a harness with no switch runs the bare pane, exactly as before', () => {
-    const cfg = loadRoutingConfig(routingFile([]))
-    assert.equal(cfg.harnesses.claude.sandbox, 'none')
+  test('a harness carries no containment key at all — there is one containment', () => {
+    const cfg = loadRoutingConfig(routingFile('\'claude --model {model} "$(cat {prompt_file})"\''))
+    assert.equal(cfg.harnesses.claude.sandbox, undefined)
   })
 
-  test('an unknown mode names the key rather than running an unknown containment', () => {
-    assert.throws(() => loadRoutingConfig(routingFile(['    sandbox: firejail'])), /sandbox must be one of none\|docker/)
+  // The container command is single-quoted inside the pane's shell, which is
+  // what keeps `$(cat <prompt>)` expanding INSIDE the container. This used to
+  // fire only for a harness switched to `sandbox: docker`, and it named
+  // `sandbox: none` as the way out. There is no way out now.
+  test("a template carrying a single quote is refused, and names no way out", () => {
+    assert.throws(
+      () => loadRoutingConfig(routingFile('"claude --model {model} \'$(cat {prompt_file})\'"')),
+      /carries a single quote/,
+    )
+    assert.throws(
+      () => loadRoutingConfig(routingFile('"claude --model {model} \'$(cat {prompt_file})\'"')),
+      (e) => !/sandbox: none/.test(e.message),
+    )
   })
 
-  test('the switch on, with no image pins in curia.yaml, refuses at boot', () => {
-    const routing = { harnesses: { claude: { sandbox: 'docker' } } }
-    assert.throws(() => assertSandboxConfig({}, routing), /carries no `sandbox:` section/)
-    assert.deepEqual(assertSandboxConfig({ sandbox: PINS }, routing), ['claude'])
+  test('no image pins in curia.yaml refuses at boot — a container has nothing to run', () => {
+    assert.throws(() => curiaConfigWith(null, tmp), /`sandbox:` section is required/)
   })
 
   test('a port range that cannot hold three ports per concurrent agent refuses', () => {
@@ -352,6 +365,8 @@ describe('the sandbox switch (#156)', () => {
 })
 
 // A curia.yaml carrying the real sandbox block plus the overrides under test.
+// `sandboxOver === null` writes NO sandbox section at all, which #195 made a
+// refusal rather than a boot.
 function curiaConfigWith(sandboxOver, dir) {
   const file = path.join(dir, 'curia.yaml')
   fs.writeFileSync(file, [
@@ -367,15 +382,17 @@ function curiaConfigWith(sandboxOver, dir) {
     'timeline: {port: 4272, serve_port: 8444}',
     'preview: {port_from: 8500, port_to: 8599}',
     'skills: {install: []}',
-    'sandbox:',
-    '  image: curia-agent',
-    '  claude_version: 2.1.220',
-    '  codex_version: 0.146.0',
-    '  gh_version: 2.97.0',
-    '  playwright_version: 1.62.1',
-    '  ttyd_version: 1.7.7',
-    '  agent_uid: 1000',
-    ...Object.entries(sandboxOver).map(([k, v]) => `  ${k}: ${v}`),
+    ...(sandboxOver === null ? [] : [
+      'sandbox:',
+      '  image: curia-agent',
+      '  claude_version: 2.1.220',
+      '  codex_version: 0.146.0',
+      '  gh_version: 2.97.0',
+      '  playwright_version: 1.62.1',
+      '  ttyd_version: 1.7.7',
+      '  agent_uid: 1000',
+    ]),
+    ...Object.entries(sandboxOver ?? {}).map(([k, v]) => `  ${k}: ${v}`),
   ].join('\n'))
   return loadCuriaConfig(file)
 }
@@ -391,7 +408,10 @@ describe('the agent sees its own paths (#156)', () => {
     assert.equal(env.CLAUDE_SECURESTORAGE_CONFIG_DIR, undefined)
   })
 
-  test('a bare pane still shares the host credential store (#53)', () => {
+  // The overseer is the one agent left outside a container (#195), and it runs
+  // on the host, so it still reaches the host credential store the way #53 set
+  // up. No DISPATCHED agent takes this path any more.
+  test('an un-sandboxed harness env still shares the host credential store (#53)', () => {
     assert.ok(agentEnv(path.join(tmp, 'cfg'), 'claude').CLAUDE_SECURESTORAGE_CONFIG_DIR)
   })
 
@@ -428,7 +448,7 @@ const SANDBOXED_ROUTING = {
   harnesses: {
     claude: {
       template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"',
-      ready: '⏵⏵', readyRe: /⏵⏵/, toolChannelGraceS: 15, sandbox: 'docker',
+      ready: '⏵⏵', readyRe: /⏵⏵/, toolChannelGraceS: 15,
     },
   },
 }
@@ -459,15 +479,7 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
       fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
       return wt
     },
-    ensureBaseClone: async (r, repo) => path.join(r, 'repos', repo.replace('/', '__'), 'base'),
-    createWorktree: async (b, n) => {
-      const wt = path.join(path.dirname(b), 'wt', String(n))
-      fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
-      fs.writeFileSync(path.join(wt, '.git'), 'gitdir: ../../base/.git/worktrees/x\n')
-      fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
-      return wt
-    },
-    removeWorktree: async () => {},
+    removeWorkspace: async () => {},
     removeConfigDir: () => {},
     removeCredentials: () => {},
     ensureTtyd: async () => ({ verified: true }),
@@ -542,15 +554,9 @@ describe('a sandboxed dispatch (#156)', () => {
     assert.equal(ready?.gateway, '10.0.1.1')
   })
 
-  test('a bare-pane dispatch checks no side channel — it has no container', async () => {
-    let asked = false
-    const { d } = makeDispatcher(
-      { assertSideChannel: async () => { asked = true } },
-      { routing: { ...SANDBOXED_ROUTING, harnesses: { claude: { ...SANDBOXED_ROUTING.harnesses.claude, sandbox: 'none' } } }, sandbox: undefined },
-    )
-    await d.start('42', { repo: 'o/r' })
-    assert.equal(asked, false)
-  })
+  // The case that used to sit here — a bare-pane dispatch checking no side
+  // channel, because it had no container — went with the bare pane (#195).
+  // Every dispatch checks it now, which the case above asserts.
 
   test('the pane runs docker, with the image, the mounts and the ports', async () => {
     const { d, spawns } = makeDispatcher()
@@ -596,11 +602,9 @@ describe('a sandboxed dispatch (#156)', () => {
     assert.ok(!spawns[0].shellCmd.includes('sk-test'), 'the credential reached the command line')
   })
 
-  test('the workspace is a private clone, never a worktree of the shared base', async () => {
-    let worktrees = 0
+  test('the workspace is a private clone, never a worktree of a shared base', async () => {
     let clones = 0
     const { d } = makeDispatcher({
-      createWorktree: async () => { worktrees += 1; throw new Error('should not be called') },
       createPrivateClone: async (r, repo, n) => {
         clones += 1
         const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
@@ -612,21 +616,13 @@ describe('a sandboxed dispatch (#156)', () => {
     })
     await d.start('42', { repo: 'o/r' })
     assert.equal(clones, 1)
-    assert.equal(worktrees, 0)
   })
 
-  test('a resume onto a surviving BARE worktree refuses instead of mounting a broken repository', async () => {
-    const { d } = makeDispatcher()
-    // what the bare path leaves behind: a `.git` FILE pointing into the base
-    const wt = path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42')
-    fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
-    fs.writeFileSync(path.join(wt, '.git'), 'gitdir: ../../base/.git/worktrees/42\n')
-    fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '#\n')
-
-    const reply = await d.start('42', { repo: 'o/r', reuse: true })
-    assert.match(reply, /a container cannot use one/)
-    assert.match(reply, /claim released/)
-  })
+  // The refusal that used to sit here — a resume onto a surviving BARE
+  // worktree, whose `.git` file points into a base clone the container never
+  // mounts — went with the migration guard (#195). No dispatch has made a
+  // worktree since the retirement, and the one box carrying a leftover was
+  // cleaned by hand, so there is no such state left to refuse.
 
   test('the journal records the image and the ports a restart cannot re-derive', async () => {
     const { d, events } = makeDispatcher()
@@ -720,15 +716,9 @@ describe('the agent is told its ports (#157)', () => {
     assert.match(prompt, /publish_preview` takes no other port/)
   })
 
-  test('a bare agent is told nothing about ports — it has none', async () => {
-    const { d } = makeDispatcher({}, {
-      routing: { ...SANDBOXED_ROUTING, harnesses: { claude: { ...SANDBOXED_ROUTING.harnesses.claude, sandbox: 'none' } } },
-      sandbox: undefined,
-    })
-    await d.start('42', { repo: 'o/r' })
-    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
-    assert.ok(!prompt.includes('preview ports'), 'the bare path publishes nothing, so there is no port list to state')
-  })
+  // The bare path's counterpart — an agent told nothing about ports, because it
+  // published none — went with the bare path (#195). Every agent publishes
+  // three now, and the case above states what it is told about them.
 
   test('the ports are allocated before the prompt is written, and the container gets the same three', async () => {
     const order = []

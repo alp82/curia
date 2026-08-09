@@ -113,21 +113,18 @@ fallbacks:
   gpt: [opus]            # transitively reaches sonnet through opus
 
 harnesses:
+  # EVERY harness runs in its own container (#148, retired at #195). There is no
+  # per-harness `sandbox:` key any more: the rollout switch existed to soak
+  # claude first (#156, #157) and codex after (#158), both harnesses held, and
+  # #195 deleted the bare tmux path they replaced. `sandbox:` in
+  # `config/curia.yaml` is what a container is built from, and it is required.
+  #
   # `ready` is the pane text that says this harness reached its composer. It is
   # required, not defaulted: #33 lost readiness live to a marker that matched
   # nothing, and the symptom was silence.
   claude:
     template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"'
     ready: '⏵⏵|bypass permissions'
-    # #156, from the sandbox decision (#148): `docker` puts each agent in its
-    # own container, `none` runs the bare tmux pane every agent ran in before.
-    #
-    # ON since #157, which was the condition: a container agent binds its dev
-    # server on one of the three ports its container publishes, and the daemon
-    # reaches it there. The claude harness is the one that soaks first. The codex
-    # harness follows at #158, and the bare path is deleted there rather than here.
-    # `none` is the way back, and it needs no other change.
-    sandbox: docker
     # MEASURED on the box, two live dispatches, 2026-08-04 (#194,
     # docs/live-checks/194): the client's MCP handshake landed 3.7 s and 3.2 s
     # after spawn, and the composer marker 6.0 s after it both times — so the
@@ -151,11 +148,6 @@ harnesses:
   codex:
     template: 'codex --model {model} --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat {prompt_file})"'
     ready: '·\s[~/]'
-    # ON since #158. The claude harness soaked first (#156, #157, #185), which was
-    # the rollout rule #148 set. `none` is still the whole way back, and on this
-    # harness it also restores the SHARED credential store: a container copies
-    # `auth.json` and freezes on it, a bare pane symlinks the host's own file.
-    sandbox: docker
     # MEASURED on the box, three live dispatches, 2026-08-04 (#158,
     # docs/live-checks/158). This harness does NOT behave like the claude one. Its
     # handshake and its composer marker land within ~100 ms of each other and in

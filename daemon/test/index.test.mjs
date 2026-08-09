@@ -24,6 +24,7 @@ import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { PROBE_MARK, PROBE_PATH } from '../src/sandbox.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
+import { sandboxYaml } from './fixtures/sandbox.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -89,6 +90,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       // #212: the fixture owns its skills root, so this boot depends on
       // nothing under the host's HOME.
       ...skillsYaml(seedSkillsRoot(tmp)),
+      ...sandboxYaml(),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -242,6 +244,7 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
       // #212: the fixture owns its skills root, so this boot depends on
       // nothing under the host's HOME.
       ...skillsYaml(seedSkillsRoot(tmp)),
+      ...sandboxYaml(),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -364,6 +367,7 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
       'timeline:',
       `  port: ${tlPort}`,
       `  serve_port: ${tlServePort}`,
+      ...sandboxYaml(),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -502,7 +506,6 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       '  sonnet: { provider: anthropic, harness: claude }',
       'harnesses:',
       '  claude:',
-      '    sandbox: docker',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '⏵⏵|bypass permissions'",
     "    tool_channel_grace_s: 15",

@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process'
 import {
   seedConfigDir, agentEnv, agentGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
   writeConnectionSettings, removeCredentials, untrustedProjectConfig, plantedSkills, MCP_SERVER_NAME,
-  createWorktree, remoteBranchExists, defaultBranchOf,
+  checkoutTicketBranch, remoteBranchExists, defaultBranchOf,
 } from '../src/workspace.mjs'
 
 describe('per-agent config dir (#53)', () => {
@@ -234,7 +234,7 @@ describe('the agent skill set (#57)', () => {
 // `worktree add -B curia/<n> … origin/HEAD` force-reset the branch, so the second
 // agent started from the default branch and its non-forced push then failed —
 // after having thrown away every commit already under review.
-describe('createWorktree start point (#54 item 6)', () => {
+describe('the ticket branch start point (#54 item 6)', () => {
   let tmp
   let base
   const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
@@ -256,7 +256,11 @@ describe('createWorktree start point (#54 item 6)', () => {
     git(seed, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'under review')
     git(seed, 'push', 'origin', 'curia/42')
 
-    base = path.join(tmp, 'repos', 'o__r', 'base')
+    // #195: what a dispatch makes now is a standalone clone, so the fixture is
+    // one. `createPrivateClone` clones through `gh`, which no unit test can
+    // reach — `checkoutTicketBranch` is the rule it applies afterwards, and it
+    // is what these cases drive.
+    base = path.join(tmp, 'repos', 'o__r', 'wt')
     fs.mkdirSync(path.dirname(base), { recursive: true })
     execFileSync('git', ['clone', origin, base])
     git(base, 'remote', 'set-head', 'origin', 'main')
@@ -271,26 +275,23 @@ describe('createWorktree start point (#54 item 6)', () => {
   })
 
   test('a re-dispatch continues the existing branch instead of resetting it', async () => {
-    const wt = await createWorktree(base, 42)
-    assert.ok(fs.existsSync(path.join(wt, 'work.txt')), 'the commits already under review must survive')
-    assert.match(git(wt, 'log', '-1', '--format=%s'), /under review/)
-    assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/42')
+    assert.equal(await checkoutTicketBranch(base, 'curia/42'), 'origin/curia/42')
+    assert.ok(fs.existsSync(path.join(base, 'work.txt')), 'the commits already under review must survive')
+    assert.match(git(base, 'log', '-1', '--format=%s'), /under review/)
+    assert.equal(git(base, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/42')
   })
 
   test('a first dispatch still starts from the default branch', async () => {
-    const wt = await createWorktree(base, 77)
-    assert.equal(fs.existsSync(path.join(wt, 'work.txt')), false)
-    assert.match(git(wt, 'log', '-1', '--format=%s'), /base/)
-    assert.equal(git(wt, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/77')
+    assert.equal(await checkoutTicketBranch(base, 'curia/77'), 'origin/main')
+    assert.equal(fs.existsSync(path.join(base, 'work.txt')), false)
+    assert.match(git(base, 'log', '-1', '--format=%s'), /base/)
+    assert.equal(git(base, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'curia/77')
   })
 
   // #238: the landing path reads the default branch from the WORKSPACE, never
-  // from the base clone — a repo whose dispatches are all sandboxed has no base
-  // clone at all. Both workspace shapes must answer: a worktree resolves
-  // origin/HEAD through the shared common dir, a standalone clone owns its own.
-  test('defaultBranchOf answers from a worktree and from a standalone clone (#238)', async () => {
-    const wt = await createWorktree(base, 88)
-    assert.equal(await defaultBranchOf(wt), 'main')
+  // from a base clone — a repo whose dispatches are all sandboxed has no base
+  // clone at all, and since #195 no repo has one.
+  test('defaultBranchOf answers from a standalone clone (#238)', async () => {
     const clone = path.join(tmp, 'private-clone')
     execFileSync('git', ['clone', path.join(tmp, 'origin.git'), clone])
     assert.equal(await defaultBranchOf(clone), 'main')
@@ -390,11 +391,13 @@ describe('the codex agent harness (#39)', () => {
       assert.equal(fs.lstatSync(path.join(cfgDir, 'auth.json')).isSymbolicLink(), true)
     }))
 
-    test('no host credential refuses the seed, naming both ways out', () => withHome(() => {
+    // #195 took the second way out away: there is no `sandbox: none` to fall
+    // back to, so `codex login` on the box is the whole remedy.
+    test('no host credential refuses the seed, naming the one way out', () => withHome(() => {
       const { cfgDir, wtPath } = dirs(22)
       assert.throws(
         () => seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true }),
-        /codex login[\s\S]*sandbox: none/,
+        /codex login/,
       )
     }))
 

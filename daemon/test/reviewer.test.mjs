@@ -20,6 +20,7 @@ import { loadRoutingConfig } from '../src/config.mjs'
 import { outstanding, REVIEW_ENDING } from '../src/lifecycle.mjs'
 import { writeReviewPrompt } from '../src/workspace.mjs'
 import { parseCommand, CommandRouter } from '../src/commands.mjs'
+import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 
 // Two providers, two harnesses, and the shipped pairing — the shape
 // config/routing.yaml carries.
@@ -49,6 +50,7 @@ const OPEN_ISSUE = {
 }
 
 let tmp
+let restoreCredential // #195: the model credential the container env file needs
 let events
 let notifies
 const dispatchers = []
@@ -59,6 +61,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(tmp, 'data', 'tokens'), { recursive: true, mode: 0o700 })
   events = []
   notifies = []
+  restoreCredential = withTestCredential()
 })
 
 afterEach(() => {
@@ -67,6 +70,7 @@ afterEach(() => {
   for (const d of dispatchers) d.agents.clear()
   dispatchers.length = 0
   fs.rmSync(tmp, { recursive: true, force: true })
+  restoreCredential()
 })
 
 function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
@@ -80,6 +84,8 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
     attach: { ttyd_port: 7681, serve_port: 8443 },
     identity: { allow: ['tester@example.com'], proxy_port: 7682 },
     skills: null,
+    // #195: every dispatch prepares a container, so every Dispatcher needs pins
+    sandbox: TEST_PINS,
   }
   const dataDir = path.join(tmp, 'data')
   const store = {
@@ -111,13 +117,12 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
     newSession: async () => {},
     capturePane: async () => '',
     killSession: async () => {},
-    ensureBaseClone: async (r, repo) => path.join(r, 'repos', repo.replace('/', '__'), 'base'),
-    createWorktree: async () => path.join(root, 'wt'),
+    ...containerDeps(),
     createPrivateClone: async () => path.join(root, 'wt'),
-    removeWorktree: async () => {},
+    removeWorkspace: async () => {},
     removeConfigDir: () => {},
     removeCredentials: () => {},
-    seedConfigDir: () => {},
+    seedConfigDir: seedConfigDirStub(),
     writeConnectionSettings: () => {},
     writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
     // The reviewer's own two seams. A real directory, because the dispatcher

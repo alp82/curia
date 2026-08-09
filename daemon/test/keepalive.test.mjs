@@ -28,6 +28,7 @@ import { LoggingMessageNotificationSchema } from '@modelcontextprotocol/sdk/type
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
+import { sandboxYaml } from './fixtures/sandbox.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -111,6 +112,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       // #212: the fixture owns its skills root, so this boot depends on
       // nothing under the host's HOME.
       ...skillsYaml(seedSkillsRoot(tmp)),
+      ...sandboxYaml(),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [

@@ -22,6 +22,7 @@ import { verdictComment, judgementComment, verdictNote } from '../src/resolve.mj
 import { writePrompt } from '../src/workspace.mjs'
 import { DiscordBridge } from '../src/bridge.mjs'
 import { StatusLine } from '../src/statusline.mjs'
+import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'opus' },
@@ -40,6 +41,7 @@ const ROUTING = {
 const OPEN_ISSUE = { number: 42, title: 'a ticket', body: 'body text', state: 'open', assignees: [], labels: [] }
 
 let tmp
+let restoreCredential // #195: the model credential the container env file needs
 let events
 let notifies
 let notes
@@ -54,12 +56,14 @@ beforeEach(() => {
   notifies = []
   notes = []
   comments = []
+  restoreCredential = withTestCredential()
 })
 
 afterEach(() => {
   for (const d of dispatchers) d.agents.clear()
   dispatchers.length = 0
   fs.rmSync(tmp, { recursive: true, force: true })
+  restoreCredential()
 })
 
 const typesOf = () => events.map((e) => e.type)
@@ -76,6 +80,8 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
     attach: { ttyd_port: 7681, serve_port: 8443 },
     identity: { allow: ['tester@example.com'], proxy_port: 7682 },
     skills: null,
+    // #195: every dispatch prepares a container, so every Dispatcher needs pins
+    sandbox: TEST_PINS,
   }
   const store = {
     logEvent: (type, data) => {
@@ -103,13 +109,12 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
     newSession: async () => {},
     capturePane: async () => '',
     killSession: async () => {},
-    ensureBaseClone: async (r, repo) => path.join(r, 'repos', repo.replace('/', '__'), 'base'),
-    createWorktree: async () => path.join(root, 'wt'),
+    ...containerDeps(),
     createPrivateClone: async () => path.join(root, 'wt'),
-    removeWorktree: async () => {},
+    removeWorkspace: async () => {},
     removeConfigDir: () => {},
     removeCredentials: () => {},
-    seedConfigDir: () => {},
+    seedConfigDir: seedConfigDirStub(),
     writeConnectionSettings: () => {},
     writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
     createReviewCheckout: async (r, repo, n) => {

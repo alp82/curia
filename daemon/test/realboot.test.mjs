@@ -17,6 +17,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot } from './fixtures/skills.mjs'
+import { sandboxYaml } from './fixtures/sandbox.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -121,6 +122,7 @@ describe('waitForBoot against the real daemon (real boot, refused)', () => {
       'skills:',
       `  root: ${path.join(tmp, 'no-such-skills-root')}`,
       '  install: [wayfinder]',
+      ...sandboxYaml(),
       '',
     ].join('\n'))
     fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
@@ -181,6 +183,7 @@ describe('waitForBoot against the real daemon (real boot, refused)', () => {
       `  proxy_port: ${proxyPort}`,
       'skills:',
       `  root: ${seedSkillsRoot(path.join(tmp, 'owned'))}`,
+      ...sandboxYaml(),
       '',
     ].join('\n'))
     fs.copyFileSync(path.join(tmp, 'config', 'routing.yaml'), path.join(cfgDir, 'routing.yaml'))

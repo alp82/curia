@@ -132,17 +132,12 @@ The tmux session `curia-<n>`. The session name is the agent's identity everywher
 The name of an agent no issue answers for: `chat-1`, `chat-2`, the lowest free index at dispatch. It stands where a ticket number stands — the session `curia-chat-1`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. Today one kind of agent uses it: the new-map dispatch.
 
 **Agent host**:
-The layer that hosts agent sessions and their attach: bare tmux, one shared ttyd, Tailscale Serve.
+The layer that hosts agent sessions and their attach: tmux, one shared ttyd, Tailscale Serve. Each pane runs one `docker run`, never the harness directly.
 _Avoid_: substrate (banned by the operator).
 
-**Worktree**:
-The agent's per-ticket git worktree, on branch `curia/<n>`, cut from a shared base clone. The bare path's workspace shape.
-
-**Base clone**:
-The one daemon-owned clone per watched repo. Its push URL is disabled.
-
 **Private clone**:
-A sandboxed agent's own blobless clone, at the same per-ticket path, on the same branch. A container cannot use a worktree, whose `.git` points into a base clone it never sees. Both shapes retire to one when the bare path goes.
+The agent's own blobless clone, per ticket, on branch `curia/<n>`. The one workspace shape (#195).
+_Retired_: **worktree** (a per-ticket worktree cut from a shared **base clone**) was the bare path's shape. A container cannot use one, whose `.git` points into a base clone it never sees, so #195 deleted both with the bare path and the box was cleaned by hand.
 
 **Published port**:
 One of the three loopback ports an agent's container publishes, the same number inside and out. The prompt names them, an agent binds its dev server to `0.0.0.0` on one of them, and that preview's identity proxy points at it. They are the whole bound on `publish_preview` for a sandboxed agent.
@@ -379,8 +374,8 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, and previews.
-- **Workspace root** (`~/curia-work`): base clones, worktrees or private clones, review checkouts, agent config dirs.
-- **Host credential stores** (`~/.claude`, `~/.codex`): shared with bare-pane agents, which hold no copy. A sandboxed agent cannot reach them, so it gets the model credential copied into its container environment.
+- **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs.
+- **Host credential stores** (`~/.claude`, `~/.codex`): the overseer's, which runs on the host and holds no copy. A dispatched agent is in a container and cannot reach them, so it gets the model credential copied into its container environment.
 - **docker**: the live agent containers and the two shared cache volumes.
 
 Everything else is a cache that reconcile can rebuild.

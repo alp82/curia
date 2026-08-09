@@ -1,6 +1,6 @@
 # ADR-0012: One container per agent, started by its own tmux pane
 
-**Status**: accepted (2026-08), claude harness first and off by default
+**Status**: accepted (2026-08); fully rolled out and the switch removed (2026-08, [#195](https://github.com/alp82/curia/issues/195))
 **Provenance**: [Decide the agent sandbox boundary and mechanism (#148)](https://github.com/alp82/curia/issues/148), [Build the agent container image (#154)](https://github.com/alp82/curia/issues/154), [Mint the scoped GitHub PAT and inject GH_TOKEN (#155)](https://github.com/alp82/curia/issues/155), [Containerize dispatch: docker run replaces the bare pane (#156)](https://github.com/alp82/curia/issues/156)
 
 ## Context
@@ -18,7 +18,7 @@ The threat model is the confused-deputy agent: hostile instructions in repo cont
 - **The daemon reaches its agents, and they reach it back.** The MCP side channel and the Stop hook use the docker host gateway, so the daemon binds a second listener on the bridge address. Loopback would be the container itself.
 - **Three loopback ports per agent**, published `127.0.0.1:<p>:<p>`, the same number inside and out.
 - **Credentials.** GitHub reach is the scoped token of [ADR-0006](0006-worker-containment-and-standing-orders.md)'s amendment. The model credential is copied into the container environment through an env file, never a command line.
-- **Per-harness switch, shipped off.** The claude harness goes first, the codex harness follows after the soak, and the bare path is deleted only when both hold.
+- **Per-harness switch, shipped off.** The claude harness goes first, the codex harness follows after the soak, and the bare path is deleted only when both hold. **Done**: claude soaked at [#157](https://github.com/alp82/curia/issues/157), codex at [#158](https://github.com/alp82/curia/issues/158), and [#195](https://github.com/alp82/curia/issues/195) deleted the bare path with the switch. There is no `harnesses.<name>.sandbox` key any more, and `sandbox:` in `config/curia.yaml` is required. The way back is git history, not config.
 
 ## Consequences
 

@@ -16,6 +16,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { Dispatcher, paneTail, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
+import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
+import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet' },
@@ -48,6 +50,7 @@ let confirmNotes // {id, text} posted next to a confirm's buttons (#94)
 let overseerNotes // {threadId, text} synthetic session lines (#94)
 let agentNotes // session -> queued operator notes the exit sweep expires (#208)
 const dispatchers = [] // every Dispatcher a test built, so afterEach can end its watches
+let restoreCredential // #195: the model credential the container env file needs
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-dispatch-test-'))
@@ -61,6 +64,7 @@ beforeEach(() => {
   confirmNotes = []
   overseerNotes = []
   agentNotes = new Map()
+  restoreCredential = withTestCredential()
 })
 
 afterEach(() => {
@@ -73,6 +77,7 @@ afterEach(() => {
   for (const d of dispatchers) d.agents.clear()
   dispatchers.length = 0
   fs.rmSync(tmp, { recursive: true, force: true })
+  restoreCredential()
 })
 
 // Poll until `cond` holds — for behaviour that completes inside a detached
@@ -104,6 +109,8 @@ function makeDispatcher(deps = {}, {
     attach: { ttyd_port: 7681, serve_port: 8443 },
     identity: { allow: ['tester@example.com'], proxy_port: 7682 },
     skills,
+    // #195: every dispatch prepares a container, so every Dispatcher needs pins
+    sandbox: TEST_PINS,
   }
   const store = {
     logEvent: (type, data) => { const rec = { type, ...data }; events.push(rec); return rec },
@@ -133,19 +140,11 @@ function makeDispatcher(deps = {}, {
     newSession: async () => {},
     capturePane: async () => '',
     killSession: async () => {},
-    ensureBaseClone: async (r, repo) => path.join(r, 'repos', repo.replace('/', '__'), 'base'),
-    // A real directory carrying the tracker doc, because that is what every
-    // watched repo has: the doc-less case is a deliberate override (#57).
-    createWorktree: async (b, n) => {
-      const wt = path.join(path.dirname(b), 'wt', String(n))
-      fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
-      fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
-      return wt
-    },
-    removeWorktree: async () => {},
+    ...containerDeps(),
+    removeWorkspace: async () => {},
     removeConfigDir: () => {},
     removeCredentials: () => {},
-    seedConfigDir: () => {},
+    seedConfigDir: seedConfigDirStub(),
     writeConnectionSettings: () => {},
     writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
     ensureTtyd: async () => ({ verified: true }),
@@ -531,7 +530,7 @@ describe('reconcile epoch scoping (criterion 7)', () => {
       listSessions: async () => ['curia-7'],
       fetchIssue: async () => ({ number: 7, title: 'a map', body: '', state: 'open', assignees: [], labels: [{ name: 'wayfinder:map' }] }),
       killSession: async (s) => destroyed.push(`kill:${s}`),
-      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeWorkspace: async (wt) => destroyed.push(`workspace:${wt}`),
       removeConfigDir: (dir) => destroyed.push(`cfg:${dir}`),
     })
 
@@ -552,7 +551,7 @@ describe('reconcile epoch scoping (criterion 7)', () => {
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...OPEN_ISSUE }), // open, and assigned to nobody
       killSession: async () => {},
-      removeWorktree: async () => {},
+      removeWorkspace: async () => {},
       removeConfigDir: () => {},
       hasUnpushedWork: async () => false,
     })
@@ -570,7 +569,7 @@ describe('reconcile epoch scoping (criterion 7)', () => {
       listSessions: async () => ['curia-7'],
       fetchIssue: async () => ({ number: 7, title: 'a map', body: '', state: 'closed', assignees: [], labels: [{ name: 'wayfinder:map' }] }),
       killSession: async () => {},
-      removeWorktree: async () => {},
+      removeWorkspace: async () => {},
       removeConfigDir: () => {},
       hasUnpushedWork: async () => false,
     })
@@ -920,7 +919,7 @@ describe('reconcile without a confirmed viewer identity (B1)', () => {
       // exactly how the destructive path used to be reached
       fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: [{ login: 'me' }] }),
       killSession: async (n) => { destroyed.push(`kill:${n}`) },
-      removeWorktree: async (b, wt) => { destroyed.push(`worktree:${wt}`) },
+      removeWorkspace: async (wt) => { destroyed.push(`workspace:${wt}`) },
       removeConfigDir: (dir) => { destroyed.push(`cfg:${dir}`) },
       unclaim: async (repo, ticket) => { destroyed.push(`unclaim:${repo}#${ticket}`) },
     })
@@ -948,7 +947,7 @@ describe('reconcile with an indeterminate tmux session list (the B1 hole through
       listSessions: async () => { throw new Error('tmux session list is indeterminate: timeout') },
       fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: [{ login: 'me' }] }),
       killSession: async (n) => { destroyed.push(`kill:${n}`) },
-      removeWorktree: async (b, wt) => { destroyed.push(`worktree:${wt}`) },
+      removeWorkspace: async (wt) => { destroyed.push(`workspace:${wt}`) },
       removeConfigDir: (dir) => { destroyed.push(`cfg:${dir}`) },
       unclaim: async (repo, ticket) => { destroyed.push(`unclaim:${repo}#${ticket}`) },
     })
@@ -1098,29 +1097,45 @@ describe('the usage-credits dialog gates the model (#126, #108 item 12)', () => 
   })
 })
 
-describe('every spawn path shares the host credential store (#53)', () => {
-  // The frozen-copy failure (#34) came back on the *respawn* path in an earlier
-  // shape of this code, so both paths are asserted: an agent that survives its
-  // first host-side refresh but respawns onto a snapshot is still broken.
-  test('the initial spawn carries CLAUDE_SECURESTORAGE_CONFIG_DIR alongside the isolated config dir', async () => {
+describe('every spawn path authenticates the agent the same way (#53, #156)', () => {
+  // #53 pinned this against the host credential store, which a bare pane shared
+  // through `CLAUDE_SECURESTORAGE_CONFIG_DIR`. #195 deleted the bare pane, so
+  // the store is gone: the pane environment is EMPTY on purpose (a pane env
+  // would put every value in `ps`, the cost #155 measured), and the credential
+  // rides the container's `--env-file` instead.
+  //
+  // What #53 was really about survives, and is what is asserted here: the
+  // frozen-copy failure (#34) came back on the *respawn* path in an earlier
+  // shape of this code, so both paths are read. An agent authenticated one way
+  // at spawn and another way after a fallback is still broken.
+  const envFileOf = (session) => {
+    const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
+    return Object.fromEntries(fs.readFileSync(file, 'utf8').split('\n')
+      .filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
+  }
+
+  test('the initial spawn puts nothing in the pane and the credential in the container env file', async () => {
     const envs = []
+    const files = []
     const d = makeDispatcher({
-      newSession: async ({ env }) => { envs.push(env) },
+      newSession: async ({ env }) => { envs.push(env); files.push(envFileOf('curia-42')) },
     })
 
     await d.start('42', { repo: 'o/r', by: 'test' })
 
     assert.equal(envs.length, 1)
-    assert.equal(envs[0].CLAUDE_SECURESTORAGE_CONFIG_DIR, path.join(os.homedir(), '.claude'))
-    assert.match(envs[0].CLAUDE_CONFIG_DIR, /cfg[/\\]curia-42$/)
-    assert.notEqual(envs[0].CLAUDE_CONFIG_DIR, envs[0].CLAUDE_SECURESTORAGE_CONFIG_DIR)
+    assert.deepEqual(envs[0], {}, 'the pane env would show every value in `ps`')
+    assert.equal(files[0].ANTHROPIC_API_KEY, 'sk-test')
+    // the config dir the AGENT sees is its mount point, not the host path
+    assert.equal(files[0].CLAUDE_CONFIG_DIR, GUEST_CFG)
+    assert.equal('CLAUDE_SECURESTORAGE_CONFIG_DIR' in files[0], false, 'the container denies the host HOME')
 
     // retire the watchdog: the loop stops as soon as the record it was spawned
     // for is gone, and a poller outliving its test journals into the NEXT one
     d.agents.delete('curia-42')
   })
 
-  test('the respawn after a usage limit carries it too', async () => {
+  test('the respawn after a usage limit authenticates identically', async () => {
     const routing = {
       defaults: ROUTING.defaults,
       models: {
@@ -1130,17 +1145,17 @@ describe('every spawn path shares the host credential store (#53)', () => {
       fallbacks: { sonnet: ['haiku'] },
       harnesses: ROUTING.harnesses,
     }
-    const envs = []
+    const files = []
     const d = makeDispatcher({
-      newSession: async ({ env }) => { envs.push(env) },
+      newSession: async () => { files.push(envFileOf('curia-42')) },
       capturePane: async () => 'Sonnet usage limit reached | 1800000000',
     }, { routing })
 
     await d.start('42', { repo: 'o/r', by: 'test' })
-    await waitFor(() => envs.length > 1)
+    await waitFor(() => files.length > 1)
 
-    assert.equal(envs[1].CLAUDE_SECURESTORAGE_CONFIG_DIR, path.join(os.homedir(), '.claude'))
-    assert.deepEqual(envs[1], envs[0], 'a respawn must not be authenticated differently from a spawn')
+    assert.equal(files[1].ANTHROPIC_API_KEY, 'sk-test')
+    assert.deepEqual(files[1], files[0], 'a respawn must not be authenticated differently from a spawn')
 
     // this pane says "usage limit" forever, so the watchdog would respawn on a
     // loop for the rest of the run if the record stayed
@@ -1220,7 +1235,7 @@ describe('an indeterminate hasSession answer never authorises a claim (W1)', () 
       hasSession: async () => { throw new Error('tmux session presence is indeterminate: timeout') },
       claim: async () => { claims += 1 },
       killSession: async (n) => { destroyed.push(`kill:${n}`) },
-      createWorktree: async () => { destroyed.push('worktree'); return '/x' },
+      createPrivateClone: async () => { destroyed.push('worktree'); return '/x' },
     })
 
     await assert.rejects(() => d.start('42', { repo: 'o/r' }), /indeterminate/)
@@ -1235,7 +1250,7 @@ describe('Dispatcher.cancel (criterion 6, the destructive half — W8; immediate
     const acts = []
     const d = makeDispatcher({
       killSession: async (n) => acts.push(`kill:${n}`),
-      removeWorktree: async (base, wt) => acts.push(`worktree:${wt}`),
+      removeWorkspace: async (wt) => acts.push(`workspace:${wt}`),
       unclaim: async (repo, t) => acts.push(`unclaim:${repo}#${t}`),
       removeConfigDir: (dir) => acts.push(`cfg:${path.basename(dir)}`),
     })
@@ -1245,7 +1260,7 @@ describe('Dispatcher.cancel (criterion 6, the destructive half — W8; immediate
 
     assert.match(reply, /cancelled/)
     assert.match(reply, /worktree removed, ticket re-frontiered/)
-    assert.deepEqual(acts, ['kill:curia-42', 'worktree:/w/42', 'unclaim:o/r#42', 'cfg:curia-42'])
+    assert.deepEqual(acts, ['kill:curia-42', 'workspace:/w/42', 'unclaim:o/r#42', 'cfg:curia-42'])
     assert.equal(d.agents.has('curia-42'), false)
     assert.ok(events.some((e) => e.type === 'dispatch_unclaimed' && e.reason === 'cancelled' && e.by === 'test'))
     assert.deepEqual(confirms, [], 'a typed cancel is its own confirmation — no buttons (#89)')
@@ -1271,7 +1286,7 @@ describe('Dispatcher.cancel (criterion 6, the destructive half — W8; immediate
       // to every name would have this test tear one down too.
       hasSession: async (n) => n === 'curia-42',
       killSession: async (n) => acts.push(`kill:${n}`),
-      removeWorktree: async () => acts.push('worktree'),
+      removeWorkspace: async () => acts.push('workspace'),
       unclaim: async () => acts.push('unclaim'),
       removeConfigDir: (dir) => acts.push(`cfg:${path.basename(dir)}`),
     })
@@ -1421,7 +1436,7 @@ describe('button confirms: the interpreted cancel path (#94)', () => {
     const acts = []
     const d = makeDispatcher({
       killSession: async (n) => acts.push(`kill:${n}`),
-      removeWorktree: async () => acts.push('worktree'),
+      removeWorkspace: async () => acts.push('workspace'),
       unclaim: async (repo, t) => acts.push(`unclaim:${repo}#${t}`),
       removeConfigDir: () => acts.push('cfg'),
     })
@@ -1431,7 +1446,7 @@ describe('button confirms: the interpreted cancel path (#94)', () => {
     Object.assign(confirms[0], { status: 'answered', answer: 'approve', answered_by: 'alp' })
     await d.onConfirmAnswered(confirms[0])
 
-    assert.deepEqual(acts, ['kill:curia-42', 'worktree', 'unclaim:o/r#42', 'cfg'])
+    assert.deepEqual(acts, ['kill:curia-42', 'workspace', 'unclaim:o/r#42', 'cfg'])
     assert.equal(d.agents.has('curia-42'), false)
     assert.ok(overseerNotes.some((n) => n.threadId === 'thread-9' && /approved — cancelled curia-42/.test(n.text)))
   })
@@ -1487,7 +1502,7 @@ describe('button confirms: the interpreted cancel path (#94)', () => {
       listSessions: async () => ['curia-42', 'curia-77'],
       hasSession: async (s) => s === 'curia-77',
       killSession: async (n) => acts.push(`kill:${n}`),
-      removeWorktree: async () => {},
+      removeWorkspace: async () => {},
       unclaim: async () => {},
       removeConfigDir: () => {},
     })
@@ -1551,7 +1566,7 @@ describe('a failed unclaim is never journalled as dispatch_unclaimed (F1 — the
 
   test('#dispatch failure path: unclaim rejects ⇒ unclaim_failed, no dispatch_unclaimed, and the reply does not say "claim released"', async () => {
     const d = makeDispatcher({
-      createWorktree: async () => { throw new Error('git exploded') },
+      createPrivateClone: async () => { throw new Error('git exploded') },
       unclaim: async () => { throw new Error('gh: HTTP 502') },
     })
 
@@ -1565,7 +1580,7 @@ describe('a failed unclaim is never journalled as dispatch_unclaimed (F1 — the
   })
 
   test('#dispatch failure path: unclaim succeeds ⇒ dispatch_unclaimed as before, reply says released', async () => {
-    const d = makeDispatcher({ createWorktree: async () => { throw new Error('git exploded') } })
+    const d = makeDispatcher({ createPrivateClone: async () => { throw new Error('git exploded') } })
 
     const reply = await d.start('42', { repo: 'o/r' })
 
@@ -1954,7 +1969,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
       killSession: async (n) => destroyed.push(`kill:${n}`),
-      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeWorkspace: async (wt) => destroyed.push(`workspace:${wt}`),
       removeConfigDir: (dir) => destroyed.push(`cfg:${dir}`),
     })
 
@@ -1974,7 +1989,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
       killSession: async () => {},
-      removeWorktree: async () => {},
+      removeWorkspace: async () => {},
       removeConfigDir: () => { throw new Error('ENOTEMPTY, Directory not empty') },
       hasUnpushedWork: async () => false,
     })
@@ -1994,7 +2009,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
       killSession: async (n) => destroyed.push(`kill:${n}`),
-      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeWorkspace: async (wt) => destroyed.push(`workspace:${wt}`),
       removeConfigDir: () => {},
       hasUnpushedWork: async () => true,
     })
@@ -2002,7 +2017,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
     await d.reconcile({ boot: false })
 
     assert.ok(typesOf().includes('orphan_swept'), 'the session is still swept')
-    assert.deepEqual(destroyed.filter((x) => x.startsWith('worktree:')), [], 'but the only copy of the work survives')
+    assert.deepEqual(destroyed.filter((x) => x.startsWith('workspace:')), [], 'but the only copy of the work survives')
     assert.ok(events.some((e) => e.type === 'orphan_worktree_kept' && /commits that exist nowhere else/.test(e.reason)))
   })
 
@@ -2013,7 +2028,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
       killSession: async () => {},
-      removeWorktree: async (b, wt) => destroyed.push(wt),
+      removeWorkspace: async (wt) => destroyed.push(wt),
       removeConfigDir: () => {},
       hasUnpushedWork: async () => { throw new Error('git exploded') },
     })
@@ -2031,7 +2046,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
       killSession: async (n) => destroyed.push(`kill:${n}`),
-      removeWorktree: async (b, wt) => destroyed.push(`worktree:${wt}`),
+      removeWorkspace: async (wt) => destroyed.push(`workspace:${wt}`),
       removeConfigDir: (dir) => destroyed.push(`cfg:${path.basename(dir)}`),
       hasUnpushedWork: async () => false,
     })
@@ -2039,7 +2054,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
     await d.reconcile({ boot: false })
 
     assert.ok(typesOf().includes('orphan_swept'))
-    assert.ok(destroyed.some((x) => x.startsWith('worktree:')))
+    assert.ok(destroyed.some((x) => x.startsWith('workspace:')))
     assert.ok(!typesOf().includes('orphan_worktree_kept'))
   })
 })
@@ -2093,7 +2108,7 @@ describe('the agent skill set and the tracker prerequisite (#57)', () => {
     const skills = { root: '/host/skills', install: ['wayfinder', 'tdd'] }
     let seeded = null
     const d = makeDispatcher({
-      seedConfigDir: (cfgDir, wtPath, s) => { seeded = s },
+      seedConfigDir: (cfgDir, wtPath, s) => { fs.mkdirSync(cfgDir, { recursive: true }); seeded = s },
     }, { readyTimeoutS: 0, skills })
 
     await d.start('42', { repo: 'o/r' })
@@ -2105,8 +2120,9 @@ describe('the agent skill set and the tracker prerequisite (#57)', () => {
     const d = makeDispatcher({
       fetchIssue: async (repo, n) => (String(n) === '1' ? MAP : { ...MAP_CHILD }),
       // the doc-less repo: a worktree with no docs/agents/issue-tracker.md
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(wt, { recursive: true })
         return wt
       },
@@ -2126,8 +2142,9 @@ describe('the agent skill set and the tracker prerequisite (#57)', () => {
   test('a plain ticket in the same repo still dispatches, and the absence is journalled', async () => {
     const d = makeDispatcher({
       // no parent ⇒ no map ⇒ no wayfinder invocation ⇒ nothing to fall back
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(wt, { recursive: true })
         return wt
       },
@@ -2443,7 +2460,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
     const done = []
     const d = makeDispatcher({
       findPullRequest: async () => ({ number: 7, url: 'https://x/pull/7', state: 'MERGED' }),
-      removeWorktree: async (base, wt) => { done.push(`rm:${path.basename(wt)}`) },
+      removeWorkspace: async (wt) => { done.push(`rm:${path.basename(wt)}`) },
       deleteRemoteBranch: async (repo, branch) => { done.push(`del:${branch}`); return { deleted: true } },
     })
     liveAgent(d)
@@ -2460,7 +2477,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
     let removed = false
     const d = makeDispatcher({
       findPullRequest: async () => ({ number: 7, url: 'https://x/pull/7', state: 'OPEN' }),
-      removeWorktree: async () => { removed = true },
+      removeWorkspace: async () => { removed = true },
     })
     liveAgent(d)
     withResult(d)
@@ -2476,7 +2493,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
     let removed = false
     const d = makeDispatcher({
       findPullRequest: async () => { throw new Error('HTTP 502') },
-      removeWorktree: async () => { removed = true },
+      removeWorkspace: async () => { removed = true },
     })
     liveAgent(d)
     withResult(d)
@@ -2492,7 +2509,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
     const d = makeDispatcher({
       findPullRequest: async () => null,
       commitsOnBranch: async () => [],
-      removeWorktree: async () => { removed = true },
+      removeWorkspace: async () => { removed = true },
       deleteRemoteBranch: async () => { throw new Error('must not be called — there is no branch to delete') },
     })
     liveAgent(d)
@@ -2509,7 +2526,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
     const d = makeDispatcher({
       findPullRequest: async () => null,
       commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
-      removeWorktree: async () => { removed = true },
+      removeWorkspace: async () => { removed = true },
     })
     liveAgent(d)
     withResult(d)
@@ -2654,7 +2671,7 @@ describe('dispatching across two harnesses (#39)', () => {
     let spawn = null
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
-      seedConfigDir: (cfg, wt, s, harness) => seeded.push(harness),
+      seedConfigDir: (cfg, wt, s, harness) => { fs.mkdirSync(cfg, { recursive: true }); seeded.push(harness) },
       writeConnectionSettings: (opts) => harnessed.push(opts.harness),
       newSession: async (opts) => { spawn = opts },
     }, { routing: TWO_LANE })
@@ -2664,8 +2681,10 @@ describe('dispatching across two harnesses (#39)', () => {
     assert.deepEqual(harnessed, ['codex'])
     // the CLI model id, not the routing name
     assert.match(spawn.shellCmd, /codex --model gpt-5\.5/)
-    // and the codex isolation variable, with no Claude one alongside it
-    assert.deepEqual(Object.keys(spawn.env), ['CODEX_HOME'])
+    // #195: the pane carries NO environment at all — the container's env file
+    // carries CODEX_HOME, and a pane env would show every value in `ps`
+    assert.deepEqual(spawn.env, {})
+    assert.match(fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', ENV_FILE), 'utf8'), /^CODEX_HOME=/m)
   })
 
   // The bug this ordering fixes: `harness` used to be read off the REQUESTED
@@ -2676,7 +2695,7 @@ describe('dispatching across two harnesses (#39)', () => {
     let spawn = null
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
-      seedConfigDir: (cfg, wt, s, harness) => seeded.push(harness),
+      seedConfigDir: (cfg, wt, s, harness) => { fs.mkdirSync(cfg, { recursive: true }); seeded.push(harness) },
       newSession: async (opts) => { spawn = opts },
     }, { routing: TWO_LANE })
     // untyped → sonnet (claude), but anthropic is cooling, so gpt (codex) runs
@@ -2707,7 +2726,7 @@ describe('dispatching across two harnesses (#39)', () => {
     const spawns = []
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
-      seedConfigDir: (cfg, wt, s, harness) => seeded.push(harness),
+      seedConfigDir: (cfg, wt, s, harness) => { fs.mkdirSync(cfg, { recursive: true }); seeded.push(harness) },
       writeConnectionSettings: (opts) => harnessed.push(opts.harness),
       newSession: async (opts) => { spawns.push(opts) },
       capturePane: async () => "You've hit your usage limit. Upgrade to Plus to continue using Codex\n",
@@ -2720,7 +2739,13 @@ describe('dispatching across two harnesses (#39)', () => {
     assert.deepEqual(harnessed, ['codex', 'claude'])
     assert.ok(events.some((e) => e.type === 'provider_cooling' && e.provider === 'openai'))
     assert.match(spawns[1].shellCmd, /claude --model sonnet/)
-    assert.deepEqual(Object.keys(spawns[1].env).sort(), ['CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT', 'CLAUDE_CONFIG_DIR', 'CLAUDE_SECURESTORAGE_CONFIG_DIR'])
+    // #195: the pane carries no environment either time — the claude
+    // variables are in the container env file the respawn rewrote
+    assert.deepEqual(spawns[1].env, {})
+    const envFile = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', ENV_FILE), 'utf8')
+    assert.match(envFile, /^CLAUDE_CONFIG_DIR=/m)
+    assert.match(envFile, /^CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=/m)
+    assert.equal(/^CLAUDE_SECURESTORAGE_CONFIG_DIR=/m.test(envFile), false, 'the container denies the host HOME')
     // and the watchdog that follows must read the NEW harness's marker
     assert.ok(events.some((e) => e.type === 'agent_spawned' && e.harness === 'claude'))
   })
@@ -2794,6 +2819,7 @@ describe('dispatching across two harnesses (#39)', () => {
       // The transcript the capped agent has already written, taken at its last
       // turn: the 5 h window is spent and states when it rolls.
       seedConfigDir: (cfgDir, wt, s, harness) => {
+        fs.mkdirSync(cfgDir, { recursive: true })
         if (harness === 'codex') writeRollout(cfgDir, { usedPct: 100, windowMinutes: 300, resetsInMinutes: 12 })
       },
       capturePane: async () => CAP_PANE,
@@ -2829,6 +2855,7 @@ describe('dispatching across two harnesses (#39)', () => {
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
       // 41% is not what the pane just refused a turn for.
       seedConfigDir: (cfgDir, wt, s, harness) => {
+        fs.mkdirSync(cfgDir, { recursive: true })
         if (harness === 'codex') writeRollout(cfgDir, { usedPct: 41, windowMinutes: 300, resetsInMinutes: 12 })
       },
       capturePane: async () => CAP_PANE,
@@ -2868,8 +2895,9 @@ describe('dispatching across two harnesses (#39)', () => {
     let unclaimed = false
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
         fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
         fs.mkdirSync(path.join(wt, '.codex'), { recursive: true })
@@ -2891,8 +2919,9 @@ describe('dispatching across two harnesses (#39)', () => {
     let unclaimed = false
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
         fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
         fs.mkdirSync(path.join(wt, '.claude'), { recursive: true })
@@ -2915,8 +2944,9 @@ describe('dispatching across two harnesses (#39)', () => {
     let unclaimed = false
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
         fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
         fs.mkdirSync(path.join(wt, '.claude', 'skills', 'wayfinder'), { recursive: true })
@@ -2936,8 +2966,9 @@ describe('dispatching across two harnesses (#39)', () => {
     let spawned = false
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
         fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
         fs.mkdirSync(path.join(wt, '.claude', 'skills', 'deploy-docs'), { recursive: true })
@@ -2955,8 +2986,9 @@ describe('dispatching across two harnesses (#39)', () => {
     let spawned = false
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
         fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
         fs.mkdirSync(path.join(wt, '.codex'), { recursive: true })
@@ -2979,15 +3011,16 @@ describe('dispatching across two harnesses (#39)', () => {
     const unclaimed = []
     const d = makeDispatcher({
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }),
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
+      createPrivateClone: async (r, repo, n) => {
+        const wt = path.join(r, 'repos', repo.replace('/', '__'), 'wt', String(n))
+        fs.mkdirSync(path.join(wt, '.git'), { recursive: true })
         fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
         fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
         fs.mkdirSync(path.join(wt, '.codex'), { recursive: true })
         fs.writeFileSync(path.join(wt, '.codex', 'hooks.json'), '{"hooks":{"SessionStart":[]}}')
         return wt
       },
-      seedConfigDir: (cfg, wt, s, harness) => seeded.push(harness),
+      seedConfigDir: (cfg, wt, s, harness) => { fs.mkdirSync(cfg, { recursive: true }); seeded.push(harness) },
       newSession: async (o) => { spawns.push(o) },
       unclaim: async (repo, ticket) => { unclaimed.push(`${repo}#${ticket}`) },
       capturePane: async () => 'Sonnet usage limit reached | 1800000000',
@@ -3071,10 +3104,10 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
 
   test('resume inherits the surviving worktree instead of recreating it', async () => {
     const surviving = path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42')
-    fs.mkdirSync(surviving, { recursive: true })
+    fs.mkdirSync(path.join(surviving, '.git'), { recursive: true })
     fs.writeFileSync(path.join(surviving, 'leftover.txt'), 'uncommitted work')
     const d = makeDispatcher({
-      createWorktree: async () => { throw new Error('resume must not recreate the worktree') },
+      createPrivateClone: async () => { throw new Error('resume must not recreate the worktree') },
     })
     const reply = await d.resume('42', { repo: 'o/r', by: 'test' })
     assert.match(reply, /dispatched o\/r#42/)
@@ -3114,7 +3147,7 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
 
   test('resume all dispatches every surviving worktree at once with count and list — not destructive, no confirm (#89)', async () => {
     for (const n of ['50', '51']) {
-      fs.mkdirSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', n), { recursive: true })
+      fs.mkdirSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', n, '.git'), { recursive: true })
     }
     const d = makeDispatcher()
     const reply = await d.resumeAll({ by: 'test' })
@@ -3195,7 +3228,7 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
 
     // resume all takes no model, so each ticket inherits its own.
     test('resume all leaves every ticket on its own inherited model', async () => {
-      fs.mkdirSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42'), { recursive: true })
+      fs.mkdirSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42', '.git'), { recursive: true })
       journalSpawn({ model: 'gpt', harness: 'codex' })
       const d = makeDispatcher({}, { routing: TWO_LANE })
       await d.resumeAll({ by: 'test' })

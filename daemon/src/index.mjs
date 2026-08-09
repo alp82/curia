@@ -33,7 +33,7 @@ import { installCrashGuard } from './health.mjs'
 import { readable } from './logline.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
-import { assertSandboxConfig, loadCuriaConfig, loadRoutingConfig } from './config.mjs'
+import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
 import { PROBE_MARK, PROBE_PATH, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -82,9 +82,11 @@ fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
 const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
 const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
 const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
-// The one check neither file can make alone (#156): the switch is in
-// routing.yaml, the image pins are in curia.yaml.
-const SANDBOXED_HARNESSES = assertSandboxConfig(curiaConfig, routingConfig)
+// Every harness runs in a container since #195, so this is simply the harness
+// list — it names the containers the side channel below serves. The cross-file
+// check that used to live here went with the switch: `sandbox:` is now required
+// in curia.yaml itself, so a daemon with no pins refuses at load.
+const SANDBOXED_HARNESSES = Object.keys(routingConfig.harnesses)
 
 // #155: the agent's own GitHub authority — one scoped fine-grained PAT per
 // resource owner. Read at BOOT so a malformed value refuses the boot rather than
@@ -1064,7 +1066,6 @@ function listenForContainers() {
 }
 
 async function bindContainerListener() {
-  if (!SANDBOXED_HARNESSES.length) return null
   const gateway = await dockerGateway()
   if (containerListener) {
     if (containerListener.address === gateway) return containerListener

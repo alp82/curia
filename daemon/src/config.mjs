@@ -17,10 +17,6 @@ import { DEFAULT_CONTAINER_PORTS, PORTS_PER_AGENT } from './sandbox.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
-// How a harness's agents are contained (#156). `none` is the bare tmux pane
-// every agent ran in before the sandbox; `docker` is one container per agent.
-const SANDBOX_MODES = ['none', 'docker']
-
 // Every reasoning effort any configured model accepts, unioned.
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
@@ -248,13 +244,19 @@ export function loadCuriaConfig(file) {
   }
   cfg.usage = { account_bars: u.account_bars ?? true, probe_model: u.probe_model ?? PROBE_MODEL }
 
-  // The agent sandbox image (#154, from #148). The section as a whole is
-  // OPTIONAL, because the sandbox ships behind a per-harness switch that is
-  // off by default and a box running no containers needs no pins. Every key
-  // inside it is REQUIRED, for the reason #57 gives: the value silence would
-  // pick here is "whatever npm serves this minute", which is an agent running
-  // an unreviewed CLI. There is no safe default for a pin.
-  if (cfg.sandbox !== undefined) {
+  // The agent sandbox image (#154, from #148). The section is REQUIRED since
+  // #195 retired the bare tmux path: every agent runs in a container, so a
+  // daemon with no image and no pins can dispatch nothing. It used to be
+  // optional, because the sandbox shipped behind a per-harness switch that was
+  // off by default. That switch is gone.
+  //
+  // Every key inside it is required too, for the reason #57 gives: the value
+  // silence would pick here is "whatever npm serves this minute", which is an
+  // agent running an unreviewed CLI. There is no safe default for a pin.
+  {
+    if (cfg.sandbox === undefined) {
+      fail(file, 'the `sandbox:` section is required — every agent runs in a container (#195), and a container has no image to run and no pins to build one from')
+    }
     const sb = cfg.sandbox
     if (!sb || typeof sb !== 'object' || Array.isArray(sb)) fail(file, '`sandbox` must be a mapping')
     sb.image = sb.image ?? DEFAULT_IMAGE
@@ -436,19 +438,17 @@ export function loadRoutingConfig(file) {
       fail(file, `harnesses.${name} needs a positive \`tool_channel_grace_s\` — how long after the composer marker an agent may send no /mcp request before curia treats it as having no tool channel`)
     }
     b.toolChannelGraceS = b.tool_channel_grace_s
-    // The sandbox switch (#156, rollout rule of #148): per harness, default
-    // off, so the claude harness goes first and the codex harness follows after the
-    // soak (#158). A harness with no key runs the bare pane exactly as before.
-    b.sandbox = b.sandbox ?? 'none'
-    if (!SANDBOX_MODES.includes(b.sandbox)) {
-      fail(file, `harnesses.${name}.sandbox must be one of ${SANDBOX_MODES.join('|')} (got ${JSON.stringify(b.sandbox)})`)
-    }
     // The container command is single-quoted inside the pane's shell (see
     // sandbox.mjs), which is what keeps `$(cat <prompt>)` expanding INSIDE the
     // container. A template carrying its own single quote breaks that, and the
     // failure would be an agent whose command line came apart at spawn.
-    if (b.sandbox === 'docker' && b.template.includes("'")) {
-      fail(file, `harnesses.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one, or set harnesses.${name}.sandbox: none`)
+    //
+    // Unconditional since #195. It used to fire only for a harness switched to
+    // `sandbox: docker`, and it named `sandbox: none` as the way out. Every
+    // harness runs in a container now, so there is no way out and no switch to
+    // read: a template with a single quote in it is simply invalid.
+    if (b.template.includes("'")) {
+      fail(file, `harnesses.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one`)
     }
   }
   for (const [name, m] of Object.entries(cfg.models)) {
@@ -458,16 +458,3 @@ export function loadRoutingConfig(file) {
   return cfg
 }
 
-// The one thing neither file can check alone (#156): the sandbox switch lives
-// in routing.yaml and the image pins live in curia.yaml, so a harness switched
-// to docker against a curia.yaml with no `sandbox:` section would fail at the
-// first dispatch — with a claim already taken — instead of at boot.
-export function assertSandboxConfig(curiaCfg, routingCfg) {
-  const on = Object.entries(routingCfg.harnesses ?? {})
-    .filter(([, b]) => b.sandbox === 'docker')
-    .map(([name]) => name)
-  if (on.length && !curiaCfg.sandbox) {
-    throw new Error(`harnesses ${on.join(', ')} run \`sandbox: docker\`, but config/curia.yaml carries no \`sandbox:\` section — a container has no image to run and no pins to build one from`)
-  }
-  return on
-}

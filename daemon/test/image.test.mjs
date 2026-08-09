@@ -144,9 +144,14 @@ describe('sandbox config (#154)', () => {
     '  agent_uid: 1000',
   ]
 
-  test('a config with no sandbox section boots — the switch ships off', () => {
-    const cfg = loadCuriaConfig(writeConfig(null))
-    assert.equal(cfg.sandbox, undefined)
+  // #195 retired the bare tmux path, so the section stopped being optional. It
+  // used to be, because the sandbox shipped behind a per-harness switch that
+  // was off by default and a box running no containers needed no pins. Every
+  // agent runs in a container now, and a daemon with no image can dispatch
+  // nothing — so silence here has to refuse the boot rather than reach the
+  // first dispatch with a claim already taken.
+  test('a config with no sandbox section refuses the boot — every agent runs in a container', () => {
+    assert.throws(() => loadCuriaConfig(writeConfig(null)), /`sandbox:` section is required/)
   })
 
   test('a full section loads, and the image name defaults', () => {

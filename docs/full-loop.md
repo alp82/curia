@@ -62,13 +62,12 @@ Each line must pass. A failure here is a setup problem, not a demo result.
 5. **Frontier answers.**
    `curl -s -X POST localhost:4271/command -H 'Content-Type: application/json' -d '{"text":"frontier"}'`
    → both demo repos with takeable items.
-6. **Pre-warm the base clone.** First dispatch for a repo does a full `gh repo clone`, and the worker
-   then installs before it can serve anything. Cold, that is minutes of dead air in the
-   middle of the demo. Warm it:
-   `gh repo clone alp82/alperortac.com /home/alp/curia-work/repos/alp82__alperortac.com/base`
-   (the daemon fetches an existing clone instead of re-cloning), then run the repo's install once so
-   the package cache is hot. A git worktree gets its own empty `node_modules`, so what this warms is
-   the **package cache**, not the worker's tree.
+6. **Pre-warm the package cache.** Every dispatch makes its own blobless clone (#195), and the agent
+   then installs before it can serve anything. Cold, that is minutes of dead air in the middle of the
+   demo. The clone itself cannot be warmed — it is per ticket and `--filter=blob:none` already makes
+   it seconds — so warm what is slow: run the repo's install once on the box, into the shared npm
+   volume the agent containers mount. Each clone gets its own empty `node_modules`, so what this
+   warms is the **package cache**, not the agent's tree.
 7. **Expect the dev port to move.** Alp's own dev servers usually hold `:3015` (alperortac.com) and
    `:3055` (landing-page) in his working trees, so the worker's Vite will bind the next free port
    instead. That is fine and is exactly why `publish_preview` takes the port the worker *actually*

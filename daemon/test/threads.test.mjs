@@ -12,6 +12,7 @@ import { EscalationStore } from '../src/store.mjs'
 import { DiscordBridge } from '../src/bridge.mjs'
 import { CommandRouter } from '../src/commands.mjs'
 import { Dispatcher } from '../src/dispatch.mjs'
+import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-threads-test-'))
 
@@ -558,6 +559,7 @@ let binds
 let releases
 let cancels
 let escalations
+let restoreCredential // #195: the model credential the container env file needs
 
 beforeEach(() => {
   dir = tmp()
@@ -566,10 +568,12 @@ beforeEach(() => {
   releases = []
   cancels = []
   escalations = []
+  restoreCredential = withTestCredential()
 })
 
 afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true })
+  restoreCredential()
 })
 
 async function waitFor(cond, ms = 8000) {
@@ -593,6 +597,8 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       attach: { ttyd_port: 7681, serve_port: 8443 },
       identity: { allow: ['tester@example.com'], proxy_port: 7682 },
       skills: null,
+      // #195: every dispatch prepares a container, so every Dispatcher needs pins
+      sandbox: TEST_PINS,
     },
     routing: {
       defaults: { untyped: 'sonnet' },
@@ -626,15 +632,9 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       claim: async () => {}, unclaim: async () => {},
       hasSession: async () => false, listSessions: async () => [],
       newSession: async () => {}, capturePane: async () => '', killSession: async () => {},
-      ensureBaseClone: async (r, repo) => path.join(r, 'repos', repo.replace('/', '__'), 'base'),
-      createWorktree: async (b, n) => {
-        const wt = path.join(path.dirname(b), 'wt', String(n))
-        fs.mkdirSync(path.join(wt, 'docs', 'agents'), { recursive: true })
-        fs.writeFileSync(path.join(wt, 'docs', 'agents', 'issue-tracker.md'), '# Issue tracker: GitHub\n')
-        return wt
-      },
-      removeWorktree: async () => {}, removeConfigDir: () => {}, removeCredentials: () => {},
-      seedConfigDir: () => {}, writeConnectionSettings: () => {},
+      ...containerDeps(),
+      removeWorkspace: async () => {}, removeConfigDir: () => {}, removeCredentials: () => {},
+      seedConfigDir: seedConfigDirStub(), writeConnectionSettings: () => {},
       writePrompt: (cfgDir) => path.join(cfgDir, 'prompt.md'),
       ensureTtyd: async () => ({ verified: true }), assertServe: async () => {}, serveOff: async () => {},
       commentIssue: async () => {}, closeIssue: async () => {}, setIssueBody: async () => {},
@@ -670,7 +670,7 @@ describe('Dispatcher thread binding (#93)', () => {
   })
 
   test('a prepare failure keeps the label — a claim release is not ticket-terminal (#140)', async () => {
-    const d = makeDispatcher({ createWorktree: async () => { throw new Error('disk full') } })
+    const d = makeDispatcher({ createPrivateClone: async () => { throw new Error('disk full') } })
     assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /failed before the agent could run/)
     assert.deepEqual(releases, [], 'the retry belongs in the same thread')
   })
