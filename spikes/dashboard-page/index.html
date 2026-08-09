@@ -776,7 +776,7 @@ function saveBanner() {
       <button class="btn" onclick="fakeRestart()">Restart daemon</button>
       <span class="toast">Daemon exited nonzero. The supervisor respawns it. This page serves the last snapshot.</span>`
   };
-  return `<div class="save-banner bottom">${states[saveState]}</div>`;
+  return `<div class="save-banner top">${states[saveState]}</div>`;
 }
 function screenSettings() {
   const secs = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
@@ -790,8 +790,7 @@ function screenSettings() {
     dispatch: () => setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())
   };
   return `<div class="screen-head"><h2>Settings</h2></div>
-    ${subnav(secs)}<div style="max-width:560px">${bodies[setSection]()}</div>
-    <div style="height:76px"></div>${saveBanner()}`;
+    ${saveBanner()}${subnav(secs)}<div style="max-width:560px">${bodies[setSection]()}</div>`;
 }
 function fakeSave() { saveState = "saved"; render(); }
 function fakeRestart() {
