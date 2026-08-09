@@ -156,6 +156,8 @@
     padding: 9px 14px; margin-bottom: 14px;
   }
   .model-mgr { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+  .btn[disabled] { opacity: .55; cursor: default; }
 
   /* ---------- shell ---------- */
   .shell { display: grid; grid-template-columns: 172px 1fr; min-height: 100vh; }
@@ -753,71 +755,48 @@ const setBlock = (title, hint, body) => `<div class="set-block"><h3>${title}</h3
 /* decided on this ticket: the settings layout is Sections.
    These variations refine it: the ticket-type mapping leads, the model
    activation demotes, and save/restart is a global banner. */
+/* decided on this ticket: Sections with the model list behind a click,
+   and a two-phase save banner — save first, restart applies. */
 let setSection = "routing";
 let modelMgrOpen = false;
+let saveState = "dirty"; /* dirty -> saved -> applied */
 function subnav(secs) {
   return `<div class="set-subnav">${Object.entries(secs).map(([k, v]) =>
     `<button class="${setSection === k ? "on" : ""}" onclick="setSection='${k}';render()">${v}</button>`).join("")}</div>`;
 }
-function saveBanner(pos) {
-  return `<div class="save-banner ${pos}">
-    <button class="btn primary" onclick="fakeSave()">Save to curia.yaml</button>
-    <button class="btn danger" onclick="fakeRestart()">Restart daemon</button>
-    <span class="toast" id="toast">2 unsaved changes</span></div>`;
+function saveBanner() {
+  const states = {
+    dirty: `<button class="btn primary" onclick="fakeSave()">Save to curia.yaml</button>
+      <button class="btn" onclick="fakeRestart()">Restart daemon</button>
+      <span class="toast">2 unsaved changes</span>`,
+    saved: `<button class="btn" disabled>Saved ✓</button>
+      <button class="btn restart-hot" onclick="fakeRestart()">Restart to apply</button>
+      <span class="toast">Written atomically, comments kept. The daemon still runs the old config.</span>`,
+    applied: `<button class="btn primary" onclick="fakeSave()">Save to curia.yaml</button>
+      <button class="btn" onclick="fakeRestart()">Restart daemon</button>
+      <span class="toast">Daemon exited nonzero. The supervisor respawns it. This page serves the last snapshot.</span>`
+  };
+  return `<div class="save-banner bottom">${states[saveState]}</div>`;
 }
-const sectionBody = {
-  projects: () => setBlock("Projects", SET_HINTS.projects, tblProjects()),
-  dispatch: () => setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())
-};
-/* --- V1 inline: defaults lead, the model list sits below them --- */
-function setInline() {
-  const secs = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
-  if (!secs[setSection]) setSection = "routing";
-  const routing = setBlock("Routing", SET_HINTS.defaults, tblDefaults())
-    + `<div style="height:12px"></div>`
-    + setBlock("Active models", SET_HINTS.models, tblModels());
-  return `${subnav(secs)}<div style="max-width:560px">
-    ${setSection === "routing" ? routing : sectionBody[setSection]()}</div>
-    <div style="height:76px"></div>${saveBanner("bottom")}`;
-}
-/* --- V2 behind a click: the model list opens on demand --- */
-function setClick() {
-  const secs = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
-  if (!secs[setSection]) setSection = "routing";
-  const routing = setBlock("Routing", SET_HINTS.defaults, tblDefaults()
-    + `<div class="model-mgr"><a href="#" onclick="modelMgrOpen=!modelMgrOpen;render();return false">
-        ${activeModels().length} of ${MODELS.length} models active · ${modelMgrOpen ? "close" : "manage"}</a>
-      ${modelMgrOpen ? `<div style="margin-top:10px">${tblModels()}</div>` : ""}</div>`);
-  return `${subnav(secs)}<div style="max-width:560px">
-    ${setSection === "routing" ? routing : sectionBody[setSection]()}</div>
-    <div style="height:76px"></div>${saveBanner("bottom")}`;
-}
-/* --- V3 own tab: activation is a topic of its own, banner on top --- */
-function setOwnTab() {
-  const secs = { routing: "Routing", models: "Models", projects: "Projects", dispatch: "Dispatch" };
-  if (!secs[setSection]) setSection = "routing";
-  const bodies = { routing: () => setBlock("Routing", SET_HINTS.defaults, tblDefaults()),
-    models: () => setBlock("Models", SET_HINTS.models, tblModels()), ...sectionBody };
-  return `${saveBanner("top")}${subnav(secs)}<div style="max-width:560px">${bodies[setSection]()}</div>`;
-}
-const SET_VARIANTS = {
-  inline: ["Inline", setInline],
-  click: ["Behind a click", setClick],
-  tab: ["Own tab", setOwnTab]
-};
-let setVariantKey = "click";
 function screenSettings() {
-  return `<div class="screen-head"><h2>Settings</h2>
-    <span class="seg">${Object.entries(SET_VARIANTS).map(([k, v]) =>
-      `<button class="${setVariantKey === k ? "on" : ""}" onclick="setVariantKey='${k}';render()">${v[0]}</button>`).join("")}</span></div>
-    ${SET_VARIANTS[setVariantKey][1]()}`;
+  const secs = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
+  if (!secs[setSection]) setSection = "routing";
+  const bodies = {
+    routing: () => setBlock("Routing", SET_HINTS.defaults, tblDefaults()
+      + `<div class="model-mgr"><a href="#" onclick="modelMgrOpen=!modelMgrOpen;render();return false">
+          ${activeModels().length} of ${MODELS.length} models active · ${modelMgrOpen ? "close" : "manage"}</a>
+        ${modelMgrOpen ? `<div style="margin-top:10px">${tblModels()}</div>` : ""}</div>`),
+    projects: () => setBlock("Projects", SET_HINTS.projects, tblProjects()),
+    dispatch: () => setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())
+  };
+  return `<div class="screen-head"><h2>Settings</h2></div>
+    ${subnav(secs)}<div style="max-width:560px">${bodies[setSection]()}</div>
+    <div style="height:76px"></div>${saveBanner()}`;
 }
-function fakeSave() {
-  document.getElementById("toast").textContent = "Validated with the daemon loaders. Written atomically. Comments kept.";
-}
+function fakeSave() { saveState = "saved"; render(); }
 function fakeRestart() {
   if (!confirm("Restart the daemon? Running agents keep their tmux sessions.")) return;
-  document.getElementById("toast").textContent = "Daemon exits nonzero. The supervisor respawns it. This page serves the last snapshot.";
+  saveState = "applied"; render();
 }
 
 /* ================= shell ================= */
@@ -831,7 +810,7 @@ const SCREENS = {
 const _h = new URLSearchParams(location.hash.slice(1));
 let screen = SCREENS_KEYS(_h.get("s"));
 frVariant = FR_VARIANTS[_h.get("f")] ? _h.get("f") : frVariant;
-setVariantKey = SET_VARIANTS[_h.get("t")] ? _h.get("t") : setVariantKey;
+saveState = ["dirty", "saved", "applied"].includes(_h.get("b")) ? _h.get("b") : saveState;
 function SCREENS_KEYS(s) { return ["home","agents","frontier","feed","settings"].includes(s) ? s : "home"; }
 function render() {
   const ny = needsYou().length;
