@@ -1,6 +1,7 @@
-<!-- PROTOTYPE — wayfinder #248. Three variants of the dashboard page, switchable via ?variant= (A/B/C).
-     Canned data only. The question: what does the page show, and how does it read?
-     Throwaway code. Do not wire, do not promote. -->
+<!-- PROTOTYPE — wayfinder #248, revision 2 after operator reactions.
+     Converged shape: the Console shell (old C) with the Fleet (old A) as the Home screen.
+     Open sub-question: the frontier graph rendering — three variations on the Frontier screen.
+     Canned data only. Throwaway code. Do not wire, do not promote. -->
 <title>curia — dashboard prototype</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -55,7 +56,6 @@
   body {
     margin: 0; background: var(--bg); color: var(--ink);
     font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-    padding-bottom: 84px;
   }
   .mono, code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
   a { color: var(--accent); text-decoration: none; }
@@ -68,7 +68,7 @@
   .pill {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; white-space: nowrap;
   }
   .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
   .pill.working { color: var(--ok); background: var(--chip-ok-bg); }
@@ -94,6 +94,7 @@
   .btn:hover { border-color: var(--accent); }
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+  .btn.sm { padding: 2px 8px; font-size: 12px; }
 
   .esc {
     border-left: 3px solid var(--warn); background: var(--chip-warn-bg);
@@ -114,7 +115,84 @@
   .feed-list li.warn .tag { color: var(--warn); }
   .feed-list li.bad .tag { color: var(--bad); }
 
-  /* frontier */
+  /* settings */
+  .set-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+  .set-block { border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 12px 14px; }
+  .set-block h3 { font-size: 13px; margin-bottom: 8px; }
+  .set-block .hint { font-size: 12px; color: var(--ink-dim); margin: 0 0 8px; }
+  .set-block table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .set-block td, .set-block th { padding: 4px 6px 4px 0; text-align: left; vertical-align: middle; }
+  .set-block th { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .set-block tr.inactive td { color: var(--ink-faint); }
+  input[type=text], input[type=number], select {
+    background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
+  }
+  input[type=number] { width: 4.5em; }
+  input[type=checkbox] { accent-color: var(--accent); }
+  .set-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+  .toast { font-size: 12.5px; color: var(--ink-dim); }
+  .gh-connect { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 8px; }
+  .gh-connect .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+
+  /* ---------- shell ---------- */
+  .shell { display: grid; grid-template-columns: 172px 1fr; min-height: 100vh; }
+  .shell nav { border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; background: var(--bg-inset); }
+  .shell nav .brand { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; padding: 0 10px 12px; }
+  .shell nav button { text-align: left; border: 0; background: none; color: var(--ink-dim); padding: 8px 10px; border-radius: 7px; font-size: 13.5px; display: flex; justify-content: space-between; align-items: baseline; }
+  .shell nav button.on { background: var(--bg-raise); color: var(--ink); font-weight: 600; }
+  .shell nav button .n { color: var(--warn); font-weight: 700; }
+  .shell main { padding: 18px 22px; min-width: 0; }
+  .shell main h2 { font-size: 15px; margin-bottom: 12px; }
+  .screen-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .screen-head h2 { margin-bottom: 0; }
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: 1fr; }
+    .shell nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; align-items: center; }
+    .shell nav .brand { padding: 0 10px 0 4px; }
+    .shell nav button { flex: none; gap: 6px; }
+    .shell main { padding: 14px; }
+  }
+
+  /* segmented control */
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg-raise); }
+  .seg button { border: 0; background: none; color: var(--ink-dim); padding: 5px 12px; font-size: 12.5px; }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+  /* ---------- home ---------- */
+  .band { border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; border: 1px solid var(--line); background: var(--bg-raise); }
+  .band h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; color: var(--ink-faint); }
+  .band.needs { border-color: var(--warn); background: var(--chip-warn-bg); }
+  .band.needs h3 { color: var(--warn); }
+  .band.limits { border-color: var(--bad); background: var(--chip-bad-bg); }
+  .band.limits h3 { color: var(--bad); }
+  .band-item { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 13.5px; padding: 3px 0; }
+  .band-item .q { font-weight: 600; }
+  .band-item .dim { color: var(--ink-dim); }
+  .home-cols { display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: start; }
+  @media (max-width: 1000px) { .home-cols { grid-template-columns: 1fr; } }
+  .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
+  .card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow); }
+  .card .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .card .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13.5px; }
+  .card .ticket { font-size: 13px; }
+  .card .ticket .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
+  .card .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace; }
+  .rail { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; }
+  .rail h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
+  .rail .more { display: block; margin-top: 8px; font-size: 12.5px; }
+
+  /* ---------- agents table ---------- */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
+  table.agents { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 820px; background: var(--bg-raise); }
+  table.agents th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  table.agents td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.agents tr:last-child td { border-bottom: 0; }
+  table.agents .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; white-space: nowrap; }
+  .esc-row td { background: var(--chip-warn-bg); }
+  .statusbar { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 14px; font-family: ui-monospace, Menlo, monospace; flex-wrap: wrap; }
+
+  /* ---------- frontier: tree ---------- */
   .fr-repo { margin-bottom: 14px; }
   .fr-repo > .eyebrow { margin-bottom: 6px; display: block; }
   .fr-node {
@@ -122,115 +200,56 @@
     background: var(--bg-raise); border-radius: 7px; padding: 7px 10px; font-size: 13px;
   }
   .fr-node .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
-  .fr-node .typ { float: right; font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .fr-node .typ { float: right; font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; margin-left: 8px; }
   .fr-kids { margin: 0 0 10px 14px; padding-left: 14px; border-left: 1px dashed var(--line); }
   .fr-kid { position: relative; margin-top: 6px; font-size: 12.5px; color: var(--ink-dim); }
   .fr-kid::before { content: "└─"; position: absolute; left: -16px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
   .fr-kid .t { font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
   .fr-group { margin-bottom: 10px; }
 
-  /* settings */
-  .set-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
-  .set-block { border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 12px 14px; }
-  .set-block h3 { font-size: 13px; margin-bottom: 8px; }
-  .set-block table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  .set-block td, .set-block th { padding: 4px 6px 4px 0; text-align: left; }
-  .set-block th { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-  input[type=text], input[type=number], select {
-    background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
-    border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
+  /* ---------- frontier: columns ---------- */
+  .frc-head { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 6px; }
+  .frc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; margin-bottom: 12px; }
+  .frc-left { position: relative; }
+  .frc-left::after {
+    content: ""; position: absolute; right: -26px; top: 50%; width: 26px; height: 1px;
+    background: var(--line);
   }
-  input[type=number] { width: 4.5em; }
-  .set-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
-  .toast { font-size: 12.5px; color: var(--ink-dim); }
-
-  /* ---------- variant A: fleet ---------- */
-  .vA header { display: flex; align-items: baseline; gap: 14px; padding: 16px 20px 10px; }
-  .vA header h1 { font-size: 17px; font-weight: 700; }
-  .vA header .sub { color: var(--ink-dim); font-size: 12.5px; }
-  .vA .needs-band { margin: 0 20px 14px; border: 1px solid var(--warn); border-radius: 10px; background: var(--chip-warn-bg); padding: 10px 14px; }
-  .vA .needs-band h2 { font-size: 12px; color: var(--warn); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 8px; }
-  .vA .needs-item { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline; font-size: 13.5px; }
-  .vA .needs-item .q { font-weight: 600; }
-  .vA-cols { display: grid; grid-template-columns: 1fr 340px; gap: 18px; padding: 0 20px; align-items: start; }
-  .vA .cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
-  .vA .card { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow); }
-  .vA .card .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-  .vA .card .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 13.5px; }
-  .vA .card .ticket { font-size: 13px; }
-  .vA .card .ticket .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
-  .vA .card .facts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace; }
-  .vA .rail { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; }
-  .vA .rail h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 4px; }
-  .vA section.wide { padding: 18px 20px 0; }
-  .vA section.wide h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 10px; }
-  .vA .fr-flex { display: flex; gap: 22px; flex-wrap: wrap; }
-  .vA .fr-flex .fr-repo { flex: 1 1 300px; margin-bottom: 0; }
-  @media (max-width: 900px) { .vA-cols { grid-template-columns: 1fr; } }
-
-  /* ---------- variant B: wire ---------- */
-  .vB { max-width: 660px; margin: 0 auto; padding: 0 14px; }
-  .vB header { padding: 14px 2px 10px; display: flex; align-items: baseline; justify-content: space-between; }
-  .vB header h1 { font-size: 16px; }
-  .vB header .sub { color: var(--ink-dim); font-size: 12px; }
-  .vB .strip { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 8px 0 10px; display: flex; gap: 8px; overflow-x: auto; border-bottom: 1px solid var(--line); }
-  .vB .chip { flex: none; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 7px 10px; font-size: 12px; min-width: 150px; }
-  .vB .chip.alert { border-color: var(--warn); }
-  .vB .chip .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; display: block; margin-bottom: 3px; }
-  .vB .chip .meter-row { margin-top: 4px; }
-  .vB .spine { padding: 6px 0; }
-  .vB .spine h2 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); padding: 12px 0 6px; }
-  .vB .feed-list li { padding: 9px 0; }
-  .vB .feed-list li .esc { margin-top: 6px; }
-  .vB details { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); margin: 12px 0; }
-  .vB details summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 13px; list-style: none; display: flex; justify-content: space-between; }
-  .vB details summary::after { content: "▸"; color: var(--ink-faint); }
-  .vB details[open] summary::after { content: "▾"; }
-  .vB details .inner { padding: 4px 14px 14px; border-top: 1px solid var(--line); }
-
-  /* ---------- variant C: console ---------- */
-  .vC { display: grid; grid-template-columns: 172px 1fr; min-height: calc(100vh - 84px); }
-  .vC nav { border-right: 1px solid var(--line); padding: 16px 10px; display: flex; flex-direction: column; gap: 2px; background: var(--bg-inset); }
-  .vC nav .brand { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; padding: 0 10px 12px; }
-  .vC nav button { text-align: left; border: 0; background: none; color: var(--ink-dim); padding: 8px 10px; border-radius: 7px; font-size: 13.5px; display: flex; justify-content: space-between; }
-  .vC nav button.on { background: var(--bg-raise); color: var(--ink); font-weight: 600; }
-  .vC nav button .n { color: var(--warn); font-weight: 700; }
-  .vC main { padding: 18px 22px; min-width: 0; }
-  .vC main h2 { font-size: 15px; margin-bottom: 12px; }
-  .vC .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
-  .vC table.agents { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; background: var(--bg-raise); }
-  .vC table.agents th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); padding: 8px 12px; border-bottom: 1px solid var(--line); }
-  .vC table.agents td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  .vC table.agents tr:last-child td { border-bottom: 0; }
-  .vC table.agents .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; white-space: nowrap; }
-  .vC .esc-row td { background: var(--chip-warn-bg); }
-  .vC .statusbar { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 14px; font-family: ui-monospace, Menlo, monospace; flex-wrap: wrap; }
-  @media (max-width: 760px) {
-    .vC { grid-template-columns: 1fr; }
-    .vC nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; align-items: center; }
-    .vC nav .brand { padding: 0 10px 0 4px; }
-    .vC nav button { flex: none; gap: 6px; }
+  .frc-left.no-kids::after { display: none; }
+  .frc-kids { display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+  .frc-kid {
+    border: 1px solid var(--line); border-radius: 7px; background: var(--bg-inset);
+    padding: 6px 10px; font-size: 12.5px; color: var(--ink-dim); position: relative;
+  }
+  .frc-kid::before { content: ""; position: absolute; left: -14px; top: 50%; width: 14px; height: 1px; background: var(--line); }
+  .frc-kid .t { margin-right: 6px; color: var(--ink-faint); }
+  .frc-none { color: var(--ink-faint); font-size: 12.5px; align-self: center; }
+  @media (max-width: 700px) {
+    .frc-head { display: none; }
+    .frc-row { grid-template-columns: 1fr; gap: 8px; }
+    .frc-left::after, .frc-kid::before { display: none; }
+    .frc-kids { margin-left: 18px; }
   }
 
-  /* ---------- switcher ---------- */
-  #switcher {
-    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
-    display: flex; align-items: center; gap: 4px; z-index: 50;
-    background: var(--ink); color: var(--bg); border-radius: 999px; padding: 6px 8px;
-    box-shadow: var(--shadow); font-size: 13px;
+  /* ---------- frontier: rail ---------- */
+  .frr-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .frr-row:last-child { border-bottom: 0; }
+  .frr-node {
+    border: 1px solid var(--accent); border-radius: 999px; background: var(--chip-ok-bg);
+    padding: 4px 12px; font-size: 12.5px; white-space: nowrap;
   }
-  #switcher button { background: none; border: 0; color: inherit; font-size: 15px; padding: 2px 10px; border-radius: 999px; }
-  #switcher button:hover { background: rgba(128,128,128,.25); }
-  #switcher .cur { font-family: ui-monospace, Menlo, monospace; font-weight: 700; padding: 0 6px; white-space: nowrap; }
+  .frr-node .t { font-family: ui-monospace, Menlo, monospace; margin-right: 5px; color: var(--accent); font-weight: 700; }
+  .frr-arrow { color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .frr-kid {
+    border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raise);
+    padding: 4px 12px; font-size: 12.5px; color: var(--ink-dim); white-space: nowrap;
+  }
+  .frr-kid .t { font-family: ui-monospace, Menlo, monospace; margin-right: 5px; }
+
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 </style>
 
 <div id="app"></div>
-<div id="switcher">
-  <button id="sw-prev" aria-label="previous variant">←</button>
-  <span class="cur" id="sw-label"></span>
-  <button id="sw-next" aria-label="next variant">→</button>
-</div>
 
 <script>
 /* ================= canned data ================= */
@@ -241,7 +260,7 @@ const AGENTS = [
     state: "needs-you", ctx: 68,
     bars: { h5: { pct: 62, clock: 48, pace: "ahead" }, d7: { pct: 34, clock: 41, pace: "behind" } },
     esc: { kind: "choice", q: "Two notes race the same expiry line. Drop the older note, or post both with stamps?", age: "12 min" },
-    links: { attach: "#", timeline: "#", pr: "#264", thread: "#" }
+    links: { attach: "#", timeline: "#", pr: "#264", thread: "#", preview: null }
   },
   {
     sess: "curia-263", ticket: "#263", title: "The dashboard reads the daemon",
@@ -249,7 +268,7 @@ const AGENTS = [
     state: "working", ctx: 41,
     bars: { h5: { pct: 58, clock: 48, pace: "on" }, d7: { pct: 22, clock: 41, pace: "behind" } },
     esc: null,
-    links: { attach: "#", timeline: "#", pr: null, thread: "#" }
+    links: { attach: "#", timeline: "#", pr: null, thread: "#", preview: ":4310" }
   },
   {
     sess: "curia-review-263", ticket: "#263", title: "Cross-check of curia-263",
@@ -257,7 +276,7 @@ const AGENTS = [
     state: "reading", ctx: 23,
     bars: { h5: { pct: 62, clock: 48, pace: "ahead" }, d7: { pct: 34, clock: 41, pace: "behind" } },
     esc: null,
-    links: { attach: "#", timeline: "#", pr: "#264", thread: "#" }
+    links: { attach: "#", timeline: "#", pr: "#264", thread: "#", preview: null }
   },
   {
     sess: "curia-chat-1", ticket: "—", title: "New map: the box backs itself up",
@@ -265,7 +284,7 @@ const AGENTS = [
     state: "parked", ctx: 55,
     bars: { h5: { pct: 58, clock: 48, pace: "on" }, d7: { pct: 22, clock: 41, pace: "behind" } },
     esc: null,
-    links: { attach: "#", timeline: "#", pr: null, thread: "#" }
+    links: { attach: "#", timeline: "#", pr: null, thread: "#", preview: ":4311" }
   }
 ];
 
@@ -280,6 +299,10 @@ const FEED = [
   { t: "13:41", tag: "resolve", cls: "", ev: "<b>#261</b> resolved — merged, map pointer written" },
   { t: "13:12", tag: "reconcile", cls: "", ev: "reconcile pass clean — 3 sessions adopted, 0 orphans, serve rules asserted" },
   { t: "12:58", tag: "nudge", cls: "", ev: "nudge reposted for <b>curia-255</b> — question open 30 min" }
+];
+
+const LIMITS = [
+  { provider: "openai", win: "5h", pct: 62, pace: "ahead", note: "ahead of the clock — reset 16:00" }
 ];
 
 const FRONTIER = [
@@ -306,25 +329,29 @@ const FRONTIER = [
   }
 ];
 
-const SETTINGS = {
-  routing: [
-    { label: "opus", id: "claude-opus-5", harness: "claude" },
-    { label: "gpt", id: "gpt-5.6-sol", harness: "codex" },
-    { label: "haiku", id: "claude-haiku-4-5", harness: "claude" }
-  ],
-  defaults: [
-    { type: "research", label: "haiku" },
-    { type: "task", label: "opus" },
-    { type: "grilling", label: "opus" },
-    { type: "map", label: "opus" }
-  ],
-  maxConcurrent: 3,
-  watch: ["alp82/curia", "alp82/aistack"],
-  nudgeMin: 30
+/* every model both harnesses can reach; the operator activates a subset */
+const MODELS = [
+  { id: "claude-opus-5", harness: "claude", active: true },
+  { id: "claude-sonnet-5", harness: "claude", active: false },
+  { id: "claude-haiku-4-5", harness: "claude", active: true },
+  { id: "gpt-5.6-sol", harness: "codex", active: true },
+  { id: "gpt-5.6-mini", harness: "codex", active: false }
+];
+const DEFAULTS = [
+  { type: "research", model: "claude-haiku-4-5" },
+  { type: "task", model: "claude-opus-5" },
+  { type: "grilling", model: "claude-opus-5" },
+  { type: "map", model: "claude-opus-5" }
+];
+const GH = {
+  login: "alp82",
+  repos: ["alp82/curia", "alp82/aistack", "alp82/annapod", "alp82/dotfiles", "alp82/getcuria"],
+  projects: ["alp82/curia", "alp82/aistack"]
 };
+const SETTINGS = { maxConcurrent: 3, nudgeMin: 30 };
 
 /* ================= shared render helpers ================= */
-const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const escT = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const paceSq = p => p === "ahead" ? "🟥" : p === "on" ? "🟨" : "🟩";
 
 function statePill(a) {
@@ -347,177 +374,165 @@ function agentLinks(a) {
   const L = a.links;
   return `<div class="links">
     <a href="${L.attach}">attach</a><a href="${L.timeline}">timeline</a>
+    ${L.preview ? `<a href="#">preview ${L.preview}</a>` : ""}
     ${L.pr ? `<a href="#">PR ${L.pr}</a>` : `<span style="color:var(--ink-faint)">no PR yet</span>`}
     <a href="${L.thread}">thread</a></div>`;
 }
 function escBlock(a) {
   if (!a.esc) return "";
-  return `<div class="esc"><span class="kind">${a.esc.kind}</span> <span class="age">· open ${a.esc.age}</span><br>${esc(a.esc.q)}
+  return `<div class="esc"><span class="kind">${a.esc.kind}</span> <span class="age">· open ${a.esc.age}</span><br>${escT(a.esc.q)}
     <div class="links" style="margin-top:6px"><a href="#">answer in thread</a><a href="#">open timeline</a></div></div>`;
 }
 function feedList(items) {
   return `<ul class="feed-list">${items.map(f =>
     `<li class="${f.cls}"><time>${f.t}</time><span class="ev"><span class="tag">${f.tag}</span> — ${f.ev}</span></li>`).join("")}</ul>`;
 }
-function frontierRepo(r) {
-  return `<div class="fr-repo"><span class="eyebrow mono">${r.repo}</span>
-    ${r.nodes.map(n => `<div class="fr-group"><div class="fr-node"><span class="typ">${n.typ}</span><span class="t">${n.t}</span>${esc(n.title)}</div>
-      ${n.kids.length ? `<div class="fr-kids">${n.kids.map(k => `<div class="fr-kid"><span class="t">${k.t}</span>${esc(k.title)}</div>`).join("")}</div>` : ""}
-    </div>`).join("")}</div>`;
-}
-function settingsForm(idPrefix) {
-  return `<div class="set-grid">
-    <div class="set-block"><h3>Model routing</h3>
-      <table><tr><th>label</th><th>model id</th><th>harness</th></tr>
-      ${SETTINGS.routing.map(r => `<tr><td class="mono">${r.label}</td><td><input type="text" value="${r.id}" size="16"></td><td class="mono">${r.harness}</td></tr>`).join("")}
-      </table>
-      <table style="margin-top:8px"><tr><th>ticket type</th><th>default label</th></tr>
-      ${SETTINGS.defaults.map(d => `<tr><td class="mono">${d.type}</td><td><select>${SETTINGS.routing.map(r => `<option ${r.label===d.label?"selected":""}>${r.label}</option>`).join("")}</select></td></tr>`).join("")}
-      </table></div>
-    <div class="set-block"><h3>Dispatch</h3>
-      <table><tr><td>max_concurrent</td><td><input type="number" value="${SETTINGS.maxConcurrent}"></td></tr>
-      <tr><td>nudge (minutes)</td><td><input type="number" value="${SETTINGS.nudgeMin}"></td></tr></table></div>
-    <div class="set-block"><h3>Watch list</h3>
-      <table>${SETTINGS.watch.map(w => `<tr><td><input type="text" value="${w}" size="18"></td><td><button class="btn" style="padding:2px 8px;font-size:12px">remove</button></td></tr>`).join("")}
-      <tr><td><input type="text" placeholder="owner/repo" size="18"></td><td><button class="btn" style="padding:2px 8px;font-size:12px">add</button></td></tr></table></div>
-  </div>
-  <div class="set-actions">
-    <button class="btn primary" onclick="fakeSave('${idPrefix}')">Save to curia.yaml</button>
-    <button class="btn danger" onclick="fakeRestart('${idPrefix}')">Restart daemon</button>
-    <span class="toast" id="${idPrefix}-toast"></span>
-  </div>`;
-}
-function fakeSave(p) {
-  document.getElementById(p + "-toast").textContent = "Validated with the daemon loaders. Written atomically. Comments kept.";
-}
-function fakeRestart(p) {
-  const t = document.getElementById(p + "-toast");
-  if (!confirm("Restart the daemon? Running agents keep their tmux sessions.")) return;
-  t.textContent = "Daemon exits nonzero. The supervisor respawns it. This page serves the last snapshot.";
-}
 const needsYou = () => AGENTS.filter(a => a.esc);
+const activeModels = () => MODELS.filter(m => m.active);
+const goto = (s) => { screen = s; render(); };
 
-/* ================= variant A: fleet ================= */
-function renderA(root) {
+/* ================= screens ================= */
+function screenHome() {
   const ny = needsYou();
-  root.innerHTML = `<div class="vA">
-    <header><h1>curia</h1><span class="sub num">4 agents · 2 repos · reconcile clean · 13:12</span></header>
-    ${ny.length ? `<div class="needs-band"><h2>Needs you (${ny.length})</h2>
-      ${ny.map(a => `<div class="needs-item"><span class="mono"><b>${a.sess}</b></span>
-        <span class="q">${esc(a.esc.q)}</span><span class="esc-age" style="color:var(--ink-dim)">open ${a.esc.age}</span>
-        <a href="#">answer</a></div>`).join("")}</div>` : ""}
-    <div class="vA-cols">
+  return `
+    ${ny.length ? `<div class="band needs"><h3>Needs you (${ny.length})</h3>
+      ${ny.map(a => `<div class="band-item"><span class="mono"><b>${a.sess}</b></span>
+        <span class="q">${escT(a.esc.q)}</span><span class="dim">open ${a.esc.age}</span>
+        <a href="#">answer</a><a href="#" onclick="goto('agents');return false">agent</a></div>`).join("")}</div>` : ""}
+    ${LIMITS.length ? `<div class="band limits"><h3>Approaching limits</h3>
+      ${LIMITS.map(l => `<div class="band-item"><span class="mono">${paceSq(l.pace)} <b>${l.provider}</b> ${l.win} ${l.pct}%</span>
+        <span class="dim">${l.note}</span>
+        <a href="#" onclick="goto('agents');return false">who burns it</a></div>`).join("")}</div>` : ""}
+    <div class="home-cols">
       <div class="cards">
         ${AGENTS.map(a => `<div class="card">
           <div class="top"><span class="sess">${a.sess}</span>${statePill(a)}</div>
-          <div class="ticket"><span class="t">${a.ticket}</span>${esc(a.title)}</div>
+          <div class="ticket"><span class="t">${a.ticket}</span>${escT(a.title)}</div>
           <div class="facts"><span>${a.repo.split("/")[1]}</span><span>${a.model}</span><span>${paceSq(a.bars.h5.pace)} 5h ${a.bars.h5.pct}%</span></div>
           ${meters(a)}
           ${escBlock(a)}
           ${agentLinks(a)}
         </div>`).join("")}
       </div>
-      <aside class="rail"><h2>Feed</h2>${feedList(FEED)}</aside>
-    </div>
-    <section class="wide"><h2>Frontier — two levels</h2><div class="fr-flex">${FRONTIER.map(frontierRepo).join("")}</div></section>
-    <section class="wide"><h2>Settings</h2>${settingsForm("a")}</section>
-  </div>`;
+      <aside class="rail"><h3>Last events</h3>${feedList(FEED.slice(0, 5))}
+        <a class="more" href="#" onclick="goto('feed');return false">all events →</a></aside>
+    </div>`;
 }
 
-/* ================= variant B: wire ================= */
-function renderB(root) {
-  const escFeed = needsYou().map(a =>
-    `<li class="warn"><time>now</time><span class="ev"><span class="tag">open question</span> — <b>${a.sess}</b>${escBlock(a)}</span></li>`).join("");
-  root.innerHTML = `<div class="vB">
-    <header><h1>curia — the wire</h1><span class="sub num">4 agents · 13:12 reconcile clean</span></header>
-    <div class="strip">
-      ${AGENTS.map(a => `<div class="chip ${a.esc ? "alert" : ""}">
-        <span class="sess">${a.sess}</span>${statePill(a)}
-        <div class="meter-row" style="margin-top:5px"><span class="lbl">ctx</span><span class="bar"><span class="fill ok" style="width:${a.ctx}%"></span></span><span class="pct num">${a.ctx}%</span></div>
-        <div class="links" style="margin-top:5px"><a href="#">attach</a><a href="#">timeline</a>${a.links.pr ? `<a href="#">PR</a>` : ""}</div>
-      </div>`).join("")}
-    </div>
-    <div class="spine">
-      <h2>Open questions</h2>
-      <ul class="feed-list">${escFeed || `<li><time></time><span class="ev" style="color:var(--ink-dim)">none — nothing waits on you</span></li>`}</ul>
-      <h2>Feed</h2>
-      ${feedList(FEED)}
-      <details><summary>Frontier — two levels</summary><div class="inner">${FRONTIER.map(frontierRepo).join("")}</div></details>
-      <details><summary>Settings</summary><div class="inner">${settingsForm("b")}</div></details>
-    </div>
-  </div>`;
-}
-
-/* ================= variant C: console ================= */
-let cScreen = "agents";
-function renderC(root) {
-  const ny = needsYou().length;
-  const screens = { agents: "Agents", frontier: "Frontier", feed: "Feed", settings: "Settings" };
-  let body = "";
-  if (cScreen === "agents") {
-    body = `<h2>Agents</h2>
+function screenAgents() {
+  return `<h2>Agents</h2>
     <div class="statusbar num"><span>agents 4/${SETTINGS.maxConcurrent + 1}</span><span>🟨 anthropic 5h 58%</span><span>🟥 openai 5h 62%</span><span>cooling: none</span></div>
     <div class="tbl-wrap"><table class="agents">
       <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>5h</th><th>7d</th><th>links</th></tr>
       ${AGENTS.map(a => `<tr class="${a.esc ? "esc-row" : ""}">
         <td class="sess">${a.sess}</td><td>${statePill(a)}</td>
-        <td><span class="mono" style="color:var(--ink-dim)">${a.ticket}</span> ${esc(a.title)}${a.esc ? `<div class="esc" style="margin-top:6px">${esc(a.esc.q)} <span class="age">· ${a.esc.age}</span></div>` : ""}</td>
+        <td><span class="mono" style="color:var(--ink-dim)">${a.ticket}</span> ${escT(a.title)}${a.esc ? `<div class="esc" style="margin-top:6px">${escT(a.esc.q)} <span class="age">· ${a.esc.age}</span></div>` : ""}</td>
         <td class="mono">${a.model}</td>
         <td class="num">${a.ctx}%</td><td class="num">${paceSq(a.bars.h5.pace)} ${a.bars.h5.pct}%</td><td class="num">${paceSq(a.bars.d7.pace)} ${a.bars.d7.pct}%</td>
         <td>${agentLinks(a)}</td></tr>`).join("")}
     </table></div>`;
-  } else if (cScreen === "frontier") {
-    body = `<h2>Frontier — two levels</h2>${FRONTIER.map(frontierRepo).join("")}`;
-  } else if (cScreen === "feed") {
-    body = `<h2>Feed</h2><div style="max-width:640px">${feedList(FEED)}</div>`;
-  } else {
-    body = `<h2>Settings</h2>${settingsForm("c")}`;
-  }
-  root.innerHTML = `<div class="vC">
-    <nav><span class="brand">curia</span>
-      ${Object.entries(screens).map(([k, v]) =>
-        `<button class="${cScreen === k ? "on" : ""}" onclick="cScreen='${k}';render()">${v}${k === "agents" && ny ? ` <span class="n">${ny}</span>` : ""}</button>`).join("")}
-    </nav>
-    <main>${body}</main>
-  </div>`;
 }
 
-/* ================= switcher ================= */
-const VARIANTS = { A: ["Fleet", renderA], B: ["Wire", renderB], C: ["Console", renderC] };
-const KEYS = Object.keys(VARIANTS);
-function currentVariant() {
-  const q = new URLSearchParams(location.search).get("variant");
-  const h = (location.hash.match(/v=([A-C])/) || [])[1];
-  const v = (q || h || "A").toUpperCase();
-  return KEYS.includes(v) ? v : "A";
+/* --- frontier variations --- */
+function frTree(r) {
+  return `<div class="fr-repo"><span class="eyebrow mono">${r.repo}</span>
+    ${r.nodes.map(n => `<div class="fr-group"><div class="fr-node"><span class="typ">${n.typ}</span><span class="t">${n.t}</span>${escT(n.title)}</div>
+      ${n.kids.length ? `<div class="fr-kids">${n.kids.map(k => `<div class="fr-kid"><span class="t">${k.t}</span>${escT(k.title)}</div>`).join("")}</div>` : ""}
+    </div>`).join("")}</div>`;
 }
-function setVariant(v) {
-  try {
-    if (location.protocol.startsWith("http")) {
-      const u = new URL(location); u.searchParams.set("variant", v); history.replaceState(null, "", u);
-    } else { location.hash = "v=" + v; }
-  } catch (e) { location.hash = "v=" + v; }
-  render();
+function frColumns(r) {
+  return `<div class="fr-repo"><span class="eyebrow mono">${r.repo}</span>
+    <div class="frc-head"><span class="eyebrow">takeable now</span><span class="eyebrow">unblocked by it</span></div>
+    ${r.nodes.map(n => `<div class="frc-row">
+      <div class="frc-left ${n.kids.length ? "" : "no-kids"}"><div class="fr-node"><span class="typ">${n.typ}</span><span class="t">${n.t}</span>${escT(n.title)}</div></div>
+      ${n.kids.length
+        ? `<div class="frc-kids">${n.kids.map(k => `<div class="frc-kid"><span class="t mono">${k.t}</span>${escT(k.title)}</div>`).join("")}</div>`
+        : `<div class="frc-none">unblocks nothing yet</div>`}
+    </div>`).join("")}</div>`;
 }
+function frRail(r) {
+  return `<div class="fr-repo"><span class="eyebrow mono">${r.repo}</span>
+    ${r.nodes.map(n => `<div class="frr-row">
+      <span class="frr-node"><span class="t">${n.t}</span>${escT(n.title)}</span>
+      ${n.kids.length ? `<span class="frr-arrow">─▶</span>` : ""}
+      ${n.kids.map(k => `<span class="frr-kid"><span class="t">${k.t}</span>${escT(k.title)}</span>`).join("")}
+    </div>`).join("")}</div>`;
+}
+const FR_VARIANTS = { tree: ["Tree", frTree], columns: ["Columns", frColumns], rail: ["Rail", frRail] };
+let frVariant = "tree";
+function screenFrontier() {
+  return `<div class="screen-head"><h2>Frontier — two levels</h2>
+    <span class="seg">${Object.entries(FR_VARIANTS).map(([k, v]) =>
+      `<button class="${frVariant === k ? "on" : ""}" onclick="frVariant='${k}';render()">${v[0]}</button>`).join("")}</span></div>
+    ${FRONTIER.map(FR_VARIANTS[frVariant][1]).join("")}`;
+}
+
+function screenFeed() {
+  return `<h2>Feed</h2><div style="max-width:640px">${feedList(FEED)}</div>`;
+}
+
+function screenSettings() {
+  const act = activeModels();
+  return `<h2>Settings</h2>
+  <div class="set-grid">
+    <div class="set-block"><h3>Models</h3>
+      <p class="hint">All models the harnesses can reach. Active models join the dispatch vocabulary.</p>
+      <table><tr><th>active</th><th>model</th><th>harness</th></tr>
+      ${MODELS.map((m, i) => `<tr class="${m.active ? "" : "inactive"}">
+        <td><input type="checkbox" ${m.active ? "checked" : ""} onchange="MODELS[${i}].active=this.checked;render()"></td>
+        <td class="mono">${m.id}</td><td class="mono">${m.harness}</td></tr>`).join("")}
+      </table>
+      <table style="margin-top:10px"><tr><th>ticket type</th><th>default model</th></tr>
+      ${DEFAULTS.map((d, i) => `<tr><td class="mono">${d.type}</td>
+        <td><select onchange="DEFAULTS[${i}].model=this.value">${act.map(m =>
+          `<option ${m.id === d.model ? "selected" : ""}>${m.id}</option>`).join("")}
+          ${act.some(m => m.id === d.model) ? "" : `<option selected>${d.model} (inactive)</option>`}</select></td></tr>`).join("")}
+      </table></div>
+    <div class="set-block"><h3>Projects</h3>
+      <div class="gh-connect"><span class="dot"></span>GitHub connected as <b class="mono">${GH.login}</b> <a href="#">manage</a></div>
+      <table>${GH.projects.map(p => `<tr><td class="mono">${p}</td><td style="text-align:right"><button class="btn sm">remove</button></td></tr>`).join("")}
+      <tr><td><select><option>add a repo…</option>${GH.repos.filter(r => !GH.projects.includes(r)).map(r => `<option>${r}</option>`).join("")}</select></td>
+      <td style="text-align:right"><button class="btn sm">add</button></td></tr></table></div>
+    <div class="set-block"><h3>Dispatch</h3>
+      <table><tr><td>max_concurrent</td><td><input type="number" value="${SETTINGS.maxConcurrent}"></td></tr>
+      <tr><td>nudge (minutes)</td><td><input type="number" value="${SETTINGS.nudgeMin}"></td></tr></table></div>
+  </div>
+  <div class="set-actions">
+    <button class="btn primary" onclick="fakeSave()">Save to curia.yaml</button>
+    <button class="btn danger" onclick="fakeRestart()">Restart daemon</button>
+    <span class="toast" id="toast"></span>
+  </div>`;
+}
+function fakeSave() {
+  document.getElementById("toast").textContent = "Validated with the daemon loaders. Written atomically. Comments kept.";
+}
+function fakeRestart() {
+  if (!confirm("Restart the daemon? Running agents keep their tmux sessions.")) return;
+  document.getElementById("toast").textContent = "Daemon exits nonzero. The supervisor respawns it. This page serves the last snapshot.";
+}
+
+/* ================= shell ================= */
+const SCREENS = {
+  home: ["Home", screenHome],
+  agents: ["Agents", screenAgents],
+  frontier: ["Frontier", screenFrontier],
+  feed: ["Feed", screenFeed],
+  settings: ["Settings", screenSettings]
+};
+const _h = new URLSearchParams(location.hash.slice(1));
+let screen = SCREENS_KEYS(_h.get("s"));
+frVariant = FR_VARIANTS[_h.get("f")] ? _h.get("f") : frVariant;
+function SCREENS_KEYS(s) { return ["home","agents","frontier","feed","settings"].includes(s) ? s : "home"; }
 function render() {
-  const v = currentVariant();
-  VARIANTS[v][1](document.getElementById("app"));
-  document.getElementById("sw-label").textContent = `${v} — ${VARIANTS[v][0]}`;
   const ny = needsYou().length;
+  document.getElementById("app").innerHTML = `<div class="shell">
+    <nav><span class="brand">curia</span>
+      ${Object.entries(SCREENS).map(([k, v]) =>
+        `<button class="${screen === k ? "on" : ""}" onclick="goto('${k}')">${v[0]}${k === "home" && ny ? ` <span class="n">${ny}</span>` : ""}</button>`).join("")}
+    </nav>
+    <main>${SCREENS[screen][1]()}</main>
+  </div>`;
   document.title = (ny ? `(${ny}) ` : "") + "curia — dashboard prototype";
 }
-function cycle(d) {
-  const i = (KEYS.indexOf(currentVariant()) + d + KEYS.length) % KEYS.length;
-  setVariant(KEYS[i]);
-}
-document.getElementById("sw-prev").onclick = () => cycle(-1);
-document.getElementById("sw-next").onclick = () => cycle(1);
-document.addEventListener("keydown", e => {
-  const t = e.target;
-  if (t.matches("input, textarea, select, [contenteditable]")) return;
-  if (e.key === "ArrowLeft") cycle(-1);
-  if (e.key === "ArrowRight") cycle(1);
-});
-window.addEventListener("hashchange", render);
 render();
 </script>
