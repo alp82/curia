@@ -152,9 +152,11 @@ Done on 2026-08-01, as root unless noted:
 8. Wrote `/etc/sudoers.d/curia` and installed the unit (both retired 2026-08-09 by the compose cutover, #260).
 9. HITL: `tailscale up` approved in the browser. `claude setup-token` ran on the dev box, token pasted into the env file.
 
-Compose cutover, done on 2026-08-09 as `alp` unless noted ([#260](https://github.com/alp82/curia/issues/260)):
+Compose cutover, done on 2026-08-10 as `alp` ([#260](https://github.com/alp82/curia/issues/260)):
 
-1. Wrote `deploy/.env` with the box's `DOCKER_GID`.
-2. At zero live agents: `sudo systemctl disable --now curia`, killed the host tmux server.
-3. `docker compose -f deploy/compose.yaml up -d --build`.
-4. As root: removed `/etc/systemd/system/curia.service` and `/etc/sudoers.d/curia`.
+1. Installed the compose v2 plugin, v2.39.2, to `~/.docker/cli-plugins/docker-compose` — the box's docker 20.10 ships without it.
+2. Wrote `deploy/.env` with the box's `DOCKER_GID` (998).
+3. At zero live agents: `sudo /bin/systemctl stop curia`, `tmux kill-server`, killed the old detached ttyd, removed a stale agent container.
+4. `docker compose -f deploy/compose.yaml up -d --build`.
+5. Retired `/etc/systemd/system/curia.service`, its `multi-user.target.wants` symlink, and `/etc/sudoers.d/curia` through a root container, then `systemctl daemon-reload` through `nsenter` — the sudoers grant was too narrow to remove itself, and docker-group root is the box's accepted model.
+6. Proved: a session on the shared socket survives a daemon restart, and `bin/deploy.sh` leaves `tmux`/`ttyd` untouched.
