@@ -246,6 +246,9 @@ The Discord module. It renders and captures. It never interprets.
 **Thread-per-ticket**:
 One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread. The name carries the state at a glance: 🎫 bound, ✅ finished, ⚰️ cancelled.
 
+**Voice ownership**:
+The rule that divides the thread's speakers. CuriaBot states mechanics, the agent voice states meaning, and no fact is said twice in one thread. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
+
 **Notify**:
 A fire-and-forget line of agent prose into the ticket thread.
 _Avoid_: status line (that names the daemon's own line, below).
