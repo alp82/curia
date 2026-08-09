@@ -9,6 +9,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [cline.md](cline.md) | Cline CLI as a native-ACP worker lane candidate | Superseded — source read only; [cline-worker-lane.md](cline-worker-lane.md) ran it |
 | [cline-worker-lane.md](cline-worker-lane.md) | Cline hands-on worker lane via the OpenACP seam | Rejected — no ACP lane in the ADR-0003 tmux host |
 | [codex-lane-gaps.md](codex-lane-gaps.md) | Where the codex lane trails the claude lane | Informational - grounds the fix tickets that graduate from [#152](https://github.com/alp82/curia/issues/152) |
+| [discord-thread-surprises.md](discord-thread-surprises.md) | Cold read of every #curia thread: routing and ownership surprises, by composer and code path | Informational — grounds the thread-fix tickets on [#244](https://github.com/alp82/curia/issues/244) |
 | [dual-geometry-attach.md](dual-geometry-attach.md) | Per-device geometry on one live worker | Adopted — grounds ADR-0009's grid-free timeline surface |
 | [headless-worker-auth.md](headless-worker-auth.md) | Claude Code worker auth on a headless server: subscription OAuth token vs API key | Informational — grounds the worker-auth choice for the Hetzner box |
 | [herdr.md](herdr.md) | herdr as a tmux-for-agents worker host | Rejected — ADR-0003 picks bare tmux over herdr |
