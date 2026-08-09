@@ -144,6 +144,18 @@
   .ledger-row .lab { font-weight: 600; font-size: 13px; display: block; }
   .ledger-row .sub { font-size: 12px; color: var(--ink-dim); display: block; margin-top: 3px; }
   @media (max-width: 700px) { .ledger-row { grid-template-columns: 1fr; gap: 8px; } }
+  .save-banner { display: flex; gap: 10px; align-items: center; z-index: 20; }
+  .save-banner.bottom {
+    position: fixed; left: 172px; right: 0; bottom: 0;
+    background: var(--bg-raise); border-top: 1px solid var(--line); padding: 10px 22px;
+    box-shadow: 0 -4px 16px rgba(0,0,0,.25);
+  }
+  @media (max-width: 760px) { .save-banner.bottom { left: 0; } }
+  .save-banner.top {
+    background: var(--bg-raise); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 14px; margin-bottom: 14px;
+  }
+  .model-mgr { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
 
   /* ---------- shell ---------- */
   .shell { display: grid; grid-template-columns: 172px 1fr; min-height: 100vh; }
@@ -738,52 +750,62 @@ const SET_HINTS = {
 };
 const setBlock = (title, hint, body) => `<div class="set-block"><h3>${title}</h3><p class="hint">${hint}</p>${body}</div>`;
 
-/* --- V1 stack: one narrow column, uniform width --- */
-function setStack() {
-  return `<div style="max-width:560px">
-    ${setBlock("Models", SET_HINTS.models, tblModels())}
-    <div style="height:12px"></div>${setBlock("Defaults", SET_HINTS.defaults, tblDefaults())}
-    <div style="height:12px"></div>${setBlock("Projects", SET_HINTS.projects, tblProjects())}
-    <div style="height:12px"></div>${setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())}
-    ${setActions()}</div>`;
+/* decided on this ticket: the settings layout is Sections.
+   These variations refine it: the ticket-type mapping leads, the model
+   activation demotes, and save/restart is a global banner. */
+let setSection = "routing";
+let modelMgrOpen = false;
+function subnav(secs) {
+  return `<div class="set-subnav">${Object.entries(secs).map(([k, v]) =>
+    `<button class="${setSection === k ? "on" : ""}" onclick="setSection='${k}';render()">${v}</button>`).join("")}</div>`;
 }
-/* --- V2 sections: a sub-nav, one topic at a time --- */
-let setSection = "models";
-function setSections() {
-  const secs = { models: ["Models", () => tblModels() + `<div style="height:14px"></div>` + tblDefaults()],
-    projects: ["Projects", tblProjects], dispatch: ["Dispatch", tblDispatch] };
-  return `<div class="set-subnav">
-      ${Object.entries(secs).map(([k, v]) => `<button class="${setSection === k ? "on" : ""}"
-        onclick="setSection='${k}';render()">${v[0]}</button>`).join("")}</div>
-    <div style="max-width:560px">${setBlock(secs[setSection][0], SET_HINTS[setSection === "models" ? "models" : setSection], secs[setSection][1]())}
-    ${setActions()}</div>`;
+function saveBanner(pos) {
+  return `<div class="save-banner ${pos}">
+    <button class="btn primary" onclick="fakeSave()">Save to curia.yaml</button>
+    <button class="btn danger" onclick="fakeRestart()">Restart daemon</button>
+    <span class="toast" id="toast">2 unsaved changes</span></div>`;
 }
-/* --- V3 ledger: one card, label left, control right --- */
-function setLedger() {
-  const row = (lab, sub, body) => `<div class="ledger-row"><div><span class="lab">${lab}</span><span class="sub">${sub}</span></div><div>${body}</div></div>`;
-  return `<div class="set-block" style="max-width:760px">
-    ${row("Models", SET_HINTS.models, tblModels())}
-    ${row("Defaults", SET_HINTS.defaults, tblDefaults())}
-    ${row("Projects", SET_HINTS.projects, tblProjects())}
-    ${row("Dispatch", SET_HINTS.dispatch, tblDispatch())}
-  </div>${setActions()}`;
+const sectionBody = {
+  projects: () => setBlock("Projects", SET_HINTS.projects, tblProjects()),
+  dispatch: () => setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())
+};
+/* --- V1 inline: defaults lead, the model list sits below them --- */
+function setInline() {
+  const secs = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
+  if (!secs[setSection]) setSection = "routing";
+  const routing = setBlock("Routing", SET_HINTS.defaults, tblDefaults())
+    + `<div style="height:12px"></div>`
+    + setBlock("Active models", SET_HINTS.models, tblModels());
+  return `${subnav(secs)}<div style="max-width:560px">
+    ${setSection === "routing" ? routing : sectionBody[setSection]()}</div>
+    <div style="height:76px"></div>${saveBanner("bottom")}`;
 }
-/* --- V4 grid: four equal cards, two by two --- */
-function setGrid() {
-  return `<div class="set-grid set-grid-2">
-    ${setBlock("Models", SET_HINTS.models, tblModels())}
-    ${setBlock("Defaults", SET_HINTS.defaults, tblDefaults())}
-    ${setBlock("Projects", SET_HINTS.projects, tblProjects())}
-    ${setBlock("Dispatch", SET_HINTS.dispatch, tblDispatch())}
-  </div>${setActions()}`;
+/* --- V2 behind a click: the model list opens on demand --- */
+function setClick() {
+  const secs = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
+  if (!secs[setSection]) setSection = "routing";
+  const routing = setBlock("Routing", SET_HINTS.defaults, tblDefaults()
+    + `<div class="model-mgr"><a href="#" onclick="modelMgrOpen=!modelMgrOpen;render();return false">
+        ${activeModels().length} of ${MODELS.length} models active · ${modelMgrOpen ? "close" : "manage"}</a>
+      ${modelMgrOpen ? `<div style="margin-top:10px">${tblModels()}</div>` : ""}</div>`);
+  return `${subnav(secs)}<div style="max-width:560px">
+    ${setSection === "routing" ? routing : sectionBody[setSection]()}</div>
+    <div style="height:76px"></div>${saveBanner("bottom")}`;
+}
+/* --- V3 own tab: activation is a topic of its own, banner on top --- */
+function setOwnTab() {
+  const secs = { routing: "Routing", models: "Models", projects: "Projects", dispatch: "Dispatch" };
+  if (!secs[setSection]) setSection = "routing";
+  const bodies = { routing: () => setBlock("Routing", SET_HINTS.defaults, tblDefaults()),
+    models: () => setBlock("Models", SET_HINTS.models, tblModels()), ...sectionBody };
+  return `${saveBanner("top")}${subnav(secs)}<div style="max-width:560px">${bodies[setSection]()}</div>`;
 }
 const SET_VARIANTS = {
-  stack: ["Stack", setStack],
-  sections: ["Sections", setSections],
-  ledger: ["Ledger", setLedger],
-  grid: ["Grid", setGrid]
+  inline: ["Inline", setInline],
+  click: ["Behind a click", setClick],
+  tab: ["Own tab", setOwnTab]
 };
-let setVariantKey = "stack";
+let setVariantKey = "click";
 function screenSettings() {
   return `<div class="screen-head"><h2>Settings</h2>
     <span class="seg">${Object.entries(SET_VARIANTS).map(([k, v]) =>
