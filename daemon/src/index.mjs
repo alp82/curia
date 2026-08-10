@@ -383,19 +383,12 @@ const gate = {
   queueAgentNote(threadId, text, by) {
     const agent = gate.agentForThread(threadId)
     if (!agent || !text?.trim()) return null
-    // `reads` is what the bridge promises the operator (#170), and #208 makes
-    // it the same flag that decides whether anything queues at all.
-    const { reads, instance } = noteDisposition(dispatcher.agents.get(agent))
     // the ticket rides along so the bridge can spell out `cancel <n>` when the
     // note is command-shaped (#108 item 23, #170)
     const ticket = store.ticketForThread(threadId) ?? null
-    if (!reads) {
-      log(`agent note refused for ${agent} — that agent is not running, so nothing was queued`)
-      store.logEvent('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
-      return { agent, after: null, reads, ticket }
-    }
-    const { id, after } = store.queueAgentNote(agent, text.trim(), { by, instance })
-    log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}`)
+    const queued = gate.queueNoteFor(agent, text, { by, ticket })
+    if (!queued.reads) return { agent, after: null, reads: false, ticket }
+    const { id, after } = queued
     // #236: the facts a status question needs, gathered from records the
     // daemon already holds — the status line's state machine, the dispatch
     // record's spawn time, the journal's last word about the agent. The bridge
@@ -415,7 +408,58 @@ const gate = {
     // `id` is what the interrupt button under this receipt points at (#252):
     // queued is the default mode, and the button is how the operator picks the
     // other one for these exact words.
-    return { agent, id, after, reads, ticket, status }
+    return { agent, id, after, reads: true, ticket, status }
+  },
+  // The queue itself, under both keyings (#266). Discord names the THREAD the
+  // words were typed in; the console has no thread and names the agent. The
+  // queue, the #208 instance rule and the refusal are one fact either way, so
+  // they are written once here rather than twice at the two doors.
+  //
+  // `reads` is what the bridge promises the operator (#170), and #208 makes it
+  // the same flag that decides whether anything queues at all.
+  queueNoteFor(agent, text, { by = null, ticket = null } = {}) {
+    const { reads, instance } = noteDisposition(dispatcher.agents.get(agent))
+    if (!reads) {
+      log(`agent note refused for ${agent} — that agent is not running, so nothing was queued`)
+      store.logEvent('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
+      return { agent, ticket, reads: false, id: null, after: null }
+    }
+    const { id, after } = store.queueAgentNote(agent, String(text).trim(), { by, instance })
+    log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}`)
+    return { agent, ticket, reads: true, id, after }
+  },
+  // The console's note (#266), and BOTH delivery modes behind one call. The
+  // browser has no thread to type in, so it names the agent — but what happens
+  // to the words after that is ADR-0013 unchanged: queued is the default and
+  // rides the next tool result, and an interrupt is #252's second mode, with
+  // the same grace and the same three refusals.
+  //
+  // An interrupt that refuses leaves the words QUEUED rather than dropping
+  // them. The operator asked for these words to reach the agent; the mode was
+  // how fast, and only the mode failed.
+  async noteAgent(agent, text, { by = null, mode = 'queue' } = {}) {
+    const live = dispatcher.agents.get(agent)
+    const ticket = live?.ticket ?? String(agent).replace(/^curia-/, '')
+    // The console names the agent, so it can name one that does not exist —
+    // which the thread path never could, because a thread only ever resolves to
+    // an agent curia is running. `noteDisposition` answers about a live record
+    // and reads an absent one as "not failed", so the existence check is HERE,
+    // in the one door that can be handed a name out of a browser.
+    if (!live) {
+      log(`agent note refused for ${agent} — curia is not running that agent`)
+      store.logEvent('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
+      return {
+        agent, ticket, reads: false, id: null, after: null, ok: false, mode,
+        why: `curia is not running \`${agent}\`, so nothing was queued — \`resume ${ticket}\` puts an agent back on the ticket, then say the words again`,
+      }
+    }
+    const queued = gate.queueNoteFor(agent, text, { by, ticket })
+    if (!queued.reads) {
+      return { ...queued, ok: false, mode, why: `\`${agent}\` is not running, so nothing was queued — \`resume ${ticket}\` puts an agent back on the ticket` }
+    }
+    if (mode !== 'interrupt') return { ...queued, ok: true, mode: 'queue' }
+    const out = await dispatcher.interruptNote(queued.id, { by })
+    return { ...queued, ...out, mode: 'interrupt', still_queued: !out.ok }
   },
   // #252, ADR-0013: the second delivery mode. The bridge presses this from the
   // button under a receipt; the dispatcher owns the grace and the keystrokes.
@@ -1204,6 +1248,12 @@ const wireEscalation = (r) => ({
   prompt: r.prompt,
   options: r.options ?? null,
   preview_url: r.preview_url ?? null,
+  // #266: the console draws the same buttons the Discord card draws, so it
+  // needs the one field that decides whether a free-text round carries the ✅
+  // All as recommended tap (#285). Without it the console would offer a
+  // recommended round a plain text box, and the operator would have to type
+  // the fixed word the button sends.
+  recommended: Boolean(r.recommended),
   opened_at: r.opened_at,
   agent_died: Boolean(r.agent_died),
   rendered: Boolean(r.discord),
@@ -1240,6 +1290,14 @@ function providerUsage() {
 // only long enough for the answer already written to leave the socket.
 const RESTART_EXIT_CODE = 75
 const RESTART_DELAY_MS = 50
+
+// Who a loopback caller says it is (#266). Every REST verb already journalled a
+// `by`, and every one of them journalled the same word: `rest`. The console
+// passes the operator's own Tailscale login instead — the one its identity gate
+// checked before the request got this far — so the feed names a person rather
+// than a transport. Absent or empty stays `rest`, which is what every caller
+// before this one sent. Bounded, because it is written into the journal.
+const named = (by) => (typeof by === 'string' && by.trim() ? by.trim().slice(0, 120) : 'rest')
 
 // The watchable repos, cached. `gh repo list` names only what the login OWNS,
 // and the watch list already carries a repo under another owner, so this asks
@@ -1458,15 +1516,33 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   if (url.pathname === '/answer' && req.method === 'POST') {
-    const { id, answer, attachments } = await readBody(req)
+    const { id, answer, attachments, by, via } = await readBody(req)
     // Attachment paths get read and inlined into an agent's context, so they
     // pass the same containment gate as outbound images rather than being
     // trusted because the caller reached loopback.
     const { files } = outboundImages('rest', attachments)
+    // #266: the console names the operator who pressed and the surface they
+    // pressed on, so the journal and the feed say `answered by <login> via
+    // dashboard` rather than attributing every browser answer to `rest`. The
+    // default is what every caller before this one already sent.
     const result = gate.answer(id, {
-      answer: String(answer), attachments: files.map((f) => f.attachment), by: 'rest', via: 'rest',
+      answer: String(answer), attachments: files.map((f) => f.attachment), by: named(by), via: named(via),
     })
     return json(result.ok ? 200 : 409, result)
+  }
+
+  // The console's note (#266). A note in Discord is any message in an agent's
+  // thread, so it has no verb and the command surface carries none; the browser
+  // has no thread at all, and names the agent instead. What happens after that
+  // is ADR-0013 unchanged — see gate.noteAgent.
+  if (url.pathname === '/note' && req.method === 'POST') {
+    const body = await readBody(req)
+    const agent = String(body.agent ?? '')
+    const text = String(body.text ?? '')
+    const mode = body.mode === 'interrupt' ? 'interrupt' : 'queue'
+    if (!validSessionName(agent)) return json(400, { error: `\`${agent}\` is not a curia session name` })
+    if (!text.trim()) return json(400, { error: 'a note with no words is not a note' })
+    return json(200, await gate.noteAgent(agent, text, { mode, by: named(body.by) }))
   }
 
   if (url.pathname === '/cancel' && req.method === 'POST') {
@@ -1523,9 +1599,9 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // seam Discord uses — two hand-rolled copies of log+journal+dispatch had
   // already drifted apart.
   if (url.pathname === '/command' && req.method === 'POST') {
-    const { text } = await readBody(req)
+    const { text, by } = await readBody(req)
     if (typeof text !== 'string' || !text.trim()) return json(400, { error: 'body must carry {text}' })
-    const reply = await gate.command(text, 'rest')
+    const reply = await gate.command(text, named(by))
     return json(200, { reply })
   }
 

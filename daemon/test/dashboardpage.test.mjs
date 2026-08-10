@@ -99,10 +99,10 @@ const OVERVIEW = () => ({
     computed_at: at(120),
     repos: [
       { repo: 'alp82/curia', lane: 'map', numbers: [265, 266], agentOnly: 2, items: [
-        { number: 265, title: 'The settings write', labels: ['wayfinder:task'], map: 244, mapTitle: 'Curia gets a face', unblocks: [
+        { number: 265, title: 'The settings write', labels: ['wayfinder:task'], model: 'claude-opus-5', map: 244, mapTitle: 'Curia gets a face', unblocks: [
           { number: 267, title: 'The chat embeds the timeline attach', labels: ['wayfinder:task'] },
         ] },
-        { number: 266, title: 'The verbs reach the browser', labels: ['wayfinder:grilling'], map: 244, mapTitle: 'Curia gets a face', unblocks: [] },
+        { number: 266, title: 'The verbs reach the browser', labels: ['wayfinder:grilling'], model: 'gpt-5.6-sol', map: 244, mapTitle: 'Curia gets a face', unblocks: [] },
       ] },
       { repo: 'alp82/aistack', error: 'gh api failed: HTTP 502' },
     ],
@@ -140,7 +140,10 @@ describe('the read screens (#264)', () => {
       assert.match(t, /1 review gate/)
       assert.match(t, /Needs you \(3\)/, 'the list adds the spent window the count does not')
       assert.match(t, /Two notes race the same expiry line/, 'the question is shown whole, not summarized')
-      assert.match(t, /Drop the older note · Post both with stamps/, 'and its options are named')
+      // #266 turned the options from named text into the buttons that send
+      // them. The labels are still the whole set — that is what this pins.
+      assert.match(t, /Drop the older note/, 'and its options are named')
+      assert.match(t, /Post both with stamps/)
       assert.match(t, /review gate — #261/)
       assert.match(t, /pull\/262/, 'the gate carries the pull request nothing else carries')
       assert.match(t, /Fleet \(3\)/)
@@ -557,5 +560,291 @@ describe('the settings screen (#265)', () => {
   test('a restart the journal recorded reads as a sentence in the feed', () => {
     const p = payload({ events: [{ ts: at(30), type: 'restart_requested', by: 'dashboard', exit_code: 75 }] })
     assert.match(text(page.screenFeed(p)), /restart ordered by dashboard — the daemon exits 75/)
+  })
+})
+
+// The operator verbs on the page (#266). What a human looking at the preview
+// can judge is that a button is there and reads well. What they cannot judge by
+// looking is the half pinned here: that the words a button SENDS are the words
+// every other surface sends, that a verb appears exactly where the ticket put
+// it and nowhere else, and that a refusal reads as a fact rather than as a
+// broken page.
+describe('the operator verbs (#266)', () => {
+  let page
+  before(() => { page = loadPage() })
+  beforeEach(() => {
+    page.UI.act = { busy: null, said: null, note: null, mode: 'queue', tele: null }
+    page.UI.fr = { view: 'cards', repo: 'all', type: 'all' }
+  })
+
+  // ---- start ---------------------------------------------------------------
+
+  describe('start, on the frontier', () => {
+    test('the button carries the routed model, so the account is named before it is spent', () => {
+      const t = text(page.screenFrontier(payload()))
+      assert.match(t, /Start → claude-opus-5 \(task default\)/)
+      assert.match(t, /Start → gpt-5\.6-sol \(grilling default\)/)
+    })
+
+    test('it names the repo and the number, and the sidecar composes the rest', () => {
+      const html = page.screenFrontier(payload())
+      assert.match(html, /startTicket\('alp82\/curia','265'\)/)
+    })
+
+    test('a ticket an agent already holds shows the agent instead of a button that only refuses', () => {
+      const p = payload()
+      p.overview.agents[0].ticket = '265'
+      const t = text(page.screenFrontier(p))
+      assert.match(t, /⧗ dispatched — curia-263/)
+      assert.equal(/startTicket\('alp82\/curia','265'\)/.test(page.screenFrontier(p)), false)
+    })
+
+    test('an unreadable fleet is not an idle one: the button stands and says curia cannot tell', () => {
+      const p = payload({ agents: null, fleet_error: 'tmux is wedged' })
+      const t = text(page.screenFrontier(p))
+      assert.match(t, /Start/)
+      assert.match(t, /cannot say whether this one is already running/)
+    })
+
+    test('an item carrying no routed model says so, rather than naming a model nobody chose', () => {
+      const p = payload()
+      delete p.overview.frontier.repos[0].items[0].model
+      assert.match(text(page.screenFrontier(p)), /the routed model is not on this reading/)
+    })
+
+    test('the tree view starts a ticket too — the view is a way of reading, not a way of acting', () => {
+      page.UI.fr.view = 'tree'
+      assert.match(page.screenFrontier(payload()), /startTicket\('alp82\/curia','266'\)/)
+    })
+
+    test('a repo whose frontier could not be read offers no button there', () => {
+      const t = text(page.screenFrontier(payload()))
+      assert.match(t, /alp82\/aistack could not be read/)
+      assert.match(t, /there may be takeable tickets there/)
+    })
+  })
+
+  // ---- answer --------------------------------------------------------------
+
+  describe('an answer, on the one answer surface', () => {
+    test('a choice offers its own options, and the button sends the option verbatim', () => {
+      const html = page.screenHome(payload())
+      assert.match(html, /answerEsc\('esc-7','Drop the older note'\)/)
+      assert.match(html, /answerEsc\('esc-7','Post both with stamps'\)/)
+    })
+
+    // An option is an AGENT's own words, and it lands inside an onclick
+    // handler. A quote in it would close the JS string and open code, which
+    // makes it the one value on this page that could ever do that.
+    test('an option carrying a quote is escaped for the handler it sits in, not only for the html', () => {
+      const raw = "x'),alert(1),('"
+      const p = payload()
+      p.overview.escalations[0].options = ["it's fine", raw]
+      const html = page.screenHome(p)
+      assert.ok(html.includes("answerEsc('esc-7','it\\'s fine')"), 'the quote is escaped, and the label still reads')
+      assert.equal(html.includes(`,'${raw}')`), false, 'the raw option never reaches the handler')
+      assert.ok(html.includes("x\\'),alert(1),(\\'"), 'every quote in it stays inside the string it was given')
+    })
+
+    test('every kind still takes words: an option list is not the only way to answer', () => {
+      assert.match(page.screenHome(payload()), /answerTyped\('esc-7','ans-esc-7'\)/)
+    })
+
+    test('an approve-reject pair sends the two literals the daemon classifies', () => {
+      const p = payload()
+      p.overview.escalations[0].kind = 'approve-reject'
+      p.overview.escalations[0].options = null
+      const html = page.screenHome(p)
+      assert.match(html, /answerEsc\('esc-7','approve'\)/)
+      assert.match(html, /answerEsc\('esc-7','reject'\)/)
+    })
+
+    test('a recommended round carries its one tap, and nothing beside it (#285)', () => {
+      const p = payload()
+      Object.assign(p.overview.escalations[0], { kind: 'free-text', options: null, recommended: true })
+      const html = page.screenHome(p)
+      assert.match(html, /answerEsc\('esc-7','all-as-recommended'\)/)
+      assert.match(text(html), /All as recommended/)
+      assert.equal(/answerEsc\('esc-7','reject'\)/.test(html), false, 'the opposite of that tap is your reply')
+    })
+
+    test('a free-text round with no recommendation gets the field and no tap', () => {
+      const p = payload()
+      Object.assign(p.overview.escalations[0], { kind: 'free-text', options: null, recommended: false })
+      const html = page.screenHome(p)
+      assert.equal(/all-as-recommended/.test(html), false)
+      assert.match(html, /answerTyped/)
+    })
+
+    test('the Agents table states the question and answers none of it — one answer surface', () => {
+      const html = page.screenAgents(payload())
+      assert.equal(/answerEsc/.test(html), false)
+      assert.match(text(html), /choice/, 'it still says what the agent waits on')
+    })
+  })
+
+  // ---- the review gate -----------------------------------------------------
+
+  describe('the review gate card', () => {
+    test('it carries the three the gate has, and cross-check is one of them', () => {
+      const html = page.screenHome(payload())
+      assert.match(html, /answerEsc\('esc-9','approve'\)/)
+      assert.match(html, /answerEsc\('esc-9','cross-check'\)/)
+      assert.match(html, /rejectGate\('esc-9','rej-esc-9'\)/)
+      assert.match(text(html), /Approve · merge/)
+    })
+
+    test('a rejection is a field, not a bare button: the agent gets your words (#48)', () => {
+      assert.match(page.screenHome(payload()), /placeholder="what to change — a rejection carries your words/)
+    })
+
+    test('an empty rejection is refused on the page, and nothing is sent', () => {
+      page.document.getElementById = () => ({ value: '   ' })
+      page.rejectGate('esc-9', 'rej-esc-9')
+      assert.equal(page.UI.act.said.ok, false)
+      assert.match(page.UI.act.said.text, /A rejection carries your words/)
+      page.document.getElementById = () => null
+    })
+
+    test('the pull request stays the one thing this card carries that no other does', () => {
+      assert.match(text(page.screenHome(payload())), /pull\/262/)
+    })
+  })
+
+  // ---- note, teleport, cancel ----------------------------------------------
+
+  describe('the three per-agent verbs', () => {
+    test('every live agent row carries them', () => {
+      const html = page.screenAgents(payload())
+      assert.match(html, /noteBox\('curia-263'\)/)
+      assert.match(html, /teleport\('curia-263','263'\)/)
+      assert.match(html, /cancelAgent\('curia-263','alp82\/curia','263'\)/)
+    })
+
+    test('the note box states both delivery modes in ADR-0013\'s own terms', () => {
+      page.UI.act.note = 'curia-263'
+      const t = text(page.screenAgents(payload()))
+      assert.match(t, /queue — it reads this with its next tool result/)
+      assert.match(t, /interrupt — a short grace, then the words land as a user turn/)
+      assert.match(page.screenAgents(payload()), /placeholder="say something to curia-263/)
+    })
+
+    test('queued is the default, so the mode nobody chose is the safe one', () => {
+      assert.equal(page.UI.act.mode, 'queue')
+      page.UI.act.note = 'curia-263'
+      const html = page.screenAgents(payload())
+      assert.match(html, /value="queue"|noteMode\('queue'\)/)
+      assert.match(html, /name="nm-curia-263"[^>]*checked[^>]*onchange="noteMode\('queue'\)"/)
+    })
+
+    test('a note with no words is refused on the page, and nothing is sent', () => {
+      page.document.getElementById = () => ({ value: '' })
+      page.sendNote('curia-263', 'note-curia-263')
+      assert.equal(page.UI.act.said.ok, false)
+      assert.match(page.UI.act.said.text, /not a note/)
+      page.document.getElementById = () => null
+    })
+
+    test('one box at a time, and pressing the same verb again closes it', () => {
+      page.noteBox('curia-263')
+      assert.equal(page.UI.act.note, 'curia-263')
+      page.noteBox('curia-263')
+      assert.equal(page.UI.act.note, null)
+    })
+
+    test('teleport shows the copyable command for the box, beside curia\'s own links', () => {
+      page.UI.act.tele = 'curia-263'
+      page.UI.act.said = { key: 'agent:curia-263', text: '🔗 timeline https://box.ts.net:8444/t/263', ok: true }
+      const t = text(page.screenAgents(payload()))
+      assert.match(t, /On the box itself, in a terminal:/)
+      assert.match(page.screenAgents(payload()), /attach -t curia-263/)
+      assert.match(t, /timeline/)
+    })
+
+    test('the copyable line goes in through the tmux container, which is where the server lives (#260)', () => {
+      assert.match(page.attachCmd('curia-263'), /^docker compose .* exec tmux tmux -S \/run\/curia-tmux\/default attach -t curia-263$/)
+    })
+  })
+
+  // ---- what curia said -----------------------------------------------------
+
+  describe('the outcome of a press', () => {
+    test('a command reply is curia\'s own sentence, rendered where the press was', () => {
+      page.UI.act.said = { key: 'start:alp82/curia#265', text: '⚙️ `curia-265` spawned on **claude-opus-5**', ok: true }
+      const html = page.screenFrontier(payload())
+      assert.match(html, /<code>curia-265<\/code>/, 'the markdown curia speaks everywhere else reads here too')
+      assert.match(html, /<b>claude-opus-5<\/b>/)
+    })
+
+    test('a refusal is marked, and it is not a broken page', () => {
+      page.UI.act.said = { key: 'esc:esc-7', text: 'that question was already answered — the first valid answer wins', ok: false }
+      const html = page.screenHome(payload())
+      assert.match(html, /class="said bad"/)
+      assert.match(text(html), /first valid answer wins/)
+    })
+
+    test('what curia said lands under the control that asked, never on another one', () => {
+      page.UI.act.said = { key: 'esc:esc-7', text: 'answered', ok: true }
+      assert.equal(/class="said/.test(page.screenAgents(payload())), false)
+    })
+
+    test('a queued note says when the agent reads it; an interrupt says what it costs', () => {
+      assert.match(page.outcome({ mode: 'queue', ok: true, agent: 'curia-263' }), /next tool result/)
+      assert.match(page.outcome({ mode: 'interrupt', ok: true, session: 'curia-263', graceMs: 5000 }), /5s of grace/)
+    })
+
+    test('an interrupt curia refused still delivered the words — queued, which is the default anyway', () => {
+      const said = page.outcome({ mode: 'interrupt', ok: false, why: 'curia-263 is waiting on esc-7', still_queued: true })
+      assert.match(said, /waiting on esc-7/)
+      assert.match(said, /stay queued/)
+    })
+
+    test('a note nothing took says only that, with no promise of delivery', () => {
+      const said = page.outcome({ mode: 'queue', ok: false, why: 'curia is not running `curia-9`' })
+      assert.match(said, /not running/)
+      assert.equal(/queued/.test(said), false)
+    })
+
+    test('one act at a time: while a press is in flight every other control is disabled', () => {
+      page.UI.act.busy = 'esc:esc-7'
+      assert.match(page.screenFrontier(payload()), /button class="btn sm primary" disabled/)
+      assert.match(page.screenAgents(payload()), /disabled/)
+    })
+  })
+
+  // ---- the feed ------------------------------------------------------------
+
+  describe('every verb lands in the feed', () => {
+    const feed = (e) => text(page.screenFeed(payload({ events: [{ ts: at(30), ...e }] })))
+
+    test('a note names who sent it and what it said', () => {
+      assert.match(feed({ type: 'agent_note', agent: 'curia-263', by: 'alp@example.com', text: 'look again' }),
+        /note for curia-263 from alp@example.com: look again/)
+    })
+
+    test('an interrupt says the grace it gave, because that is the operator\'s own choice', () => {
+      assert.match(feed({ type: 'note_interrupt', agent: 'curia-263', by: 'alp@example.com', grace_ms: 5000 }),
+        /curia-263 interrupted by alp@example.com — 5s of grace/)
+    })
+
+    test('an interrupt that failed is marked bad and says why', () => {
+      assert.match(feed({ type: 'note_interrupt_failed', agent: 'curia-263', reason: 'the agent exited during the grace' }),
+        /the interrupt of curia-263 failed — the agent exited during the grace/)
+    })
+
+    test('a note curia refused is a fact in the feed, not a silence', () => {
+      assert.match(feed({ type: 'agent_note_refused', agent: 'curia-263', reason: 'agent not running' }),
+        /a note for curia-263 was refused — agent not running/)
+    })
+
+    test('an answer names the operator and the surface it came from', () => {
+      assert.match(feed({ type: 'esc_answer', id: 'esc-7', by: 'alp@example.com', via: 'dashboard' }),
+        /escalation esc-7 answered by alp@example.com via dashboard/)
+    })
+
+    test('a start pressed here reads exactly as one typed in Discord — one seam, one event', () => {
+      assert.match(feed({ type: 'command', canonical: 'start alp82/curia#266', by: 'alp@example.com' }),
+        /start alp82\/curia#266 — by alp@example.com/)
+    })
   })
 })
