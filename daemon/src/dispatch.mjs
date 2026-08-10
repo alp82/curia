@@ -27,7 +27,7 @@ import {
   resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
   carriesLimitPhrase, resolveReviewer, Cooling, SAME_PROVIDER_STAMP,
 } from './routing.mjs'
-import { hasSession, listSessions, newSession, capturePane, killSession } from './tmux.mjs'
+import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey } from './tmux.mjs'
 import {
   createPrivateClone, removeWorkspace,
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
@@ -45,10 +45,10 @@ import {
 } from './sandbox.mjs'
 import {
   resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment,
-  verdictComment, judgementComment, verdictNote,
+  verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
-import { CONFIRM_KIND, normalizeEvent } from './store.mjs'
+import { CONFIRM_KIND, VERDICT_LABEL, normalizeEvent } from './store.mjs'
 import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
@@ -154,9 +154,15 @@ const ISSUE_ABSENT_RE = /HTTP 404|Not Found/i
 // unref'd so a pending poll never holds the process open
 const sleep = (ms) => sleepFor(ms, undefined, { ref: false })
 
+// The interrupt's grace (#252, ADR-0013): "a few seconds for the current tool
+// call". Long enough that an ordinary read, edit or grep finishes on its own and
+// the Escape lands on a clear composer; short enough that the operator who
+// pressed the button reads it as an interrupt rather than a queue.
+const INTERRUPT_GRACE_MS = 5_000
+
 const DEFAULT_DEPS = {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
-  hasSession, listSessions, newSession, capturePane, killSession,
+  hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey,
   createPrivateClone, removeWorkspace, removeConfigDir, removeCredentials,
   createReviewCheckout, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt,
@@ -332,6 +338,10 @@ export class Dispatcher {
     // agents map: `data/verdicts/<ticket>.json` is what survives a restart, and
     // verdictFor() reads it back. The return path (#165) takes it from here.
     this.verdicts = new Map()
+    // The interrupt's grace (#252): how long the CURRENT tool call gets before
+    // Escape lands on it. A field rather than a constant so a test can drive
+    // the path without waiting out a real one.
+    this.interruptGraceMs = INTERRUPT_GRACE_MS
     // Builders parked at the gate waiting for a verdict (#165), ticket ->
     // { agent, resolve }. Process-scoped on purpose: the thing waiting is a live
     // MCP call, and a daemon restart kills the call before it kills this map.
@@ -2154,7 +2164,7 @@ export class Dispatcher {
     if (unjudged) {
       this.store.logEvent('review_refused', { repo, ticket, agent: agentName, reason: 'unjudged cross-check verdict' })
       this.store.queueAgentNote?.(agentName, verdictNote(unjudged), {
-        instance: w?.instance ?? null, label: 'cross-check verdict',
+        instance: w?.instance ?? null, label: VERDICT_LABEL,
       })
       return {
         ok: false,
@@ -2427,20 +2437,45 @@ export class Dispatcher {
     this.store.logEvent('verdict_commented', {
       repo: verdict.repo, ticket, agent: verdict.agent, ok: posted.ok, why: posted.why ?? null,
     })
+    // The comment url rides on the held artifact, because the carrier below —
+    // and the one the expiry path posts later — link the full text, and this is
+    // the only moment curia learns where that text lives. It goes to disk too:
+    // the expiry can come after a restart, and a link only memory holds is a
+    // link the carrier would not have.
+    if (posted.ok && posted.url) {
+      verdict.pr_url = posted.url
+      this.verdicts.set(ticket, verdict)
+      try {
+        fs.writeFileSync(this.#verdictFile(ticket), JSON.stringify(verdict, null, 2))
+      } catch (e) {
+        this.log(`could not record the pull-request link on the verdict for #${ticket}: ${e.message}`)
+      }
+    }
     if (!posted.ok) {
       this.notify(ticket, `⚠️ the cross-check verdict could NOT be posted on the pull request — ${posted.why}. curia still holds it, and the builder still gets it.`)
     }
     const w = this.agents.get(builder)
     if (!w) {
+      // #252, ADR-0013: a verdict with no live reader is POSTED, not mourned.
+      // The old line said only that it had nowhere to go, which on #223 was the
+      // whole record of a four-finding fail verdict. The thread is the verdict's
+      // last reader, so the thread gets the verdict.
       this.store.logEvent('verdict_undelivered', { repo: verdict.repo, ticket, agent: builder, reason: 'no builder is running' })
-      this.notify(ticket, `📭 the verdict on #${ticket} has nowhere to go — \`${builder}\` is not running. It is on the pull request, and \`resume ${ticket}\` puts an agent back on the ticket.`)
+      this.notify(ticket, verdictCarrier({
+        agent: verdict.agent,
+        model: verdict.model,
+        verdict: verdict.verdict,
+        ticket,
+        url: posted.ok ? posted.url : null,
+        why: `\`${builder}\` is not running`,
+      }))
       return
     }
     // #208's rule, and the caller is what marks the note: these words are for
     // THIS builder. A successor must not read a verdict about a diff it did not
     // write.
     this.store.queueAgentNote?.(builder, verdictNote(verdict), {
-      instance: w.instance ?? null, label: 'cross-check verdict',
+      instance: w.instance ?? null, label: VERDICT_LABEL,
     })
     this.#settleReviewWait(ticket, { ok: true, verdict })
   }
@@ -3457,14 +3492,147 @@ export class Dispatcher {
   // `liveInstance` is null at every death. Adoption after a restart passes
   // the FRESH instance instead, which expires the pre-restart words on the
   // same rule that lapses a pre-restart confirm.
+  //
+  // #252 leaves this as the caller that knows WHY, and nothing else. The
+  // announcing moved into the store, which every expiry passes through, so a
+  // path that forgets to call this one still cannot lose a note in silence.
   expireNotesFor(session, ticket, why, liveInstance = null) {
-    const n = this.store.expireAgentNotes(session, liveInstance)
-    if (!n) return
-    this.log(`${n} operator note(s) for ${session} expired — ${why}`)
-    const again = liveInstance
-      ? 'Say them again in this thread.'
-      : `Say them again after \`resume ${ticket}\`.`
-    this.notify(ticket, `📭 \`${session}\` ${why} with ${n} operator note${n === 1 ? '' : 's'} it never read. A note dies with the agent it was typed at, so nothing carries these words to a successor. ${again}`)
+    this.store.expireAgentNotes(session, liveInstance, why)
+  }
+
+  // Expiry always announces (#252, ADR-0013). Wired to the store's expiry hook,
+  // so it runs once per expiry whichever path caused it — an ordered teardown,
+  // an adoption after a restart, or the drain's belt-and-braces sweep.
+  //
+  // Two shapes, because two kinds of words die here:
+  //
+  //   an operator note — one CuriaBot line with the count. The journal keeps
+  //     the text and the operator can say it again, so repeating it back is
+  //     noise (#108 item 14's contract, unchanged).
+  //   a cross-check verdict — its whole content, with attribution. It is the
+  //     output of a whole reviewer session and nobody can say it again: the
+  //     reviewer is gone and never reads the same diff twice. On #223 one
+  //     expired unread and the thread showed nothing, and that loss class is
+  //     what this branch makes impossible.
+  announceExpiredNotes({ agent, notes, liveInstance, why }) {
+    const ticket = this.agents.get(agent)?.ticket ?? String(agent).match(SESSION_RE)?.[1] ?? String(agent)
+    const verdicts = notes.filter((n) => n.label === VERDICT_LABEL)
+    const plain = notes.length - verdicts.length
+    this.log(`${notes.length} note(s) for ${agent} expired — ${why}`)
+    if (plain) {
+      const again = liveInstance
+        ? 'Say them again in this thread.'
+        : `Say them again after \`resume ${ticket}\`.`
+      this.notify(ticket, `📭 \`${agent}\` ${why} with ${plain} operator note${plain === 1 ? '' : 's'} it never read. A note dies with the agent it was typed at, so nothing carries these words to a successor. ${again}`)
+    }
+    const held = verdicts.length ? this.verdictFor(ticket) : null
+    for (const note of verdicts) {
+      this.store.logEvent('verdict_carried', { ticket, agent, reason: why })
+      this.notify(ticket, verdictCarrier({
+        agent: held?.agent ?? null,
+        model: held?.model ?? null,
+        // The held artifact is the fuller copy; the note text is the fallback
+        // for a verdict whose artifact this daemon no longer has.
+        verdict: held?.verdict ?? note.text,
+        ticket,
+        url: held?.pr_url ?? null,
+        why: `\`${agent}\` ${why}`,
+      }))
+    }
+  }
+
+  // ---- the interrupt, the second delivery mode (#252, ADR-0013) ---------------
+  //
+  // Queued is the default and is fire-and-forget: the words ride the agent's
+  // next tool result and nothing owes a reply. Interrupt is the other mode, and
+  // the operator picks it by pressing the button under the receipt — which is
+  // why it takes a NOTE id rather than a session: the button names the words it
+  // sits under.
+  //
+  // What it does: gives the current tool call a grace of a few seconds, then
+  // sends Escape and types the words into the pane as a user turn. The agent
+  // answers them the way it answers any user message, and that reply is the
+  // outcome — in the thread, in the agent's voice. No CuriaBot line states it,
+  // because the agent's own words are the fact.
+  //
+  // Three refusals, and each one is a case where the keystrokes would do harm
+  // rather than nothing:
+  //
+  //   the agent is gone — words typed at an agent die with it (#208), and
+  //     Escape into a dead session names no pane at all.
+  //   the note belongs to an earlier instance — the same rule, one layer in.
+  //   an escalation is open — the agent is BLOCKED inside `ask_human`, and
+  //     Escape would abort the very tool call that is asking the question. The
+  //     answer surface is the card, and the refusal says so.
+  //
+  // A native terminal dialog (#75) needs no refusal here, unlike the timeline's
+  // /send: the Escape goes first, and Escape is the key #75 itself rules safe
+  // through a dialog — it dismisses rather than answers. The composer is back
+  // by the time the text lands.
+  //
+  // The press RETURNS as soon as the guards pass; the grace and the keystrokes
+  // run after it. The button surface must not sit on a Discord interaction for
+  // seconds, and the injection reports its own failure on the thread.
+  async interruptNote(id, { by = null } = {}) {
+    const note = this.store.noteById(id)
+    if (!note) return { ok: false, why: 'curia has no record of that note, so there is nothing to interrupt' }
+    const session = note.agent
+    const ticket = this.agents.get(session)?.ticket ?? String(session).match(SESSION_RE)?.[1] ?? String(session)
+    const w = this.agents.get(session)
+    if (!w) {
+      return { ok: false, session, ticket, why: `\`${session}\` is NOT running, so there is nothing to interrupt — \`resume ${ticket}\` puts an agent back on the ticket, then say the words again` }
+    }
+    if (note.instance && w.instance && note.instance !== w.instance) {
+      return { ok: false, session, ticket, why: `those words were typed at an earlier \`${session}\`, and a note dies with the agent it was typed at — say them again in this thread` }
+    }
+    const open = this.#openEscalationsFor(session)
+    if (open.length) {
+      const ids = open.map((r) => `**${r.id}**`).join(', ')
+      return { ok: false, session, ticket, why: `\`${session}\` is waiting on ${ids} — answer that question instead. An interrupt here would abort the call that is asking it.` }
+    }
+    const wasPending = note.pending
+    // Out of the queue first: a note the interrupt carries must never also ride
+    // a tool result. One fact, one delivery, whichever mode carries it.
+    this.store.interruptAgentNote(id, { by })
+    this.store.logEvent('note_interrupt', {
+      id, agent: session, ticket, by, grace_ms: this.interruptGraceMs, was_queued: wasPending,
+    })
+    this.#injectNote(session, ticket, note).catch((e) => this.log(`note interrupt for ${session} failed: ${e.message}`))
+    return { ok: true, session, ticket, graceMs: this.interruptGraceMs, was_queued: wasPending }
+  }
+
+  // The words, in the pane, as a user turn. The wrapper is short and it says
+  // the two things the agent cannot know from the text alone: a human typed
+  // this in the thread, and the reply has to go back through `notify` — the
+  // pane is not a surface the operator reads.
+  //
+  // ONE line, and the operator's own whitespace is collapsed into it for the
+  // same reason the map instruction's is (see expandCommand): a composer reads
+  // a newline as a submit, so a two-line send is a half-sent message and a turn
+  // that starts on the first half.
+  async #injectNote(session, ticket, note) {
+    await sleep(this.interruptGraceMs)
+    const w = this.agents.get(session)
+    if (!w) {
+      this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: 'the agent exited during the grace' })
+      this.notify(ticket, `📭 \`${session}\` exited during the interrupt grace, so these words reached nobody: ${note.text}`)
+      return
+    }
+    const said = String(note.text ?? '').replace(/\s+/g, ' ').trim()
+    const text = `[the operator, interrupting from the thread] ${said}`
+      + ' — answer this now with the `notify` tool: your terminal output does not reach them. Then carry on.'
+    try {
+      // Escape aborts whatever tool call the grace did not let finish. It is a
+      // separate write from the text on purpose: tmux paces and queues per pane
+      // (#223), so the two land in order with the composer clear between them.
+      await this.deps.sendKey(session, 'Escape')
+      await this.deps.sendText(session, text)
+    } catch (e) {
+      this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: e.message })
+      this.notify(ticket, `⚠️ curia could not interrupt \`${session}\` — ${e.message}. The words are NOT with the agent: say them again.`)
+      return
+    }
+    this.store.logEvent('note_interrupt_delivered', { agent: session, ticket })
   }
 
   // The teardown a confirmed cancel runs — shared verbatim by cancel and

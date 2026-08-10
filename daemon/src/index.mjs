@@ -377,7 +377,7 @@ const gate = {
       store.logEvent('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
       return { agent, after: null, reads, ticket }
     }
-    const { after } = store.queueAgentNote(agent, text.trim(), { by, instance })
+    const { id, after } = store.queueAgentNote(agent, text.trim(), { by, instance })
     log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}`)
     // #236: the facts a status question needs, gathered from records the
     // daemon already holds — the status line's state machine, the dispatch
@@ -395,8 +395,14 @@ const gate = {
       esc: sl?.detail?.esc ?? null,
       last: store.lastAgentEvent(agent),
     } : null
-    return { agent, after, reads, ticket, status }
+    // `id` is what the interrupt button under this receipt points at (#252):
+    // queued is the default mode, and the button is how the operator picks the
+    // other one for these exact words.
+    return { agent, id, after, reads, ticket, status }
   },
+  // #252, ADR-0013: the second delivery mode. The bridge presses this from the
+  // button under a receipt; the dispatcher owns the grace and the keystrokes.
+  interruptNote: (id, by) => dispatcher.interruptNote(id, { by }),
 }
 
 // ---- dispatch loop (#33) ----------------------------------------------------
@@ -522,6 +528,12 @@ const dispatcher = new Dispatcher({
     assertSideChannel,
   },
 })
+
+// Expiry always announces (#252, ADR-0013). The hook is set HERE, once, on the
+// one call every expiry path runs through — an exit, an adoption, the drain's
+// own sweep — so no future path can lose a note in silence the way #223 lost a
+// whole cross-check verdict.
+store.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
 
 // ---- the identity check (#151) ----------------------------------------------
 //

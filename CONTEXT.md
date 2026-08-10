@@ -253,6 +253,19 @@ The rule that divides the thread's speakers. CuriaBot states mechanics, the agen
 A fire-and-forget line of agent prose into the ticket thread.
 _Avoid_: status line (that names the daemon's own line, below).
 
+**Operator note**:
+Text the operator types in an agent's thread while no escalation is open. It belongs to the instance it was typed at and dies with it. It has two delivery modes, and the operator picks.
+_Avoid_: message, comment.
+
+**Queued**:
+The default delivery mode. The note rides the agent's next tool result, and nothing owes a reply. The receipt carries the interrupt button, and no drain receipt follows.
+
+**Interrupt**:
+The other delivery mode, picked by the button under the receipt. The current tool call gets a grace of a few seconds, then the note goes into the pane as a user turn. The agent's own reply is the outcome.
+
+**Verdict carrier**:
+The whole verdict, posted into the thread when no agent is left to read it. It names the reviewer, its model, its findings and the pull request that holds the full text. A verdict is never mourned in one line.
+
 ### The ending
 
 **Ending**:

@@ -237,7 +237,9 @@ describe('agent-note queue', () => {
       store.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@1' })
       store.queueRecordedAnswer({ id: 'esc-3', agent: 'curia-166', prompt: 'ship it?', answer: 'yes' })
 
-      assert.equal(store.expireAgentNotes('curia-166', null), 1, 'one stamped note died')
+      // #252: expiry hands back the notes themselves, not a count — a dead
+      // verdict is posted in full and a number cannot carry it.
+      assert.deepEqual(store.expireAgentNotes('curia-166', null).map((n) => n.text), ['cancel 166'])
       const [survivor, ...rest] = store.takeAgentNotes('curia-166')
       assert.deepEqual(rest, [], 'exactly one note survived')
       assert.match(survivor.text, /a human answered esc-3/)
@@ -262,7 +264,7 @@ describe('agent-note queue', () => {
 
     test('expiring nothing writes nothing — an empty sweep is not an event', () => {
       store.queueAgentNote('curia-166', 'a note for whoever resumes', {})
-      assert.equal(store.expireAgentNotes('curia-166', null), 0)
+      assert.deepEqual(store.expireAgentNotes('curia-166', null), [])
       assert.deepEqual(store.takeAgentNotes('curia-166').map((n) => n.text), ['a note for whoever resumes'])
     })
 

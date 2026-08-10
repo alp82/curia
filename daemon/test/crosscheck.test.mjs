@@ -421,6 +421,26 @@ describe('the verdict\'s way back (#165)', () => {
     assert.ok(typesOf().includes('verdict_undelivered'))
     assert.match(notifies.map((n) => n.message).join('\n'), /resume 42/)
   })
+
+  // #252, ADR-0013: a verdict with no live reader is POSTED, not mourned. The
+  // old line said only that it had nowhere to go, and on #223 that one line was
+  // the entire surviving record of a four-finding `fail` verdict.
+  test('a verdict with no live reader is posted in FULL, with attribution', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    await d.crossCheck('42')
+    d.agents.delete('curia-42')
+
+    await d.onResult('curia-review-42', {
+      ticket: '42', status: 'resolved', summary: 'VERDICT: fail\n1. the drain path races the exit',
+    })
+
+    const carried = notifies.map((n) => n.message).find((m) => /has no live reader/.test(m))
+    assert.ok(carried, 'the thread is the verdict\'s last reader, so the thread gets the verdict')
+    assert.match(carried, /the drain path races the exit/, 'the findings themselves, not a count')
+    assert.match(carried, /curia-review-42/, 'who wrote it')
+    assert.match(carried, /https:\/\/github\.com\/o\/r\/pull\/7/, 'where the full text lives')
+  })
 })
 
 describe('a cross-check that produces no verdict releases the builder (#165)', () => {
