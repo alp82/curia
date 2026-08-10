@@ -216,6 +216,54 @@
   .fr-kid::before { content: "└─"; position: absolute; left: -16px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
   .fr-kid .t { font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
 
+  /* ---------- settings (#265, on the #248 look) ---------- */
+  .btn {
+    border: 1px solid var(--line); background: var(--bg-raise); color: var(--ink);
+    border-radius: 7px; padding: 6px 14px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+  .btn.sm { padding: 2px 8px; font-size: 12px; }
+  /* The restart, once a save has landed: the loud half of the two-phase banner. */
+  .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+  .btn[disabled] { opacity: .55; cursor: default; }
+
+  input[type=text], input[type=number] {
+    background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
+  }
+  input[type=number] { width: 5.5em; }
+  input[type=checkbox] { accent-color: var(--accent); }
+
+  .set-subnav { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .set-subnav button { border: 0; background: none; color: var(--ink-dim); padding: 7px 14px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .set-subnav button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+  .set-block { border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 12px 14px; }
+  .set-block h3 { font-size: 13px; margin-bottom: 8px; }
+  .set-block .hint { font-size: 12px; color: var(--ink-dim); margin: 0 0 10px; }
+  .set-block table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .set-block td, .set-block th { padding: 5px 8px 5px 0; text-align: left; vertical-align: middle; }
+  .set-block th { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .set-block tr.inactive td { color: var(--ink-faint); }
+  .set-block .right { text-align: right; }
+  .model-mgr { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .gh-connect { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 10px; flex-wrap: wrap; }
+
+  /* The banner sits at the TOP and runs two phases (#248): save first, then the
+     restart that applies it. */
+  .save-banner {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--bg-raise); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 14px; margin-bottom: 14px;
+  }
+  .save-banner.saved { border-color: var(--accent); background: var(--chip-ok-bg); }
+  .save-banner.refused { border-color: var(--bad); background: var(--chip-bad-bg); }
+  .save-banner .toast { font-size: 12.5px; color: var(--ink-dim); }
+  .save-banner.saved .toast { color: var(--ok); }
+  .save-banner.refused .toast { color: var(--bad); }
+  .save-banner .toast.why { font-family: ui-monospace, Menlo, monospace; font-size: 12px; flex-basis: 100%; }
+
   /* ---------- the screens that land later ---------- */
   .later {
     border: 1px dashed var(--line); border-radius: 9px; padding: 12px 14px;
@@ -241,7 +289,7 @@ const SCREENS = {
   frontier: ["Frontier", screenFrontier],
   feed:     ["Feed",     screenFeed],
   chat:     ["Chat",     (p) => later(p, "The chat", "#267")],
-  settings: ["Settings", (p) => later(p, "The settings screens", "#265")],
+  settings: ["Settings", screenSettings],
 };
 const NAMES = Object.keys(SCREENS);
 
@@ -253,9 +301,19 @@ const SPENT_PCT = 95;
 const REVIEW_KIND = "review-gate";
 
 /* The page's whole mutable state. `var` on purpose — the test reaches it. */
-var UI = { screen: "home", fr: { view: "cards", repo: "all", type: "all" } };
+var UI = {
+  screen: "home",
+  fr: { view: "cards", repo: "all", type: "all" },
+  /* The settings screen's own state (#265). `phase` is the save banner's two
+     phases plus the two that can interrupt them: clean, dirty, saved,
+     restarting, refused, unread. */
+  set: { section: "routing", models: false, phase: "clean", error: null, busy: false, note: null },
+};
 var payload = null;   /* the sidecar's last answer */
 var reachable = true; /* is the SIDECAR itself answering — a different fact from daemon_up */
+var settings = null;  /* the last read of curia.yaml + routing.yaml off disk */
+var draft = null;     /* the same, with the operator's unsaved edits on it */
+var repos = null;     /* the watchable repos, read through the daemon on demand */
 
 /* ---- words ---------------------------------------------------------------- */
 
@@ -493,6 +551,7 @@ const EVENTS = {
   preview: ["preview", "", (e) => `${who(e)} published a preview${e.path ? ` at ${esc(e.path)}` : ""}${e.ok === false ? ` — refused: ${esc(e.reason)}` : ""}`],
   model_cooling: ["cooling", "bad", (e) => `${esc(e.model)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
   provider_cooling: ["cooling", "bad", (e) => `${esc(e.provider)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
+  restart_requested: ["restart", "warn", (e) => `restart ordered by ${esc(e.by)} — the daemon exits ${esc(e.exit_code)} and the supervisor respawns it`],
   deploy_requested: ["deploy", "", (e) => `deploy ordered by ${esc(e.by)}`],
   deploy_landed: ["deploy", "", (e) => `deploy landed${e.next ? ` at ${esc(String(e.next).slice(0, 7))}` : ""}`],
   deploy_rolled_back: ["deploy", "bad", (e) => `deploy rolled back — ${esc(e.reason ?? "the health check failed")}`],
@@ -711,11 +770,342 @@ function screenFeed(p) {
     <div style="max-width:720px">${feedList(o.events)}</div>`;
 }
 
+/* ---- settings (#265) -------------------------------------------------------
+
+   The one screen that writes. Three facts shape all of it.
+
+   1. IT DRAWS ITS OWN READ. `GET /api/settings` is a fresh parse of
+      curia.yaml and routing.yaml off disk, never the poll snapshot: both files
+      are hand-edited on the box too, and a screen that offered to save over an
+      edit it had not seen would lose it.
+   2. IT POSTS ONLY WHAT CHANGED. The patch is the difference between `draft`
+      and `settings`, so a field nobody touched is not written — which is what
+      keeps a hand edit made while this tab was open from being clobbered by a
+      save of something else.
+   3. SAVE AND APPLY ARE TWO ACTS. A save writes the file. The daemon goes on
+      running the config it booted with until it restarts, and the banner says
+      so rather than letting a saved page look like a changed daemon. */
+
+const SET_SECTIONS = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
+const SET_HINTS = {
+  routing: "The model each ticket type gets when no label on the ticket says otherwise.",
+  projects: "The repos curia watches. It dispatches against these and no others.",
+  dispatch: "Whether curia starts work by itself, how many agents run at once, and how often it looks for work.",
+};
+const DISPATCH_FIELDS = [
+  ["max_concurrent", "How many agents may run at once. Each one costs a container, and three sandbox ports."],
+  ["poll_interval_s", "How often curia reads the frontier of every watched repo."],
+];
+
+const clone = (x) => JSON.parse(JSON.stringify(x));
+
+/* What the operator has changed and not yet saved. The banner counts these and
+   the save posts them; both read this one function, so the count can never
+   disagree with what lands on disk. */
+function settingsPatch() {
+  if (!settings || !draft) return {};
+  const p = {};
+  const d = {};
+  for (const k of Object.keys(draft.dispatch)) {
+    if (draft.dispatch[k] !== settings.dispatch[k]) d[k] = draft.dispatch[k];
+  }
+  if (Object.keys(d).length) p.dispatch = d;
+  if (JSON.stringify(draft.watch) !== JSON.stringify(settings.watch)) p.watch = draft.watch;
+  const defaults = {};
+  draft.routing.defaults.forEach((row, i) => {
+    if (row.model !== settings.routing.defaults[i]?.model) defaults[row.type] = row.model;
+  });
+  const models = {};
+  draft.routing.models.forEach((m, i) => {
+    if (m.active !== settings.routing.models[i]?.active) models[m.name] = { active: m.active };
+  });
+  if (Object.keys(defaults).length || Object.keys(models).length) {
+    p.routing = {};
+    if (Object.keys(defaults).length) p.routing.defaults = defaults;
+    if (Object.keys(models).length) p.routing.models = models;
+  }
+  return p;
+}
+function changeCount() {
+  const p = settingsPatch();
+  return Object.keys(p.dispatch ?? {}).length
+    + (p.watch ? 1 : 0)
+    + Object.keys(p.routing?.defaults ?? {}).length
+    + Object.keys(p.routing?.models ?? {}).length;
+}
+
+/* ---- the save banner: two phases, at the top (#248) ---- */
+
+function saveBanner() {
+  const n = changeCount();
+  const s = UI.set;
+  const save = (on) => `<button class="btn${on ? " primary" : ""}" ${on && !s.busy ? "" : "disabled"} onclick="doSave()">${
+    s.busy ? "Saving…" : "Save"}</button>`;
+  const restart = (loud) => `<button class="btn${loud ? " restart-hot" : ""}" ${s.busy ? "disabled" : ""} onclick="doRestart()">${
+    loud ? "Restart to apply" : "Restart daemon"}</button>`;
+  const line = (cls, body) => `<div class="save-banner${cls ? " " + cls : ""}">${body}</div>`;
+
+  if (s.phase === "unread") {
+    return line("refused", `${save(false)}${restart(false)}
+      <span class="toast">The settings could not be read.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
+  }
+  if (s.phase === "refused") {
+    /* The loaders refused the candidate, so nothing on disk moved. The draft
+       stays on screen: the operator fixes the value they typed, they do not
+       type it again. */
+    return line("refused", `${save(n > 0)}${restart(false)}
+      <span class="toast">Refused — nothing was written.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
+  }
+  if (s.phase === "restarting") {
+    return line("", `${save(n > 0)}${restart(false)}
+      <span class="toast">The daemon exited nonzero and the supervisor respawns it. This page serves its last snapshot meanwhile.</span>`);
+  }
+  if (s.phase === "saved") {
+    /* Phase two. The restart is the loud button now, because the file on disk
+       and the running daemon disagree until it is pressed. */
+    return line("saved", `<button class="btn" disabled>Saved ✓</button>${restart(true)}
+      <span class="toast">${esc(s.note ?? "Saved.")} The daemon still runs the config it booted with.</span>`);
+  }
+  if (n === 0) {
+    return line("", `${save(false)}${restart(false)}
+      <span class="toast">${esc(s.note ?? "No unsaved changes.")}</span>`);
+  }
+  return line("", `${save(true)}${restart(false)}
+    <span class="toast">${n} unsaved change${n === 1 ? "" : "s"}.</span>`);
+}
+
+/* ---- the three sections ---- */
+
+const setBlock = (title, hint, body) => `<div class="set-block"><h3>${esc(title)}</h3>
+  <p class="hint">${esc(hint)}</p>${body}</div>`;
+
+/* Routing. The ticket-type table leads and the model list sits behind one
+   click, because the row an operator changes is the default, and the model
+   list is the thing they set once. */
+function setRouting() {
+  const models = draft.routing.models;
+  const active = models.filter((m) => m.active);
+  const rows = draft.routing.defaults.map((row, i) => {
+    const known = active.some((m) => m.name === row.model);
+    return `<tr><td class="mono">${esc(row.type)}</td>
+      <td><select onchange="setDefault(${i}, this.value)">
+        ${active.map((m) => `<option ${m.name === row.model ? "selected" : ""}>${esc(m.name)}</option>`).join("")}
+        ${known ? "" : `<option selected>${esc(row.model)}</option>`}
+      </select>${known ? "" : ` <span class="dim-note">switched off — the daemon refuses this config</span>`}</td></tr>`;
+  }).join("");
+  const mgr = `<div class="model-mgr">
+    <a href="#settings" onclick="UI.set.models=!UI.set.models;render();return false">${
+      active.length} of ${models.length} models active · ${UI.set.models ? "close" : "manage"}</a>
+    ${UI.set.models ? `<table style="margin-top:10px"><tr><th>active</th><th>model</th><th>runs on</th></tr>
+      ${models.map((m, i) => `<tr class="${m.active ? "" : "inactive"}">
+        <td><input type="checkbox" id="set-model-${esc(m.name)}" ${m.active ? "checked" : ""} onchange="setModelActive(${i}, this.checked)"></td>
+        <td class="mono">${esc(m.name)}${m.id ? ` <span class="dim-note">${esc(m.id)}</span>` : ""}</td>
+        <td class="mono">${esc(m.provider ?? "?")} · ${esc(m.harness ?? "?")}</td></tr>`).join("")}</table>
+      <p class="hint" style="margin:8px 0 0">A model switched off keeps its whole entry in routing.yaml. It leaves the
+        dispatch vocabulary: no default may name it, a fallback chain steps over it, and a <code>model:</code> label on it is refused.</p>` : ""}
+  </div>`;
+  return setBlock("Routing", SET_HINTS.routing,
+    `<table><tr><th>ticket type</th><th>default model</th></tr>${rows}</table>${mgr}`);
+}
+
+/* Projects. The repo list comes from the daemon, which holds the GitHub login;
+   this page holds no credential at all. */
+function setProjects() {
+  const watched = draft.watch.map((w) => w.repo);
+  const rows = draft.watch.map((w, i) => `<tr><td class="mono">${esc(w.repo)}</td>
+    <td class="dim-note">${esc(w.mode)}</td>
+    <td class="right"><button class="btn sm" ${draft.watch.length < 2 ? "disabled" : ""}
+      onclick="removeRepo(${i})">remove</button></td></tr>`).join("");
+  let connect;
+  if (repos === null) connect = `<div class="gh-connect"><span class="dot off"></span>reading the GitHub login…</div>`;
+  else if (repos.error) {
+    /* Null is not empty: curia could not ask, which is a different fact from
+       an account with no repos. The typed field below still works. */
+    connect = `<div class="unread">curia could not read your repos from GitHub — ${esc(repos.error)}. Type a repo below instead.</div>`;
+  } else {
+    connect = `<div class="gh-connect"><span class="dot"></span>GitHub connected as
+      <b class="mono">${esc(repos.login ?? "?")}</b>
+      <span class="dim-note">the ${esc(repos.repos?.length ?? 0)} most recently pushed repos it can reach</span></div>`;
+  }
+  const choices = (repos?.repos ?? []).filter((r) => !watched.includes(r));
+  const picker = choices.length
+    ? `<select id="set-repo-pick" onchange="addRepo(this.value); this.value=''">
+        <option value="">add a repo…</option>${choices.map((r) => `<option>${esc(r)}</option>`).join("")}</select>`
+    : "";
+  return setBlock("Projects", SET_HINTS.projects, `${connect}
+    <table>${rows}
+    <tr><td colspan="3">${picker}
+      <input type="text" id="set-repo-typed" placeholder="owner/name" size="22">
+      <button class="btn sm" onclick="addTypedRepo()">add</button></td></tr></table>
+    <p class="hint" style="margin:10px 0 0">The last repo cannot be removed: curia dispatches only against watched repos.</p>`);
+}
+
+function setDispatch() {
+  const auto = draft.dispatch.auto_dispatch;
+  const rows = DISPATCH_FIELDS.map(([key, why]) => `<tr>
+    <td class="mono">${esc(key)}<span class="hint" style="display:block;margin:2px 0 0">${esc(why)}</span></td>
+    <td><input type="number" id="set-${esc(key)}" min="1" value="${esc(draft.dispatch[key] ?? "")}"
+      oninput="setDispatchField('${esc(key)}', this.value)"></td></tr>`).join("");
+  return setBlock("Dispatch", SET_HINTS.dispatch, `<table>
+    <tr><td><label for="set-auto"><b>auto_dispatch</b></label>
+      <span class="hint" style="display:block;margin:2px 0 0">On, curia starts the next takeable ticket by itself. Off, every dispatch is one the operator ordered.</span></td>
+      <td><input type="checkbox" id="set-auto" ${auto ? "checked" : ""} onchange="setDispatchField('auto_dispatch', this.checked)"></td></tr>
+    ${rows}</table>`);
+}
+
+function screenSettings(p) {
+  if (!settings || !draft) {
+    return `${head(p, "Settings")}${saveBanner()}
+      <div class="later">Reading curia.yaml and routing.yaml…</div>`;
+  }
+  const bodies = { routing: setRouting, projects: setProjects, dispatch: setDispatch };
+  if (!bodies[UI.set.section]) UI.set.section = "routing";
+  const files = `<span class="dim-note mono">${esc(fileName(settings.files.curia))} · ${esc(fileName(settings.files.routing))}</span>`;
+  return `${head(p, "Settings", files)}${saveBanner()}
+    <div class="set-subnav">${Object.entries(SET_SECTIONS).map(([k, label]) =>
+      `<button class="${UI.set.section === k ? "on" : ""}" onclick="setSection('${k}')">${esc(label)}</button>`).join("")}</div>
+    <div style="max-width:620px">${bodies[UI.set.section]()}</div>`;
+}
+const fileName = (p) => String(p ?? "").split("/").pop();
+
+/* ---- the edits ---- */
+
+/* Every edit lands on the draft and nowhere else, so what is on screen and what
+   a save would post are the same object. */
+function dirty() {
+  if (UI.set.phase !== "restarting") UI.set.phase = changeCount() ? "dirty" : "clean";
+  UI.set.error = null;
+  UI.set.note = null;
+  render();
+}
+function setSection(k) {
+  UI.set.section = k;
+  if (k === "projects" && repos === null) loadRepos();
+  render();
+}
+function setDefault(i, model) { draft.routing.defaults[i].model = model; dirty(); }
+function setModelActive(i, on) { draft.routing.models[i].active = on; dirty(); }
+function setDispatchField(key, value) {
+  draft.dispatch[key] = typeof value === "boolean" ? value : Number(value);
+  dirty();
+}
+function removeRepo(i) { draft.watch.splice(i, 1); dirty(); }
+function addRepo(repo) {
+  const name = String(repo ?? "").trim();
+  if (!name || draft.watch.some((w) => w.repo === name)) return;
+  draft.watch.push({ repo: name, mode: "auto" });
+  dirty();
+}
+function addTypedRepo() {
+  const el = document.getElementById("set-repo-typed");
+  if (!el) return;
+  const name = el.value.trim();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(name)) {
+    UI.set.phase = "refused";
+    UI.set.error = `"${name}" is not an owner/name repo`;
+    return render();
+  }
+  el.value = "";
+  addRepo(name);
+}
+
+/* ---- the two calls ---- */
+
+async function loadSettings() {
+  try {
+    const res = await fetch("/api/settings", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    settings = await res.json();
+    draft = clone(settings);
+    if (UI.set.phase === "unread") UI.set.phase = "clean";
+  } catch (e) {
+    UI.set.phase = "unread";
+    UI.set.error = e.message;
+  }
+  render();
+}
+
+async function loadRepos() {
+  repos = null;
+  try {
+    const res = await fetch("/api/repos", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    repos = await res.json();
+  } catch (e) {
+    repos = { login: null, repos: null, error: e.message };
+  }
+  render();
+}
+
+async function doSave() {
+  const patch = settingsPatch();
+  if (!Object.keys(patch).length) return;
+  UI.set.busy = true;
+  render();
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    /* The answer carries the re-read file, so the screen shows what landed
+       rather than what was typed. */
+    settings = body.settings ?? settings;
+    draft = clone(settings);
+    UI.set.phase = body.written?.length ? "saved" : "clean";
+    UI.set.note = body.written?.length
+      ? `Wrote ${body.written.join(" and ")}, atomically, with the comments kept.`
+      : "That was already what the files say.";
+    UI.set.error = null;
+  } catch (e) {
+    UI.set.phase = "refused";
+    UI.set.error = e.message;
+  }
+  UI.set.busy = false;
+  render();
+}
+
+async function doRestart() {
+  const ask = "Restart the daemon? Running agents keep their tmux sessions — those live in their own container. Anything unsaved here is not written.";
+  if (typeof confirm === "function" && !confirm(ask)) return;
+  UI.set.busy = true;
+  render();
+  try {
+    const res = await fetch("/api/restart", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: "{}",
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    UI.set.phase = "restarting";
+    UI.set.error = null;
+  } catch (e) {
+    /* The daemon may have taken the order and died before answering. Say
+       exactly that, and let the marker at the top of the page be the evidence:
+       it reads the daemon, and this reads a socket. */
+    UI.set.phase = "refused";
+    UI.set.error = `${e.message} — the bar above says whether the daemon is answering`;
+  }
+  UI.set.busy = false;
+  render();
+}
+
 /* ---- the shell ------------------------------------------------------------- */
 
 function render() {
+  /* No mount point, nothing to draw. The page boots only into `#app`, and its
+     test drives the screens directly — an edit there must not go looking for a
+     document that is not one. */
+  const app = document.getElementById("app");
+  if (!app) return;
   const n = needsYou(payload?.overview);
-  document.getElementById("app").innerHTML = `<div class="shell">
+  const field = activeField();
+  app.innerHTML = `<div class="shell">
     <nav><span class="brand">curia</span>
       ${NAMES.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">${SCREENS[k][0]}${
         k === "home" && n ? ` <span class="n">${n}</span>` : ""}</button>`).join("")}
@@ -723,11 +1113,41 @@ function render() {
     <main>${SCREENS[UI.screen][1](payload)}</main>
   </div>`;
   document.title = (n ? `(${n}) ` : "") + "curia";
+  restoreField(field);
 }
-function goto(k) { UI.screen = k; location.hash = k; render(); }
+
+/* The poll re-renders the whole page every few seconds, and the settings screen
+   has fields somebody may be halfway through typing in. The VALUE is never at
+   risk — every keystroke lands on the draft — so what has to survive a render
+   is the cursor, by id and offset. */
+function activeField() {
+  const el = document.activeElement;
+  if (!el || !el.id) return null;
+  let caret = null;
+  try { caret = el.selectionStart; } catch { caret = null; }
+  return { id: el.id, caret };
+}
+function restoreField(f) {
+  if (!f) return;
+  const el = document.getElementById(f.id);
+  if (!el || typeof el.focus !== "function") return;
+  el.focus();
+  if (f.caret != null && el.setSelectionRange) {
+    try { el.setSelectionRange(f.caret, f.caret); } catch { /* not a text field */ }
+  }
+}
+
+/* Entering a screen, from a click or from the hash. Settings is the one screen
+   with a read of its own, and it is taken on arrival rather than on every poll:
+   the file changes when somebody saves it, not every five seconds. */
+function enter(k) {
+  UI.screen = k;
+  if (k === "settings" && !settings) loadSettings();
+}
+function goto(k) { enter(k); location.hash = k; render(); }
 window.addEventListener("hashchange", () => {
   const k = location.hash.slice(1);
-  if (NAMES.includes(k) && k !== UI.screen) { UI.screen = k; render(); }
+  if (NAMES.includes(k) && k !== UI.screen) { enter(k); render(); }
 });
 
 /* ---- the poll -------------------------------------------------------------
@@ -767,7 +1187,7 @@ document.addEventListener("visibilitychange", () => {
    a vm to call the screens directly, and a boot there would fetch nothing and
    render into no document. */
 if (typeof document !== "undefined" && document.getElementById("app")) {
-  UI.screen = NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home";
+  enter(NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home");
   render();
   tick();
 }

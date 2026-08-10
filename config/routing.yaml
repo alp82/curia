@@ -11,7 +11,7 @@ defaults:
   # Flip these back to fable once the account holds fable usage credits.
   grilling: opus
   prototype: opus
-  research: gpt          # #13: spread quota — research is the bulk lane
+  research: gpt # #13: spread quota — research is the bulk lane
   task: opus
   untyped: opus
   # A map dispatch (#160): `start curia#<map>` on a `wayfinder:map` issue spawns
@@ -107,10 +107,10 @@ review:
 # ticket), and "never upgrade bulk work to fable" — fable appears in no chain
 # downstream of anything, so nothing can fall INTO it.
 fallbacks:
-  fable: [opus]          # transitively reaches gpt through opus
+  fable: [opus] # transitively reaches gpt through opus
   opus: [gpt, sonnet]
   sonnet: [gpt]
-  gpt: [opus]            # transitively reaches sonnet through opus
+  gpt: [opus] # transitively reaches sonnet through opus
 
 harnesses:
   # EVERY harness runs in its own container (#148, retired at #195). There is no

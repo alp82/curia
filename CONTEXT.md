@@ -357,10 +357,25 @@ The daemon's one loopback read of itself, `GET /overview`. It joins every sectio
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.
 
 **Read screen**:
-A dashboard screen that only draws the overview: home, agents, frontier, feed. Two rules hold across all four. Color marks attention and nothing else, so a state, a ticket type and a repo are told in words. Null is not empty, so an unreadable fleet never renders as an idle box and an uncomputed frontier never renders as an empty one.
+A dashboard screen that only draws the overview: home, agents, frontier, feed. The settings screen is the one that also writes. Two rules hold across all four. Color marks attention and nothing else, so a state, a ticket type and a repo are told in words. Null is not empty, so an unreadable fleet never renders as an idle box and an uncomputed frontier never renders as an empty one.
 
 **Sidecar**:
 The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env`.
+
+**Settings screen**:
+The one dashboard screen that writes. Three sections, Routing first, then Projects and Dispatch. It reads `curia.yaml` and `routing.yaml` off disk on arrival, never from the poll snapshot, and posts back only what the operator changed.
+
+**Settings save**:
+The write itself. The sidecar edits both files through the yaml document API, so every hand comment survives. It validates the candidate with the daemon's own loaders, and renames it over the real file only after every candidate passes. A refused save answers the loader's own message and leaves both files as they were.
+
+**Two-phase save banner**:
+The settings screen's banner, at the top. Phase one saves the file. Phase two says the daemon still runs the config it booted with, and makes the restart the loud button. A save and an apply are two acts, and the banner never lets one look like the other.
+
+**Restart**:
+`POST /restart` on the daemon. It journals the order, answers, and exits 75. The supervisor respawns it, because a nonzero exit is what `restart: on-failure` acts on. Agent panes live in the tmux container, so they survive it. The sidecar orders the restart and never takes it.
+
+**Model switch**:
+`active: false` on a model in `routing.yaml`, behind the settings screen's "n of m models active". The entry keeps its provider, harness, id and comments, and leaves the dispatch vocabulary: no `defaults` row and no `review` row may name it, a fallback chain steps over it, and a `model:<x>` label naming it is refused. An absent key means on.
 
 **Restarting marker**:
 What the dashboard shows while the daemon does not answer. The page keeps the last snapshot, states its age, and names the reason. A page that blanks is worst exactly when the box is worst.
@@ -426,7 +441,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`. A cross-check adds a reviewer beside one, in `curia-review-<n>`.
 - **Sidecar** (`daemon/bin/curia-dashboard.mjs`): the dashboard's own Node process, in its own container. It imports the daemon's identity check, config rules and Serve helper, and reads the daemon over loopback.
 - **Surfaces**: the shared ttyd terminal, the timeline and the dashboard, all published with Tailscale Serve. Previews take their own port range.
-- **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, dashboard, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing).
+- **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, dashboard, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing). Hand-edited, and written by the settings screen too. Both files are committed in the form the yaml document API prints back unchanged, so a save rewrites the lines it changed and no others. A trailing comment takes one space before the `#`, and a comment block belongs above its key rather than after it.
 
 ## State homes
 

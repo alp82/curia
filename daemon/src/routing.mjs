@@ -108,6 +108,9 @@ export function resolveReviewer(routing, { builderModel, labels = [], cooling })
   if (labelled && !routing.models?.[labelled]) {
     throw new Error(`the ticket carries \`${REVIEW_MODEL_LABEL}${labelled}\`, and no model of that name is configured — configured models: ${Object.keys(routing.models ?? {}).join(', ')}`)
   }
+  if (labelled && !isActive(routing, labelled)) {
+    throw new Error(`the ticket carries \`${REVIEW_MODEL_LABEL}${labelled}\`, and that model is \`active: false\` in routing.yaml — turn it back on in the dashboard's Routing section, or name another model`)
+  }
   const wanted = labelled ?? routing.review?.[builderProvider] ?? null
   if (!wanted) {
     throw new Error(`routing.yaml states no cross-check pairing for provider "${builderProvider}" — add a \`review:\` row for it, or put a \`${REVIEW_MODEL_LABEL}<name>\` label on the ticket`)
@@ -134,6 +137,13 @@ export const SAME_PROVIDER_STAMP = 'same provider — cross-provider was cooling
 // TRANSITIVE fallback chain (field-notes contract 1): the starting model plus
 // everything reachable through routing.fallbacks, skipping models cooling at
 // either level. Empty array = true exhaustion (every candidate cooling).
+//
+// An `active: false` model (#265) is stepped over here rather than removed from
+// the chains that name it. Cooling and the switch drop out at the same seam on
+// purpose: both say "not this one, now", and the difference is only who said it
+// and for how long. Walking THROUGH an inactive model is deliberate — a chain
+// `fable → opus → gpt` with opus switched off still reaches gpt, so turning one
+// model off never silently shortens a chain to nothing.
 export function candidates(routing, model, cooling) {
   const chain = []
   const seen = new Set()
@@ -144,7 +154,13 @@ export function candidates(routing, model, cooling) {
     for (const next of routing.fallbacks?.[m] ?? []) visit(next)
   }
   visit(model)
-  return chain.filter((m) => !cooling.isCool(m, routing.models[m]?.provider))
+  return chain.filter((m) => isActive(routing, m) && !cooling.isCool(m, routing.models[m]?.provider))
+}
+
+// The switch, read in one place. Absent means active: a routing.yaml written
+// before the key existed routes the way it always did.
+export function isActive(routing, model) {
+  return routing?.models?.[model]?.active !== false
 }
 
 // The spawn command ends up nested inside `bash -c '<cmd>; exec bash'`

@@ -36,6 +36,12 @@ const surface = new DashboardSurface({
   pollIntervalS: dashboard.poll_interval_s,
   allow,
   daemonPort: daemonPort(),
+  // The two files the settings screen writes (#265). `routing.yaml` sits beside
+  // `curia.yaml` by construction — the daemon reads both out of one directory
+  // (CURIA_CONFIG_DIR), so naming a second path here would be a second way to
+  // say where the config lives, free to disagree with the daemon's.
+  curiaFile: CONFIG,
+  routingFile: path.resolve(path.dirname(CONFIG), 'routing.yaml'),
   log,
 })
 

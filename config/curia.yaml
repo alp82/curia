@@ -2,14 +2,15 @@
 # Hand-edited config — the daemon validates on load and refuses to boot on a bad shape.
 
 watch:
-  - repo: getalfredo/landing-page          # mode auto (default): map-if-present
+  - repo: getalfredo/landing-page # mode auto (default): map-if-present
   - repo: alp82/alperortac.com
   - repo: alp82/aistack
-  - repo: alp82/curia                      # mode auto since the repo hosts the dogfood map (#109);
-                                           # the flat-lane pin from settled answer 3 hid it
+  # mode auto since the repo hosts the dogfood map (#109);
+  # the flat-lane pin from settled answer 3 hid it
+  - repo: alp82/curia
 
 dispatch:
-  auto_dispatch: false                     # shipped OFF (settled answer 1)
+  auto_dispatch: false # shipped OFF (settled answer 1)
   # #54 item 8: an agent awaiting review holds its slot on purpose — that is the
   # backpressure that beats a pile of unreviewed PRs — so this is a RESOURCE
   # number now: ~0.3-0.5 GB per agent plus ~0.3 GB per preview dev server
@@ -17,10 +18,11 @@ dispatch:
   # The long-lived tenant is a grilling ticket (N blocking questions), not review.
   max_concurrent: 6
   poll_interval_s: 60
-  workspace_root: /home/alp/curia-work     # daemon-owned; never Alp's working tree
+  workspace_root: /home/alp/curia-work # daemon-owned; never Alp's working tree
   ready_timeout_s: 45
-  stop_nudge_budget: 3                     # #54: how often the Stop hook may hold an agent
-                                           # at the ending before curia stops holding it
+  # #54: how often the Stop hook may hold an agent
+  # at the ending before curia stops holding it
+  stop_nudge_budget: 3
 
 attach:
   ttyd_port: 7681
@@ -32,8 +34,9 @@ attach:
   # ttyd: `npm run build-attach-index --prefix daemon`.
   index: ../daemon/assets/attach-index.html
 
-identity:                                  # #151: the identity check in front of BOTH attach surfaces,
-                                           # closing the deferral ADR-0003 booked and #74 restated.
+identity:
+  # #151: the identity check in front of BOTH attach surfaces,
+  # closing the deferral ADR-0003 booked and #74 restated.
   # Tailscale Serve stamps `Tailscale-User-Login` on every request it proxies,
   # including the WebSocket upgrade, and OVERWRITES the header when a client
   # forges it (measured — docs/live-checks/151-attach-surface-auth.md). That is
@@ -57,22 +60,24 @@ identity:                                  # #151: the identity check in front o
   # port here, the preview range, or the sandbox range.
   preview_proxy_from: 7700
 
-timeline:                                  # #74, landing #73: the grid-less attach surface —
-  port: 4272                               # daemon-hosted loopback listener (transcript tail + send-keys)
-  serve_port: 8444                         # its own Serve rule, beside attach's, never inside the preview range
+timeline:
+  # #74, landing #73: the grid-less attach surface —
+  port: 4272 # daemon-hosted loopback listener (transcript tail + send-keys)
+  serve_port: 8444 # its own Serve rule, beside attach's, never inside the preview range
   # The page is a committed asset carrying a proto stamp; the daemon refuses to
   # serve or publish a page whose proto is not the one it speaks (#70's rule).
   index: ../daemon/assets/timeline.html
 
-dashboard:                                 # #263, building the where-it-lives decision #249:
-                                           # the console sidecar. A process BESIDE the daemon, so it
-                                           # stays up while the daemon restarts and the restart is a
-                                           # marker on the page instead of a dead tab. The daemon
-                                           # binds neither port. It validates this block and refuses
-                                           # to boot on a bad shape, and both ports join the
-                                           # collision check and `previews.reserved`.
-  port: 4273                               # loopback listener, the target of the Serve rule below
-  serve_port: 8445                         # its own Serve rule, beside attach's and the timeline's
+dashboard:
+  # #263, building the where-it-lives decision #249:
+  # the console sidecar. A process BESIDE the daemon, so it
+  # stays up while the daemon restarts and the restart is a
+  # marker on the page instead of a dead tab. The daemon
+  # binds neither port. It validates this block and refuses
+  # to boot on a bad shape, and both ports join the
+  # collision check and `previews.reserved`.
+  port: 4273 # loopback listener, the target of the Serve rule below
+  serve_port: 8445 # its own Serve rule, beside attach's and the timeline's
   # How often the page re-reads the daemon. Every refresh costs one whole read
   # of the journal off disk through `dispatcher.status()`, plus one more per
   # open review gate through the pull-request lookup (#262), and the journal
@@ -84,7 +89,8 @@ dashboard:                                 # #263, building the where-it-lives d
   # many open tabs still cost one read.
   poll_interval_s: 5
 
-usage:                                     # #146: the per-agent status-line meters
+usage:
+  # #146: the per-agent status-line meters
   # The 5 h / 7 d bars are ACCOUNT-level, and the claude harness states them in no
   # file and no transcript. They ride the response headers of any accepted
   # completion, so the daemon takes one minimal completion for its headers and
@@ -101,8 +107,9 @@ usage:                                     # #146: the per-agent status-line met
   # another only if a plan stops serving this one.
   probe_model: claude-haiku-4-5-20251001
 
-sandbox:                                   # #154, building the decision at #148: one shared
-                                           # agent image, one container per agent.
+sandbox:
+  # #154, building the decision at #148: one shared
+  # agent image, one container per agent.
   # Every version here is a PIN, and the pins feed the image tag together with
   # the Dockerfile's own bytes (daemon/src/image.mjs). So a bump on any line
   # below names a tag that is not on the box, and the daemon rebuilds on the
@@ -141,18 +148,21 @@ sandbox:                                   # #154, building the decision at #148
   port_from: 9000
   port_to: 9299
 
-preview:                                   # #40, implementing #8: one Serve port per preview
-  port_from: 8500                          # must not contain attach.serve_port — the sweep
-  port_to: 8599                            # withdraws every rule it finds in this range
+preview:
+  # #40, implementing #8: one Serve port per preview
+  port_from: 8500 # must not contain attach.serve_port — the sweep
+  port_to: 8599 # withdraws every rule it finds in this range
 
-skills:                                    # #57, decision 1 of #49: what an agent can invoke
+skills:
+  # #57, decision 1 of #49: what an agent can invoke
   # #268: the tree is VENDORED, at `skills/` beside this file, and no longer
   # read out of the operator's home. Relative to this config, so the one path
   # reads the same on the box, inside the daemon container and in the suite.
   # A skill upgrade is now a reviewable diff instead of an edit nobody sees —
   # see skills/UPSTREAM.md for the pinned release and how to bump it.
   root: ../skills
-  install:                                 # every name must exist at boot or the daemon refuses
+  install:
+    # every name must exist at boot or the daemon refuses
     - wayfinder
     - grilling
     - domain-modeling

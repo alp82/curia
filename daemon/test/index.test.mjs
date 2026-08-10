@@ -619,3 +619,100 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
     assert.equal(res.status, 200, 'the Stop hook has to work from inside a container, or the ending is unenforceable')
   })
 })
+
+// The restart the settings screen orders (#265, building item 6 of #249).
+//
+// Real boot, because the whole contract is about a PROCESS: the answer has to
+// leave the socket before the exit takes it, and the exit code has to be the
+// one `restart: on-failure` respawns on. Neither is visible in a unit test of a
+// handler, and a restart that answers 200 and then stays down is the failure
+// this suite exists to catch.
+describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)', () => {
+  let tmp
+  let child
+  let port
+  let dataDir
+  let watch
+
+  before(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-index-restart-test-'))
+    const cfgDir = path.join(tmp, 'config')
+    dataDir = path.join(tmp, 'data')
+    const shim = path.join(tmp, 'shim')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.mkdirSync(shim, { recursive: true })
+    for (const bin of ['gh', 'tmux', 'tailscale']) {
+      const p = path.join(shim, bin)
+      fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
+      fs.chmodSync(p, 0o755)
+    }
+    const [daemonPort, ttydPort, servePort, proxyPort, tlPort, tlServePort] = [
+      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
+    ]
+    port = daemonPort
+    fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
+      'watch:', '  - repo: example/fixture', '    mode: ready-for-agent',
+      'dispatch:',
+      '  auto_dispatch: false', '  max_concurrent: 1', '  poll_interval_s: 60',
+      `  workspace_root: ${path.join(tmp, 'work')}`, '  ready_timeout_s: 5',
+      'attach:', `  ttyd_port: ${ttydPort}`, `  serve_port: ${servePort}`,
+      'identity:', '  allow: [tester@example.com]', `  proxy_port: ${proxyPort}`,
+      'timeline:', `  port: ${tlPort}`, `  serve_port: ${tlServePort}`,
+      ...skillsYaml(seedSkillsRoot(tmp)),
+      ...sandboxYaml(),
+      '',
+    ].join('\n'))
+    fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
+      'defaults:', '  untyped: sonnet',
+      'models:', '  sonnet: { provider: anthropic, harness: claude }',
+      'harnesses:', '  claude:',
+      '    template: claude --model {model} "$(cat {prompt_file})"',
+      "    ready: '⏵⏵|bypass permissions'",
+      '    tool_channel_grace_s: 15',
+      '',
+    ].join('\n'))
+
+    child = spawn(process.execPath, [DAEMON], {
+      env: {
+        ...process.env,
+        PORT: String(daemonPort),
+        CURIA_CONFIG_DIR: cfgDir,
+        CURIA_DATA_DIR: dataDir,
+        PATH: `${shim}:${process.env.PATH}`,
+        DISCORD_BOT_TOKEN: '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    watch = watchDaemon(child)
+    await waitForBoot(watch, async () => {
+      try { return (await request(port, 'GET', '/state')).status === 200 } catch { return false }
+    }, 'the /state route')
+  })
+
+  after(() => {
+    if (child && child.exitCode === null) child.kill('SIGKILL')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  test('the order is answered first and the process exits nonzero after it', async () => {
+    const res = await request(port, 'POST', '/restart', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ by: 'dashboard' }),
+    })
+    assert.equal(res.status, 200, 'the answer leaves before the exit takes the socket')
+    const body = JSON.parse(res.body)
+    assert.equal(body.ok, true)
+    assert.equal(body.by, 'dashboard')
+
+    const code = await new Promise((done) => child.once('close', (c) => done(c)))
+    assert.equal(code, body.exit_code)
+    assert.notEqual(code, 0, 'a clean exit stays down; `restart: on-failure` respawns on a failure')
+
+    // And the journal carries it, so the feed can say a restart happened at all.
+    const events = fs.readFileSync(path.join(dataDir, 'events.jsonl'), 'utf8')
+      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const logged = events.filter((e) => e.type === 'restart_requested')
+    assert.equal(logged.length, 1)
+    assert.equal(logged[0].by, 'dashboard')
+  })
+})

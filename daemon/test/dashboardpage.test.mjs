@@ -12,7 +12,7 @@
 // The screens take the payload as an argument for exactly this reason. A screen
 // that read a global would be a screen this file could not drive.
 
-import { test, describe, before } from 'node:test'
+import { test, describe, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
@@ -121,6 +121,10 @@ const payload = (overrides = {}) => ({
 
 // What a reader sees, with the markup taken out.
 const text = (html) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+
+// The page runs in a vm, so an object it built has a different realm's
+// prototype and deepEqual would refuse it on that alone.
+const plain = (x) => JSON.parse(JSON.stringify(x))
 
 describe('the read screens (#264)', () => {
   let page
@@ -356,5 +360,202 @@ describe('the read screens (#264)', () => {
       assert.match(text(page.screenFeed(payload())), /the console is offline/)
       page.reachable = true
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the settings screen (#265)
+// ---------------------------------------------------------------------------
+//
+// The one screen that writes. What a human can judge on a preview is the
+// layout. What they cannot is the arithmetic underneath it: which models the
+// default table is allowed to offer, what the patch would actually post, and
+// which of the banner's phases each answer from the sidecar lands in. That is
+// what this pins.
+
+const SETTINGS = () => ({
+  files: { curia: '/home/alp/curia/config/curia.yaml', routing: '/home/alp/curia/config/routing.yaml' },
+  dispatch: { auto_dispatch: false, max_concurrent: 6, poll_interval_s: 60 },
+  watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
+  watch_modes: ['auto', 'map', 'ready-for-agent'],
+  routing: {
+    defaults: [{ type: 'grilling', model: 'opus' }, { type: 'research', model: 'gpt' }, { type: 'untyped', model: 'opus' }],
+    models: [
+      { name: 'fable', provider: 'anthropic', harness: 'claude', id: null, active: false },
+      { name: 'opus', provider: 'anthropic', harness: 'claude', id: null, active: true },
+      { name: 'gpt', provider: 'openai', harness: 'codex', id: 'gpt-5.6-sol', active: true },
+    ],
+  },
+})
+
+describe('the settings screen (#265)', () => {
+  let page
+
+  // A fresh page per test: this screen owns mutable state, and one test's
+  // draft must not be another's starting point.
+  beforeEach(() => {
+    page = loadPage()
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.repos = { login: 'alp82', repos: ['alp82/curia', 'alp82/aistack', 'alp82/annapod'], error: null }
+  })
+
+  const screen = (section = 'routing') => {
+    page.UI.set.section = section
+    return page.screenSettings(payload())
+  }
+
+  test('it is a screen now, not a promise of one', () => {
+    assert.ok(!text(screen()).includes('lands on #265'))
+    assert.match(text(screen()), /Settings/)
+  })
+
+  test('the two files it writes are named on the screen', () => {
+    assert.match(text(screen()), /curia\.yaml · routing\.yaml/)
+  })
+
+  // ---- routing -------------------------------------------------------------
+
+  test('the ticket-type table leads and the model list sits behind one click', () => {
+    const t = text(screen('routing'))
+    assert.match(t, /ticket type default model/)
+    assert.match(t, /2 of 3 models active · manage/)
+    assert.ok(!t.includes('runs on'), 'the model list is closed until it is asked for')
+    page.UI.set.models = true
+    const open = text(screen('routing'))
+    assert.match(open, /2 of 3 models active · close/)
+    assert.match(open, /runs on/)
+    assert.match(open, /gpt gpt-5\.6-sol openai · codex/, 'the CLI name rides beside the routing label')
+  })
+
+  test('a default may only be pointed at a model that is ON', () => {
+    const html = screen('routing')
+    const options = [...html.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((m) => m[1])
+    assert.ok(!options.includes('fable'), 'a model that is switched off is not on offer')
+    assert.ok(options.includes('opus') && options.includes('gpt'))
+  })
+
+  test('a default already naming a switched-off model is shown, and called what it is', () => {
+    page.draft.routing.defaults.push({ type: 'map', model: 'fable' })
+    page.settings.routing.defaults.push({ type: 'map', model: 'fable' })
+    const t = text(screen('routing'))
+    assert.match(t, /switched off — the daemon refuses this config/)
+  })
+
+  // ---- projects ------------------------------------------------------------
+
+  test('the watch list draws with its mode, and the last repo cannot be removed', () => {
+    const t = text(screen('projects'))
+    assert.match(t, /alp82\/curia auto/)
+    assert.match(t, /alp82\/aistack map/)
+    assert.match(t, /GitHub connected as alp82/)
+    page.draft.watch = [{ repo: 'alp82/curia', mode: 'auto' }]
+    assert.match(screen('projects'), /<button class="btn sm" disabled/)
+  })
+
+  test('the picker offers only repos that are not watched yet', () => {
+    const html = screen('projects')
+    assert.match(html, /<option>alp82\/annapod<\/option>/)
+    assert.ok(!/<option>alp82\/curia<\/option>/.test(html), 'a repo already watched is not on offer')
+  })
+
+  // Null is not empty, the rule that runs through every screen (#264).
+  test('a repo list curia could not read says so, and is not an account with no repos', () => {
+    page.repos = { login: null, repos: null, error: 'gh api failed: HTTP 502' }
+    const t = text(screen('projects'))
+    assert.match(t, /could not read your repos/)
+    assert.match(t, /HTTP 502/)
+    assert.match(t, /Type a repo below instead/)
+  })
+
+  // ---- dispatch ------------------------------------------------------------
+
+  test('dispatch carries the switch and the two numbers, each with what it costs', () => {
+    const t = text(screen('dispatch'))
+    assert.match(t, /auto_dispatch/)
+    assert.match(t, /every dispatch is one the operator ordered/)
+    assert.match(t, /max_concurrent How many agents may run at once\. Each one costs a container/)
+    assert.match(t, /poll_interval_s/)
+    assert.ok(!t.includes('workspace_root'), 'a path on the daemon\'s filesystem is not a thing this screen writes')
+  })
+
+  // ---- the patch -----------------------------------------------------------
+
+  test('the patch is the difference, so a field nobody touched is not written', () => {
+    assert.deepEqual(plain(page.settingsPatch()), {})
+    page.setDispatchField('max_concurrent', '4')
+    page.setDefault(1, 'opus')
+    page.setModelActive(0, true)
+    assert.deepEqual(plain(page.settingsPatch()), {
+      dispatch: { max_concurrent: 4 },
+      routing: { defaults: { research: 'opus' }, models: { fable: { active: true } } },
+    })
+    assert.equal(page.changeCount(), 3)
+  })
+
+  test('a number field posts a number, never the string the input holds', () => {
+    page.setDispatchField('poll_interval_s', '30')
+    assert.strictEqual(page.settingsPatch().dispatch.poll_interval_s, 30)
+  })
+
+  test('the watch list posts whole, because its order is part of it', () => {
+    page.removeRepo(1)
+    assert.deepEqual(plain(page.settingsPatch().watch), [{ repo: 'alp82/curia', mode: 'auto' }])
+    assert.equal(page.changeCount(), 1, 'the list is one change, not one per repo')
+  })
+
+  test('a repo already watched is not added twice', () => {
+    page.addRepo('alp82/curia')
+    assert.deepEqual(plain(page.settingsPatch()), {})
+  })
+
+  // ---- the two-phase banner ------------------------------------------------
+
+  test('phase one: unsaved changes count, and save is the primary button', () => {
+    page.setDispatchField('max_concurrent', '4')
+    const html = screen()
+    assert.match(text(html), /1 unsaved change\./)
+    assert.match(html, /class="btn primary" {2}onclick="doSave\(\)"/)
+    assert.ok(!html.includes('restart-hot'), 'nothing is applied yet, so nothing is loud')
+  })
+
+  test('phase two: saved, and the RESTART is the loud one — the daemon still runs the old config', () => {
+    page.UI.set.phase = 'saved'
+    page.UI.set.note = 'Wrote curia.yaml, atomically, with the comments kept.'
+    const html = screen()
+    assert.match(html, /restart-hot/)
+    assert.match(text(html), /Saved ✓ Restart to apply/)
+    assert.match(text(html), /Wrote curia\.yaml, atomically, with the comments kept\./)
+    assert.match(text(html), /The daemon still runs the config it booted with\./)
+  })
+
+  test('a refused save keeps the draft on screen and says nothing was written', () => {
+    page.setDispatchField('max_concurrent', '500')
+    page.UI.set.phase = 'refused'
+    page.UI.set.error = 'bad config curia.yaml: sandbox ports 9000-9299 hold 300 ports'
+    const t = text(screen())
+    assert.match(t, /Refused — nothing was written\./)
+    assert.match(t, /sandbox ports 9000-9299/)
+    assert.equal(page.draft.dispatch.max_concurrent, 500, 'the operator fixes what they typed, they do not type it again')
+  })
+
+  test('a restart ordered says what the exit means, and the page keeps serving', () => {
+    page.UI.set.phase = 'restarting'
+    assert.match(text(screen()), /exited nonzero and the supervisor respawns it/)
+  })
+
+  test('settings that could not be read is its own phase, not an empty form', () => {
+    page.settings = null
+    page.draft = null
+    page.UI.set.phase = 'unread'
+    page.UI.set.error = 'the sidecar answered 500'
+    const t = text(page.screenSettings(payload()))
+    assert.match(t, /The settings could not be read\./)
+    assert.match(t, /the sidecar answered 500/)
+  })
+
+  test('a restart the journal recorded reads as a sentence in the feed', () => {
+    const p = payload({ events: [{ ts: at(30), type: 'restart_requested', by: 'dashboard', exit_code: 75 }] })
+    assert.match(text(page.screenFeed(p)), /restart ordered by dashboard — the daemon exits 75/)
   })
 })

@@ -25,7 +25,7 @@ import {
 } from './github.mjs'
 import {
   resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
-  carriesLimitPhrase, resolveReviewer, Cooling, SAME_PROVIDER_STAMP,
+  carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP,
 } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey } from './tmux.mjs'
 import {
@@ -844,6 +844,14 @@ export class Dispatcher {
     const modelName = resolveModel(this.routing, labels, model)
     if (!this.routing.models[modelName]) {
       return `❌ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
+    }
+    // #265: the model is configured, and somebody switched it off. Refused here
+    // rather than stepped over, because this name was ASKED for — by a
+    // `model:<x>` label or by the caller — and quietly spawning something else
+    // would hide the switch from the person who typed the label. A cooling
+    // model falls through the chain below; a switched-off one names its switch.
+    if (!isActive(this.routing, modelName)) {
+      return `❌ \`${modelName}\` is \`active: false\` in routing.yaml — turn it back on in the dashboard's Routing section, or name a model that is on: ${Object.keys(this.routing.models).filter((m) => isActive(this.routing, m)).join(', ')}`
     }
     const cands = candidates(this.routing, modelName, this.cooling)
     if (!cands.length) {

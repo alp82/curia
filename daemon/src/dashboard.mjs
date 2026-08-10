@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
 import { assertServe, serveOff, attachBase } from './attach.mjs'
 import { identityRefusal, readAllow, serveHosts, tailnetSelf } from './identity.mjs'
+import { readSettings, saveSettings } from './settings.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -149,15 +150,25 @@ export const ASSERT_MS = 60_000
 // are the answer, and they need this to return.
 export const POLL_TIMEOUT_MS = 10_000
 
+// The biggest settings patch this surface will read. The screen writes a watch
+// list and a handful of numbers, so anything near this is not a settings save.
+export const MAX_BODY = 256 * 1024
+
 export class DashboardSurface {
   constructor({
     port, servePort, index, allow, daemonPort: dPort = daemonPort(),
     pollIntervalS = DEFAULT_DASHBOARD.poll_interval_s,
+    curiaFile = null, routingFile = null,
     log = console.log, deps = {},
   }) {
     this.port = port
     this.servePort = servePort
     this.index = index
+    // The two files the settings screen writes (#265). They are the only
+    // writable thing in this container: #263's mount list gives it `config/`
+    // read-write and everything else read-only.
+    this.curiaFile = curiaFile
+    this.routingFile = routingFile
     this.daemonPort = dPort
     this.pollIntervalMs = pollIntervalS * 1000
     this.pollIntervalS = pollIntervalS
@@ -281,31 +292,45 @@ export class DashboardSurface {
 
   // ---- the read ------------------------------------------------------------
 
-  // One loopback GET. No Origin header: the daemon's whole loopback surface
-  // refuses any request carrying one, and the sidecar is loopback tooling, not
-  // a browser.
-  #fetchOverview() {
-    if (this.deps.fetchOverview) return this.deps.fetchOverview()
+  // One loopback call to the daemon. NOTHING here forwards a browser's request:
+  // the sidecar composes its own, with no Origin header, because the daemon's
+  // whole loopback surface refuses any request carrying one — the CSRF gate
+  // that stops a page on this box from driving the daemon. The sidecar is
+  // loopback tooling on the daemon's side of that gate, and it earns that by
+  // building each call from a route it names in code, never from a URL a
+  // browser handed it.
+  #daemon({ method = 'GET', path: route, body = null }) {
     return new Promise((resolve, reject) => {
-      const req = http.get({
-        host: '127.0.0.1', port: this.daemonPort, path: '/overview',
-        headers: { accept: 'application/json' },
+      const payload = body === null ? null : Buffer.from(JSON.stringify(body))
+      const req = http.request({
+        host: '127.0.0.1', port: this.daemonPort, path: route, method,
+        headers: {
+          accept: 'application/json',
+          ...(payload ? { 'content-type': 'application/json', 'content-length': payload.length } : {}),
+        },
       }, (res) => {
         const chunks = []
         res.on('data', (c) => chunks.push(c))
         res.on('end', () => {
-          const body = Buffer.concat(chunks).toString('utf8')
-          if (res.statusCode !== 200) return reject(new Error(`the daemon answered ${res.statusCode} on /overview`))
+          const text = Buffer.concat(chunks).toString('utf8')
+          if (res.statusCode !== 200) return reject(new Error(`the daemon answered ${res.statusCode} on ${route}`))
           try {
-            resolve(JSON.parse(body))
+            resolve(JSON.parse(text))
           } catch (e) {
-            reject(new Error(`the daemon's /overview is not JSON: ${e.message}`))
+            reject(new Error(`the daemon's ${route} is not JSON: ${e.message}`))
           }
         })
       })
-      req.setTimeout(POLL_TIMEOUT_MS, () => req.destroy(new Error(`the daemon did not answer /overview within ${POLL_TIMEOUT_MS / 1000}s`)))
+      req.setTimeout(POLL_TIMEOUT_MS, () => req.destroy(new Error(`the daemon did not answer ${route} within ${POLL_TIMEOUT_MS / 1000}s`)))
       req.on('error', reject)
+      if (payload) req.write(payload)
+      req.end()
     })
+  }
+
+  #fetchOverview() {
+    if (this.deps.fetchOverview) return this.deps.fetchOverview()
+    return this.#daemon({ path: '/overview' })
   }
 
   // A failed read NEVER costs the snapshot. That is the sidecar's reason to
@@ -364,6 +389,79 @@ export class DashboardSurface {
     res.end(JSON.stringify(obj))
   }
 
+  // The extra gate every WRITE passes, on top of the identity check (#265).
+  //
+  // The identity header does not answer this one. A page on any origin can
+  // `fetch` this surface's tailnet URL, and Serve stamps that request with the
+  // operator's own login on the way through — the header proves who the browser
+  // belongs to, never which page told it to call. So a write also has to come
+  // from THIS surface's own origin, and the set of names it answers to is the
+  // one identityRefusal already checks Host against.
+  //
+  // Fail-closed: a write with no Origin at all is refused too. Every browser
+  // sends one on a POST, and a caller that is not a browser has the daemon's
+  // own loopback surface to talk to.
+  #crossSite(req) {
+    const origin = req.headers.origin
+    if (!origin) return 'a write to this surface must carry an Origin header — it is the console page that writes here, and nothing else'
+    let host
+    try {
+      host = new URL(origin).host.toLowerCase()
+    } catch {
+      return `Origin "${origin}" is not a URL`
+    }
+    if (!this.hosts.has(host)) return `Origin "${origin}" is not this console — a write may only come from the page this surface serves`
+    const site = req.headers['sec-fetch-site']
+    if (site && site !== 'same-origin') return `this write says it crossed sites (Sec-Fetch-Site: ${site})`
+    return null
+  }
+
+  // A JSON body, bounded. `readBody` on the daemon side is the same shape; this
+  // one is separate because the sidecar imports no daemon internals.
+  #body(req) {
+    return new Promise((resolve, reject) => {
+      const chunks = []
+      let size = 0
+      req.on('data', (c) => {
+        size += c.length
+        if (size > MAX_BODY) {
+          req.destroy()
+          return reject(new Error(`a settings save may not exceed ${MAX_BODY} bytes`))
+        }
+        chunks.push(c)
+      })
+      req.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        if (!text.trim()) return resolve({})
+        try {
+          resolve(JSON.parse(text))
+        } catch (e) {
+          reject(new Error(`the body is not JSON: ${e.message}`))
+        }
+      })
+      req.on('error', reject)
+    })
+  }
+
+  // Everything the settings screen writes runs through here, so the refusal
+  // vocabulary is one thing: a SettingsRefusal is the operator's own config
+  // being wrong and answers 409, and anything else is this process failing and
+  // answers 500. The two must not read the same — the first is fixed on the
+  // page, the second on the box.
+  #write(res, work) {
+    return Promise.resolve().then(work).then(
+      (out) => this.#json(res, 200, out),
+      (e) => {
+        if (e?.refusal) {
+          this.log(`dashboard: the save was refused — ${e.message}`)
+          return this.#json(res, 409, { error: e.message, refused: true })
+        }
+        this.log(`dashboard: the save failed — ${e.message}`)
+        return this.#json(res, 500, { error: e.message })
+      },
+    )
+  }
+
   #handle(req, res) {
     const reason = this.#refusal(req)
     if (reason) {
@@ -372,12 +470,73 @@ export class DashboardSurface {
       return res.end(`curia refused this request: ${reason}\n`)
     }
     const url = new URL(req.url, `http://127.0.0.1:${this.port}`)
-    if (req.method !== 'GET') return this.#json(res, 405, { error: 'this surface reads; it does not write' })
+
+    if (req.method === 'POST') {
+      const crossSite = this.#crossSite(req)
+      if (crossSite) {
+        this.log(`dashboard: REFUSED ${req.method} ${req.url} — ${crossSite}`)
+        return this.#json(res, 403, { error: crossSite })
+      }
+      // The save (#265). The sidecar writes the file itself: it holds the only
+      // read-write mount in this container, and #249 put the edit here so that
+      // a config the daemon refuses to boot on can still be fixed from the page
+      // while the daemon is down.
+      if (url.pathname === '/api/settings') {
+        return this.#write(res, async () => {
+          if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
+          const patch = await this.#body(req)
+          const out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+          this.log(out.written.length
+            ? `dashboard: saved ${out.written.join(' and ')} — the daemon runs the old config until it restarts`
+            : 'dashboard: the save changed nothing')
+          return { ...out, settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }) }
+        })
+      }
+      // The restart (#249 item 6). The sidecar orders it and the daemon does
+      // it: POST /restart journals the request and exits nonzero, and the
+      // supervisor respawns. Nothing here waits for the daemon to come back —
+      // the page's own marker is what says whether it has.
+      if (url.pathname === '/api/restart') {
+        return this.#write(res, async () => {
+          const out = await this.#daemon({ method: 'POST', path: '/restart', body: { by: 'dashboard' } })
+          this.log('dashboard: the daemon took the restart order')
+          // The next page read must not be answered from a snapshot taken
+          // before the restart: it would say the daemon is up for as long as
+          // the interval lasts, at the one moment that is false.
+          this.snapshotAt = 0
+          return out
+        })
+      }
+      return this.#json(res, 404, { error: `no route ${url.pathname} on the dashboard` })
+    }
+
+    if (req.method !== 'GET') return this.#json(res, 405, { error: 'this surface answers GET and POST' })
 
     if (url.pathname === '/api/overview') {
       return this.payload().then(
         (p) => this.#json(res, 200, p),
         (e) => this.#json(res, 500, { error: e.message }),
+      )
+    }
+    // Read fresh off disk every time, never from the poll snapshot: these two
+    // files are hand-edited on the box as well as written here, and a settings
+    // screen that showed a cached copy would offer to save over an edit it
+    // never saw.
+    if (url.pathname === '/api/settings') {
+      if (!this.curiaFile || !this.routingFile) return this.#json(res, 500, { error: 'this sidecar was started without config file paths' })
+      try {
+        return this.#json(res, 200, readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }))
+      } catch (e) {
+        return this.#json(res, 500, { error: e.message })
+      }
+    }
+    // The repos the operator could watch. The sidecar holds no GitHub
+    // credential — that is what #263 means by secret-free — so the list comes
+    // from the daemon, which already holds the `gh` login every dispatch uses.
+    if (url.pathname === '/api/repos') {
+      return this.#daemon({ path: '/repos' }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { login: null, repos: null, error: e.message }),
       )
     }
     if (url.pathname === '/' || url.pathname === '/index.html') {

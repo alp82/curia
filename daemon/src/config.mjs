@@ -17,7 +17,9 @@ import { DEFAULT_CONTAINER_PORTS, PORTS_PER_AGENT } from './sandbox.mjs'
 import { readAllow } from './identity.mjs'
 import { readDashboard } from './dashboard.mjs'
 
-const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
+// Exported because the settings screen writes this key (#265), and a second
+// list of the legal modes would be a second answer to one question.
+export const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
 // Every reasoning effort any configured model accepts, unioned.
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
@@ -46,7 +48,25 @@ function expandHome(p) {
   return p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p
 }
 
-export function loadCuriaConfig(file) {
+// `checkPaths` is the one thing a caller may turn off, and only one caller does
+// (#265). Four rules below ask the FILESYSTEM whether a path is there: the
+// attach page, the timeline page, every installed skill's manifest, and the
+// agent Dockerfile. Those are the daemon's own files, and the daemon boots with
+// this on.
+//
+// The dashboard sidecar validates a candidate config with this same function
+// before it writes it, because a settings screen that invented a second set of
+// rules would be a second config validator free to disagree with the one that
+// decides whether the daemon boots. But the sidecar's container mounts none of
+// those four paths (#263's mount list is what makes it secret-free), so an
+// existence check there is evidence about the wrong filesystem — it would
+// refuse every save on this box for a file the daemon reads happily.
+//
+// Nothing the settings screen writes can reach those four keys, so what is
+// skipped is exactly what the sidecar cannot see and cannot change. Every other
+// rule — the shapes, the ports, the collisions, `3 × max_concurrent` against
+// the sandbox range — runs in both processes, unchanged.
+export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   const cfg = parse(fs.readFileSync(file, 'utf8'))
   if (!cfg || typeof cfg !== 'object') fail(file, 'not a mapping')
 
@@ -96,7 +116,7 @@ export function loadCuriaConfig(file) {
   a.index = a.index === undefined
     ? DEFAULT_INDEX
     : path.resolve(path.dirname(path.resolve(file)), expandHome(a.index))
-  if (!fs.existsSync(a.index)) {
+  if (checkPaths && !fs.existsSync(a.index)) {
     fail(file, `attach.index resolves to ${a.index}, which does not exist — build it with \`${REBUILD_CMD}\``)
   }
 
@@ -115,7 +135,7 @@ export function loadCuriaConfig(file) {
   t.index = t.index === undefined
     ? DEFAULT_TIMELINE_INDEX
     : path.resolve(path.dirname(path.resolve(file)), expandHome(t.index))
-  if (!fs.existsSync(t.index)) {
+  if (checkPaths && !fs.existsSync(t.index)) {
     fail(file, `timeline.index resolves to ${t.index}, which does not exist — it ships committed in daemon/assets/`)
   }
   // The identity check in front of both attach surfaces (#151, the standing
@@ -238,7 +258,7 @@ export function loadCuriaConfig(file) {
       fail(file, `skills.install: ${JSON.stringify(name)} is not a plain skill name`)
     }
     const manifest = path.join(skillsRoot, name, 'SKILL.md')
-    if (!fs.existsSync(manifest)) {
+    if (checkPaths && !fs.existsSync(manifest)) {
       fail(file, `skills.install names "${name}", but ${manifest} does not exist — install the skill or drop it from the list`)
     }
   }
@@ -296,7 +316,7 @@ export function loadCuriaConfig(file) {
     if (!(Number.isInteger(sb.agent_uid) && sb.agent_uid >= 0 && sb.agent_uid < 2 ** 31)) {
       fail(file, `sandbox.agent_uid must be a uid (got ${JSON.stringify(sb.agent_uid)})`)
     }
-    if (!fs.existsSync(DOCKERFILE)) {
+    if (checkPaths && !fs.existsSync(DOCKERFILE)) {
       fail(file, `sandbox is configured but ${DOCKERFILE} is missing — the image has no recipe`)
     }
     // The ports each container publishes on loopback (#156, from #148). Three
@@ -381,9 +401,31 @@ export function loadRoutingConfig(file) {
       && (!Number.isInteger(m.context_window) || m.context_window <= 0)) {
       fail(file, `models.${name}.context_window must be a positive integer of tokens (got ${JSON.stringify(m.context_window)})`)
     }
+    // #265: the switch behind the settings screen's "n of m models active".
+    // Default true, so a config written before this key existed reads the way
+    // it always did, and a model is inactive only because somebody said so.
+    //
+    // An inactive model keeps its whole entry — provider, harness, id, effort
+    // and every comment on it — and leaves the DISPATCH VOCABULARY: no
+    // `defaults` row and no `review` row may name it, a fallback chain steps
+    // over it, and a `model:<x>` label naming it is refused at dispatch. That
+    // is what makes the checkbox a switch rather than a deletion: turning a
+    // model off costs nothing to turn back on.
+    if (m.active !== undefined && typeof m.active !== 'boolean') {
+      fail(file, `models.${name}.active must be true or false (got ${JSON.stringify(m.active)})`)
+    }
+    m.active = m.active ?? true
+  }
+  // Every model that stays in the dispatch vocabulary. One reading of the
+  // switch, shared by the three rules below and by routing.mjs.
+  if (!Object.values(cfg.models).some((m) => m.active)) {
+    fail(file, 'every model is `active: false` — curia would have nothing to dispatch on; turn at least one back on')
   }
   for (const [type, model] of Object.entries(cfg.defaults)) {
     if (!cfg.models[model]) fail(file, `defaults.${type} names unknown model "${model}"`)
+    if (!cfg.models[model].active) {
+      fail(file, `defaults.${type} names "${model}", which is \`active: false\` — either turn that model on or point this row at an active one`)
+    }
   }
 
   // The cross-check pairing (#164, ADR-0010): which model reads a builder's
@@ -404,11 +446,18 @@ export function loadRoutingConfig(file) {
       fail(file, `review.${provider} names a provider no configured model runs on — configured providers: ${[...providers].join(', ')}`)
     }
     if (!cfg.models[model]) fail(file, `review.${provider} names unknown model "${model}"`)
+    if (!cfg.models[model].active) {
+      fail(file, `review.${provider} names "${model}", which is \`active: false\` — a cross-check cannot run on a model that is switched off`)
+    }
     if (cfg.models[model].provider === provider) {
       fail(file, `review.${provider} names "${model}", which runs on ${provider} itself — a cross-check reads the diff on the OTHER provider`)
     }
   }
 
+  // A chain may still NAME an inactive model. It is `candidates` that steps
+  // over one, so switching a model off never has to be a rewrite of every
+  // chain that mentions it — and switching it back on restores the chain it
+  // was in, unedited.
   cfg.fallbacks = cfg.fallbacks ?? {}
   for (const [from, chain] of Object.entries(cfg.fallbacks)) {
     if (!cfg.models[from]) fail(file, `fallbacks.${from} names unknown model "${from}"`)
