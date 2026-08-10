@@ -249,6 +249,9 @@ One Discord thread per ticket. It carries the ticket's escalations, notifies, an
 **Voice ownership**:
 The rule that divides the thread's speakers. CuriaBot states mechanics, the agent voice states meaning, and no fact is said twice in one thread. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
 
+**Speaker name**:
+The webhook username an agent speaks under: its session name, and nothing else. Discord caps the username at 80 characters, so a name that carries more can truncate, and a truncated identity is a mangled one (#254). The label says who speaks. The thread says which ticket.
+
 **Notify**:
 A fire-and-forget line of agent prose into the ticket thread.
 _Avoid_: status line (that names the daemon's own line, below).

@@ -940,7 +940,7 @@ export class DiscordBridge {
   }
 
   // Speaker identities (#108 item 15): agent prose posts under a webhook
-  // identity ("curia-9 · <ticket title>", own identicon avatar), overseer
+  // identity ("curia-9", its session name and own identicon avatar), overseer
   // prose as "curia" with the bot's avatar — one thread, one voice, and "the
   // agent" moves from the prose into the speaker label. One channel webhook
   // serves every identity (username set per send). CONSTRAINT, verified
@@ -1012,9 +1012,13 @@ export class DiscordBridge {
   // default avatar (#143). Gravatar generates one from any hash, `f=y` forces
   // the generated face even when the hash happens to be a real account, and
   // curia still hosts no asset. md5 is Gravatar's key, not a security choice.
+  //
+  // The whole name is the seed. It used to be the first space-separated word,
+  // to hold the face still while the ticket title on the label changed. #254
+  // took the title off the label, so the name is already the session name.
   #avatarFor(as) {
     if (as === 'curia') return this.client.user?.displayAvatarURL?.() ?? undefined
-    const seed = createHash('md5').update(as.split(' ')[0]).digest('hex')
+    const seed = createHash('md5').update(String(as)).digest('hex')
     return `https://www.gravatar.com/avatar/${seed}?d=identicon&f=y&s=128`
   }
 
