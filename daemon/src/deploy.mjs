@@ -1,6 +1,12 @@
 // The self-deploy verb (#270). While the operator travels, no dev box runs
 // `bin/deploy.sh`, so curia must apply its own merged code.
 //
+// It refuses two shapes before it orders anything: a checkout with commits
+// origin/main does not have, and a checkout with uncommitted changes to a
+// tracked file (#292). Both would land in the sibling's `git merge --ff-only`,
+// and the sibling reads a failed merge as a failed deploy and rolls back over
+// the very edit that caused it.
+//
 // The daemon cannot recreate its own container: `docker compose up` run from
 // inside it dies with the container it recreates, half-way through. So the
 // verb only ORDERS the deploy. The daemon fetches, refuses anything that is
@@ -97,6 +103,26 @@ export class SelfDeploy {
     const pending = this.readMarker()
     if (pending && !TERMINAL.has(pending.state)) {
       return `⚙️ a deploy is already in flight (${short(pending.prev)} → ${short(pending.next)}, state **${pending.state}**) — its outcome lands in the channel`
+    }
+    // The tree, before anything else (#292). A modified tracked file makes the
+    // sibling's `git merge --ff-only` refuse the moment an incoming commit
+    // touches the same file — and the sibling reads that refusal as a failed
+    // deploy and runs `git reset --hard`, which discards the edit and says
+    // nothing. So the check belongs here, where it can still name the files.
+    // Untracked files are none of its business: the dashboard's own settings
+    // live in ignored ones.
+    // Every porcelain line is a two-character status, a space, then the path —
+    // and the status of a modified-but-unstaged file starts with a space, so
+    // the lines are cut one by one rather than trimmed as one string.
+    const status = (await this.#git('status', '--porcelain', '--untracked-files=no')).stdout
+    const files = status.split('\n').map((l) => l.slice(3).trim()).filter(Boolean)
+    if (files.length) {
+      const named = files.slice(0, 5).join(', ')
+      const rest = files.length > 5 ? `, and ${files.length - 5} more` : ''
+      return [
+        `❌ the checkout at ${this.repoRoot} has uncommitted changes to ${named}${rest} — a fast-forward would refuse them, and the rollback would discard them.`,
+        'Commit or discard them over ssh. The dashboard writes `config/*.local.yaml`, which git does not track, so a settings save is never what this is.',
+      ].join('\n')
     }
     await this.#git('fetch', 'origin', 'main')
     const prev = (await this.#git('rev-parse', 'HEAD')).stdout.trim()

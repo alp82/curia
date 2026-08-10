@@ -396,7 +396,16 @@ The process that serves the dashboard. It runs beside the daemon and never insid
 The one dashboard screen that writes. Three sections, Routing first, then Projects and Dispatch. It reads `curia.yaml` and `routing.yaml` off disk on arrival, never from the poll snapshot, and posts back only what the operator changed.
 
 **Settings save**:
-The write itself. The sidecar edits both files through the yaml document API, so every hand comment survives. It validates the candidate with the daemon's own loaders, and renames it over the real file only after every candidate passes. A refused save answers the loader's own message and leaves both files as they were.
+The write itself. The sidecar edits the override file through the yaml document API, so every hand comment survives. It validates the candidate as a layer over the tracked file, with the daemon's own loaders, and renames it into place only after every candidate passes. A refused save answers the loader's own message and leaves every file as it was.
+
+**Base config**:
+`config/curia.yaml` and `config/routing.yaml`. Git tracks both. They carry the shipped answer to every key. A ticket that adds a key adds it here, so the box gets that key with the code that needs it.
+
+**Override config**:
+`config/curia.local.yaml` and `config/routing.local.yaml`, beside the base files. Git ignores both. They hold what this box answers differently, and nothing else. The settings screen writes only these. The merge rule is two sentences. A mapping merges key by key. A list or a scalar replaces whole. A value that comes back to the base answer is dropped from the override rather than repeated, and an override file that holds nothing is removed.
+
+**A clean checkout**:
+What `git status` on the box says on an ordinary day, and the reason the override exists. A save leaves the checkout clean, so a dirty tree means one thing: somebody hand-edited a tracked file there. The `deploy` verb refuses a dirty tree and names the files, because a fast-forward would refuse it later and the rollback would discard it.
 
 **Two-phase save banner**:
 The settings screen's banner, at the top. Phase one saves the file. Phase two says the daemon still runs the config it booted with, and makes the restart the loud button. A save and an apply are two acts, and the banner never lets one look like the other.
@@ -471,7 +480,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`. A cross-check adds a reviewer beside one, in `curia-review-<n>`.
 - **Sidecar** (`daemon/bin/curia-dashboard.mjs`): the dashboard's own Node process, in its own container. It imports the daemon's identity check, config rules and Serve helper, and reads the daemon over loopback.
 - **Surfaces**: the shared ttyd terminal, the timeline and the dashboard, all published with Tailscale Serve. Previews take their own port range.
-- **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, dashboard, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing). Hand-edited, and written by the settings screen too. Both files are committed in the form the yaml document API prints back unchanged, so a save rewrites the lines it changed and no others. A trailing comment takes one space before the `#`, and a comment block belongs above its key rather than after it.
+- **Config** (`config/`): two layers. `curia.yaml` (watch list, dispatch, attach, dashboard, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing) are the base, hand-edited and tracked in git. `curia.local.yaml` and `routing.local.yaml` beside them hold this box's own answers, and git ignores them. The daemon reads a base file and the override over it: a mapping merges key by key, a list or a scalar replaces whole. The settings screen writes only the override, which is what keeps the box's checkout clean. Every file is written in the form the yaml document API prints back unchanged, so an edit rewrites the lines it changed and no others. A trailing comment takes one space before the `#`, and a comment block belongs above its key rather than after it.
 
 ## State homes
 

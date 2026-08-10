@@ -1361,10 +1361,21 @@ function screenSettings(p) {
   const bodies = { routing: setRouting, projects: setProjects, dispatch: setDispatch };
   if (!bodies[UI.set.section]) UI.set.section = "routing";
   const files = `<span class="dim-note mono">${esc(fileName(settings.files.curia))} · ${esc(fileName(settings.files.routing))}</span>`;
+  /* #292: the screen reads two layers and writes only the top one. Said here,
+     because "I saved and git shows nothing changed" must not be a puzzle the
+     operator has to solve on the box. */
+  const writes = settings.writes
+    ? `<p class="dim-note" style="max-width:620px">A save writes
+       <span class="mono">${esc(fileName(settings.writes.curia))}</span> and
+       <span class="mono">${esc(fileName(settings.writes.routing))}</span>, beside the files above.
+       Git does not track those, so the box's checkout stays clean and a deploy never collides with a
+       save. They hold what this box answers differently, and nothing else.</p>`
+    : "";
   return `${head(p, "Settings", files)}${saveBanner()}
     <div class="set-subnav">${Object.entries(SET_SECTIONS).map(([k, label]) =>
       `<button class="${UI.set.section === k ? "on" : ""}" onclick="setSection('${k}')">${esc(label)}</button>`).join("")}</div>
-    <div style="max-width:620px">${bodies[UI.set.section]()}</div>`;
+    <div style="max-width:620px">${bodies[UI.set.section]()}</div>
+    ${writes}`;
 }
 const fileName = (p) => String(p ?? "").split("/").pop();
 

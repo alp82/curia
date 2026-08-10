@@ -30,10 +30,12 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parse } from 'yaml'
 import { assertServe, serveOff, attachBase } from './attach.mjs'
 import { identityRefusal, readAllow, serveHosts, tailnetSelf, LOGIN_HEADER } from './identity.mjs'
 import { readSettings, saveSettings } from './settings.mjs'
+// The two config layers (#292). config.mjs imports readDashboard from this file
+// in turn; both edges are runtime calls, never module-level ones.
+import { readLayered } from './config.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -132,8 +134,12 @@ export function readDashboard(cfg, fail, configFile = null) {
 // per-key rules: the `dashboard:` block above, and the identity allowlist from
 // identity.mjs.
 export function loadDashboardConfig(file) {
-  const fail = (msg) => { throw new Error(`bad config ${file}: ${msg}`) }
-  const cfg = parse(fs.readFileSync(file, 'utf8'))
+  // Both layers (#292), because the daemon reads both: a sidecar that read the
+  // tracked file alone could admit a different identity list than the daemon
+  // does, off the same directory.
+  const { data: cfg, localFile } = readLayered(file)
+  const src = localFile ? `${file} + ${localFile}` : file
+  const fail = (msg) => { throw new Error(`bad config ${src}: ${msg}`) }
   if (!cfg || typeof cfg !== 'object') fail('not a mapping')
   const dashboard = readDashboard(cfg, fail, file)
   if (!fs.existsSync(dashboard.index)) {

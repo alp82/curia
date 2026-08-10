@@ -1,17 +1,18 @@
 // The settings write (#265), building item 5 of the where-it-lives decision
-// (#249): the sidecar edits the two yaml files, the daemon's own loaders judge
-// the candidate, and the write is atomic.
+// (#249): the sidecar edits yaml through the document API, the daemon's own
+// loaders judge the candidate, and the write is atomic. #292 moved WHERE it
+// writes — into an override file beside each tracked one, which git ignores.
 //
 // What is pinned here is the half a human looking at the preview cannot check.
-// A screenshot shows a number in a box. It does not show that the comment three
-// lines above it survived, that a refused save left the file byte for byte as
-// it was, that a two-file save is never half applied, or that the candidate the
-// loaders passed is the exact bytes that landed.
+// A screenshot shows a number in a box. It does not show that the tracked file
+// never moved, that a comment survived, that a refused save left every file
+// byte for byte as it was, that a two-file save is never half applied, or that
+// the candidate the loaders passed is the exact bytes that landed.
 //
 // The last suite pins the shipped config files themselves. They are committed
-// in the form the document API prints back unchanged, which is what makes a
-// save from the dashboard a diff of the lines it changed instead of a reflow of
-// the whole file.
+// in the form the document API prints back unchanged. No save rewrites them any
+// more, so this now holds the two layers in one style: an override file IS
+// printed back, and a line copied between them must not reflow on arrival.
 
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,10 +20,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseDocument } from 'yaml'
+import { parse, parseDocument } from 'yaml'
 
 import { readSettings, saveSettings, candidateFor, PRINT_OPTS } from '../src/settings.mjs'
-import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile } from '../src/config.mjs'
 import { candidates, isActive, resolveReviewer, Cooling } from '../src/routing.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
@@ -34,6 +35,10 @@ let tmp
 let curiaFile
 let routingFile
 const files = () => ({ curiaFile, routingFile })
+// Where a save lands since #292: beside the tracked file, never on it.
+const overCuria = () => localConfigFile(curiaFile)
+const overRouting = () => localConfigFile(routingFile)
+const readOr = (file) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null)
 
 // A curia.yaml with the comment shapes that matter: an aligned trailing comment
 // on a value the screen edits, a comment block above a key it does not, and a
@@ -136,66 +141,108 @@ describe('the read the settings screen draws', () => {
   })
 })
 
-describe('the edit keeps the file a human wrote', () => {
-  test('a number changes and every comment around it stays', () => {
-    saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 5 } } })
-    const after = fs.readFileSync(curiaFile, 'utf8')
-    assert.match(after, /max_concurrent: 5/)
-    assert.match(after, /# The resource number, not a throughput one\./)
-    assert.match(after, /auto_dispatch: false # shipped OFF/)
-    assert.match(after, /^# The box config\. Hand-edited\.$/m)
+// #292. The save moved off the tracked files and onto an override beside each
+// one, because git tracks the tracked ones: a save used to leave the box's
+// checkout dirty, the next `git merge --ff-only` refused it, and the deploy's
+// own rollback discarded it. What these pin is the half a screenshot cannot
+// show — that the tracked file never moves, that the override holds only what
+// differs, and that it goes away when it holds nothing.
+describe('the save lands beside the tracked file, never on it', () => {
+  test('the tracked file is untouched and the override carries the change', () => {
+    const before = fs.readFileSync(curiaFile, 'utf8')
+    const out = saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 5 } } })
+    assert.deepEqual(out.written, ['curia.local.yaml'])
+    assert.equal(fs.readFileSync(curiaFile, 'utf8'), before, 'curia.yaml is byte for byte what it was')
+    assert.match(readOr(overCuria()), /max_concurrent: 5/)
+    assert.equal(loadCuriaConfig(curiaFile, { checkPaths: false }).dispatch.max_concurrent, 5)
   })
 
-  test('only the changed lines move', () => {
-    const before = fs.readFileSync(curiaFile, 'utf8').split('\n')
+  test('the override holds what differs and nothing else', () => {
     saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 5 } } })
-    const after = fs.readFileSync(curiaFile, 'utf8').split('\n')
-    assert.equal(before.length, after.length)
-    const moved = before.filter((l, i) => l !== after[i])
-    assert.deepEqual(moved, ['  max_concurrent: 2'])
+    assert.deepEqual(parse(readOr(overCuria())), { dispatch: { max_concurrent: 5 } })
+    // and the rest of the config still reads, off the tracked file below it
+    assert.equal(loadCuriaConfig(curiaFile, { checkPaths: false }).dispatch.poll_interval_s, 60)
   })
 
-  test('a watch entry that survives keeps the comment written beside it', () => {
+  test('a value that comes back to the tracked one drops out, and the empty file goes', () => {
+    saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 5 } } })
+    const out = saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 2 } } })
+    assert.deepEqual(out.written, ['curia.local.yaml'])
+    assert.equal(readOr(overCuria()), null, 'an override that overrides nothing is removed, not left as `{}`')
+    assert.equal(loadCuriaConfig(curiaFile, { checkPaths: false }).dispatch.max_concurrent, 2)
+  })
+
+  test('the override says in its own head what it is and that git does not track it', () => {
+    saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 5 } } })
+    const text = readOr(overCuria())
+    assert.match(text, /Git does not track it/)
+    assert.match(text, /lays over `curia\.yaml`/)
+  })
+
+  test('a comment hand-written in the override survives the next save', () => {
+    fs.writeFileSync(overCuria(), '# this box runs hot\ndispatch:\n  max_concurrent: 9 # the box has the RAM\n')
+    saveSettings({ ...files(), patch: { dispatch: { poll_interval_s: 30 } } })
+    const after = readOr(overCuria())
+    assert.match(after, /^# this box runs hot$/m)
+    assert.match(after, /max_concurrent: 9 # the box has the RAM/)
+    assert.match(after, /poll_interval_s: 30/)
+  })
+
+  test('the watch list replaces whole, and a list equal to the tracked one is no override', () => {
     saveSettings({ ...files(), patch: { watch: [{ repo: 'o/second' }, { repo: 'o/first' }] } })
-    const after = fs.readFileSync(curiaFile, 'utf8')
-    assert.match(after, /- repo: o\/first # the one with the map/)
-    assert.ok(after.indexOf('o/second') < after.indexOf('o/first'), 'the list is in the order the screen sent')
+    assert.deepEqual(parse(readOr(overCuria())), { watch: [{ repo: 'o/second' }, { repo: 'o/first' }] })
+    assert.deepEqual(loadCuriaConfig(curiaFile, { checkPaths: false }).watch.map((w) => w.repo), ['o/second', 'o/first'])
+    saveSettings({ ...files(), patch: { watch: [{ repo: 'o/first' }, { repo: 'o/second' }] } })
+    assert.equal(readOr(overCuria()), null, 'the tracked order is back, so the override has nothing to say')
   })
 
-  test('a repo that goes takes its comment with it, and a new one arrives plain', () => {
-    saveSettings({ ...files(), patch: { watch: [{ repo: 'o/second' }, { repo: 'o/third' }] } })
-    const after = fs.readFileSync(curiaFile, 'utf8')
-    assert.ok(!after.includes('o/first'))
-    assert.ok(!after.includes('the one with the map'))
+  test('a repo comment written in the override survives, and a new repo arrives plain', () => {
+    fs.writeFileSync(overCuria(), 'watch:\n  - repo: o/first # the one with the map\n  - repo: o/second\n')
+    saveSettings({ ...files(), patch: { watch: [{ repo: 'o/first' }, { repo: 'o/third' }] } })
+    const after = readOr(overCuria())
+    assert.match(after, /- repo: o\/first # the one with the map/)
     assert.match(after, /- repo: o\/third/)
-    assert.deepEqual(loadCuriaConfig(curiaFile, { checkPaths: false }).watch.map((w) => w.repo), ['o/second', 'o/third'])
+    assert.ok(!after.includes('o/second'), 'a repo that goes takes its own line with it')
   })
 
   test('a non-default mode is written, and `auto` is the absence of the key', () => {
     saveSettings({ ...files(), patch: { watch: [{ repo: 'o/first', mode: 'map' }, { repo: 'o/second' }] } })
-    assert.match(fs.readFileSync(curiaFile, 'utf8'), /mode: map/)
+    assert.match(readOr(overCuria()), /mode: map/)
     saveSettings({ ...files(), patch: { watch: [{ repo: 'o/first', mode: 'auto' }, { repo: 'o/second' }] } })
-    assert.ok(!fs.readFileSync(curiaFile, 'utf8').includes('mode:'))
+    assert.equal(readOr(overCuria()), null, 'that is the tracked list again')
   })
 
-  test('switching a model off writes one line and leaves its whole entry', () => {
-    saveSettings({ ...files(), patch: { routing: { models: { sonnet: { active: false } } } } })
-    const after = fs.readFileSync(routingFile, 'utf8')
-    assert.match(after, /sonnet:\n {4}provider: anthropic\n {4}harness: claude\n {4}active: false/)
-    assert.match(after, /# the label vocabulary is not the CLI vocabulary/)
-    assert.equal(loadRoutingConfig(routingFile).models.sonnet.active, false)
-  })
-
-  test('switching it back on removes the key rather than writing `active: true`', () => {
+  test('switching a model off writes one line, and routing.yaml keeps its whole entry', () => {
     const before = fs.readFileSync(routingFile, 'utf8')
     saveSettings({ ...files(), patch: { routing: { models: { sonnet: { active: false } } } } })
+    assert.equal(fs.readFileSync(routingFile, 'utf8'), before)
+    assert.deepEqual(parse(readOr(overRouting())), { models: { sonnet: { active: false } } })
+    const merged = loadRoutingConfig(routingFile)
+    assert.equal(merged.models.sonnet.active, false)
+    assert.equal(merged.models.sonnet.harness, 'claude', 'the entry merged key by key rather than being replaced')
+  })
+
+  test('switching it back on removes the override rather than pinning `active: true`', () => {
+    saveSettings({ ...files(), patch: { routing: { models: { sonnet: { active: false } } } } })
     saveSettings({ ...files(), patch: { routing: { models: { sonnet: { active: true } } } } })
-    assert.equal(fs.readFileSync(routingFile, 'utf8'), before, 'the file returns to the shape it had')
+    assert.equal(readOr(overRouting()), null)
+    assert.equal(loadRoutingConfig(routingFile).models.sonnet.active, true)
+  })
+
+  test('a model the TRACKED file switches off is turned on by an explicit `active: true`', () => {
+    // The one case an absent key cannot express: ON is the tracked file's `false`
+    // plus something that says otherwise.
+    fs.writeFileSync(routingFile, fs.readFileSync(routingFile, 'utf8')
+      .replace('  sonnet:\n', '  sonnet:\n    active: false\n'))
+    saveSettings({ ...files(), patch: { routing: { models: { sonnet: { active: true } } } } })
+    assert.deepEqual(parse(readOr(overRouting())), { models: { sonnet: { active: true } } })
+    assert.equal(loadRoutingConfig(routingFile).models.sonnet.active, true)
   })
 
   test('a save that changes nothing writes nothing', () => {
     const out = saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 2 } } })
     assert.deepEqual(out.written, [])
+    assert.equal(readOr(overCuria()), null)
   })
 
   test('both files in one save', () => {
@@ -203,23 +250,39 @@ describe('the edit keeps the file a human wrote', () => {
       ...files(),
       patch: { dispatch: { max_concurrent: 3 }, routing: { defaults: { untyped: 'sonnet' } } },
     })
-    assert.deepEqual(out.written.sort(), ['curia.yaml', 'routing.yaml'])
+    assert.deepEqual(out.written.sort(), ['curia.local.yaml', 'routing.local.yaml'])
     assert.equal(loadCuriaConfig(curiaFile, { checkPaths: false }).dispatch.max_concurrent, 3)
     assert.equal(loadRoutingConfig(routingFile).defaults.untyped, 'sonnet')
+  })
+
+  test('the screen reads the two layers merged, and says where a save lands', () => {
+    saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 5 } } })
+    const s = readSettings(files())
+    assert.equal(s.dispatch.max_concurrent, 5)
+    assert.equal(s.dispatch.poll_interval_s, 60, 'the tracked file still answers for what the override does not')
+    assert.deepEqual(s.files, { curia: curiaFile, routing: routingFile })
+    assert.deepEqual(s.writes, { curia: overCuria(), routing: overRouting() })
   })
 })
 
 describe('the daemon\'s own loaders judge the candidate first', () => {
   const refusal = (patch) => {
-    const before = { curia: fs.readFileSync(curiaFile, 'utf8'), routing: fs.readFileSync(routingFile, 'utf8') }
+    const before = {
+      curia: fs.readFileSync(curiaFile, 'utf8'),
+      routing: fs.readFileSync(routingFile, 'utf8'),
+      overCuria: readOr(overCuria()),
+      overRouting: readOr(overRouting()),
+    }
     let err = null
     try { saveSettings({ ...files(), patch }) } catch (e) { err = e }
     assert.ok(err, 'the save was refused')
     assert.equal(err.refusal, true, 'a refusal is the operator\'s config being wrong, not this process failing')
     assert.equal(fs.readFileSync(curiaFile, 'utf8'), before.curia, 'curia.yaml is byte for byte what it was')
     assert.equal(fs.readFileSync(routingFile, 'utf8'), before.routing, 'routing.yaml is byte for byte what it was')
-    assert.ok(!fs.existsSync(candidateFor(curiaFile)), 'no candidate is left behind')
-    assert.ok(!fs.existsSync(candidateFor(routingFile)), 'no candidate is left behind')
+    assert.equal(readOr(overCuria()), before.overCuria, 'the override is what it was too')
+    assert.equal(readOr(overRouting()), before.overRouting, 'the override is what it was too')
+    assert.ok(!fs.existsSync(candidateFor(overCuria())), 'no candidate is left behind')
+    assert.ok(!fs.existsSync(candidateFor(overRouting())), 'no candidate is left behind')
     return err.message
   }
 
@@ -230,10 +293,12 @@ describe('the daemon\'s own loaders judge the candidate first', () => {
     assert.match(msg, /sandbox ports/)
   })
 
-  test('a refusal names the real file, never the candidate beside it', () => {
+  test('a refusal names both layers, never the candidate beside them', () => {
     const msg = refusal({ dispatch: { max_concurrent: 500 } })
-    assert.match(msg, /curia\.yaml/)
-    assert.ok(!msg.includes('.candidate'), 'the operator asked about curia.yaml, so the answer says curia.yaml')
+    // Both, because a merged config has two authors and the operator has to
+    // know which file holds the line that is wrong.
+    assert.match(msg, /curia\.yaml \+ .*curia\.local\.yaml/)
+    assert.ok(!msg.includes('.candidate'), 'the operator asked about curia.local.yaml, so the answer says that')
   })
 
   test('a default naming a model that is switched off in the SAME save is refused', () => {

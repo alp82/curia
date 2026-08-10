@@ -23,6 +23,14 @@ Desktop.ini
 !.env.example
 *.local
 *.secret
+
+# The box's own settings (#292). The dashboard's settings screen writes these,
+# and git must not track them: a save would leave the checkout dirty, the next
+# `git merge --ff-only` would refuse it, and the deploy's own rollback would
+# discard it. They lay over the tracked config/*.yaml beside them.
+config/*.local.yaml
+# The atomic write's temp file, which exists between a stage and a rename.
+config/.*.candidate
 secrets/
 credentials.json
 *.pem

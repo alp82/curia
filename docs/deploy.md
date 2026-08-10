@@ -33,12 +33,29 @@ DOCKER_GID=<output of: getent group docker | cut -d: -f3>
 | Checkout | `/home/alp/curia` (clone of this repo) |
 | Env file | `/home/alp/curia/daemon/.env` (mode 600, never committed) |
 | Compose env | `/home/alp/curia/deploy/.env` (`DOCKER_GID`, never committed) |
+| Box settings | `/home/alp/curia/config/curia.local.yaml`, `routing.local.yaml` (never committed) |
 | Worktrees | `/home/alp/curia-work` |
 | Skills | `/home/alp/curia/skills` (vendored in the checkout, #268) |
 | tmux socket | `/run/curia-tmux/default` inside the `tmux-sock` volume |
 | Claude Code | `/home/alp/.local/bin/claude` (host copy; agents run the containerized pin) |
 
 The committed config (`config/curia.yaml`) hardcodes `/home/alp/...` paths. The box mirrors the dev box username, so the committed config works unchanged.
+
+## The two config layers, and a clean `git status`
+
+Git tracks `config/curia.yaml` and `config/routing.yaml`. The dashboard settings screen does **not** write them ([#292](https://github.com/alp82/curia/issues/292)). It writes `config/curia.local.yaml` and `config/routing.local.yaml` beside them, and `.gitignore` holds those out of the checkout. The daemon reads the tracked file, then lays the override over it. A mapping merges key by key. A list or a scalar replaces whole.
+
+The override holds only what this box answers differently. A value that comes back to the tracked answer is dropped from the override. An override file that holds nothing is removed. The daemon names both files at boot:
+
+```
+config: curia.yaml + curia.local.yaml (overrides: dispatch, watch)
+```
+
+**On an ordinary day `git status` on the box is clean.** That is the point of the split. A save from the phone leaves the checkout clean. So a dirty tree means one thing: somebody hand-edited a tracked file on the box. Fix that over ssh.
+
+The `deploy` verb refuses a dirty tree and names the files. It must. A deploy fast-forwards, and `git merge --ff-only` refuses to overwrite a local change. The sibling reads that refusal as a failed deploy and runs `git reset --hard`, which discards the edit and says nothing.
+
+To change a setting on this box, edit the override file. To change what curia ships, edit the tracked file in this repo and deploy it.
 
 **The `identity:` section is required** (#151, [ADR-0011](adr/0011-tailscale-identity-in-front-of-every-attach-surface.md)). The daemon refuses to boot without it, naming the key. `identity.allow` lists the tailscale logins that may reach the attach and timeline surfaces — the `Tailscale-User-Login` that Serve stamps, which is the account login, not the node name. Read yours with:
 
@@ -76,7 +93,7 @@ The daemon cannot recreate its own container, so the verb only orders the deploy
 4. On a failed health check the sibling runs `git reset --hard` to the previous ref and recreates again. Code runs from the repo mount, so the previous ref is a full rollback.
 5. The surviving daemon reads the marker at boot, journals `deploy_landed` or `deploy_rolled_back`, announces the outcome in #curia, and deletes the marker.
 
-The sibling logs to `daemon/data/deploy.log`. The fixed container name is the concurrency guard: a second `deploy` while one is in flight is refused. A checkout with local commits is refused and needs ssh.
+The sibling logs to `daemon/data/deploy.log`. The fixed container name is the concurrency guard: a second `deploy` while one is in flight is refused. Two checkout states are refused before anything is ordered, and both need ssh: local commits `origin/main` does not have, and uncommitted changes to a tracked file. Untracked files are none of the deploy's business, which is what lets the dashboard's own override files sit in `config/` forever.
 
 Both paths were proven live on 2026-08-10: the verb rolled back a deliberate boot crash on its own, and then landed the revert as a real deploy.
 

@@ -5,41 +5,69 @@
 // file, then rename. A rejected save leaves the file untouched and returns the
 // loader's message."
 //
-// Four rules run through everything below.
+// #292 moved WHERE it writes. Git tracks `curia.yaml` and `routing.yaml`, so a
+// save used to leave the box's checkout dirty and the next deploy's `git merge
+// --ff-only` refused it. The tracked file is now the BASE, and a save writes
+// `<name>.local.yaml` beside it, which git ignores.
 //
-// 1. THE DOCUMENT, NOT THE DATA. A save never re-serializes a parsed object:
+// Five rules run through everything below.
+//
+// 1. THE OVERRIDE HOLDS ONLY WHAT DIFFERS. Every edit compares the new value
+//    against the tracked file. A value that differs is written here. A value
+//    that comes back to what the tracked file says is DELETED here rather than
+//    repeated, and an override file that empties out is removed. So the file
+//    reads as the list of answers this box gives differently, and nothing else.
+//
+// 2. THE DOCUMENT, NOT THE DATA. A save never re-serializes a parsed object:
 //    it edits the parsed DOCUMENT in place and prints it back. Both config
 //    files are mostly comments — the why behind every number, written by hand
 //    over dozens of tickets — and a settings screen that ate them would cost
 //    more than it saves. So `parseDocument` in, node edits, `toString` out.
 //
-// 2. THE PATCH IS A CLOSED SET. The screen writes six things: three dispatch
+// 3. THE PATCH IS A CLOSED SET. The screen writes six things: three dispatch
 //    numbers, the watch list, the routing defaults, and the model switch. Every
 //    one is named in code here and mapped onto an explicit key path. There is
 //    no generic "set this key" route, because a browser that could set any key
 //    could set `dispatch.workspace_root` or `sandbox.image`.
 //
-// 3. THE DAEMON'S OWN LOADERS SAY YES FIRST. The candidate is validated by
+// 4. THE DAEMON'S OWN LOADERS SAY YES FIRST. The candidate is validated by
 //    `loadCuriaConfig`/`loadRoutingConfig` — the same functions that decide
-//    whether the daemon boots — before the real file moves. The one thing
-//    skipped is `checkPaths` (see config.mjs): those four rules ask about a
-//    filesystem the sidecar's container does not mount, and no key here can
+//    whether the daemon boots — before the real file moves, and validated as a
+//    LAYER over the tracked file, which is how the daemon will read it. The one
+//    thing skipped is `checkPaths` (see config.mjs): those four rules ask about
+//    a filesystem the sidecar's container does not mount, and no key here can
 //    reach them.
 //
-// 4. A REFUSED SAVE CHANGES NOTHING. The candidate is a temp file beside the
+// 5. A REFUSED SAVE CHANGES NOTHING. The candidate is a temp file beside the
 //    real one. It is validated there and renamed over the real file only after
 //    every candidate passes, so a two-file save is not half applied.
 //
 // A NOTE ON LAYOUT. The document API keeps every comment, and it does not keep
 // the COLUMN a trailing comment sits in: `foo: 1        # why` prints back as
 // `foo: 1 # why`. Both config files are committed in that normal form, and
-// `settings.test.mjs` holds them there — so a save rewrites the lines it
-// changed and no others.
+// `settings.test.mjs` holds them there — so a hand edit made in an override
+// file rewrites the lines it changed and no others.
 
 import fs from 'node:fs'
 import path from 'node:path'
 import { parse, parseDocument } from 'yaml'
-import { loadCuriaConfig, loadRoutingConfig, WATCH_MODES } from './config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile, readLayered, WATCH_MODES } from './config.mjs'
+
+// What a new override file says about itself, above the first key. It is the
+// one place the two-file rule is written where the operator meets it: on the
+// box, in the file, rather than in a doc they would have to go and find.
+const header = (base) => [
+  "# This box's own settings (#292). The curia dashboard writes this file.",
+  '#',
+  '# Git does not track it. A save leaves the checkout clean, and a deploy never',
+  `# collides with one. This file lays over \`${path.basename(base)}\`. A mapping`,
+  '# merges key by key. A list or a scalar replaces whole.',
+  '#',
+  '# Only what this box answers differently is here. A value that comes back to',
+  '# the tracked answer is dropped from this file rather than repeated.',
+  '',
+  '',
+].join('\n')
 
 // What `toString` must be told so that printing an unedited document returns
 // the file byte for byte. `lineWidth: 0` stops it re-wrapping long scalars, and
@@ -77,17 +105,22 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/
 // the read
 // ---------------------------------------------------------------------------
 
-// What the settings screen draws. Read with a plain parse rather than through
-// the loaders, and deliberately: a config the loaders REFUSE is exactly when
-// the operator most needs this screen, and a read that threw would hand them a
-// blank page in front of a daemon that will not boot.
+// What the settings screen draws: both layers, merged the way the daemon reads
+// them. Read with a plain parse rather than through the loaders, and
+// deliberately: a config the loaders REFUSE is exactly when the operator most
+// needs this screen, and a read that threw would hand them a blank page in
+// front of a daemon that will not boot.
 export function readSettings({ curiaFile, routingFile }) {
-  const curia = parse(fs.readFileSync(curiaFile, 'utf8')) ?? {}
-  const routing = parse(fs.readFileSync(routingFile, 'utf8')) ?? {}
+  const curia = readLayered(curiaFile).data ?? {}
+  const routing = readLayered(routingFile).data ?? {}
   const dispatch = {}
   for (const key of DISPATCH_KEYS) dispatch[key] = curia.dispatch?.[key] ?? null
   return {
     files: { curia: curiaFile, routing: routingFile },
+    // Where a save lands, which is not where the screen read from. The page
+    // says this out loud, because "I saved and git shows nothing" must not be
+    // a surprise the operator has to work out.
+    writes: { curia: localConfigFile(curiaFile), routing: localConfigFile(routingFile) },
     dispatch,
     watch: (curia.watch ?? []).map((w) => ({ repo: w?.repo ?? '', mode: w?.mode ?? 'auto' })),
     watch_modes: WATCH_MODES,
@@ -171,22 +204,64 @@ function checkPatch(patch) {
 // the edits
 // ---------------------------------------------------------------------------
 
-function editCuria(doc, patch) {
-  for (const [key, value] of Object.entries(patch.dispatch ?? {})) {
-    if (doc.getIn(['dispatch', key]) === undefined) refuse(`curia.yaml has no \`dispatch.${key}\` line to edit`)
-    doc.setIn(['dispatch', key], value)
+// Every edit below takes three things: the override DOCUMENT it writes, the
+// patch, and the data the TRACKED file holds. The third is what decides the
+// shape of the first — an override exists only where the two disagree.
+
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+// Write the override, or drop it. `baseValue` is what the tracked file says: an
+// answer equal to it needs no override, and leaving one behind would pin this
+// box to today's number the day a ticket ships a better one.
+function settle(doc, keyPath, value, baseValue) {
+  if (!same(value, baseValue)) {
+    doc.setIn(keyPath, value)
+    return
   }
-  if (patch.watch) editWatch(doc, patch.watch)
+  // An override file that is still nothing but its header has no key to drop,
+  // and the document API refuses a delete against empty contents.
+  if (!doc.contents?.items) return
+  doc.deleteIn(keyPath)
+  // And the sections the delete emptied. An override file that keeps `models:
+  // {}` around says this box overrides something when it overrides nothing.
+  for (let i = keyPath.length - 1; i >= 1; i--) {
+    const parent = doc.getIn(keyPath.slice(0, i))
+    if (!parent?.items || parent.items.length) break
+    doc.deleteIn(keyPath.slice(0, i))
+  }
 }
 
-// The watch list, reconciled entry by entry rather than replaced.
+function editCuria(doc, patch, base) {
+  for (const [key, value] of Object.entries(patch.dispatch ?? {})) {
+    if (base.dispatch?.[key] === undefined) refuse(`curia.yaml has no \`dispatch.${key}\` line to edit`)
+    settle(doc, ['dispatch', key], value, base.dispatch[key])
+  }
+  if (patch.watch) editWatch(doc, patch.watch, base)
+}
+
+// The watch list. A list REPLACES rather than merges (config.mjs states that
+// rule), so this writes the whole list or none of it: a watch list equal to the
+// tracked one drops out of the override file entirely.
 //
-// A repo that survives keeps its own node, so the comment written beside it
+// Inside the override file it is still reconciled entry by entry. A repo that
+// survives keeps its own node, so a comment hand-written beside it there
 // survives with it — and a repo that goes takes its comment with it, which is
 // the right half to lose. Only a genuinely new repo gets a fresh node.
-function editWatch(doc, watch) {
+function editWatch(doc, watch, base) {
+  if (!Array.isArray(base.watch)) refuse('curia.yaml has no `watch:` list to edit')
+  // `mode: auto` is the default, so a comparison and a fresh entry both say a
+  // mode only when it is not the default.
+  const plain = (w) => (w.mode && w.mode !== 'auto' ? { repo: w.repo, mode: w.mode } : { repo: w.repo })
+  const wanted = watch.map(plain)
+  if (same(wanted, base.watch.map((w) => plain({ repo: w?.repo, mode: w?.mode })))) {
+    if (doc.contents?.items) doc.delete('watch')
+    return
+  }
   const seq = doc.get('watch')
-  if (!seq?.items) refuse('curia.yaml has no `watch:` list to edit')
+  if (!seq?.items) {
+    doc.set('watch', doc.createNode(wanted))
+    return
+  }
   const byRepo = new Map()
   for (const item of seq.items) {
     const repo = item?.get?.('repo')
@@ -194,11 +269,7 @@ function editWatch(doc, watch) {
   }
   seq.items = watch.map((w) => {
     const node = byRepo.get(w.repo)
-    if (!node) {
-      // `mode: auto` is the default, so a new entry states a mode only when it
-      // is not the default. The shipped file writes it that way by hand.
-      return doc.createNode(w.mode && w.mode !== 'auto' ? { repo: w.repo, mode: w.mode } : { repo: w.repo })
-    }
+    if (!node) return doc.createNode(plain(w))
     if (w.mode !== undefined) {
       if (w.mode === 'auto' && node.get('mode') === undefined) return node
       if (w.mode === 'auto') node.delete('mode')
@@ -208,21 +279,20 @@ function editWatch(doc, watch) {
   })
 }
 
-function editRouting(doc, patch) {
+function editRouting(doc, patch, base) {
   for (const [type, model] of Object.entries(patch.routing.defaults ?? {})) {
-    if (doc.getIn(['defaults', type]) === undefined) {
+    if (base.defaults?.[type] === undefined) {
       refuse(`routing.yaml has no \`defaults.${type}\` row — the settings screen edits the rows that are there and adds none`)
     }
-    doc.setIn(['defaults', type], model)
+    settle(doc, ['defaults', type], model, base.defaults[type])
   }
   for (const [name, m] of Object.entries(patch.routing.models ?? {})) {
-    const node = doc.getIn(['models', name])
-    if (!node?.set) refuse(`routing.yaml has no \`models.${name}\` entry — a model is added by hand, not by a checkbox`)
-    // On is the absence of the key, not `active: true`. Switching a model back
-    // on returns the file to the shape it had before anyone touched it, which
-    // is what keeps the diff of a save honest about what changed.
-    if (m.active) node.delete('active')
-    else node.set('active', false)
+    if (!base.models?.[name]) refuse(`routing.yaml has no \`models.${name}\` entry — a model is added by hand, not by a checkbox`)
+    // The switch is a value here rather than an absence. Absence was the reading
+    // when this wrote the tracked file, and it cannot be: the tracked file may
+    // itself say `active: false`, and an override that expressed ON by deleting
+    // a key would then say nothing at all.
+    settle(doc, ['models', name, 'active'], m.active, base.models[name].active !== false)
   }
 }
 
@@ -233,8 +303,11 @@ function editRouting(doc, patch) {
 function stage(file, text) {
   const tmp = candidateFor(file)
   // The candidate becomes the file, so it inherits the file's permissions
-  // rather than whatever the umask would have given a fresh one.
-  const fd = fs.openSync(tmp, 'w', fs.statSync(file).mode & 0o777)
+  // rather than whatever the umask would have given a fresh one. The first save
+  // on a box has no file to inherit from, and takes the ordinary mode.
+  let mode = 0o644
+  try { mode = fs.statSync(file).mode & 0o777 } catch { /* the first save */ }
+  const fd = fs.openSync(tmp, 'w', mode)
   try {
     fs.writeFileSync(fd, text)
     // The rename below is atomic against a crash, and only fsync makes it
@@ -262,46 +335,59 @@ function commit(tmp, file) {
   } catch { /* the rename already landed */ }
 }
 
-// The loaders, run on the candidate, with the temp path swapped back out of
-// the message. The operator asked about `curia.yaml`, so the refusal names
-// `curia.yaml` — not the dotfile beside it that only this module knows about.
-function validate(kind, tmp, file) {
+// The loaders, run on the candidate AS A LAYER over the tracked file — which is
+// how the daemon will read it, so it is the only judgement worth having. The
+// temp path is swapped back out of the message: the operator asked about
+// `curia.local.yaml`, so the refusal names it, not the dotfile beside it that
+// only this module knows about. A candidate that removes the override validates
+// the tracked file alone.
+function validate({ kind, base, file, tmp }) {
   try {
-    if (kind === 'curia') loadCuriaConfig(tmp, { checkPaths: false })
-    else loadRoutingConfig(tmp)
+    if (kind === 'curia') loadCuriaConfig(base, { checkPaths: false, localFile: tmp ?? null })
+    else loadRoutingConfig(base, { localFile: tmp ?? null })
   } catch (e) {
-    throw new SettingsRefusal(String(e.message).split(tmp).join(file))
+    throw new SettingsRefusal(tmp ? String(e.message).split(tmp).join(file) : String(e.message))
   }
 }
 
-// Save the patch. Returns the basenames actually written — a save that changes
-// nothing writes nothing, and says so.
+// Save the patch into the override files. Returns the basenames actually
+// written — a save that changes nothing writes nothing, and says so.
 export function saveSettings({ curiaFile, routingFile, patch, now = () => new Date() }) {
   checkPatch(patch)
   const jobs = []
-  if (patch.dispatch || patch.watch) jobs.push({ kind: 'curia', file: curiaFile, edit: (doc) => editCuria(doc, patch) })
-  if (patch.routing) jobs.push({ kind: 'routing', file: routingFile, edit: (doc) => editRouting(doc, patch) })
+  if (patch.dispatch || patch.watch) jobs.push({ kind: 'curia', base: curiaFile, edit: editCuria })
+  if (patch.routing) jobs.push({ kind: 'routing', base: routingFile, edit: editRouting })
   if (!jobs.length) refuse('the save carried no settings')
 
   const staged = []
   try {
     for (const job of jobs) {
-      const before = fs.readFileSync(job.file, 'utf8')
-      const doc = parseDocument(before)
+      const file = localConfigFile(job.base)
+      const baseData = parse(fs.readFileSync(job.base, 'utf8')) ?? {}
+      // No override file yet is the ordinary first save, and the header is what
+      // that file starts as. `null` marks it, so "nothing changed" and "the
+      // override is gone" stay two different answers below.
+      const before = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null
+      const doc = parseDocument(before ?? header(job.base))
       if (doc.errors?.length) {
-        refuse(`${path.basename(job.file)} does not parse as yaml (${doc.errors[0].message}) — fix it on the box before saving over it`)
+        refuse(`${path.basename(file)} does not parse as yaml (${doc.errors[0].message}) — fix it on the box before saving over it`)
       }
-      job.edit(doc)
-      const after = doc.toString(PRINT_OPTS)
+      job.edit(doc, patch, baseData)
+      // An override file with no keys left is removed rather than kept as `{}`.
+      const empty = !doc.contents || !(doc.contents.items?.length > 0)
+      const after = empty ? null : doc.toString(PRINT_OPTS)
       if (after === before) continue
-      staged.push({ ...job, tmp: stage(job.file, after) })
+      staged.push({ ...job, file, ...(after === null ? { remove: true } : { tmp: stage(file, after) }) })
     }
     // Every candidate passes before any of them lands, so a two-file save is
     // never half applied.
-    for (const s of staged) validate(s.kind, s.tmp, s.file)
-    for (const s of staged) commit(s.tmp, s.file)
+    for (const s of staged) validate(s)
+    for (const s of staged) {
+      if (s.remove) fs.rmSync(s.file, { force: true })
+      else commit(s.tmp, s.file)
+    }
   } catch (e) {
-    for (const s of staged) discard(s.tmp)
+    for (const s of staged) if (s.tmp) discard(s.tmp)
     throw e
   }
   return { written: staged.map((s) => path.basename(s.file)), at: now().toISOString() }
