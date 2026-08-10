@@ -24,6 +24,17 @@ const REPOISH_RE = /^[\w./-]+$/
 // round trip is stable — the instruction is taken from the FIRST `--` onward,
 // so a sentence that itself contains ` -- ` survives canonicalFor → parseCommand
 // unchanged.
+//
+// #255: after `map <n>` the separator is OPTIONAL. A map number anchors the
+// shape, so the first token that is not an option can only be the start of the
+// sentence — nothing else is left for it to be. Every composer still writes the
+// `--` (canonicalFor, the bridge expansion), so no line that parsed before
+// parses differently. What changes is the line NOBODY composes on purpose:
+// `map 147 add a ticket for X`, typed into the slash `ticket` field or written
+// by a model, used to be a refusal the sender could not act on.
+//
+// It stays mandatory on the new-map shape, which has no number in front: there
+// `map cur chart it` cannot be told from a two-word repo argument.
 const INSTRUCTION_SEP = '--'
 
 // What names ONE live agent on `cancel`, `resume` and `attach`: an issue
@@ -48,10 +59,19 @@ const START_INSTRUCTION_GONE = '`start` carries no instruction — it works a ti
 const MAP_VERB_RE = /^map(\s|$)/
 const MAP_SHAPES = [
   '`map` takes one of two shapes:',
-  '• `map <n> [model=x] [-- <what should change>]` — chart an EXISTING map, by its own issue number.',
+  '• `map <n> [model=x] [<what should change>]` — chart an EXISTING map, by its own issue number.',
+  '  The sentence needs no `--` after the number (#255), and a `--` there is still read.',
   '• `map [repo] [model=x] -- <what to chart>` — chart a NEW map from your words. The sentence is',
-  '  required here, and it is the whole brief. Name the repo when more than one is watched.',
+  '  required here, and the `--` is too: with no number in front, nothing else tells a repo',
+  '  argument from the first word of the sentence. Name the repo when more than one is watched.',
 ].join('\n')
+
+// #255: an interpreted refusal is read by the MODEL that composed it, as its
+// own tool result — the loop is closed already. What it could not act on is the
+// TEXT: the model wrote tool arguments, the seam turned them into this line,
+// and the operator's usage catalogue names a surface the model cannot type on.
+// So an interpreted refusal says where the line came from and names the fields.
+const INTERPRETED_REFUSAL = 'This line is your own tool call, composed into text by the daemon seam. You did not write it, so fix the ARGUMENTS and call the tool again: one value per field, the issue number alone in `ticket`, and a whole sentence only in `instruction`.'
 
 // #177: `harness=` is gone from every surface. The harness is a FUNCTION of the
 // model — `models.<x>.harness` holds one value — so every value the daemon could
@@ -85,21 +105,27 @@ function parseIssueRef(cmd, rest, { instruction: takesInstruction = false } = {}
   } else {
     return null
   }
-  const sep = takesInstruction ? rest.indexOf(INSTRUCTION_SEP) : -1
-  const opts = sep === -1 ? rest.slice(1) : rest.slice(1, sep)
-  for (const opt of opts) {
-    const om = opt.match(/^model=([\w.-]+)$/)
-    if (!om) return null
+  // The options run from the issue reference up to the first token that is not
+  // one. On `start` that token is a refusal; on `map` it opens the instruction.
+  const args = rest.slice(1)
+  let i = 0
+  for (; i < args.length; i += 1) {
+    const om = args[i].match(/^model=([\w.-]+)$/)
+    if (!om) break
     cmd.model = om[1]
   }
-  if (sep !== -1) {
-    // `--` with nothing after it is a typo, not an empty instruction: it
-    // would dispatch the "what should change?" escalation the operator was
-    // trying to skip.
-    const instruction = rest.slice(sep + 1).join(' ').trim()
-    if (!instruction) return null
-    cmd.instruction = instruction
-  }
+  if (i === args.length) return cmd
+  if (!takesInstruction) return null
+  // #255: the separator is optional here, so the instruction starts either
+  // after a bare `--` or at this token. An option written AFTER the boundary is
+  // instruction text either way — one settled rule, one place it is applied.
+  const sep = args[i] === INSTRUCTION_SEP
+  const instruction = args.slice(sep ? i + 1 : i).join(' ').trim()
+  // `--` with nothing after it is a typo, not an empty instruction: it would
+  // dispatch the "what should change?" escalation the operator was trying to
+  // skip.
+  if (!instruction) return null
+  cmd.instruction = instruction
   return cmd
 }
 
@@ -142,7 +168,7 @@ function parseNewMap(rest) {
 
 // 'tickets [repo]' | 'next [repo]' | 'status'
 // | 'start <n>|<owner/repo#n> [model=x]'
-// | 'map <n>|<owner/repo#n> [model=x] [-- <instruction>]'
+// | 'map <n>|<owner/repo#n> [model=x] [[--] <instruction>]'
 // | 'map [repo] [model=x] -- <instruction>'
 // | 'cancel <n>|all' | 'resume <n> [model=x]' | 'resume all' | 'attach <n>'
 // — anything else ⇒ null.
@@ -232,7 +258,7 @@ const USAGE = [
   '`status` — agents running, agents waiting on input, recent cancelled and finished',
   '`start <n>|repo#<n> [model=x]` — claim + dispatch an agent (repo: any unambiguous part of the name)',
   '`start <map>` — dispatch that map\'s next takeable ticket',
-  '`map <n> [-- <instruction>]` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after `--` is what it should change',
+  '`map <n> [<instruction>]` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after the number is what it should change, with or without a `--` in front of it',
   '`map [repo] -- <instruction>` — dispatch a charting agent with NO map: it settles the destination with you and creates the `wayfinder:map` issue itself',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree and the model it last ran on',
@@ -268,7 +294,12 @@ export class CommandRouter {
       if (HARNESS_OPT_RE.test(canonical)) why = `${HARNESS_GONE}\n`
       else if (START_INSTRUCTION_RE.test(canonical)) why = `${START_INSTRUCTION_GONE}\n`
       else if (MAP_VERB_RE.test(canonical.trim())) why = `${MAP_SHAPES}\n`
-      return `❌ could not parse \`${canonical}\`\n${why}${USAGE}`
+      // The usage catalogue is the operator's, and it lists a syntax the model
+      // has no way to type: it holds tools, not a text surface. It gets the
+      // seam line instead, plus the same `why`, which states the shape its
+      // arguments have to compose to.
+      const tail = interpreted ? INTERPRETED_REFUSAL : USAGE
+      return `❌ could not parse \`${canonical}\`\n${why}${tail}`
     }
     try {
       // `return await` is load-bearing throughout: a bare `return <promise>` is

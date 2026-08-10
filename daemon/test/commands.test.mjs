@@ -225,6 +225,54 @@ describe('parseCommand', () => {
     assert.equal(c.instruction, 'use model=opus wording in the note')
   })
 
+  // ---- #255: the `--` is optional after a map number ------------------------
+  //
+  // The 2026-08-06 incident: `map 147 <sentence>` was refused three times in
+  // four minutes and nobody could act on the refusal. The number anchors the
+  // shape, so the sentence needs no boundary token.
+
+  test('map takes the sentence with no -- at all', () => {
+    const c = parseCommand('map 147 new ticket to make the map ticket param optional')
+    assert.equal(c.verb, 'map')
+    assert.equal(c.ticket, '147')
+    assert.equal(c.instruction, 'new ticket to make the map ticket param optional')
+  })
+
+  test('the options still come first, with or without the --', () => {
+    const c = parseCommand('map cur#147 model=opus add a ticket for X')
+    assert.equal(c.repoArg, 'cur')
+    assert.equal(c.model, 'opus')
+    assert.equal(c.instruction, 'add a ticket for X')
+    // and an option-shaped word inside the sentence stays sentence, exactly as
+    // it does after a `--`
+    assert.equal(parseCommand('map 147 use model=opus wording').model, undefined)
+    assert.equal(parseCommand('map 147 use model=opus wording').instruction, 'use model=opus wording')
+  })
+
+  test('the -- form is unchanged, so every composed line parses to what it did', () => {
+    for (const [text, instruction] of [
+      ['map 147 -- add a ticket for X', 'add a ticket for X'],
+      ['map 147 model=opus -- add a ticket for X', 'add a ticket for X'],
+      ['map 147 -- add one, then wire it -- and say so', 'add one, then wire it -- and say so'],
+    ]) {
+      assert.equal(parseCommand(text).instruction, instruction)
+    }
+    assert.equal(parseCommand('map 147').instruction, undefined)
+    assert.equal(parseCommand('map 147 --'), null)
+  })
+
+  test('the new-map shape keeps its -- , because no number anchors it', () => {
+    // `map cur chart it` cannot be told from a repo argument of two words.
+    assert.equal(parseCommand('map cur chart the next feature'), null)
+    assert.equal(parseCommand('map chart the next feature'), null)
+    assert.equal(parseCommand('map cur -- chart the next feature').instruction, 'chart the next feature')
+  })
+
+  test('start still takes no instruction, with or without the --', () => {
+    assert.equal(parseCommand('start 147 add a ticket for X'), null)
+    assert.equal(parseCommand('start 147 -- add a ticket for X'), null)
+  })
+
   test('the instruction reaches the dispatcher, on chart and never on start', async () => {
     const seen = []
     const router = new CommandRouter({
@@ -300,7 +348,10 @@ describe('parseCommand', () => {
     // `map 147 -- x` must keep parsing as an update of map 147. A number that
     // fell through to the new-map parser would chart into a repo named "147".
     assert.equal(parseCommand('map 147 -- do X').ticket, '147')
-    assert.equal(parseCommand('map 12 34 -- do X'), null)
+    // #255: a second number is now the first word of the sentence, which is
+    // still map 12 and still not a repo called "12".
+    assert.equal(parseCommand('map 12 34 -- do X').ticket, '12')
+    assert.equal(parseCommand('map 12 34 -- do X').instruction, '34 -- do X')
   })
 
   test('one repo token and one model, never two of either', () => {
@@ -317,6 +368,26 @@ describe('parseCommand', () => {
     const reply = await router.handle('map', 'user-1')
     assert.match(reply, /map <n>/)
     assert.match(reply, /map \[repo\]/)
+  })
+
+  // #255: the refusal already comes back to the overseer as its own tool
+  // result. What it could not act on was the wording — a canonical line the
+  // model never wrote, under a usage catalogue for a surface it cannot type on.
+  test('an interpreted refusal names the seam and the fields, not the operator catalogue', async () => {
+    const router = new CommandRouter({
+      dispatcher: { routing: { harnesses: { claude: {} } }, config: { watch: [{ repo: 'alp82/curia' }] } },
+      attach: {},
+      log: () => {},
+    })
+    const reply = await router.handle('map', 'overseer', { interpreted: true })
+    assert.match(reply, /your own tool call/)
+    assert.match(reply, /`ticket`/)
+    assert.match(reply, /`instruction`/)
+    // the shape its arguments must compose to survives; the typed catalogue does not
+    assert.match(reply, /map \[repo\]/)
+    assert.doesNotMatch(reply, /^commands:$/m)
+    // and a typed refusal is unchanged
+    assert.match(await router.handle('map', 'user-1'), /^commands:$/m)
   })
 
   test('a new map with one watched repo needs no repo token', async () => {

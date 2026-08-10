@@ -78,7 +78,12 @@ const asText = (text) => ({ content: [{ type: 'text', text }] })
 // routed exactly like a slash verb.
 export function buildVerbTools(command) {
   const run = (verb) => async (args) => asText(await command(canonicalFor(verb, args)))
-  const ticketArg = z.string().regex(/^\d+$/).describe('ticket number')
+  // #255: the regex is enforced, but the JSON schema the model reads drops it —
+  // the SDK publishes `{"type":"string"}` and the description is the only place
+  // the rule survives. A model that packed a whole sentence in here got a raw
+  // validation dump about a constraint it was never shown, so the rule is
+  // written where it can read it.
+  const ticketArg = z.string().regex(/^\d+$/).describe('issue number, digits only — never a sentence')
   const bulkArg = z.string().regex(/^(\d+|all)$/).describe('ticket number, or "all"')
   const repoArg = z.string().optional().describe('repo qualifier — any unambiguous part of a watched repo name')
   return [

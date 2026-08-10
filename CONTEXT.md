@@ -47,7 +47,7 @@ The act that gives a new-map dispatch its map. The agent calls `map_created` wit
 The agent of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate. On a new-map dispatch it creates the map first.
 
 **Instruction**:
-The operator's sentence on a map dispatch, in their own words. It rides the `map` verb after a bare `--`, and reaches the charting agent as the first thing it reads. On an existing map it is optional: with none, the agent asks what should change. On a new map it is mandatory, because nothing else says what to chart. No other verb takes one.
+The operator's sentence on a map dispatch, in their own words. It rides the `map` verb last, and reaches the charting agent as the first thing it reads. After a map number it needs no separator: `map 147 add a ticket for X` and `map 147 -- add a ticket for X` are the same dispatch. On a new map the bare `--` is required, because with no number in front nothing tells the repo argument from the first word. On an existing map the sentence is optional: with none, the agent asks what should change. On a new map it is mandatory, because nothing else says what to chart. No other verb takes one.
 
 **Frontier**:
 The takeable tickets of a watched repo, in map order.

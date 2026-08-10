@@ -63,8 +63,9 @@ const LIVE_GLYPH_RE = /^(?:🎫|⏳|🔎)/u
 // note queue swallowing it silently is the miss this regex exists to stop.
 // `map` joined the alternation with #221, for the reason every other verb is
 // here: it is a command now, and a command typed at an agent must not vanish
-// into the note queue. Only the bare form matches — `map 147 -- <sentence>`
-// runs past the end of this shape, and a sentence is what a note IS.
+// into the note queue. Only the bare form matches — a `map <n> <sentence>`,
+// with or without the `--` that #255 made optional, runs past the end of this
+// shape, and a sentence is what a note IS.
 // #241 adds the chat handle (`chat-1`) to the argument alternation, for the
 // same reason: it is what `cancel`, `resume` and `attach` take on an agent no
 // ticket answers for, so an operator typing it at that agent's own thread must
