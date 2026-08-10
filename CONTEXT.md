@@ -38,7 +38,7 @@ The map changes: new tickets, graduated fog, blocking edges, scope rulings. They
 `map <n>` on a map's own issue. The daemon spawns a charting agent instead of a ticket agent. It claims nothing. `start` on a map number is not this: it dispatches the map's next takeable ticket.
 
 **New-map dispatch**:
-`map [repo] -- <prose>` with no issue. The daemon spawns a charting agent that has no map. The agent settles the destination with the operator, then creates the `wayfinder:map` issue itself. The prose is mandatory here: it is the loose idea the charting starts from.
+`map [repo] <prose>` with no issue. The daemon spawns a charting agent that has no map. The agent settles the destination with the operator, then creates the `wayfinder:map` issue itself. The prose is mandatory here: it is the loose idea the charting starts from. The first word is the repo only when it names a watched repo, and it is the first word of the prose otherwise.
 
 **Adoption**:
 The act that gives a new-map dispatch its map. The agent calls `map_created` with the number. curia checks the issue is an open map in that repo, then takes it as the session's map: the thread moves onto it, `map <n>` on it is refused, and the charting summary lands there.
@@ -47,7 +47,7 @@ The act that gives a new-map dispatch its map. The agent calls `map_created` wit
 The agent of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate. On a new-map dispatch it creates the map first.
 
 **Instruction**:
-The operator's sentence on a map dispatch, in their own words. It rides the `map` verb after a bare `--`, and reaches the charting agent as the first thing it reads. On an existing map it is optional: with none, the agent asks what should change. On a new map it is mandatory, because nothing else says what to chart. No other verb takes one.
+The operator's sentence on a map dispatch, in their own words. It rides the `map` verb last, and reaches the charting agent as the first thing it reads. It needs no separator: the arguments come first, and the sentence runs from the first plain word to the end of the line. On an existing map it is optional: with none, the agent asks what should change. On a new map it is mandatory, because nothing else says what to chart. No other verb takes one.
 
 **Frontier**:
 The takeable tickets of a watched repo, in map order.

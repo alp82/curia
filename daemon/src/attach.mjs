@@ -39,7 +39,7 @@ export function validSessionName(s) {
 // ---- the chat handle: an agent with no ticket (#241) ------------------------
 //
 // Every curia agent until now was named by an issue number, because every one
-// of them was dispatched ON an issue. `map -- <prose>` breaks that: it charts a
+// of them was dispatched ON an issue. `map <prose>` breaks that: it charts a
 // map that does not exist yet, so there is no number to name the session, the
 // tmux pane, the config dir or the thread with — and the operator still has to
 // reach it with `attach`, `cancel` and `resume`.

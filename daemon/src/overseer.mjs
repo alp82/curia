@@ -46,15 +46,17 @@ export function canonicalFor(verb, args = {}) {
         ? `map ${args.repo ? `${args.repo}#` : ''}${args.ticket}`
         : `map${args.repo ? ` ${args.repo}` : ''}`
       if (args.model) text += ` model=${args.model}`
-      // The instruction (#160, moved here by #221) rides LAST, after a bare
-      // `--`, because it is the one argument that is a whole sentence.
+      // The instruction (#160, moved here by #221) rides LAST, because it is
+      // the one argument that is a whole sentence. #255 retired the `--` that
+      // used to mark its start: the arguments come first and the sentence runs
+      // to the end of the line, so nothing has to separate them.
       // Whitespace is collapsed here: the seam is one line of text, and the
       // router splits it on whitespace, so a newline the model wrote would
       // otherwise come back as a space anyway — collapsing it makes the
       // canonical text the operator sees and the text the router parses the
       // same string.
       const instruction = String(args.instruction ?? '').replace(/\s+/g, ' ').trim()
-      if (instruction) text += ` -- ${instruction}`
+      if (instruction) text += ` ${instruction}`
       return text
     }
     case 'cancel':
@@ -78,7 +80,12 @@ const asText = (text) => ({ content: [{ type: 'text', text }] })
 // routed exactly like a slash verb.
 export function buildVerbTools(command) {
   const run = (verb) => async (args) => asText(await command(canonicalFor(verb, args)))
-  const ticketArg = z.string().regex(/^\d+$/).describe('ticket number')
+  // #255: the regex is enforced, but the JSON schema the model reads drops it —
+  // the SDK publishes `{"type":"string"}` and the description is the only place
+  // the rule survives. A model that packed a whole sentence in here got a raw
+  // validation dump about a constraint it was never shown, so the rule is
+  // written where it can read it.
+  const ticketArg = z.string().regex(/^\d+$/).describe('issue number, digits only — never a sentence')
   const bulkArg = z.string().regex(/^(\d+|all)$/).describe('ticket number, or "all"')
   const repoArg = z.string().optional().describe('repo qualifier — any unambiguous part of a watched repo name')
   return [
@@ -96,7 +103,10 @@ export function buildVerbTools(command) {
     }, run('start')),
     tool('map', 'Dispatch a charting agent. WITH a map number it UPDATES that map: add tickets, graduate fog, change scope, fix what the map says. WITHOUT one it charts a NEW map: the agent settles the destination and the scope with the operator, then creates the `wayfinder:map` issue itself — use that form when the operator asks for a map that does not exist yet ("make a map for the next feature"), and put their words in the instruction. It closes nothing either way.', {
       ticket: ticketArg.optional(),
-      repo: repoArg,
+      // #255: with a map number the repo is any unambiguous part of the name,
+      // as everywhere else. With NO number the repo rides in front of a plain
+      // sentence, so only the repo's OWN name is read as one.
+      repo: z.string().optional().describe('repo qualifier — any unambiguous part of a watched repo name, but with no map number it must be the repo\'s own name'),
       instruction: z.string().optional().describe('What the operator wants, in their own words. On an existing map: what should change ("update the landing page map so that X") — leave it out and the agent asks. On a NEW map it is REQUIRED: it is the whole brief the agent chooses a destination from.'),
       model: z.string().optional().describe('model override — the harness follows it, so there is no harness argument'),
     }, run('map')),
