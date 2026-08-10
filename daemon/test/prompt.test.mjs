@@ -208,6 +208,47 @@ describe('bounds', () => {
   })
 })
 
+// #287. The vendored `prototype` skill tells its agent to capture the prototype
+// on a throwaway branch out of main. curia does not contradict that sentence, it
+// READS it: `curia/<n>` is cut from main and deleted at the merge, so it already
+// IS the throwaway branch. Only the skill's last clause is deviated from. These
+// lines live here rather than in `skills/prototype/SKILL.md`, whose bytes are
+// upstream's and pinned — so the deviation has to be pinned on this side.
+describe('the prototype bound (#287)', () => {
+  const proto = () => write({ mapNumber: 1, type: 'wayfinder:prototype' })
+
+  test('the throwaway branch is named as the one the agent already stands on', () => {
+    assert.match(proto(), new RegExp(`Your throwaway branch is \`${branchFor(42)}\`, the one you are already on`))
+    assert.match(proto(), /Do not make a second branch, and do not push one/)
+  })
+
+  test('the one deviation is stated where the agent reads it, not left to the ADR', () => {
+    assert.match(proto(), /`prototypes\/<name>\/`, and main keeps it/)
+    assert.match(proto(), /ADR-0008/)
+  })
+
+  test('the demo is one served file, because the operator has no double-click', () => {
+    const p = proto()
+    assert.match(p, /ONE self-contained HTML file/)
+    assert.match(p, /`publish_preview`/)
+    assert.match(p, /no double-click exists/)
+  })
+
+  test('curia adds no index the skill never asked for', () => {
+    assert.match(proto(), /keeps no index/)
+    assert.match(proto(), /Decisions-so-far is the index/)
+  })
+
+  test('no other ticket type carries it — this bound belongs to one type', () => {
+    for (const type of ['wayfinder:grilling', 'wayfinder:research', 'wayfinder:task', null]) {
+      assert.ok(
+        !/throwaway branch/.test(write({ mapNumber: 1, type })),
+        `${type} was handed the prototype bound`,
+      )
+    }
+  })
+})
+
 describe('the tool block', () => {
   test('every agent-facing tool is named with a reach-for-it-when', () => {
     // #35: publish_preview's own description already said all this and lost to a

@@ -436,8 +436,8 @@ A failed read is not evidence. Only a positive "absent" narrows a set. Anything 
 **Live check**:
 A first-person report of what an agent experienced during a live run, committed under `docs/live-checks/`.
 
-**Spike**:
-Throwaway prototype code that answers one named question, under `spikes/`, with its report under `docs/research/`.
+**Prototype**:
+Throwaway code that answers one named question, under `prototypes/`. The `prototype` skill writes it, and curia uses that skill's word for it. It rides the ticket's own `curia/<n>` branch, and the merge lands it on main. A header names its ticket, and the ticket's resolution comment holds the verdict. See [ADR-0008](docs/adr/0008-resolved-means-merged.md).
 
 ## Components
 

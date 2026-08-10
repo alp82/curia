@@ -1,7 +1,7 @@
 # ADR-0008: Resolved means merged
 
 **Status**: accepted (2026-07)
-**Provenance**: [The PR gap (#48)](https://github.com/alp82/curia/issues/48), [Build the merge-gated resolution lifecycle (#54)](https://github.com/alp82/curia/issues/54), [Map dispatch (#160)](https://github.com/alp82/curia/issues/160), [Map updates get their own verb (#221)](https://github.com/alp82/curia/issues/221)
+**Provenance**: [The PR gap (#48)](https://github.com/alp82/curia/issues/48), [Build the merge-gated resolution lifecycle (#54)](https://github.com/alp82/curia/issues/54), [Map dispatch (#160)](https://github.com/alp82/curia/issues/160), [Map updates get their own verb (#221)](https://github.com/alp82/curia/issues/221), [A prototype ticket wants a second branch (#287)](https://github.com/alp82/curia/issues/287)
 
 ## Context
 
@@ -40,6 +40,22 @@ The daemon refusals move with the rule: `open_pull_request` and `request_review`
 **The verb and the claim ([#221](https://github.com/alp82/curia/issues/221)).** #160 put charting on `start`, which gave one word two meanings: `start <n>` worked a ticket and `start <map>` charted. The operator ruled the overload confusing after using it. `start` now has one meaning everywhere — work the thing — and on a map number it dispatches that map's next takeable ticket. Charting has its own verb.
 
 No dispatch claims a map. #160 assigned the map to serialize the body edits, and a claim's whole meaning is "off a frontier" — a map is never on one, so the assignee said nothing true and made the issue read as worked. The lock that replaces it was already there: a charting agent on map #147 runs in session `curia-147`, and `map 147` is refused while that session lives. The check asks `tmux has-session` rather than daemon memory, so it survives a restart and catches a session reconcile has not adopted yet. It is per box, and there is one box.
+
+**The prototype's throwaway branch ([#287](https://github.com/alp82/curia/issues/287)).** Version 1.2 of the vendored `prototype` skill captures the prototype as a primary source. It says to commit it to a throwaway branch out of main, to leave a context pointer on the implementation issue, to put the verdict in the issue or a commit, and to let the main branch keep only the validated decision. Three of those four clauses already hold here, and curia claims no exception to them.
+
+- The throwaway branch is `curia/<n>`. A ticket branch is cut from main and the merge deletes it, so it is throwaway in the skill's own sense.
+- The context pointer is the resolution comment plus the map's Decisions-so-far line.
+- The verdict lives on the issue, which is one of the two homes the skill names.
+
+One clause cannot hold. **Main keeps the prototype, under `prototypes/`.** This ADR makes the merge the only durable home curia has, so a prototype is on main or it dies with its branch. A primary source nobody can find is not a primary source. The directory name is what marks the code throwaway, which is the job the skill's own "clearly marked as such" rule gives it.
+
+curia grows no second branch for this ticket type. `pushBranch` pushes `curia/<n>` and nothing else, `request_review` composes its links from the daemon's own records, and the cross-check reviewer reads that one branch tip. A second branch would reach no gate and no reviewer. The agent's shell holds a push token, so nothing but words would hold such a branch — that makes it a way around the one-pull-request rule rather than an exception to it.
+
+The demo stays one self-contained HTML file. The agent serves it with a static server on a preview port, and `publish_preview` carries it to the operator, whose phone has no double-click. The file stays double-clickable off main afterwards.
+
+curia adds no index for the directory. The skill names the issue and the commit as the homes for an answer, and names no README. The map's Decisions-so-far is already that index, and each prototype names its ticket in a header.
+
+The skill file itself is not edited. `skills/prototype/SKILL.md` stays byte-identical to v1.2.3, per `skills/UPSTREAM.md`. curia moves its own words to the skill instead: the domain term is **Prototype** rather than Spike, and `spikes/` is renamed `prototypes/`.
 
 The #54 sketch made the gate a bare `ask_human(approve-reject)`. It shipped as its own tool and escalation kind, `request_review`, for three reasons the plain form cannot meet: the daemon composes every link from its own records so an agent cannot forge them, the daemon can tell the gate apart from any other block, and the approval becomes a durable journal fact only the daemon can stage. The gate requires a concrete `charting` field, per [ADR-0006](0006-worker-containment-and-standing-orders.md).
 
