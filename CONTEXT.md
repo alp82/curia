@@ -52,6 +52,12 @@ The operator's sentence on a map dispatch, in their own words. It rides the `map
 **Frontier**:
 The takeable tickets of a watched repo, in map order.
 
+**Two-level frontier**:
+The frontier plus the tickets each of its members directly unblocks. One level, never a chain. It is what the dashboard draws as a tree, and it comes from the blocking edges the agent-only count already reads.
+
+**Frontier snapshot**:
+The two-level frontier as reconcile last computed it, under the instant it did. Reconcile computes it, because that pass already holds the GitHub credentials and the dashboard holds none. The stamp is what makes a served frontier honest: the page states the age of the reading.
+
 **Takeable**:
 Open, not a pull request, no open blockers, no assignee.
 
@@ -341,6 +347,9 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 **Dialog guard**:
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
+**Overview**:
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents, the open escalations, the review gate, bridge health, the usage windows, the journal tail, and the frontier snapshot. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+
 **Status line**:
 One Discord message per agent, written by the daemon, that says what the agent is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
 
@@ -348,7 +357,7 @@ One Discord message per agent, written by the daemon, that says what the agent i
 A number the status line carries beside the state: the model name, its reasoning effort, the context percent, and the account usage bars. Each meter has its own source and drops alone when that source is silent. Meters drop from the tail when the line runs out of columns. The model is the exception: the escalation title is cut to keep it.
 
 **Account bars**:
-The 5-hour and 7-day usage windows. They are an account fact, not an agent fact, so every agent on a provider shows the same reading. The provider follows from the agent's harness, never from the routing label: a label is a spawn-time fact and a harness has on-disk evidence. A window whose reset has passed rolls over — the bar shows the fresh window at 0%, and that reading counts as stale at once, so the next probe measures it.
+The 5-hour and 7-day usage windows. They are an account fact, not an agent fact, so every agent on a provider shows the same reading. The provider follows from the agent's harness, never from the routing label: a label is a spawn-time fact and a harness has on-disk evidence. A window whose reset has passed rolls over — the bar shows the fresh window at 0%, and that reading counts as stale at once, so the next probe measures it. Every window also carries the instant it rolls. The status line has no room for a clock time and shows the pace instead. The overview carries the instant, and the dashboard prints it.
 
 **Pace**:
 Usage measured against the time already gone from its window. A bar shows the window's clock as `┃` and renders spending past it as overshoot. The square before the bar states the same fact at a glance: 🟩 behind the clock, 🟨 on it, 🟥 ahead.

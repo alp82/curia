@@ -221,6 +221,23 @@ export function paceOf(resetsAt, windowMs, now = Date.now()) {
   return { elapsedPct: Math.max(0, Math.min(100, Math.round(((windowMs - remaining) / windowMs) * 100))) }
 }
 
+// When the window on the line rolls, as an ISO instant — the reset the
+// dashboard prints beside the bar (#262). The status line says the pace and
+// nothing more, because a bar has no room for a clock time; a page has.
+//
+// A LIVE window states its own reset, so that instant is the answer. A ROLLED
+// window's stated reset is in the past and belongs to a window that ended, so
+// the fresh window that replaced it answers instead: it started at that
+// instant, and it ends one window later. That is knowable exactly while the
+// fresh window's own clock is knowable, and `paceOf` decides that from the same
+// instant — hence the pace is passed in rather than re-derived.
+function statedReset(resetsAt, windowMs, pace) {
+  const at = resetMs(resetsAt)
+  if (!Number.isFinite(at)) return null
+  if (!pace.expired) return pace.elapsedPct === null ? null : new Date(at).toISOString()
+  return pace.elapsedPct === null ? null : new Date(at + windowMs).toISOString()
+}
+
 // 300 -> "5h", 10080 -> "7d". The label is derived, never assumed: codex calls
 // its windows primary/secondary and which one is the short one depends on the
 // plan (a plus account was measured with a WEEKLY primary and no secondary).
@@ -239,11 +256,12 @@ function barsOf(limits, now) {
   const found = []
   for (const l of limits ?? []) {
     const pace = paceOf(l.resetsAt, l.windowMs, now)
+    const resetsAt = statedReset(l.resetsAt, l.windowMs, pace)
     if (pace.expired) {
-      found.push({ label: l.label, pct: 0, elapsedPct: pace.elapsedPct, fresh: true })
+      found.push({ label: l.label, pct: 0, elapsedPct: pace.elapsedPct, resetsAt, fresh: true })
       continue
     }
-    found.push({ label: l.label, pct: Math.round(l.usedPct), elapsedPct: pace.elapsedPct })
+    found.push({ label: l.label, pct: Math.round(l.usedPct), elapsedPct: pace.elapsedPct, resetsAt })
   }
   return found.length ? found : null
 }
@@ -293,7 +311,7 @@ function codexTail(lines, now) {
 
 const TAILS = { claude: claudeTail, codex: codexTail }
 
-// { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct, fresh?}] | null,
+// { ctx: {tokens, window} | null, windows: [{label, pct, elapsedPct, resetsAt, fresh?}] | null,
 //   limits: [{label, usedPct, windowMs, resetsAt}] | null }
 export function readTranscriptMeters(harness, file, now = Date.now()) {
   const tail = TAILS[harness]
@@ -538,11 +556,12 @@ export function accountWindows(payload, now = Date.now()) {
     const v = payload?.[w.key]
     if (!Number.isFinite(v?.utilization)) continue
     const p = paceOf(v.resets_at, w.ms, now)
+    const resetsAt = statedReset(v.resets_at, w.ms, p)
     if (p.expired) {
-      out.push({ label: w.label, pct: 0, elapsedPct: p.elapsedPct, fresh: true })
+      out.push({ label: w.label, pct: 0, elapsedPct: p.elapsedPct, resetsAt, fresh: true })
       continue
     }
-    out.push({ label: w.label, pct: Math.round(v.utilization), elapsedPct: p.elapsedPct })
+    out.push({ label: w.label, pct: Math.round(v.utilization), elapsedPct: p.elapsedPct, resetsAt })
   }
   return out.length ? out : null
 }
@@ -590,8 +609,8 @@ export class AccountUsage {
     return best ?? null
   }
 
-  // [{label, pct}] | null — the read never blocks; a refresh it decides to run
-  // lands on a later call.
+  // [{label, pct, elapsedPct, resetsAt, fresh?}] | null — the read never
+  // blocks; a refresh it decides to run lands on a later call.
   windows() {
     const best = this.#best()
     if (this.enabled) this.#maybeFetch(best)
