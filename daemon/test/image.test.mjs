@@ -194,15 +194,42 @@ describe('sandbox config (#154)', () => {
 describe('the shipped config (#154)', () => {
   test('config/curia.yaml pins the image, and its pins build the shipped ref', () => {
     const file = path.resolve(import.meta.dirname, '..', '..', 'config', 'curia.yaml')
-    // The shipped config names the OPERATOR's skills root, `~/.claude/skills`.
-    // A HOME the test owns lets the whole document load on any box (#212),
-    // instead of only on the box that carries those skills. Seeded from the
-    // config's OWN list, so this test says nothing about which skills the
-    // operator installs — it is about the image pins.
+    // #268 vendored the skill tree into the repo, so the shipped config loads
+    // on any box without a HOME the test owns: `skills.root` names `../skills`
+    // and the tree is right there. The seeded home stays because #212's point
+    // was that this test is about the IMAGE PINS — it must not fail over a
+    // skill — and nothing else in the document reads the home directory.
     const installs = parse(fs.readFileSync(file, 'utf8')).skills?.install
     const cfg = withSeededHome(() => loadCuriaConfig(file), installs)
     assert.ok(cfg.sandbox, 'the shipped config has no sandbox section')
     const ref = agentImageRef(cfg.sandbox)
     assert.match(ref.ref, /^curia-agent:\d[\w.]*-\d[\w.]*-[0-9a-f]{8}$/)
+  })
+
+  // #268: the tree is vendored, so a missing skill is a missing DIRECTORY in
+  // this repo rather than a missing install on the operator's box. The daemon
+  // refuses to boot on one, which costs a deploy; this catches it at review.
+  // No seeded home: reading the real tree is the whole point of the test.
+  test('every skill the shipped config installs is vendored in the repo', () => {
+    const file = path.resolve(import.meta.dirname, '..', '..', 'config', 'curia.yaml')
+    const cfg = loadCuriaConfig(file)
+    assert.equal(cfg.skills.root, path.resolve(import.meta.dirname, '..', '..', 'skills'))
+    assert.ok(cfg.skills.install.length, 'the shipped config installs no skills')
+    for (const name of cfg.skills.install) {
+      assert.ok(
+        fs.existsSync(path.join(cfg.skills.root, name, 'SKILL.md')),
+        `skills.install names "${name}", but skills/${name}/SKILL.md is not vendored`,
+      )
+    }
+  })
+
+  // The tree carries more than the install list on purpose: a hand session
+  // reads the same copy (#268). What must NOT drift is the release it came
+  // from, because the bump procedure keys off that stamp.
+  test('the vendored tree stamps the upstream release it came from', () => {
+    const upstream = path.resolve(import.meta.dirname, '..', '..', 'skills', 'UPSTREAM.md')
+    const text = fs.readFileSync(upstream, 'utf8')
+    assert.match(text, /`v\d+\.\d+\.\d+`/, 'UPSTREAM.md names no upstream release')
+    assert.match(text, /`[0-9a-f]{40}`/, 'UPSTREAM.md names no upstream commit')
   })
 })

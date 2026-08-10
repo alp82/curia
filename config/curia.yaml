@@ -126,7 +126,12 @@ preview:                                   # #40, implementing #8: one Serve por
   port_to: 8599                            # withdraws every rule it finds in this range
 
 skills:                                    # #57, decision 1 of #49: what an agent can invoke
-  root: ~/.claude/skills                   # host skills, symlinked read-only into each agent
+  # #268: the tree is VENDORED, at `skills/` beside this file, and no longer
+  # read out of the operator's home. Relative to this config, so the one path
+  # reads the same on the box, inside the daemon container and in the suite.
+  # A skill upgrade is now a reviewable diff instead of an edit nobody sees —
+  # see skills/UPSTREAM.md for the pinned release and how to bump it.
+  root: ../skills
   install:                                 # every name must exist at boot or the daemon refuses
     - wayfinder
     - grilling
@@ -140,3 +145,6 @@ skills:                                    # #57, decision 1 of #49: what an age
   # Withheld on purpose: to-tickets, triage, to-spec, handoff — the
   # charting-and-PM side. to-tickets is mass ticket creation in the hands of an
   # agent that now carries charting authority (#49).
+  # The vendored tree carries all 25 promoted skills, because a hand session
+  # reads the same tree. This list, not the tree, is what an agent gets: the
+  # seed builds <cfgDir>/skills from these names alone (#268).

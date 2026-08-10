@@ -34,7 +34,7 @@ DOCKER_GID=<output of: getent group docker | cut -d: -f3>
 | Env file | `/home/alp/curia/daemon/.env` (mode 600, never committed) |
 | Compose env | `/home/alp/curia/deploy/.env` (`DOCKER_GID`, never committed) |
 | Worktrees | `/home/alp/curia-work` |
-| Skills | `/home/alp/.claude/skills` (rsync from the dev box) |
+| Skills | `/home/alp/curia/skills` (vendored in the checkout, #268) |
 | tmux socket | `/run/curia-tmux/default` inside the `tmux-sock` volume |
 | Claude Code | `/home/alp/.local/bin/claude` (host copy; agents run the containerized pin) |
 

@@ -212,10 +212,17 @@ export function loadCuriaConfig(file) {
   // this section exists to end, so omission takes the full default list.
   const s = cfg.skills ?? {}
   if (typeof s !== 'object' || Array.isArray(s)) fail(file, '`skills` must be a mapping')
-  const skillsRoot = expandHome(s.root ?? defaultSkillsRoot())
-  if (typeof skillsRoot !== 'string' || !path.isAbsolute(skillsRoot)) {
-    fail(file, 'skills.root must be an absolute path')
-  }
+  if (s.root !== undefined && typeof s.root !== 'string') fail(file, 'skills.root must be a path')
+  // #268: a RELATIVE root resolves off this file's own directory, the rule
+  // `attach.index` and `timeline.index` already follow. curia vendors the
+  // skill tree beside the config, so `../skills` reads the same on the
+  // operator's box, inside the daemon container and in the suite — where an
+  // absolute /home/alp path names a directory that is only on one machine.
+  // An absolute root and a leading `~` both still win, because `path.resolve`
+  // returns an absolute second argument unchanged.
+  const skillsRoot = s.root === undefined
+    ? defaultSkillsRoot()
+    : path.resolve(path.dirname(path.resolve(file)), expandHome(s.root))
   const install = s.install ?? DEFAULT_SKILLS
   if (!Array.isArray(install)) fail(file, 'skills.install must be a list of skill names')
   for (const name of install) {

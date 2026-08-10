@@ -127,13 +127,18 @@ checks them at boot and names any clash.
 
 ## 9. The skills
 
-The nine skills in `skills.install` are not in this repo. They come from the public
-`mattpocock/skills` collection, installed into `~/.claude/skills`. The daemon refuses to boot if one
-of them is missing, and names the path it looked for.
+The skills ship with this repo, at `skills/`. They are a vendored copy of the public
+`mattpocock/skills` collection, under its MIT license — see
+[skills/UPSTREAM.md](skills/UPSTREAM.md) for the pinned release and how to bump it. So there is
+nothing to install: `skills.root` names `../skills`, relative to `config/curia.yaml`.
 
-Pick one:
+The daemon refuses to boot if a name in `skills.install` has no directory in that tree, and names
+the path it looked for.
 
-- Install them.
+To use your own set instead, point `skills.root` at it. The path may be absolute, may start with
+`~`, or may be relative to `config/curia.yaml`. Then pick one:
+
+- Keep the nine names, if your set carries them.
 - Cut the list down to the ones you have.
 - Turn them off with an empty list — not a missing key:
 

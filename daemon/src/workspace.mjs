@@ -921,29 +921,29 @@ export const DEFAULT_SKILLS = [
   'implement', 'tdd', 'code-review', 'diagnosing-bugs',
 ]
 
-// The host's skills root. ~/.claude/skills is where Claude Code looks, and on
-// this host every entry there is already a symlink into ~/.agents/skills — one
-// more level of indirection changes nothing, since the agent only ever reads.
+// The FALLBACK skills root, for a config that names none. ~/.claude/skills is
+// where Claude Code looks for a hand-installed set. curia's own config does not
+// take this path: #268 vendored the tree into the repo, and `config/curia.yaml`
+// names `../skills` relative to itself.
 export function defaultSkillsRoot() {
   return path.join(os.homedir(), '.claude', 'skills')
 }
 
 // <cfgDir>/skills/<name> → <root>/<name>, symlinked rather than copied: an
-// agent never writes a skill, so versions track the host with no snapshot to
+// agent never writes a skill, so versions track the root with no snapshot to
 // go stale. That is the exact opposite of the credential case (#53), where the
 // agent DOES write and a symlink was replaced by a regular file — read-only
 // is what makes the link safe here.
 //
 // Rebuilt from nothing on every seed: a config dir reused across dispatches
 // must not keep a link to a skill that has since left the list, and a dangling
-// link to a skill removed from the host must not survive either.
+// link to a skill removed from the root must not survive either.
 //
-// A CONTAINER gets copies instead (#156). The link points at a host path the
-// container does not mount, and on this box that path is itself a link into
-// `~/.agents/skills`, so mounting the skills root would only move the dangling
-// link one level. An agent with silently no skills is #57's own failure, so the
-// tree is dereferenced and copied — a few hundred kilobytes per agent, and it
-// cannot go stale inside one ticket.
+// A CONTAINER gets copies instead (#156). The link points at a path the agent
+// container does not mount — the checkout since #268, a host home before it —
+// so a link would dangle either way. An agent with silently no skills is #57's
+// own failure, so the tree is dereferenced and copied: a few hundred kilobytes
+// per agent, and it cannot go stale inside one ticket.
 export function installSkills(cfgDir, skills, { copy = false } = {}) {
   const dir = path.join(cfgDir, 'skills')
   fs.rmSync(dir, { recursive: true, force: true })
