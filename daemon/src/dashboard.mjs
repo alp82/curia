@@ -15,13 +15,16 @@
 // #70 set and the timeline follows: only a listener that is positively ours is
 // ever published.
 //
-// THE POLL IS DEMAND-DRIVEN, and that is the answer to the cost #262 stated.
-// `GET /overview` reads the whole journal off disk, and the journal grows
-// without bound. So the sidecar refreshes only when a page asks and the
-// snapshot it holds is older than the interval. A browser polls while its tab
-// is visible and stops when it is hidden, which makes a forgotten tab cost
-// nothing. Many tabs collapse to one read: the age check answers them all, and
-// one in-flight refresh is shared.
+// THE POLL IS DEMAND-DRIVEN, which is half the answer to the cost #262 stated.
+// The sidecar refreshes only when a page asks and the snapshot it holds is
+// older than the interval. A browser polls while its tab is visible and stops
+// when it is hidden, which makes a forgotten tab cost nothing. Many tabs
+// collapse to one read: the age check answers them all, and one in-flight
+// refresh is shared.
+//
+// The other half is #289, on the daemon's side of the wire: `GET /overview`
+// reads no journal file at all now, so what one refresh costs no longer rises
+// with everything curia ever wrote.
 
 import fs from 'node:fs'
 import http from 'node:http'
@@ -85,10 +88,10 @@ export function pageRefusal(indexFile) {
 export const DEFAULT_DASHBOARD = {
   port: 4273,
   serve_port: 8445,
-  // The one decision #263 owns. Every refresh reads the whole journal off disk
-  // through `dispatcher.status()`, and once more per open review gate through
-  // the pull-request lookup, so this number IS that read rate while a tab is
-  // open. It is paused entirely while none is.
+  // The one decision #263 owns: how often the daemon is asked while a tab is
+  // open, and it is paused entirely while none is. It used to set the rate of
+  // a whole-journal read as well. It no longer does (#289), so this number is
+  // now about freshness rather than about cost.
   poll_interval_s: 5,
 }
 

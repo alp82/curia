@@ -1350,11 +1350,12 @@ async function watchableRepos() {
 // on the credentials that pass already holds, and the stamp beside it says how
 // old the reading is (see Dispatcher#frontierSnapshot).
 //
-// One cost worth stating rather than hiding: `dispatcher.status()` derives its
-// recent outcomes by reading the whole journal off disk, exactly as `/status`
-// in Discord does, and the review gate's pull-request lookup reads it again.
-// The journal grows without bound, so the poll interval the sidecar picks (the
-// #263 decision) is what decides how often that read happens.
+// This route reads no journal file (#289). The recent outcomes and the gate's
+// pull request are both reductions the store fills as events are written, so
+// what one poll costs no longer rises with the history. The journal is still
+// read whole ONCE per process, by the store's boot replay, which is what fills
+// them. Every other section is memory or a stamped snapshot, except the
+// context meter, which reads one transcript tail per live agent (#264).
 async function overview() {
   // The fleet read asks tmux, and an indeterminate tmux is not "no agents" —
   // the evidence rule holds on a page exactly as it holds in reconcile. It must
