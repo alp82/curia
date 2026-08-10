@@ -17,7 +17,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [hermes-agent.md](hermes-agent.md) | Hermes Agent as an adoptable dispatcher platform | Rejected — ADR-0002 keeps the daemon thin, ADR-0001 forbids a second tracker |
 | [hermes-agent-handson.md](hermes-agent-handson.md) | Booting the Hermes dispatcher, kanban, and Discord bridge | Superseded — refines [hermes-agent.md](hermes-agent.md); the adoption branch was dropped |
 | [landscape-scan.md](landscape-scan.md) | Sweep of daemons, bridges, orchestrators, and muxes | Informational — found no replacement candidates |
-| [matt-pocock-skills.md](matt-pocock-skills.md) | The Pocock skill set as worker procedure grammar | Adopted — ADR-0006 symlinks the skills into worker configs |
+| [matt-pocock-skills.md](matt-pocock-skills.md) | The Pocock skill set as worker procedure grammar | Adopted — ADR-0006 vendors the set at `skills/` and installs it into worker configs |
 | [multica.md](multica.md) | Multica as an orchestrator and tracker candidate | Rejected — its Postgres is the tracker, which ADR-0001 forbids |
 | [openacp.md](openacp.md) | OpenACP as a Discord bridge and agent daemon | Rejected — ADR-0002 keeps it as a design reference only |
 | [openacp-handson.md](openacp-handson.md) | Building and booting the OpenACP fork bridge | Superseded — refines [openacp.md](openacp.md); vendoring was rejected |

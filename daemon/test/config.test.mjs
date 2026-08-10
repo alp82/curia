@@ -129,10 +129,36 @@ describe('skills config (#57)', () => {
     )
   })
 
-  test('a relative root is refused outright', () => {
+  // #268: curia vendors the skill tree into the repo, beside this config, so a
+  // relative root had to stop being a refusal. It resolves off the config
+  // FILE's directory rather than the process cwd — the rule attach.index and
+  // timeline.index already follow — because the daemon's cwd differs between
+  // the box, the container and the suite, and a cwd-relative root would name a
+  // different tree in each.
+  test('a relative root resolves off the config file, not the cwd', () => {
+    // Empty install, so nothing has to exist on disk.
+    assert.equal(
+      loadCuriaConfig(writeConfig('skills:\n  root: ./skills\n  install: []')).skills.root,
+      path.join(tmp, 'skills'),
+    )
+    assert.equal(
+      loadCuriaConfig(writeConfig('skills:\n  root: ../skills\n  install: []')).skills.root,
+      path.resolve(tmp, '..', 'skills'),
+    )
+  })
+
+  test('an absolute root still wins over the config file directory', () => {
+    const abs = path.join(tmp, 'elsewhere', 'skills')
+    assert.equal(
+      loadCuriaConfig(writeConfig(`skills:\n  root: ${abs}\n  install: []`)).skills.root,
+      abs,
+    )
+  })
+
+  test('a non-string root is refused', () => {
     assert.throws(
-      () => loadCuriaConfig(writeConfig('skills:\n  root: ./skills\n  install: []')),
-      /skills\.root must be an absolute path/,
+      () => loadCuriaConfig(writeConfig('skills:\n  root: 7\n  install: []')),
+      /skills\.root must be a path/,
     )
   })
 })

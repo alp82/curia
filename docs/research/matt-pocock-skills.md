@@ -2,6 +2,48 @@
 
 Date: 2026-07-21. **Sources:** the skills installed in this environment (`/home/alp/.agents/skills/`, symlinked into `~/.claude/skills/`) read first-party as the authoritative current copy, cross-checked against the canonical upstream `github.com/mattpocock/skills` (engineering README + docs), the aihero.dev skill docs, and the v1.1 changelog. **Method:** read every relevant `SKILL.md` directly; used the web only to confirm the "sandcastle" name, the canonical skill inventory, and deltas between the local install and upstream.
 
+---
+
+## Update 2026-08-10: the set moves to 1.2 (#268)
+
+Everything below this section surveys **v1.1.0**. The set is now vendored in this repo at
+`skills/`, pinned to **v1.2.3** — see [skills/UPSTREAM.md](../../skills/UPSTREAM.md) for the
+release, the commit and how to bump it.
+
+**What was installed before this.** Eight of curia's nine skills matched `v1.1.0` byte for
+byte. `prototype` had drifted: it carried part of the 1.2 reshape and not the rest, with no
+record of the edit. Version 1.2.3's `prototype` is a strict superset of that copy, so the
+drift resolved with nothing lost.
+
+### Breaking changes, and what must follow
+
+| Change in 1.2 | What it hits |
+|---|---|
+| **`grilling` is round-by-round.** It maps a design tree, asks the whole **frontier** in one numbered round, then recomputes. It also dispatches sub-agents for facts. | [ADR-0005](../adr/0005-escalation-contract.md) and the spawn prompt both say one question at a time. A round of N questions has no shape in `ask_human`. **Unresolved — needs a decision.** |
+| **`wayfinder` names the unit a decision ticket**, and the charting session now resolves research tickets with `/research` sub-agents on a `research/<name>` branch. Charting hand-resolves nothing else. | [CONTEXT.md](../../CONTEXT.md) records **Ticket** with *avoid: task*, and says nothing about a decision ticket. curia dispatches a research ticket as its own agent from the frontier, which the blocking edges already render. **Unresolved — needs a decision.** |
+| **`prototype` produces one shareable HTML file**, captured on a throwaway `prototype/<name>` branch with a context pointer. | [ADR-0008](../adr/0008-resolved-means-merged.md) gives an agent one branch, `curia/<n>`, and one pull request. A second branch has no path through the gate. **Unresolved — needs a decision.** |
+| **`writing-great-skills` → `writing-for-agents`**, model-invoked, no alias. | Not in `skills.install`. The inventory table below is stale on this row. |
+| **`resolving-merge-conflicts` now ships** in the promoted set. | It was the one upstream/local gap this survey found. It is vendored now, still not installed. |
+| `code-review` drops Claude Code's tool and agent-type names. | Helps the codex harness ([#173](https://github.com/alp82/curia/issues/173)). No action. |
+| `diagnosing-bugs` gains a **Redact** section. | Agents paste command output into threads and pull requests. A gain, no action. |
+| The `deprecated/` bucket is gone, `qa` with it. | The "`qa` does not exist" note below is now true by deletion as well. |
+
+### New invocation forms
+
+- **The set ships as a Claude Code plugin** (`claude plugins install mattpocock-skills`).
+  curia cannot use it: a plugin lands under `<config dir>/plugins/`, and `installSkills`
+  builds `<config dir>/skills/<name>`. Upstream also warns that two installs leave every
+  skill twice. curia stays on the vendored copy.
+- **Codex metadata beside every skill** (`agents/openai.yaml`) carries the display name and
+  `policy.allow_implicit_invocation`, the analog of `disable-model-invocation`. The vendored
+  tree copies it, so a codex agent reads it with no extra step.
+- **Three new promoted skills**: `wizard` (model-invoked, generates a bash script that walks
+  a human through a manual procedure), `wait-what` (one word, re-pitches a message), and
+  `to-questionnaire`. None are installed. `wizard` is the interesting one for curia, because
+  a `wayfinder:task` ticket is exactly the HITL checklist it writes.
+
+---
+
 ## What "sandcastle" is
 
 **Sandcastle is not a skill.** It is Matt Pocock's **demo/example repo** — the codebase he drove `/wayfinder` across on stream to chart the "should we pull in the Vercel AI SDK as a dependency" investigation. It illustrates the skills; it is not part of them. The skills themselves live in one repo, `mattpocock/skills` ("Skills for Real Engineers. Straight from my .agents directory."), and are already installed and configured in this environment. **Takeaway for curia: there is nothing to adopt from "sandcastle" beyond the worked example; the artifact formats curia cares about come from the skills, which we already have locally.** curia itself is already set up on these skills — `docs/agents/{issue-tracker,triage-labels,domain}.md` are their setup output, and this very wayfinder map is one of their artifacts.
