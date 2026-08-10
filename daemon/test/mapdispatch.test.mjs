@@ -4,7 +4,7 @@
 //
 // #221 moved the verb. `start <map>` used to spawn that agent, which gave one
 // word two meanings; it now dispatches the map's next takeable ticket, and
-// `map <n> [-- <instruction>]` is charting's own verb. The mechanics below are
+// `map <n> [<instruction>]` is charting's own verb. The mechanics below are
 // #160's, unchanged, with one removal: NO DISPATCH CLAIMS A MAP any more.
 //
 // Four seams, tested where each one lives:
@@ -711,7 +711,7 @@ describe('start on a map — the map\'s next takeable ticket (#221)', () => {
     const d = makeDispatcher({ mapFrontier: async () => [] })
     const reply = await d.start('147')
     assert.match(reply, /has no takeable ticket/)
-    assert.match(reply, /`map 147 -- <what should change>` updates the map itself/)
+    assert.match(reply, /`map 147 <what should change>` updates the map itself/)
     assert.equal(events.filter((e) => e.type === 'agent_spawned').length, 0)
   })
 
@@ -1064,7 +1064,7 @@ describe('cancel and resume on a chat handle (#241)', () => {
     d.agents.delete('curia-chat-1')
     const reply = await d.resume('chat-1', { by: 'u' })
     assert.match(reply, /already created o\/r#250/)
-    assert.match(reply, /map 250 --/)
+    assert.match(reply, /map 250 <what is left to do>/)
     assert.equal(d.agents.size, 0)
   })
 })
@@ -1166,11 +1166,11 @@ describe('the /map slash expansion', () => {
   test('an instruction expands to the same canonical text the overseer writes', () => {
     assert.equal(
       expandCommand(interaction('map', { ticket: '147', instruction: 'add a ticket for X' })),
-      'map 147 -- add a ticket for X',
+      'map 147 add a ticket for X',
     )
     assert.equal(
       expandCommand(interaction('map', { ticket: '147', model: 'opus', instruction: 'add a ticket for X' })),
-      'map 147 model=opus -- add a ticket for X',
+      'map 147 model=opus add a ticket for X',
     )
   })
 
@@ -1190,18 +1190,18 @@ describe('the /map slash expansion', () => {
   test('an instruction with NO ticket expands to the new-map shape', () => {
     assert.equal(
       expandCommand(interaction('map', { instruction: 'chart the next feature' })),
-      'map -- chart the next feature',
+      'map chart the next feature',
     )
     assert.equal(
-      expandCommand(interaction('map', { instruction: 'chart it', repo: 'cur', model: 'opus' })),
-      'map cur model=opus -- chart it',
+      expandCommand(interaction('map', { instruction: 'chart it', repo: 'alp82/curia', model: 'opus' })),
+      'map alp82/curia model=opus chart it',
     )
   })
 
   test('what the phone sends for a NEW map, the router reads back', () => {
-    const text = expandCommand(interaction('map', { instruction: 'read direction.md\nand chart it', repo: 'cur' }))
+    const text = expandCommand(interaction('map', { instruction: 'read direction.md\nand chart it', repo: 'alp82/curia' }))
     assert.deepEqual(parseCommand(text), {
-      verb: 'map', repoArg: 'cur', instruction: 'read direction.md and chart it',
+      verb: 'map', repoWord: 'alp82/curia', instruction: 'read direction.md and chart it',
     })
   })
 

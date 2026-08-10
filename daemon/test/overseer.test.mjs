@@ -106,40 +106,44 @@ describe('canonicalFor', () => {
   // #160's instruction crosses the same canonical-text seam as every other
   // argument, so the two ends are pinned against each other here and in
   // commands.test.mjs. #221 moved it from `start` to `map`.
-  test('a map instruction rides map last, after a bare --', () => {
+  // #255 retired the `--` this used to ride behind: the arguments come first
+  // and the sentence runs to the end of the line.
+  test('a map instruction rides map last, with no separator', () => {
     assert.equal(
       canonicalFor('map', { ticket: '147', instruction: 'update the map so that X' }),
-      'map 147 -- update the map so that X',
+      'map 147 update the map so that X',
     )
     assert.equal(
       canonicalFor('map', { ticket: '147', repo: 'cur', model: 'opus', instruction: 'add a ticket' }),
-      'map cur#147 model=opus -- add a ticket',
+      'map cur#147 model=opus add a ticket',
     )
   })
 
   test('the instruction is collapsed to one line — the seam is one line of text', () => {
     assert.equal(
       canonicalFor('map', { ticket: '147', instruction: '  add a ticket\nthen wire it  ' }),
-      'map 147 -- add a ticket then wire it',
+      'map 147 add a ticket then wire it',
     )
   })
 
-  test('an empty instruction posts no -- at all', () => {
+  test('an empty instruction posts nothing after the number', () => {
     assert.equal(canonicalFor('map', { ticket: '147', instruction: '' }), 'map 147')
     assert.equal(canonicalFor('map', { ticket: '147', instruction: '   ' }), 'map 147')
   })
 
   // #241: the operator says "chart a new map for X" in prose, and the overseer
   // reaches `map` with an instruction and NO ticket. The repo is a bare token
-  // here, not the `repo#n` qualifier — there is no n to qualify.
+  // here, not the `repo#n` qualifier — there is no n to qualify. #255: on this
+  // shape it has to be the repo's own name, because it now sits in front of a
+  // plain sentence.
   test('a map with no ticket composes the new-map shape', () => {
     assert.equal(
       canonicalFor('map', { instruction: 'chart the next feature' }),
-      'map -- chart the next feature',
+      'map chart the next feature',
     )
     assert.equal(
-      canonicalFor('map', { repo: 'cur', model: 'opus', instruction: 'chart the next feature' }),
-      'map cur model=opus -- chart the next feature',
+      canonicalFor('map', { repo: 'alp82/curia', model: 'opus', instruction: 'chart the next feature' }),
+      'map alp82/curia model=opus chart the next feature',
     )
   })
 

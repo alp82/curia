@@ -165,7 +165,7 @@ describe('parseCommand', () => {
     })
     const reply = await router.handle('start 147 -- update the map', 'user-1')
     assert.match(reply, /`start` carries no instruction/)
-    assert.match(reply, /map <n> -- <sentence>/)
+    assert.match(reply, /map <n> <sentence>/)
   })
 
   test('a bare -- inside a longer start line is still refused, not silently dropped', () => {
@@ -203,7 +203,10 @@ describe('parseCommand', () => {
     assert.equal(parseCommand('map cur#147').repoArg, 'cur')
     assert.equal(parseCommand('map 147 model=opus').model, 'opus')
     assert.equal(parseCommand('map'), null)
-    assert.equal(parseCommand('map banana'), null)
+    // #255: one word with no number reaches the router as a candidate repo,
+    // not as a refusal. The router rules what it is — a repo with no brief, or
+    // a one-word brief.
+    assert.equal(parseCommand('map banana').repoWord, 'banana')
   })
 
   test('a map with no -- carries no instruction at all', () => {
@@ -225,11 +228,12 @@ describe('parseCommand', () => {
     assert.equal(c.instruction, 'use model=opus wording in the note')
   })
 
-  // ---- #255: the `--` is optional after a map number ------------------------
+  // ---- #255: the `--` is retired on both shapes -----------------------------
   //
   // The 2026-08-06 incident: `map 147 <sentence>` was refused three times in
-  // four minutes and nobody could act on the refusal. The number anchors the
-  // shape, so the sentence needs no boundary token.
+  // four minutes and nobody could act on the refusal. The operator wants no
+  // `--` anywhere, so the options come first and the sentence runs to the end
+  // of the line. A line that still carries one parses to the same command.
 
   test('map takes the sentence with no -- at all', () => {
     const c = parseCommand('map 147 new ticket to make the map ticket param optional')
@@ -249,7 +253,7 @@ describe('parseCommand', () => {
     assert.equal(parseCommand('map 147 use model=opus wording').instruction, 'use model=opus wording')
   })
 
-  test('the -- form is unchanged, so every composed line parses to what it did', () => {
+  test('a retired -- is still read, so a line in flight parses to the same command', () => {
     for (const [text, instruction] of [
       ['map 147 -- add a ticket for X', 'add a ticket for X'],
       ['map 147 model=opus -- add a ticket for X', 'add a ticket for X'],
@@ -261,11 +265,17 @@ describe('parseCommand', () => {
     assert.equal(parseCommand('map 147 --'), null)
   })
 
-  test('the new-map shape keeps its -- , because no number anchors it', () => {
-    // `map cur chart it` cannot be told from a repo argument of two words.
-    assert.equal(parseCommand('map cur chart the next feature'), null)
-    assert.equal(parseCommand('map chart the next feature'), null)
-    assert.equal(parseCommand('map cur -- chart the next feature').instruction, 'chart the next feature')
+  test('a new map needs no -- either — the first word may be the repo', () => {
+    // The parser cannot tell a repo from the first word of the brief, so it
+    // marks the candidate and the ROUTER rules (see #chartNew).
+    const c = parseCommand('map curia chart a map for the next feature')
+    assert.equal(c.verb, 'map')
+    assert.equal(c.ticket, undefined)
+    assert.equal(c.repoWord, 'curia')
+    assert.equal(c.instruction, 'chart a map for the next feature')
+    // and a sentence that opens with a plain word marks that word all the same
+    assert.equal(parseCommand('map chart a map for the next feature').repoWord, 'chart')
+    assert.equal(parseCommand('map chart a map for the next feature').instruction, 'a map for the next feature')
   })
 
   test('start still takes no instruction, with or without the --', () => {
@@ -314,25 +324,27 @@ describe('parseCommand', () => {
   // ---- `map` with no issue: chart a NEW map from prose (#241) ----------------
   //
   // The second shape of one verb. It carries no issue reference because the
-  // issue does not exist yet, so the sentence after `--` is the whole input —
-  // and that is why it is mandatory here where `map <n>` makes it optional.
+  // issue does not exist yet, so the sentence is the whole input — and that is
+  // why it is mandatory here where `map <n>` makes it optional.
 
   test('map with no issue parses the prose as the instruction', () => {
-    const c = parseCommand('map -- create new map for next feature. Read direction.md first')
+    const c = parseCommand('map create new map for next feature. Read direction.md first')
     assert.equal(c.verb, 'map')
     assert.equal(c.ticket, undefined)
-    assert.equal(c.instruction, 'create new map for next feature. Read direction.md first')
+    assert.equal(c.instruction, 'new map for next feature. Read direction.md first')
+    assert.equal(c.repoWord, 'create')
+    // the retired form parses to the same command, first word and all
+    const old = parseCommand('map -- create new map for next feature. Read direction.md first')
+    assert.equal(old.repoWord, undefined)
+    assert.equal(old.instruction, 'create new map for next feature. Read direction.md first')
   })
 
   test('a new map takes an optional repo and an optional model, in that shape', () => {
-    const c = parseCommand('map alp82/curia model=opus -- chart the next feature')
-    assert.equal(c.repo, 'alp82/curia')
+    const c = parseCommand('map alp82/curia model=opus chart the next feature')
+    assert.equal(c.repoWord, 'alp82/curia')
     assert.equal(c.model, 'opus')
     assert.equal(c.ticket, undefined)
     assert.equal(c.instruction, 'chart the next feature')
-    // the fuzzy repo form the other shape takes, on this one too
-    assert.equal(parseCommand('map cur -- chart it').repoArg, 'cur')
-    assert.equal(parseCommand('map cur -- chart it').repo, undefined)
   })
 
   test('the instruction is MANDATORY with no issue — a bare map is refused', () => {
@@ -340,23 +352,28 @@ describe('parseCommand', () => {
     // (#160). With no map there is nothing to ask about, so this is a refusal.
     assert.equal(parseCommand('map'), null)
     assert.equal(parseCommand('map --'), null)
-    assert.equal(parseCommand('map alp82/curia'), null)
     assert.equal(parseCommand('map model=opus'), null)
+    // #255: one word alone reaches the router, which refuses it when the word
+    // is a repo and nothing is left to chart (see the router test below).
+    assert.equal(parseCommand('map alp82/curia').instruction, '')
   })
 
-  test('a number before the -- is the OTHER shape, never a repo called 147', () => {
-    // `map 147 -- x` must keep parsing as an update of map 147. A number that
-    // fell through to the new-map parser would chart into a repo named "147".
-    assert.equal(parseCommand('map 147 -- do X').ticket, '147')
-    // #255: a second number is now the first word of the sentence, which is
-    // still map 12 and still not a repo called "12".
-    assert.equal(parseCommand('map 12 34 -- do X').ticket, '12')
-    assert.equal(parseCommand('map 12 34 -- do X').instruction, '34 -- do X')
+  test('a number in front is the OTHER shape, never a repo called 147', () => {
+    // `map 147 x` must keep parsing as an update of map 147. A number that fell
+    // through to the new-map parser would chart into a repo named "147".
+    assert.equal(parseCommand('map 147 do X').ticket, '147')
+    assert.equal(parseCommand('map 12 34 do X').ticket, '12')
+    assert.equal(parseCommand('map 12 34 do X').instruction, '34 do X')
+    // and a numbered line that fails the first shape does not become a new map
+    assert.equal(parseCommand('map 147 --'), null)
+    assert.equal(parseCommand('map cur#147 --'), null)
   })
 
-  test('one repo token and one model, never two of either', () => {
-    assert.equal(parseCommand('map cur other -- do X'), null)
-    assert.equal(parseCommand('map model=opus model=gpt -- do X'), null)
+  test('one repo word and one model, never two models', () => {
+    // #255: a second repo-shaped word is just the first word of the sentence.
+    assert.equal(parseCommand('map cur other do X').repoWord, 'cur')
+    assert.equal(parseCommand('map cur other do X').instruction, 'other do X')
+    assert.equal(parseCommand('map model=opus model=gpt do X'), null)
   })
 
   test('the refusal for a broken map names BOTH shapes', async () => {
@@ -401,9 +418,65 @@ describe('parseCommand', () => {
       attach: {},
       log: () => {},
     })
-    await router.handle('map -- chart the next feature', 'user-1')
+    await router.handle('map chart the next feature', 'user-1')
     assert.equal(seen[0].repo, 'alp82/curia')
+    // #255: "chart" is not a watched repo, so it stays the first word
     assert.equal(seen[0].instruction, 'chart the next feature')
+  })
+
+  // #255: the first word is the repo when it NAMES a watched repo, and the
+  // first word of the brief when it does not. Only the router can rule, so the
+  // rule is tested here.
+  test('the first word is the repo only when it names a watched one', async () => {
+    const seen = []
+    const router = new CommandRouter({
+      dispatcher: {
+        routing: { harnesses: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }, { repo: 'alp82/other' }] },
+        chartNew: async (opts) => { seen.push(opts); return 'ok' },
+      },
+      attach: {},
+      log: () => {},
+    })
+    // the name after the slash, and the whole name
+    await router.handle('map curia chart the dashboard', 'user-1')
+    assert.deepEqual([seen[0].repo, seen[0].instruction], ['alp82/curia', 'chart the dashboard'])
+    await router.handle('map alp82/other chart the dashboard', 'user-1')
+    assert.deepEqual([seen[1].repo, seen[1].instruction], ['alp82/other', 'chart the dashboard'])
+    // a fragment is NOT a name: it would eat the first word of any sentence
+    // that happens to sit inside a repo name
+    assert.match(await router.handle('map cur chart the dashboard', 'user-1'), /needs one named/)
+    assert.equal(seen.length, 2)
+  })
+
+  test('a repo word with nothing to chart is refused, not dispatched', async () => {
+    const router = new CommandRouter({
+      dispatcher: {
+        routing: { harnesses: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }] },
+        chartNew: async () => 'dispatched',
+      },
+      attach: {},
+      log: () => {},
+    })
+    const reply = await router.handle('map alp82/curia', 'user-1')
+    assert.match(reply, /nothing to chart/)
+    assert.match(reply, /map \[repo\]/)
+  })
+
+  test('a word that names no repo is the brief, even alone', async () => {
+    const seen = []
+    const router = new CommandRouter({
+      dispatcher: {
+        routing: { harnesses: { claude: {} } },
+        config: { watch: [{ repo: 'alp82/curia' }] },
+        chartNew: async (opts) => { seen.push(opts); return 'ok' },
+      },
+      attach: {},
+      log: () => {},
+    })
+    await router.handle('map banana', 'user-1')
+    assert.deepEqual([seen[0].repo, seen[0].instruction], ['alp82/curia', 'banana'])
   })
 
   test('a new map with two watched repos refuses rather than picking one', async () => {
@@ -416,9 +489,9 @@ describe('parseCommand', () => {
       attach: {},
       log: () => {},
     })
-    const reply = await router.handle('map -- chart the next feature', 'user-1')
+    const reply = await router.handle('map chart the next feature', 'user-1')
     assert.match(reply, /needs one named/)
-    // and the named form it recommends resolves through the same fuzzy matcher
+    // and the named form it recommends parses back
     const seen = []
     const router2 = new CommandRouter({
       dispatcher: {
@@ -429,8 +502,9 @@ describe('parseCommand', () => {
       attach: {},
       log: () => {},
     })
-    await router2.handle('map curia -- chart it', 'user-1')
+    await router2.handle('map alp82/curia chart it', 'user-1')
     assert.equal(seen[0].repo, 'alp82/curia')
+    assert.equal(seen[0].instruction, 'chart it')
   })
 
   test('cancel', () => {

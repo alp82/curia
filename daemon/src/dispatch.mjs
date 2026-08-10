@@ -550,12 +550,12 @@ export class Dispatcher {
     // Nothing takeable is the ordinary end of a map, not a fault. Name the other
     // verb here: an operator who typed `start <map>` meaning "update the map" is
     // exactly the operator standing in front of this message.
-    return `❌ ${repo}#${mapNo} **${mapIssue.title}** has no takeable ticket — every child is closed, blocked, or already claimed. \`tickets\` shows the frontier, and \`map ${mapNo} -- <what should change>\` updates the map itself`
+    return `❌ ${repo}#${mapNo} **${mapIssue.title}** has no takeable ticket — every child is closed, blocked, or already claimed. \`tickets\` shows the frontier, and \`map ${mapNo} <what should change>\` updates the map itself`
   }
 
   // ---- map (the charting dispatch) ---------------------------------------------
 
-  // `map <n> [-- <instruction>]` (#221, carrying #160's mechanics): the operator's
+  // `map <n> [<instruction>]` (#221, carrying #160's mechanics): the operator's
   // own verb for updating a map. It spawns a CHARTING agent on the map issue,
   // which edits the map and its tickets and ends on its edits plus one
   // `report_result` — no close, no pull request, no review gate.
@@ -617,7 +617,7 @@ export class Dispatcher {
 
   // ---- map with no issue (the new-map dispatch, #241) --------------------------
 
-  // `map [repo] -- <prose>`: a charting agent with NO map. It runs the wayfinder
+  // `map [repo] <prose>`: a charting agent with NO map. It runs the wayfinder
   // skill's CHART mode — name the destination, map the frontier breadth-first,
   // then create the `wayfinder:map` issue and its first tickets. The operator's
   // prose is the loose idea that mode starts from, which is why the parser makes
@@ -644,7 +644,7 @@ export class Dispatcher {
   // to that name, so picking a fresh index would strand all three.
   async chartNew({ repo, model, instruction = null, by, reuse = false, threadId = null, handle = null } = {}) {
     if (!String(instruction ?? '').trim()) {
-      return '❌ a new map needs a sentence to chart from — `map [repo] -- <what to chart>`'
+      return '❌ a new map needs a sentence to chart from — `map [repo] <what to chart>`'
     }
     if (!repo) return '❌ a new map needs a repo — nothing says where to create the issue'
     if (!this.config.watch.some((w) => w.repo === repo)) return `❌ \`${repo}\` is not on the watch list`
@@ -668,7 +668,7 @@ export class Dispatcher {
     this.inFlight.add(session)
     try {
       if (await this.deps.hasSession(session)) {
-        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${chat}\` tears it down, then \`map -- …\` again`
+        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${chat}\` tears it down, then \`map …\` again`
       }
       const issue = newMapIssue(chat, instruction)
       return (await this.#dispatch(repo, chat, issue, {
@@ -969,7 +969,7 @@ export class Dispatcher {
       // The binding stays (#140): a failed dispatch is a claim release, not a
       // ticket-terminal state — the retry's traffic belongs in the same thread.
       const claimTail = charting
-        ? `nothing was claimed, so nothing was released — \`${newMap ? 'map -- <what to chart>' : `map ${n}`}\` again when the cause is fixed`
+        ? `nothing was claimed, so nothing was released — \`${newMap ? 'map <what to chart>' : `map ${n}`}\` again when the cause is fixed`
         : released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'
       // #241: a new-map dispatch has no issue to name, so it names what it was
       // for. `${repo}#new` would read as an issue number that does not exist.
@@ -3789,7 +3789,7 @@ export class Dispatcher {
       const adopted = this.#epochAdoptedMap(session)
       const theRepo = repo ?? this.#epochRepo(ticket)
       if (adopted) {
-        return `❌ \`${session}\` already created ${theRepo ? `${theRepo}#${adopted}` : `#${adopted}`} — that map exists now, so it is charted by number: \`map ${adopted} -- <what is left to do>\``
+        return `❌ \`${session}\` already created ${theRepo ? `${theRepo}#${adopted}` : `#${adopted}`} — that map exists now, so it is charted by number: \`map ${adopted} <what is left to do>\``
       }
       return this.chartNew({ ...inherited, instruction, repo: theRepo, handle: ticket })
     }

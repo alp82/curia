@@ -170,8 +170,8 @@ Then use the commands, as Discord slash commands or as plain English in a thread
 
 - `tickets` — what is takeable
 - `start <n>` — send an agent. On a map number, this sends one to the map's next takeable ticket.
-- `map <n> <what should change>` — send an agent that updates the map itself. The sentence needs no `--` after the number, and a `--` there still works. Leave the sentence off and the agent asks you what should change.
-- `map -- <what to chart>` — send an agent with no map. It settles the destination with you, then creates the map issue itself. Here the `--` is required: with no number in front, nothing else tells a repo argument from the first word. Name the repo (`map <repo> -- …`) when more than one is watched.
+- `map <n> <what should change>` — send an agent that updates the map itself. Leave the sentence off and the agent asks you what should change.
+- `map <what to chart>` — send an agent with no map. It settles the destination with you, then creates the map issue itself. Name the repo first (`map alp82/curia <what to chart>`) when more than one is watched. The first word is the repo only when it is a watched repo's own name.
 - `status` — who is running
 - `attach <n>` — that agent's terminal in your browser
 - `resume <n>` / `cancel <n>`
