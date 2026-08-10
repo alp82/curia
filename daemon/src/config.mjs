@@ -14,6 +14,8 @@ import { PROBE_MODEL } from './usage.mjs'
 import { DEFAULT_TIMELINE_INDEX } from './timeline.mjs'
 import { DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS } from './image.mjs'
 import { DEFAULT_CONTAINER_PORTS, PORTS_PER_AGENT } from './sandbox.mjs'
+import { readAllow } from './identity.mjs'
+import { readDashboard } from './dashboard.mjs'
 
 const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
@@ -124,20 +126,11 @@ export function loadCuriaConfig(file) {
   // omission is the failure — so a config with no `identity` block names the
   // section and the key instead of booting either way.
   const id = cfg.identity
-  if (!id || typeof id !== 'object' || Array.isArray(id)) {
-    fail(file, '`identity` section missing — both attach surfaces refuse every caller without it; give it an `allow:` list of tailscale logins (see docs/adr/0003)')
-  }
-  if (!Array.isArray(id.allow) || !id.allow.length) {
-    fail(file, 'identity.allow must be a non-empty list of tailscale logins (the `Tailscale-User-Login` Serve stamps on a request, e.g. someone@example.com)')
-  }
-  for (const login of id.allow) {
-    if (typeof login !== 'string' || !login.trim()) {
-      fail(file, `identity.allow: ${JSON.stringify(login)} is not a login string`)
-    }
-  }
-  // Compared against a header value, which arrives in whatever case the
-  // identity provider used. Normalized once here rather than at every request.
-  id.allow = id.allow.map((l) => l.trim().toLowerCase())
+  // The rule and the normalization live in identity.mjs beside the predicate
+  // that compares against the list: the dashboard sidecar (#263) reads the same
+  // key out of the same file, and one definition is what keeps the two
+  // processes admitting the same people.
+  id.allow = readAllow(id, (msg) => fail(file, msg))
   id.proxy_port = id.proxy_port ?? 7682
   if (!(Number.isInteger(id.proxy_port) && id.proxy_port > 0 && id.proxy_port < 65536)) {
     fail(file, 'identity.proxy_port must be a port number')
@@ -152,12 +145,27 @@ export function loadCuriaConfig(file) {
   }
   cfg.identity = id
 
-  // Five ports, one box: any collision means one surface silently shadows or
+  // The dashboard sidecar (#263, from the where-it-lives decision #249). The
+  // daemon does not host it and never binds these ports — but it validates the
+  // block and refuses to boot on a bad shape, because the two ports below join
+  // the collision check and `previews.reserved`, and a sidecar port that
+  // shadowed a daemon surface would be discovered as an outage rather than as a
+  // config error. The shape rules live in dashboard.mjs, where the sidecar
+  // reads them out of this same file.
+  //
+  // The PAGE is not checked here, unlike attach.index and timeline.index: the
+  // daemon does not serve it, and the sidecar's own filesystem is the only one
+  // whose answer would mean anything.
+  const dash = readDashboard(cfg, (msg) => fail(file, msg), file)
+  cfg.dashboard = dash
+
+  // Seven ports, one box: any collision means one surface silently shadows or
   // sweeps another, so all of them must be pairwise distinct.
   const ports = [
     ['attach.ttyd_port', a.ttyd_port], ['attach.serve_port', a.serve_port],
     ['identity.proxy_port', id.proxy_port],
     ['timeline.port', t.port], ['timeline.serve_port', t.serve_port],
+    ['dashboard.port', dash.port], ['dashboard.serve_port', dash.serve_port],
   ]
   for (let i = 0; i < ports.length; i++) {
     for (let j = i + 1; j < ports.length; j++) {

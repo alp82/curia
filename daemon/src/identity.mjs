@@ -72,6 +72,34 @@ export function identityRefusal(headers = {}, { allow, hosts } = {}) {
   return null
 }
 
+// The allowlist, as every process that carries this predicate reads it.
+//
+// It lives beside the predicate rather than inside loadCuriaConfig because two
+// processes now read it out of one file: the daemon, and the dashboard sidecar
+// (#263), which applies the same check in front of its own server. The rule and
+// the normalization are one definition; only the refusal wording is the
+// caller's, so each names the file it read.
+//
+// `fail(msg)` must throw. The section is REQUIRED and has no usable default:
+// inventing one would admit a login nobody chose, and an empty one would lock
+// the operator out in silence.
+export function readAllow(identity, fail) {
+  if (!identity || typeof identity !== 'object' || Array.isArray(identity)) {
+    fail('`identity` section missing — both attach surfaces refuse every caller without it; give it an `allow:` list of tailscale logins (see docs/adr/0003)')
+  }
+  if (!Array.isArray(identity.allow) || !identity.allow.length) {
+    fail('identity.allow must be a non-empty list of tailscale logins (the `Tailscale-User-Login` Serve stamps on a request, e.g. someone@example.com)')
+  }
+  for (const login of identity.allow) {
+    if (typeof login !== 'string' || !login.trim()) {
+      fail(`identity.allow: ${JSON.stringify(login)} is not a login string`)
+    }
+  }
+  // Compared against a header value, which arrives in whatever case the
+  // identity provider used. Normalized once here rather than at every request.
+  return identity.allow.map((l) => l.trim().toLowerCase())
+}
+
 // Every name this box legitimately answers to on `servePort`. The FQDN is what
 // curia's own composed links use; the MagicDNS short name and the raw tailnet
 // IPs are added because an operator types those by hand and none of them can be

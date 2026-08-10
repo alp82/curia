@@ -1,0 +1,267 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- The console shell (#263), on the look settled by the prototype (#248):
+     dark-first tokens, system mono for data, one accent.
+
+     THE STAMP BELOW IS LOAD-BEARING. This page and daemon/src/dashboard.mjs are
+     two halves of one protocol, and there is no build step — the file on disk IS
+     the reviewed source. A pull that changes both halves with no sidecar restart
+     would leave an old server serving a new page, so the page declares what it
+     speaks and the server refuses anything else (#70's rule, as timeline.html
+     carries it).
+
+     The read screens land in #264, the settings in #265, the verbs in #266 and
+     the chat in #267. What this page owes is the shell, the poll, and the
+     restarting marker. -->
+<meta name="curia-dashboard" content="proto=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>curia</title>
+<style>
+  /* ---------- tokens: dark-first (#248) ---------- */
+  :root {
+    --bg: #111417; --bg-raise: #191e22; --bg-inset: #0c0f11;
+    --line: #262d33; --ink: #dde3e0; --ink-dim: #8a94a6; --ink-faint: #5a6472;
+    --accent: #4cc2a0; --accent-ink: #0c1512;
+    --warn: #e0a83c; --bad: #d95f57; --ok: #4cc2a0; --idle: #8a94a6;
+    --chip-warn-bg: #2b2114; --chip-bad-bg: #2b1715; --chip-ok-bg: #12241f;
+    --shadow: 0 6px 24px rgba(0,0,0,.45);
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f2f4f3; --bg-raise: #ffffff; --bg-inset: #e8ebe9;
+      --line: #d5dad6; --ink: #1d2420; --ink-dim: #5b6570; --ink-faint: #8b939e;
+      --accent: #157a5f; --accent-ink: #f2fdf9;
+      --warn: #9a6a10; --bad: #b03a32; --ok: #157a5f; --idle: #5b6570;
+      --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
+      --shadow: 0 6px 24px rgba(30,40,35,.12);
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .mono, code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font: inherit; cursor: pointer; }
+  h1, h2, h3 { margin: 0; text-wrap: balance; }
+
+  /* ---------- shell ---------- */
+  .shell { display: grid; grid-template-columns: 172px 1fr; min-height: 100vh; }
+  .shell nav {
+    border-right: 1px solid var(--line); padding: 16px 10px; background: var(--bg-inset);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .shell nav .brand { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; padding: 0 10px 12px; }
+  .shell nav button {
+    text-align: left; border: 0; background: none; color: var(--ink-dim);
+    padding: 8px 10px; border-radius: 7px; font-size: 13.5px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .shell nav button.on { background: var(--bg-raise); color: var(--ink); font-weight: 600; }
+  .shell nav button .n { color: var(--warn); font-weight: 700; }
+  .shell main { padding: 18px 22px; min-width: 0; }
+  .shell main h2 { font-size: 15px; }
+  .screen-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: 1fr; }
+    .shell nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; align-items: center; }
+    .shell nav .brand { padding: 0 10px 0 4px; }
+    .shell nav button { flex: none; gap: 6px; }
+    .shell main { padding: 14px; }
+  }
+
+  /* ---------- the reading's own age ---------- */
+  .readbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 12px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace;
+    border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise);
+    padding: 8px 12px; margin-bottom: 14px;
+  }
+  .readbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+  .readbar.down { border-color: var(--warn); background: var(--chip-warn-bg); color: var(--warn); }
+  .readbar.down .dot { background: var(--warn); }
+  .readbar .why { color: var(--ink-dim); }
+  .readbar.down .why { color: var(--warn); opacity: .85; }
+  .readbar .spacer { flex: 1; }
+
+  .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 16px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; box-shadow: var(--shadow); }
+  .tile .v { font-size: 22px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+  .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-top: 2px; }
+  .tile.warn { border-color: var(--warn); } .tile.warn .v { color: var(--warn); }
+  .tile .v.none { color: var(--ink-faint); }
+
+  .facts { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; }
+  .facts h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-faint); margin-bottom: 8px; }
+  .facts dl { display: grid; grid-template-columns: max-content 1fr; gap: 5px 16px; margin: 0; font-size: 13px; }
+  .facts dt { color: var(--ink-dim); }
+  .facts dd { margin: 0; font-family: ui-monospace, Menlo, monospace; }
+
+  .later {
+    border: 1px dashed var(--line); border-radius: 9px; padding: 12px 14px;
+    color: var(--ink-dim); font-size: 13px; background: var(--bg-inset);
+  }
+  .later b { color: var(--ink); }
+</style>
+
+<div id="app"></div>
+
+<script>
+/* The shell (#263). The screens it names land on their own tickets; what runs
+   here is the nav, the poll and the marker. */
+const SCREENS = {
+  home:     ["Home",     screenHome],
+  agents:   ["Agents",   () => later("The agents screen", "#264")],
+  frontier: ["Frontier", () => later("The frontier tree", "#264")],
+  feed:     ["Feed",     () => later("The event feed", "#264")],
+  chat:     ["Chat",     () => later("The chat", "#267")],
+  settings: ["Settings", () => later("The settings screens", "#265")],
+};
+const NAMES = Object.keys(SCREENS);
+
+let screen = NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home";
+let payload = null;   /* the sidecar's last answer */
+let reachable = true; /* is the SIDECAR itself answering — a different fact from daemon_up */
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function ago(iso) {
+  if (!iso) return "never";
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  return Math.round(s / 3600) + "h ago";
+}
+function dur(s) {
+  if (s == null) return "—";
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  if (s < 86400) return (s / 3600).toFixed(1) + "h";
+  return (s / 86400).toFixed(1) + "d";
+}
+
+/* How many things want the operator. The nav badge and the tile read one
+   function, so they can never disagree. */
+function needsYou() {
+  const o = payload?.overview;
+  return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0);
+}
+
+/* The marker. Three states, and they are three different facts:
+   the sidecar is unreachable, the daemon is not answering it, or all is well. */
+function readbar() {
+  if (!reachable) {
+    return `<div class="readbar down"><span class="dot"></span><b>the console is offline</b>
+      <span class="why">this page cannot reach the sidecar that serves it</span></div>`;
+  }
+  const p = payload;
+  if (!p) return `<div class="readbar"><span class="dot"></span>reading…</div>`;
+  if (!p.daemon_up) {
+    /* The sidecar is up and holding the last good reading — which is exactly
+       what it exists for. Say which reading, and why it is not moving. */
+    return `<div class="readbar down"><span class="dot"></span><b>daemon restarting</b>
+      <span>showing the snapshot from ${esc(ago(p.read_at))}</span>
+      <span class="spacer"></span>
+      <span class="why">not answering on :${esc(p.daemon_port)} since ${esc(ago(p.error_since))} — ${esc(p.error)}</span></div>`;
+  }
+  return `<div class="readbar"><span class="dot"></span>read ${esc(ago(p.read_at))}
+    <span class="spacer"></span>
+    <span class="why">refreshing every ${esc(p.poll_interval_s)}s while this tab is visible</span></div>`;
+}
+
+function tile(v, l, warn) {
+  const none = v === "—" || v === 0 ? " none" : "";
+  return `<div class="tile${warn && v ? " warn" : ""}"><div class="v${none}">${esc(v)}</div><div class="l">${esc(l)}</div></div>`;
+}
+
+function screenHome() {
+  const o = payload?.overview;
+  if (!o) return `<div class="screen-head"><h2>Home</h2></div>${readbar()}
+    <div class="later">No snapshot yet. The sidecar is up and has not read the daemon successfully even once.</div>`;
+  const f = o.frontier;
+  return `<div class="screen-head"><h2>Home</h2></div>
+    ${readbar()}
+    <div class="tiles">
+      ${tile(o.agents == null ? "—" : o.agents.length, "agents live")}
+      ${tile(needsYou(), "needs you", true)}
+      ${tile(o.review_gate?.length ?? 0, "review gate", true)}
+      ${tile(o.events?.length ?? 0, "events held")}
+    </div>
+    <div class="facts">
+      <h3>The daemon</h3>
+      <dl>
+        <dt>port</dt><dd>${esc(o.daemon?.port)}</dd>
+        <dt>uptime</dt><dd>${esc(dur(o.daemon?.uptime_s))}</dd>
+        <dt>auto dispatch</dt><dd>${o.daemon?.auto_dispatch ? "on" : "off"}</dd>
+        <dt>max concurrent</dt><dd>${esc(o.daemon?.max_concurrent)}</dd>
+        <dt>bridge</dt><dd>${esc(o.bridge)}</dd>
+        <dt>frontier</dt><dd>${f ? `${esc(f.repos?.length ?? 0)} repo(s), computed ${esc(ago(f.computed_at))}` : "not computed yet"}</dd>
+        ${o.fleet_error ? `<dt>fleet</dt><dd>unreadable — ${esc(o.fleet_error)}</dd>` : ""}
+      </dl>
+    </div>
+    <p class="later" style="margin-top:16px">The <b>shell</b> is what this ticket owes. The screens it links to land next:
+      the read screens on #264, the settings on #265, the verbs on #266, the chat on #267.</p>`;
+}
+
+function later(what, ticket) {
+  return `<div class="screen-head"><h2>${esc(SCREENS[screen][0])}</h2></div>
+    ${readbar()}
+    <div class="later"><b>${esc(what)}</b> lands on ${esc(ticket)}. The sidecar, its identity gate and this
+      shell are ${esc("#263")}; the screens are built on top of the same snapshot the bar above reads.</div>`;
+}
+
+function render() {
+  const n = needsYou();
+  document.getElementById("app").innerHTML = `<div class="shell">
+    <nav><span class="brand">curia</span>
+      ${NAMES.map((k) => `<button class="${screen === k ? "on" : ""}" onclick="goto('${k}')">${SCREENS[k][0]}${
+        k === "home" && n ? ` <span class="n">${n}</span>` : ""}</button>`).join("")}
+    </nav>
+    <main>${SCREENS[screen][1]()}</main>
+  </div>`;
+  document.title = (n ? `(${n}) ` : "") + "curia";
+}
+function goto(k) { screen = k; location.hash = k; render(); }
+window.addEventListener("hashchange", () => {
+  const k = location.hash.slice(1);
+  if (NAMES.includes(k) && k !== screen) { screen = k; render(); }
+});
+
+/* ---- the poll -------------------------------------------------------------
+   The operator's call on #263: refresh while this tab is visible, and stop
+   when it is not. Every refresh costs the daemon a whole read of the journal
+   off disk, so a tab nobody is looking at must cost nothing. The interval is
+   the sidecar's to state — it comes back inside the payload — so one config
+   key governs both halves and they cannot drift apart. */
+let timer = null;
+
+async function tick() {
+  try {
+    const res = await fetch("/api/overview", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    payload = await res.json();
+    reachable = true;
+  } catch {
+    /* Keep the last payload on screen: a page that blanks itself is worst
+       exactly when the box is worst. */
+    reachable = false;
+  }
+  render();
+  schedule();
+}
+
+function schedule() {
+  clearTimeout(timer);
+  if (document.visibilityState !== "visible") return;
+  timer = setTimeout(tick, (payload?.poll_interval_s ?? 5) * 1000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") tick(); else clearTimeout(timer);
+});
+
+render();
+tick();
+</script>

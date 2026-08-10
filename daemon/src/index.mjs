@@ -680,6 +680,11 @@ const previews = new PreviewRegistry({
     // allowlist — every caller refused, and the surface silently double-listed.
     curiaConfig.identity.proxy_port,
     curiaConfig.timeline.port, curiaConfig.timeline.serve_port,
+    // #263: the sidecar's two ports. The daemon binds neither, but it owns the
+    // preview sweep — publishing a preview over the dashboard's Serve port
+    // would withdraw the console the operator watches the box through, and
+    // over its loopback port would put a second, un-gated rule in front of it.
+    curiaConfig.dashboard.port, curiaConfig.dashboard.serve_port,
   ],
   log,
   // #168: the identity check reaches the third surface. `identityAllow` is the

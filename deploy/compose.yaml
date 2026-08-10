@@ -136,10 +136,13 @@ services:
     depends_on:
       - tmux
 
-  # The #249 sidecar. It stays up while the daemon restarts, so the restart
-  # loop is visible on the page. Secret-free: no credentials on disk or in env
-  # — the tailscaled socket is a capability, not a secret.
-  # #263 stands the sidecar up and replaces the placeholder command.
+  # The #249 sidecar, stood up by #263. It stays up while the daemon restarts,
+  # so the restart is a marker on the page rather than a dead tab. Secret-free:
+  # no credentials on disk or in env — the tailscaled socket is a capability,
+  # not a secret.
+  #
+  # host networking for the same reason the daemon needs it: tailscale Serve
+  # targets host loopback, and the sidecar reads the daemon on 127.0.0.1:4271.
   dashboard:
     build:
       context: ..
@@ -148,11 +151,20 @@ services:
     restart: unless-stopped
     network_mode: host
     user: "1000:1000"
-    command: ["node", "-e", "setInterval(() => {}, 2147483647)"]
+    working_dir: /home/alp/curia/daemon
+    command: ["node", "/home/alp/curia/daemon/bin/curia-dashboard.mjs"]
     environment:
       HOME: /home/alp
     volumes:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
-      # config only: the dashboard reads and rewrites curia.yaml, nothing else
-      # on disk.
+      # THE MOUNT LIST IS THE SECRET-FREE CLAIM, so it names files rather than
+      # trees. `daemon/` as a whole would carry `.env` (the Discord token) and
+      # `data/` (the journal #249 keeps daemon-private) into a process that must
+      # hold neither. So: the code it runs, the page it serves, and nothing
+      # else. `node_modules` is baked into the image for the same reason.
+      - /home/alp/curia/daemon/src:/home/alp/curia/daemon/src:ro
+      - /home/alp/curia/daemon/bin:/home/alp/curia/daemon/bin:ro
+      - /home/alp/curia/daemon/assets:/home/alp/curia/daemon/assets:ro
+      # Read-write, and the only writable path it has: the dashboard rewrites
+      # curia.yaml and routing.yaml from the settings screens (#265).
       - /home/alp/curia/config:/home/alp/curia/config
