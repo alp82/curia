@@ -48,7 +48,13 @@ The act that gives a new-map dispatch its map. The agent calls `map_created` wit
 
 **Charting agent**:
 The agent of a map dispatch. It edits the map and its tickets, and it never closes the map. On a new-map dispatch it creates the map first.
-Ruled by #286 and **not built yet**: it also burns down the research tickets it just created, one `/research` subagent each, and takes the ordinary ending for them: one pull request on `curia/<map>`, the review gate, the merge, then the close. It resolves nothing else. Until that build merges, the daemon still refuses `open_pull_request` and `request_review` on a map dispatch.
+It also burns down the research tickets it just created, one `/research` subagent each. For those tickets it takes the ordinary ending: one pull request on `curia/<map>`, the review gate, the merge, then the close. It resolves nothing else, and it closes nothing before the merge.
+
+**Burn-down**:
+What a charting session does with the research tickets it just created. One `/research` subagent per ticket, claimed before its subagent starts and released if that subagent fails. Every subagent works in the charting agent's own worktree, writes one note under `docs/research/`, and never runs git. The charting agent commits once, writes the index rows itself, and reads the findings together before the gate.
+
+**Charting write bound**:
+`docs/research/` and nothing else on disk. The charting worktree is writable, narrowed to that one directory. Curia refuses a pull request from a charting agent whose branch touches any other file.
 
 **Instruction**:
 The operator's sentence on a map dispatch, in their own words. It rides the `map` verb last, and reaches the charting agent as the first thing it reads. It needs no separator: the arguments come first, and the sentence runs from the first plain word to the end of the line. On an existing map it is optional: with none, the agent asks what should change. On a new map it is mandatory, because nothing else says what to chart. No other verb takes one.
@@ -73,6 +79,7 @@ The assignee on a ticket. A claim removes the ticket from every frontier. The da
 
 **Map lock**:
 What stops a second charting agent from editing one map body: the session name. A charting agent on map #147 is `curia-147`, and `map 147` is refused while that session lives. The check asks tmux, so it survives a daemon restart. It is per box, and there is one box.
+A charting session that researched holds this lock, and an agent slot, through its whole review. Charting is no longer a fast act. The operator accepted that price ([ADR-0008](docs/adr/0008-resolved-means-merged.md)).
 
 **Watched repo**:
 A repo on the watch list in `config/curia.yaml`. Curia dispatches only against watched repos.
@@ -307,10 +314,10 @@ The ordered close-out of a ticket: commit, pull request, preview, review gate, m
 The one CuriaBot message that ends a ticket thread. In small print, it merges what the tracker step did with what the session teardown did. It carries no bare link. The agent's own report is the message before it, and that report is where the pull request unfurls. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
 
 **Charting ending**:
-The ending of a map dispatch: edit the map, then report the result. Curia posts the summary on the map. No unassign, no pull request, no review gate, no close.
+The ending of a map dispatch. It forks on one fact: did the session write a file? A session that wrote none ends on two steps. It edits the map, then it reports the result. A session whose research subagents wrote findings takes the ordinary ending for them: commit, pull request, review gate, merge, then close those research tickets. The Stop hook holds a session whose findings sit uncommitted under `docs/research/`, because an uncommitted file dies with the workspace. Curia posts the summary on the map either way. That comment states whether the findings reached the default branch. No unassign, and the map itself never closes.
 
 **New-map ending**:
-The charting ending with one step in front: create the map, adopt it with `map_created`, then report the result. The Stop hook holds the agent to the adoption, because it is the one fact the daemon cannot read for itself.
+The charting ending with one step in front: create the map, adopt it with `map_created`, then report the result. The Stop hook holds the agent to the adoption, because it is the one fact the daemon cannot read for itself. Its research tickets land the same way a map dispatch's do.
 
 **Stop hook**:
 The enforcement hook that fires at the end of every agent turn. It refuses a stop that leaves ending steps open, up to the stop budget, then lets go and reports the ticket unfinished.

@@ -119,7 +119,7 @@ export function buildVerbTools(command) {
       repo: repoArg,
       model: z.string().optional().describe('model override — the harness follows it, so there is no harness argument'),
     }, run('start')),
-    tool('map', 'Dispatch a charting agent. WITH a map number it UPDATES that map: add tickets, graduate fog, change scope, fix what the map says. WITHOUT one it charts a NEW map: the agent settles the destination and the scope with the operator, then creates the `wayfinder:map` issue itself — use that form when the operator asks for a map that does not exist yet ("make a map for the next feature"), and put their words in the instruction. It closes nothing either way.', {
+    tool('map', 'Dispatch a charting agent. WITH a map number it UPDATES that map: add tickets, graduate fog, change scope, fix what the map says. WITHOUT one it charts a NEW map: the agent settles the destination and the scope with the operator, then creates the `wayfinder:map` issue itself — use that form when the operator asks for a map that does not exist yet ("make a map for the next feature"), and put their words in the instruction. It never closes the map either way, and the only tickets it closes are the research ones it burned down itself.', {
       ticket: ticketArg.optional(),
       // #255: with a map number the repo is any unambiguous part of the name,
       // as everywhere else. With NO number the repo rides in front of a plain

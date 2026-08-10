@@ -239,20 +239,61 @@ describe('the charting prompt', () => {
     assert.ok(!p.includes('the whole brief'))
   })
 
-  test('the ending has no pull request, no review and no merge — and says so', () => {
+  // #297: the ending grew. It used to end at "edit the map, then
+  // report_result", and the two tools were refused outright. A session whose
+  // research subagents wrote findings takes the ordinary ending for them.
+  test('the ending carries the pull request, the gate and the merge — for the findings', () => {
     const p = write({ charting: true, instruction: 'x' })
     const ending = p.slice(p.indexOf('## How this ends'))
     assert.match(ending, /Update the map/)
     assert.match(ending, /Never close the map/)
-    assert.match(ending, /curia refuses both/)
-    assert.ok(!/Only after the approval: merge it/.test(ending), 'the merge step leaked into a map dispatch')
-    assert.ok(!/request_review`: a summary of what you did/.test(ending), 'the review step leaked into a map dispatch')
+    assert.match(ending, /open_pull_request/)
+    assert.match(ending, /request_review/)
+    assert.match(ending, /Only after the approval: merge it/)
+    assert.ok(!/curia refuses both/.test(ending), 'the old refusal survived the invert')
   })
 
-  test('the write bounds are the map and its children, and nothing on disk', () => {
+  test('the ending says a session that wrote no file skips all of it', () => {
+    // The two-step ending #160 shipped is still the answer for a charting
+    // session that researched nothing, and the prose has to say which it is.
+    const ending = write({ charting: true, instruction: 'x' }).slice(0)
+    assert.match(ending, /A session that wrote no file skips this step and the four below it/)
+  })
+
+  test('the ending orders the close AFTER the merge, and never before', () => {
+    const p = write({ charting: true, instruction: 'x' })
+    const ending = p.slice(p.indexOf('## How this ends'))
+    assert.match(ending, /Only after the merge: resolve each research ticket you burned down/)
+    assert.match(ending, /Never close one before the merge/)
+    assert.ok(ending.indexOf('Only after the approval: merge it') < ending.indexOf('Only after the merge: resolve'),
+      'the close is listed ahead of the merge')
+  })
+
+  test('the write bounds are the map, its children and docs/research — nothing else on disk', () => {
     const p = write({ charting: true, instruction: 'x' })
     assert.match(p, /\*\*Write only:\*\* the map o\/r#147 and its child tickets/)
-    assert.match(p, /read-only checkout/)
+    assert.match(p, /\/w\/147\/docs\/research\//)
+    assert.match(p, /curia refuses a pull request that touches any other file/)
+    assert.ok(!p.includes('read-only checkout'), 'the charting worktree is writable now')
+  })
+
+  test('the burn-down doctrine rides the prompt: no branch, no git, one index writer, a claim each', () => {
+    const p = write({ charting: true, instruction: 'x' })
+    assert.match(p, /One `\/research` subagent per/)
+    assert.match(p, /There is no `research\/<name>` branch/)
+    assert.match(p, /A subagent writes files and NEVER runs git/)
+    assert.match(p, /YOU write every row of\n\s*`docs\/research\/README\.md`/)
+    assert.match(p, /Claim each research ticket before its subagent starts/)
+    assert.match(p, /--remove-assignee @me` if that subagent fails/)
+    assert.match(p, /Read the findings TOGETHER before you open the pull request/)
+  })
+
+  test('the two tools are listed for a charting agent, and publish_preview is not', () => {
+    const p = write({ charting: true, instruction: 'x' })
+    const tools = p.slice(p.indexOf('## Your tools'), p.indexOf('## How this ends'))
+    assert.match(tools, /- `open_pull_request`/)
+    assert.match(tools, /- `request_review`/)
+    assert.match(tools, /nothing here to preview/)
   })
 
   test('an ordinary ticket prompt is untouched by any of it', () => {
@@ -305,7 +346,15 @@ describe('the new-map prompt (#241)', () => {
     const ending = p.slice(p.indexOf('## How this ends'))
     assert.match(ending, /map_created/)
     assert.match(ending, /report_result/)
-    assert.ok(!/Only after the approval: merge it/.test(ending))
+  })
+
+  test('a new-map session takes the same landing — it fires the same research subagents (#297)', () => {
+    const ending = write().slice(write().indexOf('## How this ends'))
+    assert.match(ending, /open_pull_request/)
+    assert.match(ending, /Only after the approval: merge it/)
+    assert.match(ending, /Only after the merge: resolve each research ticket/)
+    assert.ok(ending.indexOf('map_created') < ending.indexOf('open_pull_request'),
+      'the adoption must still come before the landing')
   })
 
   test('map_created is listed as a tool, and only here', () => {
@@ -316,11 +365,12 @@ describe('the new-map prompt (#241)', () => {
     assert.ok(!fs.readFileSync(onAMap, 'utf8').includes('map_created'))
   })
 
-  test('the write bound is the ONE map it creates, and no existing issue', () => {
+  test('the write bound is the ONE map it creates, plus docs/research and no other file', () => {
     const p = write()
     assert.match(p, /the ONE `wayfinder:map` issue you create in o\/r/)
     assert.match(p, /no existing issue is yours to edit/)
-    assert.match(p, /read-only checkout/)
+    assert.match(p, /\/w\/chat-1\/docs\/research\//)
+    assert.ok(!p.includes('read-only checkout'), 'the charting worktree is writable now')
   })
 
   test('it is told to create NO map when the grilling shows none is needed', () => {
@@ -339,11 +389,35 @@ describe('the new-map prompt (#241)', () => {
 // ---- the ending (#149 point 3) ------------------------------------------------
 
 describe('the charting checklist', () => {
-  test('a charting agent is only ever held for report_result', () => {
-    // The state below would put THREE items on a ticket agent's checklist.
-    const state = { hasResult: false, hasCommits: true, prOpened: false, reviewApproved: false, prState: null }
-    assert.equal(outstanding({ ...state, charting: false }).length, 3)
+  // #297: the checklist forks on ONE fact — did this session write a file? A
+  // charting agent that researched nothing keeps the two-step ending #160
+  // shipped, and one that produced findings is held to the whole merge gate.
+  test('a charting session that wrote NO file is only ever held for report_result', () => {
+    const state = { hasResult: false, hasCommits: false, prOpened: false, reviewApproved: false, prState: null }
     assert.deepEqual(outstanding({ ...state, charting: true }), ['call `report_result` exactly once'])
+  })
+
+  test('a charting session WITH commits is held to the pull request, the gate and the merge', () => {
+    const commits = { hasResult: false, hasCommits: true, prOpened: false, reviewApproved: false, prState: null, charting: true }
+    assert.deepEqual(outstanding(commits), [
+      'call `open_pull_request` — your branch holds commits that are in no pull request yet',
+      'call `request_review` and get an approval — findings nobody approved resolve no research ticket',
+      'call `report_result` exactly once',
+    ])
+    const approved = { ...commits, prOpened: true, reviewApproved: true, prState: 'OPEN' }
+    assert.deepEqual(outstanding(approved), [
+      'merge the approved pull request — a research ticket is not resolved until its findings are in the default branch',
+      'call `report_result` exactly once',
+    ])
+  })
+
+  test('a new-map session forks the same way, and still owes the adoption', () => {
+    const base = { newMap: true, charting: true, hasResult: false, mapAdopted: false, prState: null }
+    assert.deepEqual(outstanding({ ...base, hasCommits: false }), [
+      'create the `wayfinder:map` issue, then call `map_created` with its number',
+      'call `report_result` exactly once',
+    ])
+    assert.equal(outstanding({ ...base, mapAdopted: true, hasCommits: true }).length, 3)
   })
 
   test('a reported result ends both endings, whatever its status', () => {
@@ -353,9 +427,34 @@ describe('the charting checklist', () => {
 
   test('the charting ending states no step the daemon cannot see', () => {
     // Every `todo` is a step the Stop hook will block on, so a step with no
-    // evidence behind it would trap the agent. Only `report` has one.
-    assert.deepEqual(CHARTING_ENDING.filter((s) => s.todo).map((s) => s.key), ['report'])
+    // evidence behind it would trap the agent. The map edit and the close are
+    // prose: curia has no expected value for either.
+    assert.deepEqual(CHARTING_ENDING.filter((s) => s.todo).map((s) => s.key), ['commit', 'pr', 'review', 'merge', 'report'])
     assert.ok(ENDING.filter((s) => s.todo).length > 1, 'the ticket ending should still have several')
+  })
+
+  test('a finding written and never committed holds the stop — it would die with the workspace', () => {
+    const items = outstanding({ charting: true, hasResult: false, hasCommits: false, uncommittedFindings: true })
+    assert.match(items[0], /commit the research findings sitting uncommitted/)
+    assert.match(items[0], /Delete the ones that should not land/)
+  })
+
+  test('the Stop hook asks the worktree, and only about docs/research', async () => {
+    // #194: an agent that never opened its tool channel is not held at any
+    // ending, so the fixture states the channel the real path would have.
+    const chartLive = async (deps) => {
+      const d = makeDispatcher(deps)
+      await d.chart('147')
+      d.agents.get('curia-147').mcpSeenAt = Date.now()
+      return d
+    }
+    const held = await (await chartLive({ uncommittedFiles: async () => ['docs/research/acp.md', 'notes.txt'] })).onStopHook('curia-147')
+    assert.equal(held.decision, 'block')
+    assert.match(held.reason, /commit the research findings sitting uncommitted/)
+
+    const out = await (await chartLive({ uncommittedFiles: async () => ['notes.txt'] })).onStopHook('curia-147')
+    assert.equal(out.decision, 'block', 'the report_result step should still hold it')
+    assert.ok(!/commit the research findings/.test(out.reason), 'a file outside docs/research held the stop')
   })
 })
 
@@ -380,7 +479,8 @@ describe('report_result on a map dispatch', () => {
     assert.ok(!calls.some((c) => String(c).startsWith('CLOSE')), 'a charting agent closed the map')
     assert.ok(!calls.some((c) => String(c).startsWith('setBody')), 'curia wrote a Decisions-so-far line for a charting session')
     assert.ok(!calls.includes('pushBranch') && !calls.includes('createPullRequest'), 'a charting session landed code')
-    assert.match(text, /Nothing was closed, resolved or pushed/)
+    assert.match(text, /Nothing was closed by curia, and the map stays open/)
+    assert.match(text, /nothing was pushed/)
   })
 
   test('the summary comment carries the operator\'s instruction and the model', async () => {
@@ -389,7 +489,7 @@ describe('report_result on a map dispatch', () => {
     assert.ok(body, 'the comment body is not a charting comment')
     assert.match(body, /curia session `curia-147`/)
     assert.match(body, /did the thing/)
-    assert.match(body, /opened no pull request and closed nothing/)
+    assert.match(body, /it never closes the map/)
   })
 
   test('a blocked charting agent says the edits stand, and still claims nothing', async () => {
@@ -409,6 +509,44 @@ describe('report_result on a map dispatch', () => {
     assert.ok(!events.some((e) => e.type === 'ticket_resolved'))
   })
 
+  // #297: a charting session can carry findings on a branch now, so the map
+  // comment says where they got to. The daemon reads that from its own journal
+  // and from GitHub — the agent's account of itself never decides it.
+  test('findings that never merged are named on the map, and journalled', async () => {
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'research: acp' }],
+      changedFilesOnBranch: async () => ['docs/research/acp.md'],
+      findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' }),
+    })
+    await d.chart('147')
+    await d.openPullRequest('curia-147', { summary: 'the findings' })
+    calls.length = 0
+    const text = await d.onResult('curia-147', { ticket: '147', status: 'resolved', summary: 's' })
+    const body = calls.find((c) => typeof c === 'string' && c.startsWith('## Charting'))
+    assert.match(body, /NOT in the default branch/)
+    assert.match(body, /https:\/\/github\.com\/o\/r\/pull\/7/)
+    assert.match(text, /NOT in the default branch/)
+    assert.ok(events.some((e) => e.type === 'charting_unreviewed' && e.map === '147'))
+  })
+
+  test('merged and approved findings are named as merged', async () => {
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'research: acp' }],
+      changedFilesOnBranch: async () => ['docs/research/acp.md'],
+      findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' }),
+    })
+    d.askReview = async () => ({ text: 'approve', status: 'answered' })
+    await d.chart('147')
+    await d.openPullRequest('curia-147', { summary: 'the findings' })
+    await d.requestReview('curia-147', { summary: 's', charting: 'c' })
+    calls.length = 0
+    await d.onResult('curia-147', { ticket: '147', status: 'resolved', summary: 's' })
+    const body = calls.find((c) => typeof c === 'string' && c.startsWith('## Charting'))
+    assert.match(body, /The research findings are merged/)
+    assert.match(body, /A human approved them at the review gate/)
+    assert.ok(!events.some((e) => e.type === 'charting_unreviewed'))
+  })
+
   test('an agent whose record this process never held is still read as charting', async () => {
     // The restart case: the in-memory record is gone and only the journal is
     // left. Falling back to "ticket" here would close the map.
@@ -426,34 +564,89 @@ describe('report_result on a map dispatch', () => {
   })
 })
 
-describe('the two tools a map dispatch refuses', () => {
-  test('open_pull_request is refused, and nothing is pushed', async () => {
-    const d = makeDispatcher()
+// #297, ADR-0008: these two used to be refused outright. A charting session's
+// research subagents write files, and a pull request on `curia/<map>` is what
+// keeps those findings off the default branch until a human approves them — so
+// both calls are the charting agent's now, narrowed to what it may write.
+describe('the two tools a map dispatch used to refuse', () => {
+  const RESEARCH = ['docs/research/acp.md', 'docs/research/README.md']
+
+  test('open_pull_request pushes the findings, and journals no refusal', async () => {
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'research: acp' }],
+      changedFilesOnBranch: async () => RESEARCH,
+    })
+    await d.chart('147')
+    calls.length = 0
+    const reply = await d.openPullRequest('curia-147', { summary: 'the acp findings' })
+    assert.ok(!/CHARTING agent/.test(reply), `still refused: ${reply}`)
+    assert.match(reply, /Next: request_review/)
+    assert.ok(calls.includes('pushBranch'), 'the branch was never pushed')
+    assert.ok(!events.some((e) => e.type === 'charting_tool_refused'))
+  })
+
+  test('a branch that touches anything outside docs/research is REFUSED, and nothing is pushed', async () => {
+    // The bound the writable worktree is narrowed to. A charting agent must not
+    // commit daemon code, and the push is the moment to say so.
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'fix the daemon' }],
+      changedFilesOnBranch: async () => ['docs/research/acp.md', 'daemon/src/dispatch.mjs'],
+    })
     await d.chart('147')
     calls.length = 0
     const reply = await d.openPullRequest('curia-147', { summary: 'x' })
     assert.match(reply, /CHARTING agent/)
-    assert.match(reply, /opens no pull request/)
+    assert.match(reply, /daemon\/src\/dispatch\.mjs/)
     assert.equal(calls.length, 0, 'the refusal still touched the remote')
-    assert.ok(events.some((e) => e.type === 'charting_tool_refused' && e.tool === 'open_pull_request'))
+    const ev = events.find((e) => e.type === 'charting_push_refused')
+    assert.deepEqual(ev.paths, ['daemon/src/dispatch.mjs'])
   })
 
-  test('request_review is refused, and no gate is opened', async () => {
-    let asked = 0
-    const d = makeDispatcher()
-    d.askReview = async () => { asked += 1; return { text: 'approve', status: 'answered' } }
+  test('a diff curia cannot read fails OPEN — the gate is still in front of the merge', async () => {
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'research: acp' }],
+      changedFilesOnBranch: async () => { throw new Error('git exploded') },
+    })
     await d.chart('147')
-    const r = await d.requestReview('curia-147', { summary: 'x', charting: 'y' })
-    assert.equal(r.ok, false)
-    assert.match(r.text, /no review gate/)
-    assert.equal(asked, 0, 'a review gate was opened for a map dispatch')
+    calls.length = 0
+    const reply = await d.openPullRequest('curia-147', { summary: 'x' })
+    assert.ok(!/CHARTING agent/.test(reply), 'an unreadable diff trapped the agent')
+    assert.ok(events.some((e) => e.type === 'charting_paths_unread'))
   })
 
-  test('an ordinary ticket agent reaches both as before', async () => {
-    const d = makeDispatcher({}, { issue: TICKET_ISSUE })
+  test('an ordinary ticket agent is never path-checked', async () => {
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
+      changedFilesOnBranch: async () => { throw new Error('must not be called') },
+    }, { issue: TICKET_ISSUE })
     await d.start('42')
     const reply = await d.openPullRequest('curia-42', { summary: 'x' })
     assert.ok(!/CHARTING/.test(reply))
+  })
+
+  test('request_review opens the gate, and it asks about the FINDINGS, not the map', async () => {
+    let asked = null
+    const d = makeDispatcher()
+    d.askReview = async (agent, ticket, text) => { asked = { agent, ticket, text }; return { text: 'approve', status: 'answered' } }
+    await d.chart('147')
+    const r = await d.requestReview('curia-147', { summary: 'two findings', charting: 'add ticket X' })
+    assert.equal(r.ok, true)
+    assert.equal(r.approved, true)
+    assert.match(asked.text, /Approve the research findings charted on o\/r#147\?/)
+    assert.match(asked.text, /Map: https:\/\/github\.com\/o\/r\/issues\/147/)
+    assert.ok(!/\*\*Is o\/r#147 done\?\*\*/.test(asked.text), 'the gate asked whether the MAP was done')
+    assert.ok(events.some((e) => e.type === 'review_requested' && e.kind === 'charting'))
+  })
+
+  test('the approval names the order: merge, then close the research tickets, then report', async () => {
+    // #48's failure, said at the moment it can still be avoided.
+    const d = makeDispatcher()
+    d.askReview = async () => ({ text: 'approve', status: 'answered' })
+    await d.chart('147')
+    const r = await d.requestReview('curia-147', { summary: 'x', charting: 'y' })
+    assert.match(r.text, /merge the pull request/)
+    assert.match(r.text, /then resolve each research ticket you burned down/)
+    assert.match(r.text, /Nothing closes before the merge, and the map itself never closes/)
   })
 })
 
@@ -1010,6 +1203,31 @@ describe('report_result on a new-map dispatch (#241)', () => {
     assert.ok(calls.includes('comment o/r#250'), `expected a comment on the map, got ${JSON.stringify(calls)}`)
     assert.ok(!calls.some((c) => String(c).startsWith('CLOSE')))
     assert.ok(!calls.some((c) => String(c).startsWith('unclaim')))
+  })
+
+  // #297: a new-map session burns down research tickets too, so it can carry
+  // findings. Its bound "ticket" is a chat handle that no issue answers to, so
+  // every issue link it produces has to be the map it adopted.
+  test('its pull request and its gate name the ADOPTED map, never the chat handle', async () => {
+    let asked = null
+    let prTitle = null
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...MADE }),
+      commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'research: acp' }],
+      changedFilesOnBranch: async () => ['docs/research/acp.md'],
+      createPullRequest: async (repo, opts) => { prTitle = opts.title; calls.push(opts.body); return 'https://github.com/o/r/pull/9' },
+    })
+    d.askReview = async (agent, ticket, text) => { asked = text; return { text: 'approve', status: 'answered' } }
+    await d.chartNew({ repo: 'o/r', instruction: 'chart it', by: 'u' })
+    await d.adoptMap('curia-chat-1', '250')
+    calls.length = 0
+    await d.openPullRequest('curia-chat-1', { summary: 'the findings' })
+    assert.match(prTitle, /o\/r#250/)
+    assert.ok(calls.some((c) => typeof c === 'string' && c.includes('Ticket: o/r#250')), 'the body named the handle')
+    assert.ok(calls.includes('comment o/r#250'), 'the link comment missed the map')
+    await d.requestReview('curia-chat-1', { summary: 's', charting: 'c' })
+    assert.match(asked, /Map: https:\/\/github\.com\/o\/r\/issues\/250/)
+    assert.ok(!/chat-1/.test(asked), 'the chat handle reached the gate text')
   })
 
   test('a session that created NO map says so instead of posting nowhere', async () => {

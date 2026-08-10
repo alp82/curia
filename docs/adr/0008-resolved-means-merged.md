@@ -35,7 +35,11 @@ What replaces the gate for the map itself is the operator, per [#149](https://gi
 - A research ticket the session did not burn down stays on the frontier and dispatches as its own agent. This covers one charted earlier, and one whose subagent failed.
 - The gate holds the map lock and an agent slot for its whole length. Charting is no longer a fast act, which the operator accepted as the price.
 
-The daemon refusals move with the rule: `open_pull_request` and `request_review` stop refusing a charting agent. **Not built yet.** The whole lifecycle change rides one build ticket, and until it merges the daemon still refuses both calls.
+The daemon refusals move with the rule: `open_pull_request` and `request_review` stop refusing a charting agent. Built by [#297](https://github.com/alp82/curia/issues/297). Three rules ride with them, because a writable charting worktree is new authority.
+
+- `docs/research/` is the only directory a charting session writes, and the daemon refuses a charting pull request whose branch touches any other file. A charting agent must not commit daemon code.
+- The gate a charting agent opens judges the FINDINGS, and its heading says so. Approval never says the map is done, and the map still never closes.
+- The third button rides that gate like any other. A charting session now reads the cross-check duty in its standing orders, and the same park holds it.
 
 **The verb and the claim ([#221](https://github.com/alp82/curia/issues/221)).** #160 put charting on `start`, which gave one word two meanings: `start <n>` worked a ticket and `start <map>` charted. The operator ruled the overload confusing after using it. `start` now has one meaning everywhere — work the thing — and on a map number it dispatches that map's next takeable ticket. Charting has its own verb.
 

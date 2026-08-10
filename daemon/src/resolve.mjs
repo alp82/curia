@@ -157,18 +157,32 @@ export function nonCleanComment({ agent, result, released }) {
 // The map is never closed and its `## Decisions so far` is never touched here.
 // That section indexes the route walked — one line per RESOLVED ticket — and a
 // charting session walks no step of it.
-export function chartingComment({ agent, model, instruction, result }) {
+// `landing` is what the session put on a branch (#297, ADR-0008). A charting
+// session that burned down research tickets carries findings, and the footer
+// says where they got to — merged, or sitting on a pull request nobody merged.
+// The daemon reads that from its own journal and from GitHub, so the sentence
+// is evidence rather than the agent's account of itself.
+export function chartingComment({ agent, model, instruction, result, landing = null }) {
   const clean = result.status === 'resolved'
+  const landed = landing?.landed
   return [
     `## ${clean ? 'Charting' : `Charting — **${result.status}**`} (curia session \`${agent}\`)`,
     '',
     ...(instruction ? ['The operator asked for:', '', `> ${instruction}`, ''] : ['Dispatched with no instruction.', '']),
     result.summary ?? '(no summary)',
     '',
+    ...(landed
+      ? [
+        landing.merged
+          ? `**The research findings are merged.** ${landing.url ? `Pull request: ${landing.url}. ` : ''}${landing.approved ? 'A human approved them at the review gate.' : '⚠️ NOBODY approved them at the review gate.'}`
+          : `⚠️ **The research findings are NOT in the default branch.** ${landing.url ? `Pull request (**${landing.state ?? '?'}**): ${landing.url}. ` : ''}Any research ticket closed on them is closed on an answer no branch carries — check them.`,
+        '',
+      ]
+      : []),
     '---',
     '',
     clean
-      ? `_A map dispatch: this session edited the map and its tickets. It opened no pull request and closed nothing. Model \`${model ?? '?'}\`._`
+      ? `_A map dispatch: this session edited the map and its tickets. It closed no ticket but the research ones it burned down itself, and it never closes the map. Model \`${model ?? '?'}\`._`
       : `_The charting agent stopped with status **${result.status}**. Whatever it had already written to the map STANDS — read the changes above before you dispatch another one. Model \`${model ?? '?'}\`._`,
   ].join('\n')
 }
@@ -261,12 +275,18 @@ export function prLinkComment({ branch, commits, url, state }) {
   ])
 }
 
-export function prBody({ repo, ticket, title, summary, commits, agent, model }) {
+// `onIssue` is the issue this pull request belongs to, which is the ticket for
+// every dispatch but a charting one (#297): a map dispatch's work belongs to
+// its map, and a new-map dispatch's bound "ticket" is a chat handle that no
+// issue answers to. It never changes what is journalled — the journal is keyed
+// by the bound ticket everywhere.
+export function prBody({ repo, ticket, onIssue = null, title, summary, commits, agent, model }) {
+  const n = onIssue ?? ticket
   return [
     // deliberately NOT a closing keyword: the agent closes the ticket itself
     // after the merge, and "Resolves #n" on top of that reads as if the merge
     // did it
-    `Ticket: ${repo}#${ticket} — [${title}](https://github.com/${repo}/issues/${ticket})`,
+    `Ticket: ${repo}#${n} — [${title}](https://github.com/${repo}/issues/${n})`,
     '',
     summary ?? '(no summary)',
     '',
@@ -295,7 +315,7 @@ export function prBody({ repo, ticket, title, summary, commits, agent, model }) 
 // repo whose dispatches are all sandboxed has private clones and no base clone
 // at all (#238). A worktree answers too, through its shared common dir.
 export async function landBranch({
-  repo, ticket, title, summary, agent, model, wtPath, branch, deps, journal,
+  repo, ticket, onIssue = null, title, summary, agent, model, wtPath, branch, deps, journal,
 }) {
   const defaultBranch = await deps.defaultBranchOf(wtPath)
   const commits = await deps.commitsOnBranch(wtPath, defaultBranch)
@@ -306,7 +326,7 @@ export async function landBranch({
   const sha = await deps.pushBranch(wtPath, repo, branch)
   journal('branch_pushed', { repo, ticket, agent, branch, sha, commits: commits.length })
 
-  const body = prBody({ repo, ticket, title, summary, commits, agent, model })
+  const body = prBody({ repo, ticket, onIssue, title, summary, commits, agent, model })
   const existing = await deps.findPullRequest(repo, branch)
   if (existing && existing.state === 'OPEN') {
     await deps.setPullRequestBody(repo, existing.number, body)
@@ -314,7 +334,7 @@ export async function landBranch({
     return { ok: true, state: 'updated', url: existing.url, number: existing.number, commits: commits.length, branch }
   }
   const url = await deps.createPullRequest(repo, {
-    head: branch, base: defaultBranch, title: `${title} (${repo}#${ticket})`, body,
+    head: branch, base: defaultBranch, title: `${title} (${repo}#${onIssue ?? ticket})`, body,
   })
   journal('pr_opened', { repo, ticket, agent, branch, url, commits: commits.length })
   return { ok: true, state: 'opened', url, commits: commits.length, branch }

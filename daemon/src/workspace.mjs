@@ -146,6 +146,29 @@ export async function commitsOnBranch(wtPath, defaultBranch) {
   })
 }
 
+// Which FILES the branch touches, against the same merge base (#297). The
+// charting bound is a path bound — `docs/research/` and nothing else — and this
+// is the observation it is checked against. Read from git rather than from the
+// agent, for the reason `commitsOnBranch` above is.
+export async function changedFilesOnBranch(wtPath, defaultBranch) {
+  const { stdout } = await git(wtPath, ['diff', '--name-only', `origin/${defaultBranch}...HEAD`])
+  return stdout.split('\n').map((l) => l.trim()).filter(Boolean)
+}
+
+// What the worktree holds that no commit does (#297): tracked edits and
+// untracked files alike, as paths. The Stop hook reads it for a charting
+// session, because a finding a subagent wrote and nobody committed dies with
+// the workspace — and "no commits" alone cannot tell that case from a session
+// that researched nothing.
+export async function uncommittedFiles(wtPath) {
+  const { stdout } = await git(wtPath, ['status', '--porcelain'])
+  return stdout.split('\n').filter((l) => l.trim()).map((l) => {
+    const p = l.slice(3).trim()
+    // a rename reads `old -> new`; the new name is the one on disk
+    return p.includes(' -> ') ? p.split(' -> ').pop().trim() : p
+  })
+}
+
 // KEPT by #195, which named this for deletion and then measured it. Both
 // callers are #54 repairs in resolve.mjs — `landBranch` when the agent never
 // called `open_pull_request`, and the unmerged-at-resolve push — and neither is
@@ -1062,6 +1085,38 @@ export function writeConnectionSettings({
   })
 }
 
+// The burn-down doctrine both charting dispatches carry (#297, ADR-0008).
+//
+// Version 1.2 of the wayfinder skill ends charting by firing a `/research`
+// subagent per research ticket it just created. The operator took that shape
+// whole, so a charting session now produces FILES as well as issues — and
+// several of the skill's details do not survive the move into one worktree,
+// which is what this block says. It rides the prompt rather than the skill file:
+// `skills/` is upstream's bytes, pinned in UPSTREAM.md, and an edit there would
+// hide curia's deviation in a tree whose whole point is that a bump shows up as
+// a diff.
+const researchParams = ({ repo, branch }) => [
+  '- **The research tickets you create, you burn down in THIS session.** One `/research` subagent per',
+  '  `wayfinder:research` ticket you just created, in parallel. This is the skill\'s "Fire the research',
+  '  subagents" step, with the changes below. A research ticket you did NOT create is not yours: leave it',
+  '  alone.',
+  `- **There is no \`research/<name>\` branch.** Every subagent works in this worktree, on \`${branch}\`. A`,
+  '  pull request on that branch already keeps unreviewed findings off the default branch, which is the',
+  '  whole job the skill bought those branches for.',
+  '- **A subagent writes files and NEVER runs git.** No commit, no branch, no push, no `gh`. You commit,',
+  '  once, yourself. N agents in one worktree race on one index.',
+  '- **One subagent writes one file**: `docs/research/<name>.md`, its own. YOU write every row of',
+  '  `docs/research/README.md`, after the findings land. One index edited by N writers is N conflicts.',
+  `- **Claim each research ticket before its subagent starts**: \`gh issue edit <n> --repo ${repo}`,
+  '  --add-assignee @me`. Release it with `--remove-assignee @me` if that subagent fails. Without the',
+  '  claim a concurrent `start` dispatches the same ticket to a second agent.',
+  '- **Read the findings TOGETHER before you open the pull request.** Each subagent read its own ticket',
+  '  alone and saw no other, so two of them can disagree. State any contradiction you found in the',
+  '  `request_review` summary, and let the operator decide what happens to it.',
+  '- **A research ticket you did not burn down stays on the frontier** — one charted in an earlier',
+  '  session, one whose subagent failed. Leave it open and unclaimed, and say so in your summary.',
+]
+
 // Prompt file lives in the config dir, not the worktree.
 //
 // It supplies PARAMETERS, NOT PROCEDURE (#49 decision 2). Since #57 every agent
@@ -1196,6 +1251,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     `  > ${instruction ?? '(nothing)'}`,
     '',
     '  This is the loose idea, not a specification. It is where the grilling starts.',
+    ...researchParams({ repo, branch }),
   ]
 
   const chartingParams = [
@@ -1219,6 +1275,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
         '- **No instruction rode this dispatch.** Do not guess what should change. Your FIRST act is one',
         '  `ask_human` call: what should change on this map? Then work from the answer.',
       ]),
+    ...researchParams({ repo, branch }),
   ]
 
   const params = newMap ? newMapParams : charting ? chartingParams : [
@@ -1257,19 +1314,30 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   const bounds = [
     '- **Read anything.** Zoom into any issue, map, sibling or closed ticket you need. Nothing here limits',
     '  reading.',
+    // #297: the charting worktree is writable now, and narrowed to one
+    // directory. Its research subagents write findings there, and a pull
+    // request on this branch is what holds them off the default branch until a
+    // human approves. Everything else on disk stays out of bounds, and curia
+    // refuses the push rather than trusting the sentence.
     ...(newMap
       ? [
-        `- **Write only:** the ONE \`wayfinder:map\` issue you create in ${repo}, and its child tickets.`,
-        '  Nothing else on the tracker — no existing issue is yours to edit, whatever you find while',
-        `  reading. And nothing on disk: ${wtPath} is a read-only checkout to you. A charting session`,
-        '  produces no code, no commit and no branch.',
+        `- **Write only:** the ONE \`wayfinder:map\` issue you create in ${repo}, and its child tickets;`,
+        `  the research findings under \`${wtPath}/docs/research/\`; and the one merge a human has just`,
+        '  approved. Nothing else on the tracker — no existing issue is yours to edit, whatever you find',
+        '  while reading.',
+        '- **No other file on disk.** `docs/research/` is the only directory a charting session writes.',
+        '  curia refuses a pull request that touches any other file, so a change you think the code needs',
+        '  is an `ask_human` call, never a commit.',
         "- Do not rewrite anyone else's text.",
       ]
       : charting
       ? [
-        `- **Write only:** the map ${repo}#${n} and its child tickets. Nothing else on the tracker, and`,
-        `  nothing on disk: ${wtPath} is a read-only checkout to you. A map dispatch produces no code, no`,
-        '  commit and no branch.',
+        `- **Write only:** the map ${repo}#${n} and its child tickets; the research findings under`,
+        `  \`${wtPath}/docs/research/\`; and the one merge a human has just approved. Nothing else on the`,
+        '  tracker.',
+        '- **No other file on disk.** `docs/research/` is the only directory a charting session writes.',
+        '  curia refuses a pull request that touches any other file, so a change you think the code needs',
+        '  is an `ask_human` call, never a commit.',
         "- Do not rewrite anyone else's text. A section you did not write is edited, not replaced.",
       ]
       : [
@@ -1380,9 +1448,17 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
       '  the thread is renamed to it, `map <n>` on it is refused while you run, and your final summary',
       '  lands there. Call it once, and never before the issue exists.',
     ] : []),
+    // #297: two tools a map dispatch used to be refused. It gets them when its
+    // research subagents wrote something — and only then. A session that
+    // produced no file has nothing to push and nothing to show.
+    '- `open_pull_request` — curia pushes your branch and opens or updates the pull request. You never',
+    '  push. Only for research findings you committed.',
+    '- `request_review` — the one gate, and it judges the FINDINGS. curia shows the human the pull',
+    '  request and the map, and blocks until they approve or reject. **You never write a link yourself.**',
+    '  A rejection comes back as their own words: fix, commit, `open_pull_request` again, ask again.',
     '- `report_result` — exactly once, at the very end. Its summary becomes curia\'s comment on the map.',
-    '- `open_pull_request`, `request_review` and `publish_preview` belong to a ticket dispatch. curia',
-    '  refuses the first two on a map dispatch, and there is nothing here to preview.',
+    '- `publish_preview` belongs to a ticket dispatch. A research note is read as a diff, so there is',
+    '  nothing here to preview.',
   ] : [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes.',
@@ -1407,7 +1483,10 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   // #165, ADR-0010: the gate's third button. The builder is told this at spawn
   // time and told it again in the tool result that hands it the verdict, because
   // the press can land days into a ticket and this prompt may be far behind.
-  const crossCheck = charting ? [] : [
+  // #297: a charting agent reads this too now. The gate it can open is the gate
+  // the third button sits on, so a session that skipped this section would meet
+  // a cross-check verdict with no word for what it is.
+  const crossCheck = [
     '',
     '## The cross-check (a third button on the gate)',
     '',
@@ -1415,8 +1494,9 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     'operator presses it to put a reviewer on the OTHER provider onto your diff. It answers nothing:',
     'nothing merges and nothing is rejected.',
     '',
-    'The press does not end your `request_review` call. You stay in it, idle, holding your claim and your',
-    'worktree, while the reviewer reads. The call then returns with the verdict, and this is your duty:',
+    'The press does not end your `request_review` call. You stay in it, idle. Your worktree, your session',
+    'and whatever you claimed stay with you while the reviewer reads. The call then returns with the',
+    'verdict, and this is your duty:',
     '',
     ...dutyLines(),
     '',
