@@ -218,6 +218,10 @@ The durable record of one question from an agent to a human. It survives daemon 
 **ask_human**:
 The blocking tool an agent calls to ask a question. Kinds: free-text, choice, approve-reject, preview-review. The call blocks until an answer arrives, hours included.
 
+**Round**:
+The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#285). It holds every question whose answer does not depend on another question still open. The agent numbers them and gives each a recommended answer, and the `recommended` flag puts a ✅ All as recommended button on the card. One question is a round of one. A question the operator leaves unanswered returns in the next round, and it is never taken as recommended.
+_Avoid_: batch.
+
 **Review gate**:
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records.
 

@@ -331,7 +331,7 @@ describe('the new-map prompt (#241)', () => {
 
   test('the HITL rule is stated — the destination is the operator\'s to settle', () => {
     const p = write()
-    assert.match(p, /many `ask_human` calls, one question at a time/)
+    assert.match(p, /many `ask_human` calls, one round at a time/)
     assert.match(p, /Never answer for them/)
   })
 })

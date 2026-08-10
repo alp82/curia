@@ -252,8 +252,8 @@ async function renderEscalation(record, files = []) {
 
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
-function openEscalation({ agent, ticket, kind, prompt, options, preview_url, files }) {
-  const { record, superseded } = store.open({ agent, ticket, kind, prompt, options, preview_url })
+function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files }) {
+  const { record, superseded } = store.open({ agent, ticket, kind, prompt, options, preview_url, recommended })
   log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
   if (superseded) {
     pending.delete(superseded.id) // the agent aborted that call; nobody is waiting on it
@@ -938,12 +938,17 @@ function buildMcpServer(agent, ticket) {
 
   server.tool(
     'ask_human',
-    'Escalate a question to the human and BLOCK until an answer arrives. kind: free-text | choice | approve-reject | preview-review.',
+    'Escalate a question to the human and BLOCK until an answer arrives. kind: free-text | choice | approve-reject | preview-review. A ROUND of questions is one free-text call: number them, give each your recommended answer, and set `recommended` so the card carries the ✅ All as recommended button.',
     {
       prompt: z.string(),
       kind: z.enum(['free-text', 'choice', 'approve-reject', 'preview-review']),
       options: z.array(z.string()).optional(),
       preview_url: z.string().optional(),
+      // #285, ADR-0005: the round's one-tap path. Set it only when EVERY
+      // question in the prompt carries a recommended answer — the button says
+      // "all", and it is a lie about any question that had no recommendation.
+      // free-text only: the other three kinds already answer with a button.
+      recommended: z.boolean().optional(),
       images: z.array(z.string()).optional(),
     },
     async ({ images, ...payload }, extra) => {
