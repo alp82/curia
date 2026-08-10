@@ -32,7 +32,8 @@ import {
   createPrivateClone, removeWorkspace,
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, worktreePathFor, cfgDirFor,
-  branchFor, defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork, agentEnv,
+  branchFor, defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles,
+  pushBranch, hasUnpushedWork, agentEnv,
   untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
 import { ensureAgentImage } from './image.mjs'
@@ -183,8 +184,17 @@ const DEFAULT_DEPS = {
   // resolve + land (#41), merge-gated (#54)
   commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
   setPullRequestBody, deleteRemoteBranch,
-  defaultBranchOf, commitsOnBranch, pushBranch, hasUnpushedWork,
+  defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles, pushBranch, hasUnpushedWork,
 }
+
+// The one directory a charting session may write (#297, ADR-0008). Its research
+// subagents put one note each under here, and the agent writes the index row
+// beside them — nothing else on disk is a charting output.
+//
+// It is a curia path, said once, in the daemon that watches curia. A watched
+// repo that keeps its research notes somewhere else needs this widened, and
+// the refusal it drives says so plainly enough for an operator to act on.
+export const CHARTING_WRITE_PREFIX = 'docs/research/'
 
 // How many trailing pane lines the two pane classifiers are allowed to see.
 const PANE_TAIL_LINES = 20
@@ -2204,6 +2214,24 @@ export class Dispatcher {
     return { w, ticket, repo, wtPath, branch: branchFor(ticket) }
   }
 
+  // The files a charting branch carries that a charting session is not allowed
+  // to write (#297). Empty means the branch is clean by this bound.
+  //
+  // Fails OPEN: a diff curia could not read drops the check rather than trapping
+  // an agent whose findings would then have no way to land at all. The human
+  // gate still stands in front of the merge, and the failure is journalled — so
+  // the worst case here is one unenforced bound, loudly, not a lost session.
+  async #strayChartingPaths(wtPath) {
+    try {
+      const files = await this.deps.changedFilesOnBranch(wtPath, await this.deps.defaultBranchOf(wtPath))
+      return files.filter((f) => !f.startsWith(CHARTING_WRITE_PREFIX))
+    } catch (e) {
+      this.store.logEvent('charting_paths_unread', { wtPath, error: e.message })
+      this.log(`charting path check on ${wtPath} failed (${e.message}) — not refusing the push`)
+      return []
+    }
+  }
+
   // `open_pull_request` (#54 item 1). Landing left report_result because the
   // pull request is now what a human reviews BEFORE anything is resolved — so it
   // has to be openable in the middle of a ticket, and re-openable after every
@@ -2219,15 +2247,39 @@ export class Dispatcher {
     const b = this.#bindingFor(agentName)
     if (b.error) return `❌ ${b.error} — nothing was pushed`
     const { w, ticket, repo, wtPath, branch } = b
-    // #160: a map dispatch produces tracker writes, not code. Refused rather
-    // than left to the prompt, because this call PUSHES — and a charting agent
-    // that has misread its own kind must not be one tool call away from putting
-    // a branch on the remote.
-    if (this.#epochCharting(ticket, agentName).charting) {
-      this.store.logEvent('charting_tool_refused', { repo, ticket, agent: agentName, tool: 'open_pull_request' })
-      return `❌ \`${agentName}\` is a CHARTING agent on map ${repo}#${ticket}. A map dispatch opens no pull request: your work is the map itself, and it is already written. Update the map, then call report_result.`
-    }
     if (!fs.existsSync(wtPath)) return `❌ the worktree ${wtPath} is gone — nothing was pushed`
+    // #297, ADR-0008: a charting agent may push now — its research subagents
+    // write files, and a pull request on `curia/<map>` is what keeps those
+    // findings off main until a human approves them. What it may NOT push is
+    // anything else. The bound is enforced HERE rather than left to the prompt,
+    // for the reason the refusal it replaces was: this call pushes, and a
+    // charting agent that has misread its own bounds must not be one tool call
+    // away from putting daemon code on the remote.
+    const mapDispatch = this.#epochCharting(ticket, agentName).charting
+    // Which issue this pull request BELONGS to, for its body and its link
+    // comment. On a map dispatch that is the map — and on a new-map dispatch the
+    // bound ticket is a chat handle, which is no issue at all, so a body built
+    // from it would carry a link that 404s. The JOURNAL keeps the bound ticket
+    // either way: every epoch reader is keyed by it.
+    const onIssue = mapDispatch ? (this.#chartedMap(agentName, ticket, w) ?? ticket) : ticket
+    if (mapDispatch) {
+      const stray = await this.#strayChartingPaths(wtPath)
+      if (stray.length) {
+        this.store.logEvent('charting_push_refused', {
+          repo, ticket, agent: agentName, tool: 'open_pull_request', paths: stray,
+        })
+        return [
+          `❌ \`${agentName}\` is a CHARTING agent on map ${repo}#${onIssue}, and a charting session commits`,
+          `research findings and nothing else. \`${branch}\` touches ${stray.length} file(s) outside`,
+          `\`${CHARTING_WRITE_PREFIX}\`:`,
+          ...stray.slice(0, 10).map((p) => `- ${p}`),
+          ...(stray.length > 10 ? [`- …and ${stray.length - 10} more`] : []),
+          '',
+          'Nothing was pushed. Take those files back out of the branch and call this again. If the map you',
+          'were sent to chart really needs one of them changed, that is an `ask_human` call, not a commit.',
+        ].join('\n')
+      }
+    }
 
     let title = w?.title
     if (!title) {
@@ -2236,7 +2288,7 @@ export class Dispatcher {
     let out
     try {
       out = await landBranch({
-        repo, ticket, title, summary, agent: agentName, model: w?.model ?? null,
+        repo, ticket, onIssue, title, summary, agent: agentName, model: w?.model ?? null,
         wtPath, branch, deps: this.deps,
         journal: (type, data) => this.store.logEvent(type, data),
       })
@@ -2249,9 +2301,9 @@ export class Dispatcher {
       return `❌ nothing to open a pull request from — \`${branch}\` carries no commits. Commit your work first.`
     }
     if (w) w.prUrl = out.url
-    await this.deps.commentIssue(repo, ticket, prLinkComment({
+    await this.deps.commentIssue(repo, onIssue, prLinkComment({
       branch, commits: out.commits, url: out.url, state: out.state,
-    })).catch((e) => this.log(`pull-request comment on ${repo}#${ticket} failed: ${e.message}`))
+    })).catch((e) => this.log(`pull-request comment on ${repo}#${onIssue} failed: ${e.message}`))
     this.notify(ticket, `🔗 \`${agentName}\` ${out.state === 'updated' ? 'updated' : 'opened'} <${out.url}> (${out.commits} commit${out.commits === 1 ? '' : 's'} on \`${branch}\`)`)
     return `${out.state === 'updated' ? 'updated' : 'opened'} ${out.url} — ${out.commits} commit${out.commits === 1 ? '' : 's'} pushed on \`${branch}\`. Next: request_review.`
   }
@@ -2271,17 +2323,12 @@ export class Dispatcher {
     const b = this.#bindingFor(agentName)
     if (b.error) return { ok: false, text: `❌ ${b.error} — no review was requested` }
     const { w, ticket, repo, branch } = b
-    // #160/#149: no review gate on a map dispatch. The gate exists to put a
-    // human in front of a DIFF before it merges; a charting agent has no diff,
-    // and the operator who dispatched it is the check. Opening one here would
-    // block the agent on a question with nothing to look at.
-    if (this.#epochCharting(ticket, agentName).charting) {
-      this.store.logEvent('charting_tool_refused', { repo, ticket, agent: agentName, tool: 'request_review' })
-      return {
-        ok: false,
-        text: `❌ \`${agentName}\` is a CHARTING agent on map ${repo}#${ticket}, and a map dispatch has no review gate — there is no pull request to show and nothing to merge. The operator who dispatched you is the check. Finish the map edits and call report_result; ask_human is how you reach them with a question.`,
-      }
-    }
+    // #297, ADR-0008: the gate is open to a charting agent now. #160 refused it
+    // because a charting agent had no diff — that stopped being true when #286
+    // gave the session research subagents that write files. The map edits are
+    // still ungated (nothing stages them, and #149 put the operator there
+    // instead); what this gate judges is the FINDINGS, and the heading says so.
+    const mapDispatch = this.#epochCharting(ticket, agentName).charting
 
     // #237: the gate must not open blind to a cross-check. A live reviewer on
     // this ticket means a verdict is coming, and the builder asking for a gate
@@ -2320,7 +2367,19 @@ export class Dispatcher {
     }
 
     const title = w?.title ?? `#${ticket}`
-    const links = [`Ticket: https://github.com/${repo}/issues/${ticket}`]
+    // #297: on a map dispatch the issue to look at is the MAP. For `map <n>`
+    // that is the bound ticket itself; for a new-map dispatch the bound ticket
+    // is a chat handle, which is no issue at all — so the link comes from what
+    // the session adopted, and a session that adopted nothing gets a line
+    // saying so rather than a URL that 404s.
+    const map = mapDispatch ? this.#chartedMap(agentName, ticket, w) : null
+    const links = [
+      mapDispatch
+        ? (map
+          ? `Map: https://github.com/${repo}/issues/${map}`
+          : '_This session has created no map yet — read the thread._')
+        : `Ticket: https://github.com/${repo}/issues/${ticket}`,
+    ]
     let pr = null
     try {
       pr = await this.deps.findPullRequest(repo, branch)
@@ -2333,10 +2392,10 @@ export class Dispatcher {
     const preview = this.previews?.get(ticket)
     if (preview?.url) links.push(`Preview: ${preview.url}`)
 
-    const { text } = reviewGateText({ repo, ticket, title, summary, charting, links })
+    const { text } = reviewGateText({ repo, ticket: map ?? ticket, title, summary, charting, links, mapDispatch })
     this.store.logEvent('review_requested', {
       repo, ticket, agent: agentName, pr: pr?.url ?? w?.prUrl ?? null,
-      preview: preview?.url ?? null,
+      preview: preview?.url ?? null, ...(mapDispatch ? { kind: 'charting' } : {}),
     })
     if (w) w.state = 'awaiting-review'
     const { text: answer, status } = await this.askReview(agentName, ticket, text)
@@ -2357,10 +2416,20 @@ export class Dispatcher {
     // the diff and hold the builder here until that model has read it.
     if (crossCheck) return await this.#runCrossCheck(agentName, { repo, ticket, w })
     if (approved) {
+      // #297: the ORDER is the answer to #48, and this is where it is said at
+      // the moment it matters. A charting agent closes research tickets, never
+      // the map — and it closes them after the merge, never before, because a
+      // ticket closed on unmerged findings is exactly the map that lies.
       return {
         ok: true,
         approved: true,
-        text: `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.`,
+        text: mapDispatch
+          ? [
+            `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`),`,
+            'then resolve each research ticket you burned down — comment, close, map line — then report_result.',
+            'Nothing closes before the merge, and the map itself never closes.',
+          ].join('\n')
+          : `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.`,
       }
     }
     return {
@@ -2554,7 +2623,11 @@ export class Dispatcher {
     if (this.#isReviewer(agentName)) return null
     const ticket = String(this.agents.get(agentName)?.ticket ?? String(agentName).match(SESSION_RE)?.[1] ?? '')
     if (!ticket) return null
-    if (this.#epochCharting(ticket, agentName).charting) return null
+    // #297 dropped the charting exemption that stood here. It was sound while a
+    // charting agent could not reach the gate — no gate, no press, no verdict.
+    // Now it can, so a charting session whose park a restart severed must be
+    // held by the same rule as any other. A session with no cross-check falls
+    // straight through the next line, which is every charting session there was.
     if (!this.#crossCheckInFlight(ticket)) return null
 
     const w = this.agents.get(agentName)
@@ -2596,7 +2669,8 @@ export class Dispatcher {
     if (this.#isReviewer(agentName)) return null
     const ticket = String(this.agents.get(agentName)?.ticket ?? String(agentName).match(SESSION_RE)?.[1] ?? '')
     if (!ticket) return null
-    if (this.#epochCharting(ticket, agentName).charting) return null
+    // #297: the charting exemption goes here too, and for the same reason —
+    // a gate a charting agent can open is a cross-check it can earn.
     if (this.#crossCheckInFlight(ticket)) {
       this.store.logEvent('result_refused', { ticket, agent: agentName, reason: 'cross-check in flight' })
       return [
@@ -2803,11 +2877,11 @@ export class Dispatcher {
       newMap: this.#epochCharting(ticket, agentName).newMap,
       mapAdopted: Boolean(this.#chartedMap(agentName, ticket, w)),
     }
-    // A charting agent has one daemon-visible step, and it is not in git or on
-    // GitHub — so the reads below are skipped whole. The Stop hook fires at the
-    // end of every turn, and a `git log` against a checkout that will never
-    // carry a commit is pure cost.
-    if (state.charting) return state
+    // #297 removed the charting shortcut that used to return here. A charting
+    // checkout CAN carry commits now — its research subagents write findings —
+    // so the same reads decide the same steps for both endings, and `hasCommits`
+    // is what forks them. The cost is one `git log` per turn on a session that
+    // wrote nothing, against the failure it buys: findings pushed by nobody.
     // #237: the two cross-check states the ending must name, so the Stop hook
     // holds a builder that stops instead of judging. A PARKED builder never
     // reaches this read (#humanBlockEvidence answers first); the builder that
@@ -2819,6 +2893,20 @@ export class Dispatcher {
       state.hasCommits = commits.length > 0
     } catch (e) {
       this.log(`stop hook ${agentName}: could not read commits on ${branch} (${e.message}) — not asking for a pull request`)
+    }
+    // #297: the one charting-only read. A charting session is the only agent
+    // whose ENDING branches on whether it wrote anything at all, and "no
+    // commits" cannot tell a session that researched nothing from one that
+    // wrote findings and never committed them. The second dies with the
+    // workspace, silently, which is the whole failure this ending exists to
+    // stop — so the Stop hook asks git what is sitting there.
+    if (state.charting) {
+      try {
+        const dirty = await this.deps.uncommittedFiles(wtPath)
+        state.uncommittedFindings = dirty.some((f) => f.startsWith(CHARTING_WRITE_PREFIX))
+      } catch (e) {
+        this.log(`stop hook ${agentName}: could not read the worktree status (${e.message}) — not asking for a commit`)
+      }
     }
     if (state.reviewApproved && state.prOpened) {
       try {
@@ -3070,15 +3158,20 @@ export class Dispatcher {
     return text
   }
 
-  // The map dispatch's whole ending (#160, narrowed by #221). Two acts now:
+  // The map dispatch's whole ending (#160, narrowed by #221, widened by #297):
   //
   //   1. COMMENT — curia posts the agent's summary on the map, so the change
   //      has a dated record beside the body it changed. The ticket path only
   //      comments as a repair; here it is the point.
-  //   2. Nothing else. No unclaim (#221 took the claim away, so there is
-  //      nothing to release), no close, no Decisions-so-far line, no branch,
-  //      no merge check. A map is the standing artifact, and closing it would
-  //      take the whole effort off every frontier.
+  //   2. SAY WHAT LANDED — since #297 a charting session can carry findings on
+  //      a branch, so the comment states whether they reached the default
+  //      branch. A session that pushed and never got them merged is named as
+  //      such, in the same voice `resolved_unreviewed` uses on the ticket path:
+  //      the daemon cannot undo it, and it refuses to hide it.
+  //   3. Nothing else. No unclaim (#221 took the claim away, so there is
+  //      nothing to release), no close, and no Decisions-so-far line. The
+  //      research tickets are the AGENT's to resolve — it created them, it read
+  //      the findings, and curia has no expected value for either.
   //
   // The map edits themselves are NOT verified or repaired here, and cannot be:
   // curia has no expected value for a charting session, which is the same reason
@@ -3100,11 +3193,15 @@ export class Dispatcher {
     // one has nowhere to post, and that is said out loud rather than failing
     // quietly against an issue called `chat-1`.
     const map = this.#chartedMap(agentName, ticket, w)
+    const landing = await this.#chartingLanding(agentName, repo, ticket)
+    if (landing.unreviewed) {
+      this.store.logEvent('charting_unreviewed', { repo, map: map ?? null, ticket, agent: agentName })
+    }
     let noted = false
     if (map) {
       try {
         await this.deps.commentIssue(repo, map, chartingComment({
-          agent: agentName, model: w?.model ?? null, instruction, result,
+          agent: agentName, model: w?.model ?? null, instruction, result, landing,
         }))
         noted = true
       } catch (e) {
@@ -3119,13 +3216,52 @@ export class Dispatcher {
       // #221: nothing to unassign — the dispatch never claimed the map.
       'the map was never claimed',
       map ? 'the map stays open' : 'nothing on the tracker was touched by curia',
+      landing.line,
     ]
     const what = map ? `${repo}#${map}` : `the new map in ${repo}`
     this.store.logEvent('charting_finished', {
       repo, map: map ?? null, ticket, agent: agentName, status: result.status, commented: noted,
+      pr: landing.url ?? null, pr_state: landing.state ?? null,
       summary: `${clean ? '🗺️' : '↩️'} ${what} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`,
     })
-    return `charting recorded — ${bits.join('; ')}. Nothing was closed, resolved or pushed.`
+    return `charting recorded — ${bits.join('; ')}. Nothing was closed by curia, and the map stays open.`
+  }
+
+  // What this charting session put on a branch, and how far it got (#297).
+  //
+  // Read from curia's OWN records, never from the agent's account: the journal
+  // says whether a pull request was opened under this dispatch and whether a
+  // human approved at the gate, and GitHub says whether the branch merged. The
+  // three answers are what makes the map comment evidence.
+  //
+  // A session that pushed nothing is the common case and answers in one line
+  // with no network call at all.
+  async #chartingLanding(agentName, repo, ticket) {
+    const { prOpened, reviewApproved } = this.#epochScan(ticket, agentName)
+    if (!prOpened) return { landed: false, unreviewed: false, line: 'nothing was pushed' }
+    let pr = null
+    try {
+      pr = await this.deps.findPullRequest(repo, branchFor(ticket))
+    } catch (e) {
+      this.log(`charting landing for ${repo}#${ticket}: pull-request read failed (${e.message})`)
+    }
+    const state = pr?.state ?? null
+    const merged = state === 'MERGED'
+    return {
+      landed: true,
+      merged,
+      approved: reviewApproved,
+      // The #48 shape, said out loud: findings a human never approved, or
+      // approved and never merged, resolve no research ticket.
+      unreviewed: !reviewApproved || !merged,
+      url: pr?.url ?? null,
+      state,
+      line: merged
+        ? (reviewApproved
+          ? 'the research findings are merged'
+          : '⚠️ the research findings were MERGED WITHOUT an approved review gate')
+        : `⚠️ the research findings are on a pull request that is ${state ? `**${state}**` : 'in an unknown state'} — NOT in the default branch`,
+    }
   }
 
   // ---- adoption: the daemon learns the new map's number (#241) -----------------

@@ -645,10 +645,15 @@ describe('the builder\'s duty, in its standing orders (#165)', () => {
     assert.match(p, /`gh` commands in your own shell/, 'the two acts curia holds no wire on')
   })
 
-  test('a charting agent is told none of it — it has no gate to press a button on', () => {
+  test('a charting agent is told all of it too — #297 gave it a gate to press a button on', () => {
+    // It used to be told none of this, because a map dispatch could open no
+    // gate. #286 gave the session research findings, ADR-0008 gave those
+    // findings the ordinary ending, and the third button sits on that gate — so
+    // a charting agent that met a verdict with no word for one would be the
+    // #223 shape again.
     const p = write({ mapNumber: 1, charting: true })
-    assert.ok(!p.includes('The cross-check (a third button on the gate)'))
-    assert.ok(!p.includes(CROSS_CHECK_DUTY[0][0]))
+    assert.match(p, /## The cross-check \(a third button on the gate\)/)
+    for (const line of dutyLines()) assert.ok(p.includes(line), `missing duty line: ${line}`)
   })
 
   test('one copy: the prompt and the tool result render the same list', () => {

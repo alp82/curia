@@ -99,35 +99,105 @@ export const ENDING = [
   },
 ]
 
-// ---- the charting ending (#160) ----------------------------------------------
+// ---- the charting ending (#160, grown by #297 out of #286 and ADR-0008) ------
 //
-// A map dispatch has a different ending, because it produces a different thing.
-// A ticket agent's output is CODE, so the ending is the merge gate: pull
-// request → review → merge → resolve. A charting agent's output is the MAP
-// ITSELF — issue bodies and child issues on the tracker — which is inside an
-// agent's ordinary write bounds and cannot be staged in a branch at all. There
-// is nothing to push, so there is nothing for a review gate to show, and #149
-// settled the trade: no gate, an operator in the loop, and the strongest model.
+// A map dispatch produces a different thing from a ticket one. Its first output
+// is the MAP ITSELF — issue bodies and child issues on the tracker — which is
+// inside an agent's ordinary write bounds and cannot be staged in a branch at
+// all. There is nothing to push and nothing for a review gate to show, and #149
+// settled that trade: no gate, an operator in the loop, and the strongest model.
 //
-// So four steps of ENDING are not merely skipped here — they are refused
-// (dispatch.mjs turns `open_pull_request` and `request_review` down for a
-// charting agent). What is left is the map edit, and the one call that ends
-// every dispatch.
+// #286 gave the same session a SECOND output. Version 1.2 of the wayfinder
+// skill ends charting by firing a `/research` subagent per research ticket it
+// just created, and those subagents write files. The old reasoning — no branch
+// to stage it in, nothing for a pull request to carry — is false whenever they
+// do. So the ending forks on one fact: did this session produce any file?
+//
+//   no files   edit the map, then `report_result` — the two steps #160 shipped.
+//   files      commit → open_pull_request → request_review → merge → close the
+//              research tickets → `report_result`. ADR-0008 in full: resolved
+//              means merged for a research ticket exactly as for any other, and
+//              the close comes AFTER the merge, which is the #48 failure.
+//
+// The fork lives in the `todo`s, never in the list. Every step below is prose
+// the agent reads, and `hasCommits` decides which of them the Stop hook holds it
+// to — so a session that wrote nothing is still held to `report_result` alone.
 //
 // The summary comment is deliberately NOT a step. The daemon posts it from the
 // `report_result` summary (see chartingComment in resolve.mjs), for the same
 // reason the review gate composes its own links: a record curia writes from its
 // own knowledge of what happened is evidence, and one the agent writes about
-// itself is an account. It also keeps the Stop-hook checklist off a `gh` read
-// at the end of every turn.
+// itself is an account.
+
+// The five landing steps a charting session owes ONLY when it produced files
+// (#297). Shared by both charting endings, because a new-map session fires the
+// same research subagents the moment it creates the tickets.
+const CHARTING_LANDING = [
+  {
+    key: 'commit',
+    prose: ({ branch }) => [
+      `If your research subagents wrote findings, commit them locally on \`${branch}\` — the notes under`,
+      '`docs/research/` and the index rows you wrote for them, and no other file. Never `git push`: curia',
+      'pushes for you. A session that wrote no file skips this step and the four below it.',
+    ],
+    // The one step of this ending the daemon CAN see without a commit: a
+    // finding sitting uncommitted in the worktree dies with the workspace, and
+    // "no commits" alone reads exactly like a session that researched nothing.
+    todo: (s) => (s.uncommittedFindings
+      ? 'commit the research findings sitting uncommitted under `docs/research/` — a file no commit holds dies with this workspace. Delete the ones that should not land'
+      : null),
+  },
+  {
+    key: 'pr',
+    prose: () => [
+      'If you committed anything, call `open_pull_request`. curia pushes the branch and opens the pull',
+      'request. Call it again after later commits — it updates the same pull request.',
+    ],
+    todo: (s) => (s.hasCommits && !s.prOpened
+      ? 'call `open_pull_request` — your branch holds commits that are in no pull request yet'
+      : null),
+  },
+  {
+    key: 'review',
+    prose: () => [
+      'Call `request_review`: what you charted, what the research found, and any contradiction between two',
+      'findings. It blocks until a human answers. A rejection comes back as their own words — fix, commit,',
+      'call `open_pull_request` again, then `request_review` again. The loop has no limit.',
+    ],
+    todo: (s) => (s.hasCommits && !s.reviewApproved
+      ? 'call `request_review` and get an approval — findings nobody approved resolve no research ticket'
+      : null),
+  },
+  {
+    key: 'merge',
+    prose: ({ repo }) => [
+      `Only after the approval: merge it — \`gh pr merge <url> --repo ${repo} --squash --delete-branch\`.`,
+      'This is the one write to the remote you own, and it is limited to what the human just approved.',
+    ],
+    todo: (s) => (s.hasCommits && s.reviewApproved && s.prOpened && s.prState === 'OPEN'
+      ? 'merge the approved pull request — a research ticket is not resolved until its findings are in the default branch'
+      : null),
+  },
+  {
+    key: 'close',
+    prose: () => [
+      'Only after the merge: resolve each research ticket you burned down — its resolution comment, its',
+      'close, then its line in the map\'s Decisions so far. Never close one before the merge: a ticket',
+      'closed on unmerged findings makes the map state an answer no branch carries (#48).',
+    ],
+  },
+]
+
 export const CHARTING_ENDING = [
   {
     key: 'chart',
     prose: ({ repo, ticket }) => [
       `Update the map: edit ${repo}#${ticket}'s body, and create, edit or close its child tickets.`,
-      'Those tracker writes ARE the work. Nothing here is staged, reviewed or merged.',
+      'Those tracker writes ARE the work, and nothing stages them. Burn down the research tickets you',
+      'create in the same session, one `/research` subagent each.',
     ],
   },
+  ...CHARTING_LANDING,
   {
     key: 'report',
     prose: () => [
@@ -168,6 +238,9 @@ export const NEW_MAP_ENDING = [
     ],
     todo: (s) => (s.mapAdopted ? null : 'create the `wayfinder:map` issue, then call `map_created` with its number'),
   },
+  // #297: a new-map session creates research tickets too, so it owes the same
+  // landing when its subagents wrote files.
+  ...CHARTING_LANDING,
   {
     key: 'report',
     prose: () => [
@@ -181,15 +254,24 @@ export const NEW_MAP_ENDING = [
 // What a charting agent must NOT do — one bullet per entry, its own lines.
 // Prose only: the refusals themselves live in dispatch.mjs, and this is the
 // copy the model reads.
+//
+// #297 inverted the second bullet. The gate is now this session's, for the
+// findings its subagents wrote — and what has to be said instead is the two
+// bounds that gate does not carry: whose tickets these are, and when they may
+// close.
 export const CHARTING_NEVER = [
   ['Never close the map. It is the standing artifact, not a ticket you resolve.'],
   [
-    'Never call `open_pull_request` or `request_review`, and never merge anything. curia refuses both',
-    'calls on a map dispatch. There is no review gate here: the operator who dispatched you is the check.',
+    'Resolve NOTHING you did not create. The research tickets you burned down in this session are yours',
+    'to close. Every other child of this map belongs to its own dispatch, whatever you learned about it.',
   ],
   [
-    'The resolve protocol — resolution comment, close, Decisions-so-far line — belongs to a TICKET',
-    "agent. Do not run it, and do not resolve any of the map's children yourself.",
+    'Never close a research ticket before the merge. Its findings are an answer only once they are in',
+    'the default branch, and a close ahead of that makes the map lie (#48).',
+  ],
+  [
+    'Commit nothing but the findings. `docs/research/` is the only directory a charting session writes,',
+    'and curia refuses a pull request that touches any other file.',
   ],
 ]
 
@@ -299,9 +381,16 @@ export function stopReason(items, { attempt, budget }) {
 // charting it proposes. #49: that proposal must be CONCRETE in the thread text
 // — ticket titles, the lines to be removed — or approval from a phone degrades
 // to a rubber stamp and the agent holds full map authority with no gate at all.
-export function reviewGateText({ repo, ticket, title, summary, charting, links }) {
+//
+// #297: a charting session reaches this gate too, and the question it asks is
+// NOT the map's. Approving research findings never says the map is done, so the
+// heading says what is being approved — the map stays open either way, and a
+// heading that implied otherwise would be the one thing #160 forbids.
+export function reviewGateText({ repo, ticket, title, summary, charting, links, mapDispatch = false }) {
   const parts = [
-    `**Is ${repo}#${ticket} done?** — ${title}`,
+    mapDispatch
+      ? `**Approve the research findings charted on ${repo}#${ticket}?** — ${title}`
+      : `**Is ${repo}#${ticket} done?** — ${title}`,
     '',
     '**What the agent did**',
     summary.trim() || '(nothing said)',
