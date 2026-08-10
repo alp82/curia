@@ -275,6 +275,14 @@ describe('agent-note queue', () => {
       assert.deepEqual(noteDisposition({ state: 'failed', instance: 'curia-166@1' }), { reads: false, instance: null })
     })
 
+    // #299: the console can name an agent curia is not running, and the queue
+    // reads that as the same fact as a failed one. The rule sits here, so the
+    // door does not carry a second existence check of its own.
+    test('an agent curia is not running queues nothing either — no record is the same answer as failed', () => {
+      assert.deepEqual(noteDisposition(undefined), { reads: false, instance: null })
+      assert.deepEqual(noteDisposition(null), { reads: false, instance: null })
+    })
+
     test('a running agent queues, stamped with the instance the words were typed at', () => {
       assert.deepEqual(noteDisposition({ state: 'ready', instance: 'curia-166@1' }), { reads: true, instance: 'curia-166@1' })
       assert.deepEqual(noteDisposition({ state: 'spawning', instance: 'curia-166@2' }), { reads: true, instance: 'curia-166@2' })

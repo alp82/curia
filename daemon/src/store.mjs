@@ -96,9 +96,16 @@ export function normalizeEvent(ev) {
 //
 // `reads` keeps its one meaning (#170): the agent is running. A `failed`
 // record is the early exit (#169), the ready timeout, the result-less exit.
+//
+// #299: NO record is the same fact. Every caller before the console resolved
+// the agent through its thread, so the name always answered to a live record;
+// the console's `POST /note` (#266) is handed a name out of a browser, and it
+// can name an agent curia is not running. That is not a second rule, so it is
+// not a second check at that one door: for the queue, "curia is not running
+// that agent" and "that agent has failed" are the same answer.
 export function noteDisposition(agent) {
-  const reads = agent?.state !== 'failed'
-  return { reads, instance: reads ? agent?.instance ?? null : null }
+  const reads = Boolean(agent) && agent.state !== 'failed'
+  return { reads, instance: reads ? agent.instance ?? null : null }
 }
 
 // The events lastAgentEvent must not count (#236) — see _apply.
