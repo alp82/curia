@@ -2483,6 +2483,51 @@ describe('open_pull_request (#54 item 1)', () => {
     assert.match(reply, /commits are safe in the worktree/)
     assert.ok(typesOf().includes('land_failed'))
   })
+
+  // #256, the #81 case: the agent retried three times, and each retry pasted the
+  // same two lines of git stderr into the thread. The thread hears the failure
+  // once, in prose. The raw error is not lost — it is journalled every time, and
+  // the reply hands it whole to the agent that has to act on it.
+  test('a retried failure posts one prose line, and the raw error stays in the journal (#256)', async () => {
+    const raw = "Command failed: git -C /home/alp/work/wt/42 push https://github.com/o/r.git abc:refs/heads/curia/42\n"
+      + "fatal: cannot change to '/home/alp/work/wt/42': No such file or directory"
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      pushBranch: async () => { throw new Error(raw) },
+    })
+    liveAgent(d)
+
+    const replies = []
+    for (let i = 0; i < 3; i++) replies.push(await d.openPullRequest('curia-42', { summary: 's' }))
+
+    const failures = notifies.filter((n) => /opening the pull request FAILED/.test(n.message))
+    assert.equal(failures.length, 1, 'the thread heard the same failure more than once')
+    assert.match(failures[0].message, /opening the pull request FAILED — the checkout on the box is gone$/)
+    assert.ok(!/fatal:|\/home\/alp/.test(failures[0].message), 'stderr reached the thread')
+
+    const journalled = events.filter((e) => e.type === 'land_failed')
+    assert.equal(journalled.length, 3, 'every occurrence is in the record')
+    for (const e of journalled) assert.equal(e.error, raw)
+    for (const r of replies) assert.match(r, /fatal: cannot change to/, 'the agent needs the raw error to fix it')
+  })
+
+  test('a second, different failure on the same act still speaks (#256)', async () => {
+    let boom = 'fatal: Authentication failed'
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      pushBranch: async () => { throw new Error(boom) },
+    })
+    liveAgent(d)
+
+    await d.openPullRequest('curia-42', { summary: 's' })
+    boom = 'fatal: Could not resolve host: github.com'
+    await d.openPullRequest('curia-42', { summary: 's' })
+
+    const said = notifies.filter((n) => /opening the pull request FAILED/.test(n.message)).map((n) => n.message)
+    assert.equal(said.length, 2)
+    assert.match(said[0], /GitHub refused the daemon login/)
+    assert.match(said[1], /the box could not reach GitHub/)
+  })
 })
 
 describe('request_review: the one gate (#54 item 2)', () => {
