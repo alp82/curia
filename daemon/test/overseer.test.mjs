@@ -8,6 +8,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { EscalationStore } from '../src/store.mjs'
 import { parseCommand } from '../src/commands.mjs'
 import {
@@ -19,12 +21,43 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-test-'))
 // ---- scripted stand-in for the SDK's query() --------------------------------
 
 const init = (id) => ({ type: 'system', subtype: 'init', session_id: id })
-const toolUse = (name, input = {}) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name, input }] } })
+const toolUse = (name, input = {}, id = 'tu-x') => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name, input }] } })
 const success = (text) => ({ type: 'result', subtype: 'success', result: text, num_turns: 2, total_cost_usd: 0.01 })
 const failure = (subtype) => ({ type: 'result', subtype })
 
-// Each call to the fake consumes the next script (an array of messages, or an
-// Error to throw mid-stream) and records {prompt, options}.
+// One MCP client per turn server, over the in-memory transport. This is what
+// makes #275 testable: the arguments meet the REAL schema, so a refusal in a
+// test is the same refusal the live SDK produces, not a stub of one.
+const clients = new WeakMap()
+async function mcpCall(server, name, args) {
+  let client = clients.get(server)
+  if (!client) {
+    const [ours, theirs] = InMemoryTransport.createLinkedPair()
+    client = new Client({ name: 'overseer-test', version: '1' })
+    await Promise.all([server.instance.connect(theirs), client.connect(ours)])
+    clients.set(server, client)
+  }
+  return client.callTool({ name, arguments: args })
+}
+
+// A real tool call, scripted: the assistant block the model writes, the round
+// trip through this turn's own MCP server, and the tool_result that comes
+// back. A call the schema refuses reaches no handler, exactly as it does live.
+let nextToolUseId = 0
+const call = (verb, input = {}) => ({
+  async * expand(options) {
+    const id = `tu-${++nextToolUseId}`
+    yield toolUse(`mcp__curia__${verb}`, input, id)
+    const res = await mcpCall(options.mcpServers.curia, verb, input)
+    yield {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: id, is_error: !!res.isError, content: res.content }] },
+    }
+  },
+})
+
+// Each call to the fake consumes the next script (an array of messages, an
+// Error to throw mid-stream, or a call() to run) and records {prompt, options}.
 function scriptedQuery(...scripts) {
   const fn = ({ prompt, options }) => {
     fn.calls.push({ prompt, options })
@@ -32,6 +65,7 @@ function scriptedQuery(...scripts) {
     return (async function* () {
       for (const m of script) {
         if (m instanceof Error) throw m
+        if (typeof m?.expand === 'function') { yield* m.expand(options); continue }
         yield m
       }
     })()
@@ -206,7 +240,7 @@ describe('OverseerHost turns', () => {
   test('a fresh turn journals the session, narrates tool calls in status, says the answer', async () => {
     const queryFn = scriptedQuery([
       init('sess-1'),
-      toolUse('mcp__curia__status'),
+      call('status'),
       success('all quiet'),
     ])
     const { host, store } = makeHost({ queryFn })
@@ -221,18 +255,73 @@ describe('OverseerHost turns', () => {
   test('the status line accumulates canonical verb text across tool calls (#95)', async () => {
     const queryFn = scriptedQuery([
       init('sess-1'),
-      toolUse('mcp__curia__tickets'),
-      toolUse('mcp__curia__start', { ticket: '85', repo: 'alp82/curia' }),
+      call('tickets'),
+      call('start', { ticket: '85', repo: 'alp82/curia' }),
       success('started'),
     ])
-    const { host } = makeHost({ queryFn })
+    const seen = []
+    const { host } = makeHost({ queryFn, command: async (text) => { seen.push(text); return 'ok' } })
     const { posts, statuses, io } = collector()
     await host.runTurn('thread-1', 'start 85', io)
     assert.deepEqual(statuses, [
       '-# ⚙️ `tickets`',
       '-# ⚙️ `tickets` · `start alp82/curia#85`',
     ])
+    // #275: the line and the seam carry the same two strings, in the same order
+    assert.deepEqual(seen, ['tickets', 'start alp82/curia#85'])
     assert.deepEqual(posts, ['started'])
+  })
+
+  // #275, the 2026-08-06 incident: the overseer packed the operator's sentence
+  // into `ticket`, the MCP schema refused it, and no router ever saw the call —
+  // but the status line had already printed `map <sentence>` as if it ran.
+  test('a call the schema refuses shows the refusal, never a command that never ran', async () => {
+    const prose = 'new ticket to make the map commands ticket param optional'
+    const queryFn = scriptedQuery([
+      init('sess-1'),
+      call('map', { ticket: prose }),
+      success('I could not read that as a map number.'),
+    ])
+    const seen = []
+    const { host } = makeHost({ queryFn, command: async (text) => { seen.push(text); return 'ok' } })
+    const { statuses, io } = collector()
+    await host.runTurn('thread-1', 'add a ticket to the map', io)
+    assert.deepEqual(seen, [], 'the router must receive nothing')
+    assert.deepEqual(statuses, ['-# ⚙️ ⚠️ `map` refused before the router'])
+    assert.ok(!statuses.some((s) => s.includes(prose)), 'the sentence must never appear as a command')
+  })
+
+  test('a refusal keeps its place beside the calls that did run (#275)', async () => {
+    const queryFn = scriptedQuery([
+      init('sess-1'),
+      call('tickets'),
+      call('start', { ticket: 'the landing page one' }),
+      call('start', { ticket: '85' }),
+      success('done'),
+    ])
+    const seen = []
+    const { host } = makeHost({ queryFn, command: async (text) => { seen.push(text); return 'ok' } })
+    const { statuses, io } = collector()
+    await host.runTurn('thread-1', 'start the landing page one', io)
+    assert.deepEqual(seen, ['tickets', 'start 85'])
+    assert.equal(
+      statuses.at(-1),
+      '-# ⚙️ `tickets` · ⚠️ `start` refused before the router · `start 85`',
+    )
+  })
+
+  test('a map instruction reaches the status line only as the router got it (#275)', async () => {
+    const queryFn = scriptedQuery([
+      init('sess-1'),
+      call('map', { ticket: '147', instruction: 'add a ticket\nthen wire it' }),
+      success('on it'),
+    ])
+    const seen = []
+    const { host } = makeHost({ queryFn, command: async (text) => { seen.push(text); return 'ok' } })
+    const { statuses, io } = collector()
+    await host.runTurn('thread-1', 'add a ticket then wire it', io)
+    assert.deepEqual(seen, ['map 147 add a ticket then wire it'])
+    assert.deepEqual(statuses, ['-# ⚙️ `map 147 add a ticket then wire it`'])
   })
 
   test('the next turn in the same thread resumes the journalled session', async () => {
@@ -393,11 +482,13 @@ describe('OverseerHost turns', () => {
       [init('never'), success('must not run')],
     )
     const { host } = makeHost({ queryFn })
-    const { posts, io } = collector()
+    const { posts, statuses, io } = collector()
     const r = await host.runTurn('t', 'start 85', io)
     assert.equal(r.ok, false)
     assert.equal(queryFn.calls.length, 1)
     assert.ok(posts.at(-1).includes('session ended without an answer'))
+    // #275: the block was written, the tool never ran — so the line says nothing
+    assert.deepEqual(statuses, [])
   })
 
   test('a failed fallback reports the failure instead of looping', async () => {

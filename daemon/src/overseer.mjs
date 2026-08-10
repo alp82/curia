@@ -79,6 +79,9 @@ const asText = (text) => ({ content: [{ type: 'text', text }] })
 // the daemon it is gate.command, so every overseer effect is journalled and
 // routed exactly like a slash verb.
 export function buildVerbTools(command) {
+  // A handler runs only after the MCP layer has validated the arguments, so
+  // this call is the proof that the text reached the router. #275 hangs the
+  // status line off the injected `command` for exactly that reason.
   const run = (verb) => async (args) => asText(await command(canonicalFor(verb, args)))
   // #255: the regex is enforced, but the JSON schema the model reads drops it —
   // the SDK publishes `{"type":"string"}` and the description is the only place
@@ -211,11 +214,16 @@ export class OverseerHost {
   // server is a plain object over the same seven handlers. `interpreted`
   // marks the text as model-produced (#94): the router routes interpreted
   // destructive verbs through the button confirm instead of executing.
-  #mcpFor(threadId) {
+  // `narrate` runs on the way in, so the status line states the text this
+  // seam carried and nothing else (#275).
+  #mcpFor(threadId, narrate) {
     return createSdkMcpServer({
       name: 'curia',
       version: '0.1.0',
-      tools: buildVerbTools((text) => this.command(text, { threadId, interpreted: true })),
+      tools: buildVerbTools(async (text) => {
+        await narrate(text)
+        return this.command(text, { threadId, interpreted: true })
+      }),
     })
   }
 
@@ -273,6 +281,23 @@ export class OverseerHost {
     let result = null
     let toolCalls = 0
     let thrown = null
+    // #275: a streamed tool_use block is a REQUEST, not an event. The MCP
+    // layer validates the model's arguments after that block is written, and a
+    // call that dies there — prose packed into `ticket` — reaches no handler
+    // and no router. So each block is held here until its result comes back,
+    // the canonical text is narrated from the seam itself (see #mcpFor), and a
+    // result for a call that never reached the seam says so. The operator
+    // reads one true line per call: the text the router got, or the refusal.
+    const calls = new Map() // tool_use id -> verb
+    const crossed = new Map() // verb -> seam crossings no result has claimed yet
+    const narrate = (text) => {
+      // Count first, then await the edit: the tally is what the result reads,
+      // and a status edit that fails must not read back as a refusal. The verb
+      // is the first word of the canonical text, by construction.
+      const verb = text.split(' ')[0]
+      crossed.set(verb, (crossed.get(verb) ?? 0) + 1)
+      return step(`\`${text}\``)
+    }
     try {
       const q = this.queryFn({
         prompt,
@@ -282,7 +307,7 @@ export class OverseerHost {
           model,
           resume,
           systemPrompt: SYSTEM_PROMPT,
-          mcpServers: { curia: this.#mcpFor(threadId) },
+          mcpServers: { curia: this.#mcpFor(threadId, narrate) },
           allowedTools: ALLOWED_TOOLS,
           disallowedTools: DISALLOWED_TOOLS,
           maxTurns: this.maxTurns,
@@ -298,13 +323,23 @@ export class OverseerHost {
           for (const block of msg.message?.content ?? []) {
             if (block.type === 'tool_use') {
               toolCalls += 1
-              // The status line shows the canonical verb text — the same
-              // string the router receives — as inline code (#89).
-              const verb = block.name.replace('mcp__curia__', '')
-              let text
-              try { text = canonicalFor(verb, block.input ?? {}) } catch { text = verb }
-              await step(`\`${text}\``)
+              calls.set(block.id, block.name.replace('mcp__curia__', ''))
             }
+          }
+        }
+        if (msg.type === 'user') {
+          const content = msg.message?.content
+          for (const block of Array.isArray(content) ? content : []) {
+            if (block.type !== 'tool_result') continue
+            const verb = calls.get(block.tool_use_id)
+            if (verb === undefined) continue
+            calls.delete(block.tool_use_id)
+            // A result exists only after its handler returned, so the tally is
+            // already settled here. Nothing to claim means the MCP layer
+            // refused the call: name the verb, not a command line nothing ran.
+            const crossings = crossed.get(verb) ?? 0
+            if (crossings > 0) crossed.set(verb, crossings - 1)
+            else await step(`${SIGNALS.warn} \`${verb}\` refused before the router`)
           }
         }
         if (msg.type === 'result') result = msg
