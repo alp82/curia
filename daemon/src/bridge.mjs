@@ -31,6 +31,13 @@ import { ThreadRenamer } from './threadname.mjs'
 
 const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 
+// The round's one-tap answer (#285, ADR-0005). It rides `free-text` and it is
+// pure capture: the press records this word, the agent reads it, and the agent
+// applies the recommendations IT wrote. The daemon never reads the prompt and
+// never decides what "recommended" meant, which is the no-interpret rule of
+// ADR-0005 held exactly where a round would be tempted to break it.
+export const ALL_AS_RECOMMENDED = 'all-as-recommended'
+
 // The signal position of a bound thread's name (#93, #199, #200). The live
 // glyphs — states a running agent can hold — are the only ones another state
 // may overwrite; ✅ and ⚰️ are terminal and only bindTicket's relabel takes
@@ -1080,6 +1087,15 @@ export class DiscordBridge {
           .setLabel(label.slice(0, 80)).setStyle(ButtonStyle.Primary))
       })
     }
+    // The round's one tap (#285). It is the ONLY button a free-text card ever
+    // gets, and the agent asks for it by promising every question in the prompt
+    // carries a recommendation. There is no ❌ beside it: the opposite of "all
+    // as recommended" is not one word, it is your reply, and the reply path is
+    // already open on every free-text record.
+    if (record.kind === 'free-text' && record.recommended) {
+      push(new ButtonBuilder().setCustomId(`esc|${record.id}|opt|${ALL_AS_RECOMMENDED}`)
+        .setLabel('✅ All as recommended').setStyle(ButtonStyle.Success))
+    }
     // No cancel button (#200). It said it ended the agent and ended nothing:
     // it closed the question record and handed the model a sentence, which the
     // model read and asked again around. Ending an agent has ONE word and one
@@ -1116,7 +1132,12 @@ export class DiscordBridge {
     if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {
       parts.push(record.options.map((o, i) => `**${i + 1}.** ${o}`).join('\n'), '_Reply in this thread with a number._')
     } else if (record.kind === 'free-text') {
-      parts.push('_Reply in this thread to answer._')
+      // A round says what the tap means and what a partial reply does (#285).
+      // The second sentence is the load-bearing one: a question you do not
+      // answer is NOT taken as recommended, it comes back in the next round.
+      parts.push(record.recommended
+        ? '_✅ takes every recommendation above. Or reply in this thread — anything you leave unanswered comes back in the next round._'
+        : '_Reply in this thread to answer._')
     } else if (record.kind === 'preview-review') {
       parts.push(`Preview: ${record.preview_url}`, '_Approve/Reject, or reply in this thread with comments._')
     }

@@ -1184,7 +1184,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     `  \`wayfinder:map\` issue in ${repo} and the tickets you can already state. Its "work through the map"`,
     '  mode does not apply — there is nothing to work through until you have built it.',
     '- **The destination and the scope are the operator\'s to settle, not yours.** This is a HITL session:',
-    '  many `ask_human` calls, one question at a time, until the destination is sharp enough to write down.',
+    '  many `ask_human` calls, one round at a time, until the destination is sharp enough to write down.',
     '  Never answer for them, and never chart around a question you could have asked.',
     '- **The moment the map issue exists, call `map_created` with its number.** Not at the end — then.',
     '  Until you do, curia does not know which map is yours: your thread has no name, another charting',
@@ -1214,7 +1214,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
         `  > ${instruction}`,
         '',
         '  This is the whole brief. Do that, and no more than that. If it is unclear, or if doing it well',
-        '  needs a decision that is theirs, use `ask_human` — one question at a time.',
+        '  needs a decision that is theirs, use `ask_human` — one round at a time.',
       ]
       : [
         '- **No instruction rode this dispatch.** Do not guess what should change. Your FIRST act is one',
@@ -1320,7 +1320,18 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  enable or add another — no plugin, no app, no MCP server, no marketplace, whatever offers it.',
     '  A tool curia did not give you is out of bounds even when it is reachable, and reaching for one',
     '  is an `ask_human` call, never a decision you make.',
-    '- A HITL ticket is many `ask_human` calls, one question at a time. **Never answer for the human.**',
+    // #285, ADR-0005: a HITL ticket used to be one question per call. The wait
+    // is the expensive part, not the token, so the unit is now the ROUND — the
+    // frontier of independent questions, asked together. The dependency rule is
+    // what keeps this honest: batching a question whose answer hangs on another
+    // open question is guessing, and guessing is the thing this bound forbids.
+    '- **A HITL ticket is many `ask_human` calls, one ROUND at a time.** A round is every question whose',
+    '  answer does not depend on another question you have open. Number them, give each your recommended',
+    '  answer, and send them as ONE `free-text` call with `recommended: true` — the human gets a ✅ All as',
+    '  recommended button, and one reply names the exceptions. A question whose answer depends on another',
+    '  one still open belongs to the NEXT round. One question is a round of one.',
+    '- **Never answer for the human.** A question they did not answer comes back in the next round. Only',
+    '  the ✅ button takes your recommendations, and only for the questions in the round it sits on.',
     // #56: a daemon crash took an in-flight ask_human down with it, and the agent
     // read the transport error as permission to decide the question itself. A
     // failed call is the one case where "never answer for the human" has to be
