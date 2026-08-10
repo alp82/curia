@@ -279,7 +279,7 @@ export class Dispatcher {
     this.overseerNote = overseerNote ?? (() => {})
     // askReview(agent, ticket, promptText) → { text, status } — the review gate
     // (#54 item 2), injected by index.mjs on the same escalation machinery every
-    // ask_human uses, so first-valid-wins, the ~30-min re-nudge, the MCP
+    // ask_human uses, so first-valid-wins, the bounded render retry, the MCP
     // keepalive and restart survival all come free. Absent in tests that never
     // reach the gate.
     this.askReview = askReview ?? (async () => ({ text: 'reject', status: 'answered' }))

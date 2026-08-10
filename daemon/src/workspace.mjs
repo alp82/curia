@@ -468,10 +468,9 @@ function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
 //
 // A day, not a literal infinity: codex wants a number, and this is the one place
 // #11's "blocks for as long as the human takes" is bounded. It is ~3x the
-// longest real block on record (7 h 53 m, #56), the ~30-min re-nudge keeps
-// running underneath it, and a block that outlives it re-dispatches rather than
-// resolving anything (#11/#12). The keepalive stays on for the claude harness and
-// costs nothing here.
+// longest real block on record (7 h 53 m, #56), and a block that outlives it
+// re-dispatches rather than resolving anything (#11/#12). The keepalive stays on
+// for the claude harness and costs nothing here.
 const CODEX_TOOL_TIMEOUT_S = 86_400
 
 // The Stop hook, identical on both harnesses: POST the hook's own stdin payload to
