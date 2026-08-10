@@ -447,23 +447,20 @@ const gate = {
   // how fast, and only the mode failed.
   async noteAgent(agent, text, { by = null, mode = 'queue' } = {}) {
     const live = dispatcher.agents.get(agent)
+    // The record is read here for the TICKET only. The console names the agent,
+    // so it can name one curia is not running — which the thread path never
+    // could, because a thread only ever resolves to a live agent. That is the
+    // same refusal as a failed agent, so `noteDisposition` gives it (#299) and
+    // this door does not check existence a second time.
     const ticket = live?.ticket ?? String(agent).replace(/^curia-/, '')
-    // The console names the agent, so it can name one that does not exist —
-    // which the thread path never could, because a thread only ever resolves to
-    // an agent curia is running. `noteDisposition` answers about a live record
-    // and reads an absent one as "not failed", so the existence check is HERE,
-    // in the one door that can be handed a name out of a browser.
-    if (!live) {
-      log(`agent note refused for ${agent} — curia is not running that agent`)
-      store.logEvent('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
+    const queued = gate.queueNoteFor(agent, text, { by, ticket })
+    // The console's own way back, which is not the thread's: the browser has
+    // cleared the box, so the words have to be typed again after the resume.
+    if (!queued.reads) {
       return {
-        agent, ticket, reads: false, id: null, after: null, ok: false, mode,
+        ...queued, ok: false, mode,
         why: `curia is not running \`${agent}\`, so nothing was queued — \`resume ${ticket}\` puts an agent back on the ticket, then say the words again`,
       }
-    }
-    const queued = gate.queueNoteFor(agent, text, { by, ticket })
-    if (!queued.reads) {
-      return { ...queued, ok: false, mode, why: `\`${agent}\` is not running, so nothing was queued — \`resume ${ticket}\` puts an agent back on the ticket` }
     }
     if (mode !== 'interrupt') return { ...queued, ok: true, mode: 'queue' }
     const out = await dispatcher.interruptNote(queued.id, { by })
