@@ -78,6 +78,8 @@ The daemon cannot recreate its own container, so the verb only orders the deploy
 
 The sibling logs to `daemon/data/deploy.log`. The fixed container name is the concurrency guard: a second `deploy` while one is in flight is refused. A checkout with local commits is refused and needs ssh.
 
+Both paths were proven live on 2026-08-10: the verb rolled back a deliberate boot crash on its own, and then landed the revert as a real deploy.
+
 The deploy never names `tmux` or `ttyd`. To recreate those two, wait for zero live agents, then:
 
 ```
