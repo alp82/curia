@@ -297,7 +297,7 @@ const gate = {
     if (result.ok) {
       log(`escalation ${result.record.id} answered via ${via}${attachments.length ? ` (+${attachments.length} attachment${attachments.length > 1 ? 's' : ''})` : ''}${result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''}`)
       const delivered = settle(result.record, answer, attachments)
-      if (bridge) bridge.markAnswered(result.record).catch(() => {})
+      if (bridge) bridge.markAnswered(result.record, { routedFrom: result.routed_from ?? [] }).catch(() => {})
       // The executing path of a button confirm (#94): button → HERE → the
       // dispatcher, never through the model. The record is already closed
       // (first-valid-wins above), so a second press can never execute twice.
@@ -998,7 +998,17 @@ function buildMcpServer(agent, ticket) {
       // Route by that same bound ticket: an agent-supplied id may be
       // repo-qualified or a URL, which ensureThread would send to a stray named
       // thread instead of the ticket's bound thread (#103).
-      if (bridge) bridge.notify(bound, `✅ reports **${result.status}**: ${result.summary}`, { as: speaker() }).catch(() => {})
+      // The FIRST of the ending's two messages (#253, ADR-0013): the agent's
+      // own voice states what the work came to. The daemon appends the
+      // pull-request link because this report is the one place it is allowed to
+      // unfurl — the receipt that follows wraps every url in <>. A summary that
+      // already names the link keeps its own wording; two copies of one link in
+      // one message is the same defect at a smaller scale.
+      if (bridge) {
+        const pr = dispatcher.pullRequestUrlFor(agent)
+        const tail = pr && !result.summary.includes(pr) ? `\n🔗 ${pr}` : ''
+        bridge.notify(bound, `✅ reports **${result.status}**: ${result.summary}${tail}`, { as: speaker() }).catch(() => {})
+      }
       const stopKeepAlive = startKeepAlive(extra, `${agent}/result`)
       try {
         return { content: [{ type: 'text', text: await dispatcher.onResult(agent, result) }, ...drainNotes()] }

@@ -119,7 +119,9 @@ The build was verified live by the full-loop rehearsal — `docs/live-checks/96-
 
 ## The per-agent status line (#108 item 8, #146)
 
-Each agent gets one Discord message in its ticket thread that says what it is doing now: dispatched, working, waiting on an escalation, awaiting review, executing approved writes, done, or gone. `statusline.mjs` builds it from the journal's own events through the store's append hook, so no transition needs a callback threaded through the dispatcher. The daemon composes every string. Agent text never lands here as it was written. A state change deletes the message and reposts it at the thread bottom (item 17). Everything else edits it in place.
+Each agent gets one Discord message in its ticket thread that says what it is doing now: dispatched, working, waiting on an escalation, awaiting review, cross-checking, executing approved writes, or resolving. `statusline.mjs` builds it from the journal's own events through the store's append hook, so no transition needs a callback threaded through the dispatcher. The daemon composes every string. Agent text never lands here as it was written. A state change deletes the message and reposts it at the thread bottom (item 17). Everything else edits it in place.
+
+The line carries LIVE state only (#253, [ADR-0013](../docs/adr/0013-one-voice-per-fact.md)). A terminal event deletes the line. It does not draw a last state onto it. The terminal events are the ending, an abnormal exit, a death, a cancel, and a watchdog failure. Each one already carries its own CuriaBot message, and a 🏁 beside that message narrated one event twice.
 
 Since #146 the line also carries **meters** beside the state:
 
@@ -156,6 +158,14 @@ Groups are separated by `U+2003 EM SPACE`, not two plain spaces — Discord coll
 The line is composed against a budget counted in **rendered columns**, so markdown syntax costs nothing and an emoji costs two. Meters append in value order and the first that will not fit ends the run, so they drop from the tail. A full working line measures 86 columns and always survives whole. A `waiting` line carrying a long escalation title loses the bars first, which is the right thing to lose: an agent blocked on a question is burning no quota.
 
 A meter tick refreshes the live lines once a minute and edits only when a number moved, so a quiet agent costs no Discord call.
+
+## One event, one message (#253, [ADR-0013](../docs/adr/0013-one-voice-per-fact.md))
+
+Three events used to speak twice or more. The cold read of 131 threads counted them in `docs/research/discord-thread-surprises.md`, sections 3 and 4. Each one collapses to one voice.
+
+- **The ending is two messages, in this order.** First comes the agent's report, in the `curia-<n>` webhook voice. It says what the work came to. The daemon appends the pull-request link to it, because that report is the one place the link unfurls. Then comes one CuriaBot receipt, in small print. It merges the old resolved, done and finished lines into one sentence: what the tracker step did, then what the session teardown did. Every url in it is wrapped in `<>`, so the same GitHub embed never renders twice. The tracker sentence rides its own journal event (`ticket_resolved.summary` and its siblings). A restart between `report_result` and the Stop hook does not silence the ending.
+- **The spawn is CuriaBot's line alone.** The composer-ready message announces the dispatch. The overseer never narrates a dispatch it triggered. The overseer owns the CHOICE, so it may say which ticket it picked and why. It says nothing about the agent's state.
+- **A button answer is the card.** The bridge acknowledges the press silently and edits the card in place. No interaction reply follows it. The mark on the card carries what the reply used to add. That includes the dead ids a routed answer came through.
 
 ## Preview links (#40, implementing #8)
 

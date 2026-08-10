@@ -47,6 +47,7 @@ import {
   resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment,
   verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
+import { smallPrint } from './messaging.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, VERDICT_LABEL, normalizeEvent } from './store.mjs'
 import {
@@ -2756,8 +2757,10 @@ export class Dispatcher {
         ? await this.#resolveTicket(agentName, repo, ticket, result, w)
         : await this.#noteNonClean(agentName, repo, ticket, result, w)
     } catch (e) {
-      this.store.logEvent('resolve_failed', { repo, ticket, agent: agentName, status: result.status, error: e.message })
-      this.notify(ticket, `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${e.message}`)
+      this.store.logEvent('resolve_failed', {
+        repo, ticket, agent: agentName, status: result.status, error: e.message,
+        summary: `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step FAILED — ${e.message}`,
+      })
       return `result recorded — but curia's resolve step failed: ${e.message}`
     }
   }
@@ -2853,13 +2856,17 @@ export class Dispatcher {
       this.store.logEvent('resolved_unreviewed', { repo, ticket, agent: agentName })
       out.warnings.push('NO approved review gate for this dispatch — this ticket was resolved without anyone approving it')
     }
+    const text = summariseOutcome(out)
+    // `summary` is what the ending receipt says about the tracker (#253). It
+    // rides the journal rather than the agent record because report_result and
+    // the Stop hook are two calls, and a restart between them must not silence
+    // the ending — see #endingClause.
     this.store.logEvent('ticket_resolved', {
       repo, ticket, agent: agentName,
       comment: out.comment, close: out.close, map: out.map.state, land: out.land.state,
       pr: out.land.url ?? null, repaired: out.repaired,
+      summary: `✅ ${repo}#${ticket} resolved — ${text}`,
     })
-    const text = summariseOutcome(out)
-    this.notify(ticket, `✅ ${repo}#${ticket} resolved — ${text}`)
     return text
   }
 
@@ -2904,9 +2911,6 @@ export class Dispatcher {
         this.log(`could not post the charting summary on ${repo}#${map}: ${e.message}`)
       }
     }
-    this.store.logEvent('charting_finished', {
-      repo, map: map ?? null, ticket, agent: agentName, status: result.status, commented: noted,
-    })
     const clean = result.status === 'resolved'
     const bits = [
       map
@@ -2917,7 +2921,10 @@ export class Dispatcher {
       map ? 'the map stays open' : 'nothing on the tracker was touched by curia',
     ]
     const what = map ? `${repo}#${map}` : `the new map in ${repo}`
-    this.notify(ticket, `${clean ? '🗺️' : '↩️'} ${what} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`)
+    this.store.logEvent('charting_finished', {
+      repo, map: map ?? null, ticket, agent: agentName, status: result.status, commented: noted,
+      summary: `${clean ? '🗺️' : '↩️'} ${what} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`,
+    })
     return `charting recorded — ${bits.join('; ')}. Nothing was closed, resolved or pushed.`
   }
 
@@ -3032,11 +3039,14 @@ export class Dispatcher {
     } catch (e) {
       this.log(`could not note the ${result.status} result on ${repo}#${ticket}: ${e.message}`)
     }
-    this.store.logEvent('nonclean_noted', { repo, ticket, agent: agentName, status: result.status, released, noted })
     const tail = released
       ? 'claim released, ticket back on the frontier'
       : 'claim release FAILED — the ticket is still assigned; reconcile will retry'
-    this.notify(ticket, `↩️ ${repo}#${ticket} NOT resolved (**${result.status}**) — ${tail}${noted ? ', reason noted on the ticket' : ', and the note could not be posted'}`)
+    const said = `${tail}${noted ? ', reason noted on the ticket' : ', and the note could not be posted'}`
+    this.store.logEvent('nonclean_noted', {
+      repo, ticket, agent: agentName, status: result.status, released, noted,
+      summary: `↩️ ${repo}#${ticket} NOT resolved (**${result.status}**) — ${said}`,
+    })
     return `result recorded — nothing was resolved or pushed; ${tail}`
   }
 
@@ -3123,6 +3133,78 @@ export class Dispatcher {
     this.log(`agent_done ${agentName}: turn ended with ${open.map((r) => r.id).join(', ')} still open — ${reviewing ? 'awaiting review' : 'blocked on a human'}, not gone`)
   }
 
+  // The pull request this session pushed, for the ONE place the link is
+  // allowed to unfurl (#253): the agent's own report. The in-memory record
+  // wins; the journal answers for a session this process never held.
+  pullRequestUrlFor(agentName) {
+    const live = this.agents.get(agentName)?.prUrl
+    if (live) return live
+    let out = null
+    let journal
+    try {
+      journal = this.#readJournal()
+    } catch {
+      return null
+    }
+    for (const ev of journal) {
+      if (ev.agent !== agentName) continue
+      if (ev.type === 'agent_spawned') out = null
+      else if (['pr_opened', 'pr_reused', 'land_repaired'].includes(ev.type) && ev.url) out = ev.url
+    }
+    return out
+  }
+
+  // The whole ending, in one CuriaBot message (#253, ADR-0013).
+  //
+  // The cold read of 131 threads found every ending narrated by three
+  // identities in up to four messages inside twenty seconds: the agent's
+  // report, a resolved line, a 🏁 done line, and a finished line — and the
+  // pull-request link rode three of them, so the same GitHub embed rendered
+  // three times in a row. Two messages remain. The agent's report is the first
+  // and states MEANING in the agent's own voice. This receipt is the second
+  // and states MECHANICS: what happened on the tracker, and what happened to
+  // the session. It is small print, and it carries no bare link — the report
+  // is where the pull request unfurls, and nowhere else.
+  //
+  // The 🏁 line is gone with no replacement: it said "done" about the same
+  // event this sentence opens with (statusline.mjs, #retire).
+  #endingReceipt(agentName, lease) {
+    const clause = this.#endingClause(agentName)
+    const head = clause ?? `✅ \`${agentName}\` finished with a recorded result`
+    return smallPrint(`${head} · \`${agentName}\` session closed; ${lease}`)
+  }
+
+  // What the tracker step made of this result, composed by whichever path ran
+  // it and stored on that path's own journal event.
+  //
+  // The journal is the carrier rather than the agent record because the two
+  // halves of an ending are two calls: report_result runs the tracker step,
+  // the Stop hook lands seconds later, and a daemon restart in between must
+  // not swallow the sentence. Epoch-scoped like every other reduction here —
+  // a resume restarts the count at its own `agent_spawned`, so a fresh
+  // dispatch never inherits the last one's ending.
+  //
+  // Null is a real answer: a session that ended with no tracker step at all
+  // (nothing bound, no repo) has nothing to say here, and the receipt falls
+  // back to the session sentence alone.
+  #endingClause(agentName) {
+    const carriers = new Set(['ticket_resolved', 'nonclean_noted', 'charting_finished', 'resolve_failed'])
+    let out = null
+    let journal
+    try {
+      journal = this.#readJournal()
+    } catch (e) {
+      this.log(`ending clause for ${agentName} is unreadable (${e.message}) — the receipt states the session only`)
+      return null
+    }
+    for (const ev of journal) {
+      if (ev.agent !== agentName) continue
+      if (ev.type === 'agent_spawned') out = null
+      else if (carriers.has(ev.type) && ev.summary) out = ev.summary
+    }
+    return out
+  }
+
   async onAgentDone(agentName) {
     // #164: the reviewer's ending has none of the ticket's terminal acts in it —
     // no preview to withdraw, no claim to settle, no workspace lease to end, no
@@ -3181,7 +3263,7 @@ export class Dispatcher {
       // already happened, so "kept for review" no longer means anything; what
       // decides now is whether the code is in.
       const lease = await this.#endWorkspaceLease(agentName, ticket, w?.repo ?? this.#epochRepo(ticket))
-      this.notify(ticket, `✅ \`${agentName}\` finished with a recorded result — session closed; ${lease}`)
+      this.notify(ticket, this.#endingReceipt(agentName, lease))
       this.lapseConfirmsFor(agentName, `\`${agentName}\` finished`)
       this.expireNotesFor(agentName, ticket, 'finished')
       // terminal state ⇒ the ticket label comes off the thread (#93)
@@ -3273,7 +3355,9 @@ export class Dispatcher {
 
     if (pr && pr.state !== 'MERGED') {
       this.store.logEvent('lease_kept', { repo, ticket, agent: agentName, branch, reason: `pull request is ${pr.state}` })
-      return `⚠️ worktree and branch KEPT — ${pr.url} is **${pr.state}**, not merged`
+      // <> around the url: this sentence rides the ending receipt, and the
+      // receipt carries no bare link (#253).
+      return `⚠️ worktree and branch KEPT — <${pr.url}> is **${pr.state}**, not merged`
     }
     if (!pr) {
       // No pull request at all: fine for a ticket that produced no code, and a

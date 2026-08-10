@@ -44,7 +44,7 @@ describe('StatusLine', () => {
     })
   })
 
-  const drain = () => Promise.all([...line.agents.values()].map((w) => w.chain))
+  const drain = () => line.settle()
 
   test('every state change repositions: delete + repost at the bottom (#108 item 17)', async () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-9', ticket: '9', model: 'opus' })
@@ -60,7 +60,7 @@ describe('StatusLine', () => {
     await drain()
 
     const texts = posts.map((p) => p.text)
-    assert.equal(posts.length, 8, 'one post per state change')
+    assert.equal(posts.length, 7, 'one post per LIVE state change')
     assert.match(texts[0], /dispatched on \*\*opus\*\*/)
     assert.ok(texts[1].includes(`working${GROUP_SEP}**opus**`))
     assert.match(texts[2], /waiting on \*\*\[esc-1\]\*\* — Which shade of blue\?/)
@@ -68,9 +68,34 @@ describe('StatusLine', () => {
     assert.match(texts[4], /awaiting review — \*\*\[esc-2\]\*\*/)
     assert.match(texts[5], /executing approved writes/)
     assert.match(texts[6], /result received \(\*\*resolved\*\*\)/)
-    assert.match(texts.at(-1), /🏁 .*done/)
     assert.equal(edits.length, 0, 'a state change never edits in place')
-    assert.deepEqual(removals, ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'each repost deletes its predecessor — one live line at any moment')
+    // #253: the ending is not a state — the last delete has no repost behind
+    // it, because the dispatcher's own receipt is the record of the ending.
+    assert.deepEqual(removals, ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'each repost deletes its predecessor, and the ending deletes the last one')
+    assert.ok(!texts.some((t) => t.includes('🏁')), 'no line ever says done')
+  })
+
+  // #253, ADR-0013: the ending used to speak four times in twenty seconds, and
+  // this line was one of the four. Every terminal event now retires it.
+  describe('a terminal event retires the line (#253)', () => {
+    for (const ev of [
+      { type: 'lifecycle_closed', agent: 'curia-4', ticket: '4' },
+      { type: 'agent_abnormal_exit', agent: 'curia-4', ticket: '4' },
+      { type: 'reviewer_abnormal_exit', agent: 'curia-4', ticket: '4' },
+      { type: 'agent_died', agent: 'curia-4', ticket: '4' },
+      { type: 'agent_cancelled', agent: 'curia-4', ticket: '4' },
+      { type: 'agent_ready_timeout', agent: 'curia-4', ticket: '4', timeout_s: 45 },
+      { type: 'agent_exited_early', agent: 'curia-4', ticket: '4', status: 127 },
+    ]) {
+      test(ev.type, async () => {
+        line.onEvent({ type: 'agent_ready', agent: 'curia-4', ticket: '4', model: 'opus', ts: 'T' })
+        line.onEvent(ev)
+        await drain()
+        assert.equal(posts.length, 1, 'the live line, and nothing after it')
+        assert.deepEqual(removals, ['m1'], 'the live line is deleted, not overwritten')
+        assert.equal(line.stateOf('curia-4'), null, 'the session is forgotten')
+      })
+    }
   })
 
   test('a nudge refreshes the waiting line in place — no reminder message (#108 item 13)', async () => {
@@ -91,7 +116,7 @@ describe('StatusLine', () => {
     l.onEvent({ type: 'esc_open', id: 'esc-3', agent: 'curia-4', ticket: '4', kind: 'free-text', prompt: 'A question', ts: opened })
     clock += 30 * 60_000
     l.onEvent({ type: 'esc_nudge', id: 'esc-3' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     assert.equal(posts.length, 1)
     assert.equal(edits.length, 1, 'the nudge edits, never posts')
     assert.match(edits[0].text, /\[esc-3\].*1 h 15 min/)
@@ -116,7 +141,7 @@ describe('StatusLine', () => {
     l.onEvent({ type: 'esc_open', id: 'e2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
     l.onEvent({ type: 'esc_answer', id: 'e2', answer: 'approve' })
     l.onEvent({ type: 'lifecycle_closed', agent: 'curia-9', ticket: '9' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     assert.deepEqual(flags.map((f) => f.state), [
       'working', 'waiting', 'working', 'awaiting-review',
     ], 'ready, nudge, and done fire no flag — and the approve→executing tail keeps 🔎, saving the rename slot the ✅ needs')
@@ -139,7 +164,7 @@ describe('StatusLine', () => {
     l.onEvent({ type: 'cross_check_requested', agent: 'curia-9', ticket: '9', ts: 'T' })
     l.onEvent({ type: 'result', agent: 'curia-9', ticket: '9', status: 'resolved' })
     l.onEvent({ type: 'lifecycle_closed', agent: 'curia-9', ticket: '9' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     assert.deepEqual(flags, ['working', 'awaiting-review'],
       'cross-checking and resolving fire no clear — the 🔎 stands until release swaps it for ✅')
   })
@@ -157,7 +182,7 @@ describe('StatusLine', () => {
     l.onEvent({ type: 'esc_open', id: 'e1', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
     l.onEvent({ type: 'cross_check_requested', agent: 'curia-9', ticket: '9', ts: 'T' })
     l.onEvent({ type: 'cross_check_returned', agent: 'curia-9', ticket: '9' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     assert.deepEqual(flags, ['awaiting-review', 'working'],
       'resumed work is a real projection change — only the short tail into done keeps the glyph')
   })
@@ -174,7 +199,7 @@ describe('StatusLine', () => {
     records.set('e1', { id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', status: 'open' })
     l.onEvent({ type: 'esc_open', id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'q?', ts: new Date().toISOString() })
     l.onEvent({ type: 'agent_died', agent: 'curia-9', ticket: '9' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     assert.deepEqual(flags, ['waiting'], 'gone is not a projection — the ⏳ stands until an answer or a release')
   })
 
@@ -187,20 +212,18 @@ describe('StatusLine', () => {
     assert.equal(edits.length, 0)
   })
 
-  // #169: both failures keep the session for inspection, but the operator acts
-  // on them differently — a stalled start is worth a look at the pane, a dead
-  // command is a broken harness.
-  test('a stalled line says WHICH failure it was', async () => {
+  // #169 put WHICH failure it was on this line. #253 moved that sentence to
+  // the one place that already said it — the watchdog's own notify, which
+  // names the harness, the status and the pane. The line only steps aside.
+  test('a watchdog failure retires the line and reposts nothing', async () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-8', ticket: '8', model: 'opus' })
     line.onEvent({ type: 'agent_ready_timeout', agent: 'curia-8', ticket: '8', timeout_s: 45 })
     line.onEvent({ type: 'agent_spawned', agent: 'curia-6', ticket: '6', model: 'gpt' })
     line.onEvent({ type: 'agent_exited_early', agent: 'curia-6', ticket: '6', status: 127 })
     await drain()
 
-    const last = (session) => posts.filter((p) => p.text.includes(session)).at(-1).text
-    assert.match(last('curia-8'), /never reached a composer/)
-    assert.match(last('curia-6'), /the harness command exited \(status 127\)/)
-    assert.match(last('curia-6'), /kept for inspection/)
+    assert.equal(posts.length, 2, 'one dispatched line each, and nothing after')
+    assert.deepEqual(removals.sort(), ['m1', 'm2'])
   })
 
   test('a gone message reposts instead of losing the line', async () => {
@@ -212,10 +235,10 @@ describe('StatusLine', () => {
       log: () => {},
     })
     l2.onEvent({ type: 'agent_spawned', agent: 'curia-7', ticket: '7', model: 'opus' })
-    await Promise.all([...l2.agents.values()].map((w) => w.chain))
+    await l2.settle()
     alive = false
     l2.onEvent({ type: 'agent_ready', agent: 'curia-7', ticket: '7', model: 'opus', ts: 'T' })
-    await Promise.all([...l2.agents.values()].map((w) => w.chain))
+    await l2.settle()
     assert.equal(posts.length, 2, 'the dead message is replaced by a fresh post')
     assert.match(posts[1].text, /working/)
   })
@@ -245,30 +268,14 @@ describe('StatusLine', () => {
     assert.match(posts[0].text, /⏳ .*waiting on \*\*\[esc-7\]\*\* — still here\?/)
   })
 
-  test('an abnormal exit says so — never 🏁 (#240)', async () => {
-    line.onEvent({ type: 'agent_ready', agent: 'curia-4', ticket: '4', model: 'opus', ts: 'T' })
-    line.onEvent({ type: 'agent_abnormal_exit', agent: 'curia-4', ticket: '4' })
-    await drain()
-    assert.match(posts.at(-1).text, /⚠️ .*stopped without a result — session kept for post-mortem/)
-  })
-
-  test('a respawn after done starts a fresh message; the 🏁 line stands as history', async () => {
+  test('a respawn after an ending draws a fresh line at the bottom', async () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'opus' })
     line.onEvent({ type: 'lifecycle_closed', agent: 'curia-2', ticket: '2' })
     line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'sonnet' })
     await drain()
-    assert.equal(posts.length, 3)
-    assert.match(posts[1].text, /🏁 .*done/)
-    assert.match(posts[2].text, /dispatched on \*\*sonnet\*\*/)
-    assert.ok(!removals.includes('m2'), 'the done line of the finished run is never deleted')
-  })
-
-  test('agent_died flips a working line to ⚰️ gone with the resume verb (#138, #108 item 20)', async () => {
-    line.onEvent({ type: 'agent_spawned', agent: 'curia-9', ticket: '9', model: 'opus' })
-    line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
-    line.onEvent({ type: 'agent_died', agent: 'curia-9', ticket: '9', repo: 'o/r' })
-    await drain()
-    assert.equal(posts.at(-1).text, `⚰️ \`curia-9\`${GROUP_SEP}agent gone — \`resume 9\``)
+    assert.equal(posts.length, 2)
+    assert.match(posts[1].text, /dispatched on \*\*sonnet\*\*/)
+    assert.deepEqual(removals, ['m1'], 'the ended run took its own line with it')
   })
 
   test('a result event never steers the line out of the thread it is already in (#202)', async () => {
@@ -349,7 +356,7 @@ describe('StatusLine', () => {
       meters: () => { throw new Error('transcript vanished') },
     })
     l.onEvent({ type: 'agent_ready', agent: 'curia-6', ticket: '6', model: 'opus', ts: 'T' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     assert.equal(posts.at(-1).text, `▶️ \`curia-6\`${GROUP_SEP}working`)
   })
 
@@ -365,14 +372,14 @@ describe('StatusLine', () => {
       meters: () => ({ model: 'gpt-5.6-sol', effort: 'high', ctxPct: 12, windows: null }),
     })
     l.onEvent({ type: 'agent_spawned', agent: 'curia-4', ticket: '4', model: 'gpt' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     const dispatched = posts.at(-1).text
     assert.match(dispatched, /dispatched on \*\*gpt-5\.6-sol\*\*/)
     assert.equal(dispatched.match(/gpt-5\.6-sol/g).length, 1, 'the model arrives once')
     assert.ok(!dispatched.includes('**gpt**'), 'the routing label never stands in for it')
 
     l.onEvent({ type: 'agent_ready', agent: 'curia-4', ticket: '4', model: 'gpt', ts: 'T' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     assert.equal(posts.at(-1).text, `▶️ \`curia-4\`${GROUP_SEP}working${GROUP_SEP}**gpt-5.6-sol** high${GROUP_SEP}ctx 12%`)
   })
 
@@ -418,7 +425,7 @@ describe('StatusLine', () => {
     const title = 'Which of these seven candidate shades of blue should the launch banner use'
     records.set('esc-7', { id: 'esc-7', agent: 'curia-7', ticket: '7', kind: 'choice' })
     l.onEvent({ type: 'esc_open', id: 'esc-7', agent: 'curia-7', ticket: '7', kind: 'choice', prompt: title, ts: 'T' })
-    await Promise.all([...l.agents.values()].map((w) => w.chain))
+    await l.settle()
     const text = posts.at(-1).text
     assert.ok(text.includes(title), 'the title survives whole')
     assert.ok(!text.includes(WIDE), 'and the meter is what goes')
@@ -492,16 +499,14 @@ describe('StatusLine', () => {
     assert.match(edits[0].text, /ctx 63%/)
   })
 
-  test('a finished or dead agent carries no meters', async () => {
+  test('a finished agent carries no meters — the tick has nothing left to refresh', async () => {
     meters = { effort: null, ctxPct: 41, windows: [{ label: '5h', pct: 62 }] }
     line.onEvent({ type: 'agent_spawned', agent: 'curia-3', ticket: '3', model: 'opus' })
-    line.onEvent({ type: 'agent_died', agent: 'curia-3', ticket: '3' })
     line.onEvent({ type: 'lifecycle_closed', agent: 'curia-3', ticket: '3' })
     await drain()
-    assert.ok(!posts.at(-2).text.includes('ctx'))
-    assert.ok(!posts.at(-1).text.includes('ctx'))
     line.refresh()
     await drain()
+    assert.equal(posts.length, 1, 'the ending posted nothing of its own')
     assert.equal(edits.length, 0, 'the tick skips an agent whose run is over')
   })
 
