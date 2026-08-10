@@ -1348,6 +1348,26 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  are normal. A slow, backgrounded or quiet call is still open: keep waiting. Never let a story about',
     '  why nobody replied — the daemon must be dead, they must be asleep — stand in for the reply. This',
     '  holds hardest on small questions, because a wrong answer to a small one is the one nobody checks.',
+    // #287: the vendored `prototype` skill tells this agent to capture the
+    // prototype on a throwaway branch out of main. Three of its four capture
+    // clauses already hold here — `curia/<n>` IS cut from main and deleted at
+    // the merge — so the skill is READ rather than contradicted. Only the last
+    // clause is deviated from, because ADR-0008 leaves no other durable home.
+    // It rides here rather than in the skill file: `skills/` is upstream's
+    // bytes, pinned in UPSTREAM.md, and an edit there would hide the deviation
+    // in a tree whose whole point is that a bump shows up as a diff.
+    ...(type === 'wayfinder:prototype' ? [
+      `- **Your throwaway branch is \`${branch}\`, the one you are already on.** The \`prototype\` skill says to`,
+      '  capture the prototype on a throwaway branch out of main. That branch is THIS one: curia cuts it from',
+      '  main and deletes it at the merge. Do not make a second branch, and do not push one.',
+      '- **The prototype lives under `prototypes/<name>/`, and main keeps it.** This is curia\'s one deviation',
+      '  from that rule (ADR-0008): a merge is the only durable home here, so a prototype is on main or it dies',
+      '  with its branch. The directory name is what marks the code throwaway.',
+      '- **The demo is ONE self-contained HTML file.** Serve it with a static server on a preview port and call',
+      '  `publish_preview`. The operator reads it on a phone, where no double-click exists. Name the ticket in',
+      '  a header at the top of the file, and put the verdict in your resolution comment. curia keeps no index',
+      '  of that directory — the map\'s Decisions-so-far is the index.',
+    ] : []),
     '- Where a skill and these bounds disagree, these win.',
   ]
 

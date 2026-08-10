@@ -10,7 +10,7 @@ under it.
 
 Run 2026-07-29. Measurements on `alppc` against `tmux 3.7b` and `ttyd 1.7.7`,
 the versions the deployment host actually serves attach with. Probe scripts:
-[`spikes/dual-geometry/`](../../spikes/dual-geometry/).
+[`prototypes/dual-geometry/`](../../prototypes/dual-geometry/).
 
 **Answer: no mechanism exists in the terminal-relay family, and the reason is
 structural rather than a gap somebody could close. The recommendation is
@@ -450,7 +450,7 @@ hand that #29 finding 4 and #35 both needed.
 
 ### Measured: the geometry fight is caused by viewing, not by working
 
-Three measurements, all in [`spikes/dual-geometry/`](../../spikes/dual-geometry/):
+Three measurements, all in [`prototypes/dual-geometry/`](../../prototypes/dual-geometry/):
 
 1. A curia-shaped session — `new-session -d` with no `-x`/`-y`, exactly
    `newSession`'s argv — runs at **80x24**, the global `default-size`. **A worker

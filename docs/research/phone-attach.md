@@ -1,6 +1,6 @@
 # Spike: browser-terminal phone attach on the lean substrate
 
-Resolves [#32](https://github.com/alp82/curia/issues/32) — does a ttyd-style browser terminal at a stable Tailscale Serve URL, fronting a lean PTY substrate, deliver a first-class phone attach — good enough that curia never needs Orca's app/served-URL surface? Run 2026-07-24 on Alp's desktop (same Hetzner stand-in as #19/#24/#25/#29), phone test live by Alp. Spike code: [`spikes/phone-attach/`](../../spikes/phone-attach/).
+Resolves [#32](https://github.com/alp82/curia/issues/32) — does a ttyd-style browser terminal at a stable Tailscale Serve URL, fronting a lean PTY substrate, deliver a first-class phone attach — good enough that curia never needs Orca's app/served-URL surface? Run 2026-07-24 on Alp's desktop (same Hetzner stand-in as #19/#24/#25/#29), phone test live by Alp. Prototype code: [`prototypes/phone-attach/`](../../prototypes/phone-attach/).
 
 ## Verdict
 
@@ -25,7 +25,7 @@ Resolves [#32](https://github.com/alp82/curia/issues/32) — does a ttyd-style b
 
 ## The one real finding: phones have no Esc
 
-Mobile keyboards carry no Esc/Tab/Ctrl — fatal for a TUI where Esc interrupts/closes and Shift+Tab cycles modes. Fixed in-spike: ttyd's `--index` flag takes a custom page, so [`inject-keybar.py`](../../spikes/phone-attach/inject-keybar.py) patches the stock single-file index with a touch key row (Esc · Tab · ⇧Tab · ↑ · ↓ · ^C · ⏎) that
+Mobile keyboards carry no Esc/Tab/Ctrl — fatal for a TUI where Esc interrupts/closes and Shift+Tab cycles modes. Fixed in-spike: ttyd's `--index` flag takes a custom page, so [`inject-keybar.py`](../../prototypes/phone-attach/inject-keybar.py) patches the stock single-file index with a touch key row (Esc · Tab · ⇧Tab · ↑ · ↓ · ^C · ⏎) that
 
 - dispatches synthetic `keydown`s into xterm.js (verified consumed — synthetic Escape closed a live `/status` panel),
 - `preventDefault`s pointerdown so the terminal never loses focus and the phone keyboard stays open,
