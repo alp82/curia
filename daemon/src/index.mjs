@@ -1460,6 +1460,12 @@ if (process.env.DISCORD_BOT_TOKEN) {
           release: (ticket, reason) => store.releaseTicketThread(ticket, reason),
           // the dispatch backstop (#140): the last binding, released or not
           last: (ticket) => store.lastThreadForTicket(ticket),
+          // the same two, thread first (#257): who holds this thread now, and
+          // who held it last. The boot pass that settles an ending's name asks
+          // both — the second says the thread is curia's, the first says it is
+          // free to settle.
+          ticketOf: (threadId) => store.ticketForThread(threadId),
+          lastTicketOf: (threadId) => store.lastTicketForThread(threadId),
           // the label's repo field (#235), read lazily off the journal
           repoOf: (ticket) => store.repoForTicket(ticket),
         },
@@ -1475,6 +1481,8 @@ if (process.env.DISCORD_BOT_TOKEN) {
           if (!r.discord) renderEscalation(r)
         }
         announceStart(b)
+        // #257: a ✅ the last process owed but never sent. Never fails a start.
+        b.settleEndedThreads().catch((e) => log(`settling ended thread names failed: ${e.message}`))
       }).catch((e) => {
         if (!bridgeDownSince) bridgeDownSince = Date.now()
         const delay = Math.min(60_000, 5_000 * attempt)

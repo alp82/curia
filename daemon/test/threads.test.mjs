@@ -91,6 +91,19 @@ describe('EscalationStore ticket-thread bindings', () => {
     assert.equal(store.lastThreadForTicket('85'), 't-9')
   })
 
+  test('lastTicketForThread answers the same way round, released or not (#257)', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    store.bindTicketThread('147', 't-1')
+    assert.equal(store.lastTicketForThread('t-1'), '147')
+    store.releaseTicketThread('147', 'finished')
+    assert.equal(store.ticketForThread('t-1'), undefined, 'the live binding is gone')
+    assert.equal(store.lastTicketForThread('t-1'), '147', 'the thread is still curia\'s to settle')
+    const reborn = new EscalationStore(dir)
+    assert.equal(reborn.lastTicketForThread('t-1'), '147')
+    assert.equal(reborn.lastTicketForThread('t-never'), undefined, 'a thread curia never labeled')
+  })
+
   // #197. #140 keeps a binding through a cancel so a `resume` lands back in the
   // ticket's own history. A fresh dispatch typed in ANOTHER thread is not a
   // resume, and before this it was refused silently — the agent went on
@@ -214,13 +227,17 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     id, name, sent: [],
     send: async (text) => { sentTo.push({ id, text }) },
     setName: async () => {},
+    delete: async () => { deleted.push(id); threads.delete(id) },
   })
+
+  let threads, deleted
 
   beforeEach(() => {
     store = new EscalationStore(tmp())
     created = []
     sentTo = []
-    const threads = new Map()
+    deleted = []
+    threads = new Map()
     bridge = new DiscordBridge({
       token: 'x', allowedUsers: [], dataDir: tmp(),
       handlers: {}, log: () => {},
@@ -229,6 +246,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
         bind: (t, id) => store.bindTicketThread(t, id),
         release: (t, r) => store.releaseTicketThread(t, r),
         last: (t) => store.lastThreadForTicket(t),
+        ticketOf: (id) => store.ticketForThread(id),
+        lastTicketOf: (id) => store.lastTicketForThread(id),
       },
     })
     bridge.guild = { id: 'G' }
@@ -241,6 +260,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
           threads.set(t.id, t)
           return t
         },
+        fetchActive: async () => ({ threads: new Map(threads) }),
       },
     }
     bridge.client = { channels: { fetch: async (id) => threads.get(id) ?? null } }
@@ -520,6 +540,147 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     await bridge.releaseTicket('133', 'finished')
     assert.equal(bridge.renamer.desired('t-conv'), '✅ 133 · task',
       'the swap read the pending label, not the unlabeled shown name')
+  })
+
+  // ---- one live thread per ticket (#257) --------------------------------------
+  // Seven tickets in the history own more than one thread. Two causes: the lazy
+  // path opened a thread where the dispatch path would have gone back to the
+  // ticket's own, and two callers for one unbound ticket each opened one.
+
+  test('the lazy path goes back to the ticket\'s last thread instead of opening a second', async () => {
+    const old = makeThread('t-147', '✅ 147 · curia · task')
+    bridge.registerThread(old)
+    store.bindTicketThread('147', 't-147')
+    store.releaseTicketThread('147', 'finished')
+
+    const t = await bridge.ensureThread('147')
+    assert.equal(t.id, 't-147', 'the ticket speaks where its history is')
+    assert.equal(created.length, 0, 'no second thread')
+    assert.equal(store.threadForTicket('147'), 't-147', 'and it is bound again')
+  })
+
+  test('the lazy revive leaves the name alone — a late line adds no glyph back', async () => {
+    const old = makeThread('t-148', '✅ 148 · curia · grilling')
+    const renames = []
+    old.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(old)
+    store.bindTicketThread('148', 't-148')
+    store.releaseTicketThread('148', 'finished')
+
+    await bridge.ensureThread('148')
+    assert.deepEqual(renames, [], 'the ending stands, and the type field is not dropped')
+  })
+
+  test('a dispatch after a lazy revive still relabels — reopened work reads as open', async () => {
+    const old = makeThread('t-149', '✅ 149 · task')
+    const renames = []
+    old.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(old)
+    store.bindTicketThread('149', 't-149')
+    store.releaseTicketThread('149', 'finished')
+
+    await bridge.ensureThread('149')
+    const r = await bridge.bindTicket('149', { type: 'task' })
+    assert.equal(r.threadId, 't-149')
+    assert.deepEqual(renames, ['🎫 149 · task'])
+  })
+
+  test('three callers racing one unbound ticket open ONE thread (the 600 ms triple)', async () => {
+    const [a, b, c] = await Promise.all([
+      bridge.ensureThread('173'), bridge.ensureThread('173'), bridge.ensureThread('173'),
+    ])
+    assert.equal(created.length, 1, 'one create, not three')
+    assert.equal(a.id, b.id)
+    assert.equal(b.id, c.id)
+    assert.equal(store.threadForTicket('173'), a.id)
+  })
+
+  test('a dispatch and a lazy open racing one ticket share the thread too', async () => {
+    const [t, r] = await Promise.all([bridge.ensureThread('174'), bridge.bindTicket('174', { type: 'task' })])
+    assert.equal(created.length, 1)
+    assert.equal(r.ok, true)
+    assert.equal(r.threadId, t.id)
+  })
+
+  test('a create that loses the bind race deletes its twin rather than leaving it in the list', async () => {
+    const winner = makeThread('t-winner', '🎫 175')
+    bridge.registerThread(winner)
+    // a bind that lands between this path's read and its own bind — the shape a
+    // second daemon process or the REST seam can still produce
+    let first = true
+    const realBind = bridge.bindings.bind
+    bridge.bindings.bind = (ticket, id) => {
+      if (first) { first = false; store.bindTicketThread('175', 't-winner') }
+      return realBind(ticket, id)
+    }
+    const t = await bridge.ensureThread('175')
+    assert.equal(t.id, 't-winner', 'the winner carries the traffic')
+    assert.deepEqual(deleted, [created[0].id], 'the empty twin is gone')
+  })
+
+  // ---- the ending always leaves the name in its final state (#257) -------------
+
+  test('a second release settles the name the first one dropped', async () => {
+    const t = makeThread('t-81', '🔎 81 · curia · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('81', 't-81')
+    // the first release drops the binding without renaming — a thread fetch
+    // that failed, or a rename the budget deferred and the process then lost
+    const realFetch = bridge.client.channels.fetch
+    bridge.client.channels.fetch = async () => null
+    await bridge.releaseTicket('81', 'reconcile')
+    bridge.client.channels.fetch = realFetch
+    assert.deepEqual(renames, [], 'nothing landed, and the binding is gone')
+
+    await bridge.releaseTicket('81', 'finished')
+    assert.deepEqual(renames, ['✅ 81 · curia · task'], 'the ending gets its name after all')
+  })
+
+  test('a release never renames a thread another ticket has taken over', async () => {
+    const t = makeThread('t-shared', '🎫 300 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n) }
+    bridge.registerThread(t)
+    store.bindTicketThread('299', 't-shared')
+    store.releaseTicketThread('299', 'finished')
+    store.bindTicketThread('300', 't-shared') // the thread moved on
+
+    await bridge.releaseTicket('299', 'finished')
+    assert.deepEqual(renames, [], 'the name is 300\'s business now')
+  })
+
+  test('the boot pass settles a ✅ the last process owed but never sent', async () => {
+    const stuck = makeThread('t-stuck', '🔎 81 · curia · task')
+    const live = makeThread('t-live', '⏳ 82 · task')
+    const stranger = makeThread('t-stranger', '🎫 not a curia thread')
+    const done = makeThread('t-done3', '✅ 83 · task')
+    for (const t of [stuck, live, stranger, done]) {
+      bridge.registerThread(t)
+      t.setName = async (n) => { t.renamed = n }
+    }
+    store.bindTicketThread('81', 't-stuck')
+    store.releaseTicketThread('81', 'finished') // ended, rename lost with the process
+    store.bindTicketThread('82', 't-live') // still running
+    store.bindTicketThread('83', 't-done3')
+    store.releaseTicketThread('83', 'finished')
+
+    assert.equal(await bridge.settleEndedThreads(), 1)
+    assert.equal(stuck.renamed, '✅ 81 · curia · task', 'the ending finally reads as one')
+    assert.equal(live.renamed, undefined, 'a live ticket keeps its glyph')
+    assert.equal(stranger.renamed, undefined, 'a thread curia never labeled is not curia\'s to rename')
+    assert.equal(done.renamed, undefined, 'nothing to do')
+  })
+
+  test('the boot pass leaves a cancelled thread alone — #140 keeps its binding', async () => {
+    const cancelled = makeThread('t-dead', '⚰️ 84 · task')
+    bridge.registerThread(cancelled)
+    cancelled.setName = async (n) => { cancelled.renamed = n }
+    store.bindTicketThread('84', 't-dead')
+
+    assert.equal(await bridge.settleEndedThreads(), 0)
+    assert.equal(cancelled.renamed, undefined)
   })
 })
 
