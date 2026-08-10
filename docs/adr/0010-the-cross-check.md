@@ -44,3 +44,12 @@ The park is process-scoped and dies with the daemon. The reviewer record does no
 - A verdict that lands after the ticket resolved says TOO LATE in the thread instead of the neutral holding line. The pull-request comment still lands, and reopening is the operator's call.
 
 A verdict binds only the dispatch that earned it: one captured before the ticket's last claim does not shut a later agent's gate. A resume is not a cut, so the duty survives it.
+
+## Amendment: a pending cross-check parks the ending ([#258](https://github.com/alp82/curia/issues/258), 2026-08)
+
+#237 made the builder lose loudly. It did not stop it from losing. The operator can start a cross-check from the thread, and that press lands on a builder that is working. Nothing in that builder's context says a second model is reading. So the builder merges, it resolves, and curia refuses its `report_result` after the fact. Two more rules close the race, per [ADR-0013](0013-one-voice-per-fact.md):
+
+- **The start speaks.** The moment a reviewer spawns, curia queues a note at the builder. The note names the reviewer, says the verdict arrives as a message, and holds the ending until it lands. The gate press queues nothing. The builder there is already inside the call that carries the same words back.
+- **The ending parks.** `report_result` with a reviewer in flight parks exactly as `request_review` parks. The verdict lands on the parked call, the builder wakes, judges it, and then ends. The refusal stays as the belt for a caller that reaches `onResult` directly. The unjudged-verdict refusal does not change: nothing is left to wait for there, only a duty to do.
+
+The park is the control, and the note is the reach. `gh pr merge` and `gh issue close` run in the agent's own shell, where curia holds no wire. The note is the only thing that can hold those two, so it says that in plain words rather than promise a park it cannot give. The carrier rule on [#252](https://github.com/alp82/curia/issues/252) stays as the net for a cross-check started after the builder is gone.

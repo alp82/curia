@@ -220,7 +220,13 @@ export class StatusLine {
       // #165: the builder's own line while a second agent reads its diff. The
       // reviewer draws its own line beside it, off its `agent_spawned`.
       case 'cross_check_requested':
-        return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts })
+        return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts, on: 'gate' })
+      // #258: the same idle, entered from the other end — the builder tried to
+      // report a result and parked on the verdict instead. Where it parked is
+      // where it wakes, so the line says which. `cross_check_returned` takes both
+      // back to working.
+      case 'result_parked':
+        return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts, on: 'ending' })
       case 'cross_check_returned':
         return this.#set(ev.agent, ev.ticket, 'working', {})
       case 'esc_cancel':
@@ -252,7 +258,9 @@ export class StatusLine {
         // The turn ended parked (#47) — the line keeps naming whom it waits on.
         // Live, this repeats what esc_open already drew; after a restart it is
         // the only event that redraws a parked line before the next nudge.
-        if (ev.cross_check) return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts })
+        // The redraw carries no entry point of its own, so it keeps the one the
+        // park drew (#258) rather than guessing the gate.
+        if (ev.cross_check) return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts, on: this.agents.get(ev.agent)?.detail?.on })
         const recs = (ev.escalations ?? []).map((id) => this.get(id)).filter(Boolean)
         const r = recs.find((x) => x.kind === REVIEW_KIND) ?? recs[0]
         if (!r) return
@@ -314,7 +322,7 @@ export class StatusLine {
       }
       case 'cross-checking': {
         const waited = elapsedLabel(detail.at, this.now())
-        return `⏸️ \`${session}\`${GROUP_SEP}idle at the gate — a cross-check is reading its diff${waited ? ` — ${waited}` : ''}`
+        return `⏸️ \`${session}\`${GROUP_SEP}idle at ${detail.on === 'ending' ? 'its ending' : 'the gate'} — a cross-check is reading its diff${waited ? ` — ${waited}` : ''}`
       }
       case 'executing':
         return `🚀 \`${session}\`${GROUP_SEP}executing approved writes`

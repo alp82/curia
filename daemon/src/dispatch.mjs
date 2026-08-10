@@ -49,7 +49,7 @@ import {
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
-import { CONFIRM_KIND, VERDICT_LABEL, normalizeEvent } from './store.mjs'
+import { CONFIRM_KIND, CROSS_CHECK_LABEL, VERDICT_LABEL, normalizeEvent } from './store.mjs'
 import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
@@ -1208,7 +1208,12 @@ export class Dispatcher {
   // still alive: a cross-check adds a second agent, it does not replace the
   // first. Both count against `max_concurrent`, which is the cost ADR-0010
   // names.
-  async crossCheck(n, { repo, model, by } = {}) {
+  // `tellBuilder` is #258: a cross-check the operator starts from the command
+  // seam lands on a builder that is WORKING, and nothing in its context says a
+  // second model is reading. The notice is what says it. The gate press passes
+  // `false`, because the builder there is about to park inside the very call
+  // that would carry the notice — one fact, one voice (ADR-0013).
+  async crossCheck(n, { repo, model, by, tellBuilder = true } = {}) {
     const ticket = String(n)
     const session = reviewSessionFor(ticket)
     const builderSession = `curia-${ticket}`
@@ -1273,7 +1278,7 @@ export class Dispatcher {
       }
       return await this.#spawnReviewer({
         session, ticket, repo: theRepo, issue, model: useModel, builderModel,
-        harnessName, sameProvider, by,
+        harnessName, sameProvider, by, tellBuilder,
       })
     } finally {
       this.inFlight.delete(session)
@@ -1300,7 +1305,7 @@ export class Dispatcher {
   // inside one try — a failure here removes the checkout and the config dir it
   // made and leaves the builder untouched, because the cross-check owns nothing
   // the ticket depends on.
-  async #spawnReviewer({ session, ticket, repo, issue, model, builderModel, harnessName, sameProvider, by }) {
+  async #spawnReviewer({ session, ticket, repo, issue, model, builderModel, harnessName, sameProvider, by, tellBuilder = true }) {
     const cfgDir = cfgDirFor(this.root, session)
     let checkout = null
     try {
@@ -1357,6 +1362,7 @@ export class Dispatcher {
       }
       this.agents.set(session, agent)
       this.#watchdog(agent).catch((e) => this.log(`watchdog ${session} failed:`, e.message))
+      if (tellBuilder) this.#tellBuilderOfCrossCheck(ticket, session)
       const named = spawnModelId(this.routing, model)
       const note = sameProvider ? ` — **${SAME_PROVIDER_STAMP}**, so this is the weaker check` : ''
       return `🔎 cross-checking ${repo}#${ticket} → \`${session}\` on **${named}**${note} — it reads \`${checkout.sha.slice(0, 12)}\` and writes nothing`
@@ -1368,6 +1374,42 @@ export class Dispatcher {
       this.store.logEvent('reviewer_spawn_failed', { repo, ticket, agent: session, error: e.message })
       return `⚠️ the cross-check of ${repo}#${ticket} could not start: ${e.message} — the builder is untouched`
     }
+  }
+
+  // The notice the builder gets the moment a reviewer starts on its diff (#258).
+  //
+  // #223 died of a builder that never knew: the operator started the cross-check
+  // from the command seam, the builder was working, and it merged, resolved and
+  // reported while the reviewer was still reading. The park closes the race for
+  // every call curia holds the wire on; this closes the half curia does not hold.
+  // `gh pr merge` and `gh issue close` run in the agent's own shell, and the only
+  // way into a running agent is its next tool result.
+  //
+  // Queued, never injected. #252 gives the interrupt to the OPERATOR, behind a
+  // button, because Escape aborts whatever the agent is doing — and the thing it
+  // would abort here is often the merge this notice exists to stop half-way
+  // through. A queued note is what the ticket asks for: the verdict arrives as a
+  // message, and so does its warning.
+  #tellBuilderOfCrossCheck(ticket, reviewer) {
+    const builder = `curia-${ticket}`
+    const w = this.agents.get(builder)
+    // No builder, no reader. The verdict's own carrier (#252) is the net for
+    // that case, and it states the whole verdict rather than a warning about one.
+    if (!w) {
+      this.store.logEvent('cross_check_unannounced', { ticket, agent: builder, reason: 'no builder is running' })
+      return false
+    }
+    this.store.queueAgentNote?.(builder, [
+      `\`${reviewer}\` is reading your diff on #${ticket} right now. The operator started a cross-check.`,
+      'Its verdict comes to you as a message on a later tool result, and judging it is your duty.',
+      '',
+      'Until it lands: do not resolve the ticket, do not merge the pull request, and do not call',
+      '`report_result`. `report_result` and `request_review` park until the verdict arrives, so neither',
+      'call is a way past this. The resolve and the merge are `gh` commands in your own shell, and you',
+      'are the only one who can hold those.',
+    ].join('\n'), { instance: w.instance ?? null, label: CROSS_CHECK_LABEL })
+    this.store.logEvent('cross_check_announced', { ticket, agent: builder, reviewer })
+    return true
   }
 
   // Is this agent the cross-check reviewer? The NAME is the authority, not the
@@ -2279,7 +2321,10 @@ export class Dispatcher {
     // the builder untouched. What decides here is the RECORD, not that line: a
     // reviewer in the agents map is the thing that can produce a verdict, and
     // parking on anything less would park on a sentence.
-    const spawned = await this.crossCheck(ticket, { repo, by: 'review gate' })
+    // #258: no start notice on this path. The builder is inside the call that
+    // would carry it, and the park text below says the same thing at the moment
+    // the call returns — a queued notice would only ride out beside the verdict.
+    const spawned = await this.crossCheck(ticket, { repo, by: 'review gate', tellBuilder: false })
     if (!this.agents.has(reviewSessionFor(ticket))) {
       if (w) w.state = 'ready'
       this.store.logEvent('cross_check_returned', { repo, ticket, agent: agentName, ok: false, why: 'not spawned' })
@@ -2342,14 +2387,17 @@ export class Dispatcher {
     }
   }
 
-  // Park the builder until this ticket's verdict lands. One waiter per ticket:
-  // a second press cannot exist while the first is parked, because the builder
-  // that would press is the one inside this call.
-  #awaitVerdict(ticket, agentName) {
+  // Park the builder until this ticket's verdict lands. ONE waiter per ticket,
+  // and the newest call owns it: `#endReviewWait` settles exactly one waiter, so
+  // a second one left in the map would be a builder parked forever on a reviewer
+  // that is already gone. #258 gives `report_result` the same park, which is
+  // what makes a replacement possible at all — a gate park the client aborted
+  // leaves a promise nobody reads, and the ending call takes the wait from it.
+  #awaitVerdict(ticket, agentName, on = 'gate') {
     const key = String(ticket)
-    this.#endReviewWait(key, 'a newer cross-check replaced it')
+    this.#endReviewWait(key, 'the builder is now waiting on a newer call')
     return new Promise((resolve) => {
-      this.reviewWaits.set(key, { agent: agentName, resolve })
+      this.reviewWaits.set(key, { agent: agentName, on, resolve })
     })
   }
 
@@ -2414,6 +2462,51 @@ export class Dispatcher {
     return spawned >= 0 && resolved > spawned
   }
 
+  // The PARK a builder's `report_result` earns while its cross-check is still
+  // reading (#258). It runs at the wire, ahead of everything `resultRefusal`
+  // guards, and it is the same control `request_review` has had since #165.
+  //
+  // #237 made this a refusal, and a refusal is a sentence the model reads and
+  // then decides about. The park is not: the call stays open, the builder holds
+  // its claim, its worktree and its context for nearly nothing (ADR-0005), and
+  // the verdict lands ON this call. So the agent that tried to end the ticket is
+  // the one that judges the verdict, which is what ADR-0010 asks for and what
+  // #223 never got.
+  //
+  // Returns the text to hand back, or null to let the ending run on. Null is the
+  // honest answer when the cross-check produced NO verdict: the reviewer died,
+  // there is nothing to judge, and holding the builder any longer would punish
+  // it for the operator's press.
+  async endingHold(agentName) {
+    if (this.#isReviewer(agentName)) return null
+    const ticket = String(this.agents.get(agentName)?.ticket ?? String(agentName).match(SESSION_RE)?.[1] ?? '')
+    if (!ticket) return null
+    if (this.#epochCharting(ticket, agentName).charting) return null
+    if (!this.#crossCheckInFlight(ticket)) return null
+
+    const w = this.agents.get(agentName)
+    const wasState = w?.state ?? null
+    if (w) w.state = 'cross-checking'
+    this.store.logEvent('result_parked', { repo: w?.repo, ticket, agent: agentName, reason: 'cross-check in flight' })
+    this.notify(ticket, `⏸️ \`${agentName}\` tried to end #${ticket} while \`${reviewSessionFor(ticket)}\` is still reading its diff — parked until the verdict lands, and nothing was recorded`)
+    const out = await this.#awaitVerdict(ticket, agentName, 'ending')
+    if (w) w.state = wasState ?? 'ready'
+    this.store.logEvent('cross_check_returned', {
+      repo: w?.repo, ticket, agent: agentName, ok: out.ok, why: out.why ?? null, on: 'report_result',
+    })
+    if (!out.ok) return null
+    // The verdict is not in this text. It is on the note queue, and the drain
+    // appends it to this very tool result — the same shape the gate's park
+    // returns, for the same reason: duty and findings in one turn.
+    return [
+      `HELD — \`${out.verdict.agent}\` read your diff on **${spawnModelId(this.routing, out.verdict.model ?? '')}**`,
+      'while this call waited, so nothing was recorded and nothing was resolved. Its verdict rides in',
+      'this same tool result as a note. Read it, then:',
+      '',
+      ...dutyLines(),
+    ].join('\n')
+  }
+
   // The refusal a builder's `report_result` earns while its cross-check is
   // unfinished (#237). The operator ruled the shape: after a verdict is
   // captured, the builder's next act toward the operator is its judgement, and
@@ -2421,6 +2514,11 @@ export class Dispatcher {
   // the wire, BEFORE the result is journalled or written to disk — a results
   // file on disk reads as `hasResult` everywhere, and a refused result must
   // not leave that trace.
+  //
+  // #258 puts `endingHold` in front of it, so on the wire the in-flight case
+  // parks rather than refuses. This stays the BELT: every caller that reaches
+  // `onResult` directly passes here, and a refusal is the only answer a
+  // synchronous belt can give.
   resultRefusal(agentName) {
     if (this.#isReviewer(agentName)) return null
     const ticket = String(this.agents.get(agentName)?.ticket ?? String(agentName).match(SESSION_RE)?.[1] ?? '')
@@ -2430,8 +2528,9 @@ export class Dispatcher {
       this.store.logEvent('result_refused', { ticket, agent: agentName, reason: 'cross-check in flight' })
       return [
         `❌ report_result refused — \`${reviewSessionFor(ticket)}\` is still reading your diff, and a ticket`,
-        'cannot end around its own cross-check. Call `request_review`: it parks you until the verdict',
-        'lands, and hands you the findings to judge. Nothing was recorded and nothing was resolved.',
+        'cannot end around its own cross-check. Call `report_result` again, or `request_review`: both park',
+        'you until the verdict lands and hand you the findings to judge. Nothing was recorded and nothing',
+        'was resolved.',
       ].join('\n')
     }
     if (this.#liveUnjudgedVerdict(ticket)) {
@@ -3629,7 +3728,11 @@ export class Dispatcher {
   announceExpiredNotes({ agent, notes, liveInstance, why }) {
     const ticket = this.agents.get(agent)?.ticket ?? String(agent).match(SESSION_RE)?.[1] ?? String(agent)
     const verdicts = notes.filter((n) => n.label === VERDICT_LABEL)
-    const plain = notes.length - verdicts.length
+    // #258: a cross-check START notice that dies gets no line of its own. It
+    // says one thing — do not end while the reviewer reads — and an agent it
+    // failed to reach has already ended. The fact the operator needs then is the
+    // VERDICT's, and the carrier below states that one in full.
+    const plain = notes.filter((n) => n.label !== VERDICT_LABEL && n.label !== CROSS_CHECK_LABEL).length
     this.log(`${notes.length} note(s) for ${agent} expired — ${why}`)
     if (plain) {
       const again = liveInstance

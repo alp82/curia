@@ -417,7 +417,9 @@ describe('the verdict\'s way back (#165)', () => {
     await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: pass' })
 
     assert.equal(comments.filter((c) => /Cross-check verdict/.test(c.body)).length, 1)
-    assert.deepEqual(notes, [], 'nothing is queued for an agent that is not there')
+    // The start notice (#258) reached the builder while it was still there; the
+    // VERDICT is what must not queue at an agent that has since gone.
+    assert.deepEqual(notes.filter((n) => n.label === 'cross-check verdict'), [], 'nothing is queued for an agent that is not there')
     assert.ok(typesOf().includes('verdict_undelivered'))
     assert.match(notifies.map((n) => n.message).join('\n'), /resume 42/)
   })
@@ -633,6 +635,14 @@ describe('the builder\'s duty, in its standing orders (#165)', () => {
     assert.match(p, /approve-or-reject about the final code/)
     assert.match(p, /Never open a fault/)
     assert.match(p, /curia posts the verdict and your/)
+  })
+
+  test('it says the ending waits for a cross-check the operator starts from the thread (#258)', () => {
+    const p = write({ mapNumber: 1 })
+    assert.match(p, /start a cross-check from the thread/)
+    assert.match(p, /do not resolve the ticket, do not merge the pull request/)
+    assert.match(p, /park until the verdict arrives/)
+    assert.match(p, /`gh` commands in your own shell/, 'the two acts curia holds no wire on')
   })
 
   test('a charting agent is told none of it — it has no gate to press a button on', () => {
@@ -887,5 +897,149 @@ describe('a verdict that lost the race says so (#237)', () => {
 
     assert.match(notifies.map((n) => n.message).join('\n'), /curia is holding it/)
     assert.ok(!typesOf().includes('verdict_late'))
+  })
+})
+
+// ---- 6. the race the park closes (#258) --------------------------------------
+//
+// #237 made the builder lose loudly; it did not stop it from losing. A
+// cross-check started from the command seam lands on a builder that is WORKING,
+// and #223 is what that costs: merge, resolve and report all ran while the
+// reviewer read. Two halves close it — the start speaks, and the ending parks.
+
+describe('the start of a cross-check speaks to the builder (#258)', () => {
+  test('a press from the command seam queues the notice at the builder', async () => {
+    const d = makeDispatcher()
+    const w = withBuilder(d)
+
+    const reply = await d.crossCheck('42', { by: 'test' })
+
+    assert.match(reply, /cross-checking o\/r#42/)
+    const said = notes.at(-1)
+    assert.equal(said.agent, 'curia-42')
+    assert.equal(said.label, 'cross-check started')
+    assert.equal(said.instance, w.instance, 'the words are for THIS builder (#208)')
+    assert.match(said.text, /`curia-review-42` is reading your diff/)
+    assert.match(said.text, /do not resolve the ticket, do not merge the pull request/)
+    assert.match(said.text, /park until the verdict arrives/)
+    assert.match(said.text, /`gh` commands in your own shell/, 'the two acts curia holds no wire on')
+    assert.equal(events.find((e) => e.type === 'cross_check_announced').reviewer, 'curia-review-42')
+  })
+
+  test('the gate press queues nothing — the park says it on the call itself', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+
+    const { gate } = await pressAndPark(d)
+
+    assert.equal(notes.length, 0, 'a notice here would ride out beside the verdict')
+    assert.ok(!typesOf().includes('cross_check_announced'))
+    await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: pass' })
+    const r = await gate
+    assert.match(r.text, /rides in this same tool result as a note/)
+    assert.equal(notes.length, 1, 'the verdict is the one thing that reached it')
+  })
+
+  test('no builder to reach, so nothing queues and the journal says why', async () => {
+    const d = makeDispatcher()
+    d.store.logEvent('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'opus', kind: 'ticket' })
+
+    await d.crossCheck('42', { repo: 'o/r' })
+
+    assert.equal(notes.length, 0)
+    assert.equal(events.find((e) => e.type === 'cross_check_unannounced').reason, 'no builder is running')
+  })
+
+  test('a start notice that dies gets no operator-note line of its own', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+
+    d.announceExpiredNotes({
+      agent: 'curia-42',
+      notes: [{ label: 'cross-check started', text: 'a reviewer is reading' }],
+      liveInstance: null,
+      why: 'is gone',
+    })
+
+    assert.equal(notifies.length, 0, 'the verdict carrier is the fact worth a line, not its warning')
+  })
+})
+
+describe('a pending cross-check parks the ending (#258)', () => {
+  test('report_result parks, and the verdict lands on that call', async () => {
+    const d = makeDispatcher()
+    const w = withBuilder(d)
+    withAdoptedReviewer(d)
+
+    const held = d.endingHold('curia-42')
+    await waitFor(() => d.reviewWaits.has('42'))
+    assert.equal(w.state, 'cross-checking')
+    assert.match(notifies.map((n) => n.message).join('\n'), /parked until the verdict lands/)
+
+    await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: fail\n- b.mjs:2 wrong' })
+    const text = await held
+
+    assert.match(text, /^HELD/)
+    assert.match(text, /rides in\nthis same tool result as a note/)
+    assert.match(text, /Judge every finding/)
+    assert.equal(notes.at(-1).agent, 'curia-42', 'the verdict reached the builder that tried to end')
+    assert.equal(notes.at(-1).label, 'cross-check verdict')
+    assert.equal(events.find((e) => e.type === 'result_parked').reason, 'cross-check in flight')
+    assert.equal(events.findLast((e) => e.type === 'cross_check_returned').on, 'report_result')
+    assert.ok(!w.resultReceived, 'a held result must not read as hasResult')
+    assert.ok(!typesOf().includes('ticket_resolved'), 'nothing on the tracker moved')
+  })
+
+  test('a cross-check that ends with no verdict releases the ending', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    withAdoptedReviewer(d)
+
+    const held = d.endingHold('curia-42')
+    await waitFor(() => d.reviewWaits.has('42'))
+    await d.onAgentDone('curia-review-42')
+
+    assert.equal(await held, null, 'there is nothing to judge, so the builder is not punished for the press')
+    assert.equal(events.findLast((e) => e.type === 'cross_check_returned').ok, false)
+  })
+
+  test('no cross-check, no hold — the ordinary ending is untouched', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+
+    assert.equal(await d.endingHold('curia-42'), null)
+    assert.equal(notifies.length, 0)
+  })
+
+  test('an unjudged verdict still refuses rather than parking — nothing is coming', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    plantVerdict()
+
+    assert.equal(await d.endingHold('curia-42'), null, 'the hold waits for a reviewer, and none is reading')
+    assert.match(d.resultRefusal('curia-42'), /UNJUDGED/)
+  })
+
+  test('the reviewer\'s own ending is never held', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    withAdoptedReviewer(d)
+
+    assert.equal(await d.endingHold('curia-review-42'), null)
+  })
+
+  test('a parked ending reads as idle at the turn end, never as gone', async () => {
+    const d = makeDispatcher({ hasSession: async () => true })
+    withBuilder(d)
+    withAdoptedReviewer(d)
+
+    const held = d.endingHold('curia-42')
+    await waitFor(() => d.reviewWaits.has('42'))
+    await d.onAgentDone('curia-42')
+
+    assert.ok(events.some((e) => e.type === 'agent_blocked_on_human' && e.cross_check === true))
+    assert.ok(!typesOf().includes('agent_finished'), 'a parked builder is not a finished one')
+    await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: pass' })
+    await held
   })
 })

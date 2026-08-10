@@ -268,7 +268,9 @@ export function outstanding(state) {
   if (state.unjudgedVerdict) {
     items.unshift('judge the cross-check verdict finding by finding, then put one summary with a recommendation to the operator with `ask_human` — the verdict is on the pull request if you no longer hold it')
   } else if (state.crossCheckInFlight) {
-    items.unshift('a cross-check is still reading your diff — call `request_review`, which parks you until the verdict lands')
+    // #258: `report_result` parks now too, and a builder that has already
+    // merged and resolved must not be sent back to a gate it has passed.
+    items.unshift('a cross-check is still reading your diff — call `request_review`, or `report_result` if you are at the end. Both park you until the verdict lands.')
   }
   return items
 }

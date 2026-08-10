@@ -1390,6 +1390,13 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '',
     ...dutyLines(),
     '',
+    'The operator can also start a cross-check from the thread, at any moment. Then the news reaches you',
+    'as a message on a tool result: a reviewer is reading your diff, and the verdict follows the same way.',
+    'Until it lands, do not resolve the ticket, do not merge the pull request, and do not call',
+    '`report_result`. `report_result` and `request_review` park until the verdict arrives, so neither call',
+    'is a way past this. The resolve and the merge are `gh` commands in your own shell, and you are the',
+    'only one who can hold those. Judge the verdict first, then end.',
+    '',
     'The reviewer never gets a reply and never reads the same diff twice. curia posts the verdict and your',
     'question on the pull request by itself, so you post neither.',
   ]
