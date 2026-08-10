@@ -226,6 +226,35 @@ export function verdictNote({ agent, model, verdict }) {
   ].join('\n')
 }
 
+// The verdict as the THREAD reads it when no agent is left to read it (#252,
+// ADR-0013). A whole reviewer session's output is not a thing to mourn in one
+// line: on #223 a four-finding `fail` verdict expired nine seconds after it was
+// written and the thread showed nothing, so the loss was total and silent.
+//
+// Attribution first, because the thread is now the verdict's only reader and it
+// must not read as curia's own opinion: who wrote it, what model, what it found,
+// and where the full text lives. The pull-request comment is that full text and
+// it is posted first on every path, so the link here always resolves — when
+// curia has one. It is wrapped in <> so Discord renders no embed (#89): the
+// findings above it are what a reader came for.
+//
+// This one is a MESSAGE, unlike its two neighbours, and it lives beside them
+// anyway: verdictComment, verdictNote and this are the three renderings of one
+// verdict, and one thing is easier to keep true in one place.
+export function verdictCarrier({ agent, model, verdict, ticket, url, why }) {
+  return [
+    `📭 the cross-check verdict on #${ticket} has no live reader — ${why}. It is posted here in full rather than lost.`,
+    '',
+    `\`${agent ?? '?'}\` on \`${model ?? '?'}\` read the diff and returned this:`,
+    '',
+    String(verdict ?? '').trim() || '(the reviewer said nothing)',
+    '',
+    url
+      ? `The full text is on the pull request: <${url}>. \`resume ${ticket}\` puts an agent back on the ticket to act on it.`
+      : `curia could NOT put this on a pull request, so this message is the only copy. \`resume ${ticket}\` puts an agent back on the ticket to act on it.`,
+  ].join('\n')
+}
+
 export function prLinkComment({ branch, commits, url, state }) {
   return machine([
     `🔗 curia pushed \`${branch}\` (${commits} commit${commits === 1 ? '' : 's'}) and ${state === 'updated' ? 'updated' : 'opened'} ${url}`,

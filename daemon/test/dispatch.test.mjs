@@ -119,11 +119,22 @@ function makeDispatcher(deps = {}, {
     // #208, the real EscalationStore predicate: a note stamped with an
     // instance dies when that instance is no longer the live one. An
     // unstamped note is session-keyed and stays (the #139 hand-off).
-    expireAgentNotes: (agent, live = null) => {
+    // #252 moved the ANNOUNCEMENT behind the hook the real store fires here,
+    // so the double fires it too — the count in the thread comes from it now.
+    expireAgentNotes: (agent, live = null, why = 'is gone') => {
       const arr = agentNotes.get(agent) ?? []
       const keep = arr.filter((n) => !n.instance || n.instance === live)
+      const stale = arr.filter((n) => n.instance && n.instance !== live)
       agentNotes.set(agent, keep)
-      return arr.length - keep.length
+      if (stale.length) store.onNotesExpired?.({ agent, notes: stale, liveInstance: live, why })
+      return stale
+    },
+    // #252: the note-by-id half the interrupt button reads.
+    noteById: (id) => [...agentNotes.values()].flat().find((n) => n.id === id) ?? null,
+    interruptAgentNote: (id) => {
+      const note = [...agentNotes.values()].flat().find((n) => n.id === id) ?? null
+      if (note) agentNotes.set(note.agent, (agentNotes.get(note.agent) ?? []).filter((n) => n.id !== id))
+      return note
     },
   }
   const base = {
@@ -199,6 +210,9 @@ function makeDispatcher(deps = {}, {
   // the timeline. Reconcile refuses to publish the terminal surface while the
   // proxy is down, so the default here is up — the down case gets its own test.
   d.identityProxy = identityProxy
+  // #252: index.mjs wires the store's expiry hook to the dispatcher's one
+  // announcer, so every expiry — exit, adoption, drain — says so exactly once.
+  store.onNotesExpired = (ev) => d.announceExpiredNotes(ev)
   dispatchers.push(d)
   return d
 }
@@ -1379,6 +1393,210 @@ describe('operator notes die with the instance they were typed at (#208)', () =>
     const line = notifies.find((n) => /operator note/.test(n.message))
     // this agent IS running, so the way out is the thread, not a resume
     assert.match(line.message, /Say them again in this thread/)
+  })
+})
+
+// #252, ADR-0013: the second delivery mode. Queued is the default and owes no
+// reply; the operator picks interrupt by pressing the button under the receipt,
+// and the words then go into the pane as a user turn. The agent's own reply is
+// the outcome, so nothing here composes one.
+describe('a note interrupts instead of queueing (#252)', () => {
+  const liveAgent = (instance = 'curia-42@1') => ({
+    repo: 'o/r', ticket: '42', session: 'curia-42', instance,
+    wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready',
+  })
+  const queued = (id, instance = 'curia-42@1') => ({
+    id, agent: 'curia-42', text: 'whats taking so long', instance, label: null, pending: true,
+  })
+
+  // The keystrokes the pane would see, in order.
+  const keyed = () => {
+    const typed = []
+    const d = makeDispatcher({
+      sendKey: async (session, key) => typed.push({ session, key }),
+      sendText: async (session, text) => typed.push({ session, text }),
+    })
+    d.interruptGraceMs = 0
+    return { d, typed }
+  }
+
+  test('Escape first, then the words as a user turn', async () => {
+    const { d, typed } = keyed()
+    d.agents.set('curia-42', liveAgent())
+    agentNotes.set('curia-42', [queued('note-1')])
+
+    const res = await d.interruptNote('note-1', { by: 'u1' })
+    await new Promise((r) => setTimeout(r, 5))
+
+    assert.equal(res.ok, true)
+    assert.equal(typed[0].key, 'Escape', 'the grace is over, so the current tool call is aborted')
+    assert.match(typed[1].text, /whats taking so long/)
+    assert.match(typed[1].text, /interrupting from the thread/, 'the agent must know a human typed this')
+    assert.match(typed[1].text, /`notify` tool/, 'the pane is not a surface the operator reads')
+    assert.ok(typesOf().includes('note_interrupt_delivered'))
+  })
+
+  // A composer reads a newline as a submit, so a two-line send starts a turn on
+  // the first half and leaves the rest in the box.
+  test('the pane gets ONE line, whatever the operator typed', async () => {
+    const { d, typed } = keyed()
+    d.agents.set('curia-42', liveAgent())
+    agentNotes.set('curia-42', [{ ...queued('note-1'), text: 'stop\n\nand check #118 first' }])
+
+    await d.interruptNote('note-1', { by: 'u1' })
+    await new Promise((r) => setTimeout(r, 5))
+
+    assert.ok(!typed[1].text.includes('\n'), 'a newline mid-send is a half-sent message')
+    assert.match(typed[1].text, /stop and check #118 first/)
+  })
+
+  test('the words leave the queue, so no tool result carries them too', async () => {
+    const { d } = keyed()
+    d.agents.set('curia-42', liveAgent())
+    agentNotes.set('curia-42', [queued('note-1'), queued('note-2')])
+
+    await d.interruptNote('note-1', { by: 'u1' })
+
+    assert.deepEqual(agentNotes.get('curia-42').map((n) => n.id), ['note-2'])
+  })
+
+  test('a dead agent refuses, and nothing is typed anywhere', async () => {
+    const { d, typed } = keyed()
+    agentNotes.set('curia-42', [queued('note-1')])
+
+    const res = await d.interruptNote('note-1', { by: 'u1' })
+    await new Promise((r) => setTimeout(r, 5))
+
+    assert.equal(res.ok, false)
+    assert.match(res.why, /NOT running/)
+    assert.match(res.why, /resume 42/)
+    assert.deepEqual(typed, [])
+  })
+
+  test('words typed at an earlier instance refuse — a note dies with its agent (#208)', async () => {
+    const { d, typed } = keyed()
+    d.agents.set('curia-42', liveAgent('curia-42@2'))
+    agentNotes.set('curia-42', [queued('note-1', 'curia-42@1')])
+
+    const res = await d.interruptNote('note-1', { by: 'u1' })
+
+    assert.equal(res.ok, false)
+    assert.match(res.why, /earlier/)
+    assert.deepEqual(typed, [])
+  })
+
+  // The refusal that matters most: the agent is blocked INSIDE ask_human, so
+  // the Escape would abort the very tool call that is asking the question.
+  test('an open escalation refuses, and names the question to answer instead', async () => {
+    const { d, typed } = keyed()
+    d.agents.set('curia-42', liveAgent())
+    agentNotes.set('curia-42', [queued('note-1')])
+    escalations.push({ id: 'esc-3', agent: 'curia-42', ticket: '42', status: 'open', kind: 'free-text' })
+
+    const res = await d.interruptNote('note-1', { by: 'u1' })
+    await new Promise((r) => setTimeout(r, 5))
+
+    assert.equal(res.ok, false)
+    assert.match(res.why, /esc-3/)
+    assert.deepEqual(typed, [], 'an interrupt here would abort the call that is asking')
+  })
+
+  test('an id that names nothing refuses rather than guessing at a note', async () => {
+    const { d } = keyed()
+    assert.equal((await d.interruptNote('note-404', { by: 'u1' })).ok, false)
+  })
+
+  test('an agent that exits during the grace loses the words, and the thread is told', async () => {
+    const typed = []
+    const d = makeDispatcher({
+      sendKey: async () => typed.push('key'),
+      sendText: async () => typed.push('text'),
+    })
+    d.interruptGraceMs = 5
+    d.agents.set('curia-42', liveAgent())
+    agentNotes.set('curia-42', [queued('note-1')])
+
+    await d.interruptNote('note-1', { by: 'u1' })
+    d.agents.delete('curia-42')
+    await new Promise((r) => setTimeout(r, 25))
+
+    assert.deepEqual(typed, [], 'a dead session names no pane')
+    assert.match(notifies.at(-1).message, /reached nobody/)
+    assert.match(notifies.at(-1).message, /whats taking so long/, 'the words are quoted back — nobody else holds them')
+  })
+
+  test('a send that fails says so, rather than leaving the operator to assume delivery', async () => {
+    const d = makeDispatcher({
+      sendKey: async () => {},
+      sendText: async () => { throw new Error('no server running') },
+    })
+    d.interruptGraceMs = 0
+    d.agents.set('curia-42', liveAgent())
+    agentNotes.set('curia-42', [queued('note-1')])
+
+    await d.interruptNote('note-1', { by: 'u1' })
+    await new Promise((r) => setTimeout(r, 10))
+
+    assert.match(notifies.at(-1).message, /could not put those words/)
+    assert.ok(typesOf().includes('note_interrupt_failed'))
+  })
+})
+
+// #252, ADR-0013: an ordinary note that dies gets one line with the count. A
+// cross-check verdict that dies gets its whole content — it is the output of a
+// whole reviewer session, and nobody can say it again.
+describe('an expiring verdict is posted in full, never mourned (#252)', () => {
+  const agentAt = (instance) => ({
+    repo: 'o/r', ticket: '42', session: 'curia-42', instance,
+    wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready', resultReceived: false,
+  })
+
+  test('the verdict content reaches the thread when the builder dies unread', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.agents.set('curia-42', agentAt('curia-42@1'))
+    d.verdicts.set('42', {
+      ticket: '42', agent: 'curia-review-42', model: 'gpt-5',
+      verdict: 'VERDICT: fail\n1. the drain path races the exit', pr_url: 'https://github.com/o/r/pull/7',
+    })
+    agentNotes.set('curia-42', [{
+      agent: 'curia-42', text: 'a verdict note', instance: 'curia-42@1', label: 'cross-check verdict',
+    }])
+
+    await d.onAgentDone('curia-42')
+
+    const carried = notifies.map((n) => n.message).find((m) => /has no live reader/.test(m))
+    assert.ok(carried, 'a whole reviewer session\'s output must not die as a count')
+    assert.match(carried, /the drain path races the exit/)
+    assert.match(carried, /curia-review-42/)
+    assert.match(carried, /pull\/7/)
+    assert.ok(typesOf().includes('verdict_carried'))
+  })
+
+  test('an ordinary note beside it still gets the count, and only the count', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.agents.set('curia-42', agentAt('curia-42@1'))
+    agentNotes.set('curia-42', [
+      { agent: 'curia-42', text: 'cancel 42', instance: 'curia-42@1', label: null },
+      { agent: 'curia-42', text: 'a verdict note', instance: 'curia-42@1', label: 'cross-check verdict' },
+    ])
+
+    await d.onAgentDone('curia-42')
+
+    const line = notifies.map((n) => n.message).find((m) => /operator note/.test(m))
+    assert.match(line, /1 operator note it never read/, 'the verdict is not counted as one of them')
+    assert.ok(!line.includes('cancel 42'), 'the count, never the words')
+  })
+
+  test('with no artifact left, the note text itself is what gets carried', async () => {
+    const d = makeDispatcher({ hasSession: async () => false })
+    d.agents.set('curia-42', agentAt('curia-42@1'))
+    agentNotes.set('curia-42', [{
+      agent: 'curia-42', text: 'VERDICT: fail — the only copy left', instance: 'curia-42@1', label: 'cross-check verdict',
+    }])
+
+    await d.onAgentDone('curia-42')
+
+    assert.match(notifies.map((n) => n.message).join('\n'), /the only copy left/)
   })
 })
 

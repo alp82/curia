@@ -76,7 +76,14 @@ export function noteDisposition(agent) {
 }
 
 // The events lastAgentEvent must not count (#236) — see _apply.
-const NOTE_EVENTS = new Set(['agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused'])
+const NOTE_EVENTS = new Set([
+  'agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused', 'agent_note_interrupted',
+])
+
+// The label a cross-check verdict rides under on the note queue (#165). It is
+// the one label the expiry path treats differently: an ordinary note that dies
+// gets a line, a verdict that dies gets its whole content (#252, ADR-0013).
+export const VERDICT_LABEL = 'cross-check verdict'
 
 export class EscalationStore {
   constructor(dataDir) {
@@ -92,7 +99,9 @@ export class EscalationStore {
     this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
+    this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
     this.seq = 0
+    this.noteSeq = 0
     this._replay()
   }
 
@@ -203,19 +212,47 @@ export class EscalationStore {
         // `label` is what the note calls itself on the agent's tool result
         // (#165). Absent means the operator typed it, which is every note
         // journalled before the cross-check had a way back.
-        arr.push({ text: ev.text, after: ev.after ?? null, instance: ev.instance ?? null, label: ev.label ?? null })
+        // `id` names ONE note (#252), so the interrupt button under a receipt
+        // can point at the words that receipt was about. Absent on every note
+        // journalled before the two delivery modes existed, and a receipt with
+        // no id carries no button.
+        const note = {
+          id: ev.id ?? null, agent: ev.agent, text: ev.text, after: ev.after ?? null,
+          instance: ev.instance ?? null, label: ev.label ?? null, pending: true, at: ev.ts ?? null,
+        }
+        if (note.id) {
+          const n = Number(String(note.id).split('-')[1])
+          if (Number.isFinite(n) && n >= this.noteSeq) this.noteSeq = n
+          this.notes.set(note.id, note)
+        }
+        arr.push(note)
         this.agentNotes.set(ev.agent, arr)
         break
       }
       case 'agent_notes_drained': {
         const arr = this.agentNotes.get(ev.agent) ?? []
-        arr.splice(0, ev.count)
+        for (const n of arr.splice(0, ev.count)) n.pending = false
         break
       }
       case 'agent_notes_expired': {
         const live = ev.live_instance ?? null
         const arr = this.agentNotes.get(ev.agent) ?? []
-        this.agentNotes.set(ev.agent, arr.filter((n) => !n.instance || n.instance === live))
+        const kept = []
+        for (const n of arr) {
+          if (!n.instance || n.instance === live) kept.push(n)
+          else n.pending = false
+        }
+        this.agentNotes.set(ev.agent, kept)
+        break
+      }
+      // #252: the interrupt took these words out of the queue and put them in
+      // the pane as a user turn. The note is no longer pending, so it can never
+      // also ride a tool result — one fact, one delivery.
+      case 'agent_note_interrupted': {
+        const arr = this.agentNotes.get(ev.agent) ?? []
+        const note = this.notes.get(ev.id)
+        if (note) note.pending = false
+        this.agentNotes.set(ev.agent, arr.filter((n) => n.id !== ev.id))
         break
       }
       case 'overseer_notes_drained': {
@@ -393,8 +430,30 @@ export class EscalationStore {
       .at(-1)
     const closedMs = recent ? now - Date.parse(recent.closed_at) : Infinity
     const after = Number.isFinite(closedMs) && closedMs <= graceMs ? recent.id : null
-    this._append({ type: 'agent_note', agent, text, after, by, instance, label })
-    return { after }
+    const id = `note-${++this.noteSeq}`
+    this._append({ type: 'agent_note', id, agent, text, after, by, instance, label })
+    return { id, after }
+  }
+
+  // One note by its id, pending or not (#252). The interrupt button reads this:
+  // the words it names may still be queued, or the agent may have read them
+  // already and said nothing back, and the operator presses the same button in
+  // both cases.
+  noteById(id) {
+    return this.notes.get(id) ?? null
+  }
+
+  // The interrupt's half of the queue (#252, ADR-0013). The words leave the
+  // queue here and go into the pane as a user turn, so a note is delivered once
+  // whichever mode carries it. A note the agent has ALREADY read leaves nothing
+  // to take out, and it journals nothing: the operator presses this button
+  // precisely because no reply came, and by then the drain has usually run.
+  // Returns the note, or null when the id names none.
+  interruptAgentNote(id, { by = null } = {}) {
+    const note = this.notes.get(id)
+    if (!note) return null
+    if (note.pending) this._append({ type: 'agent_note_interrupted', id, agent: note.agent, by })
+    return note
   }
 
   // The hand-off half of #139: an answer that settled an escalation nothing
@@ -421,15 +480,26 @@ export class EscalationStore {
   // Two callers, one rule. The exit paths call it so the operator is told at
   // the moment the words die. The drain calls it so a successor can never
   // read them even if some exit path was missed.
-  expireAgentNotes(agent, liveInstance = null) {
+  //
+  // #252 moves the ANNOUNCEMENT here, to the one place every expiry passes
+  // through. Before it, the exit paths announced and the drain did not, so a
+  // note that died on a path nobody had wired stayed silent — the #223 loss
+  // class. `onNotesExpired` fires once per expiry with the notes themselves,
+  // because a dead verdict is posted in full and a count cannot carry it.
+  // Returns those notes: an empty array means nothing died.
+  expireAgentNotes(agent, liveInstance = null, why = 'is gone') {
     const arr = this.agentNotes.get(agent) ?? []
-    const stale = arr.filter((n) => n.instance && n.instance !== liveInstance).length
-    if (stale) this._append({ type: 'agent_notes_expired', agent, live_instance: liveInstance, count: stale })
+    const stale = arr.filter((n) => n.instance && n.instance !== liveInstance)
+    if (!stale.length) return []
+    this._append({ type: 'agent_notes_expired', agent, live_instance: liveInstance, count: stale.length })
+    // An observer failure never poisons the record, for the reason onEvent does
+    // not: the journal write already happened and it is the truth.
+    try { this.onNotesExpired?.({ agent, notes: stale, liveInstance, why }) } catch { /* announced or not, the note is gone */ }
     return stale
   }
 
   takeAgentNotes(agent, instance = null) {
-    this.expireAgentNotes(agent, instance)
+    this.expireAgentNotes(agent, instance, 'is running as a fresh instance')
     const notes = [...(this.agentNotes.get(agent) ?? [])]
     if (notes.length) this._append({ type: 'agent_notes_drained', agent, count: notes.length })
     return notes

@@ -190,6 +190,53 @@ export function queuedNoteReply({ owner, q, text, channelId, now = Date.now() })
   return lines
 }
 
+// The two delivery modes, on the receipt (#252, ADR-0013). Queued is the
+// default and is fire-and-forget: the words ride the agent's next tool result,
+// and no drain receipt follows, because a second small-print line saying "it
+// read them" states nothing the operator can act on. The button IS the other
+// mode — an operator who wants a reply presses it, and the words go into the
+// pane as a user turn instead.
+//
+// The label is "Ask now", the operator's own pick. "Interrupt" was the first
+// wording and it was wrong on the surface that matters: it reads as "end this
+// agent", which is the one thing no button does any more (#200). The press asks
+// a question and gets an answer, so the label says that. ADR-0013 keeps the word
+// interrupt for the MECHANICS, and so do the code and the journal.
+//
+// The button rides the receipt rather than a message of its own, so one note
+// makes one message. No button on a dead agent's receipt: nothing queued, so
+// there is nothing to ask. No button on a note with no id either — every note
+// journalled before #252 has none, and Discord keeps an old button pressable
+// forever (#200's lesson).
+export const noteInterruptId = (noteId) => `note|${noteId}|interrupt`
+
+export function interruptRow(noteId) {
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(noteInterruptId(noteId)).setLabel('⚙️ Ask now').setStyle(ButtonStyle.Secondary),
+  )]
+}
+
+// The whole receipt, text and button together — pure and exported for the
+// reason queuedNoteReply is: this one message is the operator's only surface
+// for the choice between the two modes, and the choice must be checkable
+// without a live gateway.
+export function noteReceipt({ owner, q, text, channelId, now = Date.now() }) {
+  return {
+    content: smallPrint(queuedNoteReply({ owner, q, text, channelId, now }).join('\n')),
+    components: q.reads === false || !q.id ? [] : interruptRow(q.id),
+  }
+}
+
+// What the receipt becomes once the button is pressed. The press is recorded on
+// the receipt itself, in place, and the button goes — the same rule the
+// escalation card lives under (ADR-0013: the card is the only record). No
+// CuriaBot line states the outcome, because the outcome is the agent's reply,
+// in the agent's own voice.
+export function interruptedReceipt(content, { by, session, graceMs }) {
+  const secs = Math.max(1, Math.round(graceMs / 1000))
+  return `${content}\n${smallPrint(`⚙️ <@${by}> asked for this now — \`${session}\` gets ${secs}s to finish its tool call, then these words go in as a user turn. Its reply is the answer.`)}`
+}
+
 // #81's grown catalogue — a static macro manifest; expansion only, never
 // interpretation. `tickets` renames `frontier` on the command surface.
 const SLASH_MANIFEST = [
@@ -1212,6 +1259,32 @@ export class DiscordBridge {
       return
     }
 
+    // The interrupt button under a queued-note receipt (#252, ADR-0013).
+    //
+    // A success is acknowledged SILENTLY and written onto the receipt in place:
+    // the receipt is the record of what happened to those words, and an
+    // interaction reply beside it would say the same fact twice. A refusal is
+    // the other case — nothing happened, so there is no record to show, and the
+    // presser is told EPHEMERALLY. That puts no second line in the thread and
+    // leaves the button pressable, which is what an operator who answers the
+    // escalation first and presses again needs.
+    if (i.isButton() && i.customId.startsWith('note|')) {
+      const [, noteId, action] = i.customId.split('|')
+      if (action !== 'interrupt') return
+      const res = await this.handlers.interruptNote?.(noteId, i.user.id)
+        ?? { ok: false, why: 'this daemon has no interrupt path' }
+      if (!res.ok) {
+        await i.reply({ content: `⚠️ not asked — ${res.why}`, ephemeral: true }).catch(() => {})
+        return
+      }
+      await i.deferUpdate().catch(() => {})
+      await i.message.edit({
+        content: interruptedReceipt(i.message.content, { by: i.user.id, session: res.session, graceMs: res.graceMs }),
+        components: [],
+      }).catch(() => {})
+      return
+    }
+
     if (i.isButton() && i.customId.startsWith('esc|')) {
       const [, id, action, value] = i.customId.split('|')
       // A message posted before #200 still carries the old cancel button, and
@@ -1301,8 +1374,10 @@ export class DiscordBridge {
           // A command still queues — the operator may mean the word for the
           // agent — but the reply names the way out, so `cancel 166` typed at
           // an agent never dies silently as a note (#108 item 23, #170).
-          const lines = queuedNoteReply({ owner, q, text: m.content, channelId: this.channel.id })
-          await m.channel.send(smallPrint(lines.join('\n'))).catch(() => {})
+          // The receipt carries the interrupt button, the operator's pick of
+          // the other delivery mode (#252). A dead agent queued nothing, so its
+          // receipt gets none.
+          await m.channel.send(noteReceipt({ owner, q, text: m.content, channelId: this.channel.id })).catch(() => {})
         } else {
           await m.react('⚠️').catch(() => {})
           await m.channel.send(smallPrint(
