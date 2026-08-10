@@ -810,6 +810,28 @@ export function agentMeters({ harness, cfgDir, model, routing, account, models, 
   return out
 }
 
+// What `GET /overview` says about one agent's context (#264).
+//
+// The fleet table and the agents table both carry a ctx column, and
+// `dispatcher.status()` cannot fill it: that read asks tmux and the journal,
+// never a transcript. So the meter joins on the route, through the same
+// `agentMeters` the status line reads — one agent is never measured two ways on
+// two surfaces.
+//
+// The read is passed in as a thunk, and a throw from it costs this ONE column.
+// Every section of that route is independently nullable, and a missing
+// transcript must not take an agent's row off a page with it. `ctx_pct` is null
+// when there is no reading — which the page prints as "—", never as 0%.
+export function ctxOnWire(read) {
+  let m = null
+  try {
+    m = read()
+  } catch {
+    return { ctx_pct: null, ctx_over: false }
+  }
+  return { ctx_pct: m?.ctxPct ?? null, ctx_over: Boolean(m?.ctxOver) }
+}
+
 // Ordered most valuable first: the status line appends what fits and drops the
 // rest from the tail (#146 — state and escalation title win over the meters).
 // The window label carries bold because it is the thing the eye lands on when
