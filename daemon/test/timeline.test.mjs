@@ -461,7 +461,7 @@ describe('TimelineSurface', () => {
   })
 
   test('open escalations overlay from the daemon record — the claude harness writes nothing while blocked (#74 item 5)', async () => {
-    escalations = [{ id: 'esc-7', kind: 'free-text', prompt: 'which shade?', options: null, preview_url: null, opened_at: 'T', nudges: 1 }]
+    escalations = [{ id: 'esc-7', kind: 'free-text', prompt: 'which shade?', options: null, preview_url: null, opened_at: 'T' }]
     try {
       const { events } = await sse(port, 'session=curia-9')
       const esc = events.filter((e) => e.event === 'escalations').at(-1)
@@ -478,7 +478,7 @@ describe('TimelineSurface', () => {
       prompt: 'a long question body\nwith a second line the transcript brief drops',
       options: ['red', 'blue'], opened_at: 'T1', closed_at: 'T2',
       status: 'answered', answer: 'blue, because contrast', answered_by: 'alp',
-      answered_via: 'button', nudges: 0,
+      answered_via: 'button',
     }]
     try {
       const { events } = await sse(port, 'session=curia-9')

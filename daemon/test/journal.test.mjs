@@ -83,4 +83,24 @@ describe('the pre-#184 journal reads as one vocabulary', () => {
     assert.equal(open.agent, 'curia-6')
     assert.equal(open.agent_died, true)
   })
+
+  // #261 deleted the 30-minute tick, but 243 `esc_nudge` lines sit in the real
+  // journal and the file is never rewritten. The replay has to walk straight
+  // past them and rebuild the record whole.
+  test('an escalation carrying the dead nudge events still replays', () => {
+    const dir = tmpdir()
+    fs.writeFileSync(path.join(dir, 'events.jsonl'), [
+      JSON.stringify({
+        ts: '2026-08-01T10:00:00Z', type: 'esc_open', id: 'esc-1', agent: 'curia-7',
+        ticket: '7', kind: 'free-text', prompt: 'which one?',
+      }),
+      JSON.stringify({ ts: '2026-08-01T10:30:00Z', type: 'esc_nudge', id: 'esc-1' }),
+      JSON.stringify({ ts: '2026-08-01T11:00:00Z', type: 'esc_nudge', id: 'esc-1' }),
+      '',
+    ].join('\n'))
+    const [open] = new EscalationStore(dir).openEscalations()
+    assert.equal(open.prompt, 'which one?')
+    assert.equal(open.status, 'open')
+    assert.equal('nudges' in open, false, 'the counter nothing read is gone from the record')
+  })
 })
