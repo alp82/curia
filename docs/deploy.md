@@ -16,7 +16,7 @@ Curia runs under docker compose on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 | `tmux` | `unless-stopped` | The tmux server that holds the agent panes, parked on a `keeper` session. A daemon restart never touches it. |
 | `ttyd` | `unless-stopped` | The attach surface. The daemon health-checks port 7681 and does not spawn ttyd. |
 
-**The deploy rule outranks the restart flags.** A bare `docker compose up -d` recreates any changed service, and a recreated `tmux` service kills every live agent (wayfinder #132 in compose clothes). Every deploy names its targets: `docker compose up -d --build --no-deps daemon dashboard`. Recreate `tmux`/`ttyd` only as a deliberate act at zero live agents.
+**The deploy rule outranks the restart flags.** A bare `docker compose up -d` recreates any changed service, and a recreated `tmux` service kills every live agent (wayfinder #132 in compose clothes). Every deploy names its targets: `docker compose up -d --build --force-recreate --no-deps daemon dashboard`. Recreate `tmux`/`ttyd` only as a deliberate act at zero live agents.
 
 Host trees mount into the containers at their identical paths (`/home/alp/curia`, `/home/alp/curia-work`, `~/.claude`, `~/.codex`, gh and git config). Host paths are data in this repo — `curia.yaml`, `workspace_root`, every composed `docker run -v` line — so no translation layer exists. The host docker socket and the host tailscaled socket bind-mount in: agent containers are siblings on host dockerd, and Serve state stays in host tailscaled.
 
@@ -62,7 +62,7 @@ Getting it wrong 403s every attach. Fixing it is an edit plus a restart, over ss
 bin/deploy.sh
 ```
 
-The script connects over ssh, pulls `main`, and runs `docker compose up -d --build --no-deps daemon dashboard` (`--no-deps` keeps a dependency from ever riding along). The daemon container installs its npm dependencies at start, so a dependency change needs no extra step. The script prints the two services' state on success. Override the target with `CURIA_DEPLOY_HOST`.
+The script connects over ssh, pulls `main`, and runs `docker compose up -d --build --force-recreate --no-deps daemon dashboard` (`--no-deps` keeps a dependency from ever riding along). The daemon container installs its npm dependencies at start, so a dependency change needs no extra step. The script prints the two services' state on success. Override the target with `CURIA_DEPLOY_HOST`.
 
 ### The `deploy` verb
 

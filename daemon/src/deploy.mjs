@@ -55,7 +55,10 @@ export function helperRunArgs({ repoRoot, dataDir, home, uid, gid }) {
     '-v', `${home}/.config/gh:${home}/.config/gh`,
     '-v', `${home}/.gitconfig:${home}/.gitconfig:ro`,
     'curia-daemon',
-    'bash', `${repoRoot}/deploy/self-deploy.sh`,
+    // The sibling's own `git merge` rewrites self-deploy.sh in the checkout
+    // while bash is executing it, and bash reads scripts incrementally — so
+    // the copy in the container's own /tmp is the one that runs.
+    'bash', '-c', `cp ${repoRoot}/deploy/self-deploy.sh /tmp/self-deploy.sh && exec bash /tmp/self-deploy.sh "$@"`, 'self-deploy',
   ]
 }
 

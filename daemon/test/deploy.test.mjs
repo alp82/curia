@@ -117,7 +117,9 @@ describe('the daemon half: preflight and hand-off', () => {
     // host network, or the health check cannot see the daemon's loopback port
     assert.equal(args[args.indexOf('--network') + 1], 'host')
     assert.ok(args.includes('curia-daemon'))
-    assert.ok(args.includes('/home/alp/curia/deploy/self-deploy.sh'))
+    // the script runs from a container-local copy: the sibling's own merge
+    // rewrites the checkout copy mid-run
+    assert.ok(args.some((a) => a.includes('cp /home/alp/curia/deploy/self-deploy.sh /tmp/')))
     // script argv: prev next repoRoot markerFile logFile port
     assert.deepEqual(args.slice(-6), [PREV, NEXT, '/home/alp/curia', deploy.markerPath, deploy.logPath, '4271'])
   })
@@ -197,10 +199,13 @@ describe('the sibling script holds the deploy rule', () => {
   const text = fs.readFileSync(SCRIPT, 'utf8')
   const code = text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
 
-  test('every compose up names its targets with --no-deps', () => {
+  test('every compose up names its targets, forced, with --no-deps', () => {
     const ups = code.split('\n').filter((l) => /compose .*up/.test(l))
     assert.ok(ups.length >= 1)
-    for (const l of ups) assert.match(l, /up -d --build --no-deps daemon dashboard$/)
+    // --force-recreate: a code-only deploy changes no image layer, and
+    // without it compose leaves the old daemon running (the #270 drill
+    // caught exactly that)
+    for (const l of ups) assert.match(l, /up -d --build --force-recreate --no-deps daemon dashboard$/)
   })
 
   test('the script never touches tmux or ttyd', () => {

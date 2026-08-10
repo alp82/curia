@@ -13,7 +13,10 @@ HOST="${CURIA_DEPLOY_HOST:-alp@coinmatica.net}"
 ssh "$HOST" 'set -euo pipefail
 cd ~/curia
 git pull --ff-only
-docker compose -f deploy/compose.yaml up -d --build --no-deps daemon dashboard
+# --force-recreate: code runs from the repo mount, so a code-only deploy
+# changes no image layer, and without the flag compose leaves the old
+# daemon running (#270).
+docker compose -f deploy/compose.yaml up -d --build --force-recreate --no-deps daemon dashboard
 sleep 3
 docker compose -f deploy/compose.yaml ps daemon dashboard'
 

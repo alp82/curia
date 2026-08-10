@@ -29,8 +29,12 @@ mark() {
     && mv "$MARKER.tmp" "$MARKER"
 }
 
+# --force-recreate is load-bearing: code runs from the repo mount, so a
+# code-only deploy changes no image layer, and without the flag compose sees
+# nothing to do and leaves the OLD daemon running — a deploy that lands
+# without deploying (observed on the #270 drill).
 recreate() {
-  docker compose -f "$REPO/deploy/compose.yaml" up -d --build --no-deps daemon dashboard
+  docker compose -f "$REPO/deploy/compose.yaml" up -d --build --force-recreate --no-deps daemon dashboard
 }
 
 # Up means: /ping answers on host loopback, still answers 10s later, and the
