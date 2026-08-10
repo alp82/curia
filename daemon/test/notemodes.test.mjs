@@ -146,8 +146,9 @@ describe('expiry always announces, on every path (#252)', () => {
 // ---------------------------------------------------------------------------
 
 const idsOf = (rows) => rows.flatMap((r) => r.toJSON().components.map((c) => c.custom_id))
+const labelsOf = (rows) => rows.flatMap((r) => r.toJSON().components.map((c) => c.label))
 
-describe('the receipt carries the interrupt button (#252)', () => {
+describe('the receipt carries the "Ask now" button (#252)', () => {
   test('a live agent gets the button, pointing at the note the receipt is about', () => {
     const r = noteReceipt({
       owner: 'curia-9', q: { reads: true, ticket: '9', id: 'note-7' }, text: 'look at the logs', channelId: 'C1',
@@ -157,7 +158,17 @@ describe('the receipt carries the interrupt button (#252)', () => {
     assert.equal(noteInterruptId('note-7'), 'note|note-7|interrupt')
   })
 
-  test('a dead agent gets no button — nothing queued, so nothing to interrupt', () => {
+  // The operator's own wording. "Interrupt" was the first label and it read as
+  // "end this agent" — the one thing no button does any more (#200). The press
+  // asks a question and gets an answer, so the label says that.
+  test('the label asks, and never reads as an ending', () => {
+    const r = noteReceipt({
+      owner: 'curia-9', q: { reads: true, ticket: '9', id: 'note-7' }, text: 'hi', channelId: 'C1',
+    })
+    assert.deepEqual(labelsOf(r.components), ['⚙️ Ask now'])
+  })
+
+  test('a dead agent gets no button — nothing queued, so nothing to ask', () => {
     const r = noteReceipt({
       owner: 'curia-166', q: { reads: false, ticket: '166' }, text: 'look at the logs', channelId: 'C1',
     })
@@ -173,7 +184,7 @@ describe('the receipt carries the interrupt button (#252)', () => {
   test('the pressed receipt records the press in place and says what happens next', () => {
     const out = interruptedReceipt('-# queued for `curia-9`', { by: 'u1', session: 'curia-9', graceMs: 5000 })
     assert.match(out, /^-# queued for `curia-9`\n/, 'the receipt itself is kept — this is one message, edited')
-    assert.match(out, /interrupted by <@u1>/)
+    assert.match(out, /<@u1> asked for this now/)
     assert.match(out, /5s/)
     assert.match(out, /Its reply is the answer/)
   })
@@ -231,7 +242,7 @@ describe('a press on the interrupt button (#252)', () => {
     assert.deepEqual(replies, [], 'an interaction reply here would say the same fact twice')
     assert.equal(edits.length, 1)
     assert.match(edits[0].content, /queued for `curia-9`/)
-    assert.match(edits[0].content, /interrupted by <@u1>/)
+    assert.match(edits[0].content, /<@u1> asked for this now/)
     assert.deepEqual(edits[0].components, [], 'pressed once, and there is nothing left to press')
   })
 
@@ -243,7 +254,7 @@ describe('a press on the interrupt button (#252)', () => {
     assert.deepEqual(edits, [], 'nothing happened, so the thread gains no line')
     assert.equal(replies.length, 1)
     assert.equal(replies[0].ephemeral, true)
-    assert.match(replies[0].content, /not interrupted/)
+    assert.match(replies[0].content, /not asked/)
     assert.match(replies[0].content, /esc-3/)
   })
 

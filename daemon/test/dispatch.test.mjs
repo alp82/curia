@@ -1537,7 +1537,7 @@ describe('a note interrupts instead of queueing (#252)', () => {
     await d.interruptNote('note-1', { by: 'u1' })
     await new Promise((r) => setTimeout(r, 10))
 
-    assert.match(notifies.at(-1).message, /could not interrupt/)
+    assert.match(notifies.at(-1).message, /could not put those words/)
     assert.ok(typesOf().includes('note_interrupt_failed'))
   })
 })

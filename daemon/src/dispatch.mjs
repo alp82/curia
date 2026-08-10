@@ -3575,12 +3575,12 @@ export class Dispatcher {
   // seconds, and the injection reports its own failure on the thread.
   async interruptNote(id, { by = null } = {}) {
     const note = this.store.noteById(id)
-    if (!note) return { ok: false, why: 'curia has no record of that note, so there is nothing to interrupt' }
+    if (!note) return { ok: false, why: 'curia has no record of that note, so there is nothing to ask' }
     const session = note.agent
     const ticket = this.agents.get(session)?.ticket ?? String(session).match(SESSION_RE)?.[1] ?? String(session)
     const w = this.agents.get(session)
     if (!w) {
-      return { ok: false, session, ticket, why: `\`${session}\` is NOT running, so there is nothing to interrupt — \`resume ${ticket}\` puts an agent back on the ticket, then say the words again` }
+      return { ok: false, session, ticket, why: `\`${session}\` is NOT running, so there is nobody to ask — \`resume ${ticket}\` puts an agent back on the ticket, then say the words again` }
     }
     if (note.instance && w.instance && note.instance !== w.instance) {
       return { ok: false, session, ticket, why: `those words were typed at an earlier \`${session}\`, and a note dies with the agent it was typed at — say them again in this thread` }
@@ -3615,7 +3615,7 @@ export class Dispatcher {
     const w = this.agents.get(session)
     if (!w) {
       this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: 'the agent exited during the grace' })
-      this.notify(ticket, `📭 \`${session}\` exited during the interrupt grace, so these words reached nobody: ${note.text}`)
+      this.notify(ticket, `📭 \`${session}\` exited during the grace, so these words reached nobody: ${note.text}`)
       return
     }
     const said = String(note.text ?? '').replace(/\s+/g, ' ').trim()
@@ -3629,7 +3629,7 @@ export class Dispatcher {
       await this.deps.sendText(session, text)
     } catch (e) {
       this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: e.message })
-      this.notify(ticket, `⚠️ curia could not interrupt \`${session}\` — ${e.message}. The words are NOT with the agent: say them again.`)
+      this.notify(ticket, `⚠️ curia could not put those words to \`${session}\` — ${e.message}. The words are NOT with the agent: say them again.`)
       return
     }
     this.store.logEvent('note_interrupt_delivered', { agent: session, ticket })

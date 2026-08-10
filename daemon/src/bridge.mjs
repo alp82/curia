@@ -197,16 +197,22 @@ export function queuedNoteReply({ owner, q, text, channelId, now = Date.now() })
 // mode — an operator who wants a reply presses it, and the words go into the
 // pane as a user turn instead.
 //
+// The label is "Ask now", the operator's own pick. "Interrupt" was the first
+// wording and it was wrong on the surface that matters: it reads as "end this
+// agent", which is the one thing no button does any more (#200). The press asks
+// a question and gets an answer, so the label says that. ADR-0013 keeps the word
+// interrupt for the MECHANICS, and so do the code and the journal.
+//
 // The button rides the receipt rather than a message of its own, so one note
 // makes one message. No button on a dead agent's receipt: nothing queued, so
-// there is nothing to interrupt. No button on a note with no id either — every
-// note journalled before #252 has none, and Discord keeps an old button
-// pressable forever (#200's lesson).
+// there is nothing to ask. No button on a note with no id either — every note
+// journalled before #252 has none, and Discord keeps an old button pressable
+// forever (#200's lesson).
 export const noteInterruptId = (noteId) => `note|${noteId}|interrupt`
 
 export function interruptRow(noteId) {
   return [new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(noteInterruptId(noteId)).setLabel('⚙️ Interrupt').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(noteInterruptId(noteId)).setLabel('⚙️ Ask now').setStyle(ButtonStyle.Secondary),
   )]
 }
 
@@ -228,7 +234,7 @@ export function noteReceipt({ owner, q, text, channelId, now = Date.now() }) {
 // in the agent's own voice.
 export function interruptedReceipt(content, { by, session, graceMs }) {
   const secs = Math.max(1, Math.round(graceMs / 1000))
-  return `${content}\n${smallPrint(`⚙️ interrupted by <@${by}> — \`${session}\` gets ${secs}s to finish its tool call, then these words go in as a user turn. Its reply is the answer.`)}`
+  return `${content}\n${smallPrint(`⚙️ <@${by}> asked for this now — \`${session}\` gets ${secs}s to finish its tool call, then these words go in as a user turn. Its reply is the answer.`)}`
 }
 
 // #81's grown catalogue — a static macro manifest; expansion only, never
@@ -1268,7 +1274,7 @@ export class DiscordBridge {
       const res = await this.handlers.interruptNote?.(noteId, i.user.id)
         ?? { ok: false, why: 'this daemon has no interrupt path' }
       if (!res.ok) {
-        await i.reply({ content: `⚠️ not interrupted — ${res.why}`, ephemeral: true }).catch(() => {})
+        await i.reply({ content: `⚠️ not asked — ${res.why}`, ephemeral: true }).catch(() => {})
         return
       }
       await i.deferUpdate().catch(() => {})

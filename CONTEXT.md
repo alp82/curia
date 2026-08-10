@@ -258,10 +258,11 @@ Text the operator types in an agent's thread while no escalation is open. It bel
 _Avoid_: message, comment.
 
 **Queued**:
-The default delivery mode. The note rides the agent's next tool result, and nothing owes a reply. The receipt carries the interrupt button, and no drain receipt follows.
+The default delivery mode. The note rides the agent's next tool result, and nothing owes a reply. The receipt carries the "Ask now" button, and no drain receipt follows.
 
-**Interrupt**:
-The other delivery mode, picked by the button under the receipt. The current tool call gets a grace of a few seconds, then the note goes into the pane as a user turn. The agent's own reply is the outcome.
+**Ask now**:
+The other delivery mode, and the button under the receipt that picks it. The current tool call gets a grace of a few seconds, then the note goes into the pane as a user turn. The agent's own reply is the outcome. [ADR-0013](docs/adr/0013-one-voice-per-fact.md) names the mechanics an interrupt, and so do the code and the journal.
+_Avoid_: interrupt on the operator's surfaces (it reads as an ending, and no button ends an agent).
 
 **Verdict carrier**:
 The whole verdict, posted into the thread when no agent is left to read it. It names the reviewer, its model, its findings and the pull request that holds the full text. A verdict is never mourned in one line.
