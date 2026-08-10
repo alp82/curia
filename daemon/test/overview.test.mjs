@@ -27,6 +27,7 @@ import { Dispatcher } from '../src/dispatch.mjs'
 import { directUnblocks } from '../src/github.mjs'
 import { EscalationStore, RECENT_EVENTS } from '../src/store.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
+import { ctxOnWire } from '../src/usage.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml, TEST_PINS } from './fixtures/sandbox.mjs'
@@ -250,6 +251,28 @@ describe('GET /overview (index.mjs, real boot)', () => {
     const cross = await request(port, 'GET', '/overview', { headers: { origin: 'http://evil.com' } })
     assert.equal(cross.status, 403, 'the CSRF gate covers the whole surface, this route included')
     assert.equal(AGENT_ROUTES.has('/overview'), false, 'an agent container cannot reach the operator\'s own read')
+  })
+})
+
+describe('the context meter on the wire (#264)', () => {
+  // The dashboard's fleet table and agents table both carry a ctx column, and
+  // `dispatcher.status()` cannot fill it: that read asks tmux and the journal,
+  // never a transcript. So the route joins the meter on, and the join is the
+  // thing that must not cost a row.
+  test('a reading crosses as a percentage, and the over-100 mark crosses with it', () => {
+    assert.deepEqual(ctxOnWire(() => ({ ctxPct: 41, ctxOver: false })), { ctx_pct: 41, ctx_over: false })
+    // Over 100% is the daemon's complaint about the denominator (#146), not a
+    // reading about the agent. It travels rather than being flattened here.
+    assert.deepEqual(ctxOnWire(() => ({ ctxPct: 118, ctxOver: true })), { ctx_pct: 118, ctx_over: true })
+  })
+
+  test('no reading is null, never zero — an unmeasured context and an empty one are not one fact', () => {
+    assert.deepEqual(ctxOnWire(() => ({ ctxPct: null, ctxOver: false })), { ctx_pct: null, ctx_over: false })
+    assert.deepEqual(ctxOnWire(() => null), { ctx_pct: null, ctx_over: false })
+  })
+
+  test('a meter that throws costs this one column and never the agent', () => {
+    assert.deepEqual(ctxOnWire(() => { throw new Error('no transcript on disk') }), { ctx_pct: null, ctx_over: false })
   })
 })
 

@@ -351,10 +351,13 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents, the open escalations, the review gate, bridge health, the usage windows, the journal tail, and the frontier snapshot. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters, the open escalations, the review gate, bridge health, the usage windows, the journal tail, and the frontier snapshot. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.
+
+**Read screen**:
+A dashboard screen that only draws the overview: home, agents, frontier, feed. Two rules hold across all four. Color marks attention and nothing else, so a state, a ticket type and a repo are told in words. Null is not empty, so an unreadable fleet never renders as an idle box and an uncomputed frontier never renders as an empty one.
 
 **Sidecar**:
 The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env`.

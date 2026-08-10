@@ -53,7 +53,7 @@ import { detectHarness } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
-import { AccountUsage, ModelWindows, agentMeters } from './usage.mjs'
+import { AccountUsage, ModelWindows, agentMeters, ctxOnWire } from './usage.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -1270,7 +1270,12 @@ async function overview() {
     },
     // Null, never empty, when the read above failed: an unreadable fleet and an
     // idle box are opposite facts and must never render the same.
-    agents: fleet?.agents ?? null,
+    //
+    // The context meter joins here (#264). `status()` reads tmux and the
+    // journal and never a transcript, so the ctx column the dashboard's two
+    // tables carry has to be added on the route. It costs one transcript tail
+    // read per live agent per refresh, which the poll interval bounds (#263).
+    agents: fleet?.agents?.map((a) => ({ ...a, ...ctxOnWire(() => metersFor(a.session, a.model)) })) ?? null,
     untracked: fleet?.untracked ?? null,
     recent: fleet?.recent ?? null,
     fleet_error: fleetError,
