@@ -63,8 +63,9 @@ const LIVE_GLYPH_RE = /^(?:🎫|⏳|🔎)/u
 // note queue swallowing it silently is the miss this regex exists to stop.
 // `map` joined the alternation with #221, for the reason every other verb is
 // here: it is a command now, and a command typed at an agent must not vanish
-// into the note queue. Only the bare form matches — `map 147 -- <sentence>`
-// runs past the end of this shape, and a sentence is what a note IS.
+// into the note queue. Only the bare form matches — a `map <n> <sentence>`,
+// with or without the `--` that #255 made optional, runs past the end of this
+// shape, and a sentence is what a note IS.
 // #241 adds the chat handle (`chat-1`) to the argument alternation, for the
 // same reason: it is what `cancel`, `resume` and `attach` take on an agent no
 // ticket answers for, so an operator typing it at that agent's own thread must
@@ -317,11 +318,12 @@ export function expandCommand(i) {
     }
     case 'map': {
       const ticket = need('ticket')
-      // The instruction rides LAST, after a bare `--` (#160), and its
-      // whitespace is collapsed for the same reason canonicalFor collapses it:
-      // this line is one line, and the router splits it on whitespace. This is
-      // still expansion, not interpretation — the text is passed through, and
-      // whether the issue is a map is the dispatcher's ruling.
+      // The instruction rides LAST (#160), and its whitespace is collapsed for
+      // the same reason canonicalFor collapses it: this line is one line, and
+      // the router splits it on whitespace. This is still expansion, not
+      // interpretation — the text is passed through, and whether the issue is a
+      // map is the dispatcher's ruling. #255 retired the `--` that used to mark
+      // where the sentence starts, so nothing separates them any more.
       const instruction = (need('instruction') ?? '').replace(/\s+/g, ' ').trim()
       // #241: no map number means the NEW-map shape, which needs the sentence.
       // A `/map` carrying neither is the one shape no dispatcher can read, so
@@ -330,11 +332,11 @@ export function expandCommand(i) {
       if (!ticket) {
         if (!instruction) return { error: 'map-shape' }
         const repo = need('repo')
-        return `map${repo ? ' ' + repo : ''}${opt('model') ? ' model=' + opt('model') : ''} -- ${instruction}`
+        return `map${repo ? ' ' + repo : ''}${opt('model') ? ' model=' + opt('model') : ''} ${instruction}`
       }
       return `map ${ticket}`
         + (opt('model') ? ' model=' + opt('model') : '')
-        + (instruction ? ` -- ${instruction}` : '')
+        + (instruction ? ` ${instruction}` : '')
     }
     // #177: `resume all model=x` is not a command the router takes, so the
     // option is dropped on the bulk form rather than expanded into a refusal.
@@ -940,7 +942,7 @@ export class DiscordBridge {
   }
 
   // Speaker identities (#108 item 15): agent prose posts under a webhook
-  // identity ("curia-9 · <ticket title>", own identicon avatar), overseer
+  // identity ("curia-9", its session name and own identicon avatar), overseer
   // prose as "curia" with the bot's avatar — one thread, one voice, and "the
   // agent" moves from the prose into the speaker label. One channel webhook
   // serves every identity (username set per send). CONSTRAINT, verified
@@ -1012,9 +1014,13 @@ export class DiscordBridge {
   // default avatar (#143). Gravatar generates one from any hash, `f=y` forces
   // the generated face even when the hash happens to be a real account, and
   // curia still hosts no asset. md5 is Gravatar's key, not a security choice.
+  //
+  // The whole name is the seed. It used to be the first space-separated word,
+  // to hold the face still while the ticket title on the label changed. #254
+  // took the title off the label, so the name is already the session name.
   #avatarFor(as) {
     if (as === 'curia') return this.client.user?.displayAvatarURL?.() ?? undefined
-    const seed = createHash('md5').update(as.split(' ')[0]).digest('hex')
+    const seed = createHash('md5').update(String(as)).digest('hex')
     return `https://www.gravatar.com/avatar/${seed}?d=identicon&f=y&s=128`
   }
 

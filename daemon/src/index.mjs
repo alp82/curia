@@ -775,9 +775,11 @@ function startKeepAlive(extra, id, label = null) {
 function buildMcpServer(agent, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
 
-  // The agent's speaker identity (#108 item 15): its own words post under
-  // "curia-<n> · <ticket title>", so the prose no longer says "the agent".
-  const speaker = () => speakerName(agent, dispatcher.agents.get(agent)?.title ?? '')
+  // The agent's speaker identity (#108 item 15, narrowed by #254): its own
+  // words post under its session name, so the prose no longer says "the
+  // agent". The name alone — the ticket title used to ride here and truncate.
+  // It is a constant now, where it used to read the live title per send.
+  const speaker = speakerName(agent)
 
   // Queued operator notes ride the agent's NEXT tool result (#108 item 14):
   // every tool below appends the drain, so a note is never older than one
@@ -804,7 +806,7 @@ function buildMcpServer(agent, ticket) {
     async ({ message, images }) => {
       const { files, refusals } = outboundImages(agent, images)
       store.logEvent('notify', { agent, ticket, message, images: files.map((f) => f.attachment), refusals })
-      if (bridge) bridge.notify(ticket, `⚙️ ${message}`, { files, as: speaker() }).catch(() => {})
+      if (bridge) bridge.notify(ticket, `⚙️ ${message}`, { files, as: speaker }).catch(() => {})
       return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
     },
   )
@@ -1007,7 +1009,7 @@ function buildMcpServer(agent, ticket) {
       if (bridge) {
         const pr = dispatcher.pullRequestUrlFor(agent)
         const tail = pr && !result.summary.includes(pr) ? `\n🔗 ${pr}` : ''
-        bridge.notify(bound, `✅ reports **${result.status}**: ${result.summary}${tail}`, { as: speaker() }).catch(() => {})
+        bridge.notify(bound, `✅ reports **${result.status}**: ${result.summary}${tail}`, { as: speaker }).catch(() => {})
       }
       const stopKeepAlive = startKeepAlive(extra, `${agent}/result`)
       try {

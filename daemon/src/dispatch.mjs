@@ -53,6 +53,7 @@ import { CONFIRM_KIND, VERDICT_LABEL, normalizeEvent } from './store.mjs'
 import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
+import { failureProse, FailureLines } from './messaging.mjs'
 
 // A ticket session's name. Chat handles are in here since #241: an agent no
 // issue answers for — today, the one charting a map that does not exist yet —
@@ -312,6 +313,10 @@ export class Dispatcher {
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)
     this.inFlight = new Set() // admission guard: sessions mid-start, pre-spawn
+    // The repeat filter behind #failureNotify (#256). In-memory on purpose: a
+    // restart loses the counters, and a restart is exactly when a failure
+    // deserves to be said again.
+    this.failures = new FailureLines()
     // Teardowns this dispatcher ordered (#138). killSession is wrapped so
     // EVERY ordered kill — cancel, finish, limit respawn, orphan sweep —
     // registers before the tmux call, and the liveness sweep can tell an
@@ -551,12 +556,12 @@ export class Dispatcher {
     // Nothing takeable is the ordinary end of a map, not a fault. Name the other
     // verb here: an operator who typed `start <map>` meaning "update the map" is
     // exactly the operator standing in front of this message.
-    return `❌ ${repo}#${mapNo} **${mapIssue.title}** has no takeable ticket — every child is closed, blocked, or already claimed. \`tickets\` shows the frontier, and \`map ${mapNo} -- <what should change>\` updates the map itself`
+    return `❌ ${repo}#${mapNo} **${mapIssue.title}** has no takeable ticket — every child is closed, blocked, or already claimed. \`tickets\` shows the frontier, and \`map ${mapNo} <what should change>\` updates the map itself`
   }
 
   // ---- map (the charting dispatch) ---------------------------------------------
 
-  // `map <n> [-- <instruction>]` (#221, carrying #160's mechanics): the operator's
+  // `map <n> [<instruction>]` (#221, carrying #160's mechanics): the operator's
   // own verb for updating a map. It spawns a CHARTING agent on the map issue,
   // which edits the map and its tickets and ends on its edits plus one
   // `report_result` — no close, no pull request, no review gate.
@@ -618,7 +623,7 @@ export class Dispatcher {
 
   // ---- map with no issue (the new-map dispatch, #241) --------------------------
 
-  // `map [repo] -- <prose>`: a charting agent with NO map. It runs the wayfinder
+  // `map [repo] <prose>`: a charting agent with NO map. It runs the wayfinder
   // skill's CHART mode — name the destination, map the frontier breadth-first,
   // then create the `wayfinder:map` issue and its first tickets. The operator's
   // prose is the loose idea that mode starts from, which is why the parser makes
@@ -645,7 +650,7 @@ export class Dispatcher {
   // to that name, so picking a fresh index would strand all three.
   async chartNew({ repo, model, instruction = null, by, reuse = false, threadId = null, handle = null } = {}) {
     if (!String(instruction ?? '').trim()) {
-      return '❌ a new map needs a sentence to chart from — `map [repo] -- <what to chart>`'
+      return '❌ a new map needs a sentence to chart from — `map [repo] <what to chart>`'
     }
     if (!repo) return '❌ a new map needs a repo — nothing says where to create the issue'
     if (!this.config.watch.some((w) => w.repo === repo)) return `❌ \`${repo}\` is not on the watch list`
@@ -669,7 +674,7 @@ export class Dispatcher {
     this.inFlight.add(session)
     try {
       if (await this.deps.hasSession(session)) {
-        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${chat}\` tears it down, then \`map -- …\` again`
+        return `⚠️ tmux session \`${session}\` is already live but untracked — \`cancel ${chat}\` tears it down, then \`map …\` again`
       }
       const issue = newMapIssue(chat, instruction)
       return (await this.#dispatch(repo, chat, issue, {
@@ -970,7 +975,7 @@ export class Dispatcher {
       // The binding stays (#140): a failed dispatch is a claim release, not a
       // ticket-terminal state — the retry's traffic belongs in the same thread.
       const claimTail = charting
-        ? `nothing was claimed, so nothing was released — \`${newMap ? 'map -- <what to chart>' : `map ${n}`}\` again when the cause is fixed`
+        ? `nothing was claimed, so nothing was released — \`${newMap ? 'map <what to chart>' : `map ${n}`}\` again when the cause is fixed`
         : released ? 'claim released' : 'claim release FAILED: the issue is still assigned to the bot; reconcile will retry'
       // #241: a new-map dispatch has no issue to name, so it names what it was
       // for. `${repo}#new` would read as an issue number that does not exist.
@@ -1482,7 +1487,7 @@ export class Dispatcher {
       await this.#deliverVerdict(verdict)
     } catch (e) {
       this.store.logEvent('verdict_delivery_failed', { repo, ticket, agent: agentName, error: e.message })
-      this.notify(ticket, `⚠️ the verdict on #${ticket} is captured, but curia's return path failed — ${e.message}. The builder may still be waiting at the gate.`)
+      this.#failureNotify(ticket, 'verdict-return', `⚠️ the verdict on #${ticket} is captured, but curia's return path failed — ${failureProse(e.message)}. The builder may still be waiting at the gate.`)
     }
     return `verdict captured${held ? '' : ' in memory only — writing the artifact FAILED'}. curia has posted it on the pull request and handed it to the builder, which judges it and puts it to a human. You push nothing, resolve nothing and answer nothing further — your work here is done, so stop.`
   }
@@ -2039,11 +2044,32 @@ export class Dispatcher {
   // where that fact is known, rather than at the two call sites — the rule
   // #releaseTail above follows, for the same reason. Everything else is shared:
   // one shape, one verb swapped, so the two messages stay comparable.
+  //
+  // Prose, but NOT deduped (#256): one agent life ends once, so there is no
+  // repeat to swallow, and a re-dispatch that dies the same way is a second
+  // death the operator has to hear about. A REFUSAL is already prose — curia
+  // composed it, and #174's way out lives in that sentence — so only the failed
+  // arm, which carries whatever tmux or docker said, is translated.
   #noRespawnNotify(agent, next, cause, e, released) {
     const head = e.refusal
       ? `🚫 \`${agent.session}\` ${cause} and curia REFUSED to respawn it on **${next}**`
       : `⚠️ \`${agent.session}\` ${cause} and the respawn on **${next}** failed`
-    return `${head}: ${e.message} — ${this.#releaseTail(agent, released)}`
+    const why = e.refusal ? e.message : failureProse(e.message)
+    return `${head}: ${why} — ${this.#releaseTail(agent, released)}`
+  }
+
+  // Every daemon-side failure the thread hears goes through here (#256). The
+  // line is already prose — `failureProse` runs at the call site, where the raw
+  // error is — and this adds the other half: the thread hears one failure once.
+  //
+  // The key is the ticket, the failing act and the composed line together, so
+  // two different failures of one act both speak, and one failure retried says
+  // nothing new. Nothing is hidden by the silence: the failure event is
+  // journalled on every occurrence, so the count is in the record whether or
+  // not the thread carries it.
+  #failureNotify(ticket, kind, text) {
+    const line = this.failures.say(`${ticket} ${kind} ${text}`, text)
+    if (line) this.notify(ticket, line)
   }
 
   // ---- the merge-gated ending (#54) ---------------------------------------------
@@ -2101,7 +2127,7 @@ export class Dispatcher {
       })
     } catch (e) {
       this.store.logEvent('land_failed', { repo, ticket, agent: agentName, branch, error: e.message })
-      this.notify(ticket, `⚠️ \`${agentName}\`: opening the pull request FAILED — ${e.message}`)
+      this.#failureNotify(ticket, 'land', `⚠️ \`${agentName}\`: opening the pull request FAILED — ${failureProse(e.message)}`)
       return `❌ curia could not land \`${branch}\`: ${e.message}. Your commits are safe in the worktree; fix what you can and call this again.`
     }
     if (!out.ok) {
@@ -2453,7 +2479,7 @@ export class Dispatcher {
       }
     }
     if (!posted.ok) {
-      this.notify(ticket, `⚠️ the cross-check verdict could NOT be posted on the pull request — ${posted.why}. curia still holds it, and the builder still gets it.`)
+      this.#failureNotify(ticket, 'verdict-comment', `⚠️ the cross-check verdict could NOT be posted on the pull request — ${failureProse(posted.why)}. curia still holds it, and the builder still gets it.`)
     }
     const w = this.agents.get(builder)
     if (!w) {
@@ -2513,7 +2539,7 @@ export class Dispatcher {
       repo: verdict.repo, ticket, agent: agentName, ok: posted.ok, why: posted.why ?? null,
     })
     if (!posted.ok) {
-      this.notify(ticket, `⚠️ \`${agentName}\`'s judgement of the cross-check could NOT be posted on the pull request — ${posted.why}. The question itself is in this thread.`)
+      this.#failureNotify(ticket, 'judgement-comment', `⚠️ \`${agentName}\`'s judgement of the cross-check could NOT be posted on the pull request — ${failureProse(posted.why)}. The question itself is in this thread.`)
     }
     return posted.ok
   }
@@ -2757,10 +2783,12 @@ export class Dispatcher {
         ? await this.#resolveTicket(agentName, repo, ticket, result, w)
         : await this.#noteNonClean(agentName, repo, ticket, result, w)
     } catch (e) {
-      this.store.logEvent('resolve_failed', {
-        repo, ticket, agent: agentName, status: result.status, error: e.message,
-        summary: `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step FAILED — ${e.message}`,
-      })
+      // A daemon-side FAILURE, not the ending: it keeps #256's own line, which
+      // translates the raw error and says one failure once. The ending receipt
+      // below still speaks for the ending, so neither event borrows the other's
+      // message.
+      this.store.logEvent('resolve_failed', { repo, ticket, agent: agentName, status: result.status, error: e.message })
+      this.#failureNotify(ticket, 'resolve', `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${failureProse(e.message)}`)
       return `result recorded — but curia's resolve step failed: ${e.message}`
     }
   }
@@ -3188,7 +3216,7 @@ export class Dispatcher {
   // (nothing bound, no repo) has nothing to say here, and the receipt falls
   // back to the session sentence alone.
   #endingClause(agentName) {
-    const carriers = new Set(['ticket_resolved', 'nonclean_noted', 'charting_finished', 'resolve_failed'])
+    const carriers = new Set(['ticket_resolved', 'nonclean_noted', 'charting_finished'])
     let out = null
     let journal
     try {
@@ -3713,7 +3741,10 @@ export class Dispatcher {
       await this.deps.sendText(session, text)
     } catch (e) {
       this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: e.message })
-      this.notify(ticket, `⚠️ curia could not put those words to \`${session}\` — ${e.message}. The words are NOT with the agent: say them again.`)
+      // Prose, but NOT deduped: this line answers words the operator just
+      // typed, and an answer to an act is owed once per act. Silence here would
+      // read as delivery (#256).
+      this.notify(ticket, `⚠️ curia could not put those words to \`${session}\` — ${failureProse(e.message)}. The words are NOT with the agent: say them again.`)
       return
     }
     this.store.logEvent('note_interrupt_delivered', { agent: session, ticket })
@@ -3873,7 +3904,7 @@ export class Dispatcher {
       const adopted = this.#epochAdoptedMap(session)
       const theRepo = repo ?? this.#epochRepo(ticket)
       if (adopted) {
-        return `❌ \`${session}\` already created ${theRepo ? `${theRepo}#${adopted}` : `#${adopted}`} — that map exists now, so it is charted by number: \`map ${adopted} -- <what is left to do>\``
+        return `❌ \`${session}\` already created ${theRepo ? `${theRepo}#${adopted}` : `#${adopted}`} — that map exists now, so it is charted by number: \`map ${adopted} <what is left to do>\``
       }
       return this.chartNew({ ...inherited, instruction, repo: theRepo, handle: ticket })
     }

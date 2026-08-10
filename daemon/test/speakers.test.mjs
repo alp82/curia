@@ -60,8 +60,8 @@ describe('speaker-identity degradation (#143)', () => {
     assert.equal(bridge.status().speakers.reason, 'Missing Permissions')
 
     // every later send falls back in silence — one notice, not one per send
-    await bridge.notify('85', 'first', { as: 'curia-85 · a ticket' })
-    await bridge.notify('85', 'second', { as: 'curia-85 · a ticket' })
+    await bridge.notify('85', 'first', { as: 'curia-85' })
+    await bridge.notify('85', 'second', { as: 'curia-85' })
     assert.deepEqual(asBot, ['first', 'second'], 'the words always land')
     assert.equal(asHook.length, 0)
     assert.equal(announced.length, 1, 'the notice does not repeat')
@@ -72,27 +72,28 @@ describe('speaker-identity degradation (#143)', () => {
     assert.deepEqual(announced, [])
     assert.equal(bridge.status().speakers.ok, true)
 
-    await bridge.notify('85', 'hello', { as: 'curia-85 · a ticket' })
+    await bridge.notify('85', 'hello', { as: 'curia-85' })
     assert.equal(asBot.length, 0)
     assert.equal(asHook.length, 1)
-    assert.equal(asHook[0].username, 'curia-85 · a ticket')
+    assert.equal(asHook[0].username, 'curia-85')
     assert.equal(asHook[0].threadId, 't-1')
   })
 
   test('the speaker avatar is a URL that exists, and one per agent (#143)', async () => {
     await bridge.probeSpeakers()
-    await bridge.notify('85', 'a', { as: 'curia-85 · a ticket' })
-    await bridge.notify('85', 'b', { as: 'curia-143 · another ticket' })
+    await bridge.notify('85', 'a', { as: 'curia-85' })
+    await bridge.notify('85', 'b', { as: 'curia-review-85' })
 
     // github.com/identicons/<name>.png answers for real accounts only, so the
     // old scheme 404ed for every agent and Discord drew the default face.
     for (const send of asHook) assert.doesNotMatch(send.avatarURL, /github\.com\/identicons/)
     for (const send of asHook) assert.match(send.avatarURL, /^https:\/\/www\.gravatar\.com\/avatar\/[0-9a-f]{32}\?d=identicon&f=y/)
-    assert.notEqual(asHook[0].avatarURL, asHook[1].avatarURL, 'two agents, two faces')
+    assert.notEqual(asHook[0].avatarURL, asHook[1].avatarURL, 'the builder and its reviewer, two faces')
 
-    // the ticket title moves, the agent does not — the face must not follow it
-    await bridge.notify('85', 'c', { as: 'curia-85 · a renamed ticket' })
-    assert.equal(asHook[2].avatarURL, asHook[0].avatarURL, 'the agent name alone seeds the face')
+    // One agent wears one face for its whole life. The name is the session
+    // name and nothing else (#254), so nothing on the label can move it.
+    await bridge.notify('85', 'c', { as: 'curia-85' })
+    assert.equal(asHook[2].avatarURL, asHook[0].avatarURL, 'the session name seeds the face')
   })
 
   test('a grant withdrawn while the daemon runs is caught at the send', async () => {
@@ -101,7 +102,7 @@ describe('speaker-identity degradation (#143)', () => {
 
     bridge.hook = null // the warmed hook is gone with the permission
     webhookFault = missingPermissions()
-    await bridge.notify('85', 'after the loss', { as: 'curia-85 · a ticket' })
+    await bridge.notify('85', 'after the loss', { as: 'curia-85' })
 
     assert.deepEqual(asBot, ['after the loss'])
     assert.equal(announced.length, 1)
@@ -114,7 +115,7 @@ describe('speaker-identity degradation (#143)', () => {
     assert.equal(announced.length, 1)
 
     webhookFault = null // the operator granted the permission
-    await bridge.notify('85', 'under my own name', { as: 'curia-85 · a ticket' })
+    await bridge.notify('85', 'under my own name', { as: 'curia-85' })
 
     assert.equal(asHook.length, 1, 'the send path is never disabled, so it simply works')
     assert.equal(announced.length, 2)
@@ -124,7 +125,7 @@ describe('speaker-identity degradation (#143)', () => {
     // and a second loss is announced again — the latch cleared with the recovery
     bridge.hook = null
     webhookFault = missingPermissions()
-    await bridge.notify('85', 'lost again', { as: 'curia-85 · a ticket' })
+    await bridge.notify('85', 'lost again', { as: 'curia-85' })
     assert.equal(announced.length, 3)
     assert.match(announced[2], /Speaker identities are off/)
   })
