@@ -8,9 +8,11 @@
 
 ARG NODE_VERSION=22.17.1
 ARG DOCKER_CLI_VERSION=28
+ARG COMPOSE_VERSION=v2.39.2
 ARG TAILSCALE_VERSION=v1.98.10
 
 FROM docker:${DOCKER_CLI_VERSION}-cli AS docker-cli
+FROM docker/compose-bin:${COMPOSE_VERSION} AS compose-bin
 FROM tailscale/tailscale:${TAILSCALE_VERSION} AS tailscale
 
 FROM node:${NODE_VERSION}-bookworm-slim
@@ -30,6 +32,10 @@ RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_$
 # Static Go binaries: safe to copy across distros.
 COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscale
+# The compose plugin, for the self-deploy sibling (#270): the deploy verb runs
+# deploy/self-deploy.sh in a container on THIS image, and that script drives
+# `docker compose`. Pinned to the version proven on the box (#260).
+COPY --from=compose-bin /docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 
 # Seed the tmux socket volume dir with the right owner: a named volume copies
 # ownership from the image on first use, and a root-owned dir would stop

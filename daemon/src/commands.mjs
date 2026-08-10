@@ -159,6 +159,10 @@ export function parseCommand(text) {
     }
     case 'status':
       return rest.length ? null : { verb: 'status' }
+    // #270: self-deploy. Bare, because everything it could say is decided —
+    // the target is origin/main and the services are named by the deploy rule.
+    case 'deploy':
+      return rest.length ? null : { verb: 'deploy' }
     // One meaning for one verb (#221): `start` works the thing. On a ticket it
     // dispatches that ticket; on a map it dispatches the map's next takeable
     // ticket. It never charts, and it never carries an instruction.
@@ -235,15 +239,19 @@ const USAGE = [
   '`attach <n>` — timeline + browser-terminal links for a live agent',
   '`cancel chat-1` / `resume chat-1` / `attach chat-1` — the same three verbs on an agent no ticket answers for, such as one charting a NEW map. `status` lists its handle',
   '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
+  '`deploy` — self-deploy: fast-forward to origin/main, rebuild, restart the daemon; a failed health check rolls back automatically',
 ].join('\n')
 
 export class CommandRouter {
   // attach: { link(ticket) -> Promise<url> } — injected by index.mjs.
   // dispatcher carries the watch list at dispatcher.config.watch so repo
   // arguments resolve without a network round-trip.
-  constructor({ dispatcher, attach, log = console.log }) {
+  // deploy: the SelfDeploy seam (#270) — optional, because the dev daemon and
+  // most tests run without one.
+  constructor({ dispatcher, attach, deploy = null, log = console.log }) {
     this.dispatcher = dispatcher
     this.attach = attach
+    this.deploy = deploy
     this.log = log
   }
 
@@ -320,6 +328,9 @@ export class CommandRouter {
           return await this.#attachReply(cmd.ticket)
         case 'review':
           return await this.dispatcher.crossCheck(cmd.ticket, { model: cmd.model, by: userId })
+        case 'deploy':
+          if (!this.deploy) return '❌ this daemon has no self-deploy seam — use bin/deploy.sh'
+          return await this.deploy.run({ by: userId, interpreted })
       }
     } catch (e) {
       this.log(`command "${canonical}" failed:`, e.message)

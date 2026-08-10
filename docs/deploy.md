@@ -64,6 +64,20 @@ bin/deploy.sh
 
 The script connects over ssh, pulls `main`, and runs `docker compose up -d --build --no-deps daemon dashboard` (`--no-deps` keeps a dependency from ever riding along). The daemon container installs its npm dependencies at start, so a dependency change needs no extra step. The script prints the two services' state on success. Override the target with `CURIA_DEPLOY_HOST`.
 
+### The `deploy` verb
+
+Curia also deploys itself, with no dev box in the loop ([#270](https://github.com/alp82/curia/issues/270)). Type `/deploy` in Discord, or `POST /command {"text":"deploy"}` on loopback. The overseer has no deploy tool: a typed verb is its own confirmation, and an interpreted one is refused.
+
+The daemon cannot recreate its own container, so the verb only orders the deploy:
+
+1. The daemon fetches `origin/main` and refuses anything that is not a fast-forward.
+2. It writes `daemon/data/deploy.json`, journals `deploy_requested`, and starts a detached sibling container (`curia-deploy`, on the `curia-daemon` image) running `deploy/self-deploy.sh`.
+3. The sibling merges, runs the compose deploy above, and health-checks the new daemon: `/ping` answers, still answers 10 s later, and the container has restart count zero.
+4. On a failed health check the sibling runs `git reset --hard` to the previous ref and recreates again. Code runs from the repo mount, so the previous ref is a full rollback.
+5. The surviving daemon reads the marker at boot, journals `deploy_landed` or `deploy_rolled_back`, announces the outcome in #curia, and deletes the marker.
+
+The sibling logs to `daemon/data/deploy.log`. The fixed container name is the concurrency guard: a second `deploy` while one is in flight is refused. A checkout with local commits is refused and needs ssh.
+
 The deploy never names `tmux` or `ttyd`. To recreate those two, wait for zero live agents, then:
 
 ```

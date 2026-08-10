@@ -274,6 +274,9 @@ const SLASH_MANIFEST = [
     .addStringOption((o) => o.setName('model').setDescription('Model override — otherwise the model the dead agent ran on')),
   new SlashCommandBuilder().setName('attach').setDescription('Get the attach handle for a live session')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true)),
+  // #270: self-deploy. Typed-only — the overseer composes no `deploy`, so the
+  // slash verb and POST /command are the whole calling surface.
+  new SlashCommandBuilder().setName('deploy').setDescription('Fast-forward to origin/main, rebuild, restart curia — rolls back on a failed health check'),
 ]
 
 // Macro-expansion only — this never interprets (#18). Returns the canonical
@@ -302,6 +305,7 @@ export function expandCommand(i) {
     case 'tickets': return `tickets${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'next': return `next${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'status': return 'status'
+    case 'deploy': return 'deploy'
     // #221: `start` takes no instruction any more. A stale client-side manifest
     // still sends the option, and putting it back into the canonical text would
     // expand to a line the router refuses — so it is dropped here, exactly as

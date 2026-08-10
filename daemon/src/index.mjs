@@ -39,6 +39,7 @@ import { Cooling } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
+import { SelfDeploy } from './deploy.mjs'
 import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
@@ -700,7 +701,11 @@ const timeline = new TimelineSurface({
 dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's
 dispatcher.identityProxy = identityProxy // #151: reconcile publishes the proxy, never ttyd itself
 
-const router = new CommandRouter({ dispatcher, attach: attachApi, log })
+// The self-deploy seam (#270): the verb orders, a sibling container executes,
+// resolvePending() below announces whichever outcome the sibling wrote.
+const selfDeploy = new SelfDeploy({ repoRoot: path.dirname(ROOT), dataDir: DATA, store, log, port: PORT })
+
+const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDeploy, log })
 
 // The overseer session host (#92): every effect goes through gate.command —
 // the same seam the slash verbs and REST use — so it is journalled, logged and
@@ -1352,6 +1357,13 @@ for (const r of store.openEscalations()) {
   log(`recovered open escalation ${r.id} (${r.kind}) agent=${r.agent} ticket=${r.ticket}`)
   scheduleNudge(r)
 }
+
+// #270: if this boot is the far side of a self-deploy, wait for the sibling's
+// verdict and announce it. The bridge is usually up seconds before the sibling
+// finishes its 10s-stability window; if it is not, the journal line still
+// lands and the announce falls back to the log.
+selfDeploy.resolvePending({ announce: (text) => (bridge ? bridge.announce(text) : Promise.resolve()) })
+  .catch((e) => log(`deploy resolution failed: ${e.message}`))
 
 // #56 bridge health. The outage clock lives HERE rather than on the bridge
 // object, because a wedge recovery throws the bridge away and builds a new one —
