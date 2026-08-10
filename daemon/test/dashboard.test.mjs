@@ -20,6 +20,7 @@ import {
 } from '../src/dashboard.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
+import { readSettings } from '../src/settings.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
 
@@ -30,7 +31,7 @@ before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-dash-')) })
 after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
 
 // Host is exactly what these tests must vary, and `fetch` forbids setting it.
-function req(port, p, { headers = {}, method = 'GET' } = {}) {
+function req(port, p, { headers = {}, method = 'GET', body = null } = {}) {
   return new Promise((resolve, reject) => {
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers, setHost: false }, (res) => {
       let buf = ''
@@ -38,6 +39,7 @@ function req(port, p, { headers = {}, method = 'GET' } = {}) {
       res.on('end', () => resolve({ status: res.statusCode, text: buf }))
     })
     r.on('error', reject)
+    if (body !== null) r.write(typeof body === 'string' ? body : JSON.stringify(body))
     r.end()
   })
 }
@@ -270,8 +272,17 @@ describe('the sidecar surface (#263)', () => {
     assert.equal(bare.status, 403)
   })
 
-  test('this surface reads and does not write', async () => {
-    const res = await req(surface.port, '/api/overview', { method: 'POST', headers: served() })
+  // #265 gave this surface two write routes. Everything else on it still reads,
+  // and a write is judged as a write BEFORE anyone looks at where it points.
+  test('a POST to a read route is not a route, whoever sends it', async () => {
+    const res = await req(surface.port, '/api/overview', {
+      method: 'POST', headers: served({ origin: 'https://box.tail1234.ts.net:8445' }),
+    })
+    assert.equal(res.status, 404)
+  })
+
+  test('a method that is neither GET nor POST is refused', async () => {
+    const res = await req(surface.port, '/api/overview', { method: 'DELETE', headers: served() })
     assert.equal(res.status, 405)
   })
 
@@ -388,5 +399,217 @@ describe('the sidecar surface (#263)', () => {
   test('the link is composed from the box\'s own name, never hand-written (#68)', async () => {
     surface.deps.attachBase = async () => 'box.tail1234.ts.net'
     assert.equal(await surface.link(), `https://box.tail1234.ts.net:${SERVE_PORT}/`)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the write surface (#265)
+// ---------------------------------------------------------------------------
+//
+// #263 left this surface read-only. #265 gives it two write routes, and the
+// three things worth pinning are the three that are not visible on a preview:
+// a write carries a second gate the identity header cannot stand in for, the
+// settings read is a fresh read of disk rather than the poll snapshot, and the
+// restart order goes to the daemon rather than being taken here.
+describe('the settings write and the restart (#265)', () => {
+  let surface
+  let daemon
+  let daemonCalls
+  let cfgDir
+  const ALLOW = ['alp@example.com']
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const writes = (extra = {}) => served({ origin: ORIGIN, 'content-type': 'application/json', ...extra })
+
+  beforeEach(async () => {
+    cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-dash-cfg-'))
+    const skills = skillsYaml(seedSkillsRoot(cfgDir)).join('\n')
+    fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
+      'watch:', '  - repo: o/r # the one with the map',
+      'dispatch:',
+      '  auto_dispatch: false', '  max_concurrent: 2', '  poll_interval_s: 60',
+      `  workspace_root: ${path.join(cfgDir, 'work')}`, '  ready_timeout_s: 45',
+      'attach:', '  ttyd_port: 7681', '  serve_port: 8443',
+      'identity:', '  allow: [alp@example.com]',
+      skills, ...sandboxYaml(), '',
+    ].join('\n'))
+    fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
+      'defaults:', '  untyped: opus',
+      'models:', '  opus: { provider: anthropic, harness: claude }',
+      'harnesses:', '  claude:',
+      '    template: claude --model {model} "$(cat {prompt_file})"',
+      "    ready: 'bypass permissions'", '    tool_channel_grace_s: 15', '',
+    ].join('\n'))
+
+    // A stand-in daemon on loopback, so the restart and the repo list are
+    // proved to CROSS the wire rather than being taken on this side of it.
+    daemonCalls = []
+    daemon = http.createServer((r, res) => {
+      daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
+      res.writeHead(200, { 'content-type': 'application/json' })
+      if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
+      res.end(JSON.stringify({ ok: true, exit_code: 75 }))
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+
+    surface = new DashboardSurface({
+      port: 0,
+      servePort: SERVE_PORT,
+      index: DEFAULT_DASHBOARD_INDEX,
+      allow: ALLOW,
+      pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      curiaFile: path.join(cfgDir, 'curia.yaml'),
+      routingFile: path.join(cfgDir, 'routing.yaml'),
+      log: () => {},
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+    fs.rmSync(cfgDir, { recursive: true, force: true })
+  })
+
+  // ---- the second gate -----------------------------------------------------
+
+  // The identity header proves whose BROWSER this is. It cannot prove which
+  // page told it to call: Serve stamps the operator's own login on a request a
+  // page from anywhere made to this URL. So a write needs the origin too.
+  test('a write with no Origin is refused, even carrying the operator\'s own identity', async () => {
+    const res = await req(surface.port, '/api/settings', {
+      method: 'POST', headers: served({ 'content-type': 'application/json' }), body: { dispatch: { max_concurrent: 3 } },
+    })
+    assert.equal(res.status, 403)
+    assert.match(res.text, /must carry an Origin header/)
+    assert.equal(readSettings({ curiaFile: path.join(cfgDir, 'curia.yaml'), routingFile: path.join(cfgDir, 'routing.yaml') })
+      .dispatch.max_concurrent, 2, 'nothing was written')
+  })
+
+  test('a write from another origin is refused — the identity header does not answer this', async () => {
+    const res = await req(surface.port, '/api/settings', {
+      method: 'POST',
+      headers: served({ origin: 'https://evil.example.com', 'content-type': 'application/json' }),
+      body: { dispatch: { max_concurrent: 3 } },
+    })
+    assert.equal(res.status, 403)
+    assert.match(res.text, /is not this console/)
+  })
+
+  test('a write that says it crossed sites is refused', async () => {
+    const res = await req(surface.port, '/api/settings', {
+      method: 'POST', headers: writes({ 'sec-fetch-site': 'cross-site' }), body: {},
+    })
+    assert.equal(res.status, 403)
+    assert.match(res.text, /crossed sites/)
+  })
+
+  test('the identity gate still runs first: a stranger with a good Origin gets nowhere', async () => {
+    const res = await req(surface.port, '/api/settings', {
+      method: 'POST',
+      headers: writes({ [LOGIN_HEADER]: 'stranger@example.com' }),
+      body: { dispatch: { max_concurrent: 3 } },
+    })
+    assert.equal(res.status, 403)
+    assert.match(res.text, /is not on the identity allowlist/)
+  })
+
+  // ---- the read ------------------------------------------------------------
+
+  test('the settings read is a fresh read of disk, never the poll snapshot', async () => {
+    const first = JSON.parse((await req(surface.port, '/api/settings', { headers: served() })).text)
+    assert.equal(first.dispatch.max_concurrent, 2)
+    // Somebody edits the file on the box, inside the poll interval.
+    const file = path.join(cfgDir, 'curia.yaml')
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('max_concurrent: 2', 'max_concurrent: 9'))
+    const second = JSON.parse((await req(surface.port, '/api/settings', { headers: served() })).text)
+    assert.equal(second.dispatch.max_concurrent, 9, 'a screen that offered to save over an unseen edit would lose it')
+  })
+
+  // ---- the save ------------------------------------------------------------
+
+  test('a save writes the file, answers with the re-read, and keeps the comments', async () => {
+    const res = await req(surface.port, '/api/settings', {
+      method: 'POST', headers: writes(), body: { dispatch: { max_concurrent: 4 } },
+    })
+    assert.equal(res.status, 200)
+    const body = JSON.parse(res.text)
+    assert.deepEqual(body.written, ['curia.yaml'])
+    assert.equal(body.settings.dispatch.max_concurrent, 4, 'the answer carries what landed, not what was sent')
+    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.yaml'), 'utf8'), /- repo: o\/r # the one with the map/)
+  })
+
+  test('a save the loaders refuse answers 409 and says so, and the file does not move', async () => {
+    const before = fs.readFileSync(path.join(cfgDir, 'curia.yaml'), 'utf8')
+    const res = await req(surface.port, '/api/settings', {
+      method: 'POST', headers: writes(), body: { dispatch: { max_concurrent: 500 } },
+    })
+    assert.equal(res.status, 409, 'the operator\'s config is wrong — this process is not')
+    const body = JSON.parse(res.text)
+    assert.equal(body.refused, true)
+    assert.match(body.error, /sandbox ports/)
+    assert.equal(fs.readFileSync(path.join(cfgDir, 'curia.yaml'), 'utf8'), before)
+  })
+
+  test('a key the screen does not write is refused at the door', async () => {
+    const res = await req(surface.port, '/api/settings', {
+      method: 'POST', headers: writes(), body: { sandbox: { image: 'evil' } },
+    })
+    assert.equal(res.status, 409)
+    assert.match(res.text, /does not write/)
+  })
+
+  // ---- the restart ---------------------------------------------------------
+
+  test('the restart is the DAEMON\'s to take: the sidecar only orders it', async () => {
+    const res = await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(res.status, 200)
+    assert.deepEqual(daemonCalls, [{ method: 'POST', url: '/restart', origin: null }])
+  })
+
+  test('the order carries no Origin onward — the daemon refuses every request that does', async () => {
+    await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(daemonCalls[0].origin, null,
+      'the sidecar composes its own call from a route it names in code, never forwards a browser\'s')
+  })
+
+  test('after a restart order the next read re-reads: a held snapshot would say `up` at the one moment that is false', async () => {
+    await req(surface.port, '/api/overview', { headers: served() })
+    assert.ok(surface.snapshotAt > 0)
+    await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(surface.snapshotAt, 0)
+  })
+
+  test('a daemon that is not answering makes the restart an error, never a silent success', async () => {
+    await new Promise((done) => daemon.close(done))
+    const res = await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(res.status, 500)
+    daemon = null
+  })
+
+  // ---- the repo list -------------------------------------------------------
+
+  test('the repos come from the daemon, because this process holds no GitHub credential', async () => {
+    const res = await req(surface.port, '/api/repos', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text).repos, ['o/r', 'o/other'])
+    assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/repos', origin: null }])
+  })
+
+  test('a daemon that cannot be asked answers null repos and a reason, never an empty list', async () => {
+    await new Promise((done) => daemon.close(done))
+    daemon = null
+    const body = JSON.parse((await req(surface.port, '/api/repos', { headers: served() })).text)
+    assert.equal(body.repos, null, 'an empty list would read as "you have no repos"')
+    assert.ok(body.error)
   })
 })

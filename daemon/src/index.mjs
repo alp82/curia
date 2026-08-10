@@ -45,7 +45,7 @@ import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
-import { probeAgentToken, tokenExpiryDays } from './github.mjs'
+import { probeAgentToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
 import { probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './identity.mjs'
@@ -1227,6 +1227,42 @@ function providerUsage() {
   return [...out.values()].map((p) => ({ ...p, windows: p.windows.map(wireWindow) }))
 }
 
+// ---- the settings screen's two daemon reads (#265) ---------------------------
+
+// The exit code `POST /restart` leaves with, and the pause before it takes it.
+// The code is nonzero because `restart: on-failure` is what respawns this
+// process: a clean exit is how the daemon stays down for a deploy. The pause is
+// only long enough for the answer already written to leave the socket.
+const RESTART_EXIT_CODE = 75
+const RESTART_DELAY_MS = 50
+
+// The watchable repos, cached. `gh repo list` names only what the login OWNS,
+// and the watch list already carries a repo under another owner, so this asks
+// for everything the login can reach instead.
+const REPOS_TTL_MS = 10 * 60_000
+const REPOS_LIMIT = 100
+let reposCache = null
+
+async function watchableRepos() {
+  if (reposCache && Date.now() - reposCache.at < REPOS_TTL_MS) return reposCache.value
+  const value = { login: null, repos: null, limit: REPOS_LIMIT, error: null, read_at: new Date().toISOString() }
+  try {
+    value.login = await viewerLogin()
+    const rows = await ghJSONL([
+      'api', `user/repos?per_page=${REPOS_LIMIT}&sort=pushed&affiliation=owner,collaborator,organization_member`,
+      '--jq', '.[] | {full_name}',
+    ])
+    value.repos = rows.map((r) => r.full_name).filter(Boolean)
+  } catch (e) {
+    // Null, never an empty list: "the operator has no repos" and "curia could
+    // not ask" are opposite facts, and the page draws them differently.
+    value.error = e.message
+    log(`the repo list for the settings screen failed (${e.message})`)
+  }
+  reposCache = { at: Date.now(), value }
+  return value
+}
+
 // Everything the console shell draws, in one read (#262, per the where-it-lives
 // decision #249). The sidecar holds no secret, no GitHub token and no journal
 // handle: it polls this and renders what comes back.
@@ -1491,6 +1527,40 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/reconcile' && req.method === 'POST') {
     await dispatcher.reconcile({ boot: false })
     return json(200, { ok: true })
+  }
+
+  // The repos the settings screen offers (#265). The dashboard sidecar holds no
+  // GitHub credential — that is what #263's mount list buys — so the one process
+  // that does answers this. Cached, because a settings screen re-drawn on every
+  // keystroke must not be a `gh` call each time, and the set of repos a person
+  // can watch changes about as often as they create one.
+  //
+  // Deliberately NOT the whole list: the 100 most recently pushed, which is the
+  // selector's useful length, and the page says so and takes a typed
+  // `owner/name` for anything outside it.
+  if (url.pathname === '/repos' && req.method === 'GET') {
+    return json(200, await watchableRepos())
+  }
+
+  // The restart (#249 item 6, built by #265). No sudoers, no host change and no
+  // second supervisor: the daemon journals the order and exits NONZERO, and
+  // `restart: on-failure` in deploy/compose.yaml brings it back. A clean exit
+  // would stay down, which is why the code below is not 0.
+  //
+  // Agent panes live in the tmux CONTAINER (#260), so they survive this. What
+  // does not survive is this process: the answer goes out first, and the exit
+  // is scheduled behind it — an exit inside the handler would kill the socket
+  // the sidecar is waiting on, and the operator would read a restart that
+  // worked as a restart that failed.
+  if (url.pathname === '/restart' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    const by = typeof body?.by === 'string' ? body.by : 'loopback'
+    store.logEvent('restart_requested', { by, exit_code: RESTART_EXIT_CODE })
+    log(`restart requested by ${by} — exiting ${RESTART_EXIT_CODE} so the supervisor respawns this process`)
+    res.writeHead(200, { 'content-type': 'application/json' })
+    return res.end(JSON.stringify({ ok: true, by, exit_code: RESTART_EXIT_CODE }), () => {
+      setTimeout(() => process.exit(RESTART_EXIT_CODE), RESTART_DELAY_MS).unref()
+    })
   }
 
   json(404, { error: 'not found' })
