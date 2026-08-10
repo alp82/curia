@@ -41,14 +41,14 @@ import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
-import { OverseerHost } from './overseer.mjs'
+import { OverseerHost, CONSOLE_SESSION } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeAgentToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
 import { probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
-import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './identity.mjs'
+import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
@@ -616,12 +616,17 @@ const timelineHosts = new Set()
 
 async function resolveServeHosts() {
   const self = await tailnetSelf()
-  for (const [set, servePort] of [
-    [attachHosts, curiaConfig.attach.serve_port],
-    [timelineHosts, curiaConfig.timeline.serve_port],
+  for (const [set, ports] of [
+    [attachHosts, [curiaConfig.attach.serve_port]],
+    // TWO ports for the timeline (#267): its own, and the console's. The chat
+    // is this surface, served under the sidecar's address, so those requests
+    // arrive here carrying the console's Host. The alternative was for the
+    // sidecar to REWRITE Host on the way through, which would have made a proxy
+    // the author of the very evidence this check reads.
+    [timelineHosts, [curiaConfig.timeline.serve_port, curiaConfig.dashboard.serve_port]],
   ]) {
     set.clear()
-    for (const h of serveHosts({ ...self, servePort })) set.add(h)
+    for (const h of hostsForPorts(self, ports)) set.add(h)
   }
   return self
 }
@@ -766,6 +771,14 @@ const timeline = new TimelineSurface({
     // The #151 identity check. The timeline is the daemon's own server, so it
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,
+    // The console chat (#267): one session on this surface is not a pane. It is
+    // the overseer's browser thread — its transcript is the SDK session the
+    // overseer host already keeps, and a message to it is a turn rather than a
+    // keystroke. `overseer` is const below and read at request time, never at
+    // construction.
+    driverFor: (session) => (session === CONSOLE_SESSION
+      ? { cfgDir: overseer.configDir, send: (text) => overseer.browserTurn(text) }
+      : null),
   },
 })
 dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's

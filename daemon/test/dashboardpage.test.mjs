@@ -848,3 +848,46 @@ describe('the operator verbs (#266)', () => {
     })
   })
 })
+
+// ---------------------------------------------------------------------------
+// the chat (#267)
+// ---------------------------------------------------------------------------
+//
+// The screen draws no message and frames nothing: the chat is the timeline
+// page, served at /chat. So what a test can pin is what the door SAYS — who is
+// behind it, where it goes, and that a daemon which is not answering is a chat
+// that is not there, because the overseer lives inside the daemon.
+
+describe('the chat screen (#267)', () => {
+  let page
+  before(() => { page = loadPage() })
+
+  test('the door names the overseer and opens the timeline at /chat', () => {
+    const html = page.screenChat(payload())
+    assert.match(html, /href="\/chat\?session=curia-overseer"/)
+    const t = text(html)
+    assert.match(t, /This is the overseer/)
+    assert.match(t, /every watched repo/)
+    assert.match(t, /curia-overseer/)
+  })
+
+  test('it states the one thing the overseer cannot do, rather than leaving it to be found', () => {
+    assert.match(text(page.screenChat(payload())), /no shell and no checkout/)
+  })
+
+  test('a daemon that is not answering is a chat that is not there, and says which', () => {
+    const p = payload()
+    p.daemon_up = false
+    p.error = 'connect ECONNREFUSED'
+    p.error_since = at(30)
+    const t = text(page.screenChat(p))
+    assert.match(t, /The chat is down while the daemon restarts/)
+    assert.match(t, /daemon restarting/, 'and the reading marker still says why')
+  })
+
+  test('the chat is a screen of the shell now, and no longer the one that lands later', () => {
+    const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(src, /chat:\s*\["Chat",\s*screenChat\]/)
+    assert.doesNotMatch(text(page.screenChat(payload())), /#267/, 'the placeholder is gone')
+  })
+})
