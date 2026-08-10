@@ -399,6 +399,7 @@ export class DiscordBridge {
     this.log = log
     this.onHealth = onHealth
     this.threadByName = new Map() // ephemeral cache for UNBOUND threads ('all'), rebuilt on demand
+    this.threadWork = new Map() // ticket -> the in-flight thread resolution for it (#257)
     // Bridge health (#56). Ephemeral like every other cache here: the journal
     // holds the transitions, this holds only what is true right now.
     this.health = { state: 'down', since: Date.now(), last_error: null }
@@ -595,14 +596,39 @@ export class DiscordBridge {
     await this.renamer.set(t.id, name, { reserve: glyph !== '🎫' })
   }
 
+  // One thread per ticket needs ONE thread-resolving path per ticket at a time
+  // (#257). Every path here reads the binding, then awaits a Discord round
+  // trip, then creates — so two callers that both read "unbound" both created,
+  // and each one's bind refused the other's. That is the three "🎫 173" threads
+  // born within 600 ms on 2026-08-05: a notify and two escalations racing the
+  // same lazy open. This chain makes read-then-create atomic per ticket, and a
+  // busy ticket never holds up a different one.
+  //
+  // The chain never rejects, and it deletes itself once it is the tail, so a
+  // long-lived bridge does not accumulate one entry per ticket it ever saw.
+  #perTicket(ticket, fn) {
+    const key = String(ticket)
+    const prev = this.threadWork.get(key) ?? Promise.resolve()
+    const run = prev.then(fn, fn)
+    const tail = run.then(() => {}, () => {}).then(() => {
+      if (this.threadWork.get(key) === tail) this.threadWork.delete(key)
+    })
+    this.threadWork.set(key, tail)
+    return run
+  }
+
   // The thread a ticket's traffic lands in (#93): the journalled binding first.
   // An unbound ticket gets a fresh thread, bound on creation — that is the
   // "autonomous dispatch opens and binds a fresh thread" leg of #89, reached
   // lazily by whichever notify or escalation speaks first. Pseudo-tickets with
   // no binding seam ('all', tests without `bindings`) keep the old name-based
   // lookup so bulk confirms still share one thread.
-  async ensureThread(ticket) {
+  ensureThread(ticket) {
     if (!this.bindings || !/^\d+$/.test(String(ticket))) return this.#namedThread(`ticket-${ticket}`)
+    return this.#perTicket(ticket, () => this.#ensureThread(ticket))
+  }
+
+  async #ensureThread(ticket) {
     const bound = this.bindings.get(ticket)
     if (bound) {
       const t = await this.client.channels.fetch(bound).catch(() => null)
@@ -614,6 +640,16 @@ export class DiscordBridge {
       // deleted thread can carry no traffic — release and fall through.
       this.bindings.release(ticket, 'thread-gone')
     }
+    // The dispatch backstop (#140), now on the lazy path too (#257). The two
+    // paths disagreed: a dispatch went back to the ticket's last thread, a
+    // notify or escalation opened a second one. So every ticket worked twice
+    // ended with a thread per run — #147 collected four that way.
+    //
+    // The name is left as it is. This path knows no ticket type, so relabeling
+    // would drop the type field, and a late line after an ending must never put
+    // a live glyph back on a finished thread.
+    const revived = await this.#reviveLastThread(ticket, '', '', { relabel: false })
+    if (revived) return revived
     const thread = await this.channel.threads.create({
       name: DiscordBridge.labelName(ticket, '', this.#repoOf(ticket)), autoArchiveDuration: 10080,
     })
@@ -621,7 +657,13 @@ export class DiscordBridge {
     if (!r.ok && r.threadId) {
       // lost a race: another path bound this ticket between the read and here
       const winner = await this.client.channels.fetch(r.threadId).catch(() => null)
-      if (winner) return winner
+      // The thread just opened carries nothing and would stand in the list as a
+      // twin of the winner. Delete it (#257) — leaving it is how the duplicates
+      // in the history got there.
+      if (winner) {
+        await thread.delete().catch(() => {})
+        return winner
+      }
     }
     return thread
   }
@@ -674,8 +716,14 @@ export class DiscordBridge {
   // breadcrumbs link both ways — the origin learns where the work went, the
   // new thread names who sent it. Composition from ids the daemon holds at
   // bind time; no new state.
-  async bindTicket(ticket, { threadId = null, type = '', repo = '' } = {}) {
-    if (!this.bindings) return { ok: false, reason: 'no-bindings' }
+  bindTicket(ticket, opts = {}) {
+    if (!this.bindings) return Promise.resolve({ ok: false, reason: 'no-bindings' })
+    // the same one-at-a-time chain ensureThread runs on (#257): a dispatch and
+    // a lazy open for one ticket must not each create a thread
+    return this.#perTicket(ticket, () => this.#bindTicket(ticket, opts))
+  }
+
+  async #bindTicket(ticket, { threadId = null, type = '', repo = '' } = {}) {
     // The dispatch hands the repo over (#235); a caller without one falls back
     // to the journal's record, and a ticket with neither keeps the short label.
     repo = repo || this.#repoOf(ticket)
@@ -712,8 +760,12 @@ export class DiscordBridge {
   // sentence the operator typed once. A bind that refuses puts the handle back
   // — an unbound thread would send the running agent's next notify into a
   // fresh thread, which is worse than a stale name.
-  async adoptMapThread(handle, mapNumber, { repo = '' } = {}) {
-    if (!this.bindings) return { ok: false, reason: 'no-bindings' }
+  adoptMapThread(handle, mapNumber, opts = {}) {
+    if (!this.bindings) return Promise.resolve({ ok: false, reason: 'no-bindings' })
+    return this.#perTicket(mapNumber, () => this.#adoptMapThread(handle, mapNumber, opts))
+  }
+
+  async #adoptMapThread(handle, mapNumber, { repo = '' } = {}) {
     const threadId = this.bindings.get(handle)
     if (!threadId) return { ok: false, reason: 'unbound' }
     this.bindings.release(handle, 'the map this session created now names it')
@@ -741,6 +793,15 @@ export class DiscordBridge {
         name: DiscordBridge.labelName(ticket, type, repo), autoArchiveDuration: 10080,
       })
       r = this.bindings.bind(ticket, thread.id)
+      // the same lost-race cleanup ensureThread does (#257): an empty twin of
+      // the thread that won is a duplicate, so it goes
+      if (!r.ok && r.threadId) {
+        const winner = await this.client.channels.fetch(r.threadId).catch(() => null)
+        if (winner) {
+          await thread.delete().catch(() => {})
+          return { ok: true, threadId: winner.id }
+        }
+      }
     }
     if (r.ok && originThreadId) {
       const origin = await this.client.channels.fetch(originThreadId).catch(() => null)
@@ -792,7 +853,12 @@ export class DiscordBridge {
   // The journal's last thread for a ticket, when it still exists on Discord
   // and is still free to take back (#140). Rebinds it — unarchived, relabeled
   // — or returns null so the caller opens a fresh thread instead.
-  async #reviveLastThread(ticket, type, repo) {
+  //
+  // `relabel: false` takes the thread back and leaves its name alone (#257).
+  // The lazy path uses it: a notify knows no ticket type, so the label it would
+  // write is shorter than the one already there, and a line arriving after an
+  // ending must not put 🎫 back on a ✅ thread.
+  async #reviveLastThread(ticket, type, repo, { relabel = true } = {}) {
     const last = this.bindings.last?.(ticket)
     if (!last) return null
     const t = await this.client.channels.fetch(last).catch(() => null)
@@ -801,6 +867,7 @@ export class DiscordBridge {
     // the meantime — it is not this ticket's to take back
     if (!this.bindings.bind(ticket, t.id).ok) return null
     if (t.archived) await t.setArchived(false).catch(() => {})
+    if (!relabel) return t
     // the label goes back on: a ✅ from an earlier release, or a ⚰️ from a
     // cancel (#200), goes back to 🎫 because a ticket is being worked again
     const name = DiscordBridge.labelName(ticket, type, repo)
@@ -818,12 +885,65 @@ export class DiscordBridge {
     if (!this.bindings) return
     const bound = this.bindings.get(ticket)
     this.bindings.release(ticket, reason)
-    if (!bound) return
-    const t = await this.client.channels.fetch(bound).catch(() => null)
+    // An ending whose binding is already gone still owes the thread its final
+    // name (#257). Two releases land for one ending often enough — reconcile
+    // drops the binding of a ticket whose issue is closed, and the agent's own
+    // `finished` release arrives after it — and the first one takes the binding
+    // off whether or not its rename got through. A thread fetch that failed, or
+    // a rename the budget deferred and the process then lost, left the thread
+    // wearing the glyph it had. The second release used to return right here,
+    // before the rename, so nothing ever corrected it: #81 stayed 🔎 and reads
+    // as "in review" forever.
+    const target = bound ?? this.#endedThread(ticket)
+    if (!target) return
+    const t = await this.client.channels.fetch(target).catch(() => null)
     if (!t) return
     const base = this.renamer.desired(t.id) ?? t.name
     if (!LIVE_GLYPH_RE.test(base)) return
     await this.renamer.set(t.id, DiscordBridge.doneName(base))
+  }
+
+  // The thread an unbound ticket last lived on, when it is still that ticket's
+  // to speak for (#257). A thread another ticket has taken over since answers
+  // null: its name is that ticket's business now.
+  #endedThread(ticket) {
+    const last = this.bindings.last?.(ticket)
+    if (!last) return null
+    const holder = this.bindings.ticketOf?.(last)
+    return holder && String(holder) !== String(ticket) ? null : last
+  }
+
+  // The ending's name outlives the process that owed it (#257).
+  //
+  // A rename rides a budget of 2 per thread per 10 minutes (threadname.mjs),
+  // so a ✅ can be deferred for minutes, and the gate's ledger dies with the
+  // daemon. A deploy or a crash inside that window dropped the rename with it,
+  // and nothing ever came back for it: the release had already taken the
+  // binding off, so reconcile's bound-ticket sweep could not see the thread.
+  // The name then lied for good.
+  //
+  // This runs at every bridge start and settles what the last process left: an
+  // ACTIVE thread the journal once bound, bound to nothing now, still wearing a
+  // live glyph. A thread curia never labeled is never touched, and an archived
+  // one is left alone — waking a thread to correct its name is louder than the
+  // wrong name.
+  async settleEndedThreads() {
+    if (!this.bindings?.lastTicketOf || !this.channel?.threads?.fetchActive) return 0
+    const active = await this.channel.threads.fetchActive().catch((e) => {
+      this.log(`[bridge] could not read the active threads to settle names: ${e.message}`)
+      return null
+    })
+    if (!active) return 0
+    let settled = 0
+    for (const t of active.threads.values()) {
+      if (!LIVE_GLYPH_RE.test(t.name)) continue
+      if (!this.bindings.lastTicketOf(t.id)) continue
+      if (this.bindings.ticketOf?.(t.id)) continue // still bound: live, or cancelled and kept (#140)
+      await this.renamer.set(t.id, DiscordBridge.doneName(t.name))
+      settled++
+    }
+    if (settled) this.log(`[bridge] settled ${settled} thread name(s) the last process left mid-rename`)
+    return settled
   }
 
   // The cancel counterpart (#200), and the one difference is the binding: a

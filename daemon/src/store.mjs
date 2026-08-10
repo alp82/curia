@@ -97,6 +97,7 @@ export class EscalationStore {
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
     this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
+    this.lastThreadTickets = new Map() // thread id -> last ticket ever bound to it, the same way round (#257)
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
@@ -192,6 +193,7 @@ export class EscalationStore {
         this.ticketThreads.set(String(ev.ticket), ev.thread_id)
         this.threadTickets.set(ev.thread_id, String(ev.ticket))
         this.lastTicketThreads.set(String(ev.ticket), ev.thread_id)
+        this.lastThreadTickets.set(ev.thread_id, String(ev.ticket))
         break
       }
       case 'thread_released': {
@@ -569,6 +571,15 @@ export class EscalationStore {
   // its predecessor's history, breadcrumbs and recorded answers live in.
   lastThreadForTicket(ticket) {
     return this.lastTicketThreads.get(String(ticket))
+  }
+
+  // The same pointer the other way round (#257): the last ticket this thread
+  // ever carried, released or not. `ticketForThread` answers only for a LIVE
+  // binding, and the boot pass that settles a thread name left mid-rename asks
+  // about threads whose binding is exactly what is gone. It is also the guard
+  // that keeps that pass off a thread curia never labeled.
+  lastTicketForThread(threadId) {
+    return this.lastThreadTickets.get(threadId)
   }
 
   // The repo of a ticket's last dispatch (#235), off the journal's

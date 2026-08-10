@@ -244,7 +244,10 @@ The half-hour re-post of an open escalation into its thread.
 The Discord module. It renders and captures. It never interprets.
 
 **Thread-per-ticket**:
-One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread. The name carries the state at a glance: 🎫 bound, ✅ finished, ⚰️ cancelled.
+One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread. Every path that resolves a thread goes back to the ticket's last thread first, and one ticket resolves one thread at a time, so a re-dispatch adds no second thread (#257). The name carries the state at a glance: 🎫 bound, ✅ finished, ⚰️ cancelled.
+
+**Settling a thread name**:
+Putting the terminal glyph on a thread whose ticket has ended (#257). A rename rides a budget of 2 per thread per 10 minutes, so a ✅ can wait, and the gate that holds it dies with the daemon. Two passes catch what is dropped. A release settles the ticket's last thread even when the binding is already gone. Every bridge start settles each active thread curia once labeled that is bound to nothing and still wears a live glyph.
 
 **Voice ownership**:
 The rule that divides the thread's speakers. CuriaBot states mechanics, the agent voice states meaning, and no fact is said twice in one thread. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
