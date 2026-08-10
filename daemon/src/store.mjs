@@ -162,6 +162,7 @@ export class EscalationStore {
         this.escalations.set(ev.id, {
           id: ev.id, agent: ev.agent, ticket: ev.ticket, kind: ev.kind,
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
+          recommended: ev.recommended ?? false,
           payload_hash: ev.payload_hash, status: 'open', opened_at: ev.ts,
           action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
           discord: null, successor: null, agent_died: false,
@@ -315,7 +316,7 @@ export class EscalationStore {
   // target INSTANCE — a newer confirm on the same agent replaces the older one
   // whatever its wording, so at most one set of live buttons ever points at a
   // given agent.
-  open({ agent, ticket, kind, prompt, options, preview_url, action, origin_thread_id }) {
+  open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id }) {
     const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
@@ -331,7 +332,11 @@ export class EscalationStore {
         break
       }
     }
-    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, payload_hash, action, origin_thread_id })
+    // `recommended` (#285) stays OUT of the payload hash on purpose: the hash
+    // keys supersession on the question, and the flag is not the question. An
+    // agent that re-asks the same round with the flag flipped supersedes its
+    // own record, which is what a re-ask should do.
+    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload_hash, action, origin_thread_id })
     if (superseded) this._append({ type: 'esc_supersede', id: superseded.id, successor: id })
     return { record: this.escalations.get(id), superseded }
   }
