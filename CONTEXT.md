@@ -279,6 +279,9 @@ The whole verdict, posted into the thread when no agent is left to read it. It n
 **Ending**:
 The ordered close-out of a ticket: commit, pull request, preview, review gate, merge, resolve, result. One structure drives both the prompt and the Stop hook checklist.
 
+**Ending receipt**:
+The one CuriaBot message that ends a ticket thread. In small print, it merges what the tracker step did with what the session teardown did. It carries no bare link. The agent's own report is the message before it, and that report is where the pull request unfurls. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
+
 **Charting ending**:
 The ending of a map dispatch: edit the map, then report the result. Curia posts the summary on the map. No unassign, no pull request, no review gate, no close.
 

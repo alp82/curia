@@ -1127,8 +1127,13 @@ export class DiscordBridge {
     await msg.edit({ content: `${tail}\n\n${suffix}`, components: [] })
   }
 
-  markAnswered(record) {
-    return this.#editEscalationMessage(record, `✅ **answered** by <@${record.answered_by}> via ${record.answered_via}: \`${String(record.answer).slice(0, 200)}\``)
+  // The card is the ONLY record of an answer (#253, ADR-0013). Every answer
+  // path lands here — button, thread reply, REST — so the mark carries what
+  // the button's own interaction reply used to add: which dead ids routed the
+  // answer to this record.
+  markAnswered(record, { routedFrom = [] } = {}) {
+    const routed = routedFrom.length ? ` (routed from ${routedFrom.join('→')})` : ''
+    return this.#editEscalationMessage(record, `✅ **answered** by <@${record.answered_by}> via ${record.answered_via}${routed}: \`${String(record.answer).slice(0, 200)}\``)
   }
 
   // The mark says what HAPPENED and nothing else (#200). It used to promise a
@@ -1313,8 +1318,12 @@ export class DiscordBridge {
       const answer = action === 'idx' ? record?.options?.[Number(value)] ?? value : value
       const result = this.handlers.answer(id, { answer, by: i.user.id, via: 'button' })
       if (result.ok) {
-        const routed = result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''
-        await i.reply({ content: `✅ **${result.record.id}** answered: \`${answer}\`${routed}` })
+        // #253, ADR-0013: the card is the only record. `answer` above already
+        // edits the mark onto it, so this press is acknowledged SILENTLY —
+        // the interaction reply that used to land here said the same fact a
+        // second time, and on an old card it landed screens below the mark it
+        // repeated, reading as news about something already answered.
+        await i.deferUpdate().catch(() => {})
       } else {
         await i.reply({ content: `⚠️ not open — ${result.reason}${result.record?.answer ? ` (answer was \`${result.record.answer}\`)` : ''}`, ephemeral: true })
       }

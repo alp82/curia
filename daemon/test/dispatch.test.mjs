@@ -113,7 +113,15 @@ function makeDispatcher(deps = {}, {
     sandbox: TEST_PINS,
   }
   const store = {
-    logEvent: (type, data) => { const rec = { type, ...data }; events.push(rec); return rec },
+    // The journal goes to DISK as well as to `events`, because several
+    // dispatcher reductions read it back off disk — the ending clause (#253)
+    // among them, which is how report_result's sentence reaches the Stop hook.
+    logEvent: (type, data) => {
+      const rec = { type, ts: new Date().toISOString(), ...data }
+      events.push(rec)
+      fs.appendFileSync(path.join(tmp, 'data', 'events.jsonl'), `${JSON.stringify(rec)}\n`)
+      return rec
+    },
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     cancel: () => ({ ok: true }),
     // #208, the real EscalationStore predicate: a note stamped with an
@@ -2101,7 +2109,11 @@ describe('a non-clean result resolves nothing AND hands the ticket back (#41)', 
     assert.ok(events.some((e) => e.type === 'dispatch_unclaimed'))
     assert.ok(events.some((e) => e.type === 'nonclean_noted' && e.released === true && e.noted === true))
     assert.match(text, /nothing was resolved or pushed/)
-    assert.match(notifies.at(-1).message, /NOT resolved/)
+    // #253: the tracker sentence is carried on the journal event and read back
+    // by the ending receipt. Nothing is said in the thread here — report_result
+    // and the Stop hook are one ending, and one ending is one message.
+    assert.match(events.find((e) => e.type === 'nonclean_noted').summary, /NOT resolved/)
+    assert.ok(!notifies.some((n) => /NOT resolved/.test(n.message)), 'the ending speaks once, at the end')
   })
 
   test('blocked with a failing unclaim: the note and the thread both say the ticket is still assigned', async () => {
@@ -2117,7 +2129,7 @@ describe('a non-clean result resolves nothing AND hands the ticket back (#41)', 
     assert.match(body, /Releasing its claim FAILED/)
     assert.ok(events.some((e) => e.type === 'unclaim_failed'))
     assert.ok(!events.some((e) => e.type === 'dispatch_unclaimed'))
-    assert.match(notifies.at(-1).message, /claim release FAILED/)
+    assert.match(events.find((e) => e.type === 'nonclean_noted').summary, /claim release FAILED/)
   })
 
   test('a note that cannot be posted still releases the claim, and says which half failed', async () => {
@@ -2129,7 +2141,128 @@ describe('a non-clean result resolves nothing AND hands the ticket back (#41)', 
     await d.onResult('curia-42', { ticket: '42', status: 'aborted', summary: 'cancelled' })
 
     assert.ok(events.some((e) => e.type === 'nonclean_noted' && e.released === true && e.noted === false))
-    assert.match(notifies.at(-1).message, /the note could not be posted/)
+    assert.match(events.find((e) => e.type === 'nonclean_noted').summary, /the note could not be posted/)
+  })
+})
+
+// ---- #253, ADR-0013: the ending speaks once --------------------------------
+//
+// The cold read of 131 threads (docs/research/discord-thread-surprises.md,
+// section 3) found every ending narrated by three identities in up to four
+// messages inside twenty seconds. Two remain: the agent's report, in the
+// agent's voice, and this receipt, in CuriaBot's.
+describe('the ending is one CuriaBot message (#253)', () => {
+  const agent = () => ({ repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/nope/42', cfgDir: '/c/curia-42', state: 'ready' })
+
+  test('the tracker step is silent; the receipt carries it, once, in small print', async () => {
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ url: 'https://github.com/o/r/pull/9', state: 'MERGED' }),
+    })
+    d.agents.set('curia-42', agent())
+
+    await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+    assert.equal(notifies.length, 0, 'report_result says nothing in the thread of its own')
+
+    await d.onAgentDone('curia-42')
+
+    assert.equal(notifies.length, 1, 'one ending, one message')
+    const { message } = notifies[0]
+    assert.ok(message.split('\n').every((l) => l.startsWith('-# ')), 'the mechanics register is small print')
+    assert.match(message, /o\/r#42 resolved/, 'what the tracker step did')
+    assert.match(message, /session closed/, 'what the teardown did')
+    assert.ok(!/🏁/.test(message), 'the done line is gone with no replacement')
+  })
+
+  test('no bare link rides the receipt — the pull request unfurls in the report and nowhere else', async () => {
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ url: 'https://github.com/o/r/pull/9', state: 'OPEN' }),
+      issueComments: async () => [],
+    })
+    d.agents.set('curia-42', agent())
+
+    await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+    await d.onAgentDone('curia-42')
+
+    const { message } = notifies[0]
+    assert.match(message, /pull\/9/, 'the link is still stated')
+    assert.ok(!/[^<]https:\/\//.test(message), 'every url is wrapped in <>, so Discord renders no embed')
+  })
+
+  test('a blocked result ends in the same one message', async () => {
+    const d = makeDispatcher()
+    d.agents.set('curia-42', agent())
+
+    await d.onResult('curia-42', { ticket: '42', status: 'blocked', summary: 'need a human' })
+    // the wire writes this file before onResult runs; releasing the claim drops
+    // the in-memory record, so the file is what makes the exit a clean one
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"blocked"}')
+    await d.onAgentDone('curia-42')
+
+    assert.equal(notifies.length, 1)
+    assert.match(notifies[0].message, /NOT resolved.*session closed/s)
+  })
+
+  test('the clause survives a restart between report_result and the Stop hook', async () => {
+    const first = makeDispatcher()
+    first.agents.set('curia-42', agent())
+    await first.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+
+    // a second Dispatcher over the same data dir: the in-memory record is gone,
+    // and only the journal remains
+    const second = makeDispatcher()
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
+    await second.onAgentDone('curia-42')
+
+    assert.match(notifies.at(-1).message, /o\/r#42 resolved/)
+  })
+
+  test('a session whose ending touched no tracker still gets a receipt', async () => {
+    const d = makeDispatcher()
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
+    d.agents.set('curia-42', agent())
+
+    await d.onAgentDone('curia-42')
+
+    assert.equal(notifies.length, 1)
+    assert.match(notifies[0].message, /finished with a recorded result/)
+  })
+
+  // The report is the ONE place the pull-request link is allowed to unfurl, so
+  // index.mjs asks the dispatcher for it at report_result.
+  describe('the pull request the report carries', () => {
+    test('the live record answers first', () => {
+      const d = makeDispatcher()
+      d.agents.set('curia-42', { ...agent(), prUrl: 'https://github.com/o/r/pull/9' })
+      assert.equal(d.pullRequestUrlFor('curia-42'), 'https://github.com/o/r/pull/9')
+    })
+
+    test('the journal answers for a session this process never held', () => {
+      const d = makeDispatcher()
+      d.store.logEvent('pr_opened', { repo: 'o/r', ticket: '42', agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+      assert.equal(d.pullRequestUrlFor('curia-42'), 'https://github.com/o/r/pull/9')
+    })
+
+    test('a fresh dispatch does not inherit the last one\'s pull request', () => {
+      const d = makeDispatcher()
+      d.store.logEvent('pr_opened', { repo: 'o/r', ticket: '42', agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+      d.store.logEvent('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet' })
+      assert.equal(d.pullRequestUrlFor('curia-42'), null)
+    })
+  })
+
+  test('a resume does not inherit the ending of the dispatch before it', async () => {
+    const d = makeDispatcher()
+    d.agents.set('curia-42', agent())
+    await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
+    // the next dispatch of the same ticket, on the same session name
+    d.store.logEvent('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet' })
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
+    d.agents.set('curia-42', agent())
+
+    await d.onAgentDone('curia-42')
+
+    assert.match(notifies.at(-1).message, /finished with a recorded result/)
+    assert.ok(!/resolved —/.test(notifies.at(-1).message), 'the last run\'s sentence stays with the last run')
   })
 })
 

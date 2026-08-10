@@ -17,6 +17,11 @@
 // the line is worth an edit. The split matters: a meter source going quiet
 // (no transcript yet, no configured window, an account reading the daemon may
 // not refresh) drops that one meter and never the line.
+//
+// #253, ADR-0013: the line carries LIVE state only. A terminal state retires
+// it — see #retire. The dispatcher already posts one message for every ending
+// (the ending receipt, the abnormal-exit line, the death line, the watchdog
+// line, the cancel line), and a 🏁 beside each one said the same fact twice.
 
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
@@ -63,9 +68,23 @@ export function visibleWidth(text) {
   return width
 }
 
-// The states a meter says anything true about. A finished, stalled or dead
-// agent has no live context and no reason to carry account bars.
+// The states a meter says anything true about. Every state left is live, so
+// this is now the whole set; it stays explicit because `resolving` is the one
+// live state with no live context to meter.
 const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 'cross-checking', 'executing'])
+
+// The events that END a session. Each one already carries its own CuriaBot
+// message from the dispatcher, so the line retires instead of drawing a
+// terminal state beside it (#253).
+const TERMINAL = new Set([
+  'lifecycle_closed',
+  'agent_abnormal_exit',
+  'reviewer_abnormal_exit',
+  'agent_died',
+  'agent_cancelled',
+  'agent_ready_timeout',
+  'agent_exited_early',
+])
 
 // The literal the 🔎 button sends (#165). Matched here rather than imported as
 // the regex, because this file reads the ANSWER off a journal event and an
@@ -114,6 +133,14 @@ export class StatusLine {
     this.refreshMs = refreshMs
     this.timer = null
     this.agents = new Map() // session -> { ticket, model, state, detail, text, ids, chain }
+    this.retiring = new Set() // in-flight deletes whose session is already forgotten
+  }
+
+  // Everything this line has in flight: the per-session chains, plus the
+  // retirements (#253) whose session `this.agents` no longer holds. Nothing in
+  // the daemon waits on this — the tests do, and a shutdown could.
+  async settle() {
+    await Promise.all([...[...this.agents.values()].map((w) => w.chain), ...this.retiring])
   }
 
   // The meter tick (#146). The elapsed time only refreshes while an escalation
@@ -150,6 +177,10 @@ export class StatusLine {
   }
 
   onEvent(ev) {
+    // Every ending is the dispatcher's own message (#253) — this line adds
+    // nothing to it and steps out of the way. Checked before the switch so one
+    // rule covers every terminal event, whatever it is called.
+    if (TERMINAL.has(ev.type)) return this.#retire(ev.agent)
     switch (ev.type) {
       case 'agent_spawned':
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
@@ -157,12 +188,6 @@ export class StatusLine {
         // The spawn command carries the prompt, so the composer marker means
         // the agent is already at work — ready and working are one state.
         return this.#set(ev.agent, ev.ticket, 'working', { model: ev.model, at: ev.ts })
-      case 'agent_ready_timeout':
-        return this.#set(ev.agent, ev.ticket, 'stalled', {})
-      case 'agent_exited_early':
-        // same terminal state as the timeout, but the line says WHICH kind of
-        // failure it was (#169) — a dead command reads nothing like a slow one
-        return this.#set(ev.agent, ev.ticket, 'stalled', { exit: ev.status })
       case 'esc_open': {
         if (ev.kind === CONFIRM_KIND) return
         const state = ev.kind === REVIEW_KIND ? 'awaiting-review' : 'waiting'
@@ -215,10 +240,6 @@ export class StatusLine {
         const w = this.agents.get(ev.agent)
         return this.#set(ev.agent, w?.ticket ?? ev.ticket, 'resolving', { status: ev.status })
       }
-      case 'agent_died':
-        // the liveness sweep's event (#138) — the line stops saying "working"
-        // about a killed agent and names the way out
-        return this.#set(ev.agent, ev.ticket, 'gone', { ticket: ev.ticket })
       case 'agent_done':
         // A Stop-hook RECEIPT, not an ending (#240): the hook fires at every
         // turn end, and a turn ends parked on an open escalation as a matter of
@@ -239,17 +260,34 @@ export class StatusLine {
           esc: { id: r.id, title: promptTitle(r.prompt), opened_at: r.opened_at ?? ev.ts },
         })
       }
-      case 'lifecycle_closed':
-        // the dispatcher's own verdict that the ending ran — carries the
-        // ticket, so a session first seen after a restart still gets its 🏁
-        return this.#set(ev.agent, ev.ticket, 'done', {})
-      case 'agent_abnormal_exit':
-      case 'reviewer_abnormal_exit':
-        // stopped without a result — the notify says so, and the line used to
-        // contradict it with a 🏁 read off the same Stop hook (#240)
-        return this.#set(ev.agent, ev.ticket, 'failed', {})
       default:
     }
+  }
+
+  // A terminal state is not a status (#253, ADR-0013). The line answers "what
+  // is this agent doing now", and when the answer is "nothing" the
+  // dispatcher's own message is the record — the ending receipt, the
+  // abnormal-exit line, the death line, the watchdog line, the cancel line.
+  // Each of those is already one CuriaBot message, so a 🏁 or a ⚰️ drawn here
+  // beside it narrated one event twice. The #107 ending spoke four times in
+  // eighteen seconds and this line was one of the four.
+  //
+  // The live message is DELETED and the session forgotten. Nothing is lost:
+  // the journal holds the history, the ending message stands in the thread,
+  // and a respawn draws a fresh line at the bottom — under the ending, which
+  // is where the operator is reading.
+  #retire(session) {
+    const w = this.agents.get(session)
+    if (!w) return
+    this.agents.delete(session)
+    // Inside the chain: a queued edit from a state change still in flight must
+    // not repost the line after this delete.
+    const done = w.chain.then(() => (w.ids ? this.remove(w.ids) : null)).catch((e) => {
+      this.log(`status line retire for ${session} failed: ${e.message}`)
+    })
+    this.retiring.add(done)
+    done.then(() => this.retiring.delete(done))
+    return done
   }
 
   // The state's own sentence, meters excluded. The model moved OUT of the
@@ -266,11 +304,6 @@ export class StatusLine {
         return `⚙️ \`${session}\`${GROUP_SEP}dispatched on **${model}** — waiting for the composer`
       case 'working':
         return `▶️ \`${session}\`${GROUP_SEP}working`
-      case 'stalled':
-        if (detail.exit !== undefined) {
-          return `⚠️ \`${session}\`${GROUP_SEP}the harness command exited (status ${detail.exit}) before the composer — session kept for inspection`
-        }
-        return `⚠️ \`${session}\`${GROUP_SEP}never reached a composer — session kept for inspection`
       case 'waiting': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
         return `⏳ \`${session}\`${GROUP_SEP}waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`
@@ -287,12 +320,6 @@ export class StatusLine {
         return `🚀 \`${session}\`${GROUP_SEP}executing approved writes`
       case 'resolving':
         return `📦 \`${session}\`${GROUP_SEP}result received (**${detail.status}**) — resolving the ticket`
-      case 'done':
-        return `🏁 \`${session}\`${GROUP_SEP}done`
-      case 'failed':
-        return `⚠️ \`${session}\`${GROUP_SEP}stopped without a result — session kept for post-mortem`
-      case 'gone':
-        return `⚰️ \`${session}\`${GROUP_SEP}agent gone — \`resume ${detail.ticket}\``
       default:
         return `\`${session}\`${GROUP_SEP}${state}`
     }
@@ -356,8 +383,6 @@ export class StatusLine {
       w = { ticket, model: null, state, detail, text: null, ids: null, flag: null, chain: Promise.resolve() }
       this.agents.set(session, w)
     }
-    // a respawn after done is a new run: leave the old line as history
-    const fresh = state === 'dispatched' && w.state === 'done'
     // #108 item 17: a state CHANGE repositions the line to the thread bottom
     // (delete + repost) — an edit-in-place stays where the line was born,
     // screens above where the operator reads. Same-state refreshes (the
@@ -388,16 +413,14 @@ export class StatusLine {
       })
     }
     const text = this.#text(session, state, detail, w.model)
-    w.chain = w.chain.then(() => this.#apply(w, text, { fresh, move })).catch((e) => {
+    w.chain = w.chain.then(() => this.#apply(w, text, { move })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
     })
     return w.chain
   }
 
-  async #apply(w, text, { fresh, move }) {
-    if (fresh) {
-      w.ids = null // inside the chain, or a queued edit re-targets the old line
-    } else if (move && w.ids) {
+  async #apply(w, text, { move }) {
+    if (move && w.ids) {
       await this.remove(w.ids)
       w.ids = null
     } else if (w.ids && text === w.text) {

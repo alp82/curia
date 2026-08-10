@@ -484,6 +484,11 @@ export async function resolveAndLand({
 
 // One human-readable line per axis — goes to the Discord thread and back to the
 // agent as its report_result tool result.
+//
+// Every URL here is wrapped in <> (#253). This sentence rides the ending
+// receipt, and the agent's own report already carries the pull-request link
+// bare — one embed for one pull request. Unwrapped, the same GitHub embed
+// rendered three times in four consecutive messages.
 export function summariseOutcome(out) {
   const bits = []
   bits.push(out.close === 'repaired' ? 'ticket closed by curia' : out.close === 'present' ? 'ticket closed' : 'close state unknown')
@@ -497,10 +502,10 @@ export function summariseOutcome(out) {
   else if (m.state === 'parent-not-a-map') bits.push(`parent #${m.number} is not a map — no pointer`)
   else if (m.state === 'error') bits.push(`map #${m.number} FAILED`)
   const l = out.land
-  if (l.state === 'merged') bits.push(`code merged (${l.url})`)
-  else if (l.state === 'unmerged') bits.push(`⚠️ ${l.url} is still OPEN — the code is NOT merged`)
-  else if (l.state === 'pr-closed') bits.push(`⚠️ ${l.url} was closed unmerged — the code is NOT in`)
-  else if (l.state === 'repaired') bits.push(`⚠️ curia opened ${l.url} for you — unreviewed and unmerged`)
+  if (l.state === 'merged') bits.push(`code merged (<${l.url}>)`)
+  else if (l.state === 'unmerged') bits.push(`⚠️ <${l.url}> is still OPEN — the code is NOT merged`)
+  else if (l.state === 'pr-closed') bits.push(`⚠️ <${l.url}> was closed unmerged — the code is NOT in`)
+  else if (l.state === 'repaired') bits.push(`⚠️ curia opened <${l.url}> for you — unreviewed and unmerged`)
   else if (l.state === 'no-commits') bits.push('no code to land')
   else if (l.state === 'failed') bits.push(`landing check FAILED: ${l.error}`)
   const warn = out.warnings.length ? `\n⚠️ ${out.warnings.join('\n⚠️ ')}` : ''
