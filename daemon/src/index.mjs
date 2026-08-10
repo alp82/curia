@@ -976,10 +976,21 @@ function buildMcpServer(agent, ticket) {
       details: z.record(z.string(), z.any()).optional(),
     },
     async (result, extra) => {
-      // #237: a cross-check that has not been judged shuts this tool, and the
-      // refusal runs BEFORE anything persists — the `result` journal line, the
+      // #258: a cross-check still reading PARKS this call, exactly as it parks
+      // the gate. The keepalive starts first, because the park lasts as long as
+      // a reviewer takes and the client aborts an MCP call after 300s of silence
+      // (#34). #237: a captured verdict nobody judged shuts the tool instead.
+      // Both run BEFORE anything persists — the `result` journal line, the
       // results file and the ✅ thread post all read as "the ticket ended", and
-      // a refused result must leave none of the three.
+      // a held or refused result must leave none of the three.
+      const stopHoldKeepAlive = startKeepAlive(extra, `${agent}/result`)
+      let heldText
+      try {
+        heldText = await dispatcher.endingHold(agent)
+      } finally {
+        stopHoldKeepAlive()
+      }
+      if (heldText) return { content: [{ type: 'text', text: heldText }, ...drainNotes()] }
       const refusedText = dispatcher.resultRefusal(agent)
       if (refusedText) return { content: [{ type: 'text', text: refusedText }, ...drainNotes()] }
       // The BOUND ticket is this event's ticket, not `result.ticket` (#202).

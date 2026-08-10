@@ -229,7 +229,10 @@ The reviewer's findings on one diff. It reaches the builder on its note queue, a
 The builder's reading of a verdict. It agrees or disagrees with each finding and recommends what to do. It reaches the operator as a plain question, and it lands as the second pull-request comment.
 
 **Parked**:
-A builder idle inside its own gate call while a cross-check reads. It holds its claim, its worktree and its slot, and it wakes when the verdict lands.
+A builder idle inside its own `request_review` or `report_result` call while a cross-check reads. It holds its claim, its worktree and its slot, and it wakes when the verdict lands.
+
+**Start notice**:
+The message curia queues at the builder the moment a reviewer spawns. It names the reviewer and holds the ending: no resolve, no merge and no `report_result` until the verdict lands. A cross-check pressed at the gate sends none, because the builder is already parked.
 
 **First-valid-wins**:
 The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal.

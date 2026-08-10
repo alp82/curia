@@ -85,6 +85,12 @@ const NOTE_EVENTS = new Set([
 // gets a line, a verdict that dies gets its whole content (#252, ADR-0013).
 export const VERDICT_LABEL = 'cross-check verdict'
 
+// The label the cross-check START notice rides under (#258). A second label
+// rather than the operator default, for the reason the verdict has its own: the
+// words are curia's own mechanics, and a builder that read them as an operator
+// note would answer them instead of obeying them (ADR-0013).
+export const CROSS_CHECK_LABEL = 'cross-check started'
+
 export class EscalationStore {
   constructor(dataDir) {
     this.dir = dataDir
