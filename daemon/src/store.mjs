@@ -29,6 +29,25 @@ export const CONFIRM_KIND = 'confirm'
 // cost of watching curia rise with its history.
 export const RECENT_EVENTS = 100
 
+// How many outcomes of each kind the status reads keep (#289). `/status` in
+// Discord and the dashboard's fleet card both name the last few agents that
+// ended, per kind and newest last.
+export const RECENT_OUTCOMES = 5
+
+// The three endings those reads count, and what each one is called on a
+// surface. One name for one thing: the journal type is the daemon's word, and
+// the value here is the operator's.
+const OUTCOME_KINDS = {
+  agent_cancelled: 'cancelled',
+  lifecycle_closed: 'finished',
+  agent_died: 'died',
+}
+
+// The events that name the pull request a dispatch pushed (#289). `pr_reused`
+// is the second dispatch of a ticket whose pull request is already open, and
+// `land_repaired` is the resolve step opening the one the agent never did.
+const PR_EVENTS = new Set(['pr_opened', 'pr_reused', 'land_repaired'])
+
 // The journal in the old spelling (#184).
 //
 // Until #184 the process curia spawns was a "worker" and the program it ran
@@ -115,6 +134,8 @@ export class EscalationStore {
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
     this.recent = [] // the last RECENT_EVENTS journal lines, oldest first (#262)
+    this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
+    this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.seq = 0
     this.noteSeq = 0
     this._replay()
@@ -155,6 +176,25 @@ export class EscalationStore {
     if (ev.agent && ev.ts && !NOTE_EVENTS.has(ev.type)) {
       this.lastAgentEvents.set(ev.agent, { type: ev.type, ts: ev.ts })
     }
+
+    // The recent past the status reads ask about (#289). Both used to be
+    // answered by reading the whole journal off disk, once per `/overview`
+    // poll and again per open review gate — a cost that rose with every event
+    // curia ever wrote. They are reductions now, for the reason the feed's
+    // ring above is one: this method sees every event exactly once, on replay
+    // and on append alike, so the answer is right without a second read.
+    const outcome = OUTCOME_KINDS[ev.type]
+    if (outcome) {
+      const list = this.outcomes[outcome]
+      list.push({ kind: outcome, repo: ev.repo ?? null, ticket: String(ev.ticket ?? '') })
+      if (list.length > RECENT_OUTCOMES) list.shift()
+    }
+    // A spawn CLEARS the pull request (#253): the session name is reused by
+    // every dispatch of a ticket, so a fresh agent must not inherit the link
+    // the last one pushed. The order inside one journal is the order here.
+    if (ev.agent && ev.type === 'agent_spawned') this.pullRequests.delete(ev.agent)
+    if (ev.agent && ev.url && PR_EVENTS.has(ev.type)) this.pullRequests.set(ev.agent, ev.url)
+
     switch (ev.type) {
       case 'esc_open': {
         const n = Number(ev.id.split('-')[1])
@@ -630,5 +670,19 @@ export class EscalationStore {
   // Replay fills it, so a restarted daemon still answers "what did it last do".
   lastAgentEvent(agent) {
     return this.lastAgentEvents.get(agent) ?? null
+  }
+
+  // The recent endings `/status` and the dashboard's fleet card carry (#81,
+  // #289): the cancelled, then the finished, then the died, newest last and
+  // capped per kind. A copy, for the reason `recentEvents` hands out one.
+  recentOutcomes() {
+    return [...this.outcomes.cancelled, ...this.outcomes.finished, ...this.outcomes.died]
+  }
+
+  // The pull request an agent's CURRENT dispatch pushed, or null (#289). This
+  // is the ONE link the agent's own report is allowed to unfurl (#253), and
+  // the review gate card carries it too.
+  pullRequestFor(agent) {
+    return this.pullRequests.get(agent) ?? null
   }
 }

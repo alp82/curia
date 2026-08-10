@@ -3335,23 +3335,12 @@ export class Dispatcher {
 
   // The pull request this session pushed, for the ONE place the link is
   // allowed to unfurl (#253): the agent's own report. The in-memory record
-  // wins; the journal answers for a session this process never held.
+  // wins. The store answers for a session this process never held, off the
+  // reduction its replay filled — this read sits on the `/overview` poll, once
+  // per open review gate, so it must not touch the journal file (#289).
   pullRequestUrlFor(agentName) {
     const live = this.agents.get(agentName)?.prUrl
-    if (live) return live
-    let out = null
-    let journal
-    try {
-      journal = this.#readJournal()
-    } catch {
-      return null
-    }
-    for (const ev of journal) {
-      if (ev.agent !== agentName) continue
-      if (ev.type === 'agent_spawned') out = null
-      else if (['pr_opened', 'pr_reused', 'land_repaired'].includes(ev.type) && ev.url) out = ev.url
-    }
-    return out
+    return live || this.store.pullRequestFor(agentName)
   }
 
   // The whole ending, in one CuriaBot message (#253, ADR-0013).
@@ -4184,24 +4173,11 @@ export class Dispatcher {
       waiting_on: open.filter((r) => r.agent === w.session).map((r) => ({ id: r.id, kind: r.kind })),
     }))
     const untracked = live.filter((s) => !this.agents.has(s))
-    return { agents, untracked, recent: this.#recentOutcomes() }
-  }
-
-  // Recent cancelled and finished (#81's grown status), newest last, capped per
-  // kind. Journal-derived like everything else here — an unreadable journal
-  // costs the recents, never the whole status.
-  #recentOutcomes(cap = 5) {
-    let journal = []
-    try {
-      journal = this.#readJournal()
-    } catch {
-      return []
-    }
-    const of = (kinds) => journal
-      .filter((ev) => kinds[ev.type])
-      .map((ev) => ({ kind: kinds[ev.type], repo: ev.repo ?? null, ticket: String(ev.ticket ?? '') }))
-      .slice(-cap)
-    return [...of({ agent_cancelled: 'cancelled' }), ...of({ lifecycle_closed: 'finished' }), ...of({ agent_died: 'died' })]
+    // The recent cancelled, finished and died (#81's grown status). The store
+    // reduces them as the journal is written (#289), so this read costs
+    // nothing on disk — `/overview` asks for it every 5 seconds, and it used
+    // to parse the whole journal to answer.
+    return { agents, untracked, recent: this.store.recentOutcomes() }
   }
 
   // ---- liveness sweep (#138) -------------------------------------------------------

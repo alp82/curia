@@ -410,7 +410,7 @@ The settings screen's banner, at the top. Phase one saves the file. Phase two sa
 What the dashboard shows while the daemon does not answer. The page keeps the last snapshot, states its age, and names the reason. A page that blanks is worst exactly when the box is worst.
 
 **Poll interval**:
-`dashboard.poll_interval_s`, the age at which the sidecar re-reads the overview. It is a ceiling, not a clock: the sidecar reads only when a page asks and the snapshot is older than this. A browser asks while its tab is visible and stops when it is hidden. So a forgotten tab costs nothing, and many open tabs still cost one read. The number matters because one read costs one whole read of the journal off disk, and the journal grows without bound.
+`dashboard.poll_interval_s`, the age at which the sidecar re-reads the overview. It is a ceiling, not a clock: the sidecar reads only when a page asks and the snapshot is older than this. A browser asks while its tab is visible and stops when it is hidden. So a forgotten tab costs nothing, and many open tabs still cost one read. One read costs no journal read at all: what the overview says about the recent past is reduced in memory as events are written, so the price of a poll does not rise with the history.
 
 **Status line**:
 One Discord message per agent, written by the daemon, that says what the agent is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
@@ -431,7 +431,7 @@ How full an agent's context window is. The numerator is the last request's input
 ### State and evidence
 
 **Journal**:
-`daemon/data/events.jsonl`. Append-only, and the daemon's only durable artifact. In-memory state is a reduction over it.
+`daemon/data/events.jsonl`. Append-only, and the daemon's only durable artifact. In-memory state is a reduction over it. The file never rotates, so it only grows. The store reads it whole ONCE, at boot, and every append after that passes the same reducer. A surface that answers about the recent past reads the reduction and never the file again.
 
 **State home**:
 The one durable place a fact lives. GitHub holds ticket truth. The journal holds curia's events. Everything in memory is a disposable cache.

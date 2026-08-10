@@ -15,6 +15,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Dispatcher, paneTail, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
+import { EscalationStore } from '../src/store.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
@@ -112,16 +113,22 @@ function makeDispatcher(deps = {}, {
     // #195: every dispatch prepares a container, so every Dispatcher needs pins
     sandbox: TEST_PINS,
   }
+  // A REAL store behind the double (#289). The journal must reach disk,
+  // because several dispatcher reductions read it back off disk — the ending
+  // clause (#253) among them, which is how report_result's sentence reaches
+  // the Stop hook. Two reductions no longer do, so the double delegates them
+  // to the code that owns them instead of keeping a second copy of the rule.
+  // Its constructor replays the file, so a test that seeds `events.jsonl`
+  // before it builds a dispatcher still gets those lines counted.
+  const journal = new EscalationStore(path.join(tmp, 'data'))
   const store = {
-    // The journal goes to DISK as well as to `events`, because several
-    // dispatcher reductions read it back off disk — the ending clause (#253)
-    // among them, which is how report_result's sentence reaches the Stop hook.
     logEvent: (type, data) => {
-      const rec = { type, ts: new Date().toISOString(), ...data }
+      const rec = journal.logEvent(type, data)
       events.push(rec)
-      fs.appendFileSync(path.join(tmp, 'data', 'events.jsonl'), `${JSON.stringify(rec)}\n`)
       return rec
     },
+    recentOutcomes: () => journal.recentOutcomes(),
+    pullRequestFor: (agent) => journal.pullRequestFor(agent),
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     cancel: () => ({ ok: true }),
     // #208, the real EscalationStore predicate: a note stamped with an

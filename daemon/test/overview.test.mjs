@@ -14,7 +14,7 @@
 // it did. That is driven through the Dispatcher's injected `deps` seam — no gh,
 // no tmux, no live box.
 
-import { test, describe, before, after } from 'node:test'
+import { test, describe, before, beforeEach, after, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
@@ -25,7 +25,7 @@ import { fileURLToPath } from 'node:url'
 import { AGENT_ROUTES } from '../src/agenttoken.mjs'
 import { Dispatcher } from '../src/dispatch.mjs'
 import { directUnblocks } from '../src/github.mjs'
-import { EscalationStore, RECENT_EVENTS } from '../src/store.mjs'
+import { EscalationStore, RECENT_EVENTS, RECENT_OUTCOMES } from '../src/store.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
 import { ctxOnWire } from '../src/usage.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
@@ -295,6 +295,121 @@ describe('the journal tail the feed reads (#262)', () => {
     // A second store over the same journal replays the file, so the tail is
     // right the instant the boot replay ends — no first-append warm-up.
     assert.deepEqual(store().recentEvents().map((e) => e.n), tail.map((e) => e.n))
+  })
+})
+
+// The other two things the poll used to read the whole journal for (#289).
+//
+// The route answers a question about the RECENT past — the last few endings,
+// and one agent's pull request — and it used to answer it by parsing every
+// event curia ever wrote, once per poll and again per open review gate. The
+// interval of #263 caps how OFTEN that happens and nothing about what one read
+// costs, and that cost rises with the history.
+//
+// So both are reductions now, beside the feed's ring and filled the same way.
+// The test that matters is the last one: it takes the file away and asks
+// anyway.
+describe('the recent past, answered without the file (#289)', () => {
+  let dir
+  const store = () => new EscalationStore(dir)
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-289-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('the outcomes keep the last few of each kind, newest last, in the order the status prints', () => {
+    const s = store()
+    for (let i = 1; i <= RECENT_OUTCOMES + 3; i += 1) s.logEvent('lifecycle_closed', { repo: 'o/r', ticket: i })
+    s.logEvent('agent_cancelled', { repo: 'o/r', ticket: 90 })
+    s.logEvent('agent_died', { repo: 'o/r', ticket: 91 })
+
+    const out = s.recentOutcomes()
+    assert.deepEqual(out.map((o) => o.kind), ['cancelled', ...Array(RECENT_OUTCOMES).fill('finished'), 'died'])
+    assert.deepEqual(out.filter((o) => o.kind === 'finished').map((o) => o.ticket), ['4', '5', '6', '7', '8'],
+      'newest last, and the head of a long run has fallen off')
+    // A cap PER KIND, not one shared cap: eight endings must not push the one
+    // cancellation off a list the operator reads to find it.
+    assert.deepEqual(out[0], { kind: 'cancelled', repo: 'o/r', ticket: '90' })
+  })
+
+  test('a restart replays them, so the first poll after a restart is not blank', () => {
+    const s = store()
+    s.logEvent('lifecycle_closed', { repo: 'o/r', ticket: 42 })
+    assert.deepEqual(store().recentOutcomes(), s.recentOutcomes())
+  })
+
+  test('the pull request answers per agent, and a fresh dispatch does not inherit the last one\'s', () => {
+    const s = store()
+    s.logEvent('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+    s.logEvent('pr_opened', { agent: 'curia-43', url: 'https://github.com/o/r/pull/10' })
+    assert.equal(s.pullRequestFor('curia-42'), 'https://github.com/o/r/pull/9')
+    assert.equal(s.pullRequestFor('curia-43'), 'https://github.com/o/r/pull/10')
+    assert.equal(s.pullRequestFor('curia-99'), null, 'an agent with no pull request is null, never another agent\'s')
+
+    // The session name is reused by every dispatch of a ticket, so the spawn
+    // clears it (#253). The reuse and the repair both land on it after that.
+    s.logEvent('agent_spawned', { agent: 'curia-42', ticket: 42 })
+    assert.equal(s.pullRequestFor('curia-42'), null)
+    s.logEvent('pr_reused', { agent: 'curia-42', url: 'https://github.com/o/r/pull/11' })
+    assert.equal(s.pullRequestFor('curia-42'), 'https://github.com/o/r/pull/11')
+    s.logEvent('land_repaired', { agent: 'curia-42', url: 'https://github.com/o/r/pull/12' })
+    assert.equal(s.pullRequestFor('curia-42'), 'https://github.com/o/r/pull/12')
+  })
+
+  test('both answer with the journal file taken away — the proof the poll never reads it', async () => {
+    const s = store()
+    s.logEvent('agent_cancelled', { repo: 'o/r', ticket: 3 })
+    s.logEvent('lifecycle_closed', { repo: 'o/r', ticket: 4 })
+    s.logEvent('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+
+    const d = new Dispatcher({
+      config: {
+        watch: [],
+        dispatch: {
+          auto_dispatch: false, max_concurrent: 1, poll_interval_s: 60,
+          workspace_root: path.join(dir, 'work'), ready_timeout_s: 5, stop_nudge_budget: 3,
+        },
+        attach: { ttyd_port: 7681, serve_port: 8443 },
+        identity: { allow: ['tester@example.com'], proxy_port: 7682 },
+        skills: null,
+        sandbox: TEST_PINS,
+      },
+      routing: { defaults: { untyped: 'sonnet' }, models: {}, fallbacks: {}, harnesses: {} },
+      store: s,
+      notify: () => {},
+      log: () => {},
+      dataDir: dir,
+      deps: { listSessions: async () => [] },
+    })
+
+    // Nothing on this path may open it, so the strongest statement of that is
+    // to make opening it fail.
+    fs.rmSync(path.join(dir, 'events.jsonl'))
+
+    const { recent } = await d.status()
+    assert.deepEqual(recent, [
+      { kind: 'cancelled', repo: 'o/r', ticket: '3' },
+      { kind: 'finished', repo: 'o/r', ticket: '4' },
+    ])
+    assert.equal(d.pullRequestUrlFor('curia-42'), 'https://github.com/o/r/pull/9')
+    assert.equal(d.pullRequestUrlFor('curia-77'), null)
+  })
+
+  test('the live agent record still wins over the reduction', () => {
+    const s = store()
+    s.logEvent('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+    const d = new Dispatcher({
+      config: { watch: [], dispatch: { auto_dispatch: false, max_concurrent: 1, poll_interval_s: 60, workspace_root: path.join(dir, 'work'), ready_timeout_s: 5, stop_nudge_budget: 3 }, attach: { ttyd_port: 7681, serve_port: 8443 }, identity: { allow: [], proxy_port: 7682 }, skills: null, sandbox: TEST_PINS },
+      routing: { defaults: { untyped: 'sonnet' }, models: {}, fallbacks: {}, harnesses: {} },
+      store: s,
+      notify: () => {},
+      log: () => {},
+      dataDir: dir,
+      deps: {},
+    })
+    d.agents.set('curia-42', { session: 'curia-42', prUrl: 'https://github.com/o/r/pull/10' })
+    assert.equal(d.pullRequestUrlFor('curia-42'), 'https://github.com/o/r/pull/10',
+      'the record of the dispatch this process is holding is the newer fact')
+    d.agents.clear()
   })
 })
 
