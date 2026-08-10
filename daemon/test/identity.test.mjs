@@ -16,7 +16,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
-  identityRefusal, serveHosts, IdentityProxy, LOGIN_HEADER, FUNNEL_HEADER,
+  identityRefusal, serveHosts, hostsForPorts, IdentityProxy, LOGIN_HEADER, FUNNEL_HEADER,
 } from '../src/identity.mjs'
 import { TimelineSurface, DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
 
@@ -64,6 +64,20 @@ describe('serveHosts: every name this box legitimately answers to (#151)', () =>
     const tl = serveHosts({ dnsName: 'box.tail1234.ts.net', ips: [], servePort: 8444 })
     assert.ok(tl.has('box.tail1234.ts.net:8444'))
     assert.ok(!tl.has('box.tail1234.ts.net:8443'))
+  })
+
+  // #267: the chat is the timeline, reached through the console's own address,
+  // so the timeline answers to two published ports now. It is still a closed
+  // set of names this box owns — which is the whole thing this check buys.
+  test('hostsForPorts admits every port that proxies to one surface, and nothing else', () => {
+    const self = { dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }
+    const hosts = hostsForPorts(self, [8444, 8445])
+    assert.ok(hosts.has('box.tail1234.ts.net:8444'), 'its own published port')
+    assert.ok(hosts.has('box.tail1234.ts.net:8445'), 'and the console that serves the chat')
+    assert.ok(hosts.has('box:8445'), 'the short name on both')
+    assert.ok(hosts.has('100.98.118.33:8444'))
+    assert.ok(!hosts.has('box.tail1234.ts.net:8443'), 'never a port nobody proxies from')
+    assert.ok(!hosts.has('evil.example:8445'), 'and never a name this box does not answer to')
   })
 })
 

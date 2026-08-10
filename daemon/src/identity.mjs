@@ -118,6 +118,24 @@ export function serveHosts({ dnsName, ips = [], servePort }) {
   return set
 }
 
+// Every name one surface may legitimately be reached by (#267). Until the
+// console chat that was one published port per surface, so `serveHosts` alone
+// answered. It no longer is: the chat IS the timeline, reached through the
+// console's own address, so a request arrives at the timeline carrying the
+// console's Host — a name this box serves, on a port it publishes, but not the
+// timeline's own.
+//
+// Admitting a second published port costs nothing this set buys. It exists to
+// refuse a name this box does NOT answer to (the rebinding shape, fact 4), and
+// every name here still comes from tailscale's own word about this node.
+export function hostsForPorts(self, servePorts) {
+  const set = new Set()
+  for (const servePort of servePorts) {
+    for (const h of serveHosts({ ...self, servePort })) set.add(h)
+  }
+  return set
+}
+
 // The box's own tailnet names, from tailscale itself — never hardcoded, the
 // same rule attachBase() follows. Cached: the node's name and addresses do not
 // change under a running daemon, and every request would otherwise shell out.

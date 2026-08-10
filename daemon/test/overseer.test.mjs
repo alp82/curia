@@ -12,8 +12,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { EscalationStore } from '../src/store.mjs'
 import { parseCommand } from '../src/commands.mjs'
+import { validSessionName } from '../src/attach.mjs'
 import {
   OverseerHost, canonicalFor, buildVerbTools, ALLOWED_TOOLS, DISALLOWED_TOOLS, SYSTEM_PROMPT,
+  CONSOLE_THREAD, CONSOLE_SESSION,
 } from '../src/overseer.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-test-'))
@@ -518,5 +520,74 @@ describe('EscalationStore overseer sessions', () => {
     assert.equal(replayed.overseerSession('thread-1'), 'sess-2')
     const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
     assert.equal(lines.filter((l) => l.type === 'overseer_session').length, 3)
+  })
+})
+
+// ---- the browser thread (#267) ----------------------------------------------
+//
+// The console chat is this same overseer in a thread of its own. What these
+// pin is the two things that differ, and why each one has to: the answer is not
+// posted, because the transcript already carries it to the page, and the verbs
+// run with no origin thread, because `console` is not a thread the bridge can
+// put buttons in.
+
+describe('the browser thread (#267)', () => {
+  test('it is one brain in a thread of its own: the conversation resumes on the console key', async () => {
+    const queryFn = scriptedQuery([init('sess-c1'), success('#267 is first')], [init('sess-c2'), success('started')])
+    const { host, store } = makeHost({ queryFn })
+    await host.browserTurn('what is next?')
+    assert.equal(store.overseerSession(CONSOLE_THREAD), 'sess-c1')
+    await host.browserTurn('start it')
+    assert.equal(queryFn.calls[1].options.resume, 'sess-c1', 'the second turn continues the first')
+  })
+
+  test('the verbs run with NO origin thread — a confirm goes where a REST press sends it', async () => {
+    const queryFn = scriptedQuery([init('sess-c1'), call('cancel', { ticket: '263' }), success('confirm posted')])
+    const seen = []
+    const { host } = makeHost({
+      queryFn,
+      command: async (text, ctx) => { seen.push({ text, ctx }); return 'ok' },
+    })
+    await host.browserTurn('cancel 263')
+    assert.equal(seen.at(-1).text, 'cancel 263')
+    assert.equal(seen.at(-1).ctx.threadId, null, 'there is no console thread for the bridge to post into')
+    assert.equal(seen.at(-1).ctx.interpreted, true, 'a model composed it, so the confirm still stands between it and the teardown')
+  })
+
+  test('the answer leaves by the transcript, not by this call — one fact, said once', async () => {
+    const queryFn = scriptedQuery([init('sess-c1'), success('all quiet')])
+    const { host } = makeHost({ queryFn })
+    const out = await host.browserTurn('what runs?')
+    assert.equal(out.ok, true)
+    // Nothing carries the words back here. The SDK wrote them to the session
+    // transcript, and the timeline tails that file (#74) — a second copy
+    // returned through this path would be the same fact said twice (ADR-0013).
+    assert.equal(JSON.stringify(out).includes('all quiet'), false)
+  })
+
+  test('the console session is a name the timeline admits', () => {
+    assert.ok(validSessionName(CONSOLE_SESSION), 'the surface refuses anything else')
+    assert.notEqual(CONSOLE_SESSION, CONSOLE_THREAD, 'the session is what the page names, the thread is what the conversation keys on')
+  })
+
+  test('a turn that ends without an answer throws its words, so the page can say them', async () => {
+    const queryFn = scriptedQuery([init('sess-c1'), failure('error_max_turns')], [init('sess-c1'), failure('error_max_turns')])
+    const { host } = makeHost({ queryFn })
+    await assert.rejects(() => host.browserTurn('loop forever'), /without an answer/)
+  })
+
+  test('one turn at a time: a second message while the first runs is refused in words', async () => {
+    let release
+    const held = new Promise((done) => { release = done })
+    const queryFn = ({ options }) => (async function* () {
+      yield init('sess-c1')
+      await held
+      yield success('done')
+    })(options)
+    const { host } = makeHost({ queryFn })
+    const first = host.browserTurn('slow one')
+    await assert.rejects(() => host.browserTurn('impatient'), /one turn at a time/)
+    release()
+    await first
   })
 })

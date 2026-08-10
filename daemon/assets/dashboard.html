@@ -13,7 +13,7 @@
 
      The four read screens draw one payload: `GET /api/overview`, which is the
      sidecar's held snapshot of the daemon's own `GET /overview` (#262). The
-     chat lands in #267.
+     chat (#267) draws nothing: it is the timeline page, served at /chat.
 
      THE VERBS (#266) POST to the sidecar, never to the daemon. It composes each
      daemon call from the fields the page sends, so this page names a ticket, an
@@ -27,7 +27,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=2">
+<meta name="curia-dashboard" content="proto=3">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia</title>
 <style>
@@ -293,6 +293,16 @@
   .said a { word-break: break-all; }
   .copy { width: 100%; font: 12px ui-monospace, Menlo, monospace; }
 
+  /* ---------- the chat (#267) ----------
+     A door, not a room: the chat itself is the timeline page, served under this
+     surface's own address. Nothing here draws a message. */
+  .door { max-width: 620px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 14px 16px; }
+  .door p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-dim); }
+  .door p.lead { color: var(--ink); }
+  .door a.btn { display: inline-block; text-decoration: none; }
+  .door a.btn:hover { text-decoration: none; }
+  .door .cannot { font-size: 12.5px; color: var(--ink-faint); margin: 10px 0 0; }
+
   /* ---------- the screens that land later ---------- */
   .later {
     border: 1px dashed var(--line); border-radius: 9px; padding: 12px 14px;
@@ -317,7 +327,7 @@ const SCREENS = {
   agents:   ["Agents",   screenAgents],
   frontier: ["Frontier", screenFrontier],
   feed:     ["Feed",     screenFeed],
-  chat:     ["Chat",     (p) => later(p, "The chat", "#267")],
+  chat:     ["Chat",     screenChat],
   settings: ["Settings", screenSettings],
 };
 const NAMES = Object.keys(SCREENS);
@@ -1309,6 +1319,38 @@ function setDispatch() {
       <span class="hint" style="display:block;margin:2px 0 0">On, curia starts the next takeable ticket by itself. Off, every dispatch is one the operator ordered.</span></td>
       <td><input type="checkbox" id="set-auto" ${auto ? "checked" : ""} onchange="setDispatchField('auto_dispatch', this.checked)"></td></tr>
     ${rows}</table>`);
+}
+
+/* ---- the chat (#267) -------------------------------------------------------
+
+   The console draws no chat of its own and frames none. The chat IS the
+   timeline attach — the same page a phone opens against an agent — pointed at
+   the overseer's browser thread and served under this address. One chat
+   surface: the composer, the history and every future thing the timeline grows
+   arrive here for free, and there is no second one to keep in step.
+
+   So this screen is a door. It says who is on the other side, whether the
+   process holding them is answering, and it opens. */
+const CHAT_PAGE = "/chat";
+const CHAT_SESSION = "curia-overseer";
+const chatHref = () => CHAT_PAGE + "?session=" + encodeURIComponent(CHAT_SESSION);
+
+function screenChat(p) {
+  /* The overseer runs INSIDE the daemon, so a daemon that is not answering is a
+     chat that is not there. The bar above says why; this says what it means. */
+  const down = p && !p.daemon_up;
+  return `${head(p, "Chat", `<span class="dim-note mono">${esc(CHAT_SESSION)}</span>`)}
+    <div class="door">
+      <p class="lead">This is the overseer — the same curia that answers your prose in Discord, in a
+        thread of its own. It sees every watched repo, and it holds the verbs: ask it what to start,
+        then say <code>start 256</code> and it dispatches.</p>
+      ${down ? `<p class="unread">The chat is down while the daemon restarts. The overseer runs inside it.</p>` : ""}
+      <p><a class="btn primary" href="${esc(chatHref())}">Open the chat</a></p>
+      <p>It opens at this same address, so the phone reaches it the same way. A destructive verb still
+        posts its ✅/❌ card, and that card lands on Home.</p>
+      <p class="cannot">It has no shell and no checkout, so it cannot read a file or a diff. It tells
+        you what curia knows, and it acts.</p>
+    </div>`;
 }
 
 function screenSettings(p) {

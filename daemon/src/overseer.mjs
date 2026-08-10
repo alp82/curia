@@ -23,6 +23,21 @@ import { SIGNALS, smallPrint } from './messaging.mjs'
 export const OVERSEER_MODEL = 'claude-haiku-4-5'
 export const OVERSEER_FALLBACK_MODEL = 'claude-sonnet-5'
 
+// The browser thread (#267). The console chat is the overseer in a thread of
+// its own: one brain, two surfaces, and no second chat anywhere.
+//
+// The key is a plain word rather than a Discord snowflake, and that is the
+// whole distinction it carries — `store.overseerSession` keys the conversation
+// on it, so the browser thread resumes across a daemon restart exactly as a
+// Discord thread does, and it can never collide with one.
+//
+// The SESSION name is what the timeline surface serves this conversation under.
+// It reads as a curia session (attach.mjs validSessionName) because the
+// timeline admits nothing else, and it names the overseer rather than a number
+// because no ticket answers for it.
+export const CONSOLE_THREAD = 'console'
+export const CONSOLE_SESSION = 'curia-overseer'
+
 // The tool → router contract, pure: what canonical text each verb tool posts
 // to /command. One string builder rather than seven inline template literals,
 // so the mapping is testable without the SDK in the loop.
@@ -209,6 +224,38 @@ export class OverseerHost {
     this.busy = new Set() // thread ids with a turn in flight
   }
 
+  // ---- the browser thread (#267) -------------------------------------------
+  //
+  // The console chat is this same overseer, in a thread of its own. One brain
+  // answers the operator on Discord and in the browser, and neither surface
+  // holds a second one.
+  //
+  // Two things differ from a Discord turn, and both follow from there being no
+  // Discord thread here.
+  //
+  //   1. The ANSWER is not posted. The SDK writes every turn to the session
+  //      transcript, and the timeline surface tails that file (#74), so the
+  //      words reach the page by the same path an agent's words do. A `say`
+  //      that also posted would say one fact twice (ADR-0013).
+  //   2. The verb tools run with NO origin thread. A confirm this turn opens
+  //      is the one thing a browser turn cannot render — there is no thread to
+  //      put the buttons in — so it takes the same route a REST press takes and
+  //      lands in the channel, plus the console's own needs-you list.
+  //
+  // What comes back is the failure, and only the failure: a turn that ends
+  // without an answer must not read as silence on the page.
+  async browserTurn(text) {
+    const said = []
+    const out = await this.runTurn(CONSOLE_THREAD, text, {
+      say: (t) => { said.push(t) },
+      status: () => {},
+      routeThreadId: null,
+    })
+    if (out.busy) throw new Error('curia is still on your last message — one turn at a time')
+    if (!out.ok) throw new Error(said.join('\n') || `the turn ended without an answer (${out.why})`)
+    return out
+  }
+
   // One in-process MCP server per turn, so the verb tools carry the thread
   // they run in (#93): the router binds `start` to that thread. Cheap — the
   // server is a plain object over the same seven handlers. `interpreted`
@@ -231,7 +278,12 @@ export class OverseerHost {
   // (#95, per #89): status(text) upserts the single small-print status line —
   // the caller sends it once and edits it in place — and say(text) posts the
   // answer. Failures land in the answer slot; everything meta lands in status.
-  async runTurn(threadId, prompt, { say, status }) {
+  //
+  // `routeThreadId` (#267) is the thread the VERB TOOLS run in, which is the
+  // session key everywhere until the browser thread: a console turn keys its
+  // conversation on `console` and routes its verbs with no thread at all,
+  // because `console` is not a thread the bridge can post buttons into.
+  async runTurn(threadId, prompt, { say, status, routeThreadId = threadId }) {
     if (this.busy.has(threadId)) {
       await say(smallPrint(`${SIGNALS.warn} still on your last message — one turn at a time per thread`))
       return { ok: false, busy: true }
@@ -254,7 +306,7 @@ export class OverseerHost {
       const fullPrompt = notes.length
         ? `${notes.map((t) => `[curia: ${t}]`).join('\n')}\n\n${prompt}`
         : prompt
-      const first = await this.#turn(threadId, fullPrompt, this.model, { say, step })
+      const first = await this.#turn(threadId, fullPrompt, this.model, { say, step, routeThreadId })
       if (first.ok) return first
       // Sonnet fallback (#82) — but only when the failed turn executed
       // nothing: a turn that died after a tool call may already have
@@ -262,7 +314,7 @@ export class OverseerHost {
       // effect. That failure goes to the operator instead.
       if (first.toolCalls === 0 && this.fallbackModel && this.fallbackModel !== this.model) {
         await step(`${SIGNALS.warn} ${this.model} turn failed (${first.why}) — retrying on ${this.fallbackModel}`)
-        const second = await this.#turn(threadId, fullPrompt, this.fallbackModel, { say, step })
+        const second = await this.#turn(threadId, fullPrompt, this.fallbackModel, { say, step, routeThreadId })
         if (second.ok) return second
         await say(`${SIGNALS.warn} session ended without an answer (${second.why})`)
         return second
@@ -274,7 +326,7 @@ export class OverseerHost {
     }
   }
 
-  async #turn(threadId, prompt, model, { say, step }) {
+  async #turn(threadId, prompt, model, { say, step, routeThreadId = threadId }) {
     const resume = this.store.overseerSession(threadId)
     this.log(`[overseer] turn thread=${threadId} resume=${resume ?? 'fresh'} model=${model}`)
     const t0 = Date.now()
@@ -307,7 +359,7 @@ export class OverseerHost {
           model,
           resume,
           systemPrompt: SYSTEM_PROMPT,
-          mcpServers: { curia: this.#mcpFor(threadId, narrate) },
+          mcpServers: { curia: this.#mcpFor(routeThreadId, narrate) },
           allowedTools: ALLOWED_TOOLS,
           disallowedTools: DISALLOWED_TOOLS,
           maxTurns: this.maxTurns,

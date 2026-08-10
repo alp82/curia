@@ -382,6 +382,12 @@ describe('TimelineSurface', () => {
   let escHistory = []
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
   const workspaceRoot = () => path.join(tmp, 'work')
+  // The driven session (#267): the console chat is the overseer, whose
+  // transcript sits outside the workspace and whose composer is a turn.
+  const DRIVEN = 'curia-overseer'
+  const drivenCfg = () => path.join(tmp, 'overseer-config')
+  const turns = [] // every text handed to the driver
+  let turnFails = null // a message to throw from send()
 
   before(async () => {
     fs.mkdirSync(path.join(tmp, 'work', 'cfg'), { recursive: true })
@@ -406,6 +412,15 @@ describe('TimelineSurface', () => {
         assertServe: async () => {},
         serveOff: async () => {},
         attachBase: async () => 'box.tailnet.ts.net',
+        driverFor: (session) => (session === DRIVEN
+          ? {
+            cfgDir: drivenCfg(),
+            send: async (text) => {
+              if (turnFails) throw new Error(turnFails)
+              turns.push(text)
+            },
+          }
+          : null),
       },
     })
     const { verified } = await surface.start()
@@ -620,6 +635,78 @@ describe('TimelineSurface', () => {
       })
       assert.equal(d.up, true)
       assert.match(d.hint, /Enter to set as default/)
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  // ---- the driven session: the console chat (#267) --------------------------
+  //
+  // One surface, two kinds of session. What these pin is that the difference
+  // stays where the driver is: the same page, the same stream, the same
+  // composer — and no tmux anywhere near it.
+
+  test('a driven session reads its transcript from the DRIVER\'s config dir, not the workspace', async () => {
+    const proj = path.join(drivenCfg(), 'projects', 'home')
+    fs.mkdirSync(proj, { recursive: true })
+    fs.writeFileSync(path.join(proj, 'console.jsonl'), [
+      JSON.stringify({ type: 'user', message: { content: [{ type: 'text', text: 'what is next?' }] } }),
+      JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '#267 is first on the curia frontier' }] } }),
+    ].join('\n') + '\n')
+
+    const { events } = await sse(port, `session=${DRIVEN}`)
+    const hello = events.find((e) => e.event === 'hello')
+    assert.equal(hello.data.harness, 'claude', 'the harness is probed in the driver\'s own dir')
+    const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
+    assert.ok(items.some((i) => i.kind === 'say' && /#267 is first/.test(i.text)))
+  })
+
+  test('a message to a driven session is a TURN — nothing reaches send-keys', async () => {
+    const before = sent.length
+    const r = await fetch(`http://127.0.0.1:${port}/send`, {
+      method: 'POST', body: JSON.stringify({ session: DRIVEN, text: 'start 267' }),
+    })
+    assert.equal(r.status, 200)
+    assert.equal(turns.at(-1), 'start 267')
+    assert.equal(sent.length, before, 'tmux is not in this path at all')
+    const j = journal.findLast((x) => x.type === 'timeline_send')
+    assert.equal(j.session, DRIVEN)
+    assert.equal(j.outcome, 'sent')
+  })
+
+  test('a turn that ends without an answer comes back as WORDS, never as silence', async () => {
+    turnFails = 'the turn ended without an answer (max turns)'
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: DRIVEN, text: 'anything' }),
+      })
+      assert.equal(r.status, 502)
+      assert.match((await r.json()).error, /without an answer/)
+      const j = journal.findLast((x) => x.type === 'timeline_send')
+      assert.equal(j.outcome, 'failed')
+    } finally {
+      turnFails = null
+    }
+  })
+
+  test('a key is refused on a driven session, and the refusal says why', async () => {
+    const r = await fetch(`http://127.0.0.1:${port}/key`, {
+      method: 'POST', body: JSON.stringify({ session: DRIVEN, key: 'escape' }),
+    })
+    assert.equal(r.status, 409)
+    assert.match((await r.json()).error, /not a terminal/)
+    const j = journal.findLast((x) => x.type === 'timeline_key')
+    assert.equal(j.outcome, 'refused_no_pane')
+  })
+
+  test('the dialog guard never asks tmux about a session that has no pane', async () => {
+    pane = () => { throw new Error('capturePane must not run for a driven session') }
+    try {
+      const r = await fetch(`http://127.0.0.1:${port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: DRIVEN, text: 'still fine' }),
+      })
+      assert.equal(r.status, 200)
+      assert.equal(turns.at(-1), 'still fine')
     } finally {
       pane = PANE_COMPOSER
     }

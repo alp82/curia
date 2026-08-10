@@ -50,7 +50,9 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // Bumped to 2 by #266: the page now POSTs to verb routes an older sidecar does
 // not serve, so an old server must refuse the new page rather than serve one
 // whose every button answers 404.
-export const DASHBOARD_PROTO = 2
+// Bumped to 3 by #267: the Chat screen sends the operator to `/chat`, which an
+// older sidecar does not serve either.
+export const DASHBOARD_PROTO = 3
 export const STAMP_NAME = 'curia-dashboard'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -135,7 +137,21 @@ export function loadDashboardConfig(file) {
     fail(`dashboard.index resolves to ${dashboard.index}, which does not exist — it ships committed in daemon/assets/`)
   }
   const allow = readAllow(cfg.identity, fail)
-  return { dashboard, allow }
+  return { dashboard, allow, timelinePort: readTimelinePort(cfg, fail) }
+}
+
+// The chat (#267) is the timeline, served under this surface's own address, so
+// the sidecar needs the one number that says where the timeline listens. It is
+// the daemon's own loopback port and both containers share the host network.
+//
+// Read here rather than through loadCuriaConfig for the #263 reason: that
+// loader checks the timeline PAGE on the daemon's filesystem, which this
+// container does not mount. This process validates the one key it uses.
+export function readTimelinePort(cfg, fail) {
+  const port = cfg.timeline?.port
+  if (port === undefined) return null // no timeline block: the chat says so rather than guessing
+  if (!(Number.isInteger(port) && port > 0 && port < 65536)) fail('timeline.port must be a port number')
+  return port
 }
 
 // ---------------------------------------------------------------------------
@@ -199,14 +215,31 @@ function words(value, what) {
   return s
 }
 
+// The chat (#267). The console does not draw a chat of its own and it does not
+// frame one: it SERVES the timeline, under its own address, and hands the four
+// routes that page speaks straight through to the daemon.
+//
+//   browser ──Serve(:8445)──> sidecar ──> daemon timeline(:4272)
+//
+// Nothing is rewritten on the way. The Host and the operator's login travel as
+// they arrived, so the timeline applies the #151 predicate in-process to the
+// evidence the browser actually sent — the sidecar carries the bytes and
+// vouches for nothing. The daemon's own host allowlist admits this surface's
+// name, which is what makes that pass (index.mjs resolveServeHosts).
+export const CHAT_PAGE = '/chat'
+const CHAT_ROUTES = new Set(['/events', '/send', '/draft', '/key'])
+
 export class DashboardSurface {
   constructor({
     port, servePort, index, allow, daemonPort: dPort = daemonPort(),
     pollIntervalS = DEFAULT_DASHBOARD.poll_interval_s,
-    curiaFile = null, routingFile = null,
+    curiaFile = null, routingFile = null, timelinePort = null,
     log = console.log, deps = {},
   }) {
     this.port = port
+    // Where the timeline listens on loopback. Null means this sidecar was
+    // started against a config with no timeline block, and the chat says so.
+    this.timelinePort = timelinePort
     this.servePort = servePort
     this.index = index
     // The two files the settings screen writes (#265). They are the only
@@ -533,6 +566,33 @@ export class DashboardSurface {
     return this.#daemon({ method: 'POST', path: '/command', body: { text, by } })
   }
 
+  // The chat, piped (#267). Headers travel unchanged in both directions, and
+  // the body streams — the timeline's read is server-sent events, which a
+  // buffering proxy would turn into a page that never updates.
+  #chat(req, res, upstreamPath) {
+    if (!this.timelinePort) {
+      res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      return res.end('this sidecar was started against a config with no `timeline:` block, so it cannot reach the chat\n')
+    }
+    const up = http.request({
+      host: '127.0.0.1', port: this.timelinePort, method: req.method, path: upstreamPath, headers: req.headers,
+    }, (upRes) => {
+      res.writeHead(upRes.statusCode, upRes.statusMessage, upRes.headers)
+      upRes.pipe(res)
+    })
+    up.on('error', (e) => {
+      this.log(`dashboard: the chat could not reach the timeline on :${this.timelinePort} (${e.message})`)
+      if (res.headersSent) return res.destroy()
+      res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(`the chat is the daemon's timeline surface, and it is not answering on :${this.timelinePort} (${e.message})\n`)
+    })
+    // A reader that closes the tab must not leave an event stream open on the
+    // daemon: the timeline counts its clients, and a phantom one keeps a
+    // session pumping forever.
+    res.on('close', () => up.destroy())
+    req.pipe(up)
+  }
+
   #handle(req, res) {
     const reason = this.#refusal(req)
     if (reason) {
@@ -548,6 +608,10 @@ export class DashboardSurface {
         this.log(`dashboard: REFUSED ${req.method} ${req.url} — ${crossSite}`)
         return this.#json(res, 403, { error: crossSite })
       }
+      // The chat's three writes (#267): the composer, the shared draft and the
+      // key the timeline page sends. They pass the cross-site check above like
+      // every other write here, and the timeline applies its own on top.
+      if (CHAT_ROUTES.has(url.pathname)) return this.#chat(req, res, url.pathname + url.search)
       // The save (#265). The sidecar writes the file itself: it holds the only
       // read-write mount in this container, and #249 put the edit here so that
       // a config the daemon refuses to boot on can still be fixed from the page
@@ -663,6 +727,12 @@ export class DashboardSurface {
     }
 
     if (req.method !== 'GET') return this.#json(res, 405, { error: 'this surface answers GET and POST' })
+
+    // The chat page and its event stream (#267). `/chat` serves the timeline's
+    // own page — the daemon re-reads and stamp-checks it per request, so the
+    // bytes the console hands out are the ones the daemon agreed to serve.
+    if (url.pathname === CHAT_PAGE) return this.#chat(req, res, '/')
+    if (CHAT_ROUTES.has(url.pathname)) return this.#chat(req, res, url.pathname + url.search)
 
     if (url.pathname === '/api/overview') {
       return this.payload().then(

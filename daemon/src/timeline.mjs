@@ -17,6 +17,14 @@
 // both harnesses (the codex harness shows the call natively; the overlay adds the
 // answer-surface state either way).
 //
+// THE DRIVEN SESSION (#267). Every session here was a tmux pane until the
+// console chat: read a transcript under the workspace, write with send-keys.
+// The chat is the OVERSEER, which has neither — it keeps its transcript in the
+// daemon's data dir and it takes words as a turn. So a session may carry a
+// DRIVER that names both, and the surface stays one surface: the same page,
+// the same SSE, the same composer, the same escalation overlay. That is what
+// "no second chat surface" costs — one seam, not a second server.
+//
 // IDENTITY (#151 — the deferral #74 item 6 restated is now CLOSED). Every
 // request, read and write alike, must carry a `Tailscale-User-Login` on the
 // allowlist and a Host this box actually serves (identity.mjs holds the
@@ -157,6 +165,14 @@ export class TimelineSurface {
       // harnessFor(session): the dispatcher's word, with detectHarness as the
       // on-disk fallback for re-adopted and lab sessions.
       harnessFor: (session) => detectHarness(this.#cfgDir(session)),
+      // driverFor(session): the #267 seam. Every session until now was a tmux
+      // pane, so the surface could read one config dir and write with
+      // send-keys. The console chat is the overseer, which has neither: it
+      // keeps its transcript in the daemon's own data dir and it takes words as
+      // a TURN rather than as keystrokes. A driver names both, and a session
+      // with no driver is a pane exactly as before.
+      //   { cfgDir, send(text) -> Promise, harness? }
+      driverFor: () => null,
       // escalationsFor(session): open escalation records for this agent.
       escalationsFor: () => [],
       // escalationHistoryFor(session): every escalation record for this
@@ -176,8 +192,22 @@ export class TimelineSurface {
     this.timer = null
   }
 
+  // A driven session (#267) or a pane. Read per call rather than cached: the
+  // set is fixed at construction, so this is a map lookup either way.
+  #driver(session) {
+    return this.deps.driverFor(session) ?? null
+  }
+
   #cfgDir(session) {
-    return path.join(this.workspaceRoot, 'cfg', session)
+    return this.#driver(session)?.cfgDir ?? path.join(this.workspaceRoot, 'cfg', session)
+  }
+
+  // The dispatcher's word is about agents it spawned, and it spawned no driven
+  // session — so a driver answers from its own config dir instead.
+  #harnessFor(session) {
+    const driver = this.#driver(session)
+    if (driver) return driver.harness ?? detectHarness(this.#cfgDir(session))
+    return this.deps.harnessFor(session)
   }
 
   // Bind the loopback listener. A port that will not bind (a foreign process
@@ -313,7 +343,7 @@ export class TimelineSurface {
     const s = this.#state(name)
     // The dispatcher's word wins; on-disk evidence covers sessions it never
     // spawned. Re-probed while null so a harness that appears later is picked up.
-    if (!s.harness) s.harness = this.deps.harnessFor(name)
+    if (!s.harness) s.harness = this.#harnessFor(name)
     if (!s.harness) return
     const file = findTranscript(s.harness, this.#cfgDir(name))
     if (file !== s.file) {
@@ -402,7 +432,7 @@ export class TimelineSurface {
   // The composer veto's regex, resolved through the same harness probe #pump
   // uses (the dispatcher's word, on-disk evidence as fallback).
   #composerRe(name, s) {
-    if (!s.harness) s.harness = this.deps.harnessFor(name)
+    if (!s.harness) s.harness = this.#harnessFor(name)
     return s.harness ? this.deps.composerFor(s.harness) : null
   }
 
@@ -431,6 +461,10 @@ export class TimelineSurface {
   }
 
   #pumpDialog(name, s) {
+    // A driven session has no pane to capture, so there is no dialog it could
+    // ever be in (#267). Probing one would ask tmux about a session that does
+    // not exist and read the failure as "indeterminate" forever.
+    if (this.#driver(name)) return
     const now = Date.now()
     if (s.dialogProbing || now - s.dialogAt < this.dialogProbeMs) return
     s.dialogProbing = true
@@ -553,6 +587,26 @@ export class TimelineSurface {
       if (!text.trim()) return json(400, { error: 'empty' })
       const s = this.#state(b.session)
       const by = b.client ?? null
+      // A driven session takes the words as a TURN (#267). There is no pane, so
+      // the #75 dialog guard has nothing to guard: it exists because keystrokes
+      // land wherever the pane's focus is, and a turn lands in exactly one
+      // place. The call runs to completion — an overseer turn is seconds, and
+      // the failure is the whole reason this waits: a turn that ends with no
+      // answer must reach the operator as words, not as silence on the page.
+      const driver = this.#driver(b.session)
+      if (driver) {
+        try {
+          await driver.send(text)
+        } catch (e) {
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
+          return json(502, { error: e.message })
+        }
+        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })
+        s.draft = ''
+        this.#broadcast(s, 'draft', { text: '', by })
+        this.#broadcast(s, 'sent', { text, by })
+        return json(200, { ok: true })
+      }
       // The #75 guard: fresh capture, positive evidence only. Typing into a
       // dialog answers it blind or vanishes without a trace — refusing keeps
       // the text in the composer, and the broadcast pins the banner on every
@@ -598,6 +652,13 @@ export class TimelineSurface {
       if (!key) return json(400, { error: 'unknown key' })
       const s = this.#state(b.session)
       const by = b.client ?? null
+      // No pane, no keys (#267). This is the one thing the console chat cannot
+      // do, and it says so rather than reporting a key nothing received: an
+      // overseer turn runs to its end, so there is nothing here to interrupt.
+      if (this.#driver(b.session)) {
+        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_no_pane' })
+        return json(409, { error: `${b.session} is not a terminal — it takes words, and a turn runs to its end, so there is no key to send it` })
+      }
       if (!DIALOG_SAFE_KEYS.has(key)) {
         const dialog = await this.#probeDialog(b.session, s)
         if (dialog) {

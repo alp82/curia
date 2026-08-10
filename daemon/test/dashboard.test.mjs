@@ -16,7 +16,7 @@ import path from 'node:path'
 
 import {
   DashboardSurface, DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO,
-  loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, MAX_WORDS,
+  loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, MAX_WORDS, CHAT_PAGE,
 } from '../src/dashboard.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
@@ -826,5 +826,146 @@ describe('the operator verbs (#266)', () => {
     const at = surface.snapshotAt
     await press('/api/start', { repo: 'not a repo', ticket: '1' })
     assert.equal(surface.snapshotAt, at)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the chat (#267)
+// ---------------------------------------------------------------------------
+//
+// The console serves no chat of its own. It hands the timeline's own page and
+// the four routes that page speaks straight through to the daemon, under this
+// surface's address. What matters here is what the pipe does NOT do: it changes
+// no header, so the identity the timeline checks in-process is the identity the
+// browser sent, and it buffers nothing, so an event stream is still a stream.
+
+describe('the chat (#267)', () => {
+  let surface
+  let timeline
+  let seen // one entry per request the fake timeline received
+
+  const ALLOW = ['alp@example.com']
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+
+  async function makeSurface({ timelinePort }) {
+    const s = new DashboardSurface({
+      port: 0,
+      servePort: SERVE_PORT,
+      index: DEFAULT_DASHBOARD_INDEX,
+      allow: ALLOW,
+      pollIntervalS: 5,
+      timelinePort,
+      log: () => {},
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await s.start()
+    await s.resolveHosts()
+    return s
+  }
+
+  beforeEach(async () => {
+    seen = []
+    timeline = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        seen.push({ method: r.method, url: r.url, headers: r.headers, body: buf })
+        if (r.url === '/') {
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
+          return res.end('<meta name="curia-timeline" content="proto=3">')
+        }
+        if (r.url.startsWith('/events')) {
+          res.writeHead(200, { 'content-type': 'text/event-stream' })
+          return res.end('event: hello\ndata: {"session":"curia-overseer"}\n\n')
+        }
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ ok: true }))
+      })
+    })
+    await new Promise((done) => timeline.listen(0, '127.0.0.1', done))
+    surface = await makeSurface({ timelinePort: timeline.address().port })
+  })
+
+  afterEach(() => {
+    surface?.stop()
+    timeline?.close()
+  })
+
+  test('/chat serves the timeline\'s own page — the daemon stamp-checks it, this pipe does not', async () => {
+    const res = await req(surface.port, '/chat?session=curia-overseer', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.match(res.text, /name="curia-timeline"/)
+    assert.equal(seen.at(-1).url, '/', 'the page is one page; the session rides the browser\'s own query')
+  })
+
+  test('the four routes the page speaks reach the timeline with their query intact', async () => {
+    await req(surface.port, '/events?session=curia-overseer&client=ab12', { headers: served() })
+    assert.equal(seen.at(-1).url, '/events?session=curia-overseer&client=ab12')
+    for (const route of ['/send', '/draft', '/key']) {
+      await req(surface.port, route, {
+        method: 'POST',
+        headers: served({ origin: ORIGIN, 'content-type': 'application/json' }),
+        body: { session: 'curia-overseer', text: 'start 267' },
+      })
+      const last = seen.at(-1)
+      assert.equal(last.url, route)
+      assert.equal(JSON.parse(last.body).text, 'start 267', 'the words cross unread')
+    }
+  })
+
+  test('NOTHING is rewritten: the timeline judges the Host and the login the browser sent', async () => {
+    await req(surface.port, '/events?session=curia-overseer', { headers: served() })
+    const h = seen.at(-1).headers
+    assert.equal(h.host, 'box.tail1234.ts.net:8445')
+    assert.equal(h[LOGIN_HEADER], 'alp@example.com')
+  })
+
+  test('the identity gate runs FIRST — an unstamped request never reaches the timeline', async () => {
+    const res = await req(surface.port, '/chat', { headers: { host: 'box.tail1234.ts.net:8445' } })
+    assert.equal(res.status, 403)
+    assert.equal(seen.length, 0)
+  })
+
+  test('a write from another origin is refused here, before the pipe', async () => {
+    const res = await req(surface.port, '/send', {
+      method: 'POST',
+      headers: served({ origin: 'https://evil.example', 'content-type': 'application/json' }),
+      body: { session: 'curia-overseer', text: 'x' },
+    })
+    assert.equal(res.status, 403)
+    assert.equal(seen.length, 0)
+  })
+
+  test('a timeline that is not answering says so — the console itself is still up', async () => {
+    await new Promise((done) => timeline.close(done))
+    timeline = null
+    const res = await req(surface.port, '/chat', { headers: served() })
+    assert.equal(res.status, 502)
+    assert.match(res.text, /not answering/)
+    // the rest of the console is unharmed by a dead chat
+    assert.equal((await req(surface.port, '/api/overview', { headers: served() })).status, 200)
+  })
+
+  test('a sidecar with no timeline port says that, rather than guessing one', async () => {
+    const s2 = await makeSurface({ timelinePort: null })
+    try {
+      const res = await req(s2.port, '/chat', { headers: served() })
+      assert.equal(res.status, 503)
+      assert.match(res.text, /no `timeline:` block/)
+    } finally {
+      s2.stop()
+    }
+  })
+
+  test('the page and the sidecar agree on the address the Chat screen opens', () => {
+    const page = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(page, new RegExp(`const CHAT_PAGE = "${CHAT_PAGE}"`))
   })
 })

@@ -340,6 +340,15 @@ The grid-free attach surface. It reads the agent's transcript and writes with tm
 **Transcript**:
 The harness's own append-only run log. It carries no geometry, so any device lays it out at its own width.
 
+**Driven session**:
+A timeline session that is no tmux pane. It names its own config dir and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
+
+**Console chat**:
+The Chat screen of the dashboard. It is the timeline attach of the overseer's browser thread, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
+
+**Browser thread**:
+The overseer conversation the console chat speaks to, keyed `console` rather than on a Discord thread. One brain answers both surfaces. The answer is never posted, because the transcript already carries it to the page. Its verbs run with no origin thread, so a confirm goes where a REST press sends it.
+
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.
 
