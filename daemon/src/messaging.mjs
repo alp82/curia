@@ -91,12 +91,22 @@ export function promptTitle(prompt, max = 80) {
   return `${(cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : cut).trimEnd()}…`
 }
 
-// Webhook speaker name (#108 item 15): `curia-9 · <ticket title>` — the
-// multi-agent shape moves from the prose into the speaker label. Discord caps
-// webhook usernames at 80 chars, so the title cuts at a word boundary.
-export function speakerName(agent, title = '') {
-  if (!title) return agent
-  return `${agent} · ${promptTitle(title, 80 - agent.length - 3)}`
+// Webhook speaker name: the session name, alone (#254). #108 item 15 moved
+// the multi-agent shape out of the prose and into the speaker label, and hung
+// the ticket title off it: `curia-9 · <ticket title>`. Discord caps a webhook
+// username at SPEAKER_NAME_LIMIT, so a long title was cut and given an
+// ellipsis, and nine agents in the #245 cold read spoke under a mangled
+// identity. The budget was also one char short of its own cap — a name of 81
+// chars, which Discord REFUSES, so the longest identities collapsed into the
+// bot voice instead of speaking at all.
+//
+// A session name is `curia-<n>` or `curia-review-<n>`. It always fits, one
+// agent wears one name for its whole life, and a reviewer adopted after a
+// restart wears the same name as before it. The title is not lost: the thread
+// is bound to the ticket, and the agent's own prose says what it did.
+export const SPEAKER_NAME_LIMIT = 80
+export function speakerName(agent) {
+  return String(agent)
 }
 
 // "how long has this been waiting" for reminders and keepalives (#118).

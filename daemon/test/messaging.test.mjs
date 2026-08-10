@@ -4,7 +4,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel, speakerName, CHUNK_LIMIT } from '../src/messaging.mjs'
+import { SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel, speakerName, CHUNK_LIMIT, SPEAKER_NAME_LIMIT } from '../src/messaging.mjs'
 
 describe('smallPrint', () => {
   test('prefixes every line with the -# marker', () => {
@@ -109,22 +109,26 @@ describe('promptTitle', () => {
   })
 })
 
-describe('speakerName (#108 item 15)', () => {
-  test('agent plus ticket title, middot-joined', () => {
-    assert.equal(speakerName('curia-9', 'Pin the landing page pitch'), 'curia-9 · Pin the landing page pitch')
-  })
-
-  test('no title means the bare session name', () => {
+describe('speakerName (#108 item 15, narrowed by #254)', () => {
+  test('the session name, alone — builder and reviewer alike', () => {
     assert.equal(speakerName('curia-9'), 'curia-9')
-    assert.equal(speakerName('curia-9', ''), 'curia-9')
+    assert.equal(speakerName('curia-review-9'), 'curia-review-9')
   })
 
-  test('the whole name stays under Discord\'s 80-char username cap, cut at a word boundary', () => {
+  test('a ticket title never reaches the label, however long', () => {
     const long = 'A very long ticket title that goes on and on about the landing page charting effort and more'
-    const name = speakerName('curia-121', long)
-    assert.ok(name.length <= 80, `${name.length} chars`)
-    assert.match(name, /^curia-121 · A very long/)
-    assert.ok(!/\w…\w/.test(name), 'never cut mid-word')
+    assert.equal(speakerName('curia-121', long), 'curia-121')
+  })
+
+  test('no name ever truncates: every session name fits Discord\'s cap with room to spare', () => {
+    // Four digits outlives this tracker, and the reviewer prefix is the longest
+    // one curia mints. The old shape spent the whole budget on the title and
+    // overspent it by one, so the longest names were REFUSED by Discord.
+    for (const agent of ['curia-1', 'curia-9999', 'curia-review-1', 'curia-review-9999']) {
+      const name = speakerName(agent)
+      assert.ok(name.length <= SPEAKER_NAME_LIMIT, `${name} is ${name.length} chars`)
+      assert.ok(!name.includes('…'), `${name} carries an ellipsis`)
+    }
   })
 })
 
