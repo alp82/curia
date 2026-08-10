@@ -105,6 +105,10 @@ const CROSS_CHECK_RE = /^cross[- ]?check$/i
 // the rename slot the ✅ needs (#199's budget of 2 per 10 min) — which is how
 // the checkmark used to arrive ten minutes late. An approve that sends the
 // builder back to real work still clears: the next `working` transition fires.
+//
+// #277's held clear now covers that same tail from the other side — a tail of a
+// minute or two never outlives the hold. This omission stays as the belt: it
+// keeps the funnel free of the rename whatever the hold is set to.
 const NAME_FLAG = {
   waiting: 'waiting',
   'awaiting-review': 'awaiting-review',
@@ -400,10 +404,12 @@ export class StatusLine {
     // which reconcile rebuilds from the journal — see index.mjs.
     if (detail.model) w.model = detail.model
     // The thread name follows the state (#199) — told to the bridge, which
-    // holds no state of its own (#93). Only a real projection CHANGE fires,
-    // so the meter tick and same-state refreshes cost no rename budget; the
-    // comment on `post` applies here too — a failure is the bridge's to log,
-    // and the next transition retries.
+    // decides WHEN the rename is worth its system line (#277: a clear is held
+    // for two minutes, so a question that lands inside the window costs no
+    // rename at all). This line owns WHAT the state is and nothing more. Only a
+    // real projection CHANGE fires, so the meter tick and same-state refreshes
+    // reach the bridge not at all; the comment on `post` applies here too — a
+    // failure is the bridge's to log, and the next transition retries.
     const f = NAME_FLAG[state]
     if (f && f !== w.flag) {
       w.flag = f
