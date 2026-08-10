@@ -37,8 +37,10 @@ const VERSION_RE = /^\d+(\.\d+)*(-[\w.]+)?$/
 // written by hand (daemon/src/image.mjs).
 const IMAGE_NAME_RE = /^[a-z0-9]+([._/-][a-z0-9]+)*$/
 
-function fail(file, msg) {
-  throw new Error(`bad config ${file}: ${msg}`)
+// `src` names the layer or layers a refusal came out of: one path when the box
+// runs the tracked file alone, and `base + override` when it does not (#292).
+function fail(src, msg) {
+  throw new Error(`bad config ${src}: ${msg}`)
 }
 
 // YAML has no tilde expansion, and `~/.claude/skills` is how a human writes
@@ -46,6 +48,73 @@ function fail(file, msg) {
 function expandHome(p) {
   if (p === '~') return os.homedir()
   return p.startsWith('~/') ? path.join(os.homedir(), p.slice(2)) : p
+}
+
+// ---------------------------------------------------------------------------
+// the two layers (#292)
+// ---------------------------------------------------------------------------
+//
+// Git tracks `curia.yaml` and `routing.yaml`, and the dashboard writes the
+// settings the operator touches most. Those two facts collided: a save left the
+// box's checkout dirty, `git merge --ff-only` refuses to overwrite a local
+// change, and the deploy's own rollback (`git reset --hard`) would then discard
+// the save without saying so.
+//
+// So each tracked file is now a BASE, and this box's own answers live in
+// `<name>.local.yaml` beside it, which `.gitignore` holds out of the checkout.
+// The dashboard writes only the local file. `git status` on the box is clean on
+// an ordinary day, and dirty means one thing: somebody hand-edited a tracked
+// file there.
+//
+// A layer rather than a copy, on purpose. A ticket that ships a NEW key — the
+// `dashboard:` block, the `sandbox:` pins — reaches the box in the base file
+// with the code that needs it. A copy would leave the box booting on a config
+// that predates every one of them.
+//
+// THE MERGE RULE IS ONE SENTENCE: a mapping merges key by key, and anything
+// else replaces. So `dispatch.max_concurrent` overrides one number and leaves
+// the section, and `watch:` overrides the whole list — a list of repos has no
+// per-item identity a merge could key on, and half a watch list is not a
+// watch list.
+export const localConfigFile = (file) => path.join(
+  path.dirname(file), `${path.basename(file, '.yaml')}.local.yaml`,
+)
+
+const isMapping = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+
+export function mergeLayers(base, over) {
+  if (!isMapping(base) || !isMapping(over)) return over
+  const out = { ...base }
+  for (const [key, value] of Object.entries(over)) {
+    out[key] = key in base ? mergeLayers(base[key], value) : value
+  }
+  return out
+}
+
+// Read a config file and the overrides beside it. `localFile` names the
+// override explicitly — the settings screen validates a CANDIDATE that way, and
+// `null` reads the base alone. A missing override file is the ordinary case,
+// not an error: a box that has never saved from the dashboard has none.
+export function readLayered(file, { localFile } = {}) {
+  const base = parse(fs.readFileSync(file, 'utf8'))
+  const local = localFile === undefined ? localConfigFile(file) : localFile
+  if (!local || !fs.existsSync(local)) return { data: base, localFile: null }
+  const over = parse(fs.readFileSync(local, 'utf8'))
+  // An empty override file — comments only, or nothing — is `null`, and it
+  // overrides nothing. Anything that is not a mapping is a mistake worth
+  // refusing by name: a list here would replace the whole config.
+  if (over === null) return { data: base, localFile: local }
+  if (!isMapping(over)) fail(local, 'the override file must be a mapping of the keys it overrides')
+  return { data: mergeLayers(base, over), localFile: local }
+}
+
+// What the daemon says at boot about the overrides it read, so the second file
+// is never invisible to somebody reading the first one. Null when there is none.
+export function overrideSummary(file) {
+  const local = localConfigFile(file)
+  if (!fs.existsSync(local)) return null
+  const over = parse(fs.readFileSync(local, 'utf8'))
+  return { file: local, keys: isMapping(over) ? Object.keys(over) : [] }
 }
 
 // `checkPaths` is the one thing a caller may turn off, and only one caller does
@@ -66,24 +135,29 @@ function expandHome(p) {
 // skipped is exactly what the sidecar cannot see and cannot change. Every other
 // rule — the shapes, the ports, the collisions, `3 × max_concurrent` against
 // the sandbox range — runs in both processes, unchanged.
-export function loadCuriaConfig(file, { checkPaths = true } = {}) {
-  const cfg = parse(fs.readFileSync(file, 'utf8'))
-  if (!cfg || typeof cfg !== 'object') fail(file, 'not a mapping')
+export function loadCuriaConfig(file, { checkPaths = true, localFile } = {}) {
+  const layers = readLayered(file, { localFile })
+  const cfg = layers.data
+  // What a refusal names. A merged config has two authors, so a message that
+  // named the tracked file alone would send the operator to edit a line that is
+  // no longer the one running.
+  const src = layers.localFile ? `${file} + ${layers.localFile}` : file
+  if (!cfg || typeof cfg !== 'object') fail(src, 'not a mapping')
 
-  if (!Array.isArray(cfg.watch) || !cfg.watch.length) fail(file, '`watch` must be a non-empty list')
+  if (!Array.isArray(cfg.watch) || !cfg.watch.length) fail(src, '`watch` must be a non-empty list')
   for (const entry of cfg.watch) {
     if (!entry || typeof entry.repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(entry.repo)) {
-      fail(file, `watch entry needs a \`repo: owner/name\` (got ${JSON.stringify(entry)})`)
+      fail(src, `watch entry needs a \`repo: owner/name\` (got ${JSON.stringify(entry)})`)
     }
     entry.mode = entry.mode ?? 'auto'
     if (!WATCH_MODES.includes(entry.mode)) {
-      fail(file, `watch ${entry.repo}: mode must be one of ${WATCH_MODES.join('|')} (got "${entry.mode}")`)
+      fail(src, `watch ${entry.repo}: mode must be one of ${WATCH_MODES.join('|')} (got "${entry.mode}")`)
     }
   }
 
   const d = cfg.dispatch
-  if (!d || typeof d !== 'object') fail(file, '`dispatch` section missing')
-  if (typeof d.auto_dispatch !== 'boolean') fail(file, 'dispatch.auto_dispatch must be a boolean')
+  if (!d || typeof d !== 'object') fail(src, '`dispatch` section missing')
+  if (typeof d.auto_dispatch !== 'boolean') fail(src, 'dispatch.auto_dispatch must be a boolean')
   // stop_nudge_budget (#54 item 4) is optional with a default so a config
   // predating the merge-gated ending still boots. It must be > 0: a budget of
   // zero would disable the Stop-hook enforcement silently, and turning the
@@ -92,16 +166,16 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // confirm_ttl_h is gone (#94): confirms have no expiry clock — they lapse
   // with their agent. A yaml still carrying the key loads fine; it is ignored.
   for (const key of ['max_concurrent', 'poll_interval_s', 'ready_timeout_s', 'stop_nudge_budget']) {
-    if (!(typeof d[key] === 'number' && d[key] > 0)) fail(file, `dispatch.${key} must be a positive number`)
+    if (!(typeof d[key] === 'number' && d[key] > 0)) fail(src, `dispatch.${key} must be a positive number`)
   }
   if (typeof d.workspace_root !== 'string' || !path.isAbsolute(d.workspace_root)) {
-    fail(file, 'dispatch.workspace_root must be an absolute path')
+    fail(src, 'dispatch.workspace_root must be an absolute path')
   }
 
   const a = cfg.attach
-  if (!a || typeof a !== 'object') fail(file, '`attach` section missing')
+  if (!a || typeof a !== 'object') fail(src, '`attach` section missing')
   for (const key of ['ttyd_port', 'serve_port']) {
-    if (!(Number.isInteger(a[key]) && a[key] > 0 && a[key] < 65536)) fail(file, `attach.${key} must be a port number`)
+    if (!(Number.isInteger(a[key]) && a[key] > 0 && a[key] < 65536)) fail(src, `attach.${key} must be a port number`)
   }
   // The attach page (#70, landing #69's variant A). Optional with a default,
   // which #57's "silence by omission is the failure" rule does NOT argue
@@ -110,14 +184,14 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // surface curia ships, which is the only value anyone wants. What it must
   // never do is resolve to a file that is not there, so it is checked at boot,
   // naming the path and the command that builds it.
-  if (a.index !== undefined && typeof a.index !== 'string') fail(file, 'attach.index must be a path')
+  if (a.index !== undefined && typeof a.index !== 'string') fail(src, 'attach.index must be a path')
   // Relative to THIS file's directory, so the shipped config can name the
   // asset portably instead of carrying one box's absolute path.
   a.index = a.index === undefined
     ? DEFAULT_INDEX
     : path.resolve(path.dirname(path.resolve(file)), expandHome(a.index))
   if (checkPaths && !fs.existsSync(a.index)) {
-    fail(file, `attach.index resolves to ${a.index}, which does not exist — build it with \`${REBUILD_CMD}\``)
+    fail(src, `attach.index resolves to ${a.index}, which does not exist — build it with \`${REBUILD_CMD}\``)
   }
 
   // The timeline surface (#74, landing #73's pick). Optional with defaults for
@@ -125,18 +199,18 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // ships, which is the only value anyone wants. Validated hard either way,
   // and the page must exist at boot — the same refusal attach.index gets.
   const t = cfg.timeline ?? {}
-  if (typeof t !== 'object' || Array.isArray(t)) fail(file, '`timeline` must be a mapping')
+  if (typeof t !== 'object' || Array.isArray(t)) fail(src, '`timeline` must be a mapping')
   t.port = t.port ?? 4272
   t.serve_port = t.serve_port ?? 8444
   for (const key of ['port', 'serve_port']) {
-    if (!(Number.isInteger(t[key]) && t[key] > 0 && t[key] < 65536)) fail(file, `timeline.${key} must be a port number`)
+    if (!(Number.isInteger(t[key]) && t[key] > 0 && t[key] < 65536)) fail(src, `timeline.${key} must be a port number`)
   }
-  if (t.index !== undefined && typeof t.index !== 'string') fail(file, 'timeline.index must be a path')
+  if (t.index !== undefined && typeof t.index !== 'string') fail(src, 'timeline.index must be a path')
   t.index = t.index === undefined
     ? DEFAULT_TIMELINE_INDEX
     : path.resolve(path.dirname(path.resolve(file)), expandHome(t.index))
   if (checkPaths && !fs.existsSync(t.index)) {
-    fail(file, `timeline.index resolves to ${t.index}, which does not exist — it ships committed in daemon/assets/`)
+    fail(src, `timeline.index resolves to ${t.index}, which does not exist — it ships committed in daemon/assets/`)
   }
   // The identity check in front of both attach surfaces (#151, the standing
   // requirement of ADR-0003). Unlike attach.index and timeline.index, this
@@ -150,10 +224,10 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // that compares against the list: the dashboard sidecar (#263) reads the same
   // key out of the same file, and one definition is what keeps the two
   // processes admitting the same people.
-  id.allow = readAllow(id, (msg) => fail(file, msg))
+  id.allow = readAllow(id, (msg) => fail(src, msg))
   id.proxy_port = id.proxy_port ?? 7682
   if (!(Number.isInteger(id.proxy_port) && id.proxy_port > 0 && id.proxy_port < 65536)) {
-    fail(file, 'identity.proxy_port must be a port number')
+    fail(src, 'identity.proxy_port must be a port number')
   }
   // #168: the base of the preview identity-proxy block, paired index-for-index
   // with the preview range so the preview on 8501 proxies through 7701. One key
@@ -161,7 +235,7 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // keys that must agree are two ways to write one fact.
   id.preview_proxy_from = id.preview_proxy_from ?? DEFAULT_PROXY_FROM
   if (!(Number.isInteger(id.preview_proxy_from) && id.preview_proxy_from > 0 && id.preview_proxy_from < 65536)) {
-    fail(file, 'identity.preview_proxy_from must be a port number')
+    fail(src, 'identity.preview_proxy_from must be a port number')
   }
   cfg.identity = id
 
@@ -176,7 +250,7 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // The PAGE is not checked here, unlike attach.index and timeline.index: the
   // daemon does not serve it, and the sidecar's own filesystem is the only one
   // whose answer would mean anything.
-  const dash = readDashboard(cfg, (msg) => fail(file, msg), file)
+  const dash = readDashboard(cfg, (msg) => fail(src, msg), file)
   cfg.dashboard = dash
 
   // Seven ports, one box: any collision means one surface silently shadows or
@@ -190,7 +264,7 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   for (let i = 0; i < ports.length; i++) {
     for (let j = i + 1; j < ports.length; j++) {
       if (ports[i][1] === ports[j][1]) {
-        fail(file, `${ports[i][0]} and ${ports[j][0]} are both ${ports[i][1]} — every surface needs its own port`)
+        fail(src, `${ports[i][0]} and ${ports[j][0]} are both ${ports[i][1]} — every surface needs its own port`)
       }
     }
   }
@@ -201,15 +275,15 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // the range must not swallow the attach or timeline ports: sweeping it would
   // take that surface down tailnet-wide on the next reconcile.
   const p = cfg.preview ?? {}
-  if (typeof p !== 'object') fail(file, '`preview` must be a mapping')
+  if (typeof p !== 'object') fail(src, '`preview` must be a mapping')
   const range = { from: p.port_from ?? DEFAULT_PREVIEW_RANGE.from, to: p.port_to ?? DEFAULT_PREVIEW_RANGE.to }
   for (const [key, v] of [['port_from', range.from], ['port_to', range.to]]) {
-    if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(file, `preview.${key} must be a port number`)
+    if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(src, `preview.${key} must be a port number`)
   }
-  if (range.to < range.from) fail(file, `preview.port_to (${range.to}) must not be below preview.port_from (${range.from})`)
+  if (range.to < range.from) fail(src, `preview.port_to (${range.to}) must not be below preview.port_from (${range.from})`)
   for (const [name, port] of ports) {
     if (port >= range.from && port <= range.to) {
-      fail(file, `preview range ${range.from}-${range.to} contains ${name} (${port}) — the preview sweep would withdraw it`)
+      fail(src, `preview range ${range.from}-${range.to} contains ${name} (${port}) — the preview sweep would withdraw it`)
     }
   }
   cfg.preview = range
@@ -221,15 +295,15 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // a port another surface already owned.
   const proxyBlock = { from: id.preview_proxy_from, to: id.preview_proxy_from + (range.to - range.from) }
   if (proxyBlock.to > 65535) {
-    fail(file, `identity.preview_proxy_from (${proxyBlock.from}) plus the preview range's width runs past port 65535 — the block is one port per preview port`)
+    fail(src, `identity.preview_proxy_from (${proxyBlock.from}) plus the preview range's width runs past port 65535 — the block is one port per preview port`)
   }
   for (const [name, port] of ports) {
     if (port >= proxyBlock.from && port <= proxyBlock.to) {
-      fail(file, `the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to} contains ${name} (${port}) — a preview proxy would bind over it`)
+      fail(src, `the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to} contains ${name} (${port}) — a preview proxy would bind over it`)
     }
   }
   if (!(proxyBlock.to < range.from || proxyBlock.from > range.to)) {
-    fail(file, `the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to} overlaps the preview range ${range.from}-${range.to} — the first is loopback, the second is tailnet-facing`)
+    fail(src, `the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to} overlaps the preview range ${range.from}-${range.to} — the first is loopback, the second is tailnet-facing`)
   }
   cfg.identity.preview_proxy_block = proxyBlock
 
@@ -239,8 +313,8 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // explicitly empty `install:` opts out — silence by omission is the failure
   // this section exists to end, so omission takes the full default list.
   const s = cfg.skills ?? {}
-  if (typeof s !== 'object' || Array.isArray(s)) fail(file, '`skills` must be a mapping')
-  if (s.root !== undefined && typeof s.root !== 'string') fail(file, 'skills.root must be a path')
+  if (typeof s !== 'object' || Array.isArray(s)) fail(src, '`skills` must be a mapping')
+  if (s.root !== undefined && typeof s.root !== 'string') fail(src, 'skills.root must be a path')
   // #268: a RELATIVE root resolves off this file's own directory, the rule
   // `attach.index` and `timeline.index` already follow. curia vendors the
   // skill tree beside the config, so `../skills` reads the same on the
@@ -252,14 +326,14 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
     ? defaultSkillsRoot()
     : path.resolve(path.dirname(path.resolve(file)), expandHome(s.root))
   const install = s.install ?? DEFAULT_SKILLS
-  if (!Array.isArray(install)) fail(file, 'skills.install must be a list of skill names')
+  if (!Array.isArray(install)) fail(src, 'skills.install must be a list of skill names')
   for (const name of install) {
     if (typeof name !== 'string' || !SKILL_NAME_RE.test(name) || name === '.' || name === '..') {
-      fail(file, `skills.install: ${JSON.stringify(name)} is not a plain skill name`)
+      fail(src, `skills.install: ${JSON.stringify(name)} is not a plain skill name`)
     }
     const manifest = path.join(skillsRoot, name, 'SKILL.md')
     if (checkPaths && !fs.existsSync(manifest)) {
-      fail(file, `skills.install names "${name}", but ${manifest} does not exist — install the skill or drop it from the list`)
+      fail(src, `skills.install names "${name}", but ${manifest} does not exist — install the skill or drop it from the list`)
     }
   }
   cfg.skills = { root: skillsRoot, install }
@@ -270,12 +344,12 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // Turning this off keeps the reading the CLI already cached on disk and stops
   // the daemon refreshing it — the bars then age instead of vanishing.
   const u = cfg.usage ?? {}
-  if (typeof u !== 'object' || Array.isArray(u)) fail(file, '`usage` must be a mapping')
+  if (typeof u !== 'object' || Array.isArray(u)) fail(src, '`usage` must be a mapping')
   if (u.account_bars !== undefined && typeof u.account_bars !== 'boolean') {
-    fail(file, 'usage.account_bars must be true or false')
+    fail(src, 'usage.account_bars must be true or false')
   }
   if (u.probe_model !== undefined && (typeof u.probe_model !== 'string' || !u.probe_model.trim())) {
-    fail(file, 'usage.probe_model must be a model name')
+    fail(src, 'usage.probe_model must be a model name')
   }
   cfg.usage = { account_bars: u.account_bars ?? true, probe_model: u.probe_model ?? PROBE_MODEL }
 
@@ -290,13 +364,13 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   // agent running an unreviewed CLI. There is no safe default for a pin.
   {
     if (cfg.sandbox === undefined) {
-      fail(file, 'the `sandbox:` section is required — every agent runs in a container (#195), and a container has no image to run and no pins to build one from')
+      fail(src, 'the `sandbox:` section is required — every agent runs in a container (#195), and a container has no image to run and no pins to build one from')
     }
     const sb = cfg.sandbox
-    if (!sb || typeof sb !== 'object' || Array.isArray(sb)) fail(file, '`sandbox` must be a mapping')
+    if (!sb || typeof sb !== 'object' || Array.isArray(sb)) fail(src, '`sandbox` must be a mapping')
     sb.image = sb.image ?? DEFAULT_IMAGE
     if (typeof sb.image !== 'string' || !IMAGE_NAME_RE.test(sb.image)) {
-      fail(file, `sandbox.image must be a docker repository name (got ${JSON.stringify(sb.image)})`)
+      fail(src, `sandbox.image must be a docker repository name (got ${JSON.stringify(sb.image)})`)
     }
     for (const key of Object.keys(SANDBOX_KEYS)) {
       if (key === 'agent_uid') continue
@@ -305,7 +379,7 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
       // rather than refused, and only an empty or exotic value fails.
       if (typeof sb[key] === 'number') sb[key] = String(sb[key])
       if (typeof sb[key] !== 'string' || !VERSION_RE.test(sb[key])) {
-        fail(file, `sandbox.${key} must be a pinned version string, e.g. "1.2.3" (got ${JSON.stringify(sb[key])})`)
+        fail(src, `sandbox.${key} must be a pinned version string, e.g. "1.2.3" (got ${JSON.stringify(sb[key])})`)
       }
     }
     // Not cosmetic: the container writes the clone the daemon prepared on the
@@ -314,10 +388,10 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
     // value that can be right by construction.
     sb.agent_uid = sb.agent_uid ?? process.getuid?.()
     if (!(Number.isInteger(sb.agent_uid) && sb.agent_uid >= 0 && sb.agent_uid < 2 ** 31)) {
-      fail(file, `sandbox.agent_uid must be a uid (got ${JSON.stringify(sb.agent_uid)})`)
+      fail(src, `sandbox.agent_uid must be a uid (got ${JSON.stringify(sb.agent_uid)})`)
     }
     if (checkPaths && !fs.existsSync(DOCKERFILE)) {
-      fail(file, `sandbox is configured but ${DOCKERFILE} is missing — the image has no recipe`)
+      fail(src, `sandbox is configured but ${DOCKERFILE} is missing — the image has no recipe`)
     }
     // The ports each container publishes on loopback (#156, from #148). Three
     // per agent, so the range has to hold `3 × max_concurrent` before every
@@ -325,12 +399,12 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
     // dispatch that finds none free with a claim already taken.
     const sbRange = { from: sb.port_from ?? DEFAULT_CONTAINER_PORTS.from, to: sb.port_to ?? DEFAULT_CONTAINER_PORTS.to }
     for (const [key, v] of [['port_from', sbRange.from], ['port_to', sbRange.to]]) {
-      if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(file, `sandbox.${key} must be a port number`)
+      if (!(Number.isInteger(v) && v > 0 && v < 65536)) fail(src, `sandbox.${key} must be a port number`)
     }
-    if (sbRange.to < sbRange.from) fail(file, `sandbox.port_to (${sbRange.to}) must not be below sandbox.port_from (${sbRange.from})`)
+    if (sbRange.to < sbRange.from) fail(src, `sandbox.port_to (${sbRange.to}) must not be below sandbox.port_from (${sbRange.from})`)
     const need = PORTS_PER_AGENT * d.max_concurrent
     if (sbRange.to - sbRange.from + 1 < need) {
-      fail(file, `sandbox ports ${sbRange.from}-${sbRange.to} hold ${sbRange.to - sbRange.from + 1} ports, and ${d.max_concurrent} concurrent agents publishing ${PORTS_PER_AGENT} each need ${need}`)
+      fail(src, `sandbox ports ${sbRange.from}-${sbRange.to} hold ${sbRange.to - sbRange.from + 1} ports, and ${d.max_concurrent} concurrent agents publishing ${PORTS_PER_AGENT} each need ${need}`)
     }
     // Every other surface on this box is a port a container must never
     // shadow: publishing over the preview range would make `tailscale serve`
@@ -338,17 +412,17 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
     // port would take that surface down.
     for (const [name, port] of [...ports, ['the daemon port', Number(process.env.PORT ?? 4271)]]) {
       if (port >= sbRange.from && port <= sbRange.to) {
-        fail(file, `sandbox port range ${sbRange.from}-${sbRange.to} contains ${name} (${port}) — a container would publish over it`)
+        fail(src, `sandbox port range ${sbRange.from}-${sbRange.to} contains ${name} (${port}) — a container would publish over it`)
       }
     }
     if (!(sbRange.to < range.from || sbRange.from > range.to)) {
-      fail(file, `sandbox port range ${sbRange.from}-${sbRange.to} overlaps the preview range ${range.from}-${range.to}`)
+      fail(src, `sandbox port range ${sbRange.from}-${sbRange.to} overlaps the preview range ${range.from}-${range.to}`)
     }
     // #168: a container publishing over a preview proxy port would take the gate
     // in front of some other agent's preview, which is the un-gated dev server
     // this block exists to stop.
     if (!(sbRange.to < proxyBlock.from || sbRange.from > proxyBlock.to)) {
-      fail(file, `sandbox port range ${sbRange.from}-${sbRange.to} overlaps the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to}`)
+      fail(src, `sandbox port range ${sbRange.from}-${sbRange.to} overlaps the preview identity-proxy block ${proxyBlock.from}-${proxyBlock.to}`)
     }
     sb.ports = sbRange
     cfg.sandbox = sb
@@ -357,19 +431,21 @@ export function loadCuriaConfig(file, { checkPaths = true } = {}) {
   return cfg
 }
 
-export function loadRoutingConfig(file) {
-  const cfg = parse(fs.readFileSync(file, 'utf8'))
-  if (!cfg || typeof cfg !== 'object') fail(file, 'not a mapping')
+export function loadRoutingConfig(file, { localFile } = {}) {
+  const layers = readLayered(file, { localFile })
+  const cfg = layers.data
+  const src = layers.localFile ? `${file} + ${layers.localFile}` : file
+  if (!cfg || typeof cfg !== 'object') fail(src, 'not a mapping')
 
-  if (!cfg.defaults || typeof cfg.defaults !== 'object') fail(file, '`defaults` section missing')
-  if (typeof cfg.defaults.untyped !== 'string') fail(file, 'defaults.untyped is required')
+  if (!cfg.defaults || typeof cfg.defaults !== 'object') fail(src, '`defaults` section missing')
+  if (typeof cfg.defaults.untyped !== 'string') fail(src, 'defaults.untyped is required')
 
   if (!cfg.models || typeof cfg.models !== 'object' || !Object.keys(cfg.models).length) {
-    fail(file, '`models` must be a non-empty map')
+    fail(src, '`models` must be a non-empty map')
   }
   for (const [name, m] of Object.entries(cfg.models)) {
     if (!m || typeof m.provider !== 'string' || typeof m.harness !== 'string') {
-      fail(file, `models.${name} needs \`provider\` and \`harness\``)
+      fail(src, `models.${name} needs \`provider\` and \`harness\``)
     }
     if (!LIMIT_PATTERNS[m.provider]) {
       // A provider with no usage-limit vocabulary would spawn agents whose cap
@@ -377,20 +453,20 @@ export function loadRoutingConfig(file) {
       // never cools and every dispatch on it burns a claim into a ready-timeout.
       // Adding a provider is a code change (the phrasings are classifiers, not
       // settings), so refusing here names that.
-      fail(file, `models.${name}.provider "${m.provider}" has no usage-limit vocabulary in routing.mjs — known providers: ${Object.keys(LIMIT_PATTERNS).join(', ')}`)
+      fail(src, `models.${name}.provider "${m.provider}" has no usage-limit vocabulary in routing.mjs — known providers: ${Object.keys(LIMIT_PATTERNS).join(', ')}`)
     }
     // Optional CLI-facing model name. It is substituted into a shell template,
     // so it passes the same whitelist buildSpawnCmd asserts at spawn — failing
     // at boot naming the key beats failing at dispatch with a claim already taken.
     if (m.id !== undefined && (typeof m.id !== 'string' || !SAFE_SUBSTITUTION.test(m.id))) {
-      fail(file, `models.${name}.id must be a quote-free model name (got ${JSON.stringify(m.id)})`)
+      fail(src, `models.${name}.id must be a quote-free model name (got ${JSON.stringify(m.id)})`)
     }
     // Checked against the union across models, not per model: which efforts a
     // model accepts is the model's business (gpt-5.6 adds `max` and `ultra`,
     // gpt-5.5 has neither) and a stale list here would refuse a valid config.
     // This catches the typo, which is the failure worth catching at boot.
     if (m.reasoning_effort !== undefined && !REASONING_EFFORTS.includes(m.reasoning_effort)) {
-      fail(file, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
+      fail(src, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
     }
     // Optional (#146), and since #178 the LAST resort for the status line's
     // context %: the transcript's own window wins, then the live
@@ -399,7 +475,7 @@ export function loadRoutingConfig(file) {
     // and no figure at all beats a confident wrong percentage.
     if (m.context_window !== undefined
       && (!Number.isInteger(m.context_window) || m.context_window <= 0)) {
-      fail(file, `models.${name}.context_window must be a positive integer of tokens (got ${JSON.stringify(m.context_window)})`)
+      fail(src, `models.${name}.context_window must be a positive integer of tokens (got ${JSON.stringify(m.context_window)})`)
     }
     // #265: the switch behind the settings screen's "n of m models active".
     // Default true, so a config written before this key existed reads the way
@@ -412,19 +488,19 @@ export function loadRoutingConfig(file) {
     // is what makes the checkbox a switch rather than a deletion: turning a
     // model off costs nothing to turn back on.
     if (m.active !== undefined && typeof m.active !== 'boolean') {
-      fail(file, `models.${name}.active must be true or false (got ${JSON.stringify(m.active)})`)
+      fail(src, `models.${name}.active must be true or false (got ${JSON.stringify(m.active)})`)
     }
     m.active = m.active ?? true
   }
   // Every model that stays in the dispatch vocabulary. One reading of the
   // switch, shared by the three rules below and by routing.mjs.
   if (!Object.values(cfg.models).some((m) => m.active)) {
-    fail(file, 'every model is `active: false` — curia would have nothing to dispatch on; turn at least one back on')
+    fail(src, 'every model is `active: false` — curia would have nothing to dispatch on; turn at least one back on')
   }
   for (const [type, model] of Object.entries(cfg.defaults)) {
-    if (!cfg.models[model]) fail(file, `defaults.${type} names unknown model "${model}"`)
+    if (!cfg.models[model]) fail(src, `defaults.${type} names unknown model "${model}"`)
     if (!cfg.models[model].active) {
-      fail(file, `defaults.${type} names "${model}", which is \`active: false\` — either turn that model on or point this row at an active one`)
+      fail(src, `defaults.${type} names "${model}", which is \`active: false\` — either turn that model on or point this row at an active one`)
     }
   }
 
@@ -438,19 +514,19 @@ export function loadRoutingConfig(file) {
   // naming this key, which is the same failure direction as an unknown model.
   cfg.review = cfg.review ?? {}
   if (typeof cfg.review !== 'object' || Array.isArray(cfg.review)) {
-    fail(file, '`review` must be a mapping of provider → model')
+    fail(src, '`review` must be a mapping of provider → model')
   }
   const providers = new Set(Object.values(cfg.models).map((m) => m.provider))
   for (const [provider, model] of Object.entries(cfg.review)) {
     if (!providers.has(provider)) {
-      fail(file, `review.${provider} names a provider no configured model runs on — configured providers: ${[...providers].join(', ')}`)
+      fail(src, `review.${provider} names a provider no configured model runs on — configured providers: ${[...providers].join(', ')}`)
     }
-    if (!cfg.models[model]) fail(file, `review.${provider} names unknown model "${model}"`)
+    if (!cfg.models[model]) fail(src, `review.${provider} names unknown model "${model}"`)
     if (!cfg.models[model].active) {
-      fail(file, `review.${provider} names "${model}", which is \`active: false\` — a cross-check cannot run on a model that is switched off`)
+      fail(src, `review.${provider} names "${model}", which is \`active: false\` — a cross-check cannot run on a model that is switched off`)
     }
     if (cfg.models[model].provider === provider) {
-      fail(file, `review.${provider} names "${model}", which runs on ${provider} itself — a cross-check reads the diff on the OTHER provider`)
+      fail(src, `review.${provider} names "${model}", which runs on ${provider} itself — a cross-check reads the diff on the OTHER provider`)
     }
   }
 
@@ -460,35 +536,35 @@ export function loadRoutingConfig(file) {
   // was in, unedited.
   cfg.fallbacks = cfg.fallbacks ?? {}
   for (const [from, chain] of Object.entries(cfg.fallbacks)) {
-    if (!cfg.models[from]) fail(file, `fallbacks.${from} names unknown model "${from}"`)
-    if (!Array.isArray(chain)) fail(file, `fallbacks.${from} must be a list`)
+    if (!cfg.models[from]) fail(src, `fallbacks.${from} names unknown model "${from}"`)
+    if (!Array.isArray(chain)) fail(src, `fallbacks.${from} must be a list`)
     for (const to of chain) {
-      if (!cfg.models[to]) fail(file, `fallbacks.${from} names unknown model "${to}"`)
+      if (!cfg.models[to]) fail(src, `fallbacks.${from} names unknown model "${to}"`)
     }
   }
 
   if (!cfg.harnesses || typeof cfg.harnesses !== 'object' || !Object.keys(cfg.harnesses).length) {
-    fail(file, '`harnesses` must be a non-empty map')
+    fail(src, '`harnesses` must be a non-empty map')
   }
   for (const [name, b] of Object.entries(cfg.harnesses)) {
-    if (!b || typeof b.template !== 'string') fail(file, `harnesses.${name} needs a \`template\` string`)
+    if (!b || typeof b.template !== 'string') fail(src, `harnesses.${name} needs a \`template\` string`)
     for (const ph of ['{model}', '{prompt_file}']) {
-      if (!b.template.includes(ph)) fail(file, `harnesses.${name}.template is missing the ${ph} placeholder`)
+      if (!b.template.includes(ph)) fail(src, `harnesses.${name}.template is missing the ${ph} placeholder`)
     }
     if (!HARNESS_NAMES.includes(name)) {
-      fail(file, `harnesses.${name} has no entry in the HARNESS table in workspace.mjs — an agent under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_NAMES.join(', ')}`)
+      fail(src, `harnesses.${name} has no entry in the HARNESS table in workspace.mjs — an agent under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_NAMES.join(', ')}`)
     }
     // The readiness marker is per harness and REQUIRED, not defaulted (#57's
     // precedent: silence by omission is the failure this refuses). #33 lost
     // readiness live to a marker that matched nothing, and the symptom was
     // silence — no agent_ready, and reactive cooling that could never fire.
     if (typeof b.ready !== 'string' || !b.ready.trim()) {
-      fail(file, `harnesses.${name} needs a \`ready\` regex — the pane text that says this harness reached its composer`)
+      fail(src, `harnesses.${name} needs a \`ready\` regex — the pane text that says this harness reached its composer`)
     }
     try {
       b.readyRe = new RegExp(b.ready)
     } catch (e) {
-      fail(file, `harnesses.${name}.ready is not a valid regex: ${e.message}`)
+      fail(src, `harnesses.${name}.ready is not a valid regex: ${e.message}`)
     }
     // How long after the composer marker an agent may stay silent on `/mcp`
     // before curia calls it mute (#194). Per harness, because it is a property
@@ -499,7 +575,7 @@ export function loadRoutingConfig(file) {
     // reads exactly like a number somebody did, and the failure it buys is
     // either a healthy agent killed or a mute one left running.
     if (typeof b.tool_channel_grace_s !== 'number' || !(b.tool_channel_grace_s > 0)) {
-      fail(file, `harnesses.${name} needs a positive \`tool_channel_grace_s\` — how long after the composer marker an agent may send no /mcp request before curia treats it as having no tool channel`)
+      fail(src, `harnesses.${name} needs a positive \`tool_channel_grace_s\` — how long after the composer marker an agent may send no /mcp request before curia treats it as having no tool channel`)
     }
     b.toolChannelGraceS = b.tool_channel_grace_s
     // The container command is single-quoted inside the pane's shell (see
@@ -512,11 +588,11 @@ export function loadRoutingConfig(file) {
     // harness runs in a container now, so there is no way out and no switch to
     // read: a template with a single quote in it is simply invalid.
     if (b.template.includes("'")) {
-      fail(file, `harnesses.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one`)
+      fail(src, `harnesses.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one`)
     }
   }
   for (const [name, m] of Object.entries(cfg.models)) {
-    if (!cfg.harnesses[m.harness]) fail(file, `models.${name}.harness names unknown harness "${m.harness}"`)
+    if (!cfg.harnesses[m.harness]) fail(src, `models.${name}.harness names unknown harness "${m.harness}"`)
   }
 
   return cfg

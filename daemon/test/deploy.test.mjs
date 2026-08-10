@@ -27,12 +27,16 @@ function fakeStore() {
 }
 
 // A git/docker double: answers rev-parse from `shas`, throws where the
-// scenario says so, and records every docker invocation.
-function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null } = {}) {
+// scenario says so, and records every docker invocation. `dirty` is what
+// `git status --porcelain` prints — the clean tree is the empty string.
+function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '' } = {}) {
   const docker = []
+  const git = []
   const exec = async (file, args) => {
     if (file === 'git') {
+      git.push(args)
       const verb = args[0]
+      if (verb === 'status') return { stdout: dirty }
       if (verb === 'fetch') return { stdout: '' }
       if (verb === 'rev-parse') return { stdout: `${args[1] === 'HEAD' ? head : origin}\n` }
       if (verb === 'merge-base') {
@@ -47,7 +51,7 @@ function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null 
     }
     throw new Error(`unexpected exec: ${file} ${args.join(' ')}`)
   }
-  return { exec, docker }
+  return { exec, docker, git }
 }
 
 function build(opts = {}) {
@@ -56,12 +60,12 @@ function build(opts = {}) {
   const sock = path.join(dataDir, 'docker.sock')
   fs.writeFileSync(sock, '')
   const store = fakeStore()
-  const { exec, docker } = fakeExec(opts)
+  const { exec, docker, git } = fakeExec(opts)
   const deploy = new SelfDeploy({
     repoRoot: '/home/alp/curia', dataDir, store, exec,
     log: () => {}, port: 4271, home: '/home/alp', dockerSocket: sock,
   })
-  return { deploy, store, docker, dataDir }
+  return { deploy, store, docker, git, dataDir }
 }
 
 describe('parse and expansion', () => {
@@ -84,6 +88,32 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.equal(docker.length, 0)
     assert.equal(store.events.length, 0)
     assert.equal(deploy.readMarker(), null)
+  })
+
+  // #292: the box's config files are tracked, so a hand edit to one of them
+  // used to reach the sibling's `git merge --ff-only`, which refuses it — and
+  // the sibling reads that as a failed deploy and rolls back over the edit.
+  test('a dirty tracked file is refused by name, before anything is ordered', async () => {
+    const { deploy, store, docker } = build({ dirty: ' M config/curia.yaml\n M daemon/src/index.mjs\n' })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /uncommitted changes to config\/curia\.yaml, daemon\/src\/index\.mjs/)
+    // and it says where a settings save actually goes, so the operator does not
+    // read this refusal as the dashboard's doing
+    assert.match(reply, /config\/\*\.local\.yaml/)
+    assert.equal(docker.length, 0)
+    assert.equal(store.events.length, 0)
+    assert.equal(deploy.readMarker(), null)
+  })
+
+  test('the check asks about tracked files only', async () => {
+    // The dashboard's own override files are untracked by design (#292), so a
+    // check that counted them would refuse every deploy on a box that has ever
+    // saved from the settings screen.
+    const { deploy, git, docker } = build()
+    await deploy.run({ by: 'u1' })
+    const status = git.find((args) => args[0] === 'status')
+    assert.ok(status.includes('--untracked-files=no'), status.join(' '))
+    assert.equal(docker.length, 1)
   })
 
   test('a diverged checkout is refused, not force-pushed over', async () => {

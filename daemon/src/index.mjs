@@ -34,7 +34,7 @@ import { installCrashGuard } from './health.mjs'
 import { readable } from './logline.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
-import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mjs'
 import { PROBE_MARK, PROBE_PATH, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -84,6 +84,14 @@ fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
 const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
 const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
 const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
+// #292: the dashboard writes an override file beside each tracked one, and git
+// does not track those. Said out loud at boot, because a config the operator
+// reads in the repo is no longer the config this daemon runs, and nothing else
+// on the box would tell them.
+for (const name of ['curia.yaml', 'routing.yaml']) {
+  const over = overrideSummary(path.join(CONFIG_DIR, name))
+  if (over) log(`config: ${name} + ${path.basename(over.file)} (overrides: ${over.keys.join(', ') || 'none'})`)
+}
 // Every harness runs in a container since #195, so this is simply the harness
 // list — it names the containers the side channel below serves. The cross-file
 // check that used to live here went with the switch: `sandbox:` is now required

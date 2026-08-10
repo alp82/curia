@@ -537,15 +537,20 @@ describe('the settings write and the restart (#265)', () => {
 
   // ---- the save ------------------------------------------------------------
 
-  test('a save writes the file, answers with the re-read, and keeps the comments', async () => {
+  test('a save writes the OVERRIDE, answers with the re-read, and leaves the tracked file alone', async () => {
+    const tracked = path.join(cfgDir, 'curia.yaml')
+    const before = fs.readFileSync(tracked, 'utf8')
     const res = await req(surface.port, '/api/settings', {
       method: 'POST', headers: writes(), body: { dispatch: { max_concurrent: 4 } },
     })
     assert.equal(res.status, 200)
     const body = JSON.parse(res.text)
-    assert.deepEqual(body.written, ['curia.yaml'])
+    // #292: git tracks curia.yaml, so a save that touched it would leave the
+    // box's checkout dirty and the next deploy would refuse to fast-forward.
+    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.equal(fs.readFileSync(tracked, 'utf8'), before, 'the tracked file is byte for byte what it was')
+    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.local.yaml'), 'utf8'), /max_concurrent: 4/)
     assert.equal(body.settings.dispatch.max_concurrent, 4, 'the answer carries what landed, not what was sent')
-    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.yaml'), 'utf8'), /- repo: o\/r # the one with the map/)
   })
 
   test('a save the loaders refuse answers 409 and says so, and the file does not move', async () => {

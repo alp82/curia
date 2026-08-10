@@ -125,6 +125,25 @@ Do not point it at a checkout you work in.
 `auto_dispatch` is `false`, so nothing starts without you. The ports work as they ship; the daemon
 checks them at boot and names any clash.
 
+### The override file
+
+Git tracks `config/curia.yaml` and `config/routing.yaml`. Beside each one you may put an override
+file that git ignores: `config/curia.local.yaml` and `config/routing.local.yaml`. It holds only what
+your box answers differently.
+
+```yaml
+# config/curia.local.yaml
+dispatch:
+  max_concurrent: 3
+```
+
+The daemon reads the tracked file, then lays the override over it. A mapping merges key by key. A
+list or a scalar replaces whole. The daemon names both files at boot.
+
+The dashboard settings screen writes the override file and never the tracked one. So a save from
+your phone leaves your checkout clean, and the next `git pull` does not collide with it. You need no
+override file to start. With none there, curia runs the tracked files as they ship.
+
 ## 9. The skills
 
 The skills ship with this repo, at `skills/`. They are a vendored copy of the public
@@ -223,6 +242,7 @@ Logs are the daemon's output. Under compose: `docker compose -f deploy/compose.y
 - `docs/adr/` — the decisions behind the design.
 - `daemon/src/` — the daemon itself: the dispatch loop, the Discord bridge, the MCP tools an agent
   calls.
-- `config/` — the two files you edit: what curia watches, and which model each label gets.
+- `config/` — the two files you edit: what curia watches, and which model each label gets. A
+  `*.local.yaml` beside either one holds your box's own answers and stays out of git.
 - `docs/landing-page/` — the brief, the build notes and the hosting record for <https://curia.sh>.
 - `daemon/README.md` and `docs/deploy.md` — the operator's own box, not yours.

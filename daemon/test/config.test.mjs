@@ -8,13 +8,17 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
-import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile, overrideSummary } from '../src/config.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
  import { DEFAULT_INDEX } from '../src/attach.mjs'
 import { DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
 import { seedSkillsRoot, skillsYaml, withSeededHome } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
+
+const DIRNAME = path.dirname(fileURLToPath(import.meta.url))
 
 let tmp
 let root
@@ -460,5 +464,138 @@ describe('timeline config (#74)', () => {
       () => loadCuriaConfig(writeConfig('  preview_proxy_from: 65500')),
       /runs past port 65535/,
     )
+  })
+})
+
+// The two layers (#292). Git tracks `curia.yaml` and `routing.yaml`, and the
+// dashboard writes the settings the operator touches most — so a save used to
+// leave the box's checkout dirty, and the next `git merge --ff-only` refused
+// it. The tracked file is the base now, and this box's own answers live in an
+// override beside it that git ignores.
+describe('the tracked file and the override beside it (#292)', () => {
+  // `writeConfig` builds its fixtures under the module-level `tmp`, which each
+  // describe owns for the length of its own run.
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-layers-')) })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  // The override for whatever config `writeConfig` just made, since its name is
+  // random per call.
+  const override = (file, ...lines) => {
+    fs.writeFileSync(localConfigFile(file), `${lines.join('\n')}\n`)
+    return file
+  }
+
+  test('the derived name is the base name with `.local` before the extension', () => {
+    assert.equal(localConfigFile('/x/config/curia.yaml'), '/x/config/curia.local.yaml')
+    assert.equal(localConfigFile('/x/config/routing.yaml'), '/x/config/routing.local.yaml')
+  })
+
+  test('no override file is the ordinary case, not an error', () => {
+    const file = writeConfig()
+    assert.equal(loadCuriaConfig(file).dispatch.max_concurrent, 2)
+    assert.equal(overrideSummary(file), null)
+  })
+
+  test('a mapping merges key by key: one number moves and the section stays', () => {
+    const file = override(writeConfig(), 'dispatch:', '  max_concurrent: 7')
+    const cfg = loadCuriaConfig(file)
+    assert.equal(cfg.dispatch.max_concurrent, 7)
+    assert.equal(cfg.dispatch.poll_interval_s, 60, 'the keys the override is silent about still answer')
+    assert.equal(cfg.dispatch.auto_dispatch, false)
+  })
+
+  test('a list replaces whole, because half a watch list is not a watch list', () => {
+    const file = override(writeConfig(), 'watch:', '  - repo: o/other', '    mode: map')
+    assert.deepEqual(loadCuriaConfig(file).watch, [{ repo: 'o/other', mode: 'map' }])
+  })
+
+  test('a key the tracked file does not carry is added by the override', () => {
+    const file = override(writeConfig(), 'usage:', '  account_bars: false')
+    assert.equal(loadCuriaConfig(file).usage.account_bars, false)
+  })
+
+  test('an empty override overrides nothing — comments alone are a legal file', () => {
+    const file = override(writeConfig(), '# this box takes the shipped answers')
+    assert.equal(loadCuriaConfig(file).dispatch.max_concurrent, 2)
+  })
+
+  test('an override that is not a mapping is refused by name', () => {
+    const file = override(writeConfig(), '- one', '- two')
+    assert.throws(() => loadCuriaConfig(file), /curia-.*\.local\.yaml: the override file must be a mapping/)
+  })
+
+  // The merged whole is what the daemon runs, so it is what every rule judges —
+  // including the rules that read two sections against each other.
+  test('every rule runs on the merged whole, not on either file alone', () => {
+    const file = override(writeConfig(), 'attach:', '  serve_port: 8444')
+    assert.throws(() => loadCuriaConfig(file), /attach.serve_port and timeline.serve_port are both 8444/)
+  })
+
+  test('a refusal names both layers, so the operator knows which file holds the line', () => {
+    const file = override(writeConfig(), 'dispatch:', '  max_concurrent: 0')
+    assert.throws(
+      () => loadCuriaConfig(file),
+      (e) => /curia-.*\.yaml \+ .*curia-.*\.local\.yaml: dispatch.max_concurrent/.test(e.message),
+    )
+  })
+
+  test('the summary the daemon says at boot names the file and its top-level keys', () => {
+    const file = override(writeConfig(), 'dispatch:', '  max_concurrent: 7', 'watch:', '  - repo: o/other')
+    assert.deepEqual(overrideSummary(file), {
+      file: localConfigFile(file),
+      keys: ['dispatch', 'watch'],
+    })
+  })
+
+  test('routing.yaml layers the same way, one model entry deep', () => {
+    const base = path.join(tmp, 'routing.yaml')
+    fs.writeFileSync(base, [
+      'defaults:',
+      '  untyped: opus',
+      'models:',
+      '  opus: { provider: anthropic, harness: claude }',
+      '  gpt: { provider: openai, harness: codex }',
+      'harnesses:',
+      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
+      "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'y', tool_channel_grace_s: 15 }",
+      '',
+    ].join('\n'))
+    fs.writeFileSync(localConfigFile(base), 'models:\n  gpt:\n    active: false\n')
+    const cfg = loadRoutingConfig(base)
+    assert.equal(cfg.models.gpt.active, false)
+    assert.equal(cfg.models.gpt.harness, 'codex', 'the entry merged rather than being replaced')
+    assert.equal(cfg.models.opus.active, true)
+  })
+
+  test('an explicit `localFile` wins over the derived name, and null reads the base alone', () => {
+    // This is how the settings screen judges a candidate before it lands.
+    const file = override(writeConfig(), 'dispatch:', '  max_concurrent: 7')
+    const candidate = path.join(tmp, 'candidate.yaml')
+    fs.writeFileSync(candidate, 'dispatch:\n  max_concurrent: 9\n')
+    assert.equal(loadCuriaConfig(file, { localFile: candidate }).dispatch.max_concurrent, 9)
+    assert.equal(loadCuriaConfig(file, { localFile: null }).dispatch.max_concurrent, 2)
+  })
+})
+
+// The whole decision rests on git not tracking the override, so the ignore rule
+// is pinned against git itself rather than against a reading of the pattern.
+describe('git ignores the override and tracks the base (#292)', () => {
+  const root = path.resolve(DIRNAME, '..', '..')
+  const ignored = (rel) => {
+    const r = spawnSync('git', ['check-ignore', '-q', rel], { cwd: root })
+    assert.ok(r.status === 0 || r.status === 1, `git check-ignore failed: ${r.stderr}`)
+    return r.status === 0
+  }
+
+  for (const name of ['curia', 'routing']) {
+    test(`config/${name}.local.yaml is ignored, and config/${name}.yaml is not`, () => {
+      assert.equal(ignored(`config/${name}.local.yaml`), true,
+        'a save from the dashboard would leave the checkout dirty, and the next deploy would refuse to fast-forward')
+      assert.equal(ignored(`config/${name}.yaml`), false, 'the base layer is the one git carries')
+    })
+  }
+
+  test('the atomic write’s candidate is ignored too, so a crash leaves no untracked file', () => {
+    assert.equal(ignored('config/.curia.local.yaml.candidate'), true)
   })
 })
