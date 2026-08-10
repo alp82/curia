@@ -254,8 +254,9 @@ The answer rule. The first valid answer closes the escalation atomically. Any de
 **Supersede**:
 A re-asked question closes the older record and routes late answers to the live one.
 
-**Nudge**:
-The half-hour re-post of an open escalation into its thread.
+**Render retry**:
+The escalation's own second try at a Discord render that failed (#261). It runs at 1 minute, 5 minutes and 15 minutes after the record opened, then never again. The offsets count from `esc_open`, not from the failure, so a restart re-arms only the tries still ahead. After the last one the record stays open and REST-answerable, and the dashboard shows it either way.
+_Avoid_: nudge (the half-hour re-post of an open escalation, deleted whole by #261).
 
 **Bridge**:
 The Discord module. It renders and captures. It never interprets.
