@@ -10,14 +10,13 @@
 //   - supersede (#29): a re-issued ask_human (same agent + same payload while an
 //     older escalation is open) marks the old record superseded; answers posted
 //     to a dead id are routed along the successor chain to the live call
-//   - nudge bookkeeping for the ~30-min re-nudge (#11)
 
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
-// because a confirm behaves unlike every other escalation: no nudge timer, no
+// because a confirm behaves unlike every other escalation: no reminder, no
 // pending resolver — the executing path is button → daemon — and it closes by
 // LAPSING when the agent instance it is bound to exits.
 export const CONFIRM_KIND = 'confirm'
@@ -150,7 +149,7 @@ export class EscalationStore {
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
           payload_hash: ev.payload_hash, status: 'open', opened_at: ev.ts,
           action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
-          discord: null, successor: null, nudges: 0, agent_died: false,
+          discord: null, successor: null, agent_died: false,
         })
         break
       }
@@ -190,11 +189,11 @@ export class EscalationStore {
         if (r) { r.status = 'superseded'; r.successor = ev.successor; r.closed_at = ev.ts }
         break
       }
-      case 'esc_nudge': {
-        const r = this.escalations.get(ev.id)
-        if (r) r.nudges++
+      case 'esc_nudge':
+        // The 30-minute tick died with #261, and nothing ever read its counter.
+        // The case stays because the journal is append-only: 243 of these sit
+        // in the real file, and an unknown type must not break the replay.
         break
-      }
       case 'thread_bound': {
         this.ticketThreads.set(String(ev.ticket), ev.thread_id)
         this.threadTickets.set(ev.thread_id, String(ev.ticket))
@@ -365,10 +364,6 @@ export class EscalationStore {
     if (r.status !== 'open') return { ok: false, reason: r.status, record: r }
     this._append({ type: 'esc_lapse', id, reason })
     return { ok: true, record: r }
-  }
-
-  nudge(id) {
-    this._append({ type: 'esc_nudge', id })
   }
 
   openEscalations() {

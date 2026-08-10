@@ -143,12 +143,13 @@ export class StatusLine {
     await Promise.all([...[...this.agents.values()].map((w) => w.chain), ...this.retiring])
   }
 
-  // The meter tick (#146). The elapsed time only refreshes while an escalation
-  // nudges, so context % and the usage bars would otherwise stand still through
-  // a whole working turn — a percentage that stops moving is a lie on a surface
-  // built to be trusted. Same message, edited in place, and #apply drops the
-  // edit when the composed text did not actually change, so a quiet agent
-  // costs no Discord call at all.
+  // The meter tick (#146). Nothing else moves a parked line: context %, the
+  // usage bars and the elapsed label would all stand still through a whole
+  // working turn — a percentage that stops moving is a lie on a surface built
+  // to be trusted. Since #261 removed the 30-minute nudge this tick is the
+  // ONLY refresh a waiting line gets. Same message, edited in place, and
+  // #apply drops the edit when the composed text did not actually change, so a
+  // quiet agent costs no Discord call at all.
   start() {
     if (this.timer) return
     this.timer = setInterval(() => this.refresh(), this.refreshMs)
@@ -194,16 +195,6 @@ export class StatusLine {
         return this.#set(ev.agent, ev.ticket, state, {
           esc: { id: ev.id, title: promptTitle(ev.prompt), opened_at: ev.ts },
         })
-      }
-      case 'esc_nudge': {
-        // The elapsed time is the only thing that changed — refresh the line
-        // in place. This replaces the separate still-waiting reminder message
-        // (#108 item 13): never fake-new content, never a re-posted body.
-        const r = this.get(ev.id)
-        if (!r || r.kind === CONFIRM_KIND) return
-        const w = this.agents.get(r.agent)
-        if (w && w.detail.esc?.id === r.id) return this.#set(r.agent, r.ticket, w.state, w.detail)
-        return
       }
       case 'esc_answer': {
         const r = this.get(ev.id)
@@ -257,7 +248,7 @@ export class StatusLine {
       case 'agent_blocked_on_human': {
         // The turn ended parked (#47) — the line keeps naming whom it waits on.
         // Live, this repeats what esc_open already drew; after a restart it is
-        // the only event that redraws a parked line before the next nudge.
+        // the only event that redraws a parked line before the next meter tick.
         // The redraw carries no entry point of its own, so it keeps the one the
         // park drew (#258) rather than guessing the gate.
         if (ev.cross_check) return this.#set(ev.agent, ev.ticket, 'cross-checking', { at: ev.ts, on: this.agents.get(ev.agent)?.detail?.on })

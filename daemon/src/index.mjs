@@ -51,6 +51,7 @@ import { IdentityProxy, identityRefusal, serveHosts, tailnetSelf } from './ident
 import { detectHarness } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
+import { remainingRenderRetries } from './renderretry.mjs'
 import { AccountUsage, ModelWindows, agentMeters } from './usage.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -66,7 +67,6 @@ if (fs.existsSync(envFile)) {
 }
 
 const PORT = Number(process.env.PORT ?? 4271)
-const NUDGE_MS = Number(process.env.NUDGE_MS ?? 30 * 60 * 1000) // ~30-min re-nudge (#11)
 // CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
 // fixture dir so a test run never writes into the real journal.
 const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
@@ -174,7 +174,7 @@ const statusLine = new StatusLine({
 statusLine.start()
 store.onEvent = (ev) => statusLine.onEvent(ev)
 const pending = new Map() // escalation id -> resolve(answerText) — ephemeral, dies with the process
-const nudgeTimers = new Map() // escalation id -> interval handle — ephemeral, rebuilt on boot
+const renderRetries = new Map() // escalation id -> timeout handles — ephemeral, rebuilt on boot
 
 let bridge = null
 
@@ -198,28 +198,33 @@ installCrashGuard({
 
 // ---- escalation lifecycle -------------------------------------------------
 
-function scheduleNudge(record) {
-  // #94: a confirm has no nudge and no expiry — it waits silently and lapses
-  // with its agent.
-  if (record.kind === CONFIRM_KIND) return
-  if (nudgeTimers.has(record.id)) return
-  const t = setInterval(() => {
-    const r = store.get(record.id)
-    if (!r || r.status !== 'open') return clearNudge(record.id)
-    // esc_nudge refreshes the status line's elapsed time in place (#108 items
-    // 8/13) — the separate still-waiting reminder message is gone.
-    store.nudge(r.id)
-    // a record that never rendered (bridge was down, #22) gets re-rendered here
-    if (bridge && !r.discord) renderEscalation(r).catch((e) => log('nudge render failed', e.message))
-  }, NUDGE_MS)
-  t.unref()
-  nudgeTimers.set(record.id, t)
+// #261: every open escalation arms its own bounded render retry — 1m, 5m and
+// 15m after it opened, then never again. A retry that finds the record rendered
+// (the usual case), closed, or gone does nothing, so the schedule costs an
+// escalation whose first render worked exactly three no-ops.
+function armRenderRetries(record) {
+  if (renderRetries.has(record.id)) return
+  const delays = remainingRenderRetries(record.opened_at, Date.now())
+  if (!delays.length) return
+  const timers = new Set()
+  renderRetries.set(record.id, timers)
+  for (const ms of delays) {
+    const t = setTimeout(() => {
+      timers.delete(t)
+      if (!timers.size) renderRetries.delete(record.id)
+      const r = store.get(record.id)
+      // rendered, answered or superseded in the meantime — nothing to retry
+      if (!r || r.status !== 'open' || r.discord) return clearRenderRetries(record.id)
+      renderEscalation(r)
+    }, ms)
+    t.unref()
+    timers.add(t)
+  }
 }
 
-function clearNudge(id) {
-  const t = nudgeTimers.get(id)
-  if (t) clearInterval(t)
-  nudgeTimers.delete(id)
+function clearRenderRetries(id) {
+  for (const t of renderRetries.get(id) ?? []) clearTimeout(t)
+  renderRetries.delete(id)
 }
 
 async function renderEscalation(record, files = []) {
@@ -227,8 +232,9 @@ async function renderEscalation(record, files = []) {
   try {
     const discord = await bridge.renderEscalation(record, { files })
     store.attachRender(record.id, discord)
+    clearRenderRetries(record.id)
   } catch (e) {
-    // record stays open + REST-answerable; next nudge tick retries the render
+    // record stays open + REST-answerable; the armed retries try again (#261)
     store.logEvent('bridge_render_failed', { id: record.id, error: e.message })
     log(`render failed for ${record.id}: ${e.message}`)
   }
@@ -241,10 +247,10 @@ function openEscalation({ agent, ticket, kind, prompt, options, preview_url, fil
   log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
   if (superseded) {
     pending.delete(superseded.id) // the agent aborted that call; nobody is waiting on it
-    clearNudge(superseded.id)
+    clearRenderRetries(superseded.id)
     if (bridge) bridge.markSuperseded(store.get(superseded.id)).catch(() => {})
   }
-  scheduleNudge(record)
+  armRenderRetries(record)
   renderEscalation(record, files)
   const answered = new Promise((resolve) => pending.set(record.id, resolve))
   return { record, answered }
@@ -255,7 +261,7 @@ function openEscalation({ agent, ticket, kind, prompt, options, preview_url, fil
 // actually waiting: false means the blocked call died with a previous daemon
 // process, and the answer needs the #139 hand-off instead.
 function settle(record, text, attachments = []) {
-  clearNudge(record.id)
+  clearRenderRetries(record.id)
   const resolve = pending.get(record.id)
   pending.delete(record.id)
   if (resolve) resolve({ text, attachments })
@@ -416,7 +422,7 @@ function notifyThread(ticket, message, opts = {}) {
 // Button confirms (#94, per #89): the interpreted cancel path opens a
 // `confirm` escalation — rendered with ✅/❌ through the same machinery as
 // every other escalation, journalled, answerable after a bridge outage — and
-// NOTHING waits on it: no resolver, no nudge, no TTL. The executing path is
+// NOTHING waits on it: no resolver, no reminder, no TTL. The executing path is
 // button → gate.answer → dispatcher.onConfirmAnswered, and the record lapses
 // the moment its agent exits.
 function openConfirm({ ticket, prompt, action, originThreadId }) {
@@ -425,6 +431,10 @@ function openConfirm({ ticket, prompt, action, originThreadId }) {
   })
   log(`confirm ${record.id} open (${action.verb}) ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
   if (superseded && bridge) bridge.markSuperseded(store.get(superseded.id)).catch(() => {})
+  // A confirm has no reminder and no expiry, but it still has to be SEEN: a
+  // confirm that never rendered carries buttons nobody can press, so it takes
+  // the same bounded render retry every other escalation takes (#261).
+  armRenderRetries(record)
   renderEscalation(record)
   return record
 }
@@ -432,6 +442,7 @@ function openConfirm({ ticket, prompt, action, originThreadId }) {
 function lapseEscalation(id, reason) {
   const r = store.lapse(id, reason)
   if (r.ok) {
+    clearRenderRetries(id)
     log(`confirm ${id} lapsed (${reason})`)
     if (bridge) bridge.markLapsed(store.get(id)).catch(() => {})
   }
@@ -439,7 +450,7 @@ function lapseEscalation(id, reason) {
 }
 
 // The review gate (#54 item 2). The same escalation machinery every ask_human
-// uses — so first-valid-wins, the ~30-min re-nudge, Discord buttons, thread-reply
+// uses — so first-valid-wins, the bounded render retry, Discord buttons, thread-reply
 // capture and restart survival all come free — under its own kind, which is what
 // makes an approval a fact the daemon can check (`/status`, the Stop hook) rather
 // than a string in a prompt. Unlike overseerConfirm there is NO ttl: #11's
@@ -738,9 +749,10 @@ function outboundImages(agent, images) {
 // The block itself is sound — the daemon holds the response for as long as it
 // takes. What killed real agents was the CLIENT: Claude Code aborts an MCP
 // tool call after 300s of server silence (CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT),
-// so an escalation was dead ~25 minutes before the #11 re-nudge could ever
-// fire. The fix belongs here rather than in a client env var: every harness
-// curia has evaluated (Claude Code, Codex, Cline, pi via ACP shims) speaks MCP,
+// so an escalation was dead ~25 minutes before the ~30-minute re-nudge of the
+// day (#11, removed in #261) could ever fire. The fix belongs here rather than
+// in a client env var: every harness curia has evaluated (Claude Code, Codex,
+// Cline, pi via ACP shims) speaks MCP,
 // and periodic traffic on the stream is the protocol's own answer to a long
 // call. Progress notifications when the client offered a token, logging
 // notifications otherwise — either way, bytes flow and no idle timer fires.
@@ -1374,11 +1386,12 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     .catch((e) => log(`boot reconcile failed: ${e.message} — POST /reconcile to retry`))
 })
 
-// restart recovery: every open escalation in the journal gets its nudge timer
-// back; records that never rendered retry on the first tick
+// restart recovery: an open escalation that never rendered re-arms the retries
+// it has not used yet — measured from esc_open, so a restart re-arms the rest
+// of the window rather than starting a fresh one (#261)
 for (const r of store.openEscalations()) {
   log(`recovered open escalation ${r.id} (${r.kind}) agent=${r.agent} ticket=${r.ticket}`)
-  scheduleNudge(r)
+  if (!r.discord) armRenderRetries(r)
 }
 
 // #270: if this boot is the far side of a self-deploy, wait for the sibling's

@@ -22,7 +22,7 @@ The daemon expects these on the box before the first boot:
 - `DISCORD_BOT_TOKEN` — CuriaBot token. Omit to run REST-only (escalations stay answerable via `POST /answer`).
 - `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty.
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` — the scoped GitHub token an agent gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. See [the agent's GitHub authority](#the-agents-github-authority-155) below.
-- `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271), `NUDGE_MS` (default 30 min).
+- `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
 - `OVERSEER_MODEL` (default `claude-haiku-4-5`) and `OVERSEER_FALLBACK_MODEL` (default `claude-sonnet-5`) — the overseer session models (#92).
 
 Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml` (watch list, dispatch settings — `auto_dispatch` ships `false` — attach ports, preview range, agent skill set) and `../config/routing.yaml` (label-only model routing, fallback chains, harness command templates). Override the directory with `CURIA_CONFIG_DIR`.

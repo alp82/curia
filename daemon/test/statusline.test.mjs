@@ -98,11 +98,11 @@ describe('StatusLine', () => {
     }
   })
 
-  test('a nudge refreshes the waiting line in place — no reminder message (#108 item 13)', async () => {
-    // A nudge fires every ~30 min, so the elapsed label has always moved by the
-    // time it lands. The clock is injected rather than real: the refresh is only
-    // worth an edit when a number actually changed (#146), and asserting that
-    // needs time to pass on purpose.
+  test('the tick refreshes the waiting line in place — no reminder message (#108 item 13)', async () => {
+    // Since #261 the meter tick is the only thing that moves a parked line. The
+    // clock is injected rather than real: the refresh is only worth an edit when
+    // a number actually changed (#146), and asserting that needs time to pass on
+    // purpose.
     let clock = Date.parse('2026-08-03T12:00:00Z')
     const l = new StatusLine({
       post: async (ticket, text) => { posts.push({ ticket, text }); return { threadId: 't', messageId: 'm1' } },
@@ -115,10 +115,10 @@ describe('StatusLine', () => {
     records.set('esc-3', { id: 'esc-3', agent: 'curia-4', ticket: '4', kind: 'free-text', status: 'open' })
     l.onEvent({ type: 'esc_open', id: 'esc-3', agent: 'curia-4', ticket: '4', kind: 'free-text', prompt: 'A question', ts: opened })
     clock += 30 * 60_000
-    l.onEvent({ type: 'esc_nudge', id: 'esc-3' })
+    l.refresh()
     await l.settle()
     assert.equal(posts.length, 1)
-    assert.equal(edits.length, 1, 'the nudge edits, never posts')
+    assert.equal(edits.length, 1, 'the tick edits, never posts')
     assert.match(edits[0].text, /\[esc-3\].*1 h 15 min/)
   })
 
@@ -135,7 +135,7 @@ describe('StatusLine', () => {
     l.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
     records.set('e1', { id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', status: 'open' })
     l.onEvent({ type: 'esc_open', id: 'e1', agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'q?', ts: new Date().toISOString() })
-    l.onEvent({ type: 'esc_nudge', id: 'e1' }) // same state — no re-flag
+    l.refresh() // same state — no re-flag
     l.onEvent({ type: 'esc_answer', id: 'e1', answer: 'yes' })
     records.set('e2', { id: 'e2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, status: 'open' })
     l.onEvent({ type: 'esc_open', id: 'e2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
@@ -144,7 +144,7 @@ describe('StatusLine', () => {
     await l.settle()
     assert.deepEqual(flags.map((f) => f.state), [
       'working', 'waiting', 'working', 'awaiting-review',
-    ], 'ready, nudge, and done fire no flag — and the approve→executing tail keeps 🔎, saving the rename slot the ✅ needs')
+    ], 'ready, tick, and done fire no flag — and the approve→executing tail keeps 🔎, saving the rename slot the ✅ needs')
     assert.ok(flags.every((f) => f.ticket === '9'))
   })
 
