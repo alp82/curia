@@ -129,7 +129,9 @@ describe('transcript meters', () => {
     ])
     const { ctx, windows } = readTranscriptMeters('codex', file, NOW)
     assert.deepEqual(ctx, { tokens: 47481, window: 258400 })
-    assert.deepEqual(windows, [{ label: '7d', pct: 1, elapsedPct: 60 }])
+    // The stated reset rides along (#262): the status line has no room for a
+    // clock time and prints the pace, the dashboard has room and prints both.
+    assert.deepEqual(windows, [{ label: '7d', pct: 1, elapsedPct: 60, resetsAt: resetsInIso(10080 * 0.4) }])
   })
 
   test('the codex window label is derived, never assumed from the slot name', () => {
@@ -149,8 +151,8 @@ describe('transcript meters', () => {
       }),
     ])
     assert.deepEqual(readTranscriptMeters('codex', file, NOW).windows, [
-      { label: '5h', pct: 62, elapsedPct: 30 },
-      { label: '7d', pct: 41, elapsedPct: 50 },
+      { label: '5h', pct: 62, elapsedPct: 30, resetsAt: resetsInIso(210) },
+      { label: '7d', pct: 41, elapsedPct: 50, resetsAt: resetsInIso(10080 * 0.5) },
     ])
   })
 
@@ -167,9 +169,12 @@ describe('transcript meters', () => {
         secondary: { used_percent: 41, window_minutes: 10080, resets_at: resetsInSec(1000) },
       }),
     ])
+    // The rolled window states the FRESH window's reset (#262): the one the
+    // transcript carries is in the past and belongs to the window that ended,
+    // and the window that replaced it ends five hours after that instant.
     assert.deepEqual(readTranscriptMeters('codex', file, NOW).windows, [
-      { label: '5h', pct: 0, elapsedPct: 10, fresh: true },
-      { label: '7d', pct: 41, elapsedPct: 90 },
+      { label: '5h', pct: 0, elapsedPct: 10, resetsAt: resetsInIso(270), fresh: true },
+      { label: '7d', pct: 41, elapsedPct: 90, resetsAt: resetsInIso(1000) },
     ])
   })
 
@@ -184,8 +189,10 @@ describe('transcript meters', () => {
         primary: { used_percent: 88, window_minutes: 300, resets_at: resetsInSec(-360) },
       }),
     ])
+    // No clock and no reset, for the same reason: which window we are in is a
+    // guess, so when it ends is a guess too (#262).
     assert.deepEqual(readTranscriptMeters('codex', file, NOW).windows, [
-      { label: '5h', pct: 0, elapsedPct: null, fresh: true },
+      { label: '5h', pct: 0, elapsedPct: null, resetsAt: null, fresh: true },
     ])
   })
 
@@ -198,7 +205,7 @@ describe('transcript meters', () => {
     ])
     const { ctx, windows } = readTranscriptMeters('codex', file, NOW)
     assert.equal(ctx.tokens, 900)
-    assert.deepEqual(windows, [{ label: '5h', pct: 5, elapsedPct: 30 }])
+    assert.deepEqual(windows, [{ label: '5h', pct: 5, elapsedPct: 30, resetsAt: resetsInIso(210) }])
   })
 
   test('a missing, empty or unreadable transcript reads as no meters, never as a throw', () => {
@@ -227,8 +234,8 @@ describe('transcript meters', () => {
     // reading keeps what the transcript states, which is what tells the cooling
     // path that this window has already rolled and states no cap to wait for.
     assert.deepEqual(windows, [
-      { label: '5h', pct: 0, elapsedPct: 10, fresh: true },
-      { label: '7d', pct: 41, elapsedPct: 90 },
+      { label: '5h', pct: 0, elapsedPct: 10, resetsAt: resetsInIso(270), fresh: true },
+      { label: '7d', pct: 41, elapsedPct: 90, resetsAt: resetsInIso(1000) },
     ])
     assert.deepEqual(limits, [
       { label: '5h', usedPct: 99.4, windowMs: 300 * MIN, resetsAt: resetsInSec(-30) },
@@ -516,7 +523,7 @@ describe('agentMeters', () => {
     assert.equal(m.ctxPct, 50)
     assert.equal(m.model, 'gpt-5.6-sol')
     assert.equal(m.effort, 'high')
-    assert.deepEqual(m.windows, [{ label: '5h', pct: 3, elapsedPct: 50 }])
+    assert.deepEqual(m.windows, [{ label: '5h', pct: 3, elapsedPct: 50, resetsAt: resetsInIso(150) }])
   })
 
   test('the account bars survive an agent whose routing label is gone (#187)', () => {
@@ -674,8 +681,8 @@ describe('AccountUsage', () => {
   test('the five-hour and seven-day window lengths are known, so both carry pace', () => {
     // 150 minutes left of 300 -> 50% elapsed. 60% of a week left -> 40%.
     assert.deepEqual(accountWindows(payload(18, 57), NOW), [
-      { label: '5h', pct: 18, elapsedPct: 50 },
-      { label: '7d', pct: 57, elapsedPct: 60 },
+      { label: '5h', pct: 18, elapsedPct: 50, resetsAt: resetsInIso(150) },
+      { label: '7d', pct: 57, elapsedPct: 60, resetsAt: resetsInIso(10080 * 0.4) },
     ])
   })
 
@@ -712,8 +719,8 @@ describe('AccountUsage', () => {
     // long as the next probe took. Five minutes past the reset the window is
     // five minutes old and empty, which is 2% of its clock and 0% spent.
     assert.deepEqual(accountWindows(payload(18, 57, { fiveIn: -5 }), NOW), [
-      { label: '5h', pct: 0, elapsedPct: 2, fresh: true },
-      { label: '7d', pct: 57, elapsedPct: 60 },
+      { label: '5h', pct: 0, elapsedPct: 2, resetsAt: resetsInIso(295), fresh: true },
+      { label: '7d', pct: 57, elapsedPct: 60, resetsAt: resetsInIso(10080 * 0.4) },
     ])
   })
 

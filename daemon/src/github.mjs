@@ -267,6 +267,27 @@ export function agentOnlyChainCount({ items = [], edges = {} } = {}) {
   return reachable.size
 }
 
+// Level two of the dashboard's frontier (#262): what each takeable ticket
+// DIRECTLY unblocks. `edges[number]` is the blocked-by list agentOnlyChainCount
+// already reads, walked the other way round — so this costs no extra read.
+//
+// Returns { [blockerNumber]: item[] }. Only OPEN, non-PR items are listed under
+// only OPEN blockers: a closed ticket unblocks nothing anyone can take, and a
+// closed dependent is already done. One level, never a transitive closure — the
+// tree the operator reads is the frontier and the row behind it (#248).
+export function directUnblocks({ items = [], edges = {} } = {}) {
+  const out = {}
+  for (const i of items) {
+    if (i.state !== 'open' || i.pull_request) continue
+    for (const b of edges[i.number] ?? []) {
+      if (b.state === 'closed') continue
+      out[b.number] ??= []
+      if (!out[b.number].some((x) => x.number === i.number)) out[b.number].push(i)
+    }
+  }
+  return out
+}
+
 // Composes selectLane + filterTakeable over pre-fetched data; returns the
 // deduped, sorted takeable issue numbers. Multi-map union counts a ticket once.
 export function frontierForRepo({ mode = 'auto', maps = [], mapItems = {}, flatItems = [] }) {

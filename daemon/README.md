@@ -53,6 +53,7 @@ Two of these routes are the AGENT's, and since #159 they are gated: `/mcp` and `
 
 - `POST /mcp?agent=<name>&ticket=<n>` — MCP tools `ask_human` (blocking), `notify`, `report_result`, `publish_preview` (#40, `path` since #68), `open_pull_request` and `request_review` (#54). Ticket binding rides the spawn URL (#11). `ask_human` and `notify` also take `images: [<path>]` (#34).
 - `GET /state` — open escalations + bridge status.
+- `GET /overview` — the dashboard's whole read of the daemon (#262, per [#249](https://github.com/alp82/curia/issues/249)). It carries the live agents, open escalations, the review gate with its pull request, bridge health, one usage reading per provider with its stated reset, the last 100 journal events, and the two-level frontier under the instant reconcile computed it. Each section is nullable on its own. An unreadable fleet says so, and costs the page nothing else. The journal file itself never crosses. Its tail does.
 - `POST /escalate` — synthetic escalation (testing / non-MCP emitters); `?wait=1` blocks until answered.
 - `POST /answer {id, answer, attachments?}` / `POST /cancel {id}` — same first-valid-wins gate as Discord.
 - `POST /agent_done?agent=` — Stop-hook webhook (#29); closes the dispatch lifecycle (result recorded ⇒ clean close; result-less ⇒ abnormal exit, session kept for post-mortem).

@@ -19,7 +19,7 @@ import crypto from 'node:crypto'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
-  selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, commentIssue, closeIssue, setIssueBody, issueComments,
+  selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch,
 } from './github.mjs'
@@ -354,11 +354,39 @@ export class Dispatcher {
     this.reviewWaits = new Map()
     this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
+    // The dashboard's frontier and the instant reconcile computed it (#262).
+    // Null until the first pass lands, which is how `GET /overview` says "no
+    // frontier has been read yet" rather than "the frontier is empty".
+    this.frontierAt = null
     this.autoTimer = null
     this.wakeTimer = null
   }
 
   // ---- frontier --------------------------------------------------------------
+
+  // The frontier the dashboard draws (#262): the same two-level read as
+  // `frontier()`, computed during reconcile and stamped with the instant it was
+  // computed. Two reasons it lives on the reconcile pass rather than under the
+  // route. The pass already holds the `gh` credentials and already spends this
+  // repo's reads, so the frontier costs it nothing new — and the sidecar that
+  // asks for it holds no token at all (#249). The stamp is what makes a served
+  // snapshot honest: the page says how old the frontier is, instead of dressing
+  // a boot-time read as a live one. `POST /reconcile` recomputes it.
+  frontierSnapshot() {
+    return this.frontierAt ?? { computed_at: null, repos: [] }
+  }
+
+  // Never throws and never fails the pass: a frontier the dashboard cannot draw
+  // must not cost reconcile its sweeps. The previous snapshot stands, with its
+  // own older stamp saying so.
+  async #computeFrontier() {
+    try {
+      const repos = await this.frontier()
+      this.frontierAt = { computed_at: new Date().toISOString(), repos }
+    } catch (e) {
+      this.log(`reconcile: the dashboard frontier failed (${e.message}) — the last snapshot stands`)
+    }
+  }
 
   // Shallow per-repo frontier (numbers/titles/labels); gh errors are surfaced
   // per repo, never thrown across the whole read.
@@ -396,11 +424,18 @@ export class Dispatcher {
     }
     for (const item of flatItems) index.set(item.number, { item, map: null })
     const mapTitle = new Map(maps.map((m) => [m.number, m.title]))
+    // The blocked-by edges, read ONCE per repo and shared (#262). The agent-only
+    // count and level two of the frontier ask the same edges two questions, and
+    // this is one `gh` call per open blocked ticket — so reading them twice
+    // would double the cost of every tickets view for no new fact.
+    const pool = lane === 'map' ? Object.values(mapItems).flat() : flatItems
+    const edges = await this.#blockerEdges(entry.repo, lane, pool)
+    const unblocks = edges ? directUnblocks({ items: pool, edges }) : {}
     return {
       repo: entry.repo,
       lane,
       numbers,
-      agentOnly: await this.#agentOnlyCount(entry.repo, lane, mapItems, numbers),
+      agentOnly: this.#agentOnlyCount(lane, pool, edges, numbers),
       items: numbers.map((n) => {
         const e = index.get(n)
         return {
@@ -409,33 +444,53 @@ export class Dispatcher {
           labels: (e?.item?.labels ?? []).map((l) => l.name),
           map: e?.map ?? null,
           mapTitle: e?.map != null ? mapTitle.get(e.map) ?? '' : '',
+          // Level two (#262): the tickets this one directly unblocks, which is
+          // what makes the dashboard's frontier a tree rather than a list.
+          unblocks: (unblocks[n] ?? []).map((i) => ({
+            number: i.number,
+            title: i.title ?? '',
+            labels: (i.labels ?? []).map((l) => l.name),
+          })),
         }
       }),
     }
   }
 
-  // The HITL-free chain count for the tickets view (#81). Map lane: fetch the
-  // dependency edges of every open blocked child, then run the pure closure.
-  // Flat lane: every ready-for-agent ticket is by definition agent-ready, so
-  // the count is the takeable count. Fails soft to null — the tickets view
-  // must render even when an edge read does not.
-  async #agentOnlyCount(repo, lane, mapItems, numbers) {
-    if (lane === 'flat') return numbers.length
-    if (lane !== 'map') return 0
+  // The dependency edges of every open blocked ticket in the pool:
+  // { [number]: [{number, state}] }. Null when a read failed — an unreadable
+  // edge is not an open way, and both readers below treat null as "no answer"
+  // rather than "no edges".
+  //
+  // The MAP lane only. A flat-lane ticket is takeable because a human labelled
+  // it `ready-for-agent`, not because a chain opened, so neither reader has a
+  // question for its edges — and asking anyway would spend one `gh` call per
+  // blocked ticket on every tickets view that a flat repo has never paid.
+  async #blockerEdges(repo, lane, pool) {
+    if (lane !== 'map') return {}
     try {
-      const items = Object.values(mapItems).flat()
       const edges = {}
-      for (const i of items) {
+      for (const i of pool) {
         if (i.state !== 'open' || i.pull_request) continue
         if ((i.issue_dependencies_summary?.blocked_by ?? 0) === 0) continue
         edges[i.number] = (await this.deps.blockedByOf(repo, i.number))
           .map((b) => ({ number: b.number, state: b.state }))
       }
-      return agentOnlyChainCount({ items, edges })
+      return edges
     } catch (e) {
-      this.log(`agent-only count for ${repo} failed (${e.message}) — omitting it`)
+      this.log(`dependency edges for ${repo} failed (${e.message}) — omitting the agent-only count and the unblocks`)
       return null
     }
+  }
+
+  // The HITL-free chain count for the tickets view (#81), over the edges above.
+  // Flat lane: every ready-for-agent ticket is by definition agent-ready, so
+  // the count is the takeable count. Fails soft to null — the tickets view
+  // must render even when an edge read does not.
+  #agentOnlyCount(lane, pool, edges, numbers) {
+    if (lane === 'flat') return numbers.length
+    if (lane !== 'map') return 0
+    if (!edges) return null
+    return agentOnlyChainCount({ items: pool, edges })
   }
 
   // ---- next ------------------------------------------------------------------
@@ -4348,6 +4403,11 @@ export class Dispatcher {
     if (this.timeline) {
       await this.timeline.assert().catch((e) => this.log(`reconcile: timeline surface assertion failed (${e.message}) — the timeline may be unavailable`))
     }
+
+    // Last, because it reads GitHub and the sweeps above must not wait on it
+    // (#262). It is the only part of the pass whose failure costs a surface
+    // rather than a decision.
+    await this.#computeFrontier()
   }
 
   // Everything the passes share: the journal, the latest dispatch epoch per

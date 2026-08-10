@@ -7,6 +7,7 @@
 // mints; the rest are the operator's own and never leave loopback.
 //
 //   GET  /state                          — open escalations
+//   GET  /overview                       — the dashboard's whole read (#262)
 //   POST /escalate                       — synthetic escalation (testing / non-MCP emitters)
 //   POST /answer {id, answer}            — REST answer (same first-valid-wins gate as Discord)
 //   POST /agent_done?agent=            — Stop-hook webhook (closes the dispatch lifecycle)
@@ -35,7 +36,7 @@ import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig } from './config.mjs'
 import { PROBE_MARK, PROBE_PATH, dockerGateway, probeSideChannel } from './sandbox.mjs'
-import { Cooling } from './routing.mjs'
+import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
@@ -144,6 +145,30 @@ const accountUsage = new AccountUsage({
 // `account_bars`: that switch exists because the account probe spends quota,
 // and this lookup spends none.
 const modelWindows = new ModelWindows({ log })
+
+// Same harness resolution the timeline uses: the dispatcher's word on what it
+// spawned, on-disk evidence for re-adopted and lab sessions.
+const cfgDirFor = (session) => path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)
+const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? detectHarness(cfgDirFor(session))
+
+// Everything the status line says about one agent beyond its state. Named
+// rather than inlined because `GET /overview` reads the same meters for the
+// dashboard's provider strip (#262), and one agent must not be measured two
+// ways on two surfaces.
+//
+// The routing label takes the same route (#187). The status line only learns
+// it from a spawn event, so a line first drawn after a restart carries none —
+// and the effort meter reads off the label's routing row. The dispatcher's
+// record answers instead, which reconcile now rebuilds from the journal.
+const metersFor = (session, model) => agentMeters({
+  harness: harnessFor(session),
+  cfgDir: cfgDirFor(session),
+  model: model ?? dispatcher?.agents.get(session)?.model ?? null,
+  routing: routingConfig,
+  account: accountUsage,
+  models: modelWindows,
+})
+
 const statusLine = new StatusLine({
   post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
   edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
@@ -154,22 +179,7 @@ const statusLine = new StatusLine({
   flag: (ticket, state) => (bridge ? bridge.flagTicket(ticket, state) : null),
   get: (id) => store.get(id),
   log,
-  // Same harness resolution the timeline uses: the dispatcher's word on what it
-  // spawned, on-disk evidence for re-adopted and lab sessions.
-  //
-  // The routing label takes the same route (#187). The status line only learns
-  // it from a spawn event, so a line first drawn after a restart carries none —
-  // and the effort meter reads off the label's routing row. The dispatcher's
-  // record answers instead, which reconcile now rebuilds from the journal.
-  meters: (session, model) => agentMeters({
-    harness: dispatcher?.agents.get(session)?.harness
-      ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
-    cfgDir: path.join(curiaConfig.dispatch.workspace_root, 'cfg', session),
-    model: model ?? dispatcher?.agents.get(session)?.model ?? null,
-    routing: routingConfig,
-    account: accountUsage,
-    models: modelWindows,
-  }),
+  meters: metersFor,
 })
 statusLine.start()
 store.onEvent = (ev) => statusLine.onEvent(ev)
@@ -1159,6 +1169,124 @@ async function assertSideChannel(image) {
   return bound.address
 }
 
+// ---- the dashboard's one read (#262) ----------------------------------------
+
+// A usage window on the wire. The meters speak camelCase because the status
+// line composes them in the same file that reads them; `/overview` is a
+// contract between two processes, so it speaks the snake_case every other
+// route on this port already does.
+const wireWindow = (w) => ({
+  label: w.label,
+  pct: w.pct,
+  elapsed_pct: w.elapsedPct ?? null,
+  resets_at: w.resetsAt ?? null,
+  fresh: Boolean(w.fresh),
+})
+
+// An open escalation on the wire. The record's own bookkeeping — the payload
+// hash, the successor chain, the action targets — is how the gate decides
+// things and says nothing a page can draw, so it stays here.
+const wireEscalation = (r) => ({
+  id: r.id,
+  agent: r.agent,
+  ticket: r.ticket,
+  kind: r.kind,
+  prompt: r.prompt,
+  options: r.options ?? null,
+  preview_url: r.preview_url ?? null,
+  opened_at: r.opened_at,
+  agent_died: Boolean(r.agent_died),
+  rendered: Boolean(r.discord),
+  thread_id: r.discord?.threadId ?? null,
+})
+
+// The provider strip (#248's home screen): one usage reading per provider, said
+// once above a fleet whose every agent repeats it.
+//
+// Anthropic answers from the account probe and needs no agent at all. Every
+// other provider states its windows only inside an agent's own transcript, so
+// the first live agent on it is the evidence, and the reading names where it
+// came from. A provider with no probe and no agent says NOTHING rather than
+// zero: an unmeasured window and an unspent one are not the same fact.
+function providerUsage() {
+  const out = new Map()
+  const account = accountUsage.windows()
+  if (account) out.set('anthropic', { provider: 'anthropic', from: 'account', session: null, windows: account })
+  for (const w of dispatcher?.agents.values() ?? []) {
+    const provider = routingConfig.models?.[w.model]?.provider ?? providerOf(routingConfig, harnessFor(w.session))
+    if (!provider || out.has(provider)) continue
+    const { windows } = metersFor(w.session, w.model)
+    if (!windows) continue
+    out.set(provider, { provider, from: 'transcript', session: w.session, windows })
+  }
+  return [...out.values()].map((p) => ({ ...p, windows: p.windows.map(wireWindow) }))
+}
+
+// Everything the console shell draws, in one read (#262, per the where-it-lives
+// decision #249). The sidecar holds no secret, no GitHub token and no journal
+// handle: it polls this and renders what comes back.
+//
+// The journal FILE stays daemon-private. What crosses is its last hundred
+// events, which is the feed and nothing more.
+//
+// The frontier is the only field this route does not compute. Reconcile does,
+// on the credentials that pass already holds, and the stamp beside it says how
+// old the reading is (see Dispatcher#frontierSnapshot).
+//
+// One cost worth stating rather than hiding: `dispatcher.status()` derives its
+// recent outcomes by reading the whole journal off disk, exactly as `/status`
+// in Discord does, and the review gate's pull-request lookup reads it again.
+// The journal grows without bound, so the poll interval the sidecar picks (the
+// #263 decision) is what decides how often that read happens.
+async function overview() {
+  // The fleet read asks tmux, and an indeterminate tmux is not "no agents" —
+  // the evidence rule holds on a page exactly as it holds in reconcile. It must
+  // not cost the rest of the page either: the feed, the escalations, the gate
+  // and the frontier are all still readable while tmux is wedged, and a
+  // dashboard that goes blank is worst precisely when the box is worst. So the
+  // section says it could not be read, and every other section answers.
+  let fleet = null
+  let fleetError = null
+  try {
+    fleet = await dispatcher.status()
+  } catch (e) {
+    fleetError = e.message
+    log(`overview: the fleet read failed (${e.message}) — serving every other section`)
+  }
+  const health = bridge ? bridge.status() : null
+  const open = store.openEscalations()
+  return {
+    at: new Date().toISOString(),
+    daemon: {
+      port: PORT,
+      uptime_s: Math.round(process.uptime()),
+      auto_dispatch: curiaConfig.dispatch.auto_dispatch,
+      max_concurrent: curiaConfig.dispatch.max_concurrent,
+    },
+    // Null, never empty, when the read above failed: an unreadable fleet and an
+    // idle box are opposite facts and must never render the same.
+    agents: fleet?.agents ?? null,
+    untracked: fleet?.untracked ?? null,
+    recent: fleet?.recent ?? null,
+    fleet_error: fleetError,
+    // The gate is its own list, not a kind to filter for. It is the one
+    // escalation the daemon opens about an agent's ENDING, it carries the pull
+    // request nothing else carries, and the page draws it as its own card.
+    escalations: open.filter((r) => r.kind !== REVIEW_KIND).map(wireEscalation),
+    review_gate: open.filter((r) => r.kind === REVIEW_KIND).map((r) => ({
+      ...wireEscalation(r),
+      pull_request: dispatcher.pullRequestUrlFor(r.agent),
+    })),
+    // `bridge` keeps the string shape /state gave it, and `bridge_health` the
+    // whole record — one name for one thing across both routes.
+    bridge: health?.state ?? 'down',
+    bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
+    usage: providerUsage(),
+    events: store.recentEvents(),
+    frontier: dispatcher.frontierSnapshot(),
+  }
+}
+
 async function handleRequest(req, res, { fromContainer = false } = {}) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   const json = (code, obj) => {
@@ -1252,6 +1380,12 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
       open_escalations: store.openEscalations(),
     })
+  }
+
+  // The dashboard's read (#262). Loopback only, and absent from AGENT_ROUTES,
+  // so the container-facing listener refuses it before it reaches here.
+  if (url.pathname === '/overview' && req.method === 'GET') {
+    return json(200, await overview())
   }
 
   if (url.pathname === '/escalate' && req.method === 'POST') {

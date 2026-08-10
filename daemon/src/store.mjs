@@ -21,6 +21,14 @@ import crypto from 'node:crypto'
 // LAPSING when the agent instance it is bound to exits.
 export const CONFIRM_KIND = 'confirm'
 
+// How much of the journal the feed keeps in memory (#262). The dashboard reads
+// the daemon's last events over `GET /overview`, and the journal FILE stays
+// daemon-private — so the tail is held here, filled by replay at boot and by
+// every append after it. A ring rather than a re-read: the file grows without
+// bound and the dashboard polls, so parsing it once per poll would make the
+// cost of watching curia rise with its history.
+export const RECENT_EVENTS = 100
+
 // The journal in the old spelling (#184).
 //
 // Until #184 the process curia spawns was a "worker" and the program it ran
@@ -106,6 +114,7 @@ export class EscalationStore {
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
+    this.recent = [] // the last RECENT_EVENTS journal lines, oldest first (#262)
     this.seq = 0
     this.noteSeq = 0
     this._replay()
@@ -132,6 +141,12 @@ export class EscalationStore {
   }
 
   _apply(ev, { replay }) {
+    // The feed's tail (#262). Every event passes here exactly once, on replay
+    // and on append alike, so the ring is right the instant the boot replay
+    // ends and stays right for the rest of the run.
+    this.recent.push(ev)
+    if (this.recent.length > RECENT_EVENTS) this.recent.shift()
+
     // The last thing the journal says about an agent (#236): the direct answer
     // under a question in its thread reads it as progress evidence. The
     // note-queue family is excluded, because the question itself queues a note
@@ -597,6 +612,13 @@ export class EscalationStore {
   // Generic operational events (notify, result, agent_done…) share the journal.
   logEvent(type, data) {
     return this._append({ type, ...data })
+  }
+
+  // The feed the dashboard draws (#262): the journal's last events, oldest
+  // first. A copy, because the caller serializes it while the daemon keeps
+  // appending.
+  recentEvents(limit = RECENT_EVENTS) {
+    return this.recent.slice(-limit)
   }
 
   // The journal's last word about an agent (#236): { type, ts } or null.
