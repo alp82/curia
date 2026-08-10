@@ -119,6 +119,101 @@ export function elapsedLabel(sinceIso, now = Date.now()) {
   return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`
 }
 
+// ---- failure lines (#256) ----------------------------------------------------
+//
+// A daemon-side failure says one sentence in the thread, once.
+//
+// #81 is the exhibit the #245 cold read caught: `open_pull_request` failed three
+// times, and every retry pasted the same two lines of git stderr — a
+// `git -C /home/alp/…` command echo and a `fatal:` line — into the thread. Two
+// faults ride one line. The daemon speaks its own internals in a surface built
+// for prose, and it speaks them once per retry.
+//
+// Nothing is lost by not saying the raw error here. Every failure path journals
+// it (`land_failed`, `resolve_failed`, `verdict_delivery_failed`, and the claim
+// release reason), and the tool return hands it back verbatim to the agent that
+// has to act on it. The thread is the operator's surface, so it gets the
+// operator's sentence.
+
+// The stderr shapes the daemon's own git, gh and tmux calls produce. Each maps
+// to one sentence, so one cause reads the same way wherever it is raised.
+const FAILURE_CAUSES = [
+  [/authentication failed|could not read username|bad credentials|invalid username or password|permission to .* denied|http 40[13]|gh auth login/i,
+    'GitHub refused the daemon login'],
+  [/rate limit/i, 'GitHub rate-limited the daemon'],
+  [/cannot change to|no such file or directory|not a git repository/i,
+    'the checkout on the box is gone'],
+  [/non-fast-forward|updates were rejected|fetch first|\[rejected\]/i,
+    'the branch on GitHub has moved on, so the push was refused'],
+  [/could not resolve host|connection timed out|network is unreachable|etimedout|econnreset|econnrefused|eai_again|enotfound/i,
+    'the box could not reach GitHub'],
+  [/no server running|session not found|can't find pane|no current session/i,
+    'the tmux session for this agent is gone'],
+]
+
+// The sentence is bounded because it is a thread line, not the record. This is
+// not the #119 rule breaking: decision-bearing text still never truncates, and
+// the raw error is decision-bearing text — which is why it goes to the journal
+// and to the agent whole, and why only its restatement is cut here.
+export const FAILURE_PROSE_LIMIT = 140
+
+export function failureProse(raw) {
+  const lines = String(raw ?? '').split('\n').map((l) => l.trim()).filter(Boolean)
+  // Node names the whole command in `Command failed: …`. That line is the
+  // daemon's own path and flags, and an operator can act on none of it.
+  const body = lines.filter((l) => !/^(Command failed:|\+ )/.test(l) && !/^(git|gh|docker|tmux|node) /.test(l))
+  // git says the reason on a `fatal:` line and the context on `remote:` or
+  // `error:` above it, so the strongest prefix wins rather than the first line.
+  const pick = (re) => body.find((l) => re.test(l))
+  const reason = pick(/^fatal:/i) ?? pick(/^error:/i) ?? pick(/^remote:/i) ?? body[0] ?? lines[0] ?? ''
+  for (const [re, sentence] of FAILURE_CAUSES) if (re.test(reason)) return sentence
+  // Unrecognized: say what the daemon was told, in one sentence. git quotes a
+  // path it could not use, and that path is always a daemon path.
+  const plain = reason
+    .replace(/^(fatal|error|remote|warning):\s*/i, '')
+    .replace(/'\/[^']*'/g, 'a path on the box')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[.\s]+$/, '')
+  if (!plain) return 'the daemon reported no reason'
+  const first = plain.includes('. ') ? plain.slice(0, plain.indexOf('. ')) : plain
+  if (first.length <= FAILURE_PROSE_LIMIT) return first
+  const cut = first.slice(0, FAILURE_PROSE_LIMIT)
+  return `${(cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : cut).trimEnd()}…`
+}
+
+// How long one failure stays said. A retry loop inside this window is one line.
+export const FAILURE_REPEAT_WINDOW_MS = 10 * 60_000
+
+// The repeat filter. `say` returns the line to post, or null when the thread has
+// already heard it.
+//
+// Silence is bounded on both sides. A loop that outlasts the window says the
+// line again with a count, so a stuck agent never reads as an idle one. A
+// failure that returns after the window is a fresh burst, not a repeat, and it
+// says the full line again.
+export class FailureLines {
+  constructor({ window = FAILURE_REPEAT_WINDOW_MS } = {}) {
+    this.window = window
+    this.seen = new Map()
+  }
+
+  say(key, text, now = Date.now()) {
+    for (const [k, v] of this.seen) if (now - v.last > this.window * 2) this.seen.delete(k)
+    const s = this.seen.get(key)
+    if (!s || now - s.last > this.window) {
+      this.seen.set(key, { first: now, last: now, posted: now, count: 1 })
+      return text
+    }
+    s.count += 1
+    s.last = now
+    if (now - s.posted < this.window) return null
+    s.posted = now
+    const span = elapsedLabel(new Date(s.first).toISOString(), now)
+    return `${text} (the same failure, ${s.count} times${span ? ` in ${span}` : ''})`
+  }
+}
+
 // Variation selectors differ between source literals and runtime strings, so
 // membership compares with them stripped.
 const bare = (s) => s.replace(/️/g, '')

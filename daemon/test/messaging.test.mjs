@@ -4,7 +4,11 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel, speakerName, CHUNK_LIMIT, SPEAKER_NAME_LIMIT } from '../src/messaging.mjs'
+import {
+  SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel,
+  speakerName, failureProse, FailureLines, CHUNK_LIMIT, SPEAKER_NAME_LIMIT,
+  FAILURE_PROSE_LIMIT, FAILURE_REPEAT_WINDOW_MS,
+} from '../src/messaging.mjs'
 
 describe('smallPrint', () => {
   test('prefixes every line with the -# marker', () => {
@@ -142,5 +146,103 @@ describe('elapsedLabel', () => {
 
   test('garbage input yields null, not NaN text', () => {
     assert.equal(elapsedLabel('not a date'), null)
+  })
+})
+
+// The #81 stderr, as Node hands it over: the command echo curia built, then
+// what git said about it. The whole of it went into the thread three times.
+const PUSH_STDERR = [
+  "Command failed: git -C /home/alp/curia/work/repos/alp82__curia/wt/81 -c credential.helper=!gh auth git-credential push https://github.com/alp82/curia.git abc1234:refs/heads/curia/81",
+  "fatal: cannot change to '/home/alp/curia/work/repos/alp82__curia/wt/81': No such file or directory",
+].join('\n')
+
+describe('failureProse (#256)', () => {
+  test('the #81 stderr becomes one sentence, and the daemon path is not in it', () => {
+    const prose = failureProse(PUSH_STDERR)
+    assert.equal(prose, 'the checkout on the box is gone')
+    assert.ok(!/\/home\/alp/.test(prose), 'a daemon path reached the thread')
+    assert.ok(!prose.includes('\n'), 'more than one line reached the thread')
+  })
+
+  test('one cause reads one way, whichever wording git chose', () => {
+    assert.equal(failureProse('fatal: Authentication failed for \'https://github.com/o/r.git\''), 'GitHub refused the daemon login')
+    assert.equal(failureProse('remote: Invalid username or password.'), 'GitHub refused the daemon login')
+    assert.equal(failureProse('fatal: Updates were rejected because the remote contains work'), 'the branch on GitHub has moved on, so the push was refused')
+    assert.equal(failureProse('fatal: unable to access: Could not resolve host: github.com'), 'the box could not reach GitHub')
+    assert.equal(failureProse("can't find pane: curia-42"), 'the tmux session for this agent is gone')
+  })
+
+  test('the fatal line wins over the context lines above it', () => {
+    const raw = 'remote: Support for password authentication was removed.\nfatal: Authentication failed'
+    assert.equal(failureProse(raw), 'GitHub refused the daemon login')
+  })
+
+  test('an unrecognized failure still says what happened, in one bounded sentence', () => {
+    const prose = failureProse('Command failed: gh pr create\nerror: something nobody has seen before')
+    assert.equal(prose, 'something nobody has seen before')
+    const long = failureProse(`error: ${'a reason '.repeat(40)}`)
+    assert.ok(long.length <= FAILURE_PROSE_LIMIT + 1, `${long.length} chars reached the thread`)
+    assert.ok(long.endsWith('…'))
+  })
+
+  test('a quoted daemon path in an unrecognized failure is named, not pasted', () => {
+    assert.equal(
+      failureProse("error: unable to write '/home/alp/curia/work/cfg/curia-42/settings.json'"),
+      'unable to write a path on the box',
+    )
+  })
+
+  test('nothing to translate says so rather than composing an empty line', () => {
+    assert.equal(failureProse(''), 'the daemon reported no reason')
+    assert.equal(failureProse(undefined), 'the daemon reported no reason')
+  })
+
+  test('the composed sentence passes the reply lint', () => {
+    for (const raw of [PUSH_STDERR, 'fatal: Authentication failed', 'error: unheard of']) {
+      assert.deepEqual(lintReply(failureProse(raw)), [])
+    }
+  })
+})
+
+describe('FailureLines (#256)', () => {
+  const WINDOW = FAILURE_REPEAT_WINDOW_MS
+
+  test('a retry loop inside the window says the failure once', () => {
+    const f = new FailureLines()
+    const t = Date.now()
+    assert.equal(f.say('k', 'it failed', t), 'it failed')
+    assert.equal(f.say('k', 'it failed', t + 30_000), null)
+    assert.equal(f.say('k', 'it failed', t + 90_000), null)
+  })
+
+  test('a loop that outlasts the window says it again, with the count', () => {
+    const f = new FailureLines()
+    const t = Date.now()
+    f.say('k', 'it failed', t)
+    f.say('k', 'it failed', t + 4 * 60_000)
+    const again = f.say('k', 'it failed', t + WINDOW + 60_000)
+    assert.match(again, /^it failed \(the same failure, 3 times in 11 min\)$/)
+  })
+
+  test('a failure that returns after the window is a fresh burst, said in full', () => {
+    const f = new FailureLines()
+    const t = Date.now()
+    f.say('k', 'it failed', t)
+    assert.equal(f.say('k', 'it failed', t + WINDOW + 1000), 'it failed')
+  })
+
+  test('two different failures both speak', () => {
+    const f = new FailureLines()
+    const t = Date.now()
+    assert.equal(f.say('k', 'the login was refused', t), 'the login was refused')
+    assert.equal(f.say('k2', 'the checkout is gone', t + 1000), 'the checkout is gone')
+  })
+
+  test('a key nobody has raised in a long time is forgotten, not held forever', () => {
+    const f = new FailureLines()
+    const t = Date.now()
+    f.say('old', 'it failed', t)
+    f.say('new', 'it failed', t + WINDOW * 3)
+    assert.deepEqual([...f.seen.keys()], ['new'])
   })
 })

@@ -52,6 +52,7 @@ import { CONFIRM_KIND, VERDICT_LABEL, normalizeEvent } from './store.mjs'
 import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
+import { failureProse, FailureLines } from './messaging.mjs'
 
 // A ticket session's name. Chat handles are in here since #241: an agent no
 // issue answers for — today, the one charting a map that does not exist yet —
@@ -311,6 +312,10 @@ export class Dispatcher {
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)
     this.inFlight = new Set() // admission guard: sessions mid-start, pre-spawn
+    // The repeat filter behind #failureNotify (#256). In-memory on purpose: a
+    // restart loses the counters, and a restart is exactly when a failure
+    // deserves to be said again.
+    this.failures = new FailureLines()
     // Teardowns this dispatcher ordered (#138). killSession is wrapped so
     // EVERY ordered kill — cancel, finish, limit respawn, orphan sweep —
     // registers before the tmux call, and the liveness sweep can tell an
@@ -1481,7 +1486,7 @@ export class Dispatcher {
       await this.#deliverVerdict(verdict)
     } catch (e) {
       this.store.logEvent('verdict_delivery_failed', { repo, ticket, agent: agentName, error: e.message })
-      this.notify(ticket, `⚠️ the verdict on #${ticket} is captured, but curia's return path failed — ${e.message}. The builder may still be waiting at the gate.`)
+      this.#failureNotify(ticket, 'verdict-return', `⚠️ the verdict on #${ticket} is captured, but curia's return path failed — ${failureProse(e.message)}. The builder may still be waiting at the gate.`)
     }
     return `verdict captured${held ? '' : ' in memory only — writing the artifact FAILED'}. curia has posted it on the pull request and handed it to the builder, which judges it and puts it to a human. You push nothing, resolve nothing and answer nothing further — your work here is done, so stop.`
   }
@@ -2038,11 +2043,32 @@ export class Dispatcher {
   // where that fact is known, rather than at the two call sites — the rule
   // #releaseTail above follows, for the same reason. Everything else is shared:
   // one shape, one verb swapped, so the two messages stay comparable.
+  //
+  // Prose, but NOT deduped (#256): one agent life ends once, so there is no
+  // repeat to swallow, and a re-dispatch that dies the same way is a second
+  // death the operator has to hear about. A REFUSAL is already prose — curia
+  // composed it, and #174's way out lives in that sentence — so only the failed
+  // arm, which carries whatever tmux or docker said, is translated.
   #noRespawnNotify(agent, next, cause, e, released) {
     const head = e.refusal
       ? `🚫 \`${agent.session}\` ${cause} and curia REFUSED to respawn it on **${next}**`
       : `⚠️ \`${agent.session}\` ${cause} and the respawn on **${next}** failed`
-    return `${head}: ${e.message} — ${this.#releaseTail(agent, released)}`
+    const why = e.refusal ? e.message : failureProse(e.message)
+    return `${head}: ${why} — ${this.#releaseTail(agent, released)}`
+  }
+
+  // Every daemon-side failure the thread hears goes through here (#256). The
+  // line is already prose — `failureProse` runs at the call site, where the raw
+  // error is — and this adds the other half: the thread hears one failure once.
+  //
+  // The key is the ticket, the failing act and the composed line together, so
+  // two different failures of one act both speak, and one failure retried says
+  // nothing new. Nothing is hidden by the silence: the failure event is
+  // journalled on every occurrence, so the count is in the record whether or
+  // not the thread carries it.
+  #failureNotify(ticket, kind, text) {
+    const line = this.failures.say(`${ticket} ${kind} ${text}`, text)
+    if (line) this.notify(ticket, line)
   }
 
   // ---- the merge-gated ending (#54) ---------------------------------------------
@@ -2100,7 +2126,7 @@ export class Dispatcher {
       })
     } catch (e) {
       this.store.logEvent('land_failed', { repo, ticket, agent: agentName, branch, error: e.message })
-      this.notify(ticket, `⚠️ \`${agentName}\`: opening the pull request FAILED — ${e.message}`)
+      this.#failureNotify(ticket, 'land', `⚠️ \`${agentName}\`: opening the pull request FAILED — ${failureProse(e.message)}`)
       return `❌ curia could not land \`${branch}\`: ${e.message}. Your commits are safe in the worktree; fix what you can and call this again.`
     }
     if (!out.ok) {
@@ -2452,7 +2478,7 @@ export class Dispatcher {
       }
     }
     if (!posted.ok) {
-      this.notify(ticket, `⚠️ the cross-check verdict could NOT be posted on the pull request — ${posted.why}. curia still holds it, and the builder still gets it.`)
+      this.#failureNotify(ticket, 'verdict-comment', `⚠️ the cross-check verdict could NOT be posted on the pull request — ${failureProse(posted.why)}. curia still holds it, and the builder still gets it.`)
     }
     const w = this.agents.get(builder)
     if (!w) {
@@ -2512,7 +2538,7 @@ export class Dispatcher {
       repo: verdict.repo, ticket, agent: agentName, ok: posted.ok, why: posted.why ?? null,
     })
     if (!posted.ok) {
-      this.notify(ticket, `⚠️ \`${agentName}\`'s judgement of the cross-check could NOT be posted on the pull request — ${posted.why}. The question itself is in this thread.`)
+      this.#failureNotify(ticket, 'judgement-comment', `⚠️ \`${agentName}\`'s judgement of the cross-check could NOT be posted on the pull request — ${failureProse(posted.why)}. The question itself is in this thread.`)
     }
     return posted.ok
   }
@@ -2757,7 +2783,7 @@ export class Dispatcher {
         : await this.#noteNonClean(agentName, repo, ticket, result, w)
     } catch (e) {
       this.store.logEvent('resolve_failed', { repo, ticket, agent: agentName, status: result.status, error: e.message })
-      this.notify(ticket, `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${e.message}`)
+      this.#failureNotify(ticket, 'resolve', `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${failureProse(e.message)}`)
       return `result recorded — but curia's resolve step failed: ${e.message}`
     }
   }
@@ -3629,7 +3655,10 @@ export class Dispatcher {
       await this.deps.sendText(session, text)
     } catch (e) {
       this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: e.message })
-      this.notify(ticket, `⚠️ curia could not put those words to \`${session}\` — ${e.message}. The words are NOT with the agent: say them again.`)
+      // Prose, but NOT deduped: this line answers words the operator just
+      // typed, and an answer to an act is owed once per act. Silence here would
+      // read as delivery (#256).
+      this.notify(ticket, `⚠️ curia could not put those words to \`${session}\` — ${failureProse(e.message)}. The words are NOT with the agent: say them again.`)
       return
     }
     this.store.logEvent('note_interrupt_delivered', { agent: session, ticket })
