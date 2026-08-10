@@ -29,7 +29,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse } from 'yaml'
 import { assertServe, serveOff, attachBase } from './attach.mjs'
-import { identityRefusal, readAllow, serveHosts, tailnetSelf } from './identity.mjs'
+import { identityRefusal, readAllow, serveHosts, tailnetSelf, LOGIN_HEADER } from './identity.mjs'
 import { readSettings, saveSettings } from './settings.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -47,7 +47,10 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // against the disk when a pull changes both halves with no restart. The page
 // declares what it speaks, the server compares, and a mismatch refuses loudly
 // rather than serving a surface nobody agreed to.
-export const DASHBOARD_PROTO = 1
+// Bumped to 2 by #266: the page now POSTs to verb routes an older sidecar does
+// not serve, so an old server must refuse the new page rather than serve one
+// whose every button answers 404.
+export const DASHBOARD_PROTO = 2
 export const STAMP_NAME = 'curia-dashboard'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -153,6 +156,48 @@ export const POLL_TIMEOUT_MS = 10_000
 // The biggest settings patch this surface will read. The screen writes a watch
 // list and a handful of numbers, so anything near this is not a settings save.
 export const MAX_BODY = 256 * 1024
+
+// What the page may name on a verb route (#266).
+//
+// Each field is checked HERE rather than trusted, because two of them are
+// composed into a command line the daemon parses. A ticket is an issue number
+// or a chat handle (#241), a repo is `owner/name`, a session is a curia one.
+// The words the operator types are bounded only in length: they are text for a
+// person or an agent to read, and curia never interprets them.
+const VERB_REPO_RE = /^[\w.-]+\/[\w.-]+$/
+const VERB_TICKET_RE = /^(\d+|chat-\d+)$/
+const VERB_SESSION_RE = /^curia-[\w.-]+$/
+const VERB_ESC_RE = /^[\w.-]+$/
+export const MAX_WORDS = 4000
+
+// Why an answer did not land (#266). The store refuses in ONE WORD — `unknown`,
+// or whatever status the record holds instead of open — because that word is
+// for a caller. The operator gets the sentence it stands for, since every one
+// of these is first-valid-wins or supersede doing exactly its job.
+export const ANSWER_REFUSAL = {
+  unknown: 'curia has no record of that question',
+  answered: 'that question was already answered — the first valid answer wins',
+  cancelled: 'that question was cancelled, so nobody is waiting for an answer to it',
+  lapsed: 'that question lapsed with the agent that asked it',
+  superseded: 'that question was superseded by a newer one',
+}
+
+// A refusal about what the PAGE sent, in the same vocabulary a refused save
+// carries: the operator can see it and fix it, so it answers 409 rather than
+// reading as this process failing.
+const refuse = (msg) => Object.assign(new Error(msg), { refusal: true })
+
+function field(value, re, what) {
+  const s = String(value ?? '').trim()
+  if (!re.test(s)) throw refuse(`"${s}" is not ${what}`)
+  return s
+}
+function words(value, what) {
+  const s = String(value ?? '').trim()
+  if (!s) throw refuse(`${what} with no words is not ${what}`)
+  if (s.length > MAX_WORDS) throw refuse(`${what} may not exceed ${MAX_WORDS} characters`)
+  return s
+}
 
 export class DashboardSurface {
   constructor({
@@ -299,7 +344,11 @@ export class DashboardSurface {
   // loopback tooling on the daemon's side of that gate, and it earns that by
   // building each call from a route it names in code, never from a URL a
   // browser handed it.
-  #daemon({ method = 'GET', path: route, body = null }) {
+  // `accept` widens what counts as an answer rather than a failure (#266). The
+  // answer route needs it: a question that is no longer open comes back 409
+  // with the REASON in the body, and that reason is the whole point — it is
+  // what first-valid-wins looks like from the console.
+  #daemon({ method = 'GET', path: route, body = null, accept = [200] }) {
     return new Promise((resolve, reject) => {
       const payload = body === null ? null : Buffer.from(JSON.stringify(body))
       const req = http.request({
@@ -313,7 +362,7 @@ export class DashboardSurface {
         res.on('data', (c) => chunks.push(c))
         res.on('end', () => {
           const text = Buffer.concat(chunks).toString('utf8')
-          if (res.statusCode !== 200) return reject(new Error(`the daemon answered ${res.statusCode} on ${route}`))
+          if (!accept.includes(res.statusCode)) return reject(new Error(`the daemon answered ${res.statusCode} on ${route}`))
           try {
             resolve(JSON.parse(text))
           } catch (e) {
@@ -443,11 +492,11 @@ export class DashboardSurface {
     })
   }
 
-  // Everything the settings screen writes runs through here, so the refusal
-  // vocabulary is one thing: a SettingsRefusal is the operator's own config
-  // being wrong and answers 409, and anything else is this process failing and
-  // answers 500. The two must not read the same — the first is fixed on the
-  // page, the second on the box.
+  // Everything this surface WRITES runs through here — the settings save (#265)
+  // and every operator verb (#266) — so the refusal vocabulary is one thing: a
+  // refusal is something the operator can see and fix and answers 409, and
+  // anything else is this process failing and answers 500. The two must not
+  // read the same. The first is fixed on the page, the second on the box.
   #write(res, work) {
     return Promise.resolve().then(work).then(
       (out) => this.#json(res, 200, out),
@@ -460,6 +509,28 @@ export class DashboardSurface {
         return this.#json(res, 500, { error: e.message })
       },
     )
+  }
+
+  // A verb (#266): the same refusal vocabulary a save carries, plus the one
+  // thing a save does not need. The held snapshot is now behind the box — an
+  // agent has spawned, a question has closed, a ticket has left the frontier —
+  // so its age is dropped and the next page read is a fresh one. Without this
+  // the operator presses a button and watches nothing change for the rest of
+  // the poll interval.
+  #verb(res, work) {
+    return this.#write(res, async () => {
+      const out = await work()
+      this.snapshotAt = 0
+      return out
+    })
+  }
+
+  // The command seam (#33 step 9), reached with text this file composed. Every
+  // verb that has a word in the operator's own catalogue goes through it rather
+  // than around it, so a press from the console journals the same `command`
+  // event a typed one does and lands in the feed for free.
+  #command(text, by) {
+    return this.#daemon({ method: 'POST', path: '/command', body: { text, by } })
   }
 
   #handle(req, res) {
@@ -505,6 +576,87 @@ export class DashboardSurface {
           // the interval lasts, at the one moment that is false.
           this.snapshotAt = 0
           return out
+        })
+      }
+      // ---- the operator verbs (#266) ---------------------------------------
+      //
+      // Every one of them is a call this file COMPOSES. The browser hands over
+      // typed fields — a repo, a ticket number, an escalation id, some words —
+      // and each route below builds the daemon call out of a shape it names in
+      // code. Nothing a browser sends is forwarded as command TEXT: `POST
+      // /command` runs the whole operator catalogue, and passing a string
+      // through would make this surface a way to type anything at the daemon.
+      // The sidecar sits on the daemon's side of the loopback gate, and this is
+      // what it earns that with.
+      //
+      // `by` is the operator's own Tailscale login, read off the header the
+      // identity gate above already checked. The journal and the feed then name
+      // who pressed, instead of saying `dashboard` about every act.
+      const by = String(req.headers[LOGIN_HEADER] ?? '')
+
+      // Start, from a frontier card. The dispatch order (claim, prepare, spawn)
+      // is `start`'s and nothing here repeats it — the reply is curia's own
+      // sentence about what happened, shown as it stands.
+      if (url.pathname === '/api/start') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const repo = field(b.repo, VERB_REPO_RE, 'an owner/name repo')
+          const ticket = field(b.ticket, VERB_TICKET_RE, 'a ticket number')
+          return this.#command(`start ${repo}#${ticket}`, by)
+        })
+      }
+
+      // Cancel. The page confirms it with its consequences before it presses;
+      // this is the immediate teardown, the same one `cancel <n>` runs from the
+      // command channel. NOT the interpreted cancel: that opens a Discord
+      // confirm card, and a button press in the console is already the
+      // operator's own act, typed by nobody's model.
+      if (url.pathname === '/api/cancel') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const ticket = field(b.ticket, VERB_TICKET_RE, 'a ticket number')
+          return this.#command(`cancel ${ticket}`, by)
+        })
+      }
+
+      // Teleport. `attach <n>` composes the timeline link and the terminal link
+      // from curia's own records (#68), which is why the press asks for them
+      // rather than the page building a URL it cannot vouch for.
+      if (url.pathname === '/api/teleport') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const ticket = field(b.ticket, VERB_TICKET_RE, 'a ticket number')
+          return this.#command(`attach ${ticket}`, by)
+        })
+      }
+
+      // An answer, for an escalation or for the review gate — one route,
+      // because they are one act. First-valid-wins and supersede are the
+      // store's, so an answer that arrives second comes back 409 with the
+      // reason, and the page says which.
+      if (url.pathname === '/api/answer') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const id = field(b.id, VERB_ESC_RE, 'an escalation id')
+          const answer = words(b.answer, 'an answer')
+          const out = await this.#daemon({
+            method: 'POST', path: '/answer', body: { id, answer, by, via: 'dashboard' }, accept: [200, 409],
+          })
+          if (out.ok === false) throw refuse(ANSWER_REFUSAL[out.reason] ?? `that question is ${out.reason}`)
+          return out
+        })
+      }
+
+      // A note to one agent, in either delivery mode (ADR-0013). Queued is the
+      // default and rides the agent's next tool result; interrupt is #252's
+      // second mode, and its refusals are the daemon's.
+      if (url.pathname === '/api/note') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const agent = field(b.agent, VERB_SESSION_RE, 'a curia session name')
+          const text = words(b.text, 'a note')
+          const mode = b.mode === 'interrupt' ? 'interrupt' : 'queue'
+          return this.#daemon({ method: 'POST', path: '/note', body: { agent, text, mode, by } })
         })
       }
       return this.#json(res, 404, { error: `no route ${url.pathname} on the dashboard` })

@@ -716,3 +716,145 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
     assert.equal(logged[0].by, 'dashboard')
   })
 })
+
+// The console's verbs reach the daemon (#266). Two of the three seams they use
+// are new, and neither is visible from any surface but a browser:
+//
+//   POST /note   — a note KEYED ON THE AGENT. Discord keys one on the thread it
+//                  was typed in, and the console has no thread at all.
+//   `by`         — every REST verb journalled the word `rest`. The console
+//                  passes the operator's own login instead, so the feed names a
+//                  person rather than a transport.
+//
+// Real boot, because both are route code and an extraction would prove nothing
+// about the shipped path. No agent is running against these fixtures, which is
+// itself the case worth pinning: a note at an agent that is not there queues
+// nothing and says so, rather than being lost into a queue nobody drains.
+describe('the console verbs on the loopback surface (#266, real boot)', () => {
+  let tmp
+  let child
+  let port
+  let dataDir
+  let watch
+
+  const journal = () => fs.readFileSync(path.join(dataDir, 'events.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  const post = (route, body) => request(port, 'POST', route, {
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  before(async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-index-verbs-test-'))
+    const cfgDir = path.join(tmp, 'config')
+    dataDir = path.join(tmp, 'data')
+    const shim = path.join(tmp, 'shim')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    fs.mkdirSync(shim, { recursive: true })
+    for (const bin of ['gh', 'tmux', 'tailscale']) {
+      const p = path.join(shim, bin)
+      fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
+      fs.chmodSync(p, 0o755)
+    }
+    const [daemonPort, ttydPort, servePort, proxyPort, tlPort, tlServePort] = [
+      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
+    ]
+    port = daemonPort
+    fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
+      'watch:', '  - repo: example/fixture', '    mode: ready-for-agent',
+      'dispatch:',
+      '  auto_dispatch: false', '  max_concurrent: 1', '  poll_interval_s: 60',
+      `  workspace_root: ${path.join(tmp, 'work')}`, '  ready_timeout_s: 5',
+      'attach:', `  ttyd_port: ${ttydPort}`, `  serve_port: ${servePort}`,
+      'identity:', '  allow: [tester@example.com]', `  proxy_port: ${proxyPort}`,
+      'timeline:', `  port: ${tlPort}`, `  serve_port: ${tlServePort}`,
+      ...skillsYaml(seedSkillsRoot(tmp)),
+      ...sandboxYaml(),
+      '',
+    ].join('\n'))
+    fs.writeFileSync(path.join(cfgDir, 'routing.yaml'), [
+      'defaults:', '  untyped: sonnet',
+      'models:', '  sonnet: { provider: anthropic, harness: claude }',
+      'harnesses:', '  claude:',
+      '    template: claude --model {model} "$(cat {prompt_file})"',
+      "    ready: '⏵⏵|bypass permissions'",
+      '    tool_channel_grace_s: 15',
+      '',
+    ].join('\n'))
+
+    child = spawn(process.execPath, [DAEMON], {
+      env: {
+        ...process.env,
+        PORT: String(daemonPort),
+        CURIA_CONFIG_DIR: cfgDir,
+        CURIA_DATA_DIR: dataDir,
+        PATH: `${shim}:${process.env.PATH}`,
+        DISCORD_BOT_TOKEN: '',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    watch = watchDaemon(child)
+    await waitForBoot(watch, async () => {
+      try { return (await request(port, 'GET', '/state')).status === 200 } catch { return false }
+    }, 'the /state route')
+  })
+
+  after(() => {
+    if (child && child.exitCode === null) child.kill('SIGKILL')
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  test('a note at an agent that is not running queues nothing, and says which verb puts one back', async () => {
+    const res = await post('/note', { agent: 'curia-4242', text: 'have another look at the migration', by: 'alp@example.com' })
+    assert.equal(res.status, 200)
+    const body = JSON.parse(res.body)
+    assert.equal(body.ok, false)
+    assert.equal(body.reads, false, 'nothing queued — #208: words typed at a dead agent die with it')
+    assert.equal(body.id, null)
+    assert.match(body.why, /resume 4242/, 'the way out is named, not left to be guessed')
+    const refused = journal().filter((e) => e.type === 'agent_note_refused')
+    assert.equal(refused.at(-1).agent, 'curia-4242')
+    assert.equal(refused.at(-1).by, 'alp@example.com', 'the refusal names who tried, not the transport')
+  })
+
+  test('the interrupt mode is refused the same way, and refuses on the daemon\'s own words', async () => {
+    const res = await post('/note', { agent: 'curia-4242', text: 'stop that', mode: 'interrupt', by: 'alp@example.com' })
+    assert.equal(res.status, 200)
+    const body = JSON.parse(res.body)
+    assert.equal(body.ok, false)
+    assert.equal(body.mode, 'interrupt')
+  })
+
+  test('a session name this daemon would never mint is refused before anything is written', async () => {
+    for (const agent of ['', 'curia-263; rm -rf /', '../../etc/passwd', 'notcuria-1']) {
+      const res = await post('/note', { agent, text: 'hello' })
+      assert.equal(res.status, 400, `${agent} is not a curia session name`)
+      assert.match(JSON.parse(res.body).error, /not a curia session name/)
+    }
+  })
+
+  test('a note with no words is not a note', async () => {
+    const res = await post('/note', { agent: 'curia-1', text: '   ' })
+    assert.equal(res.status, 400)
+    assert.match(JSON.parse(res.body).error, /no words/)
+  })
+
+  test('a command carries the operator who pressed into the journal', async () => {
+    const res = await post('/command', { text: 'status', by: 'alp@example.com' })
+    assert.equal(res.status, 200)
+    const logged = journal().filter((e) => e.type === 'command').at(-1)
+    assert.equal(logged.canonical, 'status')
+    assert.equal(logged.by, 'alp@example.com')
+  })
+
+  test('a caller that names nobody is still `rest` — every seam before this one sent that', async () => {
+    await post('/command', { text: 'status' })
+    assert.equal(journal().filter((e) => e.type === 'command').at(-1).by, 'rest')
+  })
+
+  test('an answer to a question curia does not hold refuses with the reason, never a silent 200', async () => {
+    const res = await post('/answer', { id: 'esc-nope', answer: 'approve', by: 'alp@example.com', via: 'dashboard' })
+    assert.equal(res.status, 409)
+    assert.equal(JSON.parse(res.body).reason, 'unknown')
+  })
+})

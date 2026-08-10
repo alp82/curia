@@ -438,10 +438,20 @@ export class Dispatcher {
       agentOnly: this.#agentOnlyCount(lane, pool, edges, numbers),
       items: numbers.map((n) => {
         const e = index.get(n)
+        const labels = (e?.item?.labels ?? []).map((l) => l.name)
         return {
           number: n,
           title: e?.item?.title ?? '',
-          labels: (e?.item?.labels ?? []).map((l) => l.name),
+          labels,
+          // The model this ticket gets if it starts now (#266). The console
+          // shows it beside its start button, and it is `resolveModel` — the
+          // daemon's OWN precedence rule — rather than a second copy of that
+          // rule inside a page. It costs no call: the labels are already here.
+          //
+          // It names what routing decides, not what a spawn will do. Cooling is
+          // read at the spawn, and the chain it walks then is reported by the
+          // feed rather than guessed at here.
+          model: resolveModel(this.routing, labels, null),
           map: e?.map ?? null,
           mapTitle: e?.map != null ? mapTitle.get(e.map) ?? '' : '',
           // Level two (#262): the tickets this one directly unblocks, which is

@@ -16,7 +16,7 @@ import path from 'node:path'
 
 import {
   DashboardSurface, DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO,
-  loadDashboardConfig, pageRefusal, readDashboard, daemonPort,
+  loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, MAX_WORDS,
 } from '../src/dashboard.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
@@ -611,5 +611,220 @@ describe('the settings write and the restart (#265)', () => {
     const body = JSON.parse((await req(surface.port, '/api/repos', { headers: served() })).text)
     assert.equal(body.repos, null, 'an empty list would read as "you have no repos"')
     assert.ok(body.error)
+  })
+})
+
+// The operator verbs (#266). What is pinned here is the seam, not the screen:
+// the sidecar COMPOSES every daemon call from the fields the page sends, and a
+// browser never hands it a command line. That is the whole reason this process
+// may sit on the daemon's side of the loopback gate, so it is checked with a
+// stand-in daemon that records what actually crossed the wire.
+describe('the operator verbs (#266)', () => {
+  let surface
+  let daemon
+  let calls // one entry per call the sidecar made, with the body it composed
+  let reply // what the stand-in daemon answers, per route
+
+  const ALLOW = ['alp@example.com']
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body, extra = {}) => req(surface.port, p, {
+    method: 'POST',
+    headers: served({ origin: ORIGIN, 'content-type': 'application/json', ...extra }),
+    body,
+  })
+  const sent = (route) => calls.find((c) => c.url === route)
+
+  beforeEach(async () => {
+    calls = []
+    reply = {
+      '/command': [200, { reply: '⚙️ `curia-266` spawned on claude-opus-5' }],
+      '/answer': [200, { ok: true, record: { id: 'esc-7' } }],
+      '/note': [200, { ok: true, agent: 'curia-266', id: 'note-3', after: null, mode: 'queue' }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[r.url] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+
+    surface = new DashboardSurface({
+      port: 0,
+      servePort: SERVE_PORT,
+      index: DEFAULT_DASHBOARD_INDEX,
+      allow: ALLOW,
+      pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      log: () => {},
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  // ---- what crosses the wire -----------------------------------------------
+
+  test('start composes the command — the browser names a repo and a number, never a line of text', async () => {
+    const res = await press('/api/start', { repo: 'alp82/curia', ticket: '266' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/command').body.text, 'start alp82/curia#266')
+    assert.equal(sent('/command').origin, null, 'the daemon refuses every request carrying one')
+    assert.match(JSON.parse(res.text).reply, /spawned/, "curia's own sentence comes back whole")
+  })
+
+  test('cancel and teleport go through the same seam, so both land in the journal', async () => {
+    await press('/api/cancel', { ticket: '266' })
+    assert.equal(sent('/command').body.text, 'cancel 266')
+    calls = []
+    await press('/api/teleport', { ticket: '266' })
+    assert.equal(sent('/command').body.text, 'attach 266')
+  })
+
+  test('a chat handle is a ticket too — an agent no issue answers for is still cancellable (#241)', async () => {
+    await press('/api/cancel', { ticket: 'chat-1' })
+    assert.equal(sent('/command').body.text, 'cancel chat-1')
+  })
+
+  test('the operator who pressed rides every verb, so the feed names a person not a transport', async () => {
+    await press('/api/start', { repo: 'o/r', ticket: '9' })
+    assert.equal(sent('/command').body.by, 'alp@example.com')
+    calls = []
+    await press('/api/answer', { id: 'esc-7', answer: 'approve' })
+    assert.equal(sent('/answer').body.by, 'alp@example.com')
+    assert.equal(sent('/answer').body.via, 'dashboard', 'the surface is a fact of its own')
+    calls = []
+    await press('/api/note', { agent: 'curia-266', text: 'look again' })
+    assert.equal(sent('/note').body.by, 'alp@example.com')
+  })
+
+  test('the note carries the mode the operator chose, and queued is what an unnamed one means', async () => {
+    await press('/api/note', { agent: 'curia-266', text: 'look again', mode: 'interrupt' })
+    assert.equal(sent('/note').body.mode, 'interrupt')
+    calls = []
+    await press('/api/note', { agent: 'curia-266', text: 'look again' })
+    assert.equal(sent('/note').body.mode, 'queue')
+    calls = []
+    await press('/api/note', { agent: 'curia-266', text: 'look again', mode: 'nonsense' })
+    assert.equal(sent('/note').body.mode, 'queue', 'anything that is not the second mode is the default')
+  })
+
+  // ---- what may not cross it -----------------------------------------------
+
+  test('a field the daemon would parse as something else is refused HERE, before the wire', async () => {
+    for (const [route, body, why] of [
+      ['/api/start', { repo: 'alp82/curia; rm -rf /', ticket: '1' }, /owner\/name repo/],
+      ['/api/start', { repo: 'alp82/curia', ticket: '1 model=x' }, /ticket number/],
+      ['/api/cancel', { ticket: 'all' }, /ticket number/],
+      ['/api/teleport', { ticket: '../1' }, /ticket number/],
+      ['/api/note', { agent: 'rm -rf /', text: 'x' }, /curia session name/],
+      ['/api/answer', { id: 'esc 7 x', answer: 'approve' }, /escalation id/],
+    ]) {
+      const res = await press(route, body)
+      assert.equal(res.status, 409, `${route} ${JSON.stringify(body)}`)
+      assert.match(JSON.parse(res.text).error, why)
+    }
+    assert.deepEqual(calls, [], 'not one of them reached the daemon')
+  })
+
+  test('`cancel all` cannot be reached from a browser — the console cancels one agent at a time', async () => {
+    assert.equal((await press('/api/cancel', { ticket: 'all' })).status, 409)
+    assert.deepEqual(calls, [])
+  })
+
+  test('an answer and a note with no words are refused, and neither is written', async () => {
+    assert.match(JSON.parse((await press('/api/answer', { id: 'esc-7', answer: '  ' })).text).error, /no words/)
+    assert.match(JSON.parse((await press('/api/note', { agent: 'curia-1', text: '' })).text).error, /no words/)
+    assert.deepEqual(calls, [])
+  })
+
+  test('words longer than the bound are refused — a verb must not write an unbounded journal line', async () => {
+    const res = await press('/api/note', { agent: 'curia-1', text: 'x'.repeat(MAX_WORDS + 1) })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /may not exceed/)
+    assert.deepEqual(calls, [])
+  })
+
+  // ---- the two gates in front ----------------------------------------------
+
+  test('a verb needs the Origin this surface serves, exactly as a save does', async () => {
+    const noOrigin = await req(surface.port, '/api/start', {
+      method: 'POST', headers: served({ 'content-type': 'application/json' }), body: { repo: 'o/r', ticket: '1' },
+    })
+    assert.equal(noOrigin.status, 403)
+    const otherOrigin = await press('/api/start', { repo: 'o/r', ticket: '1' }, { origin: 'https://evil.example' })
+    assert.equal(otherOrigin.status, 403)
+    assert.deepEqual(calls, [], 'a verb the gate refused reaches nothing')
+  })
+
+  test('the identity gate runs first: a stranger with a good Origin presses nothing', async () => {
+    const res = await req(surface.port, '/api/start', {
+      method: 'POST',
+      headers: { host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'stranger@example.com', origin: ORIGIN, 'content-type': 'application/json' },
+      body: { repo: 'o/r', ticket: '1' },
+    })
+    assert.equal(res.status, 403)
+    assert.deepEqual(calls, [])
+  })
+
+  test('a route this surface does not carry is a 404, not a silent nothing', async () => {
+    assert.equal((await press('/api/resume', { ticket: '1' })).status, 404)
+  })
+
+  // ---- first-valid-wins, seen from a browser -------------------------------
+
+  test('a question that is no longer open comes back as the REASON, not as a 500', async () => {
+    for (const [reason, why] of Object.entries(ANSWER_REFUSAL)) {
+      reply['/answer'] = [409, { ok: false, reason }]
+      const res = await press('/api/answer', { id: 'esc-7', answer: 'approve' })
+      assert.equal(res.status, 409, reason)
+      assert.equal(JSON.parse(res.text).error, why)
+      assert.equal(JSON.parse(res.text).refused, true, 'the operator fixes this, not the box')
+    }
+  })
+
+  test('a reason nobody wrote a sentence for still reads, rather than rendering blank', async () => {
+    reply['/answer'] = [409, { ok: false, reason: 'something-new' }]
+    assert.match(JSON.parse((await press('/api/answer', { id: 'esc-7', answer: 'x' })).text).error, /something-new/)
+  })
+
+  test('a daemon that is down makes the press an error the operator can read', async () => {
+    await new Promise((done) => daemon.close(done))
+    daemon = null
+    const res = await press('/api/start', { repo: 'o/r', ticket: '1' })
+    assert.equal(res.status, 500, 'this is the box failing, not the operator')
+    assert.ok(JSON.parse(res.text).error)
+  })
+
+  // ---- the reading moves ---------------------------------------------------
+
+  test('a verb drops the held snapshot, so the poll after a press is a fresh read', async () => {
+    await surface.payload()
+    assert.ok(surface.snapshotAt > 0)
+    await press('/api/start', { repo: 'o/r', ticket: '1' })
+    assert.equal(surface.snapshotAt, 0, 'a button that seems to do nothing for one interval is a button pressed twice')
+  })
+
+  test('a REFUSED verb leaves the snapshot alone — nothing happened to re-read', async () => {
+    await surface.payload()
+    const at = surface.snapshotAt
+    await press('/api/start', { repo: 'not a repo', ticket: '1' })
+    assert.equal(surface.snapshotAt, at)
   })
 })

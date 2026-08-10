@@ -280,7 +280,7 @@ A fire-and-forget line of agent prose into the ticket thread.
 _Avoid_: status line (that names the daemon's own line, below).
 
 **Operator note**:
-Text the operator types in an agent's thread while no escalation is open. It belongs to the instance it was typed at and dies with it. It has two delivery modes, and the operator picks.
+Text the operator sends to one agent while no escalation is open. It belongs to the instance it was sent to and dies with it. It has two delivery modes, and the operator picks. A note typed in Discord is keyed on the thread it was typed in. A note sent from the console names the agent, because a browser has no thread. Both keyings reach one queue.
 _Avoid_: message, comment.
 
 **Queued**:
@@ -361,7 +361,19 @@ The daemon's one loopback read of itself, `GET /overview`. It joins every sectio
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.
 
 **Read screen**:
-A dashboard screen that only draws the overview: home, agents, frontier, feed. The settings screen is the one that also writes. Two rules hold across all four. Color marks attention and nothing else, so a state, a ticket type and a repo are told in words. Null is not empty, so an unreadable fleet never renders as an idle box and an uncomputed frontier never renders as an empty one.
+A dashboard screen whose facts all come from the overview: home, agents, frontier, feed. The settings screen is the one that reads its own files. Two rules hold across all four. Color marks attention and nothing else, so a state, a ticket type and a repo are told in words. Null is not empty, so an unreadable fleet never renders as an idle box and an uncomputed frontier never renders as an empty one.
+
+**Answer surface**:
+The Needs-you list on the home screen. It is the one place a question or the review gate is answered from the console. The agents table states what an agent waits on and answers none of it, so no operator has to remember which of two surfaces they are looking at.
+
+**Operator verb**:
+An act the console carries: start, answer, the review gate, note, cancel, teleport. Each one is a POST to the sidecar, which composes the daemon call from the fields the page sends. A browser never hands over a command line. Start, cancel and teleport go through the command seam the slash verbs use, so a press from the console journals the same event a typed command does.
+
+**Routed model**:
+The model a takeable ticket gets if it starts now. Reconcile computes it with the daemon's own precedence rule and joins it onto each frontier item, so the console names the account a press spends before spending it. It states what routing decides, not what a spawn does: cooling is read at the spawn, and the feed reports the chain it walked.
+
+**Who pressed**:
+The operator's Tailscale login, taken from the header the sidecar's identity check already reads and passed to the daemon as the `by` of every verb. Before the console, every REST verb journalled the word `rest`. The feed now names a person rather than a transport.
 
 **Sidecar**:
 The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env`.

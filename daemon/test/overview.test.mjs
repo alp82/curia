@@ -390,6 +390,38 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
     assert.equal(repo.items.some((i) => i.unblocks.some((u) => u.number === 23)), false)
   })
 
+  // #266: the console shows the routed model beside its start button, so the
+  // operator knows which account a press spends before spending it. It is
+  // `resolveModel` — the daemon's own precedence rule, computed where the labels
+  // already are — never a second copy of that rule inside the page.
+  test('every takeable ticket carries the model it would get if it started now', async () => {
+    const d = makeDispatcher()
+    d.routing = {
+      ...d.routing,
+      defaults: { untyped: 'sonnet', task: 'opus', grilling: 'gpt' },
+    }
+    const byNumber = Object.fromEntries((await d.frontier())[0].items.map((i) => [i.number, i.model]))
+    assert.equal(byNumber[11], 'opus', 'the wayfinder:task default')
+    assert.equal(byNumber[12], 'gpt', 'the wayfinder:grilling default')
+  })
+
+  test('a `model:` label on the ticket beats the type default, exactly as a dispatch would', async () => {
+    const d = makeDispatcher({
+      mapFrontier: async () => [child(11, 'pinned to one model', { labels: ['wayfinder:task', 'model:fable'] })],
+      blockedByOf: async () => [],
+    })
+    d.routing = { ...d.routing, defaults: { untyped: 'sonnet', task: 'opus' } }
+    assert.equal((await d.frontier())[0].items[0].model, 'fable')
+  })
+
+  test('a ticket with no wayfinder label falls to the untyped default, never to nothing', async () => {
+    const d = makeDispatcher({
+      mapFrontier: async () => [child(11, 'no type on it')],
+      blockedByOf: async () => [],
+    })
+    assert.equal((await d.frontier())[0].items[0].model, 'sonnet')
+  })
+
   test('reconcile computes the frontier and stamps when it did', async () => {
     const d = makeDispatcher()
     assert.deepEqual(d.frontierSnapshot(), { computed_at: null, repos: [] }, 'nothing is stamped before a pass runs')

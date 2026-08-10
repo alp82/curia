@@ -1,7 +1,8 @@
 <!doctype html>
 <meta charset="utf-8">
-<!-- The console (#263 the shell, #264 the read screens), on the look settled by
-     the prototype (#248): dark-first tokens, system mono for data, one accent.
+<!-- The console (#263 the shell, #264 the read screens, #265 the settings write,
+     #266 the operator verbs), on the look settled by the prototype (#248):
+     dark-first tokens, system mono for data, one accent.
 
      THE STAMP BELOW IS LOAD-BEARING. This page and daemon/src/dashboard.mjs are
      two halves of one protocol, and there is no build step — the file on disk IS
@@ -11,9 +12,12 @@
      carries it).
 
      The four read screens draw one payload: `GET /api/overview`, which is the
-     sidecar's held snapshot of the daemon's own `GET /overview` (#262). They
-     write nothing. The operator verbs land in #266, the settings in #265 and the
-     chat in #267.
+     sidecar's held snapshot of the daemon's own `GET /overview` (#262). The
+     chat lands in #267.
+
+     THE VERBS (#266) POST to the sidecar, never to the daemon. It composes each
+     daemon call from the fields the page sends, so this page names a ticket, an
+     escalation id or an agent — never a command line.
 
      TWO RULES RUN THROUGH EVERY SCREEN HERE.
 
@@ -23,7 +27,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=1">
+<meta name="curia-dashboard" content="proto=2">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia</title>
 <style>
@@ -264,6 +268,31 @@
   .save-banner.refused .toast { color: var(--bad); }
   .save-banner .toast.why { font-family: ui-monospace, Menlo, monospace; font-size: 12px; flex-basis: 100%; }
 
+  /* ---------- the operator verbs (#266, on the #248 shapes) ----------
+     No new color. A verb sits inside the card that already carries the fact it
+     acts on, so the attention marking around it is the marking rule's, not a
+     second one this section invents. */
+  .act-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 7px; }
+  .act-row input[type=text] { flex: 1; min-width: 130px; }
+  .act-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-inset); padding: 9px 11px; }
+  .act-box label { font-size: 12px; color: var(--ink-dim); display: inline-flex; align-items: center; gap: 5px; }
+  .act-box .act-row:first-child { margin-top: 0; }
+  .links { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; align-items: baseline; }
+  .links button {
+    color: var(--accent); background: none; border: 0; padding: 0;
+    font-size: 12px; text-decoration: none;
+  }
+  .links button:hover { text-decoration: underline; }
+  .links button.bad { color: var(--bad); }
+  .links button[disabled] { color: var(--ink-faint); cursor: default; text-decoration: none; }
+  /* What curia said back about the press. It is curia's OWN sentence, so it
+     sits where the press was rather than becoming a banner somewhere else. */
+  .said { margin-top: 7px; font-size: 12.5px; border-left: 3px solid var(--line); padding: 3px 0 3px 9px; white-space: pre-wrap; color: var(--ink-dim); }
+  .said.bad { border-left-color: var(--bad); color: var(--bad); }
+  .said code { background: var(--bg-inset); border-radius: 4px; padding: 0 4px; }
+  .said a { word-break: break-all; }
+  .copy { width: 100%; font: 12px ui-monospace, Menlo, monospace; }
+
   /* ---------- the screens that land later ---------- */
   .later {
     border: 1px dashed var(--line); border-radius: 9px; padding: 12px 14px;
@@ -308,6 +337,11 @@ var UI = {
      phases plus the two that can interrupt them: clean, dirty, saved,
      restarting, refused, unread. */
   set: { section: "routing", models: false, phase: "clean", error: null, busy: false, note: null },
+  /* The operator verbs (#266). `busy` names the ONE press in flight, keyed to
+     the control it came from; `said` is what curia answered, shown at that same
+     control. `note` and `tele` name the agent whose box is open, and `mode` is
+     the delivery ADR-0013 defaults to. */
+  act: { busy: null, said: null, note: null, mode: "queue", tele: null },
 };
 var payload = null;   /* the sidecar's last answer */
 var reachable = true; /* is the SIDECAR itself answering — a different fact from daemon_up */
@@ -352,6 +386,178 @@ function ticketName(repo, ticket) {
    nobody can answer it. */
 function needsYou(o) {
   return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0);
+}
+
+/* ---- the operator verbs (#266) ----------------------------------------------
+
+   Every verb is ONE POST to the sidecar, which composes the daemon call from
+   the fields sent here. This page never sends a command line: it names a repo,
+   a ticket, an escalation id or an agent, and the sidecar builds the rest.
+
+   Four rules run through all of them.
+
+   1. ONE ACT AT A TIME. `UI.act.busy` names the press in flight, keyed to the
+      control it came from, so a second press starts nothing and the control
+      that is working says so.
+   2. CURIA'S OWN WORDS ARE THE OUTCOME. A command reply is a sentence the
+      daemon composed. It is shown where the press was, as it stands. This page
+      never writes its own account of what an act did.
+   3. THE READING MOVES AT ONCE. The sidecar drops its snapshot age on every
+      verb, so the poll right after a press is a fresh read rather than the held
+      one. A button that appears to do nothing for five seconds is a button
+      pressed twice.
+   4. A REFUSAL IS A FACT. First-valid-wins, an agent that is not running, a
+      ticket already claimed: each comes back in words, under the control that
+      asked, and none of them is a failure of this page. */
+
+/* The literal answers every surface sends. The daemon classifies the ANSWER
+   (lifecycle.mjs classifyReviewAnswer, bridge.mjs #buttons), so this page must
+   not teach it a second vocabulary for the same act. */
+const APPROVE = "approve";
+const REJECT = "reject";
+const CROSS_CHECK = "cross-check";
+const ALL_AS_RECOMMENDED = "all-as-recommended";
+
+/* A value going into an onclick handler crosses TWO escapings: the HTML
+   attribute, and the single-quoted JS string inside it. `esc` answers only the
+   first. An escalation option is an agent's own words — the one value on this
+   page that can carry a quote — and a bare `esc` would leave it able to close
+   that string and open code instead. So the JS escaping runs first and the HTML
+   escaping over it. */
+const js = (s) => esc(String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
+
+const busy = (key) => UI.act.busy === key;
+const anyBusy = () => UI.act.busy !== null;
+function said(key) {
+  const s = UI.act.said;
+  return s && s.key === key ? `<div class="said${s.ok ? "" : " bad"}">${mdLite(s.text)}</div>` : "";
+}
+/* Curia speaks Discord markdown everywhere else, and one reply reaching two
+   surfaces is the point of the command seam — so the page renders the little of
+   it a reply uses rather than asking the daemon for a second wording. */
+function mdLite(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, (_, x) => `<code>${x}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, (_, x) => `<b>${x}</b>`)
+    .replace(/(https?:\/\/[^\s<]+)/g, (u) => `<a href="${u}">${u}</a>`);
+}
+
+async function verb(key, path, body) {
+  if (anyBusy()) return null;
+  UI.act.busy = key;
+  UI.act.said = null;
+  render();
+  let out = null;
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    out = b;
+    UI.act.said = { key, text: outcome(b), ok: b.ok !== false };
+  } catch (e) {
+    UI.act.said = { key, text: e.message, ok: false };
+  }
+  UI.act.busy = null;
+  render();
+  tick();
+  return out;
+}
+function refuse(key, text) {
+  UI.act.said = { key, text, ok: false };
+  render();
+}
+
+function outcome(b) {
+  if (typeof b.reply === "string") return b.reply;
+  if (b.mode) return noteOutcome(b);
+  if (b.ok) return "Answered — it is with the agent.";
+  return "Done.";
+}
+/* A note says which delivery it got, because the delivery is the half the
+   operator chose. An interrupt curia refused leaves the words QUEUED — the
+   operator asked for these words to reach the agent, and only the speed of it
+   failed (ADR-0013). */
+function noteOutcome(b) {
+  if (b.ok === false) {
+    const why = b.why ?? "curia could not put those words to the agent.";
+    return b.still_queued ? `${why}\nThe words stay queued: the agent reads them with its next tool result.` : why;
+  }
+  if (b.mode === "interrupt") {
+    return `Interrupting \`${b.session ?? b.agent}\` — ${Math.round((b.graceMs ?? 0) / 1000)}s of grace, then the words land as a user turn.`;
+  }
+  return `Queued for \`${b.agent}\` — it reads this with its next tool result${b.after ? ` (noted as after ${b.after})` : ""}.`;
+}
+
+/* What the operator typed. It is NOT cleared here: a refused answer has to
+   leave its words on screen, or the operator types them twice. */
+function typed(id) {
+  const el = document.getElementById(id);
+  return el ? String(el.value ?? "").trim() : "";
+}
+
+/* ---- the verbs themselves ---- */
+
+const startTicket = (repo, ticket) => verb(`start:${repo}#${ticket}`, "/api/start", { repo, ticket: String(ticket) });
+const answerEsc = (id, answer) => verb("esc:" + id, "/api/answer", { id, answer });
+
+function answerTyped(id, field) {
+  const v = typed(field);
+  if (!v) return refuse("esc:" + id, "Type the answer first — an empty reply answers nothing.");
+  answerEsc(id, v);
+}
+/* A rejection IS feedback (#48): the agent gets the operator's own words and
+   fixes what they name. So an empty one is refused here rather than sent as a
+   rejection nobody can act on. */
+function rejectGate(id, field) {
+  const v = typed(field);
+  if (!v) return refuse("esc:" + id, "A rejection carries your words — say what to change, then press Reject.");
+  answerEsc(id, v);
+}
+
+/* Cancel names its consequences before it runs. They are the teardown's own
+   (dispatch.mjs #teardown), not a warning this page invented. */
+function cancelAgent(session, repo, ticket) {
+  const ask = `Cancel ${session}?\n\n`
+    + `• The tmux session is killed and its worktree removed. Anything uncommitted there is lost.\n`
+    + `• The claim on ${ticketName(repo, ticket) || "its ticket"} is released, so the ticket returns to the frontier.\n`
+    + `• Any question it is holding closes unanswered.\n`
+    + `• A cross-check reviewer on the same ticket ends too.`;
+  if (typeof confirm === "function" && !confirm(ask)) return;
+  verb("agent:" + session, "/api/cancel", { ticket: String(ticket) });
+}
+
+/* Teleport. The two links are curia's own (#68): `attach <n>` composes them
+   from its records, so the page asks for them instead of building a URL it
+   cannot vouch for. The shell line beside them is for a terminal on the box —
+   the tmux server lives in its own container (#260), so the command goes in
+   through that one. */
+function teleport(session, ticket) {
+  UI.act.tele = UI.act.tele === session ? null : session;
+  UI.act.said = null;
+  render();
+  if (UI.act.tele) verb("agent:" + session, "/api/teleport", { ticket: String(ticket) });
+}
+function attachCmd(session) {
+  return `docker compose -f deploy/compose.yaml exec tmux tmux -S /run/curia-tmux/default attach -t ${session}`;
+}
+
+function noteBox(session) {
+  UI.act.note = UI.act.note === session ? null : session;
+  UI.act.said = null;
+  render();
+}
+function noteMode(mode) { UI.act.mode = mode; render(); }
+async function sendNote(session, field) {
+  const text = typed(field);
+  if (!text) return refuse("agent:" + session, "A note with no words is not a note.");
+  const out = await verb("agent:" + session, "/api/note", { agent: session, text, mode: UI.act.mode });
+  /* Queued or interrupted, the words are with curia — so the box closes. It
+     stays open only when nothing was taken at all. */
+  if (out && out.id) { UI.act.note = null; render(); }
 }
 
 /* ---- the reading's own age ------------------------------------------------- */
@@ -485,19 +691,75 @@ function nextReset(usage) {
 /* ---- the attention list ---------------------------------------------------- */
 
 /* Everything that wants the operator, in one column, warn-marked because that
-   is what the color is for. The verbs — answer, approve, reject, cross-check —
-   land on #266; what this ticket owes is the question itself, whole. */
+   is what the color is for — and the ONE place an open question is answered
+   (#266). The Agents table states the same questions and answers none of them:
+   one answer surface, so no operator has to remember which of two they are
+   looking at. */
+
+/* The buttons a kind carries, in the vocabulary every other surface sends
+   (bridge.mjs #buttons). A choice sends its option's own label; an
+   approve-reject pair sends the two literals; a recommended round sends the one
+   fixed word its ✅ carries (#285), and it has no ❌ beside it because the
+   opposite of that tap is the operator's own reply. */
+function answerButtons(r) {
+  const key = "esc:" + r.id;
+  const btn = (label, answer, cls) => `<button class="btn sm${cls ? " " + cls : ""}"
+    ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${js(answer)}')">${esc(label)}</button>`;
+  const b = [];
+  if (r.kind === "approve-reject" || r.kind === "preview-review") {
+    b.push(btn("✅ Approve", APPROVE, "primary"), btn("❌ Reject", REJECT, "danger"));
+  }
+  if (r.kind === "confirm") b.push(btn("✅ Approve", APPROVE, "danger"), btn("❌ Decline", REJECT));
+  if (r.kind === "choice") for (const o of r.options ?? []) b.push(btn(snip(o, 80), o));
+  if (r.kind === "free-text" && r.recommended) b.push(btn("✅ All as recommended", ALL_AS_RECOMMENDED, "primary"));
+  return b.length ? `<div class="act-row">${b.join("")}</div>` : "";
+}
+
+/* Free-form, on every kind. A choice can be answered in words the options do
+   not carry, and a round is answered by naming the exceptions (#285) — so the
+   field is never the fallback for a kind, it is the reply. */
+function answerField(r) {
+  const id = "ans-" + r.id;
+  return `<div class="act-row">
+    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${anyBusy() ? "disabled" : ""}>
+    <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}')">Answer</button>
+  </div>`;
+}
+
+function escCard(r) {
+  return `<div class="att-item">
+    <span class="who">${esc(r.agent)}</span>${esc(snip(r.prompt, 260))}
+    <div class="dim">${esc(r.kind)} · ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}${r.agent_died ? " · the agent died holding it" : ""}${r.rendered ? "" : " · not rendered in Discord yet"}</div>
+    ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview it asks about</a></div>` : ""}
+    ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
+}
+
+/* The gate's three answers (#165, ADR-0010). Approve merges and resolves;
+   cross-check answers NOTHING and puts a reviewer on the other provider onto
+   the diff, with the builder parked where it stands; a rejection carries the
+   operator's words back to the builder. */
+function gateCard(r) {
+  const id = "rej-" + r.id;
+  return `<div class="att-item gate">
+    <span class="who">${esc(r.agent)}</span>review gate — ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}
+    <div class="dim">${esc(snip(r.prompt, 220))}</div>
+    ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
+    ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview</a></div>` : ""}
+    <div class="act-row">
+      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
+      <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
+    </div>
+    <div class="act-row">
+      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${anyBusy() ? "disabled" : ""}>
+      <button class="btn sm danger" ${anyBusy() ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
+    </div>
+    ${said("esc:" + r.id)}</div>`;
+}
+
 function attentionList(o) {
   const items = [
-    ...(o.escalations ?? []).map((r) => `<div class="att-item">
-      <span class="who">${esc(r.agent)}</span>${esc(snip(r.prompt, 260))}
-      <div class="dim">${esc(r.kind)} · ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}${r.agent_died ? " · the agent died holding it" : ""}${r.rendered ? "" : " · not rendered in Discord yet"}</div>
-      ${r.options?.length ? `<div class="opts">${r.options.map((x) => esc(x)).join(" · ")}</div>` : ""}
-      ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview it asks about</a></div>` : ""}</div>`),
-    ...(o.review_gate ?? []).map((r) => `<div class="att-item gate">
-      <span class="who">${esc(r.agent)}</span>review gate — ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}
-      <div class="dim">${esc(snip(r.prompt, 220))}</div>
-      ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}</div>`),
+    ...(o.escalations ?? []).map(escCard),
+    ...(o.review_gate ?? []).map(gateCard),
     ...spentWindows(o.usage).map((w) => `<div class="att-item limit">
       <span class="who">${esc(w.provider)}</span>the ${esc(w.label)} window is spent at ${esc(w.pct)}%
       <div class="dim">${w.at ? `it rolls at ${esc(clock(w.at))}` : "no reset instant is stated"}</div></div>`),
@@ -526,8 +788,13 @@ const EVENTS = {
   agent_cancelled: ["cancel", "bad", (e) => `${who(e)} cancelled by ${esc(e.by)} — ${tkt(e)} back on the frontier`],
   agent_abnormal_exit: ["death", "bad", (e) => `${who(e)} exited abnormally — ${tkt(e)}`],
   agent_blocked_on_human: ["escalation", "warn", (e) => `${who(e)} is blocked on you — ${tkt(e)}`],
-  agent_note: ["note", "", (e) => `note for ${who(e)}: ${esc(snip(e.text, 120))}`],
+  agent_note: ["note", "", (e) => `note for ${who(e)}${e.by ? ` from ${esc(e.by)}` : ""}: ${esc(snip(e.text, 120))}`],
   agent_notes_drained: ["note", "", (e) => `${who(e)} took ${esc(e.count)} queued note(s)`],
+  agent_note_refused: ["note", "warn", (e) => `a note for ${who(e)} was refused — ${esc(e.reason)}`],
+  agent_notes_expired: ["note", "", (e) => `${esc(e.count ?? "some")} note(s) for ${who(e)} died with the agent they were typed at`],
+  note_interrupt: ["note", "warn", (e) => `${who(e)} interrupted by ${esc(e.by)} — ${esc(Math.round((e.grace_ms ?? 0) / 1000))}s of grace, then the words land`],
+  note_interrupt_delivered: ["note", "", (e) => `the interrupted words are in ${who(e)}'s pane`],
+  note_interrupt_failed: ["note", "bad", (e) => `the interrupt of ${who(e)} failed — ${esc(e.reason)}`],
   esc_open: ["escalation", "warn", (e) => `${who(e)} asks — ${esc(e.kind)}: ${esc(snip(e.prompt, 160))}`],
   esc_answer: ["answer", "", (e) => `escalation ${esc(e.id)} answered by ${esc(e.by)}${e.via ? ` via ${esc(e.via)}` : ""}`],
   esc_cancel: ["answer", "", (e) => `escalation ${esc(e.id)} cancelled by ${esc(e.by)}`],
@@ -642,7 +909,7 @@ function agentsTable(o) {
   if (!o.agents.length) return `<div class="empty">No agent is running.</div>`;
   const rows = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
   return `<div class="tbl-wrap"><table class="agents wide">
-    <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>up</th><th>waiting on</th></tr>
+    <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>up</th><th>waiting on</th><th>do</th></tr>
     ${rows.map((a) => `<tr class="${wantsYou(a) ? "esc-row" : ""}">
       <td class="sess">${esc(a.session)}${a.reviewer ? ` <span class="dim-note">reviewer</span>` : ""}</td>
       <td><span class="state">${agentDot(a)} ${esc(stateWord(a))}</span>${a.tmux_live ? "" : `<div class="dim-note">no tmux session</div>`}</td>
@@ -650,8 +917,65 @@ function agentsTable(o) {
       <td class="mono">${esc(a.model ?? "—")}</td>
       <td class="num">${ctxCell(a)}</td>
       <td class="num">${esc(dur(a.uptime_s))}</td>
-      <td>${waitingCell(a)}</td></tr>`).join("")}
+      <td>${waitingCell(a)}</td>
+      <td>${agentVerbs(a)}</td></tr>
+    ${agentBoxes(a)}`).join("")}
   </table></div>`;
+}
+
+/* The three per-agent verbs (#266). They sit in the row that already names the
+   agent, and the boxes they open sit under it — so the words the operator types
+   are beside the agent they are for.
+
+   An answer is NOT here. The Needs-you list on Home is the one answer surface,
+   and the `waiting on` cell beside this says where to go. */
+function agentVerbs(a) {
+  const key = "agent:" + a.session;
+  const b = (label, call, cls) => `<button class="${cls ?? ""}" ${anyBusy() ? "disabled" : ""} onclick="${call}">${label}</button>`;
+  const s = `'${js(a.session)}'`;
+  return `<div class="links">
+    ${b("note", `noteBox(${s})`)}
+    ${b("teleport", `teleport(${s},'${js(a.ticket ?? "")}')`)}
+    ${b("cancel", `cancelAgent(${s},'${js(a.repo ?? "")}','${js(a.ticket ?? "")}')`, "bad")}
+  </div>${busy(key) ? `<div class="dim-note">working…</div>` : ""}`;
+}
+
+/* One full-width row under the agent, carrying whatever it has open: the note
+   box, the teleport lines, and what curia said about the last press. */
+function agentBoxes(a) {
+  const key = "agent:" + a.session;
+  const parts = [
+    UI.act.note === a.session ? noteBoxHtml(a) : "",
+    UI.act.tele === a.session ? teleportHtml(a) : "",
+    said(key),
+  ].filter(Boolean);
+  if (!parts.length) return "";
+  return `<tr><td colspan="8">${parts.join("")}</td></tr>`;
+}
+
+/* The two delivery modes, in ADR-0013's own words. Queued is the default and
+   costs the agent nothing until its next tool result. Interrupt aborts the call
+   in flight after a grace, which is why it is the one the operator has to
+   choose. */
+function noteBoxHtml(a) {
+  const id = "note-" + a.session;
+  const radio = (mode, label) => `<label><input type="radio" name="nm-${esc(a.session)}"
+    ${UI.act.mode === mode ? "checked" : ""} onchange="noteMode('${mode}')"> ${esc(label)}</label>`;
+  return `<div class="act-box">
+    <div class="act-row"><input type="text" id="${esc(id)}" placeholder="say something to ${esc(a.session)}…"></div>
+    <div class="act-row">
+      ${radio("queue", "queue — it reads this with its next tool result")}
+      ${radio("interrupt", "interrupt — a short grace, then the words land as a user turn")}
+      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="sendNote('${js(a.session)}','${js(id)}')">Send</button>
+    </div>
+  </div>`;
+}
+
+function teleportHtml(a) {
+  return `<div class="act-box">
+    <div class="dim-note">On the box itself, in a terminal:</div>
+    <input class="copy" type="text" readonly value="${esc(attachCmd(a.session))}" onclick="this.select()">
+  </div>`;
 }
 function waitingCell(a) {
   const open = a.waiting_on ?? [];
@@ -693,7 +1017,37 @@ function frTypes(snap) {
   return [...all].sort();
 }
 
-function frCards(repos) {
+/* Start (#266). The dispatch order — claim, prepare, spawn — is `start`'s own,
+   and the reply that comes back is curia's sentence about what it did.
+
+   Two facts ride beside the button. The ROUTED MODEL is the daemon's
+   `resolveModel` answer, joined onto the item by reconcile, so the operator
+   knows which account this press spends before spending it. And an agent
+   ALREADY on this ticket replaces the button, because a second start on it is
+   refused anyway and a button that only ever refuses is a worse way to say so.
+
+   When the fleet could not be read, neither is claimed: the button stands, and
+   the line under it says curia cannot tell. Null is not empty here either. */
+function agentOn(o, repo, number) {
+  if (o?.agents == null) return undefined;
+  return o.agents.find((a) => String(a.ticket) === String(number) && (!a.repo || a.repo === repo)) ?? null;
+}
+function startRow(o, repo, n) {
+  const live = agentOn(o, repo, n.number);
+  const key = `start:${repo}#${n.number}`;
+  if (live) return `<div class="act-row"><span class="dim-note mono">⧗ dispatched — ${esc(live.session)}</span></div>`;
+  const model = n.model
+    ? `<span class="dim-note mono">→ ${esc(n.model)} (${esc(typeOf(n))} default)</span>`
+    : `<span class="dim-note">the routed model is not on this reading</span>`;
+  return `<div class="act-row">
+      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="startTicket('${js(repo)}','${js(n.number)}')">${
+        busy(key) ? "Starting…" : "Start"}</button>${model}
+    </div>
+    ${live === undefined ? `<div class="dim-note">the fleet could not be read, so curia cannot say whether this one is already running</div>` : ""}
+    ${said(key)}`;
+}
+
+function frCards(repos, o) {
   const bigs = repos.filter((r) => !r.error).flatMap((r) => (r.items ?? []).map((i) => ({ ...i, repo: r.repo })));
   const kids = repos.filter((r) => !r.error).flatMap((r) => (r.items ?? []).flatMap((i) => (i.unblocks ?? []).map((k) => ({ ...k, repo: r.repo, from: i.number }))));
   return `${repos.filter((r) => r.error).map(frError).join("")}
@@ -703,6 +1057,7 @@ function frCards(repos) {
         <div class="title">${esc(n.title)}</div>
         <div class="foot"><span>${esc(n.repo)}</span><span>${n.unblocks?.length ? `unblocks ${n.unblocks.length}` : "unblocks nothing yet"}</span></div>
         ${n.mapTitle ? `<div class="dim-note">${esc(n.mapTitle)}</div>` : ""}
+        ${startRow(o, n.repo, n)}
       </div>`).join("")}</div>` : `<div class="empty">Nothing is takeable under this filter.</div>`}
     </div>
     <div class="frx-sect"><span class="eyebrow">unblocked next (${kids.length})</span>
@@ -711,14 +1066,15 @@ function frCards(repos) {
         : `<div class="empty">These tickets unblock nothing that is not already takeable.</div>`}
     </div>`;
 }
-function frTree(repos) {
+function frTree(repos, o) {
   return repos.map((r) => {
     if (r.error) return frError(r);
     if (!r.items?.length) return `<div class="fr-repo"><span class="eyebrow mono">${esc(r.repo)}</span>
       <div class="empty">Nothing is takeable under this filter.</div></div>`;
     return `<div class="fr-repo"><span class="eyebrow mono">${esc(r.repo)}</span>
       ${r.items.map((n) => `<div class="fr-group">
-        <div class="fr-node"><span class="typ">${esc(typeOf(n))}</span><span class="t">#${esc(n.number)}</span>${esc(n.title)}</div>
+        <div class="fr-node"><span class="typ">${esc(typeOf(n))}</span><span class="t">#${esc(n.number)}</span>${esc(n.title)}
+          ${startRow(o, r.repo, n)}</div>
         ${n.unblocks?.length ? `<div class="fr-kids">${n.unblocks.map((k) => `<div class="fr-kid"><span class="t">#${esc(k.number)}</span>${esc(k.title)}</div>`).join("")}</div>` : ""}
       </div>`).join("")}</div>`;
   }).join("");
@@ -750,7 +1106,7 @@ function screenFrontier(p) {
     </select>
     <span class="dim-note">computed ${esc(ago(snap.computed_at))}</span>
   </div>`;
-  return `${head(p, "Frontier — two levels", right)}${filter}${FR_VIEWS[UI.fr.view][1](frFiltered(snap))}`;
+  return `${head(p, "Frontier — two levels", right)}${filter}${FR_VIEWS[UI.fr.view][1](frFiltered(snap), o)}`;
 }
 function frSet(key, value) {
   UI.fr[key] = value;
