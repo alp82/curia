@@ -22,6 +22,9 @@ A scripted live run of the full loop on real repos. It proves every leg in one u
 A GitHub issue in a watched repo. The unit of dispatch.
 _Avoid_: task.
 
+**Decision ticket**:
+The vendored wayfinder skill's word for a map child whose resolution is a decision, not a slice of a build to execute. curia keeps it (#286). It is a subset of **Ticket**, never a synonym: a flat-lane ticket decides nothing, and a map whose Notes carry execution ships build tickets. Use it where the map plans.
+
 **Map**:
 A GitHub issue labeled `wayfinder:map`. It indexes decisions and points to the child tickets that hold their detail.
 
@@ -44,7 +47,8 @@ The map changes: new tickets, graduated fog, blocking edges, scope rulings. They
 The act that gives a new-map dispatch its map. The agent calls `map_created` with the number. curia checks the issue is an open map in that repo, then takes it as the session's map: the thread moves onto it, `map <n>` on it is refused, and the charting summary lands there.
 
 **Charting agent**:
-The agent of a map dispatch. It edits the map and its tickets, and it never closes the map, opens a pull request, or passes a review gate. On a new-map dispatch it creates the map first.
+The agent of a map dispatch. It edits the map and its tickets, and it never closes the map. On a new-map dispatch it creates the map first.
+Ruled by #286 and **not built yet**: it also burns down the research tickets it just created, one `/research` subagent each, and takes the ordinary ending for them: one pull request on `curia/<map>`, the review gate, the merge, then the close. It resolves nothing else. Until that build merges, the daemon still refuses `open_pull_request` and `request_review` on a map dispatch.
 
 **Instruction**:
 The operator's sentence on a map dispatch, in their own words. It rides the `map` verb last, and reaches the charting agent as the first thing it reads. It needs no separator: the arguments come first, and the sentence runs from the first plain word to the end of the line. On an existing map it is optional: with none, the agent asks what should change. On a new map it is mandatory, because nothing else says what to chart. No other verb takes one.
