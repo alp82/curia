@@ -339,7 +339,7 @@ A tailnet HTTPS link to an agent's running dev server. The daemon allocates the 
 One `tailscale serve` handler. It lives in tailscaled and outlives the daemon, so reconcile sweeps stale rules.
 
 **Identity check**:
-The rule every surface curia publishes through Serve admits a caller by: not a Funnel request, a Host this box serves, and a `Tailscale-User-Login` on the allowlist. Tailscale Serve stamps that login and overwrites a forged one, so a tailnet client cannot fake it. It fails closed. One allowlist covers the terminal, the timeline and previews alike.
+The rule every surface curia publishes through Serve admits a caller by: not a Funnel request, a Host this box serves, and a `Tailscale-User-Login` on the allowlist. Tailscale Serve stamps that login and overwrites a forged one, so a tailnet client cannot fake it. It fails closed. One allowlist covers the terminal, the timeline, previews and the dashboard alike. The sidecar reads that allowlist with the daemon's own rule, so the two processes admit the same people.
 
 **Identity proxy**:
 The daemon's loopback proxy that carries the identity check for a surface with nowhere to put one. The terminal's Serve rule points at the proxy, never at ttyd. A preview rule points at one of its own, never at the dev server, and its port is derived from the preview's Serve port. The timeline applies the same check in-process.
@@ -352,6 +352,18 @@ The timeline's refusal to send text while a native terminal dialog holds the pan
 
 **Overview**:
 The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents, the open escalations, the review gate, bridge health, the usage windows, the journal tail, and the frontier snapshot. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+
+**Dashboard**:
+The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.
+
+**Sidecar**:
+The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env`.
+
+**Restarting marker**:
+What the dashboard shows while the daemon does not answer. The page keeps the last snapshot, states its age, and names the reason. A page that blanks is worst exactly when the box is worst.
+
+**Poll interval**:
+`dashboard.poll_interval_s`, the age at which the sidecar re-reads the overview. It is a ceiling, not a clock: the sidecar reads only when a page asks and the snapshot is older than this. A browser asks while its tab is visible and stops when it is hidden. So a forgotten tab costs nothing, and many open tabs still cost one read. The number matters because one read costs one whole read of the journal off disk, and the journal grows without bound.
 
 **Status line**:
 One Discord message per agent, written by the daemon, that says what the agent is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
@@ -409,8 +421,9 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Bridge**: the Discord module inside the daemon. Thread-per-ticket rendering, buttons, image passthrough both directions.
 - **Router**: the deterministic command router inside the daemon. It parses the five verbs from Discord slash commands or REST.
 - **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`. A cross-check adds a reviewer beside one, in `curia-review-<n>`.
-- **Surfaces**: the shared ttyd terminal and the timeline, both published with Tailscale Serve. Previews take their own port range.
-- **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing).
+- **Sidecar** (`daemon/bin/curia-dashboard.mjs`): the dashboard's own Node process, in its own container. It imports the daemon's identity check, config rules and Serve helper, and reads the daemon over loopback.
+- **Surfaces**: the shared ttyd terminal, the timeline and the dashboard, all published with Tailscale Serve. Previews take their own port range.
+- **Config** (`config/`): `curia.yaml` (watch list, dispatch, attach, dashboard, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing).
 
 ## State homes
 
@@ -418,7 +431,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Journal** (`daemon/data/events.jsonl`): every durable curia event.
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
-- **tailscaled**: the Serve rules for attach, timeline, and previews.
+- **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
 - **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs.
 - **Host credential stores** (`~/.claude`, `~/.codex`): the overseer's, which runs on the host and holds no copy. A dispatched agent is in a container and cannot reach them, so it gets the model credential copied into its container environment.
 - **docker**: the live agent containers and the two shared cache volumes.

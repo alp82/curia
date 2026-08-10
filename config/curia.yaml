@@ -64,6 +64,26 @@ timeline:                                  # #74, landing #73: the grid-less att
   # serve or publish a page whose proto is not the one it speaks (#70's rule).
   index: ../daemon/assets/timeline.html
 
+dashboard:                                 # #263, building the where-it-lives decision #249:
+                                           # the console sidecar. A process BESIDE the daemon, so it
+                                           # stays up while the daemon restarts and the restart is a
+                                           # marker on the page instead of a dead tab. The daemon
+                                           # binds neither port. It validates this block and refuses
+                                           # to boot on a bad shape, and both ports join the
+                                           # collision check and `previews.reserved`.
+  port: 4273                               # loopback listener, the target of the Serve rule below
+  serve_port: 8445                         # its own Serve rule, beside attach's and the timeline's
+  # How often the page re-reads the daemon. Every refresh costs one whole read
+  # of the journal off disk through `dispatcher.status()`, plus one more per
+  # open review gate through the pull-request lookup (#262), and the journal
+  # grows without bound — so this number IS that read rate.
+  #
+  # It is a CEILING, not a clock: the sidecar refreshes only when a page asks
+  # and the snapshot it holds is older than this. A browser asks while its tab
+  # is visible and stops when it is hidden, so a forgotten tab costs nothing and
+  # many open tabs still cost one read.
+  poll_interval_s: 5
+
 usage:                                     # #146: the per-agent status-line meters
   # The 5 h / 7 d bars are ACCOUNT-level, and the claude harness states them in no
   # file and no transcript. They ride the response headers of any accepted
