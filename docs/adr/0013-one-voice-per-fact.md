@@ -22,6 +22,7 @@ CuriaBot states mechanics. The agent voice states meaning. A fact belongs to exa
 - **Ending**: two messages, fixed order. First the agent's report. The report holds the pull-request link, and it is the only place the link appears. Then one CuriaBot small-print receipt that merges the old resolved, done, and finished lines. The mechanics line carries no bare links, so nothing re-unfurls.
 - **Spawn**: CuriaBot's composer-ready line is the only announcement. The overseer never narrates a dispatch it triggered. When the overseer chose the ticket, the choice is meaning: it may state the choice and the reason, never "is running".
 - **Button answer**: the card is the only record. The bridge acknowledges the interaction silently and edits the card in place. No interaction reply exists.
+- **Thread rename**: Discord posts one system line per rename, and no flag suppresses it. This is the one voice curia does not own, so the rule is enforced by renaming less. The thread name answers one question the status line cannot reach: does this thread need the operator. Putting the ⏳ or 🔎 glyph ON is worth its line, because its reader is away. Taking it OFF is not, because its reader just answered. So a clear is held for two minutes and any newer state cancels it ([#277](https://github.com/alp82/curia/issues/277)).
 
 ### The note loop
 
@@ -39,6 +40,7 @@ A thread message has two delivery modes, and the operator picks.
 ## Consequences
 
 - The ending trio, the spawn duo, and the answer echo collapse. A thread reads as one narrator per fact.
+- A held clear buys a false positive, bounded by the window: a thread can read ⏳ for two minutes after it was answered. The hold is ephemeral, so a daemon restart inside the window loses it and the thread keeps the glyph until the agent's next question or its ending. The ending always settles the name.
 - The interrupt mode needs daemon plumbing: abort a running tool call after grace and inject a user turn. Queued keeps the shipped path.
 - The cross-check gate closes the #223 race by construction. The carrier rule stays as the net for a cross-check started after the builder is gone.
 - The overseer loses its spawn narration. Its remaining surface is conversation and choice rationale.

@@ -253,7 +253,10 @@ The half-hour re-post of an open escalation into its thread.
 The Discord module. It renders and captures. It never interprets.
 
 **Thread-per-ticket**:
-One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread. Every path that resolves a thread goes back to the ticket's last thread first, and one ticket resolves one thread at a time, so a re-dispatch adds no second thread (#257). The name carries the state at a glance: 🎫 bound, ✅ finished, ⚰️ cancelled.
+One Discord thread per ticket. It carries the ticket's escalations, notifies, and answers. The binding outlives the agent: it releases only when the ticket itself closes, so a resumed agent lands back in the same thread. Every path that resolves a thread goes back to the ticket's last thread first, and one ticket resolves one thread at a time, so a re-dispatch adds no second thread (#257). The name carries the state at a glance: 🎫 bound, ⏳ waiting on the operator, 🔎 holding a review gate, ✅ finished, ⚰️ cancelled.
+
+**Held clear**:
+The wait before a thread name goes back to 🎫 (#277). Discord answers every rename with a system line, and no flag suppresses it. Putting ⏳ or 🔎 on the name is worth that line, because the reader is away. Taking it off is not, because the reader just answered. So a clear waits two minutes, and any newer state cancels it. A ticket that asks another question inside the window spends no rename at all. The wait dies with the daemon.
 
 **Settling a thread name**:
 Putting the terminal glyph on a thread whose ticket has ended (#257). A rename rides a budget of 2 per thread per 10 minutes, so a ✅ can wait, and the gate that holds it dies with the daemon. Two passes catch what is dropped. A release settles the ticket's last thread even when the binding is already gone. Every bridge start settles each active thread curia once labeled that is bound to nothing and still wears a live glyph.

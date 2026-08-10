@@ -230,7 +230,16 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     delete: async () => { deleted.push(id); threads.delete(id) },
   })
 
-  let threads, deleted
+  let threads, deleted, held
+
+  // The #277 clock. The bridge holds a 🎫 clear rather than sending it, so the
+  // tests own when that window runs out — `fireHeld` is "two minutes passed".
+  // It awaits the callback's promise, which is why flagTicket returns one.
+  const fireHeld = async () => {
+    const due = held.filter((h) => h.live)
+    held = []
+    for (const h of due) await h.fn()
+  }
 
   beforeEach(() => {
     store = new EscalationStore(tmp())
@@ -238,9 +247,14 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     sentTo = []
     deleted = []
     threads = new Map()
+    held = []
     bridge = new DiscordBridge({
       token: 'x', allowedUsers: [], dataDir: tmp(),
       handlers: {}, log: () => {},
+      timers: {
+        set: (fn) => { const h = { fn, live: true }; held.push(h); return h },
+        clear: (h) => { if (h) h.live = false },
+      },
       bindings: {
         get: (t) => store.threadForTicket(t),
         bind: (t, id) => store.bindTicketThread(t, id),
@@ -466,8 +480,10 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     store.bindTicketThread('121', 't-flag')
 
     await bridge.flagTicket('121', 'waiting')
+    assert.deepEqual(renames, ['⏳ 121 · task'], 'the ON direction never waits')
     await bridge.flagTicket('121', 'working')
     await bridge.flagTicket('121', 'working') // repeat: nothing to send
+    await fireHeld()
     assert.deepEqual(renames, ['⏳ 121 · task', '🎫 121 · task'])
   })
 
@@ -498,6 +514,106 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.deepEqual(renames, [])
   })
 
+  // ---- the held clear (#277) -------------------------------------------------
+  //
+  // Discord answers every rename with a system line, and the clear back to 🎫
+  // is the half nobody reads: it lands a moment after the operator answered,
+  // so its only reader is the person who just left the thread. Holding it lets
+  // the next question cancel it, and a grilling asks many questions.
+
+  test('a question inside the window cancels the held clear — the pair costs one rename, not three (#277)', async () => {
+    const t = makeThread('t-grill', '🎫 140 · grilling')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('140', 't-grill')
+
+    await bridge.flagTicket('140', 'waiting') // question 1
+    await bridge.flagTicket('140', 'working') // answered — held, not sent
+    await bridge.flagTicket('140', 'waiting') // question 2, inside the window
+    await bridge.flagTicket('140', 'working')
+    await bridge.flagTicket('140', 'waiting') // question 3
+    await fireHeld() // nothing is due: every hold was replaced by a later flag
+
+    assert.deepEqual(renames, ['⏳ 140 · grilling'], 'the glyph never moved off ⏳')
+    assert.equal(t.name, '⏳ 140 · grilling')
+  })
+
+  test('a held clear lands once the window runs out, and only once', async () => {
+    const t = makeThread('t-hold', '🎫 141 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('141', 't-hold')
+
+    await bridge.flagTicket('141', 'waiting')
+    await bridge.flagTicket('141', 'working')
+    assert.deepEqual(renames, ['⏳ 141 · task'], 'the clear is not out yet')
+    await fireHeld()
+    assert.deepEqual(renames, ['⏳ 141 · task', '🎫 141 · task'])
+    await fireHeld()
+    assert.deepEqual(renames, ['⏳ 141 · task', '🎫 141 · task'], 'the hold fires once')
+  })
+
+  test('a review gate holds its clear the same way — 🔎 survives a rejection that asks again', async () => {
+    const t = makeThread('t-gate', '🎫 142 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('142', 't-gate')
+
+    await bridge.flagTicket('142', 'awaiting-review')
+    await bridge.flagTicket('142', 'working') // rejected, back to work — held
+    await bridge.flagTicket('142', 'awaiting-review') // second gate round
+    await fireHeld()
+    assert.deepEqual(renames, ['🔎 142 · task'])
+  })
+
+  test('a release drops the held clear — the thread ends ✅ and no 🎫 follows it', async () => {
+    const t = makeThread('t-end', '🎫 143 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('143', 't-end')
+
+    await bridge.flagTicket('143', 'waiting')
+    await bridge.flagTicket('143', 'working') // held
+    await bridge.releaseTicket('143', 'finished')
+    await fireHeld()
+    assert.deepEqual(renames, ['⏳ 143 · task', '✅ 143 · task'])
+  })
+
+  test('a cancel drops the held clear too — the binding survives, the ⚰️ stands', async () => {
+    const t = makeThread('t-dead', '🎫 144 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('144', 't-dead')
+
+    await bridge.flagTicket('144', 'waiting')
+    await bridge.flagTicket('144', 'working') // held
+    await bridge.cancelTicket('144')
+    await fireHeld()
+    assert.deepEqual(renames, ['⏳ 144 · task', '⚰️ 144 · task'])
+    assert.equal(store.threadForTicket('144'), 't-dead', 'a cancel keeps the binding (#140)')
+  })
+
+  test('stop() drops every held clear', async () => {
+    const t = makeThread('t-stop', '🎫 145 · task')
+    const renames = []
+    t.setName = async (n) => { renames.push(n); t.name = n }
+    bridge.registerThread(t)
+    store.bindTicketThread('145', 't-stop')
+    bridge.client.destroy = async () => {}
+
+    await bridge.flagTicket('145', 'waiting')
+    await bridge.flagTicket('145', 'working')
+    await bridge.stop()
+    assert.equal(bridge.flagClears.size, 0)
+    await fireHeld()
+    assert.deepEqual(renames, ['⏳ 145 · task'])
+  })
+
   // ---- the rename race on a finishing ticket ---------------------------------
   // A status flag and the release both swap the signal glyph, and each used to
   // base its swap on the name Discord SHOWS — a name that lags whenever a
@@ -512,7 +628,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     bridge.registerThread(t)
     store.bindTicketThread('132', 't-late')
     await bridge.flagTicket('132', 'waiting') // spend 1 — reserve keeps the second slot
-    await bridge.flagTicket('132', 'working') // spend 2 — the budget is out
+    await bridge.flagTicket('132', 'working')
+    await fireHeld() // spend 2 — the budget is out
     assert.deepEqual(renames, ['⏳ 132 · task', '🎫 132 · task'])
     // park a flag past its binding guard, inside the fetch, while release runs
     let resume

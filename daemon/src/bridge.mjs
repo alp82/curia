@@ -40,6 +40,33 @@ const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 const STATE_GLYPHS = { waiting: '⏳', 'awaiting-review': '🔎' }
 const LIVE_GLYPH_RE = /^(?:🎫|⏳|🔎)/u
 
+// How long a cleared glyph is held before the rename goes out (#277).
+//
+// Discord answers every rename with a system line in the thread, and no flag
+// suppresses it — 179 of them across the #245 cold read, each repeating a state
+// change the status line had already made in the same thread. Renaming less is
+// the only lever, and the two directions are not worth the same:
+//
+//  - ⏳/🔎 ON is written for a reader who is AWAY. It is the whole reason the
+//    glyph exists, so it lands at once.
+//  - 🎫 OFF lands a moment after the operator answered, so its only reader is
+//    the person who just left the thread. It says a thing they already know,
+//    and its system line BUMPS that thread to the top of the list — pushing the
+//    threads that do need them further down.
+//
+// So the clear waits, and a fresh question inside the window cancels it: the
+// glyph never moves and BOTH renames are saved. A grilling ticket asks many
+// questions in one sitting, and every pair that collapses is two system lines
+// and two budget slots that the ending rename gets to keep instead — the same
+// budget whose exhaustion is why the ✅ used to arrive ten minutes late (#199).
+//
+// The cost is a false positive, bounded by this window: a thread can read ⏳
+// for up to two minutes after it was answered. The operator set the number.
+// The wait is ephemeral like every other cache here, so a daemon restart inside
+// the window loses the clear and the thread keeps ⏳ until the agent's next
+// question or its ending — the ending always settles it.
+export const CLEAR_DELAY_MS = 120_000
+
 // #108 item 23, widened by #170: a message that is nothing but a command,
 // typed at an agent thread — the shape that reads as "cancel the agent" but
 // queues as prose. Trailing punctuation forgiven; any surrounding words mean
@@ -388,7 +415,13 @@ export class DiscordBridge {
   // bindings: { get(ticket), bind(ticket, threadId), release(ticket, reason) }
   // — the store's journalled ticket↔thread map (#93). Absent (tests), threads
   // fall back to the name-based lookup only.
-  constructor({ token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, bindings = null, log = console.log, onHealth = () => {} }) {
+  // `clearDelayMs` / `timers` are the seam for #277's held clear — production
+  // never overrides them, and 0 means clear in the same call.
+  constructor({
+    token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, bindings = null,
+    log = console.log, onHealth = () => {},
+    clearDelayMs = CLEAR_DELAY_MS, timers = { set: setTimeout, clear: clearTimeout },
+  }) {
     this.token = token
     this.allowedUsers = allowedUsers // array of user-id strings; the auth gate
     this.guildId = guildId
@@ -400,6 +433,9 @@ export class DiscordBridge {
     this.onHealth = onHealth
     this.threadByName = new Map() // ephemeral cache for UNBOUND threads ('all'), rebuilt on demand
     this.threadWork = new Map() // ticket -> the in-flight thread resolution for it (#257)
+    this.clearDelayMs = clearDelayMs
+    this.timers = timers
+    this.flagClears = new Map() // ticket -> the held 🎫 clear (#277), ephemeral
     // Bridge health (#56). Ephemeral like every other cache here: the journal
     // holds the transitions, this holds only what is true right now.
     this.health = { state: 'down', since: Date.now(), last_error: null }
@@ -455,6 +491,8 @@ export class DiscordBridge {
 
   async stop() {
     this.#setHealth('down', { reason: 'stopped' })
+    for (const t of this.flagClears.values()) this.timers.clear(t)
+    this.flagClears.clear()
     this.renamer.stop()
     await this.client.destroy()
   }
@@ -574,7 +612,49 @@ export class DiscordBridge {
   // glyph and touches nothing else, so a released ✅, a ⚰️, or a hand-edited
   // name is left alone. The blocked glyphs ride the renamer's reserve rule —
   // they spend a slot only while a second stays free for the clear.
+  //
+  // #277 splits the two directions in time. Putting a glyph ON happens here and
+  // now; taking it OFF is HELD for CLEAR_DELAY_MS, and any flag arriving inside
+  // that window replaces the held one. A question that lands before the wait
+  // runs out therefore finds the name it wants already on the thread, so the
+  // whole pair costs nothing. See CLEAR_DELAY_MS for why the asymmetry points
+  // this way.
   async flagTicket(ticket, state) {
+    if (!this.bindings) return
+    // Whatever was held is stale now: a newer flag has an opinion. Dropped for
+    // an ON as well as an OFF, so an answered-then-asked-again ticket never
+    // wakes a timer that would clear the glyph it just put back.
+    const held = this.flagClears.get(String(ticket))
+    if (held) { this.timers.clear(held); this.flagClears.delete(String(ticket)) }
+    if (STATE_GLYPHS[state] || !this.clearDelayMs) return this.#applyFlag(ticket, state)
+    // The held clear re-enters through the front door, so every guard below is
+    // re-read against the state at the moment it lands, not the moment it was
+    // asked for. A ticket released, cancelled or re-flagged meanwhile dissolves
+    // it — the same way a stale flag already dissolves on a terminal name.
+    //
+    // The callback RETURNS its promise. setTimeout drops the value, but a test
+    // clock can await it, which is the only way a held rename is assertable.
+    const timer = this.timers.set(() => {
+      this.flagClears.delete(String(ticket))
+      return Promise.resolve(this.#applyFlag(ticket, state)).catch((e) => {
+        this.log(`held thread flag for ${ticket} failed: ${e.message}`)
+      })
+    }, this.clearDelayMs)
+    timer?.unref?.()
+    this.flagClears.set(String(ticket), timer)
+  }
+
+  // Drop a held clear outright: the ticket has reached a name no clear may
+  // touch. The guards in #applyFlag already make a late clear a no-op, so this
+  // is about not holding a timer for a thread that is done.
+  #dropHeldFlag(ticket) {
+    const held = this.flagClears.get(String(ticket))
+    if (!held) return
+    this.timers.clear(held)
+    this.flagClears.delete(String(ticket))
+  }
+
+  async #applyFlag(ticket, state) {
     if (!this.bindings) return
     const bound = this.bindings.get(ticket)
     if (!bound) return
@@ -883,6 +963,7 @@ export class DiscordBridge {
   // finish and keep 🎫 forever once the label landed.
   async releaseTicket(ticket, reason) {
     if (!this.bindings) return
+    this.#dropHeldFlag(ticket) // #277: the ✅ is this thread's last name
     const bound = this.bindings.get(ticket)
     this.bindings.release(ticket, reason)
     // An ending whose binding is already gone still owes the thread its final
@@ -952,6 +1033,10 @@ export class DiscordBridge {
   // every other rename here — the journal's `agent_cancelled` is the truth.
   async cancelTicket(ticket) {
     if (!this.bindings) return
+    // The binding SURVIVES a cancel (#140), so unlike a release this held clear
+    // would still find its ticket bound. ⚰️ is not a live glyph, so it would
+    // dissolve anyway — dropping it just saves the wake-up.
+    this.#dropHeldFlag(ticket)
     const bound = this.bindings.get(ticket)
     if (!bound) return
     const t = await this.client.channels.fetch(bound).catch(() => null)
