@@ -56,6 +56,9 @@ import { AccountUsage, ModelWindows, agentMeters } from './usage.mjs'
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
 
+// #270 rollback drill: a deliberate boot crash. The next commit reverts it.
+throw new Error('deploy drill (#270): deliberate crash — the sibling must roll this back')
+
 // minimal .env loader (daemon/.env, never committed)
 const envFile = path.join(ROOT, '.env')
 if (fs.existsSync(envFile)) {
