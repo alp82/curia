@@ -134,7 +134,7 @@ One thread's exchange with the overseer. The daemon holds its state, so a conver
 _Avoid_: session (that names the tmux session, which is an agent's identity).
 
 **Single-use conversation thread**:
-The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. Charting a map through the overseer breaks this today and opens two threads. [#311](https://github.com/alp82/curia/issues/311) owns it.
+The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. Charting a map through the overseer breaks this today and opens two threads. [#326](https://github.com/alp82/curia/issues/326) owns the fix.
 
 **Turn**:
 One operator message, answered. It is the unit the overseer works in, and nothing of the overseer runs between turns. One turn at a time per conversation, and no cap across conversations.
