@@ -133,6 +133,9 @@ The container that hosts the overseer. One long-lived service beside the dashboa
 One thread's exchange with the overseer. The daemon holds its state, so a conversation outlives the container that answers it. Every top-level Discord message opens a thread and starts a new conversation. The console chat is one conversation that nothing resets.
 _Avoid_: session (that names the tmux session, which is an agent's identity).
 
+**Single-use conversation thread**:
+The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. Charting a map through the overseer breaks this today and opens two threads. [#311](https://github.com/alp82/curia/issues/311) owns it.
+
 **Turn**:
 One operator message, answered. It is the unit the overseer works in, and nothing of the overseer runs between turns. One turn at a time per conversation, and no cap across conversations.
 _Avoid_: using it for the model's own steps inside one message (`maxTurns` counts those).
