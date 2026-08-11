@@ -126,6 +126,20 @@ The state where every candidate model is cooling. The frontier stays the queue, 
 **Overseer**:
 The command brain of curia. The standing design is one brain with three skins (Discord, text, voice). The shipped daemon uses a deterministic router instead.
 
+**Overseer service**:
+The container that hosts the overseer. One long-lived service beside the dashboard. It is never a pane and never one container per conversation, because the overseer is not shaped like an agent: it holds many conversations at once and it has no screen. See [ADR-0015](docs/adr/0015-the-overseer-is-a-service.md).
+
+**Conversation**:
+One thread's exchange with the overseer. The daemon holds its state, so a conversation outlives the container that answers it. Every top-level Discord message opens a thread and starts a new conversation. The console chat is one conversation that nothing resets.
+_Avoid_: session (that names the tmux session, which is an agent's identity).
+
+**Single-use conversation thread**:
+The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. Charting a map through the overseer breaks this today and opens two threads. [#326](https://github.com/alp82/curia/issues/326) owns the fix.
+
+**Turn**:
+One operator message, answered. It is the unit the overseer works in, and nothing of the overseer runs between turns. One turn at a time per conversation, and no cap across conversations.
+_Avoid_: using it for the model's own steps inside one message (`maxTurns` counts those).
+
 **The verbs**:
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
