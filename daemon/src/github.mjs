@@ -152,12 +152,13 @@ export async function deleteRemoteBranch(repo, branch) {
   }
 }
 
-// ---- the agent token's boot probe (#155) ------------------------------------
+// ---- the boot probe for a scoped token (#155, #313) -------------------------
 //
-// An agent token's repository list is edited on GitHub, not in `daemon/.env`, so
-// a repo added to the watch list and forgotten on the token leaves no trace here.
-// This asks GitHub at boot instead, once per watched repo, with the token that
-// repo's agent would actually get.
+// A token's repository list is edited on GitHub, not in an env file, so a repo
+// added to the watch list and forgotten on the token leaves no trace here. This
+// asks GitHub at boot instead, once per watched repo, with the token that repo
+// would actually be read with. It serves both holders: the agent's read-write
+// token (#155) and the overseer's read-only one (#313).
 //
 // What it CAN catch: a private repo missing from the token's selection (404), an
 // org policy refusal (403 carrying its own reason), a revoked or expired token
@@ -173,7 +174,7 @@ export async function deleteRemoteBranch(repo, branch) {
 //
 // fetch rather than `gh`, because the answer is in a HEADER and `gh api -i`
 // would mean parsing a child process's stdout to get it.
-export async function probeAgentToken(repo, token, { fetchImpl = globalThis.fetch } = {}) {
+export async function probeRepoToken(repo, token, { fetchImpl = globalThis.fetch } = {}) {
   const res = await fetchImpl(`https://api.github.com/repos/${repo}`, {
     headers: {
       authorization: `Bearer ${token}`,

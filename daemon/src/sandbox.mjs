@@ -308,7 +308,7 @@ export function modelCredential(harness, { env = process.env, home = null } = {}
   if (env.CLAUDE_CODE_OAUTH_TOKEN) return { CLAUDE_CODE_OAUTH_TOKEN: env.CLAUDE_CODE_OAUTH_TOKEN }
   const stored = readStoredOauth(home)
   if (stored) return { CLAUDE_CODE_OAUTH_TOKEN: stored }
-  throw new Error('no anthropic credential for the container: set CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in daemon/.env, or run `claude /login` on this box — a sandboxed claude agent cannot reach the host credential store')
+  throw new Error('no anthropic credential for the container: set CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in daemon/.env.daemon, or run `claude /login` on this box — a sandboxed claude agent cannot reach the host credential store')
 }
 
 function readStoredOauth(home) {

@@ -91,7 +91,7 @@ cd curia/daemon
 npm install
 ```
 
-## 7. `daemon/.env`
+## 7. `daemon/.env.daemon`
 
 ```
 DISCORD_BOT_TOKEN=<the bot token>
@@ -106,6 +106,16 @@ Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271),
 `OVERSEER_MODEL`, `OVERSEER_FALLBACK_MODEL`.
 
 Run one daemon per bot token.
+
+### `daemon/.env.overseer`
+
+```
+CURIA_OVERSEER_GH_TOKEN_<OWNER>=<a fine-grained GitHub PAT, read-only>
+```
+
+The overseer runs in a container with a shell, so its own token is read-only (#313). Mint one fine-grained PAT per resource owner you watch, with **Contents**, **Issues**, **Pull requests** and **Commit statuses** at read, plus **Metadata** read. Nothing at write. An organization can cap the token lifetime, so a token for an org owner needs an expiry inside that cap.
+
+Keep these keys in this second file. The overseer service loads the file whole, and `daemon/.env.daemon` holds the read-write tokens the overseer must never get.
 
 ## 8. `config/curia.yaml`
 

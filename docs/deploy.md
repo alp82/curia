@@ -31,7 +31,8 @@ DOCKER_GID=<output of: getent group docker | cut -d: -f3>
 | Item | Path |
 | --- | --- |
 | Checkout | `/home/alp/curia` (clone of this repo) |
-| Env file | `/home/alp/curia/daemon/.env` (mode 600, never committed) |
+| Env file | `/home/alp/curia/daemon/.env.daemon` (mode 600, never committed) |
+| Overseer env file | `/home/alp/curia/daemon/.env.overseer` (mode 600, never committed, #313) |
 | Compose env | `/home/alp/curia/deploy/.env` (`DOCKER_GID`, never committed) |
 | Box settings | `/home/alp/curia/config/curia.local.yaml`, `routing.local.yaml` (never committed) |
 | Worktrees | `/home/alp/curia-work` |
@@ -65,11 +66,26 @@ tailscale status --json | jq -r '.User[].LoginName'
 
 Getting it wrong 403s every attach. Fixing it is an edit plus a restart, over ssh, so a wrong list locks nobody out of the box.
 
-## The env file
+## The env file, `daemon/.env.daemon`
+
+**This file was called `daemon/.env` until [#313](https://github.com/alp82/curia/issues/313).** There is one env file per container that holds secrets now, so the pair reads as a pair. Rename it on the box **before** you deploy that change:
+
+```
+mv /home/alp/curia/daemon/.env /home/alp/curia/daemon/.env.daemon
+```
+
+Compose refuses a missing `env_file`, so a deploy that arrives first fails its health check and rolls back. The running daemon is not touched in between: its environment is already in the process.
 
 - `DISCORD_BOT_TOKEN`, `DISCORD_ALLOWED_USERS` — copied from the dev box.
 - `CURIA_AGENT_GH_TOKEN_ALP82`, `CURIA_AGENT_GH_TOKEN_GETALFREDO` — the scoped GitHub tokens agents get as `GH_TOKEN` ([#155](https://github.com/alp82/curia/issues/155)). One per resource owner, because a fine-grained PAT has exactly one. Adding a repo to an owner already covered is an edit on the token page and does **not** change the value, so it costs no edit here and no restart. A new owner needs a new token and a new key.
 - `CLAUDE_CODE_OAUTH_TOKEN` — a long-lived subscription token from `claude setup-token` (decision [#100](https://github.com/alp82/curia/issues/100)). Compose loads the file with `env_file:`, so the token reaches the daemon and flows into every agent.
+
+## The second env file, `daemon/.env.overseer`
+
+- `CURIA_OVERSEER_GH_TOKEN_ALP82`, `CURIA_OVERSEER_GH_TOKEN_GETALFREDO` — the overseer's own GitHub tokens ([#313](https://github.com/alp82/curia/issues/313)). One per resource owner, read-only, and 366 days or less.
+- **The overseer service loads this file and never `daemon/.env.daemon`.** That is the whole reason there are two files. The overseer container holds a shell, and a shell exports whatever the container is given. `daemon/.env.daemon` carries the agents' read-write tokens and the Discord bot token, and compose cannot filter an env file.
+- The daemon reads this file to state each token at boot, and never loads it into its own environment.
+- Boot warns when a key that belongs in `daemon/.env.daemon` turns up here. A copy of the wrong file is the accident this catches.
 
 **One daemon at a time.** The Discord bot token must live in exactly one running daemon. Before you start the local daemon for development, stop the service: `ssh alp@coinmatica.net docker compose -f curia/deploy/compose.yaml stop daemon`.
 

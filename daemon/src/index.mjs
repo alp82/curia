@@ -44,8 +44,12 @@ import { SelfDeploy } from './deploy.mjs'
 import { OverseerHost, CONSOLE_SESSION } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
+import {
+  OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, assertOverseerTokens,
+  overseerGhToken, overseerTokenKeyFor, daemonOnlyKeys,
+} from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
-import { probeAgentToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
+import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
 import { probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
@@ -58,14 +62,27 @@ import { AccountUsage, ModelWindows, agentMeters, ctxOnWire } from './usage.mjs'
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
 
-// minimal .env loader (daemon/.env, never committed)
-const envFile = path.join(ROOT, '.env')
-if (fs.existsSync(envFile)) {
-  for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) {
+// minimal env loader (daemon/.env.daemon, never committed)
+//
+// The name gained its suffix with #313, which gave the overseer container an env
+// file of its own. Two files, one per container that holds secrets, and the pair
+// reads as a pair: `.env.daemon` and `.env.overseer`.
+//
+// The old name is still loaded, and it says so. A box that has not been renamed
+// yet keeps booting, and the line names the one move that silences it. In the
+// container the rename is not optional — compose refuses a missing `env_file` —
+// so this branch is for a dev box and for the moment between the rename and the
+// deploy.
+const envFile = path.join(ROOT, '.env.daemon')
+const legacyEnvFile = path.join(ROOT, '.env')
+const loadFrom = fs.existsSync(envFile) ? envFile : (fs.existsSync(legacyEnvFile) ? legacyEnvFile : null)
+if (loadFrom) {
+  for (const line of fs.readFileSync(loadFrom, 'utf8').split('\n')) {
     const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
     if (m && !(m[1] in process.env)) process.env[m[1]] = m[2]
   }
 }
+if (loadFrom === legacyEnvFile) log('WARNING: daemon/.env is the old name — rename it to daemon/.env.daemon, beside daemon/.env.overseer (#313)')
 
 const PORT = Number(process.env.PORT ?? 4271)
 // CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
@@ -104,38 +121,72 @@ const SANDBOXED_HARNESSES = Object.keys(routingConfig.harnesses)
 // watched owner, because an owner with no token silently keeps the host's
 // account-wide login and that is the thing this ticket exists to end. The daemon
 // itself never uses these (see agentGhToken).
+const WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
 for (const { key, token } of assertGhTokens()) log(`agent GitHub token ${key} (…${token.slice(-4)})`)
-for (const owner of new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))) {
+for (const owner of WATCHED_OWNERS) {
   const key = ghTokenKeyFor(owner)
   if (!agentGhToken(`${owner}/x`)) log(`WARNING: no ${key} — agents on ${owner}/* inherit the host gh login (account-wide)`)
 }
 
+// #313: the overseer's own GitHub authority — the same shape one prefix over,
+// READ-ONLY, and in a second env file. The overseer container loads that file
+// whole, so what is in it is what a shell in that container holds. The daemon
+// only reads it, and never into `process.env`: a bare token there would
+// re-authenticate the daemon's own `gh`.
+const overseerEnv = loadOverseerEnv(overseerEnvPath(ROOT))
+for (const key of daemonOnlyKeys(overseerEnv)) {
+  log(`WARNING: ${key} is in daemon/${OVERSEER_ENV_FILE} — that file is the overseer's read-only boundary, and its container gets every key in it`)
+}
+for (const { key, token } of assertOverseerTokens(overseerEnv)) log(`overseer GitHub token ${key} (…${token.slice(-4)})`)
+for (const owner of WATCHED_OWNERS) {
+  const key = overseerTokenKeyFor(owner)
+  if (!overseerGhToken(`${owner}/x`, overseerEnv)) log(`WARNING: no ${key} — the overseer holds no credential for ${owner}/*`)
+}
+
 // And the same tokens against GitHub itself, once per watched repo. A token's
-// repository list lives on GitHub rather than in `.env`, so nothing local can
-// tell that a newly watched repo was left off it. Detached from the boot chain
-// on purpose: this is one network round-trip per repo, and GitHub being slow or
-// down must never hold up a daemon whose other duties do not need it. See
-// probeAgentToken for the one case it cannot see.
+// repository list lives on GitHub rather than in an env file, so nothing local
+// can tell that a newly watched repo was left off it. Detached from the boot
+// chain on purpose: this is one network round-trip per repo, and GitHub being
+// slow or down must never hold up a daemon whose other duties do not need it.
+// See probeRepoToken for the one case it cannot see.
+//
+// One pass per holder. The overseer's token is the one whose expiry is a
+// certainty rather than a risk — an org caps its lifetime — so the same warning
+// has to speak for both.
 const TOKEN_EXPIRY_WARN_DAYS = 14
-Promise.all(curiaConfig.watch.map(async ({ repo }) => {
-  const token = agentGhToken(repo)
-  if (!token) return
-  try {
-    const { ok, message, expiresAt } = await probeAgentToken(repo, token)
-    const key = ghTokenKeyFor(repo)
-    if (!ok) {
-      log(`WARNING: ${key} cannot reach ${repo} (${message}) — an agent on it will fail at its first gh call`)
-      return
+function probeWatchedTokens({ holder, tokenFor, keyFor, refusal }) {
+  Promise.all(curiaConfig.watch.map(async ({ repo }) => {
+    const token = tokenFor(repo)
+    if (!token) return
+    const key = keyFor(repo)
+    try {
+      const { ok, message, expiresAt } = await probeRepoToken(repo, token)
+      if (!ok) {
+        log(`WARNING: ${key} cannot reach ${repo} (${message}) — ${refusal}`)
+        return
+      }
+      const days = tokenExpiryDays(expiresAt)
+      if (days === null) return
+      if (days <= TOKEN_EXPIRY_WARN_DAYS) log(`WARNING: ${key} expires in ${days} day(s), on ${expiresAt} — mint a new one before it dies`)
+      else log(`${key} reaches ${repo}, expires in ${days} days`)
+    } catch (e) {
+      // A network failure is a fact about the network, not about the token.
+      log(`could not check the ${holder} token for ${repo} (${e.message}) — not treating that as a bad token`)
     }
-    const days = tokenExpiryDays(expiresAt)
-    if (days === null) return
-    if (days <= TOKEN_EXPIRY_WARN_DAYS) log(`WARNING: ${key} expires in ${days} day(s), on ${expiresAt} — mint a new one before it dies`)
-    else log(`${key} reaches ${repo}, expires in ${days} days`)
-  } catch (e) {
-    // A network failure is a fact about the network, not about the token.
-    log(`could not check the agent token for ${repo} (${e.message}) — not treating that as a bad token`)
-  }
-})).catch(() => {})
+  })).catch(() => {})
+}
+probeWatchedTokens({
+  holder: 'agent',
+  tokenFor: (repo) => agentGhToken(repo),
+  keyFor: ghTokenKeyFor,
+  refusal: 'an agent on it will fail at its first gh call',
+})
+probeWatchedTokens({
+  holder: 'overseer',
+  tokenFor: (repo) => overseerGhToken(repo, overseerEnv),
+  keyFor: overseerTokenKeyFor,
+  refusal: 'the overseer cannot read it',
+})
 
 const store = new EscalationStore(DATA)
 
