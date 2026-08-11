@@ -140,6 +140,13 @@ The rule that a conversation thread carries one thing. Work dispatched from a co
 One operator message, answered. It is the unit the overseer works in, and nothing of the overseer runs between turns. One turn at a time per conversation, and no cap across conversations.
 _Avoid_: using it for the model's own steps inside one message (`maxTurns` counts those).
 
+**Overseer checkout**:
+The overseer's own blobless clone of one watched repo, at `<workspace_root>/overseer/repos/<owner>__<repo>`. It is a mirror of origin and holds nothing of its own: no git identity, no local commit, no branch to commit onto. It carries every ref — every branch, so `curia/<n>` is there while an agent works, plus every pull-request head, which is what stays readable after a merge deletes the branch. See [ADR-0014](docs/adr/0014-the-overseer-in-its-own-container.md) and the [live checks](docs/live-checks/312-overseer-checkouts.md).
+_Avoid_: private clone (that is an agent's, per ticket, and it is a place to commit).
+
+**Checkout pass**:
+What the overseer container runs at the start of every turn, before the model: clone every watched repo that is missing, delete the clone of one nobody watches, and fetch the rest in parallel. It is the whole reason every read inside one turn is consistent. The daemon asserts nothing about this tree. A repo whose fetch fails does not refuse the turn — the pass returns a verdict per repo, and the turn tells the model which checkout is stale and how old it is.
+
 **The verbs**:
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
@@ -510,7 +517,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
-- **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs.
+- **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs, and the overseer's checkouts under `overseer/repos/`. Those last are a cache of origin and nothing else, so deleting one costs a re-clone and no work.
 - **Host credential stores** (`~/.claude`, `~/.codex`): the overseer's, which runs on the host and holds no copy. A dispatched agent is in a container and cannot reach them, so it gets the model credential copied into its container environment.
 - **docker**: the live agent containers and the two shared cache volumes.
 
