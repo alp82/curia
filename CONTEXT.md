@@ -130,8 +130,12 @@ The command brain of curia. The standing design is one brain with three skins (D
 The container that hosts the overseer. One long-lived service beside the dashboard. It is never a pane and never one container per conversation, because the overseer is not shaped like an agent: it holds many conversations at once and it has no screen. See [ADR-0015](docs/adr/0015-the-overseer-is-a-service.md).
 
 **Conversation**:
-One thread's exchange with the overseer. The daemon holds its state, so a conversation outlives the container that answers it. Every top-level Discord message opens a thread and starts a new conversation. The console chat is one conversation that nothing resets.
+One thread's exchange with the overseer. The daemon holds its state, so a conversation outlives the container that answers it. Every top-level Discord message opens a thread and starts a new conversation. The browser holds many of its own, and a new one is how the operator resets. Nothing expires a conversation on a timer. See [ADR-0016](docs/adr/0016-the-conversation-key.md).
 _Avoid_: session (that names the tmux session, which is an agent's identity).
+
+**Conversation key**:
+The identity of one conversation. It keys the resume id, the notes waiting for the next turn, and the one-turn-at-a-time lock. It has two shapes that cannot collide: a Discord thread snowflake, which is all digits, and `console-<n>` for a browser conversation, which starts with a letter. A browser number is never reused, because a reused one would wake a deleted conversation's memory. The daemon owns the key, and the container never learns what one means. See [ADR-0016](docs/adr/0016-the-conversation-key.md).
+_Avoid_: thread id (that names the Discord object, and only one shape of key is one).
 
 **Single-use conversation thread**:
 The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. Charting a map through the overseer breaks this today and opens two threads. [#326](https://github.com/alp82/curia/issues/326) owns the fix.
@@ -167,7 +171,7 @@ _Avoid_: worker (the old name, swept in #184).
 The tmux session `curia-<n>`. The session name is the agent's identity everywhere.
 
 **Chat handle**:
-The name of an agent no issue answers for: `chat-1`, `chat-2`, the lowest free index at dispatch. It stands where a ticket number stands — the session `curia-chat-1`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. Today one kind of agent uses it: the new-map dispatch.
+The name of an agent no issue answers for: `chat-1`, `chat-2`, the lowest free index at dispatch. It stands where a ticket number stands — the session `curia-chat-1`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. Today one kind of agent uses it: the new-map dispatch. It names agents only. A browser conversation is keyed `console-<n>`, so the two never collide.
 
 **Agent host**:
 The layer that hosts agent sessions and their attach: tmux, one shared ttyd, Tailscale Serve. Each pane runs one `docker run`, never the harness directly.
@@ -373,10 +377,11 @@ The harness's own append-only run log. It carries no geometry, so any device lay
 A timeline session that is no tmux pane. It names its own config dir and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
 
 **Console chat**:
-The Chat screen of the dashboard. It is the timeline attach of the overseer's browser thread, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
+The Chat screen of the dashboard. It is the timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
 
-**Browser thread**:
-The overseer conversation the console chat speaks to, keyed `console` rather than on a Discord thread. One brain answers both surfaces. The answer is never posted, because the transcript already carries it to the page. Its verbs run with no origin thread, so a confirm goes where a REST press sends it.
+**Browser conversation**:
+An overseer conversation the console chat speaks to, keyed `console-<n>` rather than on a Discord thread. The browser holds many, and the Chat screen serves one as the session `curia-console-<n>`. One brain answers both surfaces. The answer is never posted, because the transcript already carries it to the page. Its verbs run with no origin thread, so a confirm goes where a REST press sends it. See [ADR-0016](docs/adr/0016-the-conversation-key.md).
+_Avoid_: browser thread (there is no Discord thread behind it, and there is more than one).
 
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.
