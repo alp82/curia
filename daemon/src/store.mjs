@@ -137,6 +137,7 @@ export class EscalationStore {
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
     this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
     this.lastThreadTickets = new Map() // thread id -> last ticket ever bound to it, the same way round (#257)
+    this.mapCharters = new Map() // map number -> the chat handle that charted it (#241, read by #326)
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
@@ -267,6 +268,17 @@ export class EscalationStore {
       case 'thread_released': {
         this.ticketThreads.delete(String(ev.ticket))
         this.threadTickets.delete(ev.thread_id)
+        break
+      }
+      // The dispatcher's own line, read here for the thread (#241, #326). A
+      // new-map session is named by a chat handle, and that handle stays bound
+      // to the conversation thread for the whole session — it is the identity
+      // every notify, escalation and status line addresses. The map number
+      // takes the thread through this index instead, which is what makes a
+      // later `map <n>` land back in the conversation that settled the
+      // destination.
+      case 'map_adopted': {
+        if (ev.map != null && ev.ticket != null) this.mapCharters.set(String(ev.map), String(ev.ticket))
         break
       }
       case 'overseer_note': {
@@ -637,8 +649,18 @@ export class EscalationStore {
   // The journal's last binding for a ticket, released or not (#140). The
   // dispatch backstop reads it so a resumed agent lands back in the thread
   // its predecessor's history, breadcrumbs and recorded answers live in.
+  //
+  // A map with no binding of its own falls back to the chat handle that
+  // charted it (#326): the thread that session ran in IS the map's thread, and
+  // the conversation that settled the destination is where `map <n>` belongs.
+  // A map dispatched on its own number later has a record here, and that one
+  // wins — the fallback answers only for a map nothing has bound yet.
   lastThreadForTicket(ticket) {
-    return this.lastTicketThreads.get(String(ticket))
+    const t = String(ticket)
+    const own = this.lastTicketThreads.get(t)
+    if (own) return own
+    const charter = this.mapCharters.get(t)
+    return charter ? this.lastTicketThreads.get(charter) : undefined
   }
 
   // The same pointer the other way round (#257): the last ticket this thread

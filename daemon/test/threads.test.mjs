@@ -91,6 +91,33 @@ describe('EscalationStore ticket-thread bindings', () => {
     assert.equal(store.lastThreadForTicket('85'), 't-9')
   })
 
+  // #326. A new-map session is named by a chat handle (#241), and that handle
+  // holds the conversation thread for the whole session. The map takes the
+  // thread through the journal instead, so the hand-over happens when the
+  // session lets go.
+  test('a map inherits the last thread of the chat handle that charted it', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    store.bindTicketThread('chat-1', 't-conv')
+    store.logEvent('map_adopted', { repo: 'o/r', ticket: 'chat-1', map: '250', agent: 'curia-chat-1' })
+    assert.equal(store.threadForTicket('250'), undefined, 'the live binding stays with the running session')
+    assert.equal(store.lastThreadForTicket('250'), 't-conv', 'and the map already knows where it lives')
+    store.releaseTicketThread('chat-1', 'finished')
+    assert.equal(store.lastThreadForTicket('250'), 't-conv', 'the session let go; the thread is the map\'s')
+    const reborn = new EscalationStore(dir)
+    assert.equal(reborn.lastThreadForTicket('250'), 't-conv', 'the journal is the truth across a restart')
+  })
+
+  test('a map that has been dispatched on its own number keeps its own thread', () => {
+    const store = new EscalationStore(tmp())
+    store.bindTicketThread('chat-1', 't-conv')
+    store.logEvent('map_adopted', { repo: 'o/r', ticket: 'chat-1', map: '250', agent: 'curia-chat-1' })
+    store.releaseTicketThread('chat-1', 'finished')
+    store.bindTicketThread('250', 't-own') // a later `map 250`, typed somewhere else
+    store.releaseTicketThread('250', 'finished')
+    assert.equal(store.lastThreadForTicket('250'), 't-own', 'the map\'s own record wins over the fallback')
+  })
+
   test('lastTicketForThread answers the same way round, released or not (#257)', () => {
     const dir = tmp()
     const store = new EscalationStore(dir)
@@ -735,6 +762,88 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.deepEqual(deleted, [created[0].id], 'the empty twin is gone')
   })
 
+  // ---- one conversation, one thread (#326) ------------------------------------
+  //
+  // A new-map dispatch is named by a chat handle (#241), not a number. The lazy
+  // path took every non-numeric ticket for a pseudo-ticket and looked its thread
+  // up BY NAME, which walked past the binding the dispatch had just made: the
+  // conversation thread was renamed, and a second thread called `ticket-chat-1`
+  // carried every line the agent said. The operator saw both.
+
+  test('a new-map dispatch takes over the conversation thread it was typed in', async () => {
+    const conv = makeThread('t-conv', 'chart a map for the next feature')
+    const renames = []
+    conv.setName = async (n) => { renames.push(n); conv.name = n }
+    bridge.registerThread(conv)
+
+    const r = await bridge.bindTicket('chat-1', { threadId: 't-conv', type: 'map', repo: 'alp82/curia' })
+    assert.equal(r.ok, true)
+    assert.equal(created.length, 0, 'no second thread beside the conversation')
+    assert.deepEqual(renames, ['🎫 chat-1 · curia · map'], 'the conversation is renamed on purpose')
+  })
+
+  test('the lazy path answers a chat handle from the binding, like any other ticket', async () => {
+    const conv = makeThread('t-conv', '🎫 chat-1 · curia · map')
+    bridge.registerThread(conv)
+    store.bindTicketThread('chat-1', 't-conv')
+
+    const t = await bridge.ensureThread('chat-1')
+    assert.equal(t.id, 't-conv', 'every notify lands where the operator typed')
+    assert.equal(created.length, 0)
+  })
+
+  test('the map adoption renames the thread and leaves the session holding it', async () => {
+    const conv = makeThread('t-conv', '🎫 chat-1 · curia · map')
+    const renames = []
+    conv.setName = async (n) => { renames.push(n); conv.name = n }
+    bridge.registerThread(conv)
+    store.bindTicketThread('chat-1', 't-conv')
+    store.logEvent('map_adopted', { repo: 'alp82/curia', ticket: 'chat-1', map: '250' })
+
+    const r = await bridge.adoptMapThread('chat-1', '250', { repo: 'alp82/curia' })
+    assert.equal(r.ok, true)
+    assert.deepEqual(renames, ['🎫 250 · curia · map'], 'the thread list reads as the map')
+    assert.equal(store.threadForTicket('chat-1'), 't-conv', 'the session still holds its own thread')
+    assert.equal(await bridge.ensureThread('chat-1').then((t) => t.id), 't-conv')
+    assert.equal(created.length, 0, 'the rest of the session says nothing anywhere else')
+  })
+
+  test('the map takes the thread when the charting session ends', async () => {
+    const conv = makeThread('t-conv', '🎫 chat-1 · curia · map')
+    const renames = []
+    conv.setName = async (n) => { renames.push(n); conv.name = n }
+    bridge.registerThread(conv)
+    store.bindTicketThread('chat-1', 't-conv')
+    store.logEvent('map_adopted', { repo: 'alp82/curia', ticket: 'chat-1', map: '250' })
+    await bridge.adoptMapThread('chat-1', '250', { repo: 'alp82/curia' })
+    await bridge.releaseTicket('chat-1', 'finished')
+    assert.equal(renames.at(-1), '✅ 250 · curia · map', 'the ending reads as the map')
+
+    const r = await bridge.bindTicket('250', { type: 'map', repo: 'alp82/curia' })
+    assert.equal(r.threadId, 't-conv', 'a later `map 250` lands back in the conversation that charted it')
+    assert.equal(created.length, 0)
+  })
+
+  test('the legal exception stands: a conversation already carrying a ticket sends the map elsewhere', async () => {
+    const busy = makeThread('t-busy', '🎫 106 · curia · task')
+    bridge.registerThread(busy)
+    store.bindTicketThread('106', 't-busy')
+
+    const r = await bridge.bindTicket('chat-1', { threadId: 't-busy', type: 'map', repo: 'alp82/curia' })
+    assert.equal(r.ok, true)
+    assert.equal(created.length, 1, 'one thread carries one thing')
+    assert.equal(created[0].name, '🎫 chat-1 · curia · map')
+    assert.match(sentTo.find((s) => s.id === created[0].id).text, /dispatched from “🎫 106 · curia · task”/)
+    assert.match(sentTo.find((s) => s.id === 't-busy').text, /🎫 chat-1 · curia · map/)
+  })
+
+  test('a pseudo-ticket is not a name curia binds a thread to', () => {
+    assert.equal(DiscordBridge.bindable('250'), true)
+    assert.equal(DiscordBridge.bindable('chat-1'), true)
+    assert.equal(DiscordBridge.bindable('all'), false)
+    assert.equal(DiscordBridge.bindable('chat-'), false)
+  })
+
   // ---- the ending always leaves the name in its final state (#257) -------------
 
   test('a second release settles the name the first one dropped', async () => {
@@ -939,6 +1048,14 @@ describe('Dispatcher thread binding (#93)', () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', threadId: 't-7' })
     assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: '', repo: 'o/r' }])
+  })
+
+  // #326: a new-map dispatch binds under its chat handle (#241), and it binds
+  // the thread the operator typed in exactly as `start` does.
+  test('a new-map dispatch binds the conversation thread it was typed in', async () => {
+    const d = makeDispatcher()
+    await d.chartNew({ repo: 'o/r', instruction: 'chart the next feature', by: 'u1', threadId: 't-conv' })
+    assert.deepEqual(binds, [{ ticket: 'chat-1', threadId: 't-conv', type: 'map', repo: 'o/r' }])
   })
 
   test('a dispatch with no issuing thread asks for a fresh bound thread (threadId null)', async () => {
