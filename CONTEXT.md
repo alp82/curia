@@ -288,7 +288,10 @@ The message curia queues at the builder the moment a reviewer spawns. It names t
 The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal.
 
 **Supersede**:
-A re-asked question closes the older record and routes late answers to the live one.
+A re-asked question closes the older record and routes late answers to the live one. The key is the agent and the kind, never the wording (#336). A re-send that explains itself in its own words is the same call, so it closes the original at birth. A confirm keys on the target instance instead.
+
+**Stale question**:
+An escalation still open when its own agent reports a result (#336). The result closes it, because nothing can read an answer to it any more. Reconcile runs the same rule over the journal, and it runs the ending a Stop hook deferred to such a record. Silence closes nothing: only the agent's own result or its next call does.
 
 **Render retry**:
 The escalation's own second try at a Discord render that failed (#261). It runs at 1 minute, 5 minutes and 15 minutes after the record opened, then never again. The offsets count from `esc_open`, not from the failure, so a restart re-arms only the tries still ahead. After the last one the record stays open and REST-answerable, and the dashboard shows it either way.

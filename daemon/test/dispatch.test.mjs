@@ -424,6 +424,169 @@ describe('a blocked agent is not a crashed one (#47)', () => {
   })
 })
 
+// #336: the other half of #47's evidence. An open escalation says "blocked"
+// only while someone could still read the answer. Once the agent has reported
+// its result, the record is a corpse: it held the ticket on the Needs-You list,
+// it made every later Stop hook mark a finished agent blocked, and through that
+// mark it kept the container up two days past a merge.
+describe('a question its own agent finished past (#336)', () => {
+  function writeJournal(lines) {
+    fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  }
+
+  // The gate double closes nothing by itself. index.mjs closes the record, so a
+  // test that asserts what the NEXT pass sees has to close it here too.
+  function closesRecords(d) {
+    d.cancelEscalation = (id, opts) => {
+      cancelled.push({ id, ...opts })
+      const r = escalations.find((x) => x.id === id)
+      if (r) r.status = 'cancelled'
+      return { ok: true }
+    }
+  }
+
+  const at = (iso) => new Date(iso).toISOString()
+
+  test('the result closes the question, and the Stop that follows ends the agent', async () => {
+    let killed = null
+    const d = makeDispatcher({ hasSession: async () => true, killSession: async (n) => { killed = n } })
+    closesRecords(d)
+    d.agents.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', state: 'ready', resultReceived: false })
+    escalations = [{ id: 'esc-21', agent: 'curia-42', ticket: '42', status: 'open' }]
+
+    d.onResult('curia-42')
+
+    assert.deepEqual(cancelled, [{ id: 'esc-21', by: 'result' }])
+    assert.ok(typesOf().includes('escalation_stale_at_result'))
+
+    await d.onAgentDone('curia-42')
+
+    assert.ok(typesOf().includes('lifecycle_closed'))
+    assert.ok(!typesOf().includes('agent_blocked_on_human'), 'a finished agent is not blocked on anyone')
+    assert.equal(killed, 'curia-42', 'nothing holds the session any more')
+  })
+
+  test('the result speaks for its own agent only', async () => {
+    const d = makeDispatcher()
+    closesRecords(d)
+    d.agents.set('curia-42', { repo: 'o/r', ticket: '42', session: 'curia-42', state: 'ready' })
+    escalations = [
+      { id: 'esc-30', agent: 'overseer', ticket: '42', status: 'open' },
+      { id: 'esc-31', agent: 'curia-43', ticket: '43', status: 'open' },
+    ]
+
+    d.onResult('curia-42')
+
+    assert.deepEqual(cancelled, [], 'a confirm and another agent\'s question are not this result\'s to close')
+  })
+
+  test('reconcile closes a record whose result landed under an older daemon process', async () => {
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '313', agent: 'curia-313', ts: at('2026-08-11T17:00:00Z') },
+      { type: 'result', agent: 'curia-313', ticket: '313', ts: at('2026-08-12T21:33:00Z') },
+    ])
+    const d = makeDispatcher({ listSessions: async () => [] })
+    closesRecords(d)
+    escalations = [{ id: 'esc-267', agent: 'curia-313', ticket: '313', status: 'open', opened_at: at('2026-08-11T17:26:00Z') }]
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(cancelled, [{ id: 'esc-267', by: 'result' }])
+    assert.ok(events.some((e) => e.type === 'escalation_stale_at_result' && e.id === 'esc-267' && e.by === 'reconcile'))
+  })
+
+  test('a question asked after the result is not one of these', async () => {
+    // The rule is "the agent finished past this question", and the stamps are
+    // what say so. A record opened later belongs to a live exchange.
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', ts: at('2026-08-12T09:00:00Z') },
+      { type: 'result', agent: 'curia-42', ticket: '42', ts: at('2026-08-12T10:00:00Z') },
+    ])
+    const d = makeDispatcher({ listSessions: async () => [] })
+    closesRecords(d)
+    escalations = [{ id: 'esc-9', agent: 'curia-42', ticket: '42', status: 'open', opened_at: at('2026-08-12T11:00:00Z') }]
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(cancelled, [])
+  })
+
+  test('a re-dispatch does not inherit the last one\'s ending', async () => {
+    // Session names are reused. A result from the PREVIOUS agent of this
+    // ticket must not close the question the current one is asking.
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', ts: at('2026-08-10T09:00:00Z') },
+      { type: 'result', agent: 'curia-42', ticket: '42', ts: at('2026-08-10T10:00:00Z') },
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', ts: at('2026-08-12T09:00:00Z') },
+    ])
+    const d = makeDispatcher({ listSessions: async () => [] })
+    closesRecords(d)
+    escalations = [{ id: 'esc-9', agent: 'curia-42', ticket: '42', status: 'open', opened_at: at('2026-08-12T09:30:00Z') }]
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(cancelled, [])
+  })
+
+  test('an open question with no result is left asking — silence resolves nothing (#285)', async () => {
+    writeJournal([{ type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', ts: at('2026-08-12T09:00:00Z') }])
+    const d = makeDispatcher({ listSessions: async () => [] })
+    closesRecords(d)
+    escalations = [{ id: 'esc-9', agent: 'curia-42', ticket: '42', status: 'open', opened_at: at('2026-08-12T09:30:00Z') }]
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(cancelled, [])
+    assert.ok(!typesOf().includes('escalation_stale_at_result'))
+  })
+
+  test('the ending the Stop hook deferred to the corpse runs, and the container goes', async () => {
+    // The live ghost whole: a merged ticket, a result, a Stop hook that read
+    // the corpse as a live block, and a session nothing could ever end — the
+    // orphan sweep exempts exactly these agents.
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', ts: at('2026-08-12T09:00:00Z') },
+      { type: 'result', agent: 'curia-42', ticket: '42', ts: at('2026-08-12T21:33:00Z') },
+      { type: 'agent_blocked_on_human', agent: 'curia-42', ticket: '42', escalations: ['esc-21'], ts: at('2026-08-12T21:33:09Z') },
+    ])
+    let killed = null
+    const d = makeDispatcher({ listSessions: async () => ['curia-42'], killSession: async (n) => { killed = n } })
+    closesRecords(d)
+    fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
+    escalations = [{ id: 'esc-21', agent: 'curia-42', ticket: '42', status: 'open', opened_at: at('2026-08-12T17:26:00Z') }]
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(cancelled, [{ id: 'esc-21', by: 'result' }])
+    assert.ok(events.some((e) => e.type === 'orphan_sweep_skipped'), 'the sweep still keeps its hands off a finishing agent')
+    assert.ok(typesOf().includes('lifecycle_closed'))
+    assert.equal(killed, 'curia-42')
+  })
+
+  test('an indeterminate session list still closes the record, and ends nothing', async () => {
+    // The evidence rule of every sweep in this file: a tmux read that failed
+    // is not "no sessions". The journal alone is enough to close a question.
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', ts: at('2026-08-12T09:00:00Z') },
+      { type: 'result', agent: 'curia-42', ticket: '42', ts: at('2026-08-12T21:33:00Z') },
+      { type: 'agent_blocked_on_human', agent: 'curia-42', ticket: '42', escalations: ['esc-21'], ts: at('2026-08-12T21:33:09Z') },
+    ])
+    let killed = null
+    const d = makeDispatcher({
+      listSessions: async () => { throw new Error('tmux is wedged') },
+      killSession: async (n) => { killed = n },
+    })
+    closesRecords(d)
+    escalations = [{ id: 'esc-21', agent: 'curia-42', ticket: '42', status: 'open', opened_at: at('2026-08-12T17:26:00Z') }]
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(cancelled, [{ id: 'esc-21', by: 'result' }])
+    assert.equal(killed, null)
+    assert.ok(!typesOf().includes('lifecycle_closed'))
+  })
+})
+
 describe('reconcile epoch scoping (criterion 7)', () => {
   function writeJournal(lines) {
     fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')

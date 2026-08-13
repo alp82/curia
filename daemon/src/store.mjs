@@ -7,9 +7,9 @@
 //
 // Semantics owned here:
 //   - first-valid-wins: answer/cancel close atomically; later attempts are rejected
-//   - supersede (#29): a re-issued ask_human (same agent + same payload while an
-//     older escalation is open) marks the old record superseded; answers posted
-//     to a dead id are routed along the successor chain to the live call
+//   - supersede (#29, #336): a re-issued ask_human — a second open record of one
+//     kind on one agent, whatever its wording — marks the old record superseded;
+//     answers posted to a dead id route along the successor chain to the live call
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -367,37 +367,54 @@ export class EscalationStore {
       .digest('hex').slice(0, 16)
   }
 
-  // Open a new escalation. If the same agent already has an OPEN escalation with
-  // the same payload, that record is a corpse from an aborted tool call (#29):
+  // Open a new escalation. If the same agent already has an OPEN escalation of
+  // this kind, that record is a corpse from an aborted tool call (#29):
   // supersede it and chain answers forward.
+  //
+  // The key is the agent and the KIND, not the wording (#336). It was the
+  // payload hash until a live re-send got past it: the standing orders tell an
+  // agent whose call failed to make the same call once more, the agent added
+  // "(Re-sent: the last call timed out with an error…)" to explain itself, and
+  // that note changed the hash. Two live cards for one question, and the
+  // original never closed. A re-send is the same call again, so the words are
+  // the one thing about it that can differ — and the promise the standing
+  // orders make, that curia routes the human to whichever call is live, is a
+  // promise about the call rather than about its wording.
+  //
+  // The kind stays in the key because one agent CAN hold two calls at once and
+  // mean both: a harness that backgrounds a pending `ask_human` leaves the
+  // question open while `request_review` opens the gate. Those are two
+  // questions to a human, and an approval routed into a free-text call would
+  // be read as an answer to it.
   //
   // A confirm (#94) supersedes on a different key: any open confirm sharing a
   // target INSTANCE — a newer confirm on the same agent replaces the older one
   // whatever its wording, so at most one set of live buttons ever points at a
-  // given agent.
+  // given agent. The two keys never cross: a confirm is an operator's record
+  // and belongs to no agent's call.
   open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id }) {
     const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
       .some((t) => (action?.targets ?? []).some((u) => u.instance === t.instance))
-    let superseded = null
-    for (const r of this.escalations.values()) {
-      if (r.status !== 'open') continue
-      const match = kind === CONFIRM_KIND
+    // Oldest first, and ALL of them: one agent should never hold two open
+    // records of one kind, but a journal written before this rule can carry
+    // several, and a corpse this call walks past stays on the Needs-You list
+    // forever.
+    const superseded_all = [...this.escalations.values()].filter((r) => {
+      if (r.status !== 'open') return false
+      return kind === CONFIRM_KIND
         ? r.kind === CONFIRM_KIND && sharesInstance(r)
-        : r.agent === agent && r.payload_hash === payload_hash
-      if (match) {
-        superseded = r
-        break
-      }
-    }
-    // `recommended` (#285) stays OUT of the payload hash on purpose: the hash
-    // keys supersession on the question, and the flag is not the question. An
-    // agent that re-asks the same round with the flag flipped supersedes its
-    // own record, which is what a re-ask should do.
+        : r.kind === kind && r.agent === agent
+    })
+    // The hash keyed supersession until #336 took the question out of the key.
+    // It stays on the line as EVIDENCE: it is what tells a later reader whether
+    // a superseded record held the same question its successor asks. Nothing
+    // decides on it, so a round re-asked with `recommended` flipped (#285)
+    // supersedes its own record either way.
     this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload_hash, action, origin_thread_id })
-    if (superseded) this._append({ type: 'esc_supersede', id: superseded.id, successor: id })
-    return { record: this.escalations.get(id), superseded }
+    for (const r of superseded_all) this._append({ type: 'esc_supersede', id: r.id, successor: id })
+    return { record: this.escalations.get(id), superseded: superseded_all[0] ?? null, superseded_all }
   }
 
   attachRender(id, discord) {

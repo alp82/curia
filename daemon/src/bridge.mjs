@@ -1385,6 +1385,9 @@ export class DiscordBridge {
     switch (by) {
       case 'cancel': return 'its agent was cancelled'
       case 'agent-death': return 'its agent is gone'
+      // #336: the agent finished PAST this question. The words say so, because
+      // "cancelled" alone reads as somebody deciding against the question.
+      case 'result': return 'its agent finished and reported a result'
       case 'reconcile': return 'the daemon reconciled it away'
       case 'rest': return 'it was cancelled over the REST seam'
       default: return /^\d+$/.test(String(by)) ? `cancelled by <@${by}>` : `cancelled (${by})`

@@ -2991,6 +2991,7 @@ export class Dispatcher {
     }
     const w = this.agents.get(agentName)
     if (w) w.resultReceived = true
+    this.#closeQuestionsAtResult(agentName)
     if (!result) return 'result recorded'
 
     // #164: a reviewer's result IS the verdict, and nothing else happens on it.
@@ -3050,6 +3051,31 @@ export class Dispatcher {
       this.store.logEvent('resolve_failed', { repo, ticket, agent: agentName, status: result.status, error: e.message })
       this.#failureNotify(ticket, 'resolve', `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${failureProse(e.message)}`)
       return `result recorded — but curia's resolve step failed: ${e.message}`
+    }
+  }
+
+  // A question its own agent has finished past (#336).
+  //
+  // `report_result` is the agent's LAST call. A record still open on it can
+  // never be read: the call that opened it died, and the agent that would have
+  // resumed is at its end. Left open it does three things, all of them found
+  // live — it holds the ticket on the Needs-You list, it makes the next Stop
+  // hook mark a finished agent `blocked_on_human` (#47's evidence, reading a
+  // corpse), and through that mark it holds the container up.
+  //
+  // This closes nothing on silence (#285). The agent's own result is what
+  // closes the record, and only for the agent that reported it. A confirm
+  // belongs to the operator, never to an agent's call, so it is not one of
+  // these — `#openEscalationsFor` keys on the spawn binding.
+  //
+  // Cancel rather than lapse, for the reason every other void here cancels: it
+  // settles the dead promise and edits the card, so a question the operator can
+  // still see says it closed instead of asking on.
+  #closeQuestionsAtResult(agentName) {
+    for (const r of this.#openEscalationsFor(agentName)) {
+      this.cancelEscalation(r.id, { by: 'result' })
+      this.store.logEvent('escalation_stale_at_result', { id: r.id, agent: agentName, ticket: r.ticket })
+      this.log(`${agentName} reported a result with ${r.id} still open — the question is stale, so it is closed`)
     }
   }
 
@@ -4524,6 +4550,15 @@ export class Dispatcher {
       await this.previews.sweep(liveTickets).catch((e) => this.log(`preview sweep failed: ${e.message}`))
     }
 
+    // #336, the repair half of the result rule. `onResult` closes a stale
+    // question at the moment the result lands, and this pass closes the ones
+    // no live call could: a record whose agent reported a result under a
+    // previous daemon process, and the two the live box was still holding when
+    // this ticket was written. Journal-only evidence, so it needs neither the
+    // viewer identity nor a session list — a `result` line for that agent, and
+    // a record that opened before it.
+    await this.#reconcileStaleQuestions(ctx)
+
     if (boot) this.#voidBootConfirms()
     await this.#assertAttachSurface()
     // The timeline surface (#74) rides the same posture: asserted every
@@ -5023,6 +5058,49 @@ export class Dispatcher {
       } catch (e) {
         this.log(`reconcile: could not remove orphan container ${name} (${e.message})`)
       }
+    }
+  }
+
+  // Every open record its own agent already finished past (#336).
+  //
+  // The same rule `#closeQuestionsAtResult` runs at the result, said as a
+  // reduction over the journal so it also reaches what no live call could: a
+  // result reported under a previous daemon process, and the ghosts a box was
+  // already holding when the rule landed. Epoch-scoping is free here — a
+  // respawn clears the agent's result, so a question asked by a LATER dispatch
+  // of the same session name is never judged against an older one's ending.
+  //
+  // The second half is the container. A Stop hook that fired while the corpse
+  // was open deferred the whole ending to it (#47), and that deferral is a
+  // journal line: `agent_blocked_on_human` after the result. With the record
+  // closed, the ending it deferred has to run, or the pane and its container
+  // stay up on a ticket that merged days ago. An indeterminate session list
+  // costs only that half: the record still closes, and the next pass with a
+  // readable list ends the session.
+  async #reconcileStaleQuestions({ journal, sessions }) {
+    const results = new Map() // agent -> the ts of its last result
+    const deferred = new Set() // agents whose Stop hook then deferred to a question
+    for (const ev of journal) {
+      if (!ev.agent) continue
+      if (ev.type === 'agent_spawned') { results.delete(ev.agent); deferred.delete(ev.agent) }
+      else if (ev.type === 'result') { results.set(ev.agent, ev.ts); deferred.delete(ev.agent) }
+      else if (ev.type === 'agent_blocked_on_human' && results.has(ev.agent)) deferred.add(ev.agent)
+    }
+    const toEnd = new Set()
+    for (const r of this.store.openEscalations()) {
+      const reportedAt = Date.parse(results.get(r.agent) ?? '')
+      const openedAt = Date.parse(r.opened_at ?? '')
+      // An unreadable stamp on either side is not evidence, and the safe
+      // direction for a question is to leave it asking.
+      if (Number.isNaN(reportedAt) || Number.isNaN(openedAt) || openedAt >= reportedAt) continue
+      this.cancelEscalation(r.id, { by: 'result' })
+      this.store.logEvent('escalation_stale_at_result', { id: r.id, agent: r.agent, ticket: r.ticket, by: 'reconcile' })
+      this.log(`reconcile: ${r.id} was still open on ${r.agent}, which reported a result — the question is stale, so it is closed`)
+      if (deferred.has(r.agent) && sessions?.includes(r.agent)) toEnd.add(r.agent)
+    }
+    for (const session of toEnd) {
+      this.log(`reconcile: ${session} ended its turn on a stale question — running the ending that was deferred`)
+      await this.onAgentDone(session).catch((e) => this.log(`reconcile: the deferred ending of ${session} failed (${e.message}) — the next pass retries`))
     }
   }
 
