@@ -394,36 +394,48 @@ export function hostStorageDir(harness = 'claude') {
 // The DAEMON is deliberately not on this token. Its own `gh` keeps the host
 // login, because it must reach every watched repo, and a repo added to
 // `curia.yaml` but left off a token would break dispatch with no signal. A bare
-// `GH_TOKEN` in `daemon/.env` would re-authenticate the daemon too, silently, by
-// sitting in its environment — hence a prefixed key.
+// `GH_TOKEN` in `daemon/.env.daemon` would re-authenticate the daemon too,
+// silently, by sitting in its environment — hence a prefixed key.
 //
 // The key says AGENT where the rest of this file still says agent: it is
 // operator-facing config, and renaming it later would cost a coordinated edit of
-// every `.env` plus a restart. The code sweep is #184.
-const GH_TOKEN_KEY = 'CURIA_AGENT_GH_TOKEN'
+// every env file plus a restart. The code sweep is #184.
+//
+// Exported because the overseer's own keys are the same shape one prefix over
+// (#313), and the two prefixes have to be told apart in one place.
+export const AGENT_TOKEN_KEY = 'CURIA_AGENT_GH_TOKEN'
 
 // A GitHub token as GitHub writes one — `github_pat_…`, `ghp_…`, `gho_…`: word
 // characters and nothing else. The value travels as `env K=V` in tmux argv (and
 // as `-e` on the container's command line later), so a stray quote or space from
-// a hand-edited `.env` line has to be refused where it is read. `gh` answers a
+// a hand-edited env line has to be refused where it is read. `gh` answers a
 // quoted token with a plain 401, and nothing on the box would name the quote.
 const GH_TOKEN_RE = /^[A-Za-z0-9_]+$/
 
-// `alp82/curia` → `CURIA_AGENT_GH_TOKEN_ALP82`. An owner is a GitHub login, so
-// the only character to fold is the hyphen.
-export function ghTokenKeyFor(repo) {
+// `alp82/curia` → `ALP82`. An owner is a GitHub login, so the only character to
+// fold is the hyphen. The overseer's keys are built from the same slug (#313).
+export function ownerSlug(repo) {
   const owner = String(repo ?? '').split('/')[0]
   if (!owner) return null
-  return `${GH_TOKEN_KEY}_${owner.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`
+  return owner.toUpperCase().replace(/[^A-Z0-9]/g, '_')
 }
 
-function readGhToken(env, key) {
+// `alp82/curia` → `CURIA_AGENT_GH_TOKEN_ALP82`.
+export function ghTokenKeyFor(repo) {
+  const slug = ownerSlug(repo)
+  return slug ? `${AGENT_TOKEN_KEY}_${slug}` : null
+}
+
+// `where` names the file in the refusal, because #313 puts the overseer's own
+// tokens in a second one and a message naming the wrong file sends the operator
+// to the wrong line.
+export function readGhToken(env, key, where = 'daemon/.env.daemon') {
   const raw = env[key]
   if (raw === undefined) return null
   const token = raw.trim()
   if (!token) return null
   if (!GH_TOKEN_RE.test(token)) {
-    throw new Error(`bad ${key} in daemon/.env: a GitHub token is word characters only — drop the quotes and any trailing text`)
+    throw new Error(`bad ${key} in ${where}: a GitHub token is word characters only — drop the quotes and any trailing text`)
   }
   return token
 }
@@ -441,7 +453,7 @@ export function agentGhToken(repo, env = process.env) {
 // the owners that are scoped, for the boot line.
 export function assertGhTokens(env = process.env) {
   return Object.keys(env)
-    .filter((k) => k.startsWith(`${GH_TOKEN_KEY}_`))
+    .filter((k) => k.startsWith(`${AGENT_TOKEN_KEY}_`))
     .filter((k) => readGhToken(env, k) !== null)
     .map((k) => ({ key: k, token: readGhToken(env, k) }))
 }

@@ -48,7 +48,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount, probeAgentToken, tokenExpiryDays } from '../src/github.mjs'
+import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount, probeRepoToken, tokenExpiryDays } from '../src/github.mjs'
 
 // Small fixture builder -- keeps the field-notes ground truth readable below.
 // assignees/labels use the real gh shape: arrays of objects, not strings.
@@ -303,7 +303,7 @@ describe('the agent token boot probe (#155)', () => {
 
   test('a reachable repo answers ok, and carries the token expiry when there is one', async () => {
     let seen = null
-    const res = await probeAgentToken('getalfredo/landing-page', 'github_pat_x', {
+    const res = await probeRepoToken('getalfredo/landing-page', 'github_pat_x', {
       fetchImpl: async (url, opts) => {
         seen = { url, auth: opts.headers.authorization }
         return reply(200, { full_name: 'getalfredo/landing-page' },
@@ -318,7 +318,7 @@ describe('the agent token boot probe (#155)', () => {
   // The header is ABSENT on a no-expiration token — that absence is the fact,
   // not a missing reading.
   test('a token that never expires carries no expiry header', async () => {
-    const res = await probeAgentToken('alp82/curia', 'github_pat_x',
+    const res = await probeRepoToken('alp82/curia', 'github_pat_x',
       { fetchImpl: async () => reply(200, { full_name: 'alp82/curia' }) })
     assert.deepEqual(res, { ok: true, expiresAt: null })
     assert.equal(tokenExpiryDays(res.expiresAt), null)
@@ -332,7 +332,7 @@ describe('the agent token boot probe (#155)', () => {
       [401, 'Bad credentials', /HTTP 401: Bad credentials/],
     ]
     for (const [status, message, expected] of cases) {
-      const res = await probeAgentToken('alp82/x', 'github_pat_x',
+      const res = await probeRepoToken('alp82/x', 'github_pat_x',
         { fetchImpl: async () => reply(status, { message }) })
       assert.equal(res.ok, false)
       assert.equal(res.status, status)
@@ -341,7 +341,7 @@ describe('the agent token boot probe (#155)', () => {
   })
 
   test('a non-JSON body still reports its status rather than throwing', async () => {
-    const res = await probeAgentToken('alp82/x', 'github_pat_x', {
+    const res = await probeRepoToken('alp82/x', 'github_pat_x', {
       fetchImpl: async () => ({
         ok: false, status: 502, headers: { get: () => null },
         json: async () => { throw new Error('not json') },

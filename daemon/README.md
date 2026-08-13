@@ -15,14 +15,15 @@ The daemon expects these on the box before the first boot:
 - **`tmux`** — the agent host. Under compose (#260) the server lives in the `tmux` service and the daemon is a client over `CURIA_TMUX_SOCKET`. Unset, the default socket serves a dev box.
 - **`ttyd` on port 7681** for the browser terminal. The compose `ttyd` service runs it. The daemon health-checks the port and does not spawn ttyd.
 - **Tailscale** with Serve available. Attach links and preview links publish through `tailscale serve`.
-- **A Discord bot** in one guild, with the message-content intent, and its token in `.env`.
+- **A Discord bot** in one guild, with the message-content intent, and its token in `.env.daemon`.
 
-`.env` (never committed):
+`.env.daemon` (never committed). One env file per container that holds secrets, and the pair reads as a pair: this one and `.env.overseer` (#313):
 
 - `DISCORD_BOT_TOKEN` — CuriaBot token. Omit to run REST-only (escalations stay answerable via `POST /answer`).
 - `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty.
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` — the scoped GitHub token an agent gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. See [the agent's GitHub authority](#the-agents-github-authority-155) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
+- The overseer's own tokens are **not** in this file. They live in `.env.overseer` beside it, one `CURIA_OVERSEER_GH_TOKEN_<OWNER>` per resource owner, read-only (#313). That second file is the boundary: the overseer service loads it whole and never loads `.env`. See [the overseer's GitHub authority](#the-overseers-github-authority-313) below.
 - `OVERSEER_MODEL` (default `claude-haiku-4-5`) and `OVERSEER_FALLBACK_MODEL` (default `claude-sonnet-5`) — the overseer session models (#92).
 
 Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml` (watch list, dispatch settings — `auto_dispatch` ships `false` — attach ports, preview range, agent skill set) and `../config/routing.yaml` (label-only model routing, fallback chains, harness command templates). Override the directory with `CURIA_CONFIG_DIR`.
@@ -33,7 +34,7 @@ Each of those two files takes an override beside it — `curia.local.yaml` and `
 
 ```
 npm install
-npm start          # reads daemon/.env
+npm start          # reads daemon/.env.daemon
 npm test           # unit tests
 ```
 
@@ -206,7 +207,7 @@ An agent used to reach GitHub through the host's `~/.config/gh/hosts.yml` login,
 
 The permissions are **Contents**, **Issues** and **Pull requests** read/write, plus **Commit statuses** read so `gh pr checks` answers. Nothing else. The rule is grant content, never execution or persistence: Secrets, Variables, Webhooks, Workflows, Environments and Actions-write each hand a compromised agent either a way to run code or a way to keep reach after it dies.
 
-The daemon is deliberately **not** on this token. Its own `gh` keeps the host login, because it must reach every watched repo, and a repo added to `curia.yaml` but left off a token would break dispatch with no signal. A bare `GH_TOKEN` in `.env` would re-authenticate the daemon too, silently, by sitting in its environment.
+The daemon is deliberately **not** on this token. Its own `gh` keeps the host login, because it must reach every watched repo, and a repo added to `curia.yaml` but left off a token would break dispatch with no signal. A bare `GH_TOKEN` in `.env.daemon` would re-authenticate the daemon too, silently, by sitting in its environment.
 
 The value is read at boot, so a quoted or padded token refuses the boot instead of reaching an agent as a 401 mid-resolve. Boot also asks GitHub once per watched repo, with the token that repo's agent would get, and warns when the token cannot reach it or expires within 14 days. An expired token does not degrade to the host login. It fails every `gh` call, so the warning is the whole defense.
 
@@ -215,6 +216,24 @@ That probe has one blind spot, measured rather than assumed: **a public repo lef
 Note for org repos: an organization can cap fine-grained PAT lifetime, and `getalfredo` caps it at 366 days. So an org token cannot be permanent, and its expiry is a calendar item until the GitHub App lands. The full transcript is in [docs/live-checks/155-agent-github-token.md](../docs/live-checks/155-agent-github-token.md).
 
 A GitHub App with one-hour installation tokens is the later, cleaner form, and it stays in the map's fog. It is not a drop-in: an installation token dies after an hour and `GH_TOKEN` is fixed at pane spawn, so the daemon would have to refresh into a per-agent `gh` config dir that `gh` re-reads on each call.
+
+## The overseer's GitHub authority (#313)
+
+The overseer container holds a shell. The read-only token is the control that replaces the `/command` seam, because a standing order cannot hold a shell and a shell cannot mint a token. See [ADR-0014](../docs/adr/0014-the-overseer-in-its-own-container.md).
+
+**One token per resource owner**, the same rule and the same spelling as the agent token, one prefix over: `CURIA_OVERSEER_GH_TOKEN_<OWNER>`, uppercased, hyphens folded to underscores. An operator who has written one pair of keys has written the other.
+
+**The keys live in `daemon/.env.overseer`, never in `daemon/.env`.** The overseer service loads that file whole, so every key in it is a key a shell in that container holds. `daemon/.env` carries the agents' read-WRITE tokens and the Discord bot token, and compose cannot filter an env file. So the file itself is the boundary. The daemon parses this file and never loads it into its own environment. A bare token in the daemon environment would re-authenticate the daemon's own `gh`, which is the trap #155 named.
+
+The permissions are **Contents**, **Issues**, **Pull requests** and **Commit statuses** at read, plus **Metadata** read. Nothing at write, and nothing else at all. Agents write, and they write through pull requests.
+
+**The expiry follows the owner**, exactly as the agent tokens do. The `alp82` token has none. The `getalfredo` token expires after 366 days, because the organization refuses any fine-grained token with a longer life, and that refusal hits a public repo read too.
+
+Boot states each token, then asks GitHub once per watched repo with the token that repo would be read with. It warns when a token cannot reach a repo, when a token expires within 14 days, and when an owner on the watch list has no key. An expired token does not degrade to anything. The container mounts no `~/.config/gh`, so the reach falls back to what GitHub gives an anonymous caller. The boot warning is the whole defense.
+
+The probe has the same blind spot as the agent one, and it is measured, not assumed: a public repo left off the token's selection cannot be detected by any read. The full transcript is in [docs/live-checks/313-overseer-github-token.md](../docs/live-checks/313-overseer-github-token.md).
+
+`gh` reads one `GH_TOKEN`, and the container holds one token per owner, so something must pick. git picks by itself: one `credential.https://github.com/<owner>.helper` line per owner, because git prefix-matches the owner path (measured). `gh` needs a shim that reads the owner off the command line or off the checkout directory name. [#327](https://github.com/alp82/curia/issues/327) installs both, because it owns the image.
 
 ## What an agent knows (#57)
 

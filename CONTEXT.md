@@ -151,6 +151,10 @@ _Avoid_: private clone (that is an agent's, per ticket, and it is a place to com
 **Checkout pass**:
 What the overseer container runs at the start of every turn, before the model: clone every watched repo that is missing, delete the clone of one nobody watches, and fetch the rest in parallel. It is the whole reason every read inside one turn is consistent. The daemon asserts nothing about this tree. A repo whose fetch fails does not refuse the turn — the pass returns a verdict per repo, and the turn tells the model which checkout is stale and how old it is.
 
+**Overseer token**:
+The read-only GitHub token the overseer container holds, one fine-grained PAT per resource owner. It is the control that replaces the seam: the container has a shell, and a shell cannot mint a token. It lives in `daemon/.env.overseer` as `CURIA_OVERSEER_GH_TOKEN_<OWNER>`, a second env file the overseer service loads whole and the daemon only reads. See [ADR-0014](docs/adr/0014-the-overseer-in-its-own-container.md) and the [live checks](docs/live-checks/313-overseer-github-token.md).
+_Avoid_: agent token (that one is per resource owner too, but it is read-write and it reaches an agent as `GH_TOKEN`).
+
 **The verbs**:
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
@@ -423,7 +427,7 @@ The model a takeable ticket gets if it starts now. Reconcile computes it with th
 The operator's Tailscale login, taken from the header the sidecar's identity check already reads and passed to the daemon as the `by` of every verb. Before the console, every REST verb journalled the word `rest`. The feed now names a person rather than a transport.
 
 **Sidecar**:
-The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env`.
+The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env.daemon`.
 
 **Settings screen**:
 The one dashboard screen that writes. Three sections, Routing first, then Projects and Dispatch. It reads `curia.yaml` and `routing.yaml` off disk on arrival, never from the poll snapshot, and posts back only what the operator changed.

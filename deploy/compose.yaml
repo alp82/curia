@@ -46,8 +46,12 @@ services:
     environment:
       HOME: /home/alp
       CURIA_TMUX_SOCKET: /run/curia-tmux/default
+    # Renamed by #313, which gave the overseer container its own `.env.overseer`
+    # beside this one. Compose refuses a missing env_file, so a box that still
+    # carries the old `daemon/.env` fails this recreate and rolls back, rather
+    # than starting a daemon with no Discord token.
     env_file:
-      - ../daemon/.env
+      - ../daemon/.env.daemon
     volumes:
       # docker-outside-of-docker: agent containers are siblings on host dockerd.
       - /var/run/docker.sock:/var/run/docker.sock
@@ -158,7 +162,7 @@ services:
     volumes:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
       # THE MOUNT LIST IS THE SECRET-FREE CLAIM, so it names files rather than
-      # trees. `daemon/` as a whole would carry `.env` (the Discord token) and
+      # trees. `daemon/` as a whole would carry `.env.daemon` (the Discord token) and
       # `data/` (the journal #249 keeps daemon-private) into a process that must
       # hold neither. So: the code it runs, the page it serves, and nothing
       # else. `node_modules` is baked into the image for the same reason.
