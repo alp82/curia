@@ -49,4 +49,15 @@ The last two rows are the ones that matter. They are a real network fetch, so th
 
 ## 4. The mint record
 
-<!-- filled in when the operator reports -->
+Minted by the operator on 2026-08-13. The values never left the box, so this section is their report, not a measurement of mine.
+
+| Token | Resource owner | Key in `daemon/.env.overseer` | Expires |
+| --- | --- | --- | --- |
+| `curia-overseer-alp82` | `alp82` | `CURIA_OVERSEER_GH_TOKEN_ALP82` | never |
+| `curia-overseer-getalfredo` | `getalfredo` | `CURIA_OVERSEER_GH_TOKEN_GETALFREDO` | **2027-08-14** |
+
+Both carry Contents, Issues, Pull requests and Commit statuses at read, plus Metadata read. Nothing at write. Each one selects only the watched repos of its owner.
+
+**Where they land.** `/home/alp/curia/daemon/.env.overseer` on the box, mode 600, beside `daemon/.env.daemon`. The overseer service loads that file whole, and that file is the container environment: the two keys arrive inside under their own names. The daemon parses the same file to state each token at boot, and never loads it.
+
+**The calendar item.** The `getalfredo` token dies on 2027-08-14. Boot starts warning 14 days out, on 2027-07-31. An expired token does not degrade to anything, so that warning is the whole defense.
