@@ -138,7 +138,7 @@ The identity of one conversation. It keys the resume id, the notes waiting for t
 _Avoid_: thread id (that names the Discord object, and only one shape of key is one).
 
 **Single-use conversation thread**:
-The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. Charting a map through the overseer breaks this today and opens two threads. [#326](https://github.com/alp82/curia/issues/326) owns the fix.
+The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. The thread stays bound to the name the dispatch ran under for the whole session, so every line the agent says lands in it. curia charts a new map under a chat handle. The map number takes that thread through the journal when the session ends. See [#326](https://github.com/alp82/curia/issues/326).
 
 **Turn**:
 One operator message, answered. It is the unit the overseer works in, and nothing of the overseer runs between turns. One turn at a time per conversation, and no cap across conversations.

@@ -594,16 +594,16 @@ const threads = {
   async cancelled(ticket) {
     if (bridge) return bridge.cancelTicket(ticket)
   },
-  // #241: a new-map session's thread moves from the handle `new` onto the map
-  // number the moment the agent creates the map. With the bridge down the
-  // journal still has to move, so the binding is written either way — only the
-  // rename is display, and only the rename is lost.
+  // #241: a new-map session's thread takes the map's name the moment the agent
+  // creates the map. The binding stays on the chat handle for the rest of the
+  // session (#326), and the map's claim on the thread is the dispatcher's own
+  // journalled `map_adopted` line, written before this call. So with the
+  // bridge down there is nothing to do here: only the rename is display, and
+  // only the rename is lost.
   async adoptMap(handle, mapNumber, opts) {
     if (bridge) return bridge.adoptMapThread(handle, mapNumber, opts)
     const threadId = store.threadForTicket(handle)
-    if (!threadId) return { ok: false, reason: 'unbound' }
-    store.releaseTicketThread(handle, 'the map this session created now names it')
-    return store.bindTicketThread(String(mapNumber), threadId)
+    return threadId ? { ok: true, threadId } : { ok: false, reason: 'unbound' }
   },
 }
 
