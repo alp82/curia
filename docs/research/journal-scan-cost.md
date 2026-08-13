@@ -1,6 +1,6 @@
 # What the journal scans cost
 
-Evidence for [wayfinder #303](https://github.com/alp82/curia/issues/303), on [map #244](https://github.com/alp82/curia/issues/244). Read and measured on 2026-08-10, against the daemon at `fbbcf02`.
+Evidence for [wayfinder #303](https://github.com/alp82/curia/issues/303), on [map #244](https://github.com/alp82/curia/issues/244). Read and measured on 2026-08-10, against the daemon at `fbbcf02`. The operator measured the live file on the box on 2026-08-13, and [What the real journal holds](#what-the-real-journal-holds) carries that result.
 
 The operator ruled at the #303 escalation: the journal becomes a `node:sqlite` store, and that build gets its own map. This file is the evidence the ruling stands on. It exists so the charting session reads the numbers instead of measuring them again.
 
@@ -64,12 +64,15 @@ The read dominates. Parsing every line costs about twenty times what the questio
 
 ## What the real journal holds
 
-The live file lives on the operator's box, in a directory no agent container mounts, so no dispatched agent can measure it. Two records stand in.
+The live file lives on the operator's box, in a directory no agent container mounts, so no dispatched agent can measure it. The operator measured it by hand for [#317](https://github.com/alp82/curia/issues/317).
 
-- On 2026-08-09 it held **2,667 events**, reaching back to 2026-07-24 ([the thread surprise catalog](discord-thread-surprises.md)). That is about **167 events per day**.
+- On 2026-08-13 it held **4,282 events** in **1.4 MB**. `wc -l` reported 4282 lines, and `du -h` reported 1.4M. That is about **343 bytes per line**.
+- On 2026-08-09 it held **2,667 events**, reaching back to 2026-07-24 ([the thread surprise catalog](discord-thread-surprises.md)).
 - The daemon writes **96 event types** from **129 `logEvent` call sites**.
 
-At 167 events per day the file passes 60,000 lines in about a year. Its byte size on the box is still unmeasured, and the estimate above puts it under 2 MB today.
+The file gained 1,615 events in those four days. That is about **404 events per day**. The older figure of 167 per day is the average since 2026-07-24, so the recent rate is more than twice the average. Use 404 to size the future, and treat both numbers as one sample each.
+
+The real line is larger than the synthetic line in the table above. The table used about 270 bytes per line, and the box holds about 343. The measured file sits between the 2,800-line row and the 10,000-line row, so one whole read costs about **25 ms** today. At 404 events per day the file reaches 60,000 lines in about five months.
 
 ## What the Stop hook pays
 
@@ -78,7 +81,7 @@ At 167 events per day the file passes 60,000 lines in about a year. Its byte siz
 - An agent this process holds in memory pays **one** whole read per turn, for `#epochScan`. Both `#epochCharting` calls short-circuit on the record, and `#liveUnjudgedVerdict` returns before its scan when no verdict file exists.
 - An agent this process never held pays **three or four** whole reads per turn.
 
-So the Stop-hook cost today is about 12 ms per turn, and about a quarter of a second per turn at one year of the current rate.
+So the Stop-hook cost today is about 25 ms per turn. In about five months the file reaches 60,000 lines, and the cost reaches about a quarter of a second per turn.
 
 ## What was put up and turned down
 
