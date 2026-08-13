@@ -312,12 +312,14 @@ async function renderEscalation(record, files = []) {
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
 function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files }) {
-  const { record, superseded } = store.open({ agent, ticket, kind, prompt, options, preview_url, recommended })
-  log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
-  if (superseded) {
-    pending.delete(superseded.id) // the agent aborted that call; nobody is waiting on it
-    clearRenderRetries(superseded.id)
-    if (bridge) bridge.markSuperseded(store.get(superseded.id)).catch(() => {})
+  const { record, superseded_all } = store.open({ agent, ticket, kind, prompt, options, preview_url, recommended })
+  log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
+  // Every corpse this agent left, not just the newest (#336): a card left
+  // rendered keeps asking a question nothing can receive an answer for.
+  for (const dead of superseded_all) {
+    pending.delete(dead.id) // the agent aborted that call; nobody is waiting on it
+    clearRenderRetries(dead.id)
+    if (bridge) bridge.markSuperseded(store.get(dead.id)).catch(() => {})
   }
   armRenderRetries(record)
   renderEscalation(record, files)
@@ -536,11 +538,14 @@ function notifyThread(ticket, message, opts = {}) {
 // button → gate.answer → dispatcher.onConfirmAnswered, and the record lapses
 // the moment its agent exits.
 function openConfirm({ ticket, prompt, action, originThreadId }) {
-  const { record, superseded } = store.open({
+  const { record, superseded_all } = store.open({
     agent: 'overseer', ticket, kind: CONFIRM_KIND, prompt, action, origin_thread_id: originThreadId ?? null,
   })
-  log(`confirm ${record.id} open (${action.verb}) ticket=${ticket}${superseded ? ` supersedes ${superseded.id}` : ''}`)
-  if (superseded && bridge) bridge.markSuperseded(store.get(superseded.id)).catch(() => {})
+  log(`confirm ${record.id} open (${action.verb}) ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
+  for (const dead of superseded_all) {
+    clearRenderRetries(dead.id)
+    if (bridge) bridge.markSuperseded(store.get(dead.id)).catch(() => {})
+  }
   // A confirm has no reminder and no expiry, but it still has to be SEEN: a
   // confirm that never rendered carries buttons nobody can press, so it takes
   // the same bounded render retry every other escalation takes (#261).
