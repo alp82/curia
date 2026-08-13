@@ -19,6 +19,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [landscape-scan.md](landscape-scan.md) | Sweep of daemons, bridges, orchestrators, and muxes | Informational — found no replacement candidates |
 | [matt-pocock-skills.md](matt-pocock-skills.md) | The Pocock skill set as worker procedure grammar | Adopted — ADR-0006 vendors the set at `skills/` and installs it into worker configs |
 | [multica.md](multica.md) | Multica as an orchestrator and tracker candidate | Rejected — its Postgres is the tracker, which ADR-0001 forbids |
+| [node-sqlite-guarantees.md](node-sqlite-guarantees.md) | Durability, operation, maturity, and write cost for `node:sqlite` on Node 24 | Informational - grounds the journal store decisions on [The journal becomes a queryable store](https://github.com/alp82/curia/issues/316) |
 | [openacp.md](openacp.md) | OpenACP as a Discord bridge and agent daemon | Rejected — ADR-0002 keeps it as a design reference only |
 | [openacp-handson.md](openacp-handson.md) | Building and booting the OpenACP fork bridge | Superseded — refines [openacp.md](openacp.md); vendoring was rejected |
 | [orca.md](orca.md) | Orca as a multi-device attach worker host | Rejected — benched; ADR-0003 picks tmux + ttyd + Tailscale |
