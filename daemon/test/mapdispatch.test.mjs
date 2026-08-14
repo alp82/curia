@@ -27,7 +27,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Dispatcher } from '../src/dispatch.mjs'
-import { writePrompt } from '../src/workspace.mjs'
+import { writePrompt, STANDING_FILE } from '../src/workspace.mjs'
 import { outstanding, CHARTING_ENDING, ENDING } from '../src/lifecycle.mjs'
 import { chartingComment } from '../src/resolve.mjs'
 import { resolveModel, candidates, Cooling } from '../src/routing.mjs'
@@ -45,6 +45,10 @@ const ROUTING = {
   fallbacks: {},
   harnesses: { claude: { template: 'claude --model {model} "$(cat {prompt_file})"', ready: 'x', toolChannelGraceS: 15, readyRe: /x/ } },
 }
+
+// #340: one text, two files — `prompt.md` for the parameters, `standing.md` for
+// the bounds, the tools and the ending. The agent reads both, in this order.
+const readBoth = (promptFile) => `${fs.readFileSync(promptFile, 'utf8')}\n${fs.readFileSync(path.join(tmp, STANDING_FILE), 'utf8')}`
 
 const MAP_ISSUE = {
   number: 147, title: 'Curia gets better', body: '## Destination\n\nsomewhere', state: 'open',
@@ -202,9 +206,11 @@ describe('a wayfinder:map row joins the routing defaults', () => {
 // ---- the prompt (#149 point 4) ------------------------------------------------
 
 describe('the charting prompt', () => {
+  // #340: the bounds, the tools and the ending live in `standing.md` now, and
+  // the agent reads both files. So does this.
   const write = (opts) => {
     const file = writePrompt(tmp, MAP_ISSUE, { repo: 'o/r', wtPath: '/w/147', mapNumber: 147, type: 'wayfinder:map', ...opts })
-    return fs.readFileSync(file, 'utf8')
+    return readBoth(file)
   }
 
   test('the /wayfinder line names the map and NO ticket', () => {
@@ -298,7 +304,7 @@ describe('the charting prompt', () => {
 
   test('an ordinary ticket prompt is untouched by any of it', () => {
     const p = writePrompt(tmp, TICKET_ISSUE, { repo: 'o/r', wtPath: '/w/42', mapNumber: 147, type: 'wayfinder:task' })
-    const text = fs.readFileSync(p, 'utf8')
+    const text = readBoth(p)
     assert.equal(text.split('\n')[0], '/wayfinder https://github.com/o/r/issues/147 ticket #42')
     assert.match(text, /already CLAIMED it in your name/)
     assert.match(text, /Only after the approval: merge it/)
@@ -316,7 +322,7 @@ describe('the new-map prompt (#241)', () => {
       repo: 'o/r', wtPath: '/w/chat-1', mapNumber: null, type: 'wayfinder:map',
       charting: true, newMap: true, instruction: 'read direction.md and chart the next feature', ...opts,
     })
-    return fs.readFileSync(file, 'utf8')
+    return readBoth(file)
   }
 
   test('the /wayfinder line names NO map — it is the skill\'s chart mode', () => {
@@ -362,7 +368,7 @@ describe('the new-map prompt (#241)', () => {
     const onAMap = writePrompt(tmp, MAP_ISSUE, {
       repo: 'o/r', wtPath: '/w/147', mapNumber: 147, type: 'wayfinder:map', charting: true, instruction: 'x',
     })
-    assert.ok(!fs.readFileSync(onAMap, 'utf8').includes('map_created'))
+    assert.ok(!readBoth(onAMap).includes('map_created'))
   })
 
   test('the write bound is the ONE map it creates, plus docs/research and no other file', () => {

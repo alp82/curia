@@ -198,7 +198,10 @@ The MCP servers an agent can reach: curia's own, and nothing else. Two settings 
 The skill set curia symlinks into every agent's config dir, so an agent resolves in the same idiom as a hand session.
 
 **Standing orders**:
-The spawn prompt: parameters and bounds, not procedure. Procedure lives in the installed skills.
+The bounds, the tools and the ending: what holds for every turn of a ticket, not procedure. Procedure lives in the installed skills. They ride the CLI's global-memory file in the agent's config dir, because both harnesses load that file as instructions and a user message goes stale (#340).
+
+**Spawn prompt**:
+The parameters of one dispatch: the ticket, the map, the worktree, the ports, and the line that invokes the skill. It states no bound and no procedure, and it points at the standing orders.
 
 **Bounds**:
 The hard limits in the standing orders. Read anything. Write only inside the worktree, the ticket, and the map subtree. No browser. Never answer for the human. A failed call is not an answer, and silence is not an answer.

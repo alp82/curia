@@ -535,6 +535,19 @@ function writeSecretFile(file, data) {
 
 const HARNESS = {
   claude: {
+    // The CLI's global-memory file, and the ONLY per-session channel either
+    // harness keeps outside the conversation (#340). Codex carries `AGENTS.md`
+    // as world state and restates it every turn ("These AGENTS.md instructions
+    // replace all previously provided AGENTS.md instructions"); a user message
+    // is conversation, and conversation goes stale — codex tells the model that
+    // the last user request is current and previous ones are stale. So curia's
+    // standing orders live HERE, not in `prompt.md`.
+    //
+    // A new harness must name its own file. That is the whole reason this is a
+    // table row rather than a ternary: a lane whose CLI has no such file cannot
+    // carry standing orders that survive turn one, and this row is where that
+    // has to be answered.
+    memoryFile: 'CLAUDE.md',
     // CLAUDE_SECURESTORAGE_CONFIG_DIR is what separates config from credentials.
     // Claude Code resolves its credential store through it and falls back to
     // CLAUDE_CONFIG_DIR only when it is unset, so pointing it at the host's
@@ -653,6 +666,8 @@ const HARNESS = {
   },
 
   codex: {
+    // See the claude row: this is the durable channel, and #340 measured it.
+    memoryFile: 'AGENTS.md',
     // CODEX_HOME is the whole config dir: settings, skills, sessions, logs AND
     // the credential file, with no second variable to split them (Claude's
     // CLAUDE_SECURESTORAGE_CONFIG_DIR has no codex equivalent). Sharing the
@@ -1035,6 +1050,44 @@ function codexSkillDenyList(install) {
     .sort()
 }
 
+// ---- the durable instruction channel (#340) ---------------------------------
+//
+// Curia's standing orders used to ride `prompt.md` alone, which is ONE user
+// message. #340 measured what that costs on the codex lane, from the CLI's own
+// rollout: codex keeps `AGENTS.md`, the environment and the skill catalog as
+// world state and restates them, while a user message is conversation. Its
+// instructions then tell the model to treat the last user request as current
+// and every earlier one as stale, and to drop a skill after the turn that named
+// it. A wayfinder ticket is many turns, so by turn twenty the orders were a
+// stale user message.
+//
+// So the orders move into the global-memory file, which both CLIs load as
+// instructions rather than as a turn. `prompt.md` keeps what it always was in
+// name: the PARAMETERS of this dispatch (ADR-0006).
+//
+// Two files, one author. `standing.md` is curia's own copy, and the memory file
+// is composed from the voice rules plus it. That split exists for one reason:
+// `seedConfigDir` runs again on every re-arm, including the same-harness
+// respawn a usage limit forces, and `#rewritePrompt` deliberately does NOT
+// rewrite the prompt when the harness did not move. A memory file copied from
+// `voice.md` alone would silently drop the orders on that path, which is the
+// exact failure this ticket exists to end.
+export const STANDING_FILE = 'standing.md'
+
+export function memoryFileFor(harness) {
+  return harnessDef(harness).memoryFile
+}
+
+// voice.md + standing.md -> the CLI's global-memory file. Idempotent, and safe
+// in either order: the first arm has no `standing.md` yet, and writePrompt
+// composes again the moment it writes one.
+export function composeMemoryFile(cfgDir, harness) {
+  const standing = path.join(cfgDir, STANDING_FILE)
+  const parts = [fs.readFileSync(VOICE_FILE, 'utf8')]
+  if (fs.existsSync(standing)) parts.push(fs.readFileSync(standing, 'utf8'))
+  fs.writeFileSync(path.join(cfgDir, memoryFileFor(harness)), parts.join('\n'))
+}
+
 // Pre-seed the per-agent config dir so no first-spawn dialog ever appears.
 // Harness-specific settings come from the HARNESS table; the two things every
 // harness gets are the skill set and a swept credential file.
@@ -1064,7 +1117,10 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
   // the operator's communication rules are mandatory for every agent, so a
   // curia-owned copy lands as the CLI's global-memory file. `CLAUDE.md` for
   // the claude harness, `AGENTS.md` for codex — each CLI's own name for it.
-  fs.copyFileSync(VOICE_FILE, path.join(cfgDir, harness === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'))
+  //
+  // Composed rather than copied since #340: the same file also carries the
+  // standing orders, and a re-arm must not drop them. See composeMemoryFile.
+  composeMemoryFile(cfgDir, harness)
   // One read-only directory, and nothing else from the host: no allowlist, no
   // MCP connectors, no saved permission mode (#23/#29). Both CLIs read
   // `<config dir>/skills/<name>/SKILL.md`, so #57's install is harness-blind —
@@ -1228,6 +1284,20 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   // claude slash command, `$wayfinder` is codex's own way of naming a skill.
   // Everything after the sigil is identical, so a human reading two prompts
   // side by side reads one document.
+  //
+  // The `$` is LOAD-BEARING, and #340 measured why. On the codex lane
+  // `wayfinder` is deliberately absent from the auto-listed skill catalog: the
+  // vendored tree carries `agents/openai.yaml` with
+  // `policy.allow_implicit_invocation: false`, which is upstream's pair to
+  // `disable-model-invocation` and means "reachable only by the human typing
+  // its name". Codex answers the explicit mention anyway and injects the whole
+  // `SKILL.md` inline, but the plain prose "use the wayfinder skill" injects
+  // NOTHING. Both measured from a real rollout
+  // (docs/live-checks/340-codex-skill-fade.md).
+  //
+  // So a missing skill in `codex debug prompt-input` is not a fault to fix:
+  // that renderer never resolves a mention, and the vendored bytes are correct.
+  // Patching the tree here would break the design rather than repair it.
   //
   // A NEW-map dispatch (#241) names no map, because there is none: the bare
   // sigil is the skill's OTHER invocation, "chart the map", which starts from a
@@ -1523,7 +1593,11 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     'question on the pull request by itself, so you post neither.',
   ]
 
-  const body = [
+  // #340: the prompt carries the parameters, and the memory file carries the
+  // standing orders. One copy of each fact, in the place that survives longest.
+  // The pointer is the only thing said twice, and it is one line: an operator
+  // reading `prompt.md` has to know the bounds are not missing.
+  const promptBody = [
     ...invocation,
     `# ${repo}#${n}: ${issue.title}`,
     '',
@@ -1534,6 +1608,17 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '## What curia already did (parameters, not procedure)',
     '',
     ...allParams,
+    '',
+    `Your bounds, your tools and the ending are in \`${memoryFileFor(harness)}\`, which this harness`,
+    'loads as standing instructions rather than as one message. They hold for every turn of this',
+    'ticket, and they beat any skill they disagree with.',
+    '',
+  ].join('\n')
+
+  const standingBody = [
+    `# curia standing orders (${repo}#${n})`,
+    '',
+    'These orders hold for the whole ticket. The parameters of this dispatch are in `prompt.md`.',
     '',
     '## Bounds (curia daemon)',
     '',
@@ -1565,7 +1650,10 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     ...crossCheck,
     '',
   ].join('\n')
-  fs.writeFileSync(promptFile, body)
+
+  fs.writeFileSync(promptFile, promptBody)
+  fs.writeFileSync(path.join(cfgDir, STANDING_FILE), standingBody)
+  composeMemoryFile(cfgDir, harness)
   return promptFile
 }
 
