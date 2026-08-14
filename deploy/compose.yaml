@@ -1,11 +1,12 @@
-# The box's supervisor (#259, executed by #260). Four services, all built
-# locally, all on the host network. systemd and /etc/sudoers.d/curia retired.
+# The box's supervisor (#259, executed by #260). Five services since #327, all
+# built locally. Four run on the host network. The overseer does not, and the
+# comment on that service says why. systemd and /etc/sudoers.d/curia retired.
 #
 # THE DEPLOY RULE OUTRANKS THE RESTART FLAGS: `docker compose up -d` recreates
 # any changed service, and a recreated `tmux` service kills every live agent
 # (wayfinder #132 in compose clothes). A deploy names its targets:
 #
-#     docker compose up -d --build --no-deps daemon dashboard
+#     docker compose up -d --build --no-deps daemon dashboard overseer
 #
 # Recreating `tmux`/`ttyd` is a deliberate act at zero live agents.
 #
@@ -172,3 +173,68 @@ services:
       # Read-write, and the only writable path it has: the dashboard rewrites
       # curia.yaml and routing.yaml from the settings screens (#265).
       - /home/alp/curia/config:/home/alp/curia/config
+
+  # The overseer (#327, building ADR-0015). One long-lived container beside the
+  # dashboard, and many conversations pass through it. There is no pane and no
+  # spawn path: compose owns its liveness, and the daemon only health-checks it,
+  # the way it already treats ttyd. Recreating it kills no agent, so the routine
+  # deploy names it.
+  #
+  # IT ANSWERS NO TURN YET. #314 carries the turn across this boundary. Until
+  # then the container runs, routes its tokens and answers /ping, and every
+  # other route is a 501 naming that ticket.
+  #
+  # NOT ON THE HOST NETWORK, and it is the only service that is not. That is the
+  # containment ADR-0014 asks for: this container holds a SHELL, and on the host
+  # network that shell reaches the daemon's own loopback surface, ttyd, the
+  # identity proxy and the tailscaled socket. On the bridge it reaches none of
+  # them. It still reaches the daemon at host.docker.internal, the path every
+  # agent container already takes (#156), and the daemon reaches it on the one
+  # published loopback port below.
+  overseer:
+    build:
+      context: ..
+      dockerfile: deploy/overseer/Dockerfile
+    image: curia-overseer
+    restart: unless-stopped
+    user: "1000:1000"
+    working_dir: /home/alp/curia/daemon
+    command: ["node", "/home/alp/curia/daemon/bin/curia-overseer.mjs"]
+    # 127.0.0.1 and nothing else. The tailnet reaches the overseer through the
+    # Chat screen, which is the dashboard's page over the daemon — never this
+    # port.
+    ports:
+      - "127.0.0.1:4274:4274"
+    # How the container reaches the daemon: the same host-gateway name the agent
+    # containers use, because a listener on the box's 127.0.0.1 is the CONTAINER
+    # itself from in here (#156).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      HOME: /home/alp
+    # THE SECOND ENV FILE IS THE BOUNDARY (#313). `.env.daemon` carries the
+    # agents' read-WRITE tokens and the Discord bot token, compose hands a
+    # container its env file whole, and a shell in here exports whatever it is
+    # given. So this service loads `.env.overseer` and never that one. It also
+    # carries the model credential, which is the one host secret ADR-0014 lets
+    # in. #352 (the GitHub App) is what merges the two files: it mints
+    # short-lived tokens per holder, and the file stops being the boundary.
+    env_file:
+      - ../daemon/.env.overseer
+    volumes:
+      # The same mount list the dashboard runs on, and the same reason it names
+      # files rather than trees: `daemon/` as a whole would carry `.env.daemon`
+      # and the daemon-private journal into a container that must hold neither.
+      - /home/alp/curia/daemon/src:/home/alp/curia/daemon/src:ro
+      - /home/alp/curia/daemon/bin:/home/alp/curia/daemon/bin:ro
+      # The watch list, read-only: the overseer reads which repos to check out
+      # and never rewrites the config the settings screens own.
+      - /home/alp/curia/config:/home/alp/curia/config:ro
+      # ONE MOUNT LINE COVERS EVERY WATCHED REPO (#312). A named volume per repo
+      # cannot be written here, because the watch list changes and this file is
+      # static — so the set of clones inside this tree moves with the config.
+      # Read-write: the container clones, fetches and prunes it every turn.
+      - /home/alp/curia-work/overseer/repos:/home/alp/curia-work/overseer/repos
+      # The config dir, at the SAME PATH on both sides, because the Chat screen
+      # reads the overseer's transcript off it (ADR-0015).
+      - /home/alp/curia-work/cfg/curia-overseer:/home/alp/curia-work/cfg/curia-overseer

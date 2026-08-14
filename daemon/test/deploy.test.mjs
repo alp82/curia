@@ -235,7 +235,9 @@ describe('the sibling script holds the deploy rule', () => {
     // --force-recreate: a code-only deploy changes no image layer, and
     // without it compose leaves the old daemon running (the #270 drill
     // caught exactly that)
-    for (const l of ups) assert.match(l, /up -d --build --force-recreate --no-deps daemon dashboard$/)
+    // #327 added the overseer: recreating it kills no agent, and ADR-0015 makes
+    // the routine deploy name all three.
+    for (const l of ups) assert.match(l, /up -d --build --force-recreate --no-deps daemon dashboard overseer$/)
   })
 
   test('the script never touches tmux or ttyd', () => {

@@ -16,6 +16,7 @@ import { DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS } from './image.mjs'
 import { DEFAULT_CONTAINER_PORTS, PORTS_PER_AGENT } from './sandbox.mjs'
 import { readAllow } from './identity.mjs'
 import { readDashboard } from './dashboard.mjs'
+import { readOverseer } from './overseerservice.mjs'
 
 // Exported because the settings screen writes this key (#265), and a second
 // list of the legal modes would be a second answer to one question.
@@ -253,13 +254,22 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile } = {}) {
   const dash = readDashboard(cfg, (msg) => fail(src, msg), file)
   cfg.dashboard = dash
 
-  // Seven ports, one box: any collision means one surface silently shadows or
+  // The overseer container (#327, ADR-0015). The daemon binds this port no more
+  // than it binds the sidecar's: compose publishes it on loopback and the daemon
+  // health-checks it. It is validated and collision-checked here for the same
+  // reason the sidecar's ports are — a surface shadowing another is found as an
+  // outage rather than as a config error.
+  const over = readOverseer(cfg, (msg) => fail(src, msg))
+  cfg.overseer = over
+
+  // Eight ports, one box: any collision means one surface silently shadows or
   // sweeps another, so all of them must be pairwise distinct.
   const ports = [
     ['attach.ttyd_port', a.ttyd_port], ['attach.serve_port', a.serve_port],
     ['identity.proxy_port', id.proxy_port],
     ['timeline.port', t.port], ['timeline.serve_port', t.serve_port],
     ['dashboard.port', dash.port], ['dashboard.serve_port', dash.serve_port],
+    ['overseer.port', over.port],
   ]
   for (let i = 0; i < ports.length; i++) {
     for (let j = i + 1; j < ports.length; j++) {

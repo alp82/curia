@@ -51,6 +51,7 @@ import {
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
 import { probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
+import { probeOverseer } from './overseerservice.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
@@ -142,6 +143,14 @@ for (const owner of WATCHED_OWNERS) {
   const key = overseerTokenKeyFor(owner)
   if (!overseerGhToken(`${owner}/x`, overseerEnv)) log(`WARNING: no ${key} — the overseer holds no credential for ${owner}/*`)
 }
+// #327: the model credential rides the same file. ADR-0014 lets exactly one
+// host secret into that container, and this is it — `.env.daemon` is the file
+// the overseer service must never load, so the value cannot come from there.
+// Stated rather than warned: the container says it louder at its own start, and
+// until #314 carries the turn nothing in there runs a model anyway.
+log(overseerEnv.CLAUDE_CODE_OAUTH_TOKEN || overseerEnv.ANTHROPIC_API_KEY
+  ? `overseer model credential present in daemon/${OVERSEER_ENV_FILE}`
+  : `overseer model credential absent from daemon/${OVERSEER_ENV_FILE} — the container can run no turn without one`)
 
 // And the same tokens against GitHub itself, once per watched repo. A token's
 // repository list lives on GitHub rather than in an env file, so nothing local
@@ -795,6 +804,11 @@ const previews = new PreviewRegistry({
     // would withdraw the console the operator watches the box through, and
     // over its loopback port would put a second, un-gated rule in front of it.
     curiaConfig.dashboard.port, curiaConfig.dashboard.serve_port,
+    // #327: the overseer container's published port. The daemon binds it no
+    // more than it binds the sidecar's — but publishing a preview over it would
+    // put the one way into that container on the tailnet, which is the whole
+    // thing its bridge network keeps off there.
+    curiaConfig.overseer.port,
   ],
   log,
   // #168: the identity check reaches the third surface. `identityAllow` is the
@@ -1461,6 +1475,12 @@ async function overview() {
       ...wireEscalation(r),
       pull_request: dispatcher.pullRequestUrlFor(r.agent),
     })),
+    // The overseer container (#327). ADR-0015 gives compose its liveness, so
+    // this asserts nothing and spawns nothing: it dials the published loopback
+    // port and reads the marker back, the same shape the ttyd health check has.
+    // A dead overseer is a chat that answers nothing, and silence is the one
+    // failure an operator cannot tell from a quiet day.
+    overseer: { port: curiaConfig.overseer.port, ...(await probeOverseer({ port: curiaConfig.overseer.port })) },
     // `bridge` keeps the string shape /state gave it, and `bridge_health` the
     // whole record — one name for one thing across both routes.
     bridge: health?.state ?? 'down',
