@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { writePrompt, branchFor } from '../src/workspace.mjs'
+import { writePrompt, branchFor, STANDING_FILE, memoryFileFor, seedConfigDir } from '../src/workspace.mjs'
 import { ENDING } from '../src/lifecycle.mjs'
 
 const ISSUE = { number: 42, title: 'Close the loop', body: 'the question' }
@@ -23,9 +23,23 @@ let tmp
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-prompt-test-')) })
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
 
+// #340 split the one text in two: `prompt.md` holds the parameters, and
+// `standing.md` holds the bounds, the tools and the ending — composed into the
+// CLI's global-memory file, which both harnesses load as instructions rather
+// than as one message. An agent reads BOTH, so the assertions below read both,
+// in the order the agent meets them. Which half a fact lands in is pinned
+// separately, in "the two files" at the bottom of this file.
 function write(opts) {
   const file = writePrompt(tmp, ISSUE, { repo: 'o/r', wtPath: '/w/42', ...opts })
-  return fs.readFileSync(file, 'utf8')
+  return `${fs.readFileSync(file, 'utf8')}\n${fs.readFileSync(path.join(tmp, STANDING_FILE), 'utf8')}`
+}
+
+function writeParts(opts) {
+  const file = writePrompt(tmp, ISSUE, { repo: 'o/r', wtPath: '/w/42', ...opts })
+  return {
+    prompt: fs.readFileSync(file, 'utf8'),
+    standing: fs.readFileSync(path.join(tmp, STANDING_FILE), 'utf8'),
+  }
 }
 
 describe('the wayfinder invocation', () => {
@@ -75,14 +89,26 @@ describe('the wayfinder invocation', () => {
       assert.equal(p.split('\n')[0], '# o/r#42: Close the loop')
     })
 
-    test('the sigil is the ONLY difference — the rest is one document', () => {
+    test('the sigil and the file it points at are the ONLY differences', () => {
       // The bounds, the tools and the ending are harness-blind on purpose: a
       // human reading two agents' prompts side by side must read the same
       // text. A rule that belongs to one lane belongs in the harness table,
       // not here.
-      const codex = write({ mapNumber: 1, harness: 'codex' }).split('\n')
-      const claude = write({ mapNumber: 1, harness: 'claude' }).split('\n')
-      assert.deepEqual(codex.slice(1), claude.slice(1))
+      //
+      // #340 added the second difference, and it is the same KIND as the
+      // sigil: each CLI's own name for its global-memory file. The orders
+      // themselves stay one document, which is what the standing check below
+      // pins.
+      const codex = writeParts({ mapNumber: 1, harness: 'codex' })
+      const claude = writeParts({ mapNumber: 1, harness: 'claude' })
+      assert.equal(codex.standing, claude.standing, 'the orders are one document on both lanes')
+      const differ = codex.prompt.split('\n')
+        .map((l, i) => [l, claude.prompt.split('\n')[i]])
+        .filter(([a, b]) => a !== b)
+      assert.equal(differ.length, 2, `expected two differing lines, got ${differ.length}`)
+      assert.match(differ[0][0], /^\$wayfinder /)
+      assert.match(differ[1][0], /`AGENTS\.md`/)
+      assert.match(differ[1][1], /`CLAUDE\.md`/)
     })
 
     test('an unknown harness is refused, never quietly spelled the claude way', () => {
@@ -298,5 +324,66 @@ describe('what survived the rewrite', () => {
     assert.match(p, /the question/)
     assert.match(p, /Your worktree is \/w\/42/)
     assert.match(p, new RegExp(`on branch \`${branchFor(42)}\``))
+  })
+})
+
+// ---- the two files (#340) ----------------------------------------------------
+//
+// The measurement behind this split is docs/live-checks/340-codex-skill-fade.md.
+// Codex carries the global-memory file as world state and restates it, while a
+// user message is conversation that its own instructions call stale after the
+// next one. So the parameters ride `prompt.md` and the orders ride the memory
+// file, and the tests below pin WHICH half each fact lands in.
+describe('the two files (#340)', () => {
+  test('the prompt holds the parameters, and nothing standing', () => {
+    const { prompt } = writeParts({ mapNumber: 1, ports: [9009, 9010, 9011] })
+    assert.match(prompt, /# o\/r#42: Close the loop/)
+    assert.match(prompt, /already CLAIMED it in your name/)
+    assert.match(prompt, /Your worktree is \/w\/42/)
+    assert.match(prompt, /three preview ports/)
+    for (const heading of ['## Bounds', '## Your tools', '## How this ends', '## The cross-check']) {
+      assert.ok(!prompt.includes(heading), `${heading} must not ride the prompt any more`)
+    }
+  })
+
+  test('the standing file holds the orders, and names the ticket it belongs to', () => {
+    const { standing } = writeParts({ mapNumber: 1 })
+    assert.match(standing, /^# curia standing orders \(o\/r#42\)/)
+    for (const heading of ['## Bounds', '## Your tools', '## How this ends', '## The cross-check']) {
+      assert.ok(standing.includes(heading), `${heading} belongs in the standing orders`)
+    }
+    assert.ok(!standing.includes('already CLAIMED it in your name'), 'a parameter must not ride the orders')
+  })
+
+  test('the prompt points at the file, so the bounds never read as missing', () => {
+    assert.match(writeParts({ mapNumber: 1 }).prompt, /Your bounds, your tools and the ending are in `CLAUDE\.md`/)
+    assert.match(writeParts({ mapNumber: 1, harness: 'codex' }).prompt, /are in `AGENTS\.md`/)
+  })
+
+  test('the memory file is the voice rules plus the orders, in that order', () => {
+    writePrompt(tmp, ISSUE, { repo: 'o/r', wtPath: '/w/42', mapNumber: 1 })
+    const memory = fs.readFileSync(path.join(tmp, memoryFileFor('claude')), 'utf8')
+    const standing = fs.readFileSync(path.join(tmp, STANDING_FILE), 'utf8')
+    assert.match(memory, /Simplified Technical English/, 'the voice rules are mandatory for every agent (#133)')
+    assert.ok(memory.endsWith(standing), 'the orders are composed onto the end, not instead of the voice rules')
+    assert.ok(memory.indexOf('Simplified Technical English') < memory.indexOf('# curia standing orders'))
+  })
+
+  // The failure this split would otherwise INTRODUCE. `seedConfigDir` runs on
+  // every arm, including the same-harness respawn a usage limit forces, and
+  // that path deliberately does not rewrite the prompt. A memory file copied
+  // from voice.md alone would drop the orders there, in silence.
+  test('a re-arm on the same harness keeps the orders', () => {
+    seedConfigDir(tmp, '/w/42', null, 'claude')
+    writePrompt(tmp, ISSUE, { repo: 'o/r', wtPath: '/w/42', mapNumber: 1 })
+    const armed = fs.readFileSync(path.join(tmp, 'CLAUDE.md'), 'utf8')
+
+    seedConfigDir(tmp, '/w/42', null, 'claude')
+    assert.equal(fs.readFileSync(path.join(tmp, 'CLAUDE.md'), 'utf8'), armed,
+      'the second arm dropped the standing orders, which is the #340 failure arriving by the back door')
+  })
+
+  test('a harness that names no memory file is refused', () => {
+    assert.throws(() => memoryFileFor('gemini'), /no agent harness/)
   })
 })
