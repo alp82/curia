@@ -7,7 +7,7 @@ Curia runs under docker compose on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 
 ## The compose stack
 
-`deploy/compose.yaml` defines four services, all built locally, all on the host network:
+`deploy/compose.yaml` defines five services, all built locally. Four run on the host network:
 
 | Service | Restart | Role |
 | --- | --- | --- |
@@ -15,8 +15,11 @@ Curia runs under docker compose on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 | `dashboard` | `unless-stopped` | The #249 sidecar. It stays up while the daemon restarts. |
 | `tmux` | `unless-stopped` | The tmux server that holds the agent panes, parked on a `keeper` session. A daemon restart never touches it. |
 | `ttyd` | `unless-stopped` | The attach surface. The daemon health-checks port 7681 and does not spawn ttyd. |
+| `overseer` | `unless-stopped` | The overseer container (#327, [ADR-0015](adr/0015-the-overseer-is-a-service.md)). On the docker bridge, published on `127.0.0.1:4274`. The daemon health-checks it and spawns nothing. |
 
-**The deploy rule outranks the restart flags.** A bare `docker compose up -d` recreates any changed service, and a recreated `tmux` service kills every live agent (wayfinder #132 in compose clothes). Every deploy names its targets: `docker compose up -d --build --force-recreate --no-deps daemon dashboard`. Recreate `tmux`/`ttyd` only as a deliberate act at zero live agents.
+**The deploy rule outranks the restart flags.** A bare `docker compose up -d` recreates any changed service, and a recreated `tmux` service kills every live agent (wayfinder #132 in compose clothes). Every deploy names its targets: `docker compose up -d --build --force-recreate --no-deps daemon dashboard overseer`. Recreate `tmux`/`ttyd` only as a deliberate act at zero live agents. Recreating the overseer kills no agent.
+
+**The overseer is the one service off the host network.** It holds a shell, and on the host network that shell reaches the daemon's loopback surface, ttyd, the identity proxy and the tailscaled socket. On the bridge it reaches none of them. It reaches the daemon at `host.docker.internal`, the way an agent container does, and the daemon reaches it on the published loopback port.
 
 Host trees mount into the containers at their identical paths (`/home/alp/curia`, `/home/alp/curia-work`, `~/.claude`, `~/.codex`, gh and git config). Host paths are data in this repo — `curia.yaml`, `workspace_root`, every composed `docker run -v` line — so no translation layer exists. The host docker socket and the host tailscaled socket bind-mount in: agent containers are siblings on host dockerd, and Serve state stays in host tailscaled.
 
@@ -84,8 +87,20 @@ Compose refuses a missing `env_file`, so a deploy that arrives first fails its h
 
 - `CURIA_OVERSEER_GH_TOKEN_ALP82`, `CURIA_OVERSEER_GH_TOKEN_GETALFREDO` — the overseer's own GitHub tokens ([#313](https://github.com/alp82/curia/issues/313)). One per resource owner, read-only, and 366 days or less.
 - **The overseer service loads this file and never `daemon/.env.daemon`.** That is the whole reason there are two files. The overseer container holds a shell, and a shell exports whatever the container is given. `daemon/.env.daemon` carries the agents' read-write tokens and the Discord bot token, and compose cannot filter an env file.
+- `CLAUDE_CODE_OAUTH_TOKEN` — the model credential the overseer container runs its turns on ([#327](https://github.com/alp82/curia/issues/327)). It is the one host secret [ADR-0014](adr/0014-the-overseer-in-its-own-container.md) lets into that container, and it cannot come from `daemon/.env.daemon`, because the overseer never loads that file. The same value as the daemon's own line.
 - The daemon reads this file to state each token at boot, and never loads it into its own environment.
 - Boot warns when a key that belongs in `daemon/.env.daemon` turns up here. A copy of the wrong file is the accident this catches.
+- [#352](https://github.com/alp82/curia/issues/352) is what merges the two files again. A GitHub App mints short-lived tokens per holder, so the file stops being the boundary and the routing below retires with it.
+
+## The overseer container's two host trees
+
+Docker creates a missing bind-mount source as **root**, and the container runs as uid 1000. So make both trees before the first `up`, or the container starts and cannot write its checkouts:
+
+```
+ssh alp@coinmatica.net 'mkdir -p ~/curia-work/overseer/repos ~/curia-work/cfg/curia-overseer'
+```
+
+Both mount at their identical paths inside. One mount line covers every watched repo, because the watch list changes and the compose file is static — the set of clones inside the tree moves with the config ([#312](https://github.com/alp82/curia/issues/312)).
 
 **One daemon at a time.** The Discord bot token must live in exactly one running daemon. Before you start the local daemon for development, stop the service: `ssh alp@coinmatica.net docker compose -f curia/deploy/compose.yaml stop daemon`.
 
@@ -95,7 +110,7 @@ Compose refuses a missing `env_file`, so a deploy that arrives first fails its h
 bin/deploy.sh
 ```
 
-The script connects over ssh, pulls `main`, and runs `docker compose up -d --build --force-recreate --no-deps daemon dashboard` (`--no-deps` keeps a dependency from ever riding along). The daemon container installs its npm dependencies at start, so a dependency change needs no extra step. The script prints the two services' state on success. Override the target with `CURIA_DEPLOY_HOST`.
+The script connects over ssh, pulls `main`, and runs `docker compose up -d --build --force-recreate --no-deps daemon dashboard overseer` (`--no-deps` keeps a dependency from ever riding along). The daemon container installs its npm dependencies at start, so a dependency change needs no extra step. The script prints the three services' state on success. Override the target with `CURIA_DEPLOY_HOST`.
 
 ### The `deploy` verb
 

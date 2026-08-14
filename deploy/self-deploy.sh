@@ -3,10 +3,14 @@
 # container (`curia-deploy`, on the curia-daemon image) and then dies when
 # compose recreates it — this script is the process that survives the deploy.
 #
-# It fast-forwards the checkout, recreates `daemon dashboard`, and
+# It fast-forwards the checkout, recreates `daemon dashboard overseer`, and
 # health-checks the successor. On a failed health check it resets the checkout
 # to the previous ref and recreates again, so a deploy that ships a
 # crash-looping daemon rolls itself back with no ssh in the loop.
+#
+# The overseer joined the target list with #327. Recreating it kills no agent,
+# and ADR-0015 accepts that a deploy drops an in-flight turn on it: the daemon
+# replays a turn that crossed `/command` zero times.
 #
 # THE DEPLOY RULE OUTRANKS EVERYTHING HERE: every `up` names its targets with
 # --no-deps. A bare `docker compose up -d` recreates a changed `tmux` service,
@@ -34,7 +38,7 @@ mark() {
 # nothing to do and leaves the OLD daemon running — a deploy that lands
 # without deploying (observed on the #270 drill).
 recreate() {
-  docker compose -f "$REPO/deploy/compose.yaml" up -d --build --force-recreate --no-deps daemon dashboard
+  docker compose -f "$REPO/deploy/compose.yaml" up -d --build --force-recreate --no-deps daemon dashboard overseer
 }
 
 # Up means: /ping answers on host loopback, still answers 10s later, and the
