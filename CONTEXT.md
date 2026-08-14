@@ -481,7 +481,9 @@ How full an agent's context window is. The numerator is the last request's input
 ### State and evidence
 
 **Journal**:
-`daemon/data/events.jsonl`. Append-only, and the daemon's only durable artifact. In-memory state is a reduction over it. The file never rotates, so it only grows. The store reads it whole ONCE, at boot, and every append after that passes the same reducer. A surface that answers about the recent past reads the reduction and never the file again.
+`daemon/data/events.jsonl`. Append-only, and the daemon's only durable artifact. In-memory state is a reduction over it. The file never rotates, so it only grows. `EscalationStore` reads it whole ONCE, at boot, and every append after that passes the same reducer. A surface that answers about the recent past reads the reduction and never the file again.
+
+Decided and not built: the durable artifact becomes a `node:sqlite` store, and these JSON lines retire. A row keeps the written line verbatim, so the store is a superset of the file. The daemon is the only writer. See [ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md), built on [the store map (#316)](https://github.com/alp82/curia/issues/316).
 
 **State home**:
 The one durable place a fact lives. GitHub holds ticket truth. The journal holds curia's events. Everything in memory is a disposable cache.
@@ -525,7 +527,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 ## State homes
 
 - **GitHub**: ticket state, labels, claims, sub-issue parentage, map bodies, branches, pull requests. The source of truth.
-- **Journal** (`daemon/data/events.jsonl`): every durable curia event.
+- **Journal** (`daemon/data/events.jsonl`): every durable curia event. Decided and not built: a `node:sqlite` store replaces this file ([ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md)).
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
