@@ -121,7 +121,10 @@ A temporary hold on a model or provider after a usage-limit signal, until the st
 The instant a cooling ends. Two surfaces state it, and curia reads both: the anthropic pane text carries an epoch beside the reached-text, and the codex transcript carries `resets_at` beside the rate-limit window that is spent. A cap is account-level, so any live agent on that provider states it for the harness. With neither surface stating one, cooling holds for one hour.
 
 **Exhaustion**:
-The state where every candidate model is cooling. The frontier stays the queue, and a wake timer fires at the earliest reset.
+The state where every candidate model is cooling. The frontier stays the queue, and a wake timer fires at the earliest reset. Exhaustion that stops a LIVE agent also arms a limit resume.
+
+**Limit resume**:
+The dispatch curia owes a ticket its own cooling stopped. Exhaustion kills the agent and releases the claim, and the worktree stands, so the resume is `resume` and never `start`: `start` recreates the worktree from origin and takes every uncommitted file with it. It is not gated on `auto_dispatch`, because that setting decides whether curia takes NEW work off the frontier and this puts back work the operator already ordered. A reviewer gets none, because the builder has already been told the reviewer ended. One arm buys one attempt, and a resume that walks back into the cap arms again from the fresh reset. The arm is journalled, so a daemon restart inside the window does not lose it. The thread carries the promise with the exhaustion and the outcome at the reset, and it says so when the resume cannot be made.
 
 **Overseer**:
 The command brain of curia. The standing design is one brain with three skins (Discord, text, voice). The shipped daemon uses a deterministic router instead.

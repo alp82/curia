@@ -144,6 +144,7 @@ export class EscalationStore {
     this.recent = [] // the last RECENT_EVENTS journal lines, oldest first (#262)
     this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
+    this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
     this.seq = 0
     this.noteSeq = 0
     this._replay()
@@ -202,6 +203,23 @@ export class EscalationStore {
     // the last one pushed. The order inside one journal is the order here.
     if (ev.agent && ev.type === 'agent_spawned') this.pullRequests.delete(ev.agent)
     if (ev.agent && ev.url && PR_EVENTS.has(ev.type)) this.pullRequests.set(ev.agent, ev.url)
+
+    // The limit resume curia owes a ticket (#346). A reduction for the reason
+    // the pull-request map above is one: the arm has to outlive the process
+    // that made it. Cooling holds for hours and a deploy takes minutes, so an
+    // arm kept only in the dispatcher would mostly never fire — and the boot
+    // replay is what hands it back.
+    //
+    // TWO events clear it, and both mean the same thing. `limit_resume` is the
+    // attempt itself, whatever it ended as: one arm buys one attempt, and a
+    // fresh cap arms a fresh one. `agent_spawned` is an agent on that ticket by
+    // any other route, which is what the resume was for.
+    if (ev.ticket != null && ev.type === 'limit_resume_armed') {
+      this.limitResumes.set(String(ev.ticket), { repo: ev.repo ?? null, at: ev.resume_at })
+    }
+    if (ev.ticket != null && (ev.type === 'limit_resume' || ev.type === 'agent_spawned')) {
+      this.limitResumes.delete(String(ev.ticket))
+    }
 
     switch (ev.type) {
       case 'esc_open': {
@@ -730,5 +748,13 @@ export class EscalationStore {
   // the review gate card carries it too.
   pullRequestFor(agent) {
     return this.pullRequests.get(agent) ?? null
+  }
+
+  // Every limit resume curia still owes, as `{ ticket, repo, at }` (#346). The
+  // dispatcher re-arms its own timers from this at boot. `at` is the ISO
+  // instant the arm was written with, so a resume whose window rolled while the
+  // daemon was down is due the moment this is read.
+  armedLimitResumes() {
+    return [...this.limitResumes.entries()].map(([ticket, v]) => ({ ticket, repo: v.repo, at: v.at }))
   }
 }

@@ -14,10 +14,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Dispatcher, paneTail, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
+import { Dispatcher, discordTime, paneTail, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 import { EscalationStore } from '../src/store.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
-import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
+import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
 
 const ROUTING = {
@@ -129,6 +129,8 @@ function makeDispatcher(deps = {}, {
     },
     recentOutcomes: () => journal.recentOutcomes(),
     pullRequestFor: (agent) => journal.pullRequestFor(agent),
+    // #346: the arm outlives the process, so the reduction is the real one.
+    armedLimitResumes: () => journal.armedLimitResumes(),
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     cancel: () => ({ ok: true }),
     // #208, the real EscalationStore predicate: a note stamped with an
@@ -1416,6 +1418,216 @@ describe('exactly one notify per exhaustion window (B7/R5)', () => {
     assert.match(reply, /start never dispatches over an anomaly/)
     assert.deepEqual(confirms, [])
     assert.equal(notifies.filter((n) => /cooling/.test(n.message)).length, 0, 'a refusal never reaches #dispatch, so the latch never fires')
+  })
+})
+
+// The limit resume (#346). True exhaustion killed the agent, released the claim
+// and left the worktree standing, and then nothing moved: the wake timer fired
+// #autoTick, which returns at once while `auto_dispatch` is false, and that
+// flag ships false. The work waited for a human to notice.
+describe('the limit resume: the window rolls and curia puts the agent back (#346)', () => {
+  function writeJournal(lines) {
+    fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+  }
+
+  // An epoch the pane can state, seconds out, so the whole real path runs
+  // inside a test: cap, cooling, exhaustion, arm, wake, resume.
+  const soon = (s) => Math.floor(Date.now() / 1000) + s
+  const iso = (s) => new Date(s).toISOString()
+  const MAP = [{ number: 1, state: 'open', labels: [{ name: 'wayfinder:map' }] }]
+  const child = (n) => ({
+    number: n, state: 'open', assignees: [], labels: [{ name: 'wayfinder:task' }],
+    issue_dependencies_summary: { blocked_by: 0 },
+  })
+
+  test('an instant goes out as epoch SECONDS in Discord markup, so a phone renders its own clock', () => {
+    // Seconds, not milliseconds: Discord reads the number as epoch seconds and
+    // a millisecond value lands the operator tens of thousands of years out.
+    assert.equal(discordTime(new Date('2026-08-15T10:00:00.000Z')), '<t:1786788000:t> (<t:1786788000:R>)')
+    assert.equal(discordTime(new Date('2026-08-15T10:00:00.999Z')), '<t:1786788000:t> (<t:1786788000:R>)')
+  })
+
+  test('true exhaustion arms the resume, and the thread states the instant in local time', async () => {
+    const at = soon(3600)
+    const d = makeDispatcher({ capturePane: async () => `Claude usage limit reached | ${at}` })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+
+    await waitFor(() => events.some((e) => e.type === 'limit_resume_armed'))
+    const armed = events.find((e) => e.type === 'limit_resume_armed')
+    assert.equal(String(armed.ticket), '42')
+    assert.equal(armed.repo, 'o/r')
+    assert.equal(Date.parse(armed.resume_at), at * 1000 + 60_000, 'a minute behind the stated reset, for the clock skew')
+    assert.ok(d.limitResumes.has('42'))
+
+    // ONE message, not two: the promise is per ticket and the window sentence
+    // is per window, and folding them keeps the count where #13 put it.
+    const line = notifies.find((n) => /every routing lane is cooling/.test(n.message))
+    assert.match(line.message, /curia resumes this ticket/)
+    assert.match(line.message, new RegExp(`<t:${at + 60}:t>`), 'a phone reads its own clock, never an ISO string in UTC')
+    assert.equal(notifies.filter((n) => /cooling/.test(n.message)).length, 1)
+  })
+
+  test('the SECOND ticket to exhaust in one window is armed AND told', async () => {
+    // The latch is per window and the promise is per ticket, and the two land
+    // in two different threads. A promise on its own line would be swallowed
+    // by the latch here, and #43 would be resumed with nobody told it would be.
+    let capped = false
+    const at = soon(3600)
+    const d = makeDispatcher({
+      fetchIssue: async (repo, n) => ({ ...OPEN_ISSUE, number: Number(n) }),
+      capturePane: async () => (capped ? `Claude usage limit reached | ${at}` : ''),
+    })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await d.start('43', { repo: 'o/r', by: 'test' })
+    capped = true
+
+    await waitFor(() => events.filter((e) => e.type === 'limit_resume_armed').length === 2, 15_000)
+    assert.deepEqual(
+      events.filter((e) => e.type === 'limit_resume_armed').map((e) => String(e.ticket)).sort(),
+      ['42', '43'],
+    )
+    for (const ticket of ['42', '43']) {
+      const said = notifies.filter((n) => String(n.ticket) === ticket && /curia resumes this ticket/.test(n.message))
+      assert.equal(said.length, 1, `#${ticket} is told once that curia will resume it`)
+      assert.match(said[0].message, new RegExp(`<t:${at + 60}:t>`))
+    }
+  })
+
+  test('the wake RESUMES: the surviving worktree is handed back, never recreated from origin', async () => {
+    let clones = 0
+    let wt = null
+    let capped = true
+    const d = makeDispatcher({
+      capturePane: async () => (capped ? `Claude usage limit reached | ${soon(2)}` : '⏵⏵ bypass permissions'),
+      // The cap is a one-shot: the kill is what ends this agent's, so the
+      // resumed one comes up on a healthy pane.
+      killSession: async () => { capped = false },
+      createPrivateClone: async (r, repo, n) => { clones += 1; wt = fakePrivateClone(r, repo, n); return wt },
+    })
+    d.resumeGraceMs = 0
+    d.wakeFloorMs = 5
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.some((e) => e.type === 'limit_resume_armed'))
+    // What an agent had written and not committed when the cap landed.
+    fs.writeFileSync(path.join(wt, 'work-in-progress.txt'), 'half a day of it')
+
+    await waitFor(() => notifies.some((n) => /the usage limit reset/.test(n.message)), 15_000)
+
+    assert.equal(clones, 1, 'createPrivateClone deletes the worktree first, so a resume must never reach it')
+    assert.equal(fs.readFileSync(path.join(wt, 'work-in-progress.txt'), 'utf8'), 'half a day of it')
+    assert.ok(notifies.some((n) => /the usage limit reset\. ⚙️ dispatched o\/r#42/.test(n.message)),
+      'the reason curia started it rides in front of the ordinary dispatch line')
+    assert.ok(events.some((e) => e.type === 'limit_resume' && e.outcome === 'ran'))
+    assert.equal(d.limitResumes.size, 0, 'one arm buys one attempt')
+  })
+
+  test('a lane still cooling at the wake re-arms instead of stranding the ticket', async () => {
+    const d = makeDispatcher({ capturePane: async () => `Claude usage limit reached | ${soon(2)}` })
+    d.resumeGraceMs = 0
+    d.wakeFloorMs = 5
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.some((e) => e.type === 'limit_resume_armed'))
+    // A second cap the first one hid: the provider rolls, the model does not.
+    const later = new Date(Date.now() + 3600_000)
+    d.cooling.coolModel('sonnet', later)
+
+    await waitFor(() => events.filter((e) => e.type === 'limit_resume_armed').length === 2, 15_000)
+
+    const arms = events.filter((e) => e.type === 'limit_resume_armed')
+    assert.equal(Date.parse(arms[1].resume_at), later.getTime(), 'the arm follows the lane that is still cooling')
+    assert.ok(d.limitResumes.has('42'))
+    assert.equal(events.filter((e) => e.type === 'limit_resume').length, 1, 'the attempt happened, and it was one')
+    assert.equal(notifies.filter((n) => /the usage limit reset/.test(n.message)).length, 0,
+      'the exhaustion already stated the new instant — saying it twice is two voices on one fact')
+  })
+
+  test('a resume curia cannot make says so in the same thread the promise landed in', async () => {
+    // tmux goes indeterminate between the cap and the wake, which is the shape
+    // every dispatch refuses on rather than guessing at.
+    let wedged = false
+    const d = makeDispatcher({
+      capturePane: async () => `Claude usage limit reached | ${soon(2)}`,
+      killSession: async () => { wedged = true },
+      hasSession: async () => {
+        if (wedged) throw new Error('tmux session presence is indeterminate: timeout')
+        return false
+      },
+    })
+    d.resumeGraceMs = 0
+    d.wakeFloorMs = 5
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.some((e) => e.type === 'limit_resume_armed'))
+
+    await waitFor(() => events.some((e) => e.type === 'limit_resume' && e.outcome === 'failed'), 15_000)
+    const said = notifies.find((n) => /curia could not resume this ticket/.test(n.message))
+    assert.ok(said, 'silence after a cap is the fault this path exists to end')
+    assert.match(said.message, /`resume 42`/, 'the operator is told how to do it by hand')
+    assert.equal(d.limitResumes.size, 0)
+  })
+
+  test('the arm outlives the daemon: reconcile re-arms it at boot from the journal', async () => {
+    const at = new Date(Date.now() + 3600_000)
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', ts: iso('2026-08-15T09:00:00Z') },
+      { type: 'limit_resume_armed', repo: 'o/r', ticket: '42', resume_at: at.toISOString(), ts: iso('2026-08-15T10:00:00Z') },
+    ])
+    const d = makeDispatcher({ listSessions: async () => [] })
+
+    await d.reconcile({ boot: true })
+
+    assert.deepEqual([...d.limitResumes.keys()], ['42'])
+    assert.equal(d.limitResumes.get('42').at.getTime(), at.getTime())
+    assert.equal(d.limitResumes.get('42').repo, 'o/r')
+  })
+
+  test('a reset that passed while the daemon was down is due at once, not lost', async () => {
+    writeJournal([
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', ts: iso('2026-08-15T09:00:00Z') },
+      { type: 'limit_resume_armed', repo: 'o/r', ticket: '42', resume_at: iso('2026-08-15T10:00:00Z'), ts: iso('2026-08-15T09:30:00Z') },
+    ])
+    const d = makeDispatcher()
+    d.wakeFloorMs = 5
+
+    await d.reconcile({ boot: true })
+
+    await waitFor(() => events.some((e) => e.type === 'limit_resume'), 15_000)
+    assert.ok(notifies.some((n) => /the usage limit reset/.test(n.message)))
+  })
+
+  test('an agent that came back some other way is not resumed on top of itself', async () => {
+    writeJournal([
+      { type: 'limit_resume_armed', repo: 'o/r', ticket: '42', resume_at: new Date(Date.now() + 3600_000).toISOString(), ts: iso('2026-08-15T10:00:00Z') },
+    ])
+    const d = makeDispatcher({ listSessions: async () => [] })
+    d.agents.set('curia-42', { session: 'curia-42', ticket: '42', repo: 'o/r' })
+
+    await d.reconcile({ boot: true })
+
+    assert.equal(d.limitResumes.size, 0)
+  })
+
+  test('auto-dispatch steps over a ticket curia owes a resume, because start would delete its worktree', async () => {
+    const started = []
+    const d = makeDispatcher({
+      repoMaps: async () => MAP,
+      mapFrontier: async () => [child(42), child(43)],
+      createPrivateClone: async (r, repo, n) => { started.push(String(n)); return fakePrivateClone(r, repo, n) },
+    })
+    d.config.dispatch.auto_dispatch = true
+    d.config.dispatch.poll_interval_s = 0.05
+    d.limitResumes.set('42', { repo: 'o/r', at: new Date(Date.now() + 3600_000) })
+
+    d.startAutoLoop()
+    await waitFor(() => started.includes('43'))
+    await new Promise((r) => setTimeout(r, 150))
+    clearInterval(d.autoTimer)
+
+    assert.ok(!started.includes('42'), 'the armed ticket is the resume\'s, and a start would recreate its worktree')
   })
 })
 
