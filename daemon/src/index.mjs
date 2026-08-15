@@ -41,7 +41,7 @@ import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
-import { OverseerHost, CONSOLE_SESSION, CONSOLE_THREAD } from './overseer.mjs'
+import { OverseerHost } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import {
@@ -50,11 +50,14 @@ import {
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
-import { probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName } from './attach.mjs'
+import {
+  probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName,
+  isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
+} from './attach.mjs'
 import { probeOverseer } from './overseerservice.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
-import { detectHarness } from './transcript.mjs'
+import { detectHarness, transcriptForSession, firstPrompt } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
@@ -847,22 +850,31 @@ const timeline = new TimelineSurface({
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,
     // The console chat (#267): one session on this surface is not a pane. It is
-    // the overseer's browser thread — its transcript is the SDK session the
-    // overseer host already keeps, and a message to it is a turn rather than a
-    // keystroke. `overseer` is const below and read at request time, never at
-    // construction.
+    // a browser conversation of the overseer — its transcript is the SDK
+    // session the overseer host already keeps, and a message to it is a turn
+    // rather than a keystroke. `overseer` is const below and read at request
+    // time, never at construction.
     //
     // #332: the conversation's live session id rides along, read from the
     // journal on every call. It is what names the transcript file — the
     // overseer's config dir holds every conversation's, Discord's included, so
     // the newest one there belongs to whoever answered last.
-    driverFor: (session) => (session === CONSOLE_SESSION
-      ? {
+    //
+    // #333: `curia-console-<n>` is many sessions, not one, and EVERY one of
+    // them is a driver — including a key with no conversation behind it. A
+    // deleted or never-minted key must not fall through to the pane path, or
+    // the surface would ask tmux about a session that does not exist and the
+    // operator would read a tmux error about their own deleted chat. It reads
+    // as an empty conversation, and `send` says what happened.
+    driverFor: (session) => {
+      const key = consoleKeyForSession(session)
+      if (!key) return null
+      return {
         cfgDir: overseer.configDir,
-        sessionId: store.overseerSession(CONSOLE_THREAD) ?? null,
-        send: (text) => overseer.browserTurn(text),
+        sessionId: store.overseerSession(key) ?? null,
+        send: (text) => overseer.browserTurn(key, text),
       }
-      : null),
+    },
   },
 })
 dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's
@@ -1500,6 +1512,50 @@ async function overview() {
   }
 }
 
+// ---- the browser conversations, on the wire (#333, ADR-0016) ---------------
+//
+// The Chat screen is the one surface that draws them, so this is its own route
+// rather than a section of `GET /overview`. Two reasons, and both are about
+// cost: the list grows for as long as the operator keeps conversations, and a
+// row costs a transcript read — so a section on the poll every screen shares
+// would make watching Home more expensive with every chat ever opened.
+//
+// The context percent is why a row is worth that read. ADR-0016 adds no warning
+// that a conversation is long: the percent IS the signal, and #332 is what made
+// it true per conversation. A picker that could not show it would leave the
+// operator picking blind.
+function consoleOnWire() {
+  const cfgDir = overseer.configDir
+  const harness = detectHarness(cfgDir)
+  return store.consoleConversationList().map((c) => {
+    const sessionId = store.overseerSession(c.key) ?? null
+    const file = harness ? transcriptForSession(harness, cfgDir, sessionId) : null
+    // The file's own mtime is when this conversation last wrote, which is the
+    // one honest answer: the journal's binding is rewritten every turn, so it
+    // says when the turn STARTED, and a long turn would date the row wrong.
+    let lastTurnAt = null
+    if (file) {
+      try { lastTurnAt = new Date(fs.statSync(file).mtimeMs).toISOString() } catch { lastTurnAt = null }
+    }
+    return {
+      key: c.key,
+      session: sessionForConsoleKey(c.key),
+      opened_at: c.opened_at,
+      last_turn_at: lastTurnAt,
+      // The row's label: what the operator opened this conversation with. Null
+      // for one with no turn yet, and the page falls back to the key.
+      label: file ? firstPrompt(harness, file) : null,
+      // A conversation with no turn yet has no file, and `agentMeters` reads
+      // NOTHING rather than falling back to whoever answered last (#332). The
+      // percent is then null, which the page prints as "—" and never as 0%.
+      ...ctxOnWire(() => agentMeters({
+        harness, cfgDir, model: overseer.model, routing: routingConfig,
+        account: accountUsage, models: modelWindows, transcript: file,
+      })),
+    }
+  })
+}
+
 async function handleRequest(req, res, { fromContainer = false } = {}) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   const json = (code, obj) => {
@@ -1599,6 +1655,40 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // so the container-facing listener refuses it before it reaches here.
   if (url.pathname === '/overview' && req.method === 'GET') {
     return json(200, await overview())
+  }
+
+  // ---- the browser conversations (#333) --------------------------------------
+  //
+  // Three routes, all loopback and none in AGENT_ROUTES: the Chat screen reads
+  // the list, mints one, and deletes one. They are not verbs. The operator
+  // catalogue has no word for a browser conversation, on Discord or anywhere
+  // else, so there is nothing for `POST /command` to carry — see #266 on why
+  // the console composes calls rather than forwarding text.
+  if (url.pathname === '/console' && req.method === 'GET') {
+    return json(200, { conversations: consoleOnWire() })
+  }
+
+  // The mint. A GET never does this: a page that opened a conversation by
+  // being looked at would spend a number every time the operator glanced at the
+  // screen, and numbers only go up.
+  if (url.pathname === '/console/new' && req.method === 'POST') {
+    const key = store.openConsoleConversation()
+    log(`console: opened browser conversation ${key}`)
+    return json(200, { key, session: sessionForConsoleKey(key) })
+  }
+
+  // The delete. The number stays spent and the transcript stays on disk — see
+  // store.deleteConsoleConversation. A key that is not a live conversation is a
+  // 409 rather than a silent success, because the page may be showing a list
+  // another device has already changed.
+  if (url.pathname === '/console/delete' && req.method === 'POST') {
+    const key = String((await readBody(req)).key ?? '')
+    if (!isConsoleKey(key)) return json(400, { error: `\`${key}\` is not a browser conversation key` })
+    if (!store.deleteConsoleConversation(key)) {
+      return json(409, { ok: false, error: `there is no conversation \`${key}\` — it may already be deleted` })
+    }
+    log(`console: deleted browser conversation ${key} — its number is spent`)
+    return json(200, { ok: true, key })
   }
 
   if (url.pathname === '/escalate' && req.method === 'POST') {

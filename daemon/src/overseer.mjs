@@ -24,20 +24,24 @@ import { SIGNALS, smallPrint } from './messaging.mjs'
 export const OVERSEER_MODEL = 'claude-haiku-4-5'
 export const OVERSEER_FALLBACK_MODEL = 'claude-sonnet-5'
 
-// The browser thread (#267). The console chat is the overseer in a thread of
-// its own: one brain, two surfaces, and no second chat anywhere.
+// The browser conversations (#267, made many by #333 on ADR-0016). The console
+// chat is the overseer in a thread of its own: one brain, two surfaces, and no
+// second chat anywhere.
 //
-// The key is a plain word rather than a Discord snowflake, and that is the
+// The key is `console-<n>` rather than a Discord snowflake, and that is the
 // whole distinction it carries — `store.overseerSession` keys the conversation
-// on it, so the browser thread resumes across a daemon restart exactly as a
+// on it, so a browser conversation resumes across a daemon restart exactly as a
 // Discord thread does, and it can never collide with one.
 //
-// The SESSION name is what the timeline surface serves this conversation under.
-// It reads as a curia session (attach.mjs validSessionName) because the
-// timeline admits nothing else, and it names the overseer rather than a number
-// because no ticket answers for it.
-export const CONSOLE_THREAD = 'console'
-export const CONSOLE_SESSION = 'curia-overseer'
+// It was ONE key, `console`, until #333. One conversation that never ends rots
+// its own context and compacts badly, so the browser now gets many, and a new
+// one is the reset a new Discord thread already is. The vocabulary — the key,
+// the session name it is served under, and the counter that only goes up —
+// lives in attach.mjs beside the chat handle it must not collide with.
+//
+// The SESSION name is what the timeline surface serves a conversation under. It
+// reads as a curia session (attach.mjs validSessionName) because the timeline
+// admits nothing else.
 
 // The tool → router contract, pure: what canonical text each verb tool posts
 // to /command. One string builder rather than seven inline template literals,
@@ -174,7 +178,7 @@ export class OverseerHost {
     this.busy = new Set() // thread ids with a turn in flight
   }
 
-  // ---- the browser thread (#267) -------------------------------------------
+  // ---- a browser conversation's turn (#267, keyed per conversation by #333) -
   //
   // The console chat is this same overseer, in a thread of its own. One brain
   // answers the operator on Discord and in the browser, and neither surface
@@ -192,11 +196,19 @@ export class OverseerHost {
   //      put the buttons in — so it takes the same route a REST press takes and
   //      lands in the channel, plus the console's own needs-you list.
   //
+  // `key` names WHICH browser conversation, and it must be one the store holds.
+  // The refusal below is the deleted-conversation case: the page can sit on a
+  // key the operator has just deleted from another device, and a turn on it
+  // would mint a fresh conversation under a number that is spent.
+  //
   // What comes back is the failure, and only the failure: a turn that ends
   // without an answer must not read as silence on the page.
-  async browserTurn(text) {
+  async browserTurn(key, text) {
+    if (!this.store.hasConsoleConversation?.(key)) {
+      throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
+    }
     const said = []
-    const out = await this.runTurn(CONSOLE_THREAD, text, {
+    const out = await this.runTurn(key, text, {
       say: (t) => { said.push(t) },
       status: () => {},
       routeThreadId: null,
@@ -230,9 +242,10 @@ export class OverseerHost {
   // answer. Failures land in the answer slot; everything meta lands in status.
   //
   // `routeThreadId` (#267) is the thread the VERB TOOLS run in, which is the
-  // session key everywhere until the browser thread: a console turn keys its
-  // conversation on `console` and routes its verbs with no thread at all,
-  // because `console` is not a thread the bridge can post buttons into.
+  // session key everywhere until the browser conversations: a console turn keys
+  // its conversation on `console-<n>` and routes its verbs with no thread at
+  // all, because a console key is not a thread the bridge can post buttons
+  // into.
   async runTurn(threadId, prompt, { say, status, routeThreadId = threadId }) {
     if (this.busy.has(threadId)) {
       await say(smallPrint(`${SIGNALS.warn} still on your last message — one turn at a time per thread`))

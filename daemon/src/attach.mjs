@@ -77,6 +77,55 @@ export function nextChatHandle(taken = []) {
   return chatHandle(i)
 }
 
+// ---- the console key: a browser conversation (#333, ADR-0016) ---------------
+//
+// The overseer keeps one conversation per key. A Discord conversation is keyed
+// on the thread snowflake, which is all digits. A browser conversation is keyed
+// `console-<n>`, which always starts with a letter, so the two shapes cannot
+// collide. The browser had ONE key forever, `console`, and a conversation that
+// never ends rots its own context and compacts badly. Now it gets many, and a
+// new one is the reset a new Discord thread already is.
+//
+// This lives beside the chat handle above because of the one rule that binds
+// them: `chat-<n>` is NOT available to a conversation. It names a ticketless
+// agent, whose session is `curia-chat-<n>`. Two enumerated handle spaces on one
+// box have to be read together or one of them takes the other's name.
+//
+// The other difference from the chat handle is the counter, and it is the whole
+// reason this is not one function with two prefixes. A chat handle takes the
+// LOWEST FREE index, because an agent is torn down whole and its number means
+// nothing afterwards. A conversation is MEMORY: the transcript stays on disk
+// and the journal keeps the key, so a reused number would wake the deleted
+// conversation. Conversation numbers only go up.
+export const CONSOLE_PREFIX = 'console-'
+export const CONSOLE_KEY_RE = /^console-\d+$/
+export const isConsoleKey = (s) => CONSOLE_KEY_RE.test(String(s ?? ''))
+export const consoleKey = (n) => `${CONSOLE_PREFIX}${n}`
+export const consoleSession = (n) => `curia-${consoleKey(n)}`
+
+// The key a session name serves, or null for every other session, and the way
+// back. These two are the one place the timeline's `curia-console-3` and the
+// conversation key `console-3` become each other, so nothing else has to know
+// that the session name is the key with `curia-` in front of it.
+export function consoleKeyForSession(session) {
+  const m = String(session ?? '').match(/^curia-(console-\d+)$/)
+  return m ? m[1] : null
+}
+export const sessionForConsoleKey = (key) => `curia-${key}`
+
+// One higher than the highest number ever spent. `spent` is every key ever
+// minted, live and deleted alike — the deleted ones are what makes this differ
+// from nextChatHandle, and dropping them would hand a new conversation the last
+// one's memory.
+export function nextConsoleKey(spent = []) {
+  let high = 0
+  for (const k of spent) {
+    const m = String(k).match(/^console-(\d+)$/)
+    if (m) high = Math.max(high, Number(m[1]))
+  }
+  return consoleKey(high + 1)
+}
+
 function portLive(port) {
   return new Promise((resolve) => {
     const sock = net.connect({ host: '127.0.0.1', port, timeout: 750 })

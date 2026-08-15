@@ -405,11 +405,18 @@ Two ways. What the config dir holds decides which one is right. An agent gets a 
 A timeline session that is no tmux pane. It names its own config dir, the session id of the conversation it serves, and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
 
 **Console chat**:
-The Chat screen of the dashboard. It is the timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
+The timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
+_Avoid_: Chat screen (that is the picker in front of the chats, not a chat).
+
+**Conversation picker**:
+The Chat screen of the dashboard. It lists the browser conversations, opens one, and starts a new one. Each row carries the conversation's own context percent, which is the one signal that a conversation is getting long. It lives on the dashboard and not in the chat page, because an agent opens that same page and a conversation switcher there would put console words on the agent surface. It reads `GET /api/console` on arrival, never on the poll. See [#333](https://github.com/alp82/curia/issues/333).
 
 **Browser conversation**:
 An overseer conversation the console chat speaks to, keyed `console-<n>` rather than on a Discord thread. The browser holds many, and the Chat screen serves one as the session `curia-console-<n>`. One brain answers both surfaces. The answer is never posted, because the transcript already carries it to the page. Its verbs run with no origin thread, so a confirm goes where a REST press sends it. See [ADR-0016](docs/adr/0016-the-conversation-key.md).
 _Avoid_: browser thread (there is no Discord thread behind it, and there is more than one).
+
+**Spent number**:
+A browser conversation number that is used up. The daemon journals every key it mints, and it never mints one twice, so a delete spends that number for good. This is the one rule that separates a conversation number from a **Chat handle**: an agent is torn down whole and its index comes back, and a conversation is memory, so a reused number would wake the deleted conversation's own transcript. A delete forgets the key and leaves the file on disk. See [#333](https://github.com/alp82/curia/issues/333).
 
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.

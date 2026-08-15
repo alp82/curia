@@ -131,6 +131,53 @@ export function transcriptForSession(harness, cfgDir, sessionId) {
   return null
 }
 
+// What the operator opened a conversation with (#333).
+//
+// The Chat screen's picker labels each row with it. `console-1 console-2
+// console-3` is a list nobody can pick from, and a conversation has no other
+// name — ADR-0016 mints a number and nothing else, and #333 gave the operator
+// no field to type one in.
+//
+// Only the HEAD of the file is read. The first prompt is the first thing any
+// conversation writes, so a bounded read finds it, and the bound is what keeps
+// a label off the cost of a whole transcript. A file with no prompt inside that
+// window answers null, and the row falls back to its key.
+//
+// A malformed line is SKIPPED here, unlike everywhere else in this module. The
+// timeline reports a parse failure loudly because the transcript is the whole
+// content of that surface. Here it is a label, and half a line at the end of a
+// bounded read is the expected case, not evidence of anything.
+const LABEL_BYTES = 128 * 1024
+export function firstPrompt(harness, file, { max = 90, bytes = LABEL_BYTES } = {}) {
+  if (!harness || !file || !READERS[harness]) return null
+  let head
+  try {
+    const fd = fs.openSync(file, 'r')
+    try {
+      const buf = Buffer.alloc(bytes)
+      const read = fs.readSync(fd, buf, 0, bytes, 0)
+      head = buf.subarray(0, read).toString('utf8')
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return null
+  }
+  for (const line of head.split('\n')) {
+    if (!line.trim()) continue
+    let r
+    try { r = parseLine(harness, line) } catch { return null }
+    if (r.malformed || r.unknown) continue
+    for (const item of r.items ?? []) {
+      if (item.kind !== 'prompt') continue
+      const text = String(item.text ?? '').replace(/\s+/g, ' ').trim()
+      if (!text) continue
+      return text.length > max ? `${text.slice(0, max - 1)}…` : text
+    }
+  }
+  return null
+}
+
 function firstLine(s, n = 200) {
   const line = String(s ?? '').split('\n').find((l) => l.trim()) ?? ''
   return line.length > n ? `${line.slice(0, n)}…` : line

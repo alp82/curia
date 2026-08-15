@@ -57,7 +57,11 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // whose every button answers 404.
 // Bumped to 3 by #267: the Chat screen sends the operator to `/chat`, which an
 // older sidecar does not serve either.
-export const DASHBOARD_PROTO = 3
+// Bumped to 4 by #333: the Chat screen is a conversation picker now. It reads
+// `/api/console` and it POSTs the two console routes, none of which a proto-3
+// sidecar serves — so an old server must refuse this page rather than draw a
+// picker whose every row and button answers 404.
+export const DASHBOARD_PROTO = 4
 export const STAMP_NAME = 'curia-dashboard'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -193,6 +197,10 @@ const VERB_REPO_RE = /^[\w.-]+\/[\w.-]+$/
 const VERB_TICKET_RE = /^(\d+|chat-\d+)$/
 const VERB_SESSION_RE = /^curia-[\w.-]+$/
 const VERB_ESC_RE = /^[\w.-]+$/
+// A browser conversation key (#333). Checked here as well as in the daemon for
+// the reason every field above is: this surface composes the call, so it names
+// the shape it will send rather than passing a browser's word through.
+const CONSOLE_KEY_RE = /^console-\d+$/
 export const MAX_WORDS = 4000
 
 // Why an answer did not land (#266). The store refuses in ONE WORD — `unknown`,
@@ -732,6 +740,22 @@ export class DashboardSurface {
           return this.#daemon({ method: 'POST', path: '/note', body: { agent, text, mode, by } })
         })
       }
+      // The browser conversations (#333). The Chat screen mints one and
+      // deletes one, and both are composed here out of a shape this file names:
+      // `new` sends no field at all, and `delete` sends one key this side
+      // validates before the daemon validates it again.
+      if (url.pathname === '/api/console/new') {
+        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/console/new' }))
+      }
+      if (url.pathname === '/api/console/delete') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const key = field(b.key, CONSOLE_KEY_RE, 'a browser conversation key')
+          const out = await this.#daemon({ method: 'POST', path: '/console/delete', body: { key }, accept: [200, 409] })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       return this.#json(res, 404, { error: `no route ${url.pathname} on the dashboard` })
     }
 
@@ -747,6 +771,18 @@ export class DashboardSurface {
       return this.payload().then(
         (p) => this.#json(res, 200, p),
         (e) => this.#json(res, 500, { error: e.message }),
+      )
+    }
+    // The browser conversations (#333). Read only while the Chat screen is
+    // open, and never from the poll snapshot: a row costs a transcript read on
+    // the daemon side, so the list stays off the poll every other screen
+    // shares. An unreachable daemon answers a null list rather than an empty
+    // one, for the reason the fleet does: "curia could not be asked" and "you
+    // have no conversations" are opposite facts.
+    if (url.pathname === '/api/console') {
+      return this.#daemon({ path: '/console' }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { conversations: null, error: e.message }),
       )
     }
     // Read fresh off disk every time, never from the poll snapshot: these two
