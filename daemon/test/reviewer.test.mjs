@@ -598,6 +598,25 @@ describe('a reviewer never touches the builder\'s claim (#164)', () => {
     assert.ok(!typesOf().includes('unclaim_failed'))
   })
 
+  // #346 arms a limit resume on true exhaustion, and a reviewer is the one
+  // agent it must not arm one for: #releaseClaim has already unparked the
+  // builder with "the reviewer ended", so a resumed reviewer would read the
+  // same diff twice and land a verdict on a builder that stopped waiting.
+  test('a reviewer that exhausts every lane arms no limit resume', async () => {
+    const d = makeDispatcher({ capturePane: async () => "You've hit your usage limit." })
+    withBuilder(d)
+    // The builder's own provider is already cooling, so the reviewer's chain
+    // has nowhere left to fall when its cap lands.
+    d.cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
+    await d.crossCheck('42')
+
+    await waitFor(() => events.some((e) => e.type === 'reviewer_ended'))
+
+    assert.ok(!typesOf().includes('limit_resume_armed'), 'nothing may resume a reviewer')
+    assert.equal(d.limitResumes.size, 0)
+    assert.ok(typesOf().includes('dispatch_exhausted'), 'the exhaustion itself is still journalled and said')
+  })
+
   test('a dead reviewer says so and leaves the builder working', async () => {
     const d = makeDispatcher({
       listSessions: async () => ['curia-42'],
