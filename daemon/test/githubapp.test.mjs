@@ -185,7 +185,8 @@ describe('the API calls (#352)', () => {
       { id: 222, owner: 'getalfredo' },
     ])
     const { url, opts } = fetchImpl.calls[0]
-    assert.equal(url, 'https://api.github.com/app/installations')
+    // per_page, because GitHub's default page is 30 and nothing here paginates
+    assert.equal(url, 'https://api.github.com/app/installations?per_page=100')
     assert.equal(opts.headers.authorization, 'Bearer j')
     assert.equal(opts.headers['x-github-api-version'], '2022-11-28')
   })

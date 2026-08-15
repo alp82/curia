@@ -183,11 +183,11 @@ const FETCH_TIMEOUT_MS = 20_000
 // One place that builds a request and reads a failure, so every error the
 // operator sees names the same three things: what curia asked for, what GitHub
 // answered, and what to do about it.
-async function api(route, { jwt, token, method = 'GET', body = null, fetchImpl = globalThis.fetch } = {}) {
+async function api(route, { jwt, method = 'GET', body = null, fetchImpl = globalThis.fetch } = {}) {
   const res = await fetchImpl(`${API}${route}`, {
     method,
     headers: {
-      authorization: `Bearer ${jwt ?? token}`,
+      authorization: `Bearer ${jwt}`,
       accept: 'application/vnd.github+json',
       'x-github-api-version': API_VERSION,
       'user-agent': 'curia',
@@ -214,10 +214,13 @@ async function api(route, { jwt, token, method = 'GET', body = null, fetchImpl =
 // Every owner the app is installed on, as `{ id, owner }`. This is the ONE
 // lookup that says whether the operator finished the install step, so its
 // failure is worth a sentence rather than a status code.
+//
+// `per_page=100` rather than a pagination loop: GitHub's default page is 30,
+// and this app installs only on accounts the operator owns.
 export async function listInstallations({ jwt, fetchImpl = globalThis.fetch } = {}) {
   let payload
   try {
-    payload = await api('/app/installations', { jwt, fetchImpl })
+    payload = await api('/app/installations?per_page=100', { jwt, fetchImpl })
   } catch (e) {
     if (e.status === 401) throw new Error(`GitHub refused curia's app JWT (401) — ${APP_ID_KEY} and the key file must belong to the same app, and the box clock must be right`)
     throw e
