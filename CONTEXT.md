@@ -196,7 +196,7 @@ One of the three loopback ports an agent's container publishes, the same number 
 The agent's private config home for its harness. It holds the prompt, the skills, the harness settings, and on the claude path nothing else. It holds no credentials.
 
 **Tool namespace**:
-The MCP servers an agent can reach: curia's own, and nothing else. Two settings keys in the config dir hold that line. One stops the fetch of the operator's account-level claude.ai connectors, which follow the shared credential rather than the config dir. The other admits curia's server alone.
+The MCP servers an agent can reach: curia's own, and nothing else. Two settings keys in the config dir hold that line. One stops the fetch of the operator's account-level claude.ai connectors, which follow the shared credential rather than the config dir. The other admits curia's server alone. The line is closed by decision as well as by settings: a read-only MCP history server was proposed and refused (#344). History that ever reaches an agent arrives as tools on curia's own server, or it does not ship.
 
 **Skills**:
 The skill set curia symlinks into every agent's config dir, so an agent resolves in the same idiom as a hand session.

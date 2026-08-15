@@ -633,6 +633,11 @@ const HARNESS = {
       // not strings — `['curia']` fails schema validation, and an invalid
       // allowlist enforces an EMPTY one, which takes curia's own server down
       // with it. That trap was measured, not reasoned about.
+      //
+      // #344 made the one-server line a DECISION and not only a setting: a
+      // read-only MCP history server was proposed here and refused. History
+      // that ever reaches an agent arrives as tools on the server below, so
+      // this list stays at one entry.
       fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({
         skipDangerousModePermissionPrompt: true,
         disableClaudeAiConnectors: true,
