@@ -233,6 +233,9 @@ The boundary around an agent: one Docker container per agent, holding its own cl
 **Agent image**:
 The one image every agent container runs. It carries both harnesses at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
 
+**Image pin**:
+A container named `curia-agent-pin`, created against the live agent image and never started. The box's nightly docker cleanup deletes every image no container references, and no label protects one, so the reference is what keeps the image alive overnight. The daemon checks the pin on every dispatch. A new tag moves the pin and then removes every superseded tag of the same repository. See [#337](https://github.com/alp82/curia/issues/337) and [#350](https://github.com/alp82/curia/issues/350).
+
 **Cache volume**:
 A Docker volume shared by every agent for what is too heavy to bake into the image: the npm cache and the Playwright browsers. Cross-agent poisoning is an accepted risk.
 

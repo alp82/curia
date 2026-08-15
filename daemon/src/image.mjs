@@ -1,6 +1,7 @@
 // The shared agent image (#154, from the sandbox decision at #148): its tag,
-// its build, and the "is it already there" check the dispatch path (#156) asks
-// before it runs a container.
+// its build, the "is it already there" check the dispatch path (#156) asks
+// before it runs a container, and the pin that keeps the box's nightly docker
+// cleanup from deleting it overnight (#337, built by #350).
 //
 // The tag is a CONTENT ADDRESS, not a name someone bumps by hand. It carries
 // the two CLI versions so a human reading `docker images` sees what an agent
@@ -100,9 +101,9 @@ export function agentImageRef(sandbox, dockerfile = DOCKERFILE) {
 
 // `docker image inspect` and nothing more: no pull, no registry. The image is
 // built on the box it runs on, so a miss means "build it", never "fetch it".
-export async function imageExists(ref) {
+export async function imageExists(ref, { exec = execFileP, docker = DOCKER_BIN } = {}) {
   try {
-    await execFileP(DOCKER_BIN, ['image', 'inspect', ref], { timeout: 15_000 })
+    await exec(docker, ['image', 'inspect', ref], { timeout: 15_000 })
     return true
   } catch (e) {
     // An absent image and an unreachable docker fail the same call, and they
@@ -171,19 +172,127 @@ export function buildAgentImage(ref, { onLine = () => {} } = {}) {
   })
 }
 
+// ---- the pin, and the tags it lets go ---------------------------------------------
+//
+// The box runs Coolify, and its forced nightly cleanup deletes every image no
+// container references (#337). The label gate meant to spare an image is broken
+// upstream — the inspect it runs exits 64 and the `|| docker rmi` branch always
+// runs — so no label protects an image on that box. A REFERENCE does, and it is
+// the only thing that survives both cleanup shapes and the next Coolify upgrade.
+//
+// So the daemon holds one: a container named `curia-agent-pin`, created against
+// the live tag and never started. It costs the bytes of a container record and
+// no process. It is checked on EVERY dispatch rather than after a build alone,
+// so a pin someone removed heals at the next dispatch instead of at the next
+// four-minute rebuild.
+export const PIN_CONTAINER = 'curia-agent-pin'
+
+// The image ref the pin container names, or null when there is no pin. Read
+// from `.Config.Image`, which is the ref as it was given to `docker create` —
+// the tag is a content address, so string equality is enough to tell "the pin
+// is on the live image" from "the pin is on a tag we are replacing".
+async function pinnedRef({ exec = execFileP, docker = DOCKER_BIN } = {}) {
+  try {
+    const { stdout } = await exec(docker, [
+      'inspect', PIN_CONTAINER, '--format', '{{.Config.Image}}',
+    ], { timeout: 15_000 })
+    return stdout.trim() || null
+  } catch (e) {
+    if (/No such object|No such container/i.test(`${e.stderr ?? ''}${e.message ?? ''}`)) return null
+    throw dockerError(e)
+  }
+}
+
+// Make the pin name `ref`. Returns whether it had to create one, which is the
+// only half worth a journal line.
+export async function pinAgentImage(ref, { exec = execFileP, docker = DOCKER_BIN } = {}) {
+  const seams = { exec, docker }
+  const current = await pinnedRef(seams)
+  if (current === ref) return { created: false }
+  // A pin on a superseded tag is what holds that tag on disk, so it goes first
+  // and the prune behind it can then remove the image itself.
+  if (current !== null) {
+    try {
+      await exec(docker, ['rm', '--force', PIN_CONTAINER], { timeout: 30_000 })
+    } catch (e) {
+      if (!/No such container/i.test(`${e.stderr ?? ''}${e.message ?? ''}`)) throw dockerError(e)
+    }
+  }
+  try {
+    await exec(docker, ['create', '--name', PIN_CONTAINER, ref], { timeout: 60_000 })
+  } catch (e) {
+    // Two dispatches can reach this line together. The loser is told the name
+    // is taken, and that is a success as long as the winner pinned the same
+    // ref — which it did, since both resolved the same content address.
+    const detail = `${e.stderr ?? ''}${e.message ?? ''}`
+    if (/already in use/i.test(detail) && await pinnedRef(seams) === ref) return { created: false }
+    throw dockerError(e)
+  }
+  return { created: true }
+}
+
+// Every other tag of the same repository, removed with plain `docker rmi`.
+//
+// Refusals are silenced by design: a tag a running agent still references
+// refuses safely, and the next build comes back for it. Nothing here is worth
+// failing a dispatch over — the agent has the image it asked for.
+export async function pruneOtherTags(ref, { exec = execFileP, docker = DOCKER_BIN } = {}) {
+  let stdout
+  try {
+    ({ stdout } = await exec(docker, [
+      'images', ref.repo, '--format', '{{.Repository}}:{{.Tag}}',
+    ], { timeout: 15_000 }))
+  } catch {
+    return []
+  }
+  const dead = [...new Set(stdout.split('\n').map((s) => s.trim()).filter(Boolean))]
+    .filter((tag) => tag !== ref.ref && !tag.endsWith(':<none>'))
+  const removed = []
+  for (const tag of dead) {
+    try {
+      await exec(docker, ['rmi', tag], { timeout: 60_000 })
+      removed.push(tag)
+    } catch { /* still referenced, or already gone: both are fine here */ }
+  }
+  return removed
+}
+
 // One build at a time per tag. Two dispatches landing together would otherwise
 // each run a four-minute build of the same image, and the second would win a
 // race it did not need to enter.
 const inflight = new Map()
 
-export async function ensureAgentImage(sandbox, { onLine } = {}) {
+export async function ensureAgentImage(sandbox, {
+  onLine, exec = execFileP, docker = DOCKER_BIN, build = buildAgentImage,
+} = {}) {
+  const seams = { exec, docker }
   const ref = agentImageRef(sandbox)
-  if (await imageExists(ref.ref)) return { ...ref, built: false }
+  const built = !(await imageExists(ref.ref, seams))
 
-  if (!inflight.has(ref.ref)) {
-    const p = buildAgentImage(ref, { onLine }).finally(() => inflight.delete(ref.ref))
-    inflight.set(ref.ref, p)
+  if (built) {
+    if (!inflight.has(ref.ref)) {
+      const p = build(ref, { onLine }).finally(() => inflight.delete(ref.ref))
+      inflight.set(ref.ref, p)
+    }
+    await inflight.get(ref.ref)
   }
-  await inflight.get(ref.ref)
-  return { ...ref, built: true }
+
+  // The pin moves BEFORE the prune, so the tag it used to hold is free to go.
+  // A pin that cannot be made is reported, never thrown: the image is on the
+  // box and the agent can run: what the failure costs is one rebuild after the
+  // next nightly cleanup, and a refused dispatch costs more than that.
+  let pin
+  try {
+    pin = await pinAgentImage(ref.ref, seams)
+  } catch (e) {
+    pin = { created: false, error: e.message }
+  }
+  // The sweep runs when the live tag CHANGED, which the pin states better than
+  // the build does: `npm run build-agent-image` ahead of a bump is the way to
+  // keep the dispatch path warm, and it leaves the next dispatch nothing to
+  // build and a superseded tag to remove. A dispatch that finds its pin already
+  // on the live image changed nothing, and sweeps nothing.
+  const pruned = built || pin.created ? await pruneOtherTags(ref, seams) : []
+
+  return { ...ref, built, pin, pruned }
 }

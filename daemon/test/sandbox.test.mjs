@@ -558,6 +558,32 @@ describe('a sandboxed dispatch (#156)', () => {
   // channel, because it had no container — went with the bare pane (#195).
   // Every dispatch checks it now, which the case above asserts.
 
+  // #350: the pin and the prune are the image module's work. What the dispatch
+  // owes them is a record, because both are silent otherwise — and the pin is
+  // the one thing standing between the live image and the nightly cleanup.
+  test('a new pin and a prune are journalled', async () => {
+    const { d, events } = makeDispatcher({
+      ensureAgentImage: async () => ({
+        ref: 'curia-agent:test', built: true, pin: { created: true }, pruned: ['curia-agent:old'],
+      }),
+    })
+    await d.start('42', { repo: 'o/r' })
+    assert.equal(events.find((e) => e.type === 'agent_image_pinned')?.image, 'curia-agent:test')
+    assert.deepEqual(events.find((e) => e.type === 'agent_image_pruned')?.tags, ['curia-agent:old'])
+  })
+
+  test('a pin curia could not make warns, and the dispatch still runs', async () => {
+    const log = []
+    const { d, spawns } = makeDispatcher({
+      ensureAgentImage: async () => ({
+        ref: 'curia-agent:test', built: false, pin: { created: false, error: 'docker refused the daemon user' }, pruned: [],
+      }),
+    }, { log })
+    await d.start('42', { repo: 'o/r' })
+    assert.equal(spawns.length, 1, 'the dispatch was refused over a pin')
+    assert.ok(log.some((l) => /could not pin the agent image/.test(l) && /docker refused the daemon user/.test(l)))
+  })
+
   test('the pane runs docker, with the image, the mounts and the ports', async () => {
     const { d, spawns } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })

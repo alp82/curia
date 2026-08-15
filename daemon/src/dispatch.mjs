@@ -1176,6 +1176,20 @@ export class Dispatcher {
       this.store.logEvent('agent_image_built', { agent: session, ticket, image: image.ref })
       this.log(`built the agent image ${image.ref} for ${session}`)
     }
+    // The pin and the prune (#350). Both are the image module's own work; what
+    // belongs here is saying what happened. A failed pin does not refuse the
+    // dispatch — the image is on the box — but it is the one warning that
+    // explains a four-minute rebuild after the next nightly docker cleanup.
+    if (image.pin?.error) {
+      this.log(`WARNING: could not pin the agent image ${image.ref}: ${image.pin.error} — the box's nightly docker cleanup deletes every image no container references`)
+    } else if (image.pin?.created) {
+      this.store.logEvent('agent_image_pinned', { agent: session, ticket, image: image.ref })
+      this.log(`pinned the agent image ${image.ref}`)
+    }
+    if (image.pruned?.length) {
+      this.store.logEvent('agent_image_pruned', { agent: session, ticket, tags: image.pruned })
+      this.log(`removed ${image.pruned.length} superseded agent image tag(s): ${image.pruned.join(', ')}`)
+    }
     // The side channel, before the agent rather than after it (#188). This is
     // the LAST thing checked and the first thing an agent needs: `ask_human`,
     // the Stop hook and every curia tool ride it, so a container started without
