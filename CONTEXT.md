@@ -166,6 +166,15 @@ What the overseer container runs at the start of every turn, before the model: c
 **Overseer token**:
 The read-only GitHub token the overseer container holds, one fine-grained PAT per resource owner. It is the control that replaces the seam: the container has a shell, and a shell cannot mint a token. It lives in `daemon/.env.overseer` as `CURIA_OVERSEER_GH_TOKEN_<OWNER>`, a second env file the overseer service loads whole and the daemon only reads. Each tool picks its owner differently, so the container installs two halves: git takes one `credential.https://github.com/<owner>.helper` line per owner, and `gh` takes a shim, because it reads a single `GH_TOKEN`. See [ADR-0014](docs/adr/0014-the-overseer-in-its-own-container.md) and the [live checks](docs/live-checks/313-overseer-github-token.md).
 _Avoid_: agent token (that one is per resource owner too, but it is read-write and it reaches an agent as `GH_TOKEN`).
+[ADR-0018](docs/adr/0018-the-daemon-is-a-github-app.md) retires this PAT: the same read set becomes an installation token the daemon mints, and `.env.overseer` keeps only the model credential.
+
+**GitHub App**:
+Curia's one GitHub identity. The operator creates one app and installs it on each watched owner. The daemon holds its private key at `daemon/.curia-app.pem`, names it with `CURIA_GH_APP_ID` and `CURIA_GH_APP_KEY_FILE` in `daemon/.env.daemon`, and mints every GitHub token from it. The bot is `curia[bot]`. Decided at [ADR-0018](docs/adr/0018-the-daemon-is-a-github-app.md). The operator's own steps are [docs/github-app.md](docs/github-app.md). Partly built: the minting core ships, and each holder cuts over on its own ticket.
+_Avoid_: OAuth app.
+
+**Installation token**:
+What the daemon mints from the app key, one per resource owner and per role. Two roles: read-write for agents, read-only for the overseer. A minted token scopes down from what the installation grants, which is what lets one key hold both. It lives one hour, so a holder reads a file the daemon rewrites and never an environment variable frozen at spawn.
+_Avoid_: app token (that name is the JWT the daemon signs, and a JWT mints installation tokens rather than reaching a repo).
 
 **The verbs**:
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
@@ -565,5 +574,6 @@ Everything else is a cache that reconcile can rebuild.
 - `docs/live-checks/`: first-person agent evidence.
 - `docs/agents/`: tracker, triage, and domain-doc conventions for agents.
 - `docs/full-loop.md`: the rehearsal record of the PoC map. History, not a live procedure.
+- `docs/github-app.md`: the operator's own checklist for the GitHub App. Nothing on it can be done by an agent.
 
 The tracker holds history. The docs hold what still constrains work.

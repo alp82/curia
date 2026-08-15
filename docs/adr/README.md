@@ -25,6 +25,10 @@ One file per standing decision. A decision earns an ADR when it still constrains
 - [ADR-0006](0006-worker-containment-and-standing-orders.md): The agent resolves in the tracker's idiom, bounded by standing orders. The daemon verifies, repairs, and lands.
 - [ADR-0007](0007-shared-credential-store.md): Agents share the host credential store. Nothing is snapshotted, so nothing goes stale. The daemon reads that store for the account usage bars, and never writes it.
 
+## Credentials
+
+- [ADR-0018](0018-the-daemon-is-a-github-app.md): One GitHub App replaces every PAT. The daemon holds the private key and mints installation tokens — read-write for agents, read-only for the overseer. The gate approval is the operator's own, and the claim assigns a real user. Decided; the minting core is built and each holder cuts over on its own ticket.
+
 ## Human in the loop
 
 - [ADR-0005](0005-escalation-contract.md): Escalations are blocking MCP calls, rendered on Discord, first-valid-wins, durable in the journal.

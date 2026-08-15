@@ -44,6 +44,7 @@ import { SelfDeploy } from './deploy.mjs'
 import { OverseerHost, CONSOLE_SESSION, CONSOLE_THREAD } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
+import { APP_ID_KEY, APP_KEY_FILE_KEY, minterFrom } from './githubapp.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, assertOverseerTokens,
   overseerGhToken, overseerTokenKeyFor, daemonOnlyKeys,
@@ -196,6 +197,32 @@ probeWatchedTokens({
   keyFor: overseerTokenKeyFor,
   refusal: 'the overseer cannot read it',
 })
+
+// #352, building ADR-0018: the GitHub App that replaces every token above. It
+// SWAPS NO HOLDER YET — each one cuts over on its own ticket, and no PAT comes
+// out ahead of its replacement. So what the boot does here is prove the
+// operator's checklist worked and say so out loud.
+//
+// A HALF-configured app refuses the boot inside minterFrom, because an app id
+// with no key is a typo, and a typo that boots reaches a dispatch as a 401
+// nobody can place. NO app is a different thing and stays legal: the tokens
+// above are still the live credential.
+const appMinter = minterFrom({ daemonRoot: ROOT, log })
+if (!appMinter) {
+  log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md)`)
+} else {
+  log(`GitHub App ${appMinter.appId}, key at ${appMinter.keyFile}`)
+  // Detached, for the same reason the token probes above are: this is a network
+  // round trip, and GitHub being slow must never hold up a boot whose other
+  // duties do not need it.
+  appMinter.installations().then((installs) => {
+    for (const { id, owner } of installs) log(`GitHub App installed on ${owner} (installation ${id})`)
+    const seen = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
+    for (const owner of WATCHED_OWNERS) {
+      if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — install it there before that owner's holders cut over (docs/github-app.md)`)
+    }
+  }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — no holder mints yet, so nothing is broken by it`))
+}
 
 const store = new EscalationStore(DATA)
 
