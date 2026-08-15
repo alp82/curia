@@ -43,7 +43,11 @@ plus any reference pages the skill points at.
 
 `skills.install` is what bounds an agent, not this tree. The tree carries all 25 promoted
 skills so that a hand session reads the same copy. The four skills [#49](https://github.com/alp82/curia/issues/49)
-withholds stay withheld, because they are not in that list.
+withholds stay withheld, because they are not in that list. `wizard` is withheld with them
+([#348](https://github.com/alp82/curia/issues/348)): it writes an interactive bash script
+for a human at a terminal, and a `wayfinder:task` ticket hands its checklist to a phone
+through `ask_human`. `writing-for-agents` is in the list, because an agent here edits
+agent-facing prose often.
 
 ## How to bump the release
 
