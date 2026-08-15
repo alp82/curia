@@ -182,6 +182,18 @@ describe('bounds', () => {
     assert.match(body, /stand in for the reply/)
   })
 
+  // #341: the rule above had the right instinct and the wrong clock. The
+  // transport reports a dropped call about 120 s after the daemon died, and the
+  // daemon is back seconds after it left, so an immediate retry meets the same
+  // outage and the agent gives up on a channel that is already healthy.
+  test('the retry waits, and the wait is a foreground sleep (#341)', () => {
+    const body = write({ mapNumber: 1 })
+    assert.match(body, /the channel comes back by itself/, 'the agent needs the model of the world, not just the step')
+    assert.match(body, /Wait two minutes with a foreground `sleep 120`/)
+    assert.match(body, /wait five minutes the same way and make it one last time/)
+    assert.match(body, /Only then stop and end your/)
+  })
+
   // #172/#180 shut the namespaces both harnesses handed out unasked. This order
   // is the half no config key reaches: a skill that installs an MCP server, a
   // `codex plugin add`, a `claude mcp add`, a marketplace. Asserted on a
