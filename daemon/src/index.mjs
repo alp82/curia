@@ -41,7 +41,7 @@ import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
-import { OverseerHost, CONSOLE_SESSION } from './overseer.mjs'
+import { OverseerHost, CONSOLE_SESSION, CONSOLE_THREAD } from './overseer.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import {
@@ -851,8 +851,17 @@ const timeline = new TimelineSurface({
     // overseer host already keeps, and a message to it is a turn rather than a
     // keystroke. `overseer` is const below and read at request time, never at
     // construction.
+    //
+    // #332: the conversation's live session id rides along, read from the
+    // journal on every call. It is what names the transcript file — the
+    // overseer's config dir holds every conversation's, Discord's included, so
+    // the newest one there belongs to whoever answered last.
     driverFor: (session) => (session === CONSOLE_SESSION
-      ? { cfgDir: overseer.configDir, send: (text) => overseer.browserTurn(text) }
+      ? {
+        cfgDir: overseer.configDir,
+        sessionId: store.overseerSession(CONSOLE_THREAD) ?? null,
+        send: (text) => overseer.browserTurn(text),
+      }
       : null),
   },
 })

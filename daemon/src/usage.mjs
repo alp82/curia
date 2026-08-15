@@ -769,14 +769,25 @@ export function modelName(model, spec, stated = null) {
 // Everything the status line can say about one agent beyond its state. Every
 // field is independently nullable — a missing source drops its meter, never the
 // line.
-export function agentMeters({ harness, cfgDir, model, routing, account, models, now = Date.now() }) {
+//
+// `transcript` names the file to read (#332, building ADR-0016). OMIT it for an
+// AGENT: curia gives every agent its own config dir, so the newest file in that
+// dir is the agent's live run. PASS it for a CONVERSATION, resolved with
+// transcript.transcriptForSession — every overseer conversation shares one
+// config dir, so only the session id its key is bound to names its file. Null
+// there is a conversation with no turn yet, and it reads NOTHING: the last
+// conversation's percent is the defect this argument exists to end, not a
+// fallback. ADR-0016 makes this meter the one signal that a conversation is
+// getting long, so a number about another conversation cannot carry the job.
+export function agentMeters({ harness, cfgDir, model, routing, account, models, transcript, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = {
     model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
   }
   if (!harness || !cfgDir) return out
 
-  const { ctx, windows } = readTranscriptMeters(harness, findTranscript(harness, cfgDir), now)
+  const file = transcript === undefined ? findTranscript(harness, cfgDir) : transcript
+  const { ctx, windows } = readTranscriptMeters(harness, file, now)
   // The transcript's own word beats the config's, exactly as it does for the
   // window on the line below.
   out.model = modelName(model, spec, ctx?.model)

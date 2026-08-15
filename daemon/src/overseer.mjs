@@ -317,8 +317,12 @@ export class OverseerHost {
       })
       for await (const msg of q) {
         if (msg.type === 'system' && msg.subtype === 'init') {
-          // resume mints a fresh session id for the continued conversation —
-          // journal the latest one per thread, last write wins.
+          // The session id a turn states, journalled per thread, last write
+          // wins. Measured on claude 2.1.220 (docs/live-checks/
+          // 332-transcript-by-key.md): a resume KEEPS the id and appends to the
+          // one file, so this write is the same id every turn after the first.
+          // It stays a write per turn because the id is the only handle on the
+          // conversation, and #332 now reads it to find the transcript too.
           this.store.bindOverseerSession(threadId, msg.session_id)
         }
         if (msg.type === 'assistant') {

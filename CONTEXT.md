@@ -385,10 +385,13 @@ The shared ttyd page over Tailscale Serve. The raw TUI, honest for one device at
 The grid-free attach surface. It reads the agent's transcript and writes with tmux send-keys. The timeline is where you drive. The terminal is where you go to see the TUI itself.
 
 **Transcript**:
-The harness's own append-only run log. It carries no geometry, so any device lays it out at its own width.
+The harness's own append-only run log. It carries no geometry, so any device lays it out at its own width. The harness names the file after the session id, and a resume keeps that id, so one run is one file for its whole life.
+
+**Finding a transcript**:
+Two ways. What the config dir holds decides which one is right. An agent gets a config dir of its own, so the newest file in it by mtime is that agent's run. A conversation shares one config dir with every other conversation, so only the session id its key is bound to names its file. A key with no session id has no transcript. The honest answer there is nothing, and it is never the newest file. See [ADR-0016](docs/adr/0016-the-conversation-key.md) and the [live checks](docs/live-checks/332-transcript-by-key.md).
 
 **Driven session**:
-A timeline session that is no tmux pane. It names its own config dir and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
+A timeline session that is no tmux pane. It names its own config dir, the session id of the conversation it serves, and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
 
 **Console chat**:
 The Chat screen of the dashboard. It is the timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.

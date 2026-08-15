@@ -561,6 +561,32 @@ describe('agentMeters', () => {
     const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
     assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
   })
+
+  // #332, building ADR-0016: the meter is the ONE signal that a conversation is
+  // getting long, so it has to read the conversation it was asked about. Every
+  // overseer conversation writes into one config dir, where newest-by-mtime is
+  // whoever answered last.
+  test('a named transcript beats the newest file in the dir', () => {
+    const d = cfgDir()
+    const mine = write(path.join('cfg', 'curia-1', 'projects', 'p', 'browser-1111.jsonl'), [claudeTurn(2, 399998, 0)])
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'discord-9999.jsonl'), [claudeTurn(2, 99998, 0)])
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(mine, old, old)
+    const models = lookup({ 'claude-opus-5': 1000000 })
+
+    // The mtime path reads the conversation that answered last: 10%, not 40%.
+    assert.equal(agentMeters({ harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models, now: NOW }).ctxPct, 10)
+    const m = agentMeters({ harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models, transcript: mine, now: NOW })
+    assert.equal(m.ctxPct, 40)
+  })
+
+  test('a conversation with no transcript reads NOTHING, never the newest file', () => {
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'discord-9999.jsonl'), [claudeTurn(2, 399998, 0)])
+    const models = lookup({ 'claude-opus-5': 1000000 })
+    const m = agentMeters({ harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models, transcript: null, now: NOW })
+    assert.equal(m.ctxPct, null)
+  })
 })
 
 describe('rendering', () => {
