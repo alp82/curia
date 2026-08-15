@@ -101,6 +101,11 @@ Merged. A ticket counts as resolved only when a human approved the work and the 
 **Dispatch**:
 The ordered act: claim, prepare, spawn. A failure before the spawn releases the claim.
 
+**Auto-dispatch**:
+The `dispatch.auto_dispatch` flag. The dispatch tick runs either way, because the liveness sweep rides it. While the flag is true, that same tick also starts takeable tickets, the map lane first, up to `max_concurrent`. It ships false, so the operator's press is the only door from a ticket to an agent.
+It is also the only door a clock could use. curia refuses scheduled tickets for that reason: a schedule that files one is auto-dispatch with a calendar in front of it. The demand behind the idea is a watch, not a clock. A watch states one event at its own instant, where the operator reads it. See [#345](https://github.com/alp82/curia/issues/345).
+_Avoid_: scheduler, cron.
+
 **Routing rule**:
 The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<type>` default table. No intelligence sits in the dispatch path. `wayfinder:map` is a row in that table like any other type.
 
