@@ -253,6 +253,57 @@ Dispatch also asserts the tracker prerequisite: a **map child** whose worktree c
 
 Supersede (#29): a re-issued `ask_human` (same agent + same payload while an older escalation is open) closes the old record, strips its buttons in Discord, and routes late answers to the live successor.
 
+### Reading the journal
+
+Today the operator debugs with `grep` and `tail -f` on `data/events.jsonl`.
+
+**Decided and not built.** The journal becomes a `node:sqlite` store ([ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md)), and the JSON lines retire. Curia then builds no reader. It writes no text file beside the store, and it ships no command-line wrapper. The operator opens a read-only SQLite shell and types SQL. The decision is [What stays greppable (#320)](https://github.com/alp82/curia/issues/320), and the column names below are the requirement it puts on the schema ticket, [#321](https://github.com/alp82/curia/issues/321).
+
+Open the shell:
+
+```sh
+docker compose -f /home/alp/curia/deploy/compose.yaml run --rm --no-deps daemon \
+  sqlite3 -readonly -box /home/alp/curia/daemon/data/events.db
+```
+
+Two flags carry a reason. `--no-deps` is required, because a compose command that recreates the `tmux` service kills every live agent. `run` and not `exec`, because `run` still works while the daemon is down, and that is when a post-mortem happens.
+
+The image carries `sqlite3` because the ADR-0017 backup needs it. The host copy is not used. Ubuntu 20.04 packages SQLite 3.31, which cannot open a STRICT table.
+
+Five queries answer most of what the old `grep` answered:
+
+```sql
+-- what happened to one ticket
+select ts,type,ticket,agent from events where ticket=320 order by id;
+
+-- the last thirty events
+select ts,type,ticket,agent from events order by id desc limit 30;
+
+-- one whole line, exactly as curia wrote it
+select body from events where id=4711;
+
+-- the census, by type
+select type,count(*) from events group by type order by 2 desc;
+
+-- how one agent ended
+select ts,type,body from events where agent='curia-320' order by id desc limit 10;
+```
+
+`tail -f` has no equivalent in SQL, so the live watch is a poll:
+
+```sh
+watch -n2 'docker compose -f /home/alp/curia/deploy/compose.yaml exec -T daemon \
+  sqlite3 -readonly -box /home/alp/curia/daemon/data/events.db \
+  "select ts,type,ticket,agent from events order by id desc limit 30"'
+```
+
+`exec` here, and not `run`. A dead daemon produces nothing to watch.
+
+Two facts make this work.
+
+- **A read-only reader opens a hot WAL.** Measured for #320: a writer killed mid-write left a `-wal` and a `-shm` behind, and a read-only connection then read every committed row back. It fails only when the data directory is not writable and no `-shm` file exists. Curia's data directory is writable, so a crash does not lock the operator out.
+- **The columns carry today's spelling, and `body` carries the line as written.** [#184](https://github.com/alp82/curia/issues/184) renamed the worker to the agent, and older lines still spell it `"worker"`. The schema normalizes on the way in, so `where agent='curia-170'` finds those lines too.
+
 ## Blocking for hours (#34)
 
 The daemon holds a blocked `ask_human` indefinitely — Node's `requestTimeout` covers only request *receipt*, so nothing server-side expires the held response. The client is what needed handling: **Claude Code aborts an MCP tool call after 300s of server silence** (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`), which killed every real agent five minutes in — twenty-five minutes before the #11 re-nudge could ever fire.
