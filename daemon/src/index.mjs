@@ -57,11 +57,11 @@ import {
 import { probeOverseer } from './overseerservice.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
-import { detectHarness, transcriptForSession, firstPrompt } from './transcript.mjs'
+import { detectHarness } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
-import { AccountUsage, ModelWindows, agentMeters, ctxOnWire } from './usage.mjs'
+import { AccountUsage, ModelWindows, agentMeters, ctxOnWire, consoleConversationsOnWire } from './usage.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -1512,47 +1512,20 @@ async function overview() {
   }
 }
 
-// ---- the browser conversations, on the wire (#333, ADR-0016) ---------------
-//
-// The Chat screen is the one surface that draws them, so this is its own route
-// rather than a section of `GET /overview`. Two reasons, and both are about
-// cost: the list grows for as long as the operator keeps conversations, and a
-// row costs a transcript read — so a section on the poll every screen shares
-// would make watching Home more expensive with every chat ever opened.
-//
-// The context percent is why a row is worth that read. ADR-0016 adds no warning
-// that a conversation is long: the percent IS the signal, and #332 is what made
-// it true per conversation. A picker that could not show it would leave the
-// operator picking blind.
+// The browser conversations, on the wire (#333). Everything about the shape
+// lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
+// store this daemon holds and the overseer host's own config dir and model.
 function consoleOnWire() {
   const cfgDir = overseer.configDir
-  const harness = detectHarness(cfgDir)
-  return store.consoleConversationList().map((c) => {
-    const sessionId = store.overseerSession(c.key) ?? null
-    const file = harness ? transcriptForSession(harness, cfgDir, sessionId) : null
-    // The file's own mtime is when this conversation last wrote, which is the
-    // one honest answer: the journal's binding is rewritten every turn, so it
-    // says when the turn STARTED, and a long turn would date the row wrong.
-    let lastTurnAt = null
-    if (file) {
-      try { lastTurnAt = new Date(fs.statSync(file).mtimeMs).toISOString() } catch { lastTurnAt = null }
-    }
-    return {
-      key: c.key,
-      session: sessionForConsoleKey(c.key),
-      opened_at: c.opened_at,
-      last_turn_at: lastTurnAt,
-      // The row's label: what the operator opened this conversation with. Null
-      // for one with no turn yet, and the page falls back to the key.
-      label: file ? firstPrompt(harness, file) : null,
-      // A conversation with no turn yet has no file, and `agentMeters` reads
-      // NOTHING rather than falling back to whoever answered last (#332). The
-      // percent is then null, which the page prints as "—" and never as 0%.
-      ...ctxOnWire(() => agentMeters({
-        harness, cfgDir, model: overseer.model, routing: routingConfig,
-        account: accountUsage, models: modelWindows, transcript: file,
-      })),
-    }
+  return consoleConversationsOnWire({
+    conversations: store.consoleConversationList(),
+    sessionIdFor: (key) => store.overseerSession(key),
+    harness: detectHarness(cfgDir),
+    cfgDir,
+    model: overseer.model,
+    routing: routingConfig,
+    account: accountUsage,
+    models: modelWindows,
   })
 }
 
