@@ -180,9 +180,21 @@ skills:
     - tdd
     - code-review
     - diagnosing-bugs
+    # #348: an agent here edits agent-facing prose often — AGENTS.md,
+    # CONTEXT.md, docs/agents/, this vendored tree, the standing orders — and
+    # that is exactly what this skill triggers on. It rules STRUCTURE. voice.md
+    # is mandatory and stays the authority on words, so the two do not collide.
+    - writing-for-agents
   # Withheld on purpose: to-tickets, triage, to-spec, handoff — the
   # charting-and-PM side. to-tickets is mass ticket creation in the hands of an
   # agent that now carries charting authority (#49).
+  # Withheld too: wizard (#348). It writes an interactive bash script for a
+  # human at a terminal, and a `wayfinder:task` ticket hands its checklist over
+  # through `ask_human`, to a phone. The script writes `.env` and `gh secret`
+  # where it runs, which is the agent container and not the operator's box, and
+  # it reaches that box only after the merge that ends the ticket. A repeatable
+  # setup path under `scripts/` is the case that survives, and it earns its own
+  # ticket.
   # The vendored tree carries all 25 promoted skills, because a hand session
   # reads the same tree. This list, not the tree, is what an agent gets: the
   # seed builds <cfgDir>/skills from these names alone (#268).

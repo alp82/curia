@@ -22,7 +22,7 @@ drift resolved with nothing lost.
 | **`grilling` is round-by-round.** It maps a design tree, asks the whole **frontier** in one numbered round, then recomputes. It also dispatches sub-agents for facts. | [ADR-0005](../adr/0005-escalation-contract.md) and the spawn prompt both said one question at a time. **Settled by [#285](https://github.com/alp82/curia/issues/285): the round wins.** A round needs no new kind — it is one `free-text` call whose prompt carries the numbered questions, and the new `recommended` flag adds a ✅ All as recommended button. An unanswered question returns in the next round. The rule applies to every HITL ticket, not only grilling. |
 | **`wayfinder` names the unit a decision ticket**, and the charting session now resolves research tickets with `/research` sub-agents on a `research/<name>` branch. Charting hand-resolves nothing else. | **Settled by [#286](https://github.com/alp82/curia/issues/286): curia takes both.** The operator ruled for compatibility with the skill over curia's earlier shape. A charting session burns down the research tickets it creates. Every subagent writes into the charting agent's own worktree on `curia/<map>` and never runs git, so one pull request carries the findings through the ordinary gate and [ADR-0008](../adr/0008-resolved-means-merged.md) holds unbent. The `research/<name>` branch is the one piece of the skill curia does not take. It exists to keep unreviewed findings off main, and the pull request already does that. **Decision ticket** joins [CONTEXT.md](../../CONTEXT.md) beside **Ticket**, as the subset it names. The skill file is untouched. |
 | **`prototype` produces one shareable HTML file**, captured on a throwaway `prototype/<name>` branch with a context pointer. | [ADR-0008](../adr/0008-resolved-means-merged.md) gives an agent one branch, `curia/<n>`, and one pull request. A second branch has no path through the gate. **Settled by [#287](https://github.com/alp82/curia/issues/287): one branch, and it is already the skill's throwaway one.** `curia/<n>` is cut from main and deleted at merge, the context pointer is the resolution comment plus the map line, and the verdict sits on the issue. One clause is deviated from: main keeps the prototype, under `prototypes/`, because the merge is curia's only durable home. curia took the skill's word too — the domain term is now **Prototype**, and `spikes/` is renamed. |
-| **`writing-great-skills` → `writing-for-agents`**, model-invoked, no alias. | Not in `skills.install`. The inventory table below is stale on this row. |
+| **`writing-great-skills` → `writing-for-agents`**, model-invoked, no alias. | **Settled by [#348](https://github.com/alp82/curia/issues/348): it joins `skills.install`.** An agent here edits agent-facing prose often — AGENTS.md, CONTEXT.md, `docs/agents/`, this vendored tree, the standing orders — which is the skill's own trigger. It rules structure, and `voice.md` stays the mandatory authority on words. The inventory table below is stale on this row. |
 | **`resolving-merge-conflicts` now ships** in the promoted set. | It was the one upstream/local gap this survey found. It is vendored now, still not installed. |
 | `code-review` drops Claude Code's tool and agent-type names. | Helps the codex harness ([#173](https://github.com/alp82/curia/issues/173)). No action. |
 | `diagnosing-bugs` gains a **Redact** section. | Agents paste command output into threads and pull requests. A gain, no action. |
@@ -39,8 +39,14 @@ drift resolved with nothing lost.
   tree copies it, so a codex agent reads it with no extra step.
 - **Three new promoted skills**: `wizard` (model-invoked, generates a bash script that walks
   a human through a manual procedure), `wait-what` (one word, re-pitches a message), and
-  `to-questionnaire`. None are installed. `wizard` is the interesting one for curia, because
-  a `wayfinder:task` ticket is exactly the HITL checklist it writes.
+  `to-questionnaire`. None are installed. `wizard` was the interesting one for curia, because
+  a `wayfinder:task` ticket is exactly the HITL checklist it writes. **Settled by
+  [#348](https://github.com/alp82/curia/issues/348): it stays out.** The checklist reaches the
+  operator through `ask_human`, on a phone, and a bash script is not answerable there. The
+  script also writes `.env` and `gh secret` where it runs, which is the agent container rather
+  than the operator's box, and it reaches that box only after the merge that ends the ticket.
+  A repeatable setup path under `scripts/` is the case that survives, and it earns its own
+  ticket.
 
 ---
 

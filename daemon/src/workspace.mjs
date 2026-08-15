@@ -966,6 +966,17 @@ export function plantedSkills(wtPath, harness, install) {
 // charting-and-PM side, and to-tickets is mass ticket creation in the hands of
 // an agent that now carries charting authority (#49).
 //
+// `wizard` is absent too (#348). It writes an interactive bash script for a
+// human at a terminal, and a `wayfinder:task` ticket hands its checklist over
+// through `ask_human`, to a phone. The script writes `.env` and `gh secret`
+// where it runs, which is the agent container rather than the operator's box,
+// and it reaches that box only after the merge that ends the ticket.
+//
+// `writing-for-agents` IS installed (#348): an agent here edits agent-facing
+// prose often — AGENTS.md, CONTEXT.md, docs/agents/, the vendored tree, these
+// standing orders — which is the skill's own trigger. It rules structure, and
+// voice.md stays the mandatory authority on words.
+//
 // `wayfinder` and `implement` carry `disable-model-invocation: true`, so they
 // are neither listed to the model nor reachable through its Skill tool — the
 // call comes back "cannot be used with Skill tool". Installing them is still
@@ -974,7 +985,7 @@ export function plantedSkills(wtPath, harness, install) {
 // constraint on the spawn prompt (#54), not on this list.
 export const DEFAULT_SKILLS = [
   'wayfinder', 'grilling', 'domain-modeling', 'research', 'prototype',
-  'implement', 'tdd', 'code-review', 'diagnosing-bugs',
+  'implement', 'tdd', 'code-review', 'diagnosing-bugs', 'writing-for-agents',
 ]
 
 // The FALLBACK skills root, for a config that names none. ~/.claude/skills is
