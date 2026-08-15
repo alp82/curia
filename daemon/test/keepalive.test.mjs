@@ -200,11 +200,17 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     await client.close()
   })
 
-  // The other branch. An agent harness that offers no progressToken still has to
-  // get bytes, or it dies at its own idle timeout exactly like Claude Code did
-  // — and this is the branch a silent regression would leave uncovered, since
-  // Claude Code itself never takes it. (What a *given* client does with a
-  // logging notification is its business; the daemon's job is to keep sending.)
+  // The other branch, and the codex lane's own (#342, gap 13). An agent harness
+  // that offers no progressToken still has to get bytes, or it dies at its own
+  // idle timeout exactly like Claude Code did — and this is the branch a silent
+  // regression would leave uncovered, since Claude Code itself never takes it.
+  // (What a *given* client does with a logging notification is its business;
+  // the daemon's job is to keep sending.)
+  //
+  // The envelope is asserted alongside the text since #342. A logging
+  // notification is routed by `level` and `logger` before anything reads its
+  // data, so a keepalive that arrived unlabelled would be filtered out by a
+  // conforming client and the lane would go silent with this test still green.
   test('a client that offers no progressToken still gets keepalive traffic', async () => {
     const client = new Client({ name: 'curia-keepalive-test-notoken', version: '0.0.0' })
     const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-lab2&ticket=78`), armed('curia-lab2'))
@@ -231,12 +237,97 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       `expected repeated logging notifications on the tokenless path, got ${logs.length}`,
     )
     assert.match(String(logs.at(-1).params.data ?? ''), new RegExp(open.id))
+    assert.equal(logs.at(-1).params.level, 'info', 'an unlabelled notification is one a conforming client drops')
+    assert.equal(logs.at(-1).params.logger, 'curia', 'and the logger is how it tells curia from the harness\'s own noise')
 
     await request(port, 'POST', '/answer', {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id: open.id, answer: 'released' }),
     })
     await call
+    await client.close()
+  })
+
+  // #342, gap 13. The inbound half of #34, end to end on a real client — and
+  // the reason it is a CODEX case rather than a claude one.
+  //
+  // Gap 8 of the codex-lane inventory (#152) asked whether an MCP `image` block
+  // reaches a codex agent at all, because `inboundContent` predates that lane.
+  // #176 settled it live: a stdio MCP server returned a 120x80 solid red PNG and
+  // the codex agent answered with the colour and the dimensions, both of which
+  // come only from the pixels. So the lane reads the block, and what is left to
+  // hold is that the daemon still PRODUCES it — which no test asserted past
+  // `inboundContent` itself. A refactor that let the answer's attachments stop
+  // at the route would turn every screenshot answer into a silent drop on both
+  // lanes, and the unit test of the pure function would stay green.
+  test('a screenshot answer comes back as a real image block, not a path the agent must go and read', async () => {
+    // A real PNG, because the block carries the bytes: 1x1, the smallest file
+    // the format has.
+    const workRoot = path.join(tmp, 'work')
+    fs.mkdirSync(workRoot, { recursive: true })
+    const shot = path.join(workRoot, 'shot.png')
+    fs.writeFileSync(shot, Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64',
+    ))
+
+    const client = new Client({ name: 'curia-image-test', version: '0.0.0' })
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-70&ticket=70`), armed('curia-70')))
+    const call = client.callTool(
+      { name: 'ask_human', arguments: { prompt: 'does this look right?', kind: 'free-text' } },
+      undefined,
+      { timeout: 30_000 },
+    )
+
+    const open = await until(
+      async () => JSON.parse((await request(port, 'GET', '/state')).body).open_escalations.find((e) => e.ticket === '70'),
+      'the image escalation to open',
+    )
+    const answered = await request(port, 'POST', '/answer', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: open.id, answer: 'no — look at the header', attachments: [shot] }),
+    })
+    assert.equal(answered.status, 200)
+
+    const { content } = await call
+    const image = content.find((c) => c.type === 'image')
+    assert.ok(image, `the answer's attachment must ride back as an image block — got ${JSON.stringify(content.map((c) => c.type))}`)
+    assert.equal(image.mimeType, 'image/png')
+    assert.equal(image.data, fs.readFileSync(shot).toString('base64'), 'the bytes are the picture, not a path to it')
+    // Text stays the floor (#34): the words the human typed are never traded
+    // for the picture.
+    assert.match(content.filter((c) => c.type === 'text').map((c) => c.text).join('\n'), /look at the header/)
+    await client.close()
+  })
+
+  // #342, gap 13. #152 measured the `choice` kind working on a live codex agent
+  // and filed it under "measured parity, so do not re-open it" — measured on a
+  // transcript, and held by nothing since. It is the one kind whose payload the
+  // agent supplies beyond the prompt, so it is the one that can rot: options
+  // dropped from the record leave a human a text box where the agent asked for
+  // a pick, and neither side can tell that anything was lost.
+  test('the choice kind carries its options to the human and the pick back to the agent', async () => {
+    const client = new Client({ name: 'curia-choice-test', version: '0.0.0' })
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-71&ticket=71`), armed('curia-71')))
+    const call = client.callTool(
+      { name: 'ask_human', arguments: { prompt: 'which harness runs this?', kind: 'choice', options: ['claude', 'codex'] } },
+      undefined,
+      { timeout: 30_000 },
+    )
+
+    const open = await until(
+      async () => JSON.parse((await request(port, 'GET', '/state')).body).open_escalations.find((e) => e.ticket === '71'),
+      'the choice escalation to open',
+    )
+    assert.equal(open.kind, 'choice')
+    assert.deepEqual(open.options, ['claude', 'codex'], 'the options reach the surface that has to draw the buttons')
+
+    await request(port, 'POST', '/answer', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: open.id, answer: 'codex' }),
+    })
+    const result = await call
+    assert.match(result.content.map((c) => c.text ?? '').join('\n'), /codex/, 'the pick reaches the agent as its tool result')
     await client.close()
   })
 
