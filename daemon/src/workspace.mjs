@@ -571,8 +571,10 @@ const HARNESS = {
     // timer — the keepalive's logging branch never does (#104, the 314 s
     // death). The keepalive covers a client that offered a token; this floor
     // covers one that did not. One day, the same bound as
-    // CODEX_TOOL_TIMEOUT_S below; the 90 s transport-drop watchdog still
-    // aborts a call whose daemon actually died.
+    // CODEX_TOOL_TIMEOUT_S below; a call whose daemon actually died is aborted
+    // by the transport-drop watchdog instead, about 120 s after the death
+    // (#341, three runs at 119.5 s, 118.9 s and 119.2 s in
+    // docs/research/tool-channel-mid-session.md — this comment said 90 s).
     //
     // A CONTAINER cannot have that (#156): the host store lives in the host
     // HOME, which is the first thing the boundary denies. The variable is
@@ -1485,10 +1487,25 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     // read the transport error as permission to decide the question itself. A
     // failed call is the one case where "never answer for the human" has to be
     // said again, because the failure looks like an answer arriving empty.
+    //
+    // #341 measured the timing this rule runs against, and it beat the rule as
+    // written. The tool channel SURVIVES a daemon restart: the MCP server is
+    // stateless and the client opens a connection per call, so the first call
+    // after the outage lands with no handshake. What dies is the call in flight,
+    // and the transport reports it about 120 s late — by which time the daemon
+    // has usually been back for two minutes. A retry that fires seconds after
+    // the failure therefore falls inside the same outage. That is exactly what
+    // #56's own agent did: four calls inside two minutes, four failures, and it
+    // ended its turn on a channel that was already healthy. So the retry now
+    // carries WAITS, and the sleep is named because a harness that backgrounds
+    // one turns the wait into no wait at all.
     '- **A failed `curia` tool call is not an answer.** If a call returns an error instead of a human reply,',
-    '  make the same call once more: curia routes the human to whichever call is live. If it fails again,',
-    '  stop and end your turn — say what you were asking. Never treat an unanswered question as answered,',
-    '  and never decide it yourself because the tool broke.',
+    '  make the same call once more: curia routes the human to whichever call is live. A failure usually',
+    '  means the daemon is restarting, and the channel comes back by itself, so a retry that fails at once',
+    '  proves nothing. Wait two minutes with a foreground `sleep 120` and make the call again. If that',
+    '  fails too, wait five minutes the same way and make it one last time. Only then stop and end your',
+    '  turn — say what you were asking. Never treat an unanswered question as answered, and never decide',
+    '  it yourself because the tool broke.',
     // Written by the #56 live check, whose agent blocked for 7h53m and reported
     // that the rule above would never have fired: nothing broke. What pushed it
     // toward answering was silence plus a plausible story, and the low stakes of

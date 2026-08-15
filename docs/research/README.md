@@ -31,4 +31,5 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [phone-attach.md](phone-attach.md) | tmux + ttyd + Tailscale browser terminal for phone attach | Adopted — this is ADR-0003's shipped worker host stack |
 | [pi.md](pi.md) | pi as a minimal embeddable worker runtime | Rejected — worker only; Claude Code in tmux shipped instead |
 | [pi-handson.md](pi-handson.md) | pi driven live via SDK, RPC, and pi-acp | Superseded — refines [pi.md](pi.md); the pi lane never shipped |
+| [tool-channel-mid-session.md](tool-channel-mid-session.md) | What a harness does when the daemon dies under it | Adopted — the channel survives a restart, so [#341](https://github.com/alp82/curia/issues/341) put the waits into the retry rule |
 | [worker-two-channels.md](worker-two-channels.md) | Side-channel driving plus human PTY attach | Adopted — the daemon never parses scrollback; underpins ADR-0005 |
