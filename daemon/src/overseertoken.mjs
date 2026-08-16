@@ -108,11 +108,12 @@ export function overseerTokensRootFor(workspaceRoot) {
 // owner it read off a command line. `..` must never name a path here.
 export const OWNER_RE = /^[A-Za-z0-9][A-Za-z0-9-]*$/
 
-// A GitHub token as GitHub writes one — `ghs_…` for an installation token:
-// word characters and nothing else. The same rule `agentgh.mjs` states, for the
+// A GitHub token as GitHub writes one — `ghs_…` for an installation token.
+// The 2026 installation tokens carry `.` and `-` beside the word characters
+// (proven live on 2026-08-16). The same rule `agentgh.mjs` states, for the
 // same reason — a stray quote or newline would make a reader read something
 // other than what curia meant to write.
-const TOKEN_RE = /^[A-Za-z0-9_]+$/
+const TOKEN_RE = /^[A-Za-z0-9_.-]+$/
 
 // The file one owner's token lives in, or null when the owner is not a name
 // GitHub could issue. LOWER CASE, because GitHub logins are unique without
@@ -133,7 +134,7 @@ export function writeOverseerToken(dir, owner, token) {
   const file = overseerTokenFile(dir, owner)
   if (!file) throw new Error(`refusing to write an overseer token for "${owner}": a GitHub account name is alphanumerics and hyphens`)
   const value = String(token ?? '').trim()
-  if (!TOKEN_RE.test(value)) throw new Error(`refusing to write the overseer token for ${owner}: a GitHub token is word characters only`)
+  if (!TOKEN_RE.test(value)) throw new Error(`refusing to write the overseer token for ${owner}: a GitHub token is letters, digits, underscore, dot and dash only`)
   try {
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 })
     const tmp = `${file}.tmp`
@@ -171,7 +172,7 @@ export function readOverseerToken(dir, owner) {
   }
   const value = raw.trim()
   if (!value) return null
-  if (!TOKEN_RE.test(value)) throw new Error(`${file} does not hold a GitHub token: a token is word characters only`)
+  if (!TOKEN_RE.test(value)) throw new Error(`${file} does not hold a GitHub token: a token is letters, digits, underscore, dot and dash only`)
   return value
 }
 

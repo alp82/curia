@@ -61,9 +61,16 @@ describe('the overseer token files (#392)', () => {
     assert.equal(readOverseerToken(dir, 'alp82'), 'ghs_11ALP82')
   })
 
+  // GitHub's 2026 installation tokens carry `.` and `-` (met live on
+  // 2026-08-16). The file must round-trip such a token.
+  test('a minted token with dots and dashes round-trips', () => {
+    writeOverseerToken(dir, 'alp82', 'ghs_abc.DEF-ghi_2.k')
+    assert.equal(readOverseerToken(dir, 'alp82'), 'ghs_abc.DEF-ghi_2.k')
+  })
+
   test('a value that is not a token refuses the WRITE', () => {
     for (const bad of ['', '   ', 'ghs_a ghs_b', '"quoted"', 'two\nlines']) {
-      assert.throws(() => writeOverseerToken(dir, 'alp82', bad), /a GitHub token is word characters only/)
+      assert.throws(() => writeOverseerToken(dir, 'alp82', bad), /a GitHub token is letters, digits/)
     }
     assert.throws(() => writeOverseerToken(dir, '../etc', 'ghs_x'), /alphanumerics and hyphens/)
   })

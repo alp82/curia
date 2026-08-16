@@ -76,7 +76,14 @@ describe('the token source', () => {
   // truncated one to everything else. Refused rather than escaped.
   test('an ill-shaped token refuses, naming the owner', async () => {
     setDaemonTokenSource(async () => 'ghs_abc\nGH_HOST=evil.example')
-    await assert.rejects(() => daemonGhToken('alp82/curia'), /alp82.*word characters only/s)
+    await assert.rejects(() => daemonGhToken('alp82/curia'), /alp82.*letters, digits/s)
+  })
+
+  // GitHub's 2026 installation tokens carry `.` and `-` (met live on
+  // 2026-08-16: every mint was refused and reconcile skipped every repo).
+  test('a minted token with dots and dashes passes', async () => {
+    setDaemonTokenSource(async () => 'ghs_abc.DEF-ghi_2.k')
+    assert.equal(await daemonGhToken('alp82/curia'), 'ghs_abc.DEF-ghi_2.k')
   })
 })
 

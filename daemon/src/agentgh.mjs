@@ -62,11 +62,12 @@ export const GH_HOST = 'github.com'
 export const GH_USER = 'x-access-token'
 
 // A GitHub token as GitHub writes one — `ghs_…` for an installation token,
-// `github_pat_…` for the PAT this replaces: word characters and nothing else.
-// Asserted rather than escaped, because the value lands in a YAML scalar and a
-// stray quote or newline there would make gh read a different file than the one
+// `github_pat_…` for the PAT this replaces. The 2026 installation tokens carry
+// `.` and `-` beside the word characters (proven live on 2026-08-16). Asserted
+// rather than escaped, because the value lands in a YAML scalar and a stray
+// quote or newline there would make gh read a different file than the one
 // curia meant to write.
-const TOKEN_RE = /^[A-Za-z0-9_]+$/
+const TOKEN_RE = /^[A-Za-z0-9_.-]+$/
 
 export function ghConfigDirFor(cfgDir) {
   return path.join(cfgDir, GH_DIR)
@@ -103,7 +104,7 @@ export function hostsYaml(token) {
 export function writeGhCredentials(cfgDir, token) {
   const value = String(token ?? '').trim()
   if (!TOKEN_RE.test(value)) {
-    throw new Error(`refusing to write the GitHub credential of ${path.basename(cfgDir)}: a GitHub token is word characters only`)
+    throw new Error(`refusing to write the GitHub credential of ${path.basename(cfgDir)}: a GitHub token is letters, digits, underscore, dot and dash only`)
   }
   const dir = ghConfigDirFor(cfgDir)
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 })

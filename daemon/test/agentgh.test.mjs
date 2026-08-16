@@ -93,9 +93,17 @@ describe('the per-agent GitHub credential file (#389)', () => {
   test('a token that is not word characters is refused, never escaped', () => {
     const dir = cfgDir('curia-4')
     for (const bad of ['ghs_a b', '"quoted"', 'ghs_a\nghs_b', '', '   ']) {
-      assert.throws(() => writeGhCredentials(dir, bad), /word characters only/)
+      assert.throws(() => writeGhCredentials(dir, bad), /letters, digits/)
     }
     assert.equal(readGhCredentials(dir), null)
+  })
+
+  // GitHub's 2026 installation tokens carry `.` and `-` (met live on
+  // 2026-08-16). The written file must round-trip such a token.
+  test('a minted token with dots and dashes is written and read back', () => {
+    const dir = cfgDir('curia-dotted')
+    writeGhCredentials(dir, 'ghs_abc.DEF-ghi_2.k')
+    assert.equal(readGhCredentials(dir), 'ghs_abc.DEF-ghi_2.k')
   })
 
   test('an unwritten config dir reads back as no credential, never as a guess', () => {

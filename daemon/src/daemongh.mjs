@@ -31,10 +31,12 @@
 // daemon call names a repo and takes a minted token.
 
 // A GitHub token as GitHub writes one — `ghs_…` for an installation token,
-// `github_pat_…` for the PAT this replaces: word characters and nothing else.
-// Asserted rather than escaped, because the value goes into a child's
-// environment, and a token carrying a newline there is a second variable.
-const TOKEN_RE = /^[A-Za-z0-9_]+$/
+// `github_pat_…` for the PAT this replaces. The 2026 installation tokens carry
+// `.` and `-` beside the word characters (proven live on 2026-08-16: a real
+// mint came back 390 chars with both). Asserted rather than escaped, because
+// the value goes into a child's environment, and a token carrying a newline or
+// a quote there is a second variable.
+const TOKEN_RE = /^[A-Za-z0-9_.-]+$/
 
 export const TOKEN_ENV_KEY = 'GH_TOKEN'
 
@@ -71,7 +73,7 @@ export async function daemonGhToken(repo) {
   if (token === null || token === undefined || token === '') return null
   const value = String(token).trim()
   if (!TOKEN_RE.test(value)) {
-    throw new Error(`refusing to run a gh call for ${owner} with that token: a GitHub token is word characters only`)
+    throw new Error(`refusing to run a gh call for ${owner} with that token: a GitHub token is letters, digits, underscore, dot and dash only`)
   }
   return value
 }

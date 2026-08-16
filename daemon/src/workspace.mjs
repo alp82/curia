@@ -471,12 +471,13 @@ export function hostStorageDir(harness = 'claude') {
 // (#313), and the two prefixes have to be told apart in one place.
 export const AGENT_TOKEN_KEY = 'CURIA_AGENT_GH_TOKEN'
 
-// A GitHub token as GitHub writes one — `github_pat_…`, `ghp_…`, `gho_…`: word
-// characters and nothing else. The value travels as `env K=V` in tmux argv (and
-// as `-e` on the container's command line later), so a stray quote or space from
-// a hand-edited env line has to be refused where it is read. `gh` answers a
-// quoted token with a plain 401, and nothing on the box would name the quote.
-const GH_TOKEN_RE = /^[A-Za-z0-9_]+$/
+// A GitHub token as GitHub writes one — `github_pat_…`, `ghp_…`, `gho_…`, and
+// the 2026 `ghs_…` installation tokens that carry `.` and `-` beside the word
+// characters. The value travels as `env K=V` in tmux argv (and as `-e` on the
+// container's command line later), so a stray quote or space from a hand-edited
+// env line has to be refused where it is read. `gh` answers a quoted token with
+// a plain 401, and nothing on the box would name the quote.
+const GH_TOKEN_RE = /^[A-Za-z0-9_.-]+$/
 
 // `alp82/curia` → `ALP82`. An owner is a GitHub login, so the only character to
 // fold is the hyphen. The overseer's keys are built from the same slug (#313).
@@ -501,7 +502,7 @@ export function readGhToken(env, key, where = 'daemon/.env.daemon') {
   const token = raw.trim()
   if (!token) return null
   if (!GH_TOKEN_RE.test(token)) {
-    throw new Error(`bad ${key} in ${where}: a GitHub token is word characters only — drop the quotes and any trailing text`)
+    throw new Error(`bad ${key} in ${where}: a GitHub token is letters, digits, underscore, dot and dash only — drop the quotes and any trailing text`)
   }
   return token
 }
