@@ -16,7 +16,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { DiscordBridge } from '../src/bridge.mjs'
-import { SYSTEM_PROMPT } from '../src/overseer.mjs'
+import { buildSystemPrompt } from '../src/overseerprompt.mjs'
 
 const dirs = []
 const tmpDir = () => {
@@ -127,8 +127,10 @@ describe('the card carries what the interaction reply used to add (#253)', () =>
 // the CHOICE: which ticket, and why.
 describe('the overseer never narrates a dispatch (#253)', () => {
   test('the system prompt forbids the announcement and keeps the choice', () => {
-    assert.match(SYSTEM_PROMPT, /Never announce a dispatch/)
-    assert.match(SYSTEM_PROMPT, /The daemon posts its own line when the agent reaches its composer/, 'it says which line already covers it')
-    assert.match(SYSTEM_PROMPT, /Say which ticket you picked and why/)
+    // The shell posture is the one the overseer container runs (#315).
+    const prompt = buildSystemPrompt({ shell: true, checkoutsRoot: '/work/overseer/repos', repos: ['alp82/curia'] })
+    assert.match(prompt, /Never announce a dispatch/)
+    assert.match(prompt, /The daemon posts its own line when the agent reaches its composer/, 'it says which line already covers it')
+    assert.match(prompt, /Say which ticket you picked and why/)
   })
 })

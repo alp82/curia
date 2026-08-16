@@ -1,6 +1,6 @@
 # ADR-0014: The overseer runs in its own container
 
-**Status**: accepted (2026-08). Not built. The build is charted on its own map.
+**Status**: accepted (2026-08), built (2026-08). The build map is [#309](https://github.com/alp82/curia/issues/309), and [#315](https://github.com/alp82/curia/issues/315) cut both chat surfaces over to the container and deleted the in-daemon host.
 **Provenance**: [The chat embeds the timeline attach (#267)](https://github.com/alp82/curia/issues/267), [The chat and the overseer become one thing, in a container (#301)](https://github.com/alp82/curia/issues/301)
 
 ## Context
@@ -33,4 +33,4 @@ The cost is the limit [#267](https://github.com/alp82/curia/issues/267) stated: 
 - The daemon keeps the conversation state. `store.overseerSession` is a reduction over the daemon journal, so the resume id travels to the overseer per turn and comes back. [ADR-0001](0001-github-is-the-only-durable-state-home.md) keeps its one state home.
 - The timeline reads the overseer transcript off its config dir. So that directory must mount at the same path in both containers. `deploy/compose.yaml` already carries that same-path principle.
 - Two questions stay open, and each earns its own grilling ticket on the build map. The first is the hosting shape: a second sidecar beside the dashboard, or an agent-shaped tmux pane. **Answered** by [ADR-0015](0015-the-overseer-is-a-service.md) on [#310](https://github.com/alp82/curia/issues/310), which took the service and added one container per thread as a third candidate before ruling it out. The second is the detail behind the per-thread conversation key. **Answered** by [ADR-0016](0016-the-conversation-key.md) on [#311](https://github.com/alp82/curia/issues/311), which keeps the Discord snowflake, replaces the single `console` key with `console-<n>`, and finds a transcript by key rather than by mtime.
-- Until the build lands, the seam stays the boundary and the comment at the head of `daemon/src/overseer.mjs` stays true. This ADR records a decision. That comment describes shipped code.
+- The build landed. `daemon/src/overseer.mjs` — the in-daemon host, and the tool-surface boundary its head comment described — is deleted whole. The boundary comment now sits at the head of `daemon/src/overseerclient.mjs`, which is the daemon's whole reach into the container, and it describes shipped code.

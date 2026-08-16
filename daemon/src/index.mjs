@@ -41,7 +41,6 @@ import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
-import { OverseerHost } from './overseer.mjs'
 import { OverseerClient, OverseerTurns, serveVerbMcp } from './overseerclient.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
@@ -457,9 +456,10 @@ const gate = {
     log(`command: "${canonical}"`)
     return router.handle(canonical, userId, ctx)
   },
-  // #92: the bridge's overseer surface hands each operator message here; the
-  // host runs one SDK query per message and speaks back through `io.post`.
-  overseerTurn: (threadId, prompt, io) => overseer.runTurn(threadId, prompt, io),
+  // #92: the bridge's overseer surface hands each operator message here. Since
+  // the cutover (#315) the turn runs in the overseer CONTAINER — the daemon
+  // posts the message, streams the events back, and speaks through `io.say`.
+  overseerTurn: (threadId, prompt, io) => overseerContainer.runTurn(threadId, prompt, io),
   // #120: the live agent bound to a thread, if any — the bridge's one-listener
   // guard reads it before letting the overseer near a message.
   agentForThread(threadId) {
@@ -672,7 +672,7 @@ const dispatcher = new Dispatcher({
     else log(`[confirm ${record.id}] ${text}`)
   },
   // the synthetic line for the issuing thread's session (#94) — journalled,
-  // drained into the next prompt by the overseer host
+  // drained into the next prompt by the overseer client
   overseerNote: (threadId, text) => store.addOverseerNote(threadId, text),
   askReview,
   threads,
@@ -885,10 +885,12 @@ const timeline = new TimelineSurface({
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,
     // The console chat (#267): one session on this surface is not a pane. It is
-    // a browser conversation of the overseer — its transcript is the SDK
-    // session the overseer host already keeps, and a message to it is a turn
-    // rather than a keystroke. `overseer` is const below and read at request
-    // time, never at construction.
+    // a browser conversation of the overseer, and a message to it is a turn
+    // rather than a keystroke. Since the cutover (#315) the turn runs in the
+    // overseer CONTAINER; the transcript reaches this surface because the
+    // container's config dir mounts at the same host path the daemon reads.
+    // `overseerContainer` is const below and read at request time, never at
+    // construction.
     //
     // #332: the conversation's live session id rides along, read from the
     // journal on every call. It is what names the transcript file — the
@@ -905,9 +907,9 @@ const timeline = new TimelineSurface({
       const key = consoleKeyForSession(session)
       if (!key) return null
       return {
-        cfgDir: overseer.configDir,
+        cfgDir: overseerContainer.configDir,
         sessionId: store.overseerSession(key) ?? null,
-        send: (text) => overseer.browserTurn(key, text),
+        send: (text) => overseerContainer.browserTurn(key, text),
       }
     },
   },
@@ -921,27 +923,15 @@ const selfDeploy = new SelfDeploy({ repoRoot: path.dirname(ROOT), dataDir: DATA,
 
 const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDeploy, log })
 
-// The overseer session host (#92): every effect goes through gate.command —
-// the same seam the slash verbs and REST use — so it is journalled, logged and
-// routed identically, and the tool surface is the containment boundary.
-const overseer = new OverseerHost({
-  store,
-  dataDir: DATA,
-  // ctx carries the thread the verb tool ran in (#93), so `start` binds it
-  command: (text, ctx) => gate.command(text, 'overseer', ctx),
-  log,
-})
-
-// The overseer CONTAINER's turn (#314). The same shape, one boundary further
-// out: the daemon posts the message to the container and serves the verbs back
-// to it over `/overseer/mcp`, so every effect crosses the same `gate.command`
-// seam the host above uses.
+// The overseer CONTAINER's turn (#314, cut over by #315): the daemon posts the
+// operator's message to the container and serves the verbs back to it over
+// `/overseer/mcp`, so every effect crosses the same `gate.command` seam the
+// slash verbs and REST use — journalled, logged and routed identically.
 //
-// It is built and reachable, and NO surface routes to it yet. #315 is the
-// cutover, and it is one swap at two doors — the bridge's `overseerTurn` and
-// the Chat screen's `driverFor`. Until then a turn is driven by hand through
-// `POST /overseer/turn`, which is how the container is soaked before the
-// operator's own chat depends on it.
+// This is the ONLY brain. The in-daemon host (#92) is gone: both doors — the
+// bridge's `overseerTurn` and the Chat screen's `driverFor` — route here, and
+// the container boundary of ADR-0014 replaced the tool-surface boundary the
+// in-process host lived behind.
 const overseerTurns = new OverseerTurns()
 const overseerContainer = new OverseerClient({
   store,
@@ -1576,15 +1566,15 @@ async function overview() {
 
 // The browser conversations, on the wire (#333). Everything about the shape
 // lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
-// store this daemon holds and the overseer host's own config dir and model.
+// store this daemon holds and the overseer container's config dir and model.
 function consoleOnWire() {
-  const cfgDir = overseer.configDir
+  const cfgDir = overseerContainer.configDir
   return consoleConversationsOnWire({
     conversations: store.consoleConversationList(),
     sessionIdFor: (key) => store.overseerSession(key),
     harness: detectHarness(cfgDir),
     cfgDir,
-    model: overseer.model,
+    model: overseerContainer.model,
     routing: routingConfig,
     account: accountUsage,
     models: modelWindows,
@@ -1796,47 +1786,6 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     }
     log(`console: deleted browser conversation ${key} — its number is spent`)
     return json(200, { ok: true, key })
-  }
-
-  // ---- the container's turn, driven by hand (#314) ---------------------------
-  //
-  // The one door onto the overseer CONTAINER until #315 moves the operator's
-  // own two. It exists because a boundary nothing crosses is a boundary nobody
-  // has tested: this is how the container is soaked — real conversations, real
-  // verbs, real checkouts — while Discord and the Chat screen stay on the
-  // in-daemon host.
-  //
-  // Loopback only, and absent from the container-facing listener, like every
-  // other route the operator owns. It is not a verb: the operator catalogue has
-  // no word for "run a turn", because a turn is what a message already is.
-  if (url.pathname === '/overseer/turn' && req.method === 'POST') {
-    const body = await readBody(req)
-    const key = String(body.key ?? '')
-    const prompt = String(body.prompt ?? '')
-    if (!key || !prompt) return json(400, { error: '`key` names the conversation and `prompt` is the message — both are required' })
-    const said = []
-    let statusLine = null
-    const out = await overseerContainer.runTurn(key, prompt, {
-      say: (t) => { said.push(t) },
-      status: (t) => { statusLine = t },
-      // A console key is not a thread the bridge can post buttons into, so its
-      // verbs route with no origin thread — the same split the two live doors
-      // make (#267).
-      routeThreadId: isConsoleKey(key) ? null : key,
-    })
-    store.logEvent('overseer_container_turn', {
-      key, ok: Boolean(out.ok), tool_calls: out.toolCalls ?? 0, secs: out.secs ?? null, why: out.why ?? null,
-    })
-    return json(out.ok ? 200 : 502, {
-      ok: Boolean(out.ok),
-      key,
-      answer: said.join('\n') || null,
-      status: statusLine,
-      session_id: out.sessionId ?? store.overseerSession(key) ?? null,
-      tool_calls: out.toolCalls ?? 0,
-      secs: out.secs ?? null,
-      why: out.why ?? null,
-    })
   }
 
   if (url.pathname === '/escalate' && req.method === 'POST') {

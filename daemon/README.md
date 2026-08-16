@@ -38,7 +38,7 @@ npm start          # reads daemon/.env.daemon
 npm test           # unit tests
 ```
 
-One boot brings up everything: the HTTP surface, ttyd, the Discord bridge, the reconcile pass, and the overseer host. There is no second process. To verify a boot, look for `ready: guild=<guild> channel=#curia` in the log, then send a top-level message in `#curia` — a thread opens and the overseer answers in it.
+One boot brings up everything: the HTTP surface, ttyd, the Discord bridge, the reconcile pass, and the client for the overseer container. The overseer model runs in its own compose service (`overseer`), and the daemon posts each operator message to it. To verify a boot, look for `ready: guild=<guild> channel=#curia` in the log, then send a top-level message in `#curia` — a thread opens and the overseer answers in it.
 
 ### The test suite
 

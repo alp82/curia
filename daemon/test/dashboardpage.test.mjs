@@ -1039,7 +1039,8 @@ describe('the operator verbs (#266)', () => {
 // The screen draws no message and frames nothing: the chat is the timeline
 // page, served at /chat. So what a test can pin is what the door SAYS — who is
 // behind it, where it goes, and that a daemon which is not answering is a chat
-// that is not there, because the overseer lives inside the daemon.
+// that is not there, because every message reaches the overseer container
+// through the daemon (#315).
 
 describe('the chat screen (#267, the picker of #333)', () => {
   let page
@@ -1103,7 +1104,10 @@ describe('the chat screen (#267, the picker of #333)', () => {
   })
 
   test('it states the one thing the overseer cannot do, rather than leaving it to be found', () => {
-    assert.match(text(page.screenChat(payload())), /no shell and no checkout/)
+    // #315: the overseer holds a reading shell now, so the limit that is left
+    // is the write — the read-only token, and every effect crossing the daemon.
+    assert.match(text(page.screenChat(payload())), /it cannot write one/)
+    assert.match(text(page.screenChat(payload())), /read-only/)
   })
 
   test('a daemon that is not answering is a chat that is not there, and says which', () => {

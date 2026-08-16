@@ -1,9 +1,10 @@
 // The standing orders (#328). What the overseer reads before every turn, and
 // the tool list that has to agree with it.
 //
-// Two postures, one text. The in-daemon host has no shell. The overseer service
-// of ADR-0014 has one. Every test below asks the same question in one of those
-// two postures: does the text state what this overseer actually holds.
+// Two postures, one text. The in-daemon host had no shell. The overseer
+// service of ADR-0014 has one, and since the cutover (#315) it is the only
+// caller. Every test below asks the same question in one of those two
+// postures: does the text state what this overseer actually holds.
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
@@ -15,7 +16,6 @@ import {
   SYSTEM_PROMPT, ALLOWED_TOOLS, DISALLOWED_TOOLS, SHELL_TOOLS, VERB_TOOLS,
   NO_SHELL_LINE, replaceOnce,
 } from '../src/overseerprompt.mjs'
-import { SYSTEM_PROMPT as HOST_PROMPT } from '../src/overseer.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const FIXTURE = path.join(DIR, 'fixtures', 'overseer-prompt-no-shell.txt')
@@ -25,16 +25,16 @@ const REPOS = ['alp82/curia', 'alp82/aistack']
 const shellPrompt = () => buildSystemPrompt({ shell: true, checkoutsRoot: ROOT, repos: REPOS })
 
 describe('the standing orders, with no shell (#328)', () => {
-  // THE PIN #315 DEPENDS ON. This text moved out of `overseer.mjs` and it must
-  // not have changed one byte on the way: the live overseer keeps answering the
-  // operator exactly as it did, and the cutover then deletes a caller rather
-  // than a prompt. The fixture was taken from the shipped code BEFORE the move.
+  // THE PIN #315 DEPENDED ON. This text moved out of `overseer.mjs` and did
+  // not change one byte on the way: the live overseer kept answering the
+  // operator exactly as it did, and the cutover then deleted a caller rather
+  // than a prompt. The fixture was taken from the shipped code BEFORE the move,
+  // and it stays the record of what the no-shell posture says.
   test('it is byte for byte the text the in-daemon host always sent', () => {
     assert.equal(buildSystemPrompt(), fs.readFileSync(FIXTURE, 'utf8'))
   })
 
-  test('the host exports that same text, so nothing downstream reads two prompts', () => {
-    assert.equal(HOST_PROMPT, SYSTEM_PROMPT)
+  test('the exported constant is that same text, so nothing downstream reads two prompts', () => {
     assert.equal(SYSTEM_PROMPT, buildSystemPrompt())
   })
 
