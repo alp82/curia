@@ -565,7 +565,7 @@ _Avoid_: store, event store, log (#358).
 Decided and not built: the journal becomes a `node:sqlite` database at `daemon/data/events.db`, and the JSON lines retire. The name follows the record and not the medium, so the database IS the journal. A row keeps the written line verbatim, so the journal after the change is a superset of the file before it. The daemon holds the only write connection, and every other process reads it read-only. See [ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md), built on [the journal map (#316)](https://github.com/alp82/curia/issues/316).
 
 **Journal file**:
-`daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotates, so it only grows. A historical term after the migration. Name it only where the migration is discussed, and never as a synonym for the journal. The migration leaves it on disk, unwritten, as the floor a rollback lands on ([#323](https://github.com/alp82/curia/issues/323)). A follow-up ticket deletes it after the soak.
+`daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotates, so it only grows. A historical term after the migration. Name it only where the migration is discussed, and never as a synonym for the journal. The migration leaves it on disk, unwritten, as the floor a rollback lands on ([#323](https://github.com/alp82/curia/issues/323)). A follow-up ticket deletes it once the journal is checked on the box.
 
 **Reduction**:
 The daemon's in-memory state, folded from the journal at boot and kept current by every append after it. Replay every journal event in order through one function, and what you hold at the end is the reduction. That function is the reducer.

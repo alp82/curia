@@ -337,7 +337,7 @@ Two facts make this work.
 
 A conversion that fails needs no hand. The daemon crash-loops, the self-deploy health check fails, and the box resets to the previous ref. That daemon still finds a whole journal file.
 
-**The journal file stays where it is.** The migration does not rename it and does not delete it. `git reset --hard` never touches it, because `daemon/data/` is git-ignored. So the automatic rollback finds the exact path the previous daemon looks for, and a rename would hand that daemon an empty reduction. The daemon never writes the file again. A follow-up ticket deletes it after the soak.
+**The journal file stays where it is.** The migration does not rename it and does not delete it. `git reset --hard` never touches it, because `daemon/data/` is git-ignored. So the automatic rollback finds the exact path the previous daemon looks for, and a rename would hand that daemon an empty reduction. The daemon never writes the file again. A follow-up ticket deletes it once the journal is checked on the box.
 
 **Take the migration deploy at zero live agents, with auto-dispatch off.** No agent is then mid-turn while the write path changes under it, and the window below carries only the daemon's own boot lines.
 
