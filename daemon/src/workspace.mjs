@@ -519,6 +519,14 @@ function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
 // So one number serves two jobs that pull apart: generous to a slow human, and
 // a day of silence for an agent a restart stranded. Changing it is a decision
 // against #34, not a tuning.
+//
+// #426 took that decision and left the number ALONE. One value cannot be both
+// jobs, so the second job moves off it: the daemon says goodbye. Before it
+// exits, a restart, a SIGTERM and a crash each end every blocked call with a
+// tool ERROR, which is the error #341's ladder needs and the thing codex never
+// gets by itself. That reaches the agent in about a second rather than in a
+// day, and it costs the slow human nothing. What the goodbye cannot reach is a
+// SIGKILL, and this deadline is still the only bound there.
 const CODEX_TOOL_TIMEOUT_S = 86_400
 
 // The Stop hook, identical on both harnesses: POST the hook's own stdin payload to

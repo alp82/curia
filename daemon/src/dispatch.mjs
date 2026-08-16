@@ -2807,6 +2807,12 @@ export class Dispatcher {
   // opened a PLAIN approve/reject gate — the restarted daemon knew the reviewer
   // (reconcile re-adopts it) and never asked — so the operator approved and the
   // merge outran the verdict by three seconds.
+  //
+  // "The builder's client sees an error" is the CLAUDE lane, about 120 s after
+  // the death. A codex builder sees nothing and sits in the park for up to
+  // `CODEX_TOOL_TIMEOUT_S`, so on that lane the rejoin never gets its chance
+  // (#371). This map is the second blocking call a restart strands, beside the
+  // escalation resolvers in `index.mjs`, and #426's goodbye has to wake both.
   async #parkForVerdict(agentName, { repo, ticket, w }) {
     const out = await this.#awaitVerdict(ticket, agentName)
     if (w) w.state = 'ready'
