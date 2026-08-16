@@ -291,6 +291,46 @@ export function failureProse(raw) {
   return `${(cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : cut).trimEnd()}…`
 }
 
+// ---------------------------------------------------------------------------
+// the recorded-answer hand-off line (#139, corrected by #457)
+// ---------------------------------------------------------------------------
+//
+// What the thread is told when an answer landed with no resolver waiting. The
+// usual cause is a daemon restart that emptied `pending`, so the agent's own
+// call died with the last process.
+//
+// It is composed HERE rather than at the call site so a test can read all three
+// lanes. The line is a promise about delivery, and #457 found the codex one
+// making a promise the harness cannot keep.
+//
+//   not running   a fresh agent drains the queue on its first tool result, so
+//                 the verb is `resume`.
+//   claude        the dead call is reported dropped in about two minutes
+//                 (#341), the agent retries, and the queued answer rides that
+//                 next tool result. The promise holds.
+//   codex         it does not. #371 measured a codex agent whose daemon died
+//                 under its call: it is told NOTHING, and `tool_timeout_sec` —
+//                 a day — is the only bound. So there is no next tool result to
+//                 ride, and the old line promised a delivery that never came.
+//
+// The codex line states the wait and names the one pair of verbs that ends it.
+// `resume` alone is refused while the session is live, so both are stated: a
+// fresh agent inherits the surviving worktree (#81) and drains this answer on
+// its first tool result.
+//
+// An unknown harness takes the claude line. That is the default lane, and a
+// session adopted from before the harness was recorded is a claude one.
+export function handOffLine({ agent, ticket, harness = null, live = false }) {
+  if (!live) return `${SIGNALS.ok} recorded — \`${agent}\` is not running; \`resume ${ticket}\` hands it over`
+  if (harness === 'codex') {
+    return `${SIGNALS.warn} recorded, and \`${agent}\` did not get it.`
+      + ' That agent runs on codex, and it is still parked in the call that died.'
+      + ' The call ends at its own deadline, a day out, and the agent reads nothing before it does.'
+      + ` To hand this answer over now: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`
+  }
+  return `${SIGNALS.ok} recorded — \`${agent}\` gets this answer with its next tool result`
+}
+
 // How long one failure stays said. A retry loop inside this window is one line.
 export const FAILURE_REPEAT_WINDOW_MS = 10 * 60_000
 

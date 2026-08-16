@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel,
   speakerName, failureProse, FailureLines, CHUNK_LIMIT, SPEAKER_NAME_LIMIT,
-  FAILURE_PROSE_LIMIT, FAILURE_REPEAT_WINDOW_MS, CODE_BLOCK_LIMIT, fenceParts,
+  FAILURE_PROSE_LIMIT, FAILURE_REPEAT_WINDOW_MS, CODE_BLOCK_LIMIT, fenceParts, handOffLine,
 } from '../src/messaging.mjs'
 
 describe('smallPrint', () => {
@@ -277,6 +277,58 @@ describe('elapsedLabel', () => {
 
   test('garbage input yields null, not NaN text', () => {
     assert.equal(elapsedLabel('not a date'), null)
+  })
+})
+
+// #457 measured the promise this line makes, per harness. The claude lane keeps
+// it: a dropped call is reported in about two minutes, so a next tool result
+// comes. The codex lane cannot: #371 measured a codex agent told NOTHING about
+// the death, with a day-long `tool_timeout_sec` as its only bound. So the old
+// line promised that lane a delivery that never happened.
+describe('handOffLine (#139, corrected by #457)', () => {
+  const codex = { agent: 'curia-7', ticket: '7', harness: 'codex', live: true }
+
+  test('an agent that is not running gets the resume verb, whatever its harness', () => {
+    for (const harness of ['claude', 'codex', null]) {
+      const line = handOffLine({ agent: 'curia-7', ticket: '7', harness, live: false })
+      assert.match(line, /is not running/)
+      assert.match(line, /resume 7/)
+      assert.ok(!line.includes('next tool result'), `the promise leaked on the dead ${harness} lane`)
+    }
+  })
+
+  test('a live claude agent keeps the next-tool-result promise', () => {
+    const line = handOffLine({ agent: 'curia-7', ticket: '7', harness: 'claude', live: true })
+    assert.match(line, /gets this answer with its next tool result/)
+  })
+
+  test('an unknown harness reads as claude, which is the default lane', () => {
+    assert.equal(
+      handOffLine({ agent: 'curia-7', ticket: '7', harness: null, live: true }),
+      handOffLine({ agent: 'curia-7', ticket: '7', harness: 'claude', live: true }),
+    )
+  })
+
+  test('a live codex agent is NOT promised a next tool result', () => {
+    assert.ok(!handOffLine(codex).includes('next tool result'), 'the false promise reached the codex lane')
+  })
+
+  test('the codex line says the wait and names the pair of verbs that ends it', () => {
+    const line = handOffLine(codex)
+    assert.match(line, /parked in the call that died/)
+    assert.match(line, /cancel 7/)
+    assert.match(line, /resume 7/)
+  })
+
+  test('every lane passes the reply lint', () => {
+    for (const live of [true, false]) {
+      for (const harness of ['claude', 'codex', null]) {
+        const line = handOffLine({ agent: 'curia-7', ticket: '7', harness, live })
+        assert.deepEqual(lintReply(line), [], `${harness}/${live}: ${line}`)
+        assert.ok(!line.includes('\n'), 'a hand-off line is one line')
+        assert.ok(line.length <= CHUNK_LIMIT, `${line.length} chars`)
+      }
+    }
   })
 })
 

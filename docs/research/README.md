@@ -25,6 +25,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [orca.md](orca.md) | Orca as a multi-device attach worker host | Rejected — benched; ADR-0003 picks tmux + ttyd + Tailscale |
 | [orca-headless-verification.md](orca-headless-verification.md) | Empirical check of Orca's four headless claims | Superseded — verifies [orca.md](orca.md); Orca stayed benched |
 | [overseer-session-hosting.md](overseer-session-hosting.md) | Hosting, revival, and tool exposure for the overseer session | Informational — grounds the [#83](https://github.com/alp82/curia/issues/83) prototype |
+| [pane-keystroke-codex.md](pane-keystroke-codex.md) | Whether a keystroke reaches a codex agent blocked inside a tool call | Informational — the pane reaches a parked agent in about 3 s, which opens the boot sweep on [#457](https://github.com/alp82/curia/issues/457) |
 | [paperclip.md](paperclip.md) | Paperclip as an ACP-per-turn orchestrator candidate | Rejected — design reference; it did not reopen the worker-host call |
 | [paseo.md](paseo.md) | Paseo daemon as an always-on host and dispatcher | Rejected — ADR-0003 drops Paseo (AGPL, bus factor of one) |
 | [paseo-handson.md](paseo-handson.md) | Paseo re-run against the Orca rubric | Superseded — refines [paseo.md](paseo.md); Paseo dropped by ADR-0003 |
@@ -32,4 +33,5 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [pi.md](pi.md) | pi as a minimal embeddable worker runtime | Rejected — worker only; Claude Code in tmux shipped instead |
 | [pi-handson.md](pi-handson.md) | pi driven live via SDK, RPC, and pi-acp | Superseded — refines [pi.md](pi.md); the pi lane never shipped |
 | [tool-channel-mid-session.md](tool-channel-mid-session.md) | What a harness does when the daemon dies under it | Adopted — the channel survives a restart, so [#341](https://github.com/alp82/curia/issues/341) put the waits into the retry rule |
+| [tool-channel-mid-session-codex.md](tool-channel-mid-session-codex.md) | The codex half of the same question | Adopted — a codex agent is told nothing, so [#426](https://github.com/alp82/curia/issues/426) made the daemon say goodbye before it dies |
 | [worker-two-channels.md](worker-two-channels.md) | Side-channel driving plus human PTY attach | Adopted — the daemon never parses scrollback; underpins ADR-0005 |

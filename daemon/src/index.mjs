@@ -66,7 +66,7 @@ import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } f
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
-import { promptTitle, elapsedLabel, speakerName, smallPrint } from './messaging.mjs'
+import { promptTitle, elapsedLabel, speakerName, smallPrint, handOffLine } from './messaging.mjs'
 import {
   TYPED_FLOOR, isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
   lintResult, resultFloorFaults,
@@ -534,10 +534,12 @@ function handOffAnswer(record) {
   // does. Only synthetic and lab callers are excluded here.
   if (!/^curia-(\d+|chat-\d+)$/.test(record.agent)) return
   reduction.queueRecordedAnswer(record)
-  const live = dispatcher.agents.has(record.agent)
-  notifyThread(record.ticket, live
-    ? `✅ recorded — \`${record.agent}\` gets this answer with its next tool result`
-    : `✅ recorded — \`${record.agent}\` is not running; \`resume ${record.ticket}\` hands it over`)
+  // #457: the line is per LANE, because the promise it makes is. The composer
+  // and the reason live in messaging.mjs.
+  const w = dispatcher.agents.get(record.agent)
+  notifyThread(record.ticket, handOffLine({
+    agent: record.agent, ticket: record.ticket, harness: w?.harness ?? null, live: Boolean(w),
+  }))
   log(`escalation ${record.id} answered with no live receiver — hand-off note queued for ${record.agent}`)
 }
 
