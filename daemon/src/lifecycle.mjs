@@ -103,6 +103,11 @@ export const ENDING = [
         // session exercises none past its steps — so the checklist says it.
         'If your close left the map with no open child and nothing under Not yet specified, close the',
         'map itself with a verdict comment: the way is walked, and no one else is dispatched to say so.',
+        // The other emptied ending (#485): no open child, but the fog still
+        // holds patches. The agent must not close then, and it must not stay
+        // silent either — #316 stranded exactly there.
+        'If no open child remains but Not yet specified still holds patches, leave the map open and say',
+        'so in your report_result summary: the map cannot close until that fog is graduated or ruled.',
       ]
       : [
         `Then resolve the ticket on the tracker with \`gh\`: post the resolution as a comment on ${repo}#{n},`,

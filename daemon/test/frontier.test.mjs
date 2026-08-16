@@ -48,7 +48,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount, probeRepoToken, tokenExpiryDays } from '../src/github.mjs'
+import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount, probeRepoToken, tokenExpiryDays, strandedMaps, strandedMapLine } from '../src/github.mjs'
 
 // Small fixture builder -- keeps the field-notes ground truth readable below.
 // assignees/labels use the real gh shape: arrays of objects, not strings.
@@ -359,5 +359,44 @@ describe('the agent token boot probe (#155)', () => {
     for (const bad of [null, undefined, '', 'sometime soon']) {
       assert.equal(tokenExpiryDays(bad, now), null)
     }
+  })
+})
+
+// The stranded map (#485): open, not deferred, at least one child, every child
+// closed. #316 sat that way for days — all fifteen tickets closed, the map
+// open, and no dispatch left to notice.
+describe('strandedMaps (#485)', () => {
+  const map = (n, { state = 'open', labels = [] } = {}) => ({
+    number: n, state, title: `Map ${n}`,
+    labels: [{ name: 'wayfinder:map' }, ...labels.map((name) => ({ name }))],
+  })
+  const child = (state) => ({ number: 9, state, labels: [], assignees: [] })
+
+  test('an open map whose children are all closed is stranded', () => {
+    const out = strandedMaps([map(316)], { 316: [child('closed'), child('closed')] })
+    assert.deepEqual(out, [{ number: 316, title: 'Map 316' }])
+  })
+
+  test('an open child keeps the map off the list', () => {
+    assert.deepEqual(strandedMaps([map(316)], { 316: [child('closed'), child('open')] }), [])
+  })
+
+  test('a map with no children yet is not stranded — the new-map window must not alarm', () => {
+    assert.deepEqual(strandedMaps([map(316)], { 316: [] }), [])
+    assert.deepEqual(strandedMaps([map(316)], {}), [])
+  })
+
+  test('closed and deferred maps are never stranded', () => {
+    const maps = [map(1, { state: 'closed' }), map(2, { labels: ['wayfinder:deferred'] })]
+    const items = { 1: [child('closed')], 2: [child('closed')] }
+    assert.deepEqual(strandedMaps(maps, items), [])
+  })
+
+  test('the line names the map and both acts that end it', () => {
+    const line = strandedMapLine('o/r', { number: 316, title: 'The journal becomes a queryable store' })
+    assert.match(line, /o\/r#316/)
+    assert.match(line, /no open ticket left/)
+    assert.match(line, /Close it with a verdict comment/)
+    assert.match(line, /Not yet specified/)
   })
 })

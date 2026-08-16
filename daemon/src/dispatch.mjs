@@ -20,6 +20,7 @@ import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments,
+  strandedMaps, strandedMapLine,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch, pullRequestDiff, approvePullRequest,
 } from './github.mjs'
@@ -342,11 +343,15 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, channelName, minter, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, channelName, minter, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
     this.notify = notify
+    // The plain channel line (#485), injected by index.mjs the way the
+    // backup's announce is (#436): false when there is no bridge yet, so an
+    // alarm that could not be said stands and re-says.
+    this.announce = announce ?? (async () => false)
     this.openConfirm = openConfirm ?? (() => null)
     this.lapseEscalation = lapseEscalation ?? ((id, reason) => this.reduction.lapse?.(id, reason))
     this.confirmNote = confirmNote ?? (() => {})
@@ -629,6 +634,10 @@ export class Dispatcher {
     } else if (lane === 'flat') {
       flatItems = await this.deps.flatFrontier(entry.repo)
     }
+    // The stranded-map watch (#485) rides the read that already holds every
+    // map and its children. `ready-for-agent` mode never reads maps, so it
+    // neither raises nor clears.
+    if (mode !== 'ready-for-agent') await this.#watchStrandedMaps(entry.repo, maps, mapItems)
     const numbers = frontierForRepo({ mode, maps, mapItems, flatItems })
     // Map membership rides every item (#120): the tickets view groups by map,
     // and the overseer resolves "the <topic> map" against these headers instead
@@ -678,6 +687,48 @@ export class Dispatcher {
           })),
         }
       }),
+    }
+  }
+
+  // The stranded-map watch (#485): an open, non-deferred map whose children
+  // are all closed. No dispatch ever fires on it again, so this is the one
+  // place that can say so — #316 sat that way for days. Edge-triggered off the
+  // journal like the backup alarm (#436): said once when it is news, standing
+  // until the map closes, defers, or gains an open child, each of which clears
+  // it here. It never throws — a watch must not cost the frontier its read.
+  async #watchStrandedMaps(repo, maps, mapItems) {
+    try {
+      const stranded = strandedMaps(maps, mapItems)
+      const now = new Set(stranded.map((m) => m.number))
+      for (const s of this.reduction.standingStrandedMaps?.() ?? []) {
+        if (s.repo === repo && !now.has(s.map)) {
+          this.reduction.journal('map_stranded_cleared', { repo, map: s.map })
+        }
+      }
+      for (const m of stranded) {
+        const entry = this.reduction.strandedMap?.(repo, m.number)
+        if (entry?.said) continue
+        const said = await this.#sayChannel(strandedMapLine(repo, m))
+        // First sighting journals whatever happened. After that, only the say
+        // that finally lands journals — the standing entry already states the
+        // fact, and a tick is too often to restate it.
+        if (!entry || said) this.reduction.journal('map_stranded', { repo, map: m.number, title: m.title, said })
+      }
+    } catch (e) {
+      this.log(`the stranded-map watch failed (${e.message}) — the frontier read stands`)
+    }
+  }
+
+  // The one place `said` is decided, exactly as the backup's #say (#436): a
+  // missing bridge and a failing send are the same answer — the operator did
+  // not read it — so the alarm stands unsaid and re-says on a later pass.
+  async #sayChannel(text) {
+    try {
+      const res = await this.announce(text)
+      return res !== false
+    } catch (e) {
+      this.log(`a channel line did not reach Discord (${e.message}) — it stands until it does`)
+      return false
     }
   }
 

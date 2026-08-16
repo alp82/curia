@@ -160,6 +160,10 @@ function makeDispatcher(deps = {}, {
     // #377, for the same reason: the cooling the dispatcher seeds itself from
     // at construction is the real reduction over the real journal.
     armedCoolings: () => journal.armedCoolings(),
+    // #485: the stranded-map alarm is the real reduction's, for the reason the
+    // backup's is — it must stand across passes and across a deploy.
+    standingStrandedMaps: () => journal.standingStrandedMaps(),
+    strandedMap: (repo, map) => journal.strandedMap(repo, map),
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     // #374: the real reduction over the real journal. A test seeds `esc_open`
     // and `esc_answer` through `journal` above, and the exchange the prompt
@@ -5566,5 +5570,113 @@ describe('agent-liveness sweep (#138)', () => {
     const d = makeDispatcher()
     const { recent } = await d.status()
     assert.deepEqual(recent, [{ kind: 'died', repo: 'o/r', ticket: '7' }])
+  })
+})
+
+// The stranded-map watch (#485). An open, non-deferred map whose children are
+// all closed gets no dispatch ever again, so the frontier read is the one place
+// that can say so. The alarm is edge-triggered off the journal like the backup
+// alarm (#436): said once, standing until the map closes, defers, or gains an
+// open child.
+describe('the stranded-map watch (#485)', () => {
+  const map = (n, { state = 'open', labels = [] } = {}) => ({
+    number: n, state, title: 'The journal becomes a queryable store',
+    labels: [{ name: 'wayfinder:map' }, ...labels.map((name) => ({ name }))],
+  })
+  const closedChild = (n) => ({ number: n, state: 'closed', assignees: [], labels: [{ name: 'wayfinder:task' }] })
+  const openChild = (n) => ({
+    number: n, state: 'open', assignees: [], labels: [{ name: 'wayfinder:task' }],
+    issue_dependencies_summary: { blocked_by: 0 },
+  })
+
+  test('an all-closed map is said once, journalled, and the second pass is quiet', async () => {
+    const says = []
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316)],
+      mapFrontier: async () => [closedChild(1), closedChild(2)],
+    })
+    d.announce = async (text) => { says.push(text); return true }
+
+    await d.frontier()
+    assert.equal(says.length, 1)
+    assert.match(says[0], /#316/)
+    assert.match(says[0], /no open ticket left/)
+    const ev = events.find((e) => e.type === 'map_stranded')
+    assert.equal(ev.repo, 'o/r')
+    assert.equal(ev.map, 316)
+    assert.equal(ev.said, true)
+
+    await d.frontier()
+    assert.equal(says.length, 1, 'a standing alarm is not re-said')
+    assert.equal(events.filter((e) => e.type === 'map_stranded').length, 1)
+  })
+
+  test('an open child, an empty map, and a deferred map raise nothing', async () => {
+    const says = []
+    let maps = [map(316)]
+    let children = [closedChild(1), openChild(2)]
+    const d = makeDispatcher({
+      repoMaps: async () => maps,
+      mapFrontier: async () => children,
+    })
+    d.announce = async (text) => { says.push(text); return true }
+
+    await d.frontier()
+    children = []
+    await d.frontier()
+    maps = [map(316, { labels: ['wayfinder:deferred'] })]
+    children = [closedChild(1)]
+    await d.frontier()
+
+    assert.equal(says.length, 0)
+    assert.ok(!events.some((e) => e.type === 'map_stranded'))
+  })
+
+  test('the alarm clears when a child reopens, and again when the map closes', async () => {
+    let maps = [map(316)]
+    let children = [closedChild(1)]
+    const says = []
+    const d = makeDispatcher({
+      repoMaps: async () => maps,
+      mapFrontier: async () => children,
+    })
+    d.announce = async (text) => { says.push(text); return true }
+
+    await d.frontier()
+    assert.equal(says.length, 1)
+
+    children = [closedChild(1), openChild(2)]
+    await d.frontier()
+    assert.ok(events.some((e) => e.type === 'map_stranded_cleared' && e.map === 316))
+
+    // it re-strands and is news again
+    children = [closedChild(1), closedChild(2)]
+    await d.frontier()
+    assert.equal(says.length, 2)
+
+    maps = [map(316, { state: 'closed' })]
+    await d.frontier()
+    assert.equal(events.filter((e) => e.type === 'map_stranded_cleared').length, 2)
+  })
+
+  test('an alarm the bridge could not carry stands unsaid and re-says when it returns', async () => {
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316)],
+      mapFrontier: async () => [closedChild(1)],
+    })
+    // the constructor default announce is the no-bridge answer: false
+
+    await d.frontier()
+    assert.equal(events.find((e) => e.type === 'map_stranded').said, false)
+
+    await d.frontier()
+    assert.equal(events.filter((e) => e.type === 'map_stranded').length, 1,
+      'a standing unsaid alarm does not journal every pass')
+
+    const says = []
+    d.announce = async (text) => { says.push(text); return true }
+    await d.frontier()
+    assert.equal(says.length, 1)
+    assert.equal(events.filter((e) => e.type === 'map_stranded').at(-1).said, true)
   })
 })
