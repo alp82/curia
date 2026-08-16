@@ -25,6 +25,7 @@ import { appendFileSync } from 'node:fs'
 const CARRIAGE = process.env.LINT_CARRIAGE ?? 'tool-error'
 const POLICY = process.env.LINT_MODE ?? 'lint'
 const LOG = process.env.LINT_LOG ?? null
+const TOOL_DESC = process.env.LINT_TOOL_DESC ?? 'plain'
 
 let calls = 0
 
@@ -101,9 +102,29 @@ function verdict(args) {
 }
 
 // ------------------------------------------------------------- the wire ----
+// LINT_TOOL_DESC picks the tool description. On codex an MCP tool is reachable
+// only from inside the `exec` script, so a rejection is a return value the
+// model can throw away (#416 section 5). The description is the one lever that
+// reaches the model on every turn. The two values measure what it buys.
+//
+//   plain        says nothing about the return value — the shape curia ships today
+//   read-return  tells the model to read the return value and print it
+//
+// The `read-return` text is a PROBE, not the shipped wording. #438 leaves the
+// real wording to the build ticket.
+const DESCRIPTIONS = {
+  plain: 'Ask the human a question and block until they answer. The prompt is the question they read.',
+  'read-return': [
+    'Ask the human a question and block until they answer. The prompt is the question they read.',
+    'This tool can REFUSE your text, and it refuses by returning a message. It never throws.',
+    'So read the return value and print it.',
+    'If it starts with REJECTED, the human never saw the question. Rewrite your text and call again.',
+  ].join(' '),
+}
+
 const TOOL = {
   name: 'ask_human',
-  description: 'Ask the human a question and block until they answer. The prompt is the question they read.',
+  description: DESCRIPTIONS[TOOL_DESC] ?? DESCRIPTIONS.plain,
   inputSchema: {
     type: 'object',
     properties: {
@@ -144,7 +165,7 @@ function handle(msg) {
   if (method === 'tools/call') {
     const args = params?.arguments ?? {}
     const v = verdict(args)
-    log({ call: calls, at: new Date().toISOString(), carriage: CARRIAGE, policy: POLICY, args, ok: v.ok, flagged: v.flagged === true, message: v.message ?? null })
+    log({ call: calls, at: new Date().toISOString(), carriage: CARRIAGE, policy: POLICY, tool_desc: TOOL_DESC, args, ok: v.ok, flagged: v.flagged === true, message: v.message ?? null })
     if (v.ok) {
       const text = v.flagged
         ? 'SENT WITH A LINT WARNING. The retry cap is used up, so curia sent your text as it stands. The operator sees a warning that it failed the voice check. Do not call ask_human again for this question.'

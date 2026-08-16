@@ -120,14 +120,28 @@ export function insertMapPointer(body, line) {
   return out.join('\n')
 }
 
+// What the report SAID, for a record curia writes from it (#419, ADR-0019).
+//
+// The report is typed now: a `headline` says what the work came to in one line
+// and the `summary` says what changed. A record that printed only the summary
+// would drop the headline, and losing no information is the requirement the
+// whole #413 map serves. An untyped report has no headline and reads exactly as
+// it did before this ticket.
+export function reportProse(result) {
+  const headline = String(result?.headline ?? '').trim()
+  const summary = String(result?.summary ?? '').trim()
+  if (!headline && !summary) return '(no summary)'
+  return [headline && `**${headline}**`, summary].filter(Boolean).join('\n\n')
+}
+
 export function fallbackResolutionComment(result) {
   return [
     '## Resolution (recorded by curia)',
     '',
-    result.summary ?? '(no summary)',
+    reportProse(result),
     '',
     `_The agent reported **${result.status}** but posted no resolution comment of its own; curia`,
-    'recorded its `report_result` summary verbatim rather than let the ticket close silently._',
+    'recorded its `report_result` text verbatim rather than let the ticket close silently._',
   ].join('\n')
 }
 
@@ -135,7 +149,7 @@ export function nonCleanComment({ agent, result, released }) {
   return machine([
     `⚠️ curia: agent \`${agent}\` stopped with status **${result.status}** and did **not** resolve this ticket.`,
     '',
-    result.summary ?? '(no summary)',
+    reportProse(result),
     '',
     released
       ? '_The ticket stays open and its claim has been released, so it returns to the frontier. Nothing was pushed._'
@@ -169,7 +183,7 @@ export function chartingComment({ agent, model, instruction, result, landing = n
     `## ${clean ? 'Charting' : `Charting — **${result.status}**`} (curia session \`${agent}\`)`,
     '',
     ...(instruction ? ['The operator asked for:', '', `> ${instruction}`, ''] : ['Dispatched with no instruction.', '']),
-    result.summary ?? '(no summary)',
+    reportProse(result),
     '',
     ...(landed
       ? [
@@ -423,7 +437,12 @@ export async function resolveAndLand({
             journal('map_pointer_present', { repo, map: parent, ticket, line: existing })
             return { state: 'present', number: parent }
           }
-          const line = pointerLine({ title, url, gist: result.summary })
+          // The HEADLINE is the gist when the report carries one (#419). The
+          // map's Decisions-so-far is an index — one line per closed ticket —
+          // and a headline is that line already. Without one the summary is
+          // flattened to one line, which is what this did before the field
+          // existed.
+          const line = pointerLine({ title, url, gist: result.headline || result.summary })
           const next = insertMapPointer(fresh.body, line)
           if (!next) {
             journal('map_pointer_failed', { repo, map: parent, ticket, line, reason: 'no "## Decisions so far" section' })

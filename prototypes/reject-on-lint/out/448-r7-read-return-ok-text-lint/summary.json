@@ -1,0 +1,69 @@
+{
+  "name": "448-r7-read-return-ok-text-lint",
+  "lane": "real",
+  "carriage": "ok-text",
+  "policy": "lint",
+  "tool_desc": "read-return",
+  "task": "cap",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "passed_on_attempt": 2,
+  "scripts": [
+    {
+      "call_id": "call_DauXsnpUzFGgu9R30MMPDG7Q",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 635
+    },
+    {
+      "call_id": "call_xTgYvGZJckvqc7QFRU544dtH",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 300
+    },
+    {
+      "call_id": "call_v2zTuxRTEFvWjF5hNgWeMj5q",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "printed_chars": 33
+    }
+  ],
+  "return_value_reached_model": true,
+  "scripts_full": [
+    {
+      "call_id": "call_DauXsnpUzFGgu9R30MMPDG7Q",
+      "printed": "[{\"name\":\"mcp__lintcheck__ask_human\",\"description\":\"Ask the human a question and block until they answer. The prompt is the question they read. This tool can REFUSE your text, and it refuses by returning a message. It never throws. So read the return value and print it. If it starts with REJECTED, the human never saw the question. Rewrite your text and call again.\\n\\nexec tool declaration:\\n```ts\\ndeclare const tools: { mcp__lintcheck__ask_human(args: {\\n  // One line naming the decision.\\n  headline: string;\\n  // The question, with the options and their consequences.\\n  prompt: string;\\n}): Promise<CallToolResult>; };\\n```\"}]",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const matches = ALL_TOOLS.filter(x => /lintcheck|ask_human/i.test(x.name + \" \" + x.description));\ntext(matches);\n"
+    },
+    {
+      "call_id": "call_xTgYvGZJckvqc7QFRU544dtH",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In prompt: split this sentence. It has 22 words and the cap is 20: \"Choose 3 to end a stuck loop sooner, or choose 5 to give the agent more room to fix its ow\"\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the rejected-message rewrite cap\",\n  prompt: \"Should curia cap the number of times an agent may rewrite a rejected message at 3 or 5? Choose 3 to end a stuck loop sooner, or choose 5 to give the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content ?? [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_v2zTuxRTEFvWjF5hNgWeMj5q",
+      "printed": "ACCEPTED. The human reads it now.",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the rejected-message rewrite cap\",\n  prompt: \"Should curia cap rejected-message rewrites at 3 or 5? Choose 3 to end a stuck loop sooner. Choose 5 to give the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content ?? [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    }
+  ],
+  "final_message": "The tool replied: “ACCEPTED. The human reads it now.”\n\nThe initial wording was rejected for exceeding the 20-word sentence limit, so I shortened it and resubmitted.",
+  "tokens": {
+    "input_tokens": 57354,
+    "cached_input_tokens": 52224,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 591,
+    "reasoning_output_tokens": 202,
+    "total_tokens": 57945
+  },
+  "codex_log_tail": "-----\nworkdir: /tmp/reject-on-lint/448-r7-read-return-ok-text-lint/cwd\nmodel: gpt-5.6-sol\nprovider: openai\napproval: never\nsandbox: danger-full-access\nreasoning effort: high\nreasoning summaries: none\nsession id: 01a00c2b-8fdd-74d2-8721-656f546c2bcc\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator one question. The question: curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5? Give the operator both options and one consequence for each. A cap of 3 ends a stuck loop sooner. A cap of 5 gives the agent more room to fix its own text. Write the headline and the prompt yourself. Report what the tool said back.\ncodex\nI’ll use the lintcheck operator prompt exactly once, with a concise headline and both tradeoffs, then relay its response.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nThe lint gate rejected the first wording before the operator saw it because one sentence exceeded its 20-word voice limit. I’m shortening the same question without changing either option or consequence.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nThe tool replied: “ACCEPTED. The human reads it now.”\n\nThe initial wording was rejected for exceeding the 20-word sentence limit, so I shortened it and resubmitted.\ntokens used\n5,721\nThe tool replied: “ACCEPTED. The human reads it now.”\n\nThe initial wording was rejected for exceeding the 20-word sentence limit, so I shortened it and resubmitted.\n"
+}

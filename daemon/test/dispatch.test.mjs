@@ -107,6 +107,10 @@ function makeDispatcher(deps = {}, {
   // #389: the GitHub App's minter. None by default — a box with no app keeps
   // #155's PAT, which is every test but the cutover's own.
   minter = null,
+  // #390: who a claim assigns. `loadCuriaConfig` refuses a boot without it, so
+  // every test gets one; the null case is its own test, and it pins that
+  // reconcile skips rather than sweeps.
+  claimLogin = 'me',
   // Discarded by default. A test that asserts on a boot line passes a collector,
   // because the lines it wants are written inside the constructor (#377).
   log = () => {},
@@ -116,7 +120,7 @@ function makeDispatcher(deps = {}, {
     watch,
     dispatch: {
       auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60,
-      workspace_root: root, ready_timeout_s: readyTimeoutS,
+      workspace_root: root, ready_timeout_s: readyTimeoutS, claim_login: claimLogin,
       stop_nudge_budget: stopNudgeBudget,
     },
     attach: { ttyd_port: 7681, serve_port: 8443 },
@@ -187,7 +191,6 @@ function makeDispatcher(deps = {}, {
     },
   }
   const base = {
-    viewerLogin: async () => 'me',
     repoMaps: async () => [],
     mapFrontier: async () => [],
     flatFrontier: async () => [],
@@ -1170,24 +1173,28 @@ describe('the Stop hook is the backstop for a mistuned window (#194)', () => {
   })
 })
 
-describe('reconcile without a confirmed viewer identity (B1)', () => {
-  test('a failed `gh api user` destroys nothing — no sweep, no unclaim, no worktree removal', async () => {
+describe('reconcile without a claim login (B1)', () => {
+  // #390 moved the identity off `gh api user` and onto `dispatch.claim_login`,
+  // which `loadCuriaConfig` refuses a boot without. The GUARD stays all the
+  // same, and this is what it is for: with no name, every live agent looks
+  // unowned, and the sweep would kill its session and force-remove its
+  // uncommitted output.
+  test('a config with no claim_login destroys nothing — no sweep, no unclaim, no worktree removal', async () => {
     const destroyed = []
     fs.writeFileSync(
       path.join(tmp, 'data', 'events.jsonl'),
       JSON.stringify({ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42' }) + '\n',
     )
     const d = makeDispatcher({
-      viewerLogin: async () => { throw new Error('HTTP 403: rate limit') },
       listSessions: async () => ['curia-42'],
-      // the issue reads fine — a DIFFERENT endpoint from /user, which is
+      // the issue reads fine — the identity is the only thing missing, which is
       // exactly how the destructive path used to be reached
       fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: [{ login: 'me' }] }),
       killSession: async (n) => { destroyed.push(`kill:${n}`) },
       removeWorkspace: async (wt) => { destroyed.push(`workspace:${wt}`) },
       removeConfigDir: (dir) => { destroyed.push(`cfg:${dir}`) },
       unclaim: async (repo, ticket) => { destroyed.push(`unclaim:${repo}#${ticket}`) },
-    })
+    }, { claimLogin: null })
 
     await d.reconcile({ boot: false })
 
@@ -1365,6 +1372,54 @@ describe('the usage-credits dialog gates the model (#126, #108 item 12)', () => 
 // The agents are the first holder to move off a PAT and onto minted tokens
 // (ADR-0018). Everything here is about the SWAP: what reaches the container, what
 // does not, and what happens when the mint cannot be made.
+describe('the claim assigns dispatch.claim_login (#390)', () => {
+  // The daemon calls GitHub as `curia-sh[bot]` now, and GitHub does not let an
+  // App be an issue assignee. So the claim names a real user, and the config is
+  // the one place that says which — `gh api user` used to, and it answers
+  // nothing under an installation token.
+  test('the login on the claim is the configured one, not the daemon\'s own', async () => {
+    const assigned = []
+    const d = makeDispatcher(
+      { claim: async (repo, n, login) => { assigned.push({ repo, n, login }) } },
+      { claimLogin: 'alp82' },
+    )
+
+    await d.start('42', { repo: 'o/r' })
+
+    assert.deepEqual(assigned, [{ repo: 'o/r', n: '42', login: 'alp82' }])
+  })
+
+  test('the release names the same login the claim did', async () => {
+    const released = []
+    const d = makeDispatcher(
+      { unclaim: async (repo, n, login) => { released.push({ repo, n, login }) } },
+      { claimLogin: 'alp82' },
+    )
+
+    await d.start('42', { repo: 'o/r' })
+    await d.cancel('42', { by: 'test' })
+
+    assert.deepEqual(released, [{ repo: 'o/r', n: '42', login: 'alp82' }])
+  })
+
+  // A watch reload rewrites the config in place, so a claim must read the name
+  // the file says NOW rather than one frozen at construction.
+  test('a config edited under a live dispatcher is the one the next claim reads', async () => {
+    const assigned = []
+    const d = makeDispatcher(
+      { claim: async (repo, n, login) => { assigned.push(login) } },
+      { claimLogin: 'alp82' },
+    )
+
+    await d.start('42', { repo: 'o/r' })
+    d.config.dispatch.claim_login = 'someone-else'
+    d.agents.delete('curia-42')
+    await d.start('42', { repo: 'o/r' })
+
+    assert.deepEqual(assigned, ['alp82', 'someone-else'])
+  })
+})
+
 describe('the agent mints its GitHub token (#389)', () => {
   const envFileOf = (session) => {
     const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
@@ -2893,9 +2948,9 @@ describe('a failed unclaim is never journalled as dispatch_unclaimed (F1 — the
     assert.ok(!typesOf().includes('dead_claim_released'))
   })
 
-  test('#releaseClaim with no viewer login journals unclaim_failed, never dispatch_unclaimed', async () => {
+  test('#releaseClaim whose unclaim call fails journals unclaim_failed, never dispatch_unclaimed', async () => {
     // reach #releaseClaim through the respawn-failure path: first spawn OK,
-    // usage-limit hit, second spawn throws, and by then gh identity is gone
+    // usage-limit hit, second spawn throws, and GitHub then refuses the release
     const routing = {
       defaults: { untyped: 'sonnet' },
       models: {
@@ -2906,26 +2961,20 @@ describe('a failed unclaim is never journalled as dispatch_unclaimed (F1 — the
       harnesses: ROUTING.harnesses,
     }
     let spawnCalls = 0
-    let loginCalls = 0
     const unclaimed = []
     const d = makeDispatcher({
-      viewerLogin: async () => {
-        loginCalls += 1
-        if (loginCalls > 1) throw new Error('gh: HTTP 503')
-        return 'me'
-      },
       newSession: async () => {
         spawnCalls += 1
         if (spawnCalls > 1) throw new Error('tmux exploded')
       },
       capturePane: async () => 'Sonnet usage limit reached | 1800000000',
-      unclaim: async (repo, ticket) => { unclaimed.push(`${repo}#${ticket}`) },
+      unclaim: async () => { throw new Error('gh: HTTP 503') },
     }, { routing })
 
     await d.start('42', { repo: 'o/r' })
     await waitFor(() => events.some((e) => e.type === 'unclaim_failed'))
 
-    assert.deepEqual(unclaimed, [], 'no login ⇒ no unclaim was possible')
+    assert.deepEqual(unclaimed, [], 'a refused unclaim released nothing')
     assert.ok(!typesOf().includes('dispatch_unclaimed'), 'an impossible unclaim must not be recorded as done')
     assert.ok(notifies.some((n) => /claim release FAILED/.test(n.message)), 'the operator hears the truth, not "re-frontiered"')
   })
@@ -4080,6 +4129,44 @@ describe('the Stop hook enforces the ending (#54 item 4)', () => {
     assert.equal(sent.length, 0, 'no gate is composed by the hook')
     assert.equal(decision.decision, 'block')
     assert.match(decision.reason, /request_review/, 'the ordinary checklist asks for the gate instead')
+  })
+
+  test('the reviewer is nameable without writing a refusal line (#419)', () => {
+    // The report lint asks which SHAPE a call carries. `toolRefusal` answers the
+    // same question and journals a refusal, which is the wrong record for it.
+    const d = makeDispatcher({})
+    assert.equal(d.isReviewerSession('curia-review-42'), true)
+    assert.equal(d.isReviewerSession('curia-42'), false)
+    assert.ok(!typesOf().includes('reviewer_tool_refused'))
+  })
+
+  test('a rejected REPORT falls through the same way, and opens no card (#419)', async () => {
+    // `sendFlagged` opens an escalation, and a report asks nobody anything. The
+    // ending checklist already holds an agent that has not reported.
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', agent: 'curia-42' }])
+    const sent = []
+    const d = makeDispatcher({
+      lintRejection: () => rejected({ kind: 'report-result', stop_blocks: 1 }),
+      sendFlagged: (agent, h) => { sent.push(h); return { id: 'esc-9' } },
+    })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(sent.length, 0, 'a report is never sent as a question')
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /report_result/, 'the ordinary checklist asks for the report instead')
+  })
+
+  test('the first block on a rejected report names report_result and says nothing reported (#419)', async () => {
+    const d = makeDispatcher({ lintRejection: () => rejected({ kind: 'report-result' }) })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /curia REFUSED your last `report_result` call/)
+    assert.match(decision.reason, /This ticket has reported nothing/)
   })
 
   test('#47 stays first: a turn that ends on an open escalation is a block, never a stop-block', async () => {

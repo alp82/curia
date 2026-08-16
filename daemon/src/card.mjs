@@ -17,7 +17,7 @@
 // instructions stay in the bridge, because they are the answer surface rather
 // than the question.
 
-import { unfence } from './lint.mjs'
+import { unfence, isTypedResult } from './lint.mjs'
 
 // A. B. C. up to Z, then the number. 26 options or more is the numbered-list
 // band anyway (#414), where the letters have stopped helping.
@@ -93,6 +93,35 @@ export function composeReviewBody(payload = {}) {
   if (has(payload.visual)) parts.push(visualBlock(payload.visual))
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   return parts.join('\n\n')
+}
+
+// The ending report the thread reads (#419, ADR-0019). It is the FIRST of the
+// ending's two messages (#253): the agent's own voice states what the work came
+// to, and curia's receipt follows it.
+//
+// The parts read top down as the operator's eye does. The headline says what the
+// work came to, the visual shows it, the summary says what changed, and the
+// spoiler holds the facts a reader may want and nobody needs.
+export function composeResultBody(payload = {}) {
+  const parts = []
+  if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
+  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  if (has(payload.summary)) parts.push(String(payload.summary).trim())
+  if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
+  return parts.join('\n\n')
+}
+
+// The whole post, status and all. The STATUS leads, because it is the one thing
+// the operator reads this message for.
+//
+// An untyped report keeps the one-line shape the thread has read since #253: the
+// status, a colon, and the summary. Until the flip (#422) both shapes are live,
+// and a one-line report must not grow a paragraph break it never had.
+export function composeResultReport(status, payload = {}) {
+  const head = `✅ reports **${status}**`
+  const body = composeResultBody(payload)
+  if (!body) return head
+  return isTypedResult(payload) ? `${head}\n\n${body}` : `${head}: ${body}`
 }
 
 // The ✅ All as recommended button, DERIVED (ADR-0019). It renders when every

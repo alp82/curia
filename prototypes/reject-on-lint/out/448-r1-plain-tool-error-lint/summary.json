@@ -1,0 +1,69 @@
+{
+  "name": "448-r1-plain-tool-error-lint",
+  "lane": "real",
+  "carriage": "tool-error",
+  "policy": "lint",
+  "tool_desc": "plain",
+  "task": "cap",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "passed_on_attempt": 2,
+  "scripts": [
+    {
+      "call_id": "call_pu1yG0wZ6Jw6HB2aOC4zdZdm",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "printed_chars": 412
+    },
+    {
+      "call_id": "call_12jl3vVesv2Kj8J6bXC20yGH",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 300
+    },
+    {
+      "call_id": "call_4d3J6Ix5yzmk0jjtHxXhNrrq",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "printed_chars": 33
+    }
+  ],
+  "return_value_reached_model": true,
+  "scripts_full": [
+    {
+      "call_id": "call_pu1yG0wZ6Jw6HB2aOC4zdZdm",
+      "printed": "[{\"name\":\"mcp__lintcheck__ask_human\",\"description\":\"Ask the human a question and block until they answer. The prompt is the question they read.\\n\\nexec tool declaration:\\n```ts\\ndeclare const tools: { mcp__lintcheck__ask_human(args: {\\n  // One line naming the decision.\\n  headline: string;\\n  // The question, with the options and their consequences.\\n  prompt: string;\\n}): Promise<CallToolResult>; };\\n```\"}]",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "script": "const hits = ALL_TOOLS.filter(x =>\n  /ask_human|lintcheck/i.test(x.name + \" \" + x.description)\n);\ntext(hits);\n"
+    },
+    {
+      "call_id": "call_12jl3vVesv2Kj8J6bXC20yGH",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In prompt: split this sentence. It has 21 words and the cap is 20: \"Choose 3 to end a stuck loop sooner, or 5 to give the agent more room to fix its own text.\"\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the rewrite-attempt cap\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5? Choose 3 to end a stuck loop sooner, or 5 to give the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content ?? [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_4d3J6Ix5yzmk0jjtHxXhNrrq",
+      "printed": "ACCEPTED. The human reads it now.",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the rewrite-attempt cap\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5? Choose 3 to end a stuck loop sooner. Choose 5 to give the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content ?? [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    }
+  ],
+  "final_message": "The tool said: “ACCEPTED. The human reads it now.”\n\nThe first draft was rejected for exceeding the 20-word sentence limit, so I split it and resubmitted successfully.",
+  "tokens": {
+    "input_tokens": 57159,
+    "cached_input_tokens": 51200,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 597,
+    "reasoning_output_tokens": 193,
+    "total_tokens": 57756
+  },
+  "codex_log_tail": " v0.146.1\n--------\nworkdir: /tmp/reject-on-lint/448-r1-plain-tool-error-lint/cwd\nmodel: gpt-5.6-sol\nprovider: openai\napproval: never\nsandbox: danger-full-access\nreasoning effort: high\nreasoning summaries: none\nsession id: 01a00c29-698b-7b72-8cce-0d0d3d47a640\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator one question. The question: curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5? Give the operator both options and one consequence for each. A cap of 3 ends a stuck loop sooner. A cap of 5 gives the agent more room to fix its own text. Write the headline and the prompt yourself. Report what the tool said back.\ncodex\nI’ll use the requested `lintcheck ask_human` tool, present exactly the two cap choices with their tradeoffs, and relay the operator’s response.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ncodex\nThe tool rejected the first wording because one sentence exceeded its 20-word voice limit. I’m rewriting it as instructed while preserving both options and consequences.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nThe tool said: “ACCEPTED. The human reads it now.”\n\nThe first draft was rejected for exceeding the 20-word sentence limit, so I split it and resubmitted successfully.\ntokens used\n6,556\nThe tool said: “ACCEPTED. The human reads it now.”\n\nThe first draft was rejected for exceeding the 20-word sentence limit, so I split it and resubmitted successfully.\n"
+}

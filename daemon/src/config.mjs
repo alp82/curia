@@ -25,6 +25,12 @@ export const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 // Every reasoning effort any configured model accepts, unioned.
 const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
+// A GitHub login as GitHub itself allows one: letters, digits and single
+// hyphens, no hyphen at either end, 39 characters at most. The whole point of
+// checking it here is that the value goes on a `gh issue edit --add-assignee`,
+// and a typo there fails every claim on the box with a 422 nobody can place.
+const GITHUB_LOGIN_RE = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/
+
 // A plain directory name and nothing else. The file is hand-edited, so this
 // also refuses "..", "a/b" and any other way of pointing the agent's skills
 // dir outside the configured root.
@@ -171,6 +177,19 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile } = {}) {
   }
   if (typeof d.workspace_root !== 'string' || !path.isAbsolute(d.workspace_root)) {
     fail(src, 'dispatch.workspace_root must be an absolute path')
+  }
+  // Who a claim assigns (#390, ADR-0018). A claim is an issue assignee, and
+  // GitHub does not let an App be one — so the daemon calls as `curia-sh[bot]`
+  // and names a real user here. It used to read `gh api user`, which answers
+  // nothing under an installation token.
+  //
+  // REQUIRED, with no default. Every other name for the operator is a guess:
+  // the host `gh` login is the credential this ticket takes the daemon off, and
+  // a daemon that guessed wrong would claim tickets in a stranger's name or
+  // fail every claim with a 422. A missing key refuses the boot and says which
+  // key it is, which costs one line in the config and nothing else.
+  if (typeof d.claim_login !== 'string' || !GITHUB_LOGIN_RE.test(d.claim_login)) {
+    fail(src, 'dispatch.claim_login must be a GitHub login — the user a claim assigns, because a GitHub App cannot be an assignee')
   }
 
   const a = cfg.attach

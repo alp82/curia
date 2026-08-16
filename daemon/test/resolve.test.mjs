@@ -11,7 +11,7 @@ import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   sectionBounds, pointerLine, mapPointerFor, insertMapPointer,
-  fallbackResolutionComment, nonCleanComment, prBody, resolveAndLand, summariseOutcome,
+  fallbackResolutionComment, nonCleanComment, reportProse, prBody, resolveAndLand, summariseOutcome,
   landBranch, prLinkComment, DECISIONS_HEADING, MACHINE_MARKER,
 } from '../src/resolve.mjs'
 
@@ -137,6 +137,21 @@ describe('comment bodies', () => {
     assert.ok(nonCleanComment({ agent: 'curia-42', result: { status: 'blocked' }, released: true }).startsWith(MACHINE_MARKER))
     assert.ok(!fallbackResolutionComment({ summary: 's' }).includes(MACHINE_MARKER),
       'the fallback IS the resolution — marking it would make a later dispatch re-post one')
+  })
+
+  // #419, ADR-0019: the report is typed now, and a record curia writes from it
+  // must carry every part the agent typed. Losing no information is the
+  // requirement the whole #413 map serves.
+  test('a typed report keeps its headline in the records curia writes', () => {
+    const result = { status: 'resolved', headline: 'The report is typed.', summary: 'Two fields, one record.' }
+    assert.equal(reportProse(result), '**The report is typed.**\n\nTwo fields, one record.')
+    assert.match(fallbackResolutionComment(result), /\*\*The report is typed\.\*\*/)
+    assert.match(nonCleanComment({ agent: 'curia-42', result, released: true }), /\*\*The report is typed\.\*\*/)
+  })
+
+  test('an untyped report reads exactly as it did before the headline existed', () => {
+    assert.equal(reportProse({ summary: 'did the thing' }), 'did the thing')
+    assert.equal(reportProse({}), '(no summary)')
   })
 
   test('the pull-request link comment says what was pushed and where', () => {
@@ -290,6 +305,23 @@ describe('resolveAndLand: repairs', () => {
     assert.ok(journalled.some((e) => e.type === 'map_pointer_appended' && /issues\/42/.test(e.line)),
       'the line stays replayable from the journal even when the map lost it')
     assert.match(summariseOutcome(out), /NOT verified/)
+  })
+
+  test('the map pointer takes the HEADLINE as its gist when the report carries one (#419)', async () => {
+    // Decisions-so-far is an index, one line per closed ticket. A headline is
+    // that line already, where a summary has to be flattened into one.
+    const h = fixture({
+      result: { status: 'resolved', headline: 'The gist, in one line.', summary: 'First sentence.\nSecond sentence.' },
+      issues: {
+        42: { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' },
+        1: { ...MAP_ISSUE },
+      },
+      overrides: { issueComments: async () => [{ user: { login: 'me' }, created_at: '2026-07-25T10:00:00Z' }] },
+    })
+    await h.run()
+
+    const appended = journalled.find((e) => e.type === 'map_pointer_appended')
+    assert.match(appended.line, /^- \[a ticket\]\(https:\/\/github\.com\/o\/r\/issues\/42\) — The gist, in one line\.$/)
   })
 
   test('a map with no Decisions-so-far section is not guessed at', async () => {

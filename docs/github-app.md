@@ -100,9 +100,11 @@ The key never travels through an agent. This step happens in a dev session on th
 
 **The agents have cut over.** [#389](https://github.com/alp82/curia/issues/389) moved them: an agent gets a per-agent `gh` config dir the daemon rewrites, and it commits, pushes and merges as `curia-sh[bot]`. `CURIA_AGENT_GH_TOKEN_*` stays as the fallback for an owner the app is not installed on, and retires once the box has run a dispatch on the minted path. See [the live check](live-checks/389-agent-minted-token.md).
 
+**The daemon has cut over.** [#390](https://github.com/alp82/curia/issues/390) moved it: every `gh` child the daemon spawns for a named repo carries that owner's minted write token, so the frontier reads, the claims, the clones, the pull requests and the branch pushes run as `curia-sh[bot]`. Two things came with it. `config/curia.yaml` gains a required `dispatch.claim_login`, because GitHub does not let an App be an issue assignee. And the host `gh` login keeps exactly three jobs: dev sessions, the deploy sibling, and the gate approval.
+
 **The overseer has cut over.** [#392](https://github.com/alp82/curia/issues/392) moved it: the daemon mints one read-only token per watched owner and writes it to `<workspace_root>/overseer/tokens/<owner>`, which the container mounts read-only. `CURIA_OVERSEER_GH_TOKEN_*` is retired — delete any key left in `daemon/.env.overseer`, and revoke the PAT. An owner the app is not installed on now reads public repositories only, and the overseer names it in the chat once per turn. See [the live check](live-checks/392-overseer-minted-token.md).
 
-**One PAT stays.** The daemon's own host `gh` login keeps working until it cuts over on its own ticket.
+**Every holder is on the app.** What is left of the host `gh` login is the three jobs above. Each `CURIA_*_GH_TOKEN_*` key that remains is a fallback or dead paper, and each one says so where it is read.
 
 ## If something is wrong
 

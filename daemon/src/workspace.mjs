@@ -24,6 +24,9 @@ import { execFileP } from './exec.mjs'
 import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
 import { forgetGhCredentials, ghConfigDirFor } from './agentgh.mjs'
+// the daemon's own minted credential (#390, ADR-0018) — every clone, fetch and
+// push below reaches GitHub as `curia-sh[bot]` rather than as the operator
+import { daemonGhEnv } from './daemongh.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
 // operator's STE writing standard, seeded into every config dir as the CLI's
@@ -95,9 +98,9 @@ export function reviewPathFor(root, repo, n) {
 // human is looking at in the pull request, and a commit that exists only in one
 // worktree is in no diff anybody can see. A branch that is not on origin at all
 // refuses here, naming the call that puts it there.
-async function fetchTip(gitDir, repo, branch) {
+async function fetchTip(gitDir, repo, branch, env) {
   try {
-    await git(gitDir, ['fetch', 'origin', branch], { timeout: CLONE_TIMEOUT_MS })
+    await git(gitDir, ['fetch', 'origin', branch], { timeout: CLONE_TIMEOUT_MS, env })
   } catch (e) {
     throw new Error(`origin carries no \`${branch}\` for ${repo}, so there is no pushed diff to read (${(e.stderr ?? e.message ?? '').trim().split('\n')[0]}) — the builder has to call open_pull_request first`)
   }
@@ -120,13 +123,16 @@ export async function createReviewCheckout(root, repo, n) {
 
   if (fs.existsSync(wt)) fs.rmSync(wt, { recursive: true, force: true })
   fs.mkdirSync(path.dirname(wt), { recursive: true })
+  // The daemon's own minted token (#390). It carries the clone, the fetch and
+  // the blobless checkout, which is every child here that reaches the network.
+  const env = await daemonGhEnv(repo)
   await execFileP('gh', ['repo', 'clone', repo, wt, '--', '--filter=blob:none'], {
-    maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS,
+    maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS, env,
   })
   await git(wt, ['remote', 'set-url', 'origin', `https://github.com/${repo}.git`])
   await git(wt, ['config', 'credential.helper', '!gh auth git-credential'])
-  const sha = await fetchTip(wt, repo, branch)
-  await git(wt, ['checkout', '--detach', sha])
+  const sha = await fetchTip(wt, repo, branch, env)
+  await git(wt, ['checkout', '--detach', sha], { env })
   // The claude harness writes `.mcp.json` and `.claude/` into the checkout, and
   // the reviewer reads `git status` to see what the diff touched — so curia's
   // own files must not show up as the builder's changes.
@@ -181,9 +187,14 @@ export async function uncommittedFiles(wtPath) {
 //
 // The daemon pushes; the agent never does (#41) — the same containment boundary
 // as preview allocation (#40). This goes out over an EXPLICIT URL with gh's
-// credential helper named on the command line, so it carries the DAEMON's own
-// login rather than the agent's scoped token, and it does not depend on
+// credential helper named on the command line, so it does not depend on
 // `gh auth setup-git` having been run for whoever owns the box.
+//
+// WHO THE PUSH READS AS (#390). The helper resolves `GH_TOKEN` out of this
+// child's environment, so the push carries the daemon's MINTED token and lands
+// as `curia-sh[bot]`. That is half of why the app exists: a push the daemon
+// performs for an agent used to read as the operator. An owner with no minted
+// token keeps the host login, which is exactly what this line did before.
 //
 // Pushing an explicit URL does not move refs/remotes/origin/*, and
 // hasUnpushedWork() — which decides whether the orphan sweep is allowed to
@@ -195,7 +206,7 @@ export async function pushBranch(wtPath, repo, branch) {
   await git(wtPath, [
     '-c', 'credential.helper=!gh auth git-credential',
     'push', `https://github.com/${repo}.git`, `${sha}:refs/heads/${branch}`,
-  ], { timeout: CLONE_TIMEOUT_MS })
+  ], { timeout: CLONE_TIMEOUT_MS, env: await daemonGhEnv(repo) })
   await git(wtPath, ['update-ref', `refs/remotes/origin/${branch}`, sha])
   return sha
 }
@@ -245,11 +256,16 @@ export async function createPrivateClone(root, repo, n, { identity = null } = {}
   const branch = branchFor(n)
   if (fs.existsSync(wt)) fs.rmSync(wt, { recursive: true, force: true })
   fs.mkdirSync(path.dirname(wt), { recursive: true })
-  // `gh repo clone` rather than `git clone`: it carries the daemon's own login,
-  // so a private watched repo clones with no credential helper set up on the
-  // box. Everything after `--` is passed through to git.
+  // `gh repo clone` rather than `git clone`: it carries the daemon's own
+  // credential, so a private watched repo clones with no credential helper set
+  // up on the box. Everything after `--` is passed through to git.
+  //
+  // Since #390 that credential is the MINTED token of the ticket's owner, and
+  // the same environment carries the blobless checkout below — a blobless clone
+  // fetches blobs on demand, so `git checkout` reaches the network too.
+  const env = await daemonGhEnv(repo)
   await execFileP('gh', ['repo', 'clone', repo, wt, '--', '--filter=blob:none'], {
-    maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS,
+    maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS, env,
   })
   // gh follows the box's `git_protocol` setting, which may be ssh — and the
   // container holds no ssh key by design. HTTPS with GH_TOKEN is the one way an
@@ -266,7 +282,7 @@ export async function createPrivateClone(root, repo, n, { identity = null } = {}
   await git(wt, ['config', 'user.name', who.name])
   await git(wt, ['config', 'user.email', who.email])
 
-  await checkoutTicketBranch(wt, branch)
+  await checkoutTicketBranch(wt, branch, { env })
 
   const excludeFile = path.join(wt, '.git', 'info', 'exclude')
   fs.mkdirSync(path.dirname(excludeFile), { recursive: true })
@@ -289,11 +305,15 @@ export async function createPrivateClone(root, repo, n, { identity = null } = {}
 // Its own function since #195, so the rule stays testable. It used to live in
 // `createWorktree`, which a test could drive against a local origin; the one
 // caller left clones through `gh`, which no unit test can reach.
-export async function checkoutTicketBranch(gitDir, branch) {
+//
+// `env` is the caller's minted credential (#390). The two reads are local, and
+// the checkout is not: this clone is blobless, so checking a branch out fetches
+// the blobs it needs. The suite drives a local origin and passes none.
+export async function checkoutTicketBranch(gitDir, branch, { env } = {}) {
   const start = await remoteBranchExists(gitDir, branch)
     ? `origin/${branch}`
     : `origin/${await defaultBranchOf(gitDir)}`
-  await git(gitDir, ['checkout', '-B', branch, start])
+  await git(gitDir, ['checkout', '-B', branch, start], { env })
   return start
 }
 
@@ -1944,7 +1964,10 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '- `request_review` — the one gate, and it judges the FINDINGS. curia shows the human the pull',
     '  request and the map, and blocks until they approve or reject. **You never write a link yourself.**',
     '  A rejection comes back as their own words: fix, commit, `open_pull_request` again, ask again.',
-    '- `report_result` — exactly once, at the very end. Its summary becomes curia\'s comment on the map.',
+    // #419, ADR-0019: the report is typed too. The headline is the line the
+    // thread reads first, and the map pointer takes it as the gist.
+    '- `report_result` — exactly once, at the very end. `headline` says what the session came to in one',
+    '  line, and `summary` says what you charted. Both become curia\'s comment on the map.',
     '- `publish_preview` belongs to a ticket dispatch. A research note is read as a diff, so there is',
     '  nothing here to preview.',
   ] : [
@@ -1965,7 +1988,8 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  curia composes all three from its own records, which is what makes them evidence rather than your',
     '  account of your own work. If the preview link points at the wrong page, fix it where it is made —',
     '  call `publish_preview` again with the right path — not by pasting a URL into your summary.',
-    '- `report_result` — exactly once, at the very end.',
+    '- `report_result` — exactly once, at the very end. `headline` says what the work came to in one',
+    '  line, and `summary` says what changed. curia lints both, and it lays the report out itself.',
   ]
 
   // #165, ADR-0010: the gate's third button. The builder is told this at spawn

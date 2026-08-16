@@ -261,6 +261,45 @@ export function hasText(payload = {}) {
     || (payload.options ?? []).some((o) => present(typeof o === 'object' ? o?.label : o))
 }
 
+// ---- the ending report (#419) -------------------------------------------------
+//
+// `report_result` takes `ticket` and `status` for the machine, and `headline`
+// plus `summary` for the human. The two machine fields keep their zod types,
+// because they are not prose and the ending checklist already holds an agent
+// that never reported.
+//
+// `details` is a free record and no lint reads it (ADR-0019 rule 3). It is
+// machine-facing and no surface renders it.
+
+// Whether a report carries a typed field at all. The report differs from a card
+// here: `summary` is linted either way, because it shipped before this ticket
+// and it is the text the thread has always read. This tells curia which SHAPE to
+// render, not whether to lint.
+export function isTypedResult(payload = {}) {
+  return present(payload.headline) || present(payload.detail) || present(payload.visual)
+}
+
+// The report's floor. `summary` was required by the schema before this ticket,
+// so it is required now, flip or no flip — the same rule as the gate's, and for
+// the same reason (#438: moving a check off zod decides which layer refuses the
+// call, never whether a silent report lands). Only the `headline` waits for the
+// flip (#422), because it is the field this ticket adds.
+export function resultFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {}) {
+  const faults = []
+  if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say what the work came to in one line.')
+  if (!present(payload.summary)) faults.push('summary: missing. Say what you did and what it came to.')
+  return faults
+}
+
+export function lintResult(payload = {}) {
+  const faults = []
+  if (present(payload.headline)) faults.push(...gradeA('headline', payload.headline, CAPS.headline))
+  if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
+  if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
+  if (present(payload.summary)) faults.push(...gradeB('summary', payload.summary))
+  return faults
+}
+
 // The gate's floor, in two halves.
 //
 // `summary` and `charting` were REQUIRED by the schema before this ticket, so
