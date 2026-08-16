@@ -212,6 +212,14 @@ export class StatusLine {
         if (r.kind === REVIEW_KIND && CROSS_CHECK_RE.test(String(ev.answer ?? ''))) return
         return this.#set(r.agent, r.ticket, 'working', {})
       }
+      // #391: the press whose approval curia could NOT post. `esc_answer` above
+      // has already drawn "executing approved writes" off the button, and that
+      // is the one thing this agent is not doing — it was told not to merge, and
+      // its next act is a question. This event lands right behind the press, so
+      // the line corrects itself rather than guessing.
+      case 'review_answered':
+        if (ev.outcome !== 'approval-failed') return
+        return this.#set(ev.agent, ev.ticket, 'working', {})
       // #165: the builder's own line while a second agent reads its diff. The
       // reviewer draws its own line beside it, off its `agent_spawned`.
       case 'cross_check_requested':

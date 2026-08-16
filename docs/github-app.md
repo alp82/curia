@@ -94,15 +94,59 @@ The key never travels through an agent. This step happens in a dev session on th
 
 `.curia-app.pem` is git-ignored. Never commit it.
 
-## What is NOT on this list yet
+## 7. Turn on branch protection (optional, dev session)
 
-**Branch protection stays off.** One required review on the watched repos is the gate cutover's own act, and it turns on in the same change that starts posting the approval. Turned on now it blocks every curia pull request behind an approval nobody posts.
+**This step is yours to skip.** Curia requires no setting in a watched repo, and nothing in the daemon reads this rule. A repo without it keeps everything else, including the approval itself.
+
+What it buys is enforcement. Since [#391](https://github.com/alp82/curia/issues/391) the ✅ press posts a real GitHub approval on the pull request, under your own `gh` login. An agent holds a write token and runs `gh pr merge` itself, so without protection its standing orders are the only thing that stops it merging code you did not approve. One required review on `main` makes GitHub refuse that merge. The app is not an administrator, so it cannot bypass the rule.
+
+Run it only on a daemon that carries the #391 code. Turned on earlier it blocks every curia pull request behind an approval nobody posts.
+
+**This box protects `alp82/curia` and nothing else**, settled on [#391](https://github.com/alp82/curia/issues/391). It takes almost every dispatch. The other three watched repos keep the standing orders as their only guard, and each one takes the same command whenever you want it.
+
+Run this once per protected repo, with your own `gh` login:
+
+```
+gh api -X PUT repos/alp82/curia/branches/main/protection --input - <<'JSON'
+{
+  "required_status_checks": null,
+  "enforce_admins": false,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 1,
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false
+}
+JSON
+```
+
+Four of those keys carry the decision.
+
+| Key | Value | Why |
+| --- | --- | --- |
+| `required_approving_review_count` | `1` | Your press, and nothing else, lets a pull request merge. |
+| `enforce_admins` | `false` | You keep pushing to `main` yourself. Dev sessions commit straight to `main`, and the deploy sibling pushes as you. The app is not an administrator, so agents stay behind the gate. |
+| `dismiss_stale_reviews` | `false` | A commit pushed after the approval keeps it. The gate already refuses to replay an answer over a changed diff ([#369](https://github.com/alp82/curia/issues/369)). |
+| `allow_force_pushes`, `allow_deletions` | `false` | `main` cannot be rewritten or removed by anyone. |
+
+Read it back with `gh api repos/alp82/curia/branches/main/protection --jq .required_pull_request_reviews.required_approving_review_count`. It answers `1`.
+
+Take it off again with `gh api -X DELETE repos/alp82/curia/branches/main/protection`. Nothing in curia depends on the rule being there. The approval is posted either way.
+
+An agent never runs this. The minted token holds no **Administration** permission, so branch protection is yours alone.
+
+## What is NOT on this list yet
 
 **The agents have cut over.** [#389](https://github.com/alp82/curia/issues/389) moved them: an agent gets a per-agent `gh` config dir the daemon rewrites, and it commits, pushes and merges as `curia-sh[bot]`. `CURIA_AGENT_GH_TOKEN_*` stays as the fallback for an owner the app is not installed on, and retires once the box has run a dispatch on the minted path. See [the live check](live-checks/389-agent-minted-token.md).
 
 **The daemon has cut over.** [#390](https://github.com/alp82/curia/issues/390) moved it: every `gh` child the daemon spawns for a named repo carries that owner's minted write token, so the frontier reads, the claims, the clones, the pull requests and the branch pushes run as `curia-sh[bot]`. Two things came with it. `config/curia.yaml` gains a required `dispatch.claim_login`, because GitHub does not let an App be an issue assignee. And the host `gh` login keeps exactly three jobs: dev sessions, the deploy sibling, and the gate approval.
 
 **The overseer has cut over.** [#392](https://github.com/alp82/curia/issues/392) moved it: the daemon mints one read-only token per watched owner and writes it to `<workspace_root>/overseer/tokens/<owner>`, which the container mounts read-only. `CURIA_OVERSEER_GH_TOKEN_*` is retired — delete any key left in `daemon/.env.overseer`, and revoke the PAT. An owner the app is not installed on now reads public repositories only, and the overseer names it in the chat once per turn. See [the live check](live-checks/392-overseer-minted-token.md).
+
+**The gate is a real approval.** [#391](https://github.com/alp82/curia/issues/391) made the ✅ press post `gh pr review --approve` on the agent's pull request, under the host login and never under a minted token. GitHub refuses a self-approval, so the approval is the operator's own or it is nothing. A press whose approval call fails does not read as approved anywhere: the agent is told not to merge and not to resolve, the thread carries the reason, and the journal keeps the press beside the failure. Branch protection is step 7 above.
 
 **Every holder is on the app.** What is left of the host `gh` login is the three jobs above. Each `CURIA_*_GH_TOKEN_*` key that remains is a fallback or dead paper, and each one says so where it is read.
 
@@ -113,3 +157,5 @@ The key never travels through an agent. This step happens in a dev session on th
 - **The boot lists no installation for a watched owner.** Step 4 was not run for that owner.
 - **A mint answers 422.** The app grants less than curia asked for. Fix the level on the app's **Permissions & events** page, then accept the new grant on EACH installation — GitHub holds a widened permission until the installation approves it.
 - **The key is lost.** Generate a second one on the **General** page and delete the old one. The app id does not change, and no installation has to be redone.
+- **A ticket thread says GitHub refused the approval as a self-approval.** The app is not installed on that owner, so the daemon fell back to the host login and opened the pull request as you. Run step 4 for that owner. Nothing else broke: the press stood, and the thread holds the record of it.
+- **A ✅ press says curia could not post the approval.** The agent was told not to merge and not to resolve, so nothing is lost. Read the reason in the thread, fix it on GitHub, and press again at the gate the agent opens next.

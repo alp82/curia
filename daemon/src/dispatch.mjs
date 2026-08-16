@@ -21,7 +21,7 @@ import {
   repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
-  deleteRemoteBranch, pullRequestDiff,
+  deleteRemoteBranch, pullRequestDiff, approvePullRequest,
 } from './github.mjs'
 import {
   resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
@@ -221,10 +221,20 @@ const DEFAULT_DEPS = {
   // resolve + land (#41), merge-gated (#54)
   commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
   setPullRequestBody, deleteRemoteBranch, pullRequestDiff,
+  // the gate press as a real GitHub approval (#391) — the one call here that
+  // keeps the operator's own login
+  approvePullRequest,
   defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles, pushBranch, hasUnpushedWork,
   // the diff digest (#355) — the numbers at the gate, the hunks on demand
   readDiffDigest, readFileHunks,
 }
+
+// GitHub's own words for a review by the pull request's own author (#391),
+// whichever surface answers: the GraphQL mutation behind `gh pr review` says
+// "Can not approve your own pull request", and the REST route spells it with
+// "cannot". It is matched rather than pre-checked, because the only authority on
+// whether two logins are one account is GitHub itself.
+const SELF_APPROVAL_RE = /can ?not approve your own pull request/i
 
 // The one directory a charting session may write (#297, ADR-0008). Its research
 // subagents put one note each under here, and the agent writes the index row
@@ -2995,9 +3005,29 @@ export class Dispatcher {
       return { ok: true, aborted: true, text: `${answer}\n\n(the review gate was ${status}, not answered — do not merge and do not resolve anything)` }
     }
     const { approved, crossCheck, feedback } = classifyReviewAnswer(answer)
+    // #391, ADR-0018: the press becomes a real GitHub approval BEFORE it becomes
+    // a fact anything else reads. On a repo whose default branch is protected an
+    // unapproved pull request cannot be merged at all — and an approval curia
+    // failed to post would send the agent at a merge GitHub refuses, with the
+    // journal saying the ticket was approved. So the submission decides what is
+    // journalled, and a failure reads as not approved everywhere: the Stop hook,
+    // `/status` and the agent.
+    //
+    // PROTECTION IS THE OPERATOR'S OWN CHOICE, per repo, and nothing here reads
+    // it. Curia never requires a setting in a watched repo. Without protection
+    // the approval is still posted and still recorded, and the enforcement is
+    // the one thing that is missing.
+    const submitted = approved
+      ? await this.#submitGateApproval({ repo, ticket, agentName, branch, pr, prUrl: w?.prUrl ?? null })
+      : null
+    const isApproved = approved && submitted.ok
     this.reduction.journal('review_answered', {
-      repo, ticket, agent: agentName, approved, via: 'gate',
+      repo, ticket, agent: agentName, approved: isApproved, via: 'gate',
       ...(crossCheck ? { outcome: 'cross-check' } : {}),
+      // The press itself is kept when the submission lost it. Without this the
+      // record says the operator rejected, which is the one thing they did not
+      // do — and #374 writes this exchange into the next agent's prompt.
+      ...(approved && !isApproved ? { outcome: 'approval-failed', pressed: 'approve', error: submitted.error } : {}),
       ...(recorded ? { recorded: true } : {}),
     })
     // #165, ADR-0010: the third button. The gate had two answers and now has
@@ -3008,7 +3038,49 @@ export class Dispatcher {
       const out = await this.#runCrossCheck(agentName, { repo, ticket, w })
       return { ...out, text: said(out.text) }
     }
-    if (approved) {
+    // The press the submission lost (#391). It is not a rejection: the operator
+    // said yes, and nothing about the diff is wrong. What is missing is the
+    // approving review on GitHub, and no commit the agent makes supplies it — so
+    // the agent is sent to the operator rather than around the loop, and the
+    // merge is forbidden the same way a rejection forbids it. That holds on an
+    // unprotected repo too: the merge would go through, and it would put code on
+    // the default branch with no record anywhere that a human approved it.
+    if (approved && !isApproved) {
+      this.#failureNotify(ticket, 'gate-approval', [
+        `⚠️ ${repo}#${ticket} was APPROVED at the gate, and curia could not post the GitHub approval —`,
+        `${failureProse(submitted.error)}. The pull request carries no approving review, so \`${agentName}\``,
+        'was told not to merge. Nothing is resolved.',
+      ].join(' '))
+      return {
+        ok: true,
+        approved: false,
+        approvalFailed: true,
+        text: said([
+          'NOT approved. The human pressed approve, and curia could NOT post the GitHub approval:',
+          submitted.error,
+          '',
+          'So the pull request carries no approving review, and nothing outside this thread records that',
+          'the code was approved. A protected branch refuses the merge outright.',
+          'Do not merge and do not resolve. This is a fault on GitHub and not a fault in your diff, so',
+          'no commit of yours fixes it: say what happened with `ask_human`, and call `request_review`',
+          'again after the operator answers.',
+        ].join('\n')),
+      }
+    }
+    if (isApproved) {
+      // The box with no app for this owner (#391). The ending is unchanged and
+      // the agent is told nothing, because nothing about its next three acts
+      // changes — but the OPERATOR is told, once per ticket, that their press
+      // left no approval on GitHub. The cure is an installation, and only they
+      // can make one.
+      if (submitted.selfApproval) {
+        this.#failureNotify(ticket, 'gate-selfapproval', [
+          `ℹ️ ${repo}#${ticket}: GitHub refused the approval as a self-approval, so the pull request and`,
+          'the ✅ press carry the same account. The press stands as the only record of it, and this thread',
+          'is where that record lives. An installation of the curia app on this owner is what makes the',
+          'approval real.',
+        ].join(' '))
+      }
       // #297: the ORDER is the answer to #48, and this is where it is said at
       // the moment it matters. A charting agent closes research tickets, never
       // the map — and it closes them after the merge, never before, because a
@@ -3036,6 +3108,80 @@ export class Dispatcher {
         'request_review again.',
       ].join('\n')),
     }
+  }
+
+  // ---- the press, submitted to GitHub (#391, ADR-0018) -------------------------
+
+  // One approving review on the pull request the gate showed, posted under the
+  // OPERATOR's own `gh` login. `approvePullRequest` says why that login and no
+  // other. What this method owns is which pull request, and what a failure means.
+  //
+  // THE PULL REQUEST IS RE-READ. The gate opened with one read, and a human takes
+  // hours to answer — so the state at the press is the state that decides, not
+  // the state at the open.
+  //
+  // A SKIP IS NOT A FAILURE. Three cases reach it and all three are honest.
+  //
+  //   - A ticket that produced no code has no pull request and no merge either.
+  //   - A pull request already MERGED can take no approval, which is the #369
+  //     replay landing on work the operator approved once already.
+  //   - A SELF-APPROVAL, which is a box with no GitHub App for this owner. The
+  //     pull request is then the operator's own (#390's fallback is the host
+  //     login), and GitHub refuses a review by its own author. ADR-0018 says no
+  //     credential comes out ahead of its replacement, and blocking the ending
+  //     there would take the whole ending out instead: that box keeps exactly
+  //     the gate it had before this ticket, and the thread is told once.
+  //
+  // Everything else that goes wrong is a failure, the press does not become an
+  // approval, and the caller says so to the agent and to the thread.
+  async #submitGateApproval({ repo, ticket, agentName, branch, pr = null, prUrl = null }) {
+    let target = pr
+    let readError = null
+    try {
+      target = await this.deps.findPullRequest(repo, branch)
+    } catch (e) {
+      readError = e.message
+      target = pr
+    }
+    if (!target) {
+      // A pull request curia knows exists and cannot name is INDETERMINATE, and
+      // an indeterminate approval is a failed one: the merge waits on a review
+      // that may or may not be there, and nobody can tell which.
+      if (readError || prUrl) {
+        const why = `curia could not read the pull request for \`${branch}\`${readError ? ` (${readError})` : ''}`
+        this.reduction.journal('pr_approval_failed', { repo, ticket, agent: agentName, branch, error: why })
+        return { ok: false, error: why }
+      }
+      this.reduction.journal('pr_approval_skipped', {
+        repo, ticket, agent: agentName, branch, reason: 'no pull request',
+      })
+      return { ok: true, skipped: 'no pull request' }
+    }
+    if (target.state !== 'OPEN') {
+      this.reduction.journal('pr_approval_skipped', {
+        repo, ticket, agent: agentName, branch, pr: target.url, reason: `the pull request is ${target.state}`,
+      })
+      return { ok: true, skipped: `the pull request is ${target.state}` }
+    }
+    try {
+      await this.deps.approvePullRequest(repo, target.number)
+    } catch (e) {
+      if (SELF_APPROVAL_RE.test(e.message)) {
+        this.reduction.journal('pr_approval_skipped', {
+          repo, ticket, agent: agentName, branch, pr: target.url, reason: 'self-approval',
+        })
+        return { ok: true, skipped: 'self-approval', selfApproval: true, url: target.url }
+      }
+      this.reduction.journal('pr_approval_failed', {
+        repo, ticket, agent: agentName, branch, pr: target.url, error: e.message,
+      })
+      return { ok: false, error: e.message }
+    }
+    this.reduction.journal('pr_approved', {
+      repo, ticket, agent: agentName, branch, pr: target.url, number: target.number,
+    })
+    this.log(`review gate for ${repo}#${ticket}: approval posted on ${target.url}`)
+    return { ok: true, url: target.url }
   }
 
   // ---- the cross-check press and the way back (#165, ADR-0010) -----------------

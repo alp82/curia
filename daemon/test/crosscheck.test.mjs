@@ -140,6 +140,9 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
     issueComments: async () => [],
     findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' }),
     createPullRequest: async () => 'https://github.com/o/r/pull/7',
+    // #391: the gate press posts a real approval. Stubbed everywhere but its
+    // own tests, so no suite reaches for `gh`.
+    approvePullRequest: async () => {},
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [],
     pushBranch: async () => 'abc1234',
