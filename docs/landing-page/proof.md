@@ -47,7 +47,7 @@ happens at capture time.** An agent cannot judge what is still readable in an im
 `daemon/data/attachments/<esc-id>/`, and the answer reaches the agent with real image blocks. A
 agent copies the files out of that directory into `docs/` and commits them; the directory sits
 outside the worktree, so this is a read-then-copy, not a write. Two escalations have already carried
-images this way. `MAX_IMAGES` in `daemon/src/images.mjs` is **4**, and `MAX_INBOUND_BYTES` is 5 MB
+images this way. `MAX_FILES` in `daemon/src/attachments.mjs` is **4**, and `MAX_INBOUND_BYTES` is 5 MB
 per file — the whole set fits one answer with nothing to spare.
 
 **Placement: one strip, after the three claims, before the honesty block.** The reader learns why

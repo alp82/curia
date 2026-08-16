@@ -24,7 +24,7 @@ import {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder,
 } from 'discord.js'
 import { isChatHandle } from './attach.mjs'
-import { safeLeaf } from './images.mjs'
+import { safeLeaf } from './attachments.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'

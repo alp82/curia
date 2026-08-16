@@ -622,7 +622,7 @@ Throwaway code that answers one named question, under `prototypes/`. The `protot
 One box runs everything. Phones and PCs are pure clients on the tailnet.
 
 - **Daemon** (`daemon/`): one Node process, no build step. It owns dispatch, escalations, routing, previews, the attach surfaces, and reconcile.
-- **Bridge**: the Discord module inside the daemon. Thread-per-ticket rendering, buttons, image passthrough both directions.
+- **Bridge**: the Discord module inside the daemon. Thread-per-ticket rendering, buttons, attachment passthrough both directions.
 - **Router**: the deterministic command router inside the daemon. It parses the five verbs from Discord slash commands or REST.
 - **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`. A cross-check adds a reviewer beside one, in `curia-review-<n>`.
 - **Sidecar** (`daemon/bin/curia-dashboard.mjs`): the dashboard's own Node process, in its own container. It imports the daemon's identity check, config rules and Serve helper, and reads the daemon over loopback.
