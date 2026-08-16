@@ -112,6 +112,14 @@ export function noteDisposition(agent) {
   return { reads, instance: reads ? agent.instance ?? null : null }
 }
 
+// The two events the FEED does not carry (#388). One operator message to the
+// overseer writes both, and they exist so a restart can find a turn it killed —
+// they are bookkeeping, not news. The feed ring holds a hundred events and Home
+// draws four of them, so a pair per chat message would push every dispatch,
+// death and gate off the screen. What the operator DOES read about a killed
+// turn is `overseer_turn_dropped`, which the feed carries.
+const FEED_SILENT = new Set(['overseer_turn_started', 'overseer_turn_ended'])
+
 // The events lastAgentEvent must not count (#236) — see _apply.
 const NOTE_EVENTS = new Set([
   'agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused', 'agent_note_interrupted',
@@ -153,6 +161,9 @@ export class EscalationStore {
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
+    this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
+    this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
+    this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
     this.seq = 0
     this.noteSeq = 0
     this._replay()
@@ -197,8 +208,10 @@ export class EscalationStore {
     // The feed's tail (#262). Every event passes here exactly once, on replay
     // and on append alike, so the ring is right the instant the boot replay
     // ends and stays right for the rest of the run.
-    this.recent.push(this.#feedShape(ev))
-    if (this.recent.length > RECENT_EVENTS) this.recent.shift()
+    if (!FEED_SILENT.has(ev.type)) {
+      this.recent.push(this.#feedShape(ev))
+      if (this.recent.length > RECENT_EVENTS) this.recent.shift()
+    }
 
     // The last thing the journal says about an agent (#236): the direct answer
     // under a question in its thread reads it as progress evidence. The
@@ -465,8 +478,67 @@ export class EscalationStore {
         // the next boot replays for a conversation that is not there.
         this.overseerSessions.delete(ev.key)
         this.overseerNotes.delete(ev.key)
+        this.pendingTurns.delete(ev.key)
+        this.droppedTurns.delete(ev.key)
         break
       }
+      // ---- the turn a restart can kill (#388, ADR-0015) --------------------
+      //
+      // The pending map holds ONE turn per conversation, which is the rule the
+      // client already enforces: one turn at a time per conversation. Whatever
+      // is still in this map when a process boots was killed by the restart
+      // that ended the last one, because a turn survives no restart.
+      case 'overseer_turn_started': {
+        this.pendingTurns.set(ev.key, {
+          key: ev.key,
+          turn: ev.turn ?? null,
+          prompt: ev.prompt ?? '',
+          thread_id: ev.thread_id ?? null,
+          replay: ev.replay ?? false,
+          at: ev.ts ?? null,
+          crossings: 0,
+          commands: [],
+        })
+        // A new turn answers whatever the last drop left on the surfaces.
+        this.droppedTurns.delete(ev.key)
+        // When this conversation last SPOKE, which the boot reads to tell a
+        // message the operator has already sent again by hand from one that
+        // still waits for its replay.
+        if (ev.ts) this.turnStarts.set(ev.key, ev.ts)
+        break
+      }
+      case 'overseer_turn_ended':
+      case 'overseer_turn_dropped': {
+        this.pendingTurns.delete(ev.key)
+        break
+      }
+    }
+
+    // The seam crossings of the pending turn, counted off the COMMAND event the
+    // seam already writes (#388). One voice per fact, ADR-0013: a second event
+    // saying "the overseer crossed" would state what this one states. The
+    // in-memory `turn.crossings` dies with the process, and this is what the
+    // boot reads in its place.
+    if (ev.type === 'command' && ev.overseer_key) {
+      const pending = this.pendingTurns.get(ev.overseer_key)
+      if (pending) {
+        pending.crossings += 1
+        pending.commands.push(ev.canonical)
+      }
+    }
+
+    // What the surfaces say about a turn a restart killed, until that
+    // conversation takes its next one. The Chat picker draws it for a browser
+    // conversation, which has no thread to put the line in.
+    if (ev.type === 'overseer_turn_dropped') {
+      this.droppedTurns.set(ev.key, {
+        key: ev.key,
+        crossings: ev.crossings ?? 0,
+        commands: ev.commands ?? [],
+        replayed: ev.replayed ?? false,
+        why: ev.why ?? null,
+        at: ev.ts ?? null,
+      })
     }
   }
 
@@ -596,6 +668,52 @@ export class EscalationStore {
 
   overseerSession(threadId) {
     return this.overseerSessions.get(threadId)
+  }
+
+  // ---- the turn a restart can kill (#388, ADR-0015) -------------------------
+  //
+  // ADR-0015 promises that a turn a restart kills is replayed, never retyped.
+  // The message therefore cannot live in this process: the routine deploy
+  // recreates the daemon and the overseer together, so both halves die at once.
+  // It lives here, as one event when a turn starts and one when it ends, and
+  // the boot reads whatever is left between them.
+  //
+  // The prompt is journalled whole, because the message IS the thing to send
+  // again. The journal already holds the operator's words: every canonical
+  // command line, every escalation prompt, every answer.
+
+  beginOverseerTurn({ key, turn, prompt, threadId = null, replay = false }) {
+    this._append({ type: 'overseer_turn_started', key, turn, prompt, thread_id: threadId, replay })
+  }
+
+  endOverseerTurn({ key, turn, ok, crossings = 0, why = null }) {
+    this._append({ type: 'overseer_turn_ended', key, turn, ok, crossings, why })
+  }
+
+  // The boot's verdict on one killed turn: replayed, or named and left. It ENDS
+  // the turn as well as reporting it, so a second boot never reads the same
+  // corpse twice.
+  dropOverseerTurn({ key, turn = null, crossings = 0, commands = [], replayed = false, why = null }) {
+    this._append({ type: 'overseer_turn_dropped', key, turn, crossings, commands, replayed, why })
+  }
+
+  // Every turn the journal has started and not ended. Read ONCE, at boot,
+  // before this process can start a turn of its own — after that the answer
+  // includes turns that are merely running.
+  pendingOverseerTurns() {
+    return [...this.pendingTurns.values()].map((t) => ({ ...t, commands: [...t.commands] }))
+  }
+
+  // What a surface says about the last turn a restart killed on one
+  // conversation. Null once that conversation takes its next turn.
+  droppedOverseerTurn(key) {
+    return this.droppedTurns.get(key) ?? null
+  }
+
+  // When one conversation last started a turn, as an ISO string. Null for a
+  // conversation that has never spoken.
+  lastOverseerTurnAt(key) {
+    return this.turnStarts.get(key) ?? null
   }
 
   // ---- the browser conversations (#333, ADR-0016) ---------------------------

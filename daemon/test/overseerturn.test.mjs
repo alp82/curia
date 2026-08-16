@@ -97,10 +97,15 @@ async function startDaemonSeam(turns, { log = quiet } = {}) {
 function storeDouble({ sessions = {}, notes = [], conversations = ['console-1'] } = {}) {
   return {
     bound: [],
+    // The pending-turn journal (#388): the client brackets every turn with
+    // these two, and the boot reads whatever is left between them.
+    turns: [],
     overseerSession: (key) => sessions[key],
     bindOverseerSession(key, id) { sessions[key] = id; this.bound.push([key, id]) },
     takeOverseerNotes: () => notes.splice(0, notes.length),
     hasConsoleConversation: (key) => conversations.includes(key),
+    beginOverseerTurn(ev) { this.turns.push({ type: 'started', ...ev }) },
+    endOverseerTurn(ev) { this.turns.push({ type: 'ended', ...ev }) },
   }
 }
 
@@ -168,7 +173,10 @@ describe('the per-turn secret (#314)', () => {
     assert.equal(reply, 'the confirm was posted')
     assert.deepEqual(said, ['cancel 314'])
     // #94: interpreted text routes a destructive verb through the ✅/❌ confirm.
-    assert.deepEqual(seen, [['cancel 314', { threadId: 'thread-9', interpreted: true }]])
+    // #388: the conversation key rides along, so the command event the daemon
+    // journals for this crossing can be counted against this turn after the
+    // process holding the tally is gone.
+    assert.deepEqual(seen, [['cancel 314', { threadId: 'thread-9', interpreted: true, overseerKey: '999' }]])
     assert.equal(turn.crossed.get('cancel'), 1)
   })
 
@@ -440,6 +448,15 @@ describe('the daemon half: OverseerClient (#314)', () => {
     // ADR-0015: the container holds no conversation, so the daemon sends the
     // resume id and the model reads its own words back.
     assert.equal(client.configDir, overseerConfigDirFor(root))
+    // #388: the turn is bracketed in the journal, message and all, so a restart
+    // between these two lines can find it and send the message again.
+    assert.deepEqual(store.turns.map((t) => t.type), ['started', 'ended'])
+    assert.equal(store.turns[0].prompt, 'what is takeable?')
+    assert.equal(store.turns[0].replay, false)
+    assert.deepEqual(
+      { ok: store.turns[1].ok, crossings: store.turns[1].crossings },
+      { ok: true, crossings: 0 },
+    )
     await c.stop()
   })
 
@@ -569,7 +586,7 @@ describe('the whole crossing: a verb reaches /command from inside the container 
     })
     assert.equal(out.ok, true)
     // The daemon executed the effect, from text the DAEMON composed.
-    assert.deepEqual(posted, [['cancel 314', { threadId: '4242', interpreted: true }]])
+    assert.deepEqual(posted, [['cancel 314', { threadId: '4242', interpreted: true, overseerKey: '4242' }]])
     assert.match(said[0], /the confirm is posted: ✅\/❌ posted in #curia/)
     // The status line grew live, from the seam rather than from the stream.
     assert.ok(status.some((s) => s.includes('`cancel 314`')))

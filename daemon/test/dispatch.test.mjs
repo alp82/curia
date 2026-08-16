@@ -992,6 +992,40 @@ describe('the tool channel is recorded, not assumed (#194)', () => {
     assert.ok(!typesOf().includes('agent_mcp_first'), 'no agent, no evidence — and no throw')
   })
 
+  test('every call moves the last-contact reading, and /status states it in seconds (#370)', async () => {
+    const d = makeDispatcher()
+    const w = liveAgent(d, { mcpSeenAt: null, mcpLastAt: null })
+
+    // Null, never 0: this process has heard nothing from an agent it spawned.
+    assert.equal((await d.status()).agents[0].last_contact_s, null)
+
+    d.onMcpCall('curia-42')
+    const first = w.mcpSeenAt
+    assert.equal(w.mcpLastAt, first, 'the first call sets both')
+
+    // A call two minutes later moves the reading and leaves the stamp.
+    w.mcpLastAt = first - 120_000
+    d.onMcpCall('curia-42')
+    assert.equal(w.mcpSeenAt, first, 'the stamp still dates the FIRST call')
+    assert.ok(w.mcpLastAt > first - 120_000, 'the reading dates the last one')
+    assert.equal((await d.status()).agents[0].last_contact_s, 0)
+    assert.equal(events.filter((e) => e.type === 'agent_mcp_first').length, 1,
+      'the reading is traffic and stays in memory — the journal takes the first call and no other')
+  })
+
+  test('an adopted agent reads null until it speaks to THIS process (#370)', async () => {
+    const d = makeDispatcher()
+    // reconcile rebuilds a re-adopted record with spawnedAt null and no stamp
+    liveAgent(d, { mcpSeenAt: null, mcpLastAt: null, spawnedAt: null })
+
+    const before = (await d.status()).agents[0]
+    assert.equal(before.last_contact_s, null)
+    assert.equal(before.uptime_s, null, 'the null beside it is what says the silence belongs to the restart')
+
+    d.onMcpCall('curia-42')
+    assert.equal((await d.status()).agents[0].last_contact_s, 0, 'an adopted agent that speaks is heard like any other')
+  })
+
   test('an agent at the composer that calls /mcp inside the window is left alone', async () => {
     const d = makeDispatcher({ capturePane: async () => READY }, { routing: withGrace(3) })
     await d.start('42', { repo: 'o/r' })
@@ -1046,6 +1080,9 @@ describe('the tool channel is recorded, not assumed (#194)', () => {
     // predecessor's evidence — and a second stamp is only journalled when the
     // record holds none, so this event IS the clearing.
     assert.equal(d.agents.get('curia-42').mcpSeenAt, null)
+    // and the last-contact reading with it (#370): the successor has reached
+    // curia never, and its row must not show the dead client's traffic
+    assert.equal(d.agents.get('curia-42').mcpLastAt, null)
     d.onMcpCall('curia-42')
     assert.equal(events.filter((e) => e.type === 'agent_mcp_first').length, 1)
     await waitFor(() => typesOf().filter((t) => t === 'agent_ready').length === 2, 12_000)

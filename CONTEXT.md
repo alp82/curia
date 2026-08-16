@@ -160,6 +160,14 @@ _Avoid_: using it for the model's own steps inside one message (`maxTurns` count
 How a message becomes a turn once the brain is in a container. The daemon posts one message to the overseer service on its published loopback port, and the container streams events back: the session id, the checkout verdict, then the answer. The container holds no conversation, because the resume id travels out with the message and the session id travels back. The model's verb tools reach the other way, over the same MCP side channel every agent container uses, so the daemon composes the canonical text itself and posts it to `/command`. Every effect crosses that one seam, and the ✅/❌ confirm on `cancel` survives the move. See [#314](https://github.com/alp82/curia/issues/314).
 _Avoid_: turn (that is the operator's message, whoever answers it).
 
+**Killed turn**:
+A turn a restart ended before it answered. The routine deploy recreates the daemon and the overseer together, so both halves of a turn in flight die at once. The daemon journals the message when a turn starts and journals the end when it ends, so whatever is still open at a boot is what the restart killed.
+_Avoid_: failed turn (that one ran and the model did not answer, and nothing is sent again for it).
+
+**Replay**:
+Sending a killed turn's message again, instead of asking the operator to type it twice. The test is the seam count: a turn that crossed `/command` zero times is sent again, and a turn that ran a verb is not — sending that one again would run the verb twice. curia sends one message again once, never twice, and it holds the replay if the conversation has already spoken, if the message is over fifteen minutes old, or if the container did not come back. Every turn it does not send again gets one line naming what that turn ran, and the operator decides. A Discord conversation reads that line in its thread. A browser conversation has no thread, so it reads it on its row in the Chat picker until it takes its next turn. See [ADR-0015](docs/adr/0015-the-overseer-is-a-service.md) and [#388](https://github.com/alp82/curia/issues/388).
+_Avoid_: retry (that names the fallback the in-daemon host ran on a second model, and it is gone).
+
 **Turn secret**:
 What opens the daemon's verb tools to one turn of the overseer container. The daemon mints it per turn, hands it over inside the turn request, and forgets it when the turn ends. It is not an agent token: an agent's is a file, because a restarted daemon adopts the agents its predecessor spawned, and a turn survives no restart at all. See [#314](https://github.com/alp82/curia/issues/314).
 _Avoid_: agent token (that one is per agent, on disk, and it opens a different route).
@@ -258,6 +266,11 @@ A Docker volume shared by every agent for what is too heavy to bake into the ima
 
 **Side channel**:
 The daemon's structured channel to an agent: the MCP tools and the Stop hook. Curia never parses the terminal to learn agent state.
+
+**Last contact**:
+How long ago an agent last reached curia on the side channel. Every tool call moves it, and it lives in memory, because a call is traffic and the journal holds evidence. The daemon journals the FIRST call per agent and no other ([#194](https://github.com/alp82/curia/issues/194)).
+
+It is a reading of the live daemon process. No contact is two different facts, and every surface states which one it is. An agent this process spawned has said nothing at all. An agent it adopted after a restart has said nothing yet, and that silence belongs to the restart. Curia decides between neither: a working agent and a deaf one are both silent, so the operator reads the row and judges the silence ([#341](https://github.com/alp82/curia/issues/341), [#370](https://github.com/alp82/curia/issues/370)).
 
 **Spawn binding**:
 The rule that an agent's repo and ticket come from the spawn record, never from the agent's own account.
@@ -458,7 +471,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters, the open escalations, the review gate, bridge health, the usage windows, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.

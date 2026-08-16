@@ -1950,10 +1950,23 @@ export class Dispatcher {
   //
   // Called from index.mjs AFTER the #159 token gate, so a request that could not
   // prove whose it is never counts as that agent speaking.
+  //
+  // #370 grew the stamp into a reading. EVERY call moves `mcpLastAt`, and only
+  // the first one moves `mcpSeenAt` and journals. The reading stays in memory
+  // for the same reason the stamp is journalled once: a tool call is traffic,
+  // and the journal holds evidence. A line per call would make the record a
+  // traffic log, and the reduction folds no such thing.
+  //
+  // Null there is two different facts, and `spawnedAt` tells them apart — the
+  // rule #muteAtStop already reads. An agent this process spawned has said
+  // nothing AT ALL. An agent it adopted after a restart has said nothing to
+  // THIS process yet, and that silence belongs to the restart.
   onMcpCall(agentName) {
     const w = this.agents.get(agentName)
-    if (!w || w.mcpSeenAt) return
-    w.mcpSeenAt = Date.now()
+    if (!w) return
+    w.mcpLastAt = Date.now()
+    if (w.mcpSeenAt) return
+    w.mcpSeenAt = w.mcpLastAt
     this.store.logEvent('agent_mcp_first', {
       repo: w.repo, ticket: w.ticket, agent: agentName, harness: w.harness, model: w.model,
       // The two numbers the grace window is tuned against. An agent that has not
@@ -2218,8 +2231,11 @@ export class Dispatcher {
     agent.state = 'spawning'
     // A respawn is a NEW client process, so what the last one proved about its
     // tool channel says nothing about this one (#194). Clearing these is what
-    // makes the second window a real second reading rather than an echo.
+    // makes the second window a real second reading rather than an echo. The
+    // last-contact reading goes with the stamp (#370): the successor has
+    // reached curia never, and the predecessor's traffic must not say otherwise.
     agent.mcpSeenAt = null
+    agent.mcpLastAt = null
     agent.readyAt = null
     // The whole line, not the delta (#219 — see `spawnKind` for the rule). What
     // changed is the model, the harness and the container; what did NOT change
@@ -4616,6 +4632,13 @@ export class Dispatcher {
       reviewer: Boolean(w.reviewer),
       state: reviewing.has(w.session) ? 'awaiting-review' : w.state,
       uptime_s: w.spawnedAt ? Math.round((Date.now() - w.spawnedAt) / 1000) : null,
+      // How long ago this agent last reached curia on the side channel (#370).
+      // It is a reading of THIS daemon process, so null means this process has
+      // heard nothing — never spoken (an agent it spawned), or not spoken yet
+      // (an agent it adopted, which is the row whose `uptime_s` is null too).
+      // The daemon judges neither: a working agent and a deaf one are both
+      // silent (#341), so the row states the reading and the operator reads it.
+      last_contact_s: w.mcpLastAt ? Math.round((Date.now() - w.mcpLastAt) / 1000) : null,
       result_received: w.resultReceived,
       tmux_live: live.includes(w.session),
       // where a waiting agent waits (#81's grown status): the open escalation
