@@ -368,6 +368,84 @@ Two rollbacks, and they differ.
 
 A roll-forward after this converts again, from a file that by then also holds the old daemon's own appends.
 
+### The backup
+
+**Decided and not built.** [The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it, and [ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md) records it. The journal is curia's own local brain, and this dump is what bounds the loss.
+
+The daemon takes the backup itself. It spawns `sqlite3 events.db .dump` on a second read-only connection, gzips the portable SQL text, and writes `data/backups/events-<UTC stamp>.sql.gz`.
+
+- **Daily, and it survives a restart.** The daemon checks at boot and every hour. It dumps when the newest dump is 24 hours old or older. A plain 24-hour timer would not survive a deploy, because a deploy restarts the daemon and rearms the timer.
+- **Fourteen kept.** The newest fourteen stay, and the daemon deletes the rest. One dump is about 250 KB at the volume the box wrote on 2026-08-13, so the whole set is about 3.5 MB.
+- **On the box only.** The dump bounds a corrupt journal and a bad Node upgrade. It does not survive the loss of the box. An off-box copy is a separate effort.
+- **The channel is the alarm.** A failed dump reaches it. A newest dump over 48 hours old reaches it too, so silence never stands in for a timer that failed to arm. A success journals one event and says nothing, so an ordinary day carries no noise. The dashboard shows none of this, because its container does not mount `daemon/data`.
+
+#### The restore
+
+A restore is rare and destructive, and a human picks which dump. So there is no verb and no button.
+
+1. Stop the daemon. A live daemon keeps writing the database you are about to replace.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml stop daemon
+   ```
+
+2. Move the live database aside. Take `events.db`, `events.db-wal` and `events.db-shm`.
+
+3. Rebuild the journal from the dump. Name the dump you picked in place of `<dump>`.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm -T --no-deps daemon \
+     bash -c 'zcat /home/alp/curia/daemon/data/backups/<dump>.sql.gz | sqlite3 /home/alp/curia/daemon/data/events.db'
+   ```
+
+4. Start the daemon.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml start daemon
+   ```
+
+The daemon sets `journal_mode` and `synchronous` when it opens the journal, so the restored file takes WAL at that boot. It also finds `events.db` present, so the migration does not run again. The loss is every event curia journaled after that dump.
+
+### The Node pin
+
+**Decided and not built.** [The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it. [The daemon image takes Node 24 and sqlite3 (#409)](https://github.com/alp82/curia/issues/409) applies the first value. The journal sits on `node:sqlite`, which Node marks Stability 1.2, and a patch update can change the API, the defaults and the bundled SQLite engine.
+
+One Node patch version runs every curia image. It is committed in two places, and it carries no default anywhere.
+
+- `deploy/compose.yaml` passes `NODE_VERSION` to the daemon, the dashboard and the overseer from one anchor.
+- `config/curia.yaml` holds `sandbox.node_version` for the agent image, beside the other pins. It rides the image content address, so a bump names a tag the box does not have and the daemon rebuilds.
+- The three Dockerfiles take `ARG NODE_VERSION` with no default. A build that forgets the arg then fails. This is the rule the agent Dockerfile already states for every other version it carries.
+- `daemon/package.json` states `engines.node`. It is a warning and not a wall, because a daemon that refuses to install is worse than the stack trace it prevents.
+
+The agent image belongs in that set. It ran `FROM node:lts-slim` and served Node 24.19.0 while the daemon ran 22.17.1. The daemon suite runs in the agent image, so the suite that must prove an upgrade ran on a Node nobody pinned.
+
+#### Upgrading Node
+
+Curia bumps Node only for a reason. A Node security release that touches what curia runs, or a `node:sqlite` fix curia needs. Curia does not bump on a calendar, because a scheduled bump is a floating pin with extra steps.
+
+Three gates, in this order.
+
+1. Move both pins in one commit. Then run the daemon suite under the new Node, and read it green.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml build daemon
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm --no-deps daemon \
+     bash -c 'npm install --no-fund --no-audit && npm test'
+   ```
+
+2. Read the box's live journal under the new image. The suite builds a fresh database, so it cannot catch an engine that refuses the file the box already holds.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm --no-deps daemon \
+     sqlite3 -readonly -box /home/alp/curia/daemon/data/events.db \
+     'pragma integrity_check' \
+     'select ts,type,ticket from events order by id desc limit 1'
+   ```
+
+3. Deploy. The self-deploy health check is the last gate, and it resets the box on a daemon that fails to come up.
+
+The daemon journals `process.version` and `process.versions.sqlite` at boot, so the journal states which engine wrote its rows. A bad upgrade that reaches the box anyway is a restore, and the recipe is above.
+
 ## Blocking for hours (#34)
 
 The daemon holds a blocked `ask_human` indefinitely — Node's `requestTimeout` covers only request *receipt*, so nothing server-side expires the held response. The client is what needed handling: **Claude Code aborts an MCP tool call after 300s of server silence** (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`), which killed every real agent five minutes in — twenty-five minutes before the #11 re-nudge could ever fire.
