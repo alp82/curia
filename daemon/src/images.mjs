@@ -42,12 +42,16 @@ export function mimeFor(file) {
 // Resolve `p` and assert it really sits inside one of `roots`. realpath on both
 // sides so a symlink inside the worktree cannot point the daemon at
 // ~/.ssh/id_rsa and have it uploaded to Discord.
+//
+// The two failures are told apart (#429). Both used to read "not a readable
+// path", which named a permission problem for a file that was merely somewhere
+// else, and sent the agent looking for the wrong fault.
 function containedIn(p, roots) {
   let real
   try {
     real = fs.realpathSync(p)
   } catch {
-    return null
+    return { real: null, why: 'there is no file at that path' }
   }
   for (const root of roots) {
     let realRoot
@@ -56,16 +60,47 @@ function containedIn(p, roots) {
     } catch {
       continue
     }
-    if (real === realRoot || real.startsWith(realRoot + path.sep)) return real
+    if (real === realRoot || real.startsWith(realRoot + path.sep)) return { real, why: null }
   }
-  return null
+  return { real: null, why: 'that file is outside your workspace' }
+}
+
+// The agent's own view of a path → the daemon's view of the same file (#429).
+//
+// Every agent runs in a container that mounts its worktree at a guest path
+// (`/workspace`), so `/workspace/shot.png` is the natural absolute form for an
+// agent to write, and it is the form the tool text asked for. The daemon knows
+// that same file only by its HOST path, so before #429 the absolute form
+// matched no root and the file was dropped.
+//
+// This is a translation, never a widening: containment below still runs on the
+// real host path, so a mapped path that lands outside the roots — `/workspace/
+// ../etc/passwd`, a symlink out — is refused exactly like any other. Only the
+// worktree is mapped. The container's other mount is the agent config dir, and
+// it holds the agent token, so nothing there is publishable by either name.
+function fromGuest(p, guestRoot) {
+  const { guest, host } = guestRoot ?? {}
+  if (!guest || !host) return p
+  if (p === guest) return host
+  if (p.startsWith(guest + path.sep)) return path.join(host, p.slice(guest.length + 1))
+  return p
+}
+
+// The tail of a refusal: the forms that DO work, in the agent's own names for
+// them (#429). A refusal that only says no makes the next attempt a guess.
+function howToSay(guestRoot) {
+  return guestRoot?.guest
+    ? `either as a path relative to it or as an absolute path under ${guestRoot.guest}/`
+    : 'as a path relative to it or as its absolute path'
 }
 
 // Agent-supplied outbound image paths → files discord.js can send.
 // `roots` bounds what an agent may publish: its own worktree and the daemon's
-// data dir, never the whole box. Returns { files, refusals } — refusals are
-// strings meant to go straight back to the agent.
-export function resolveOutboundImages(images, { roots, cwd }) {
+// data dir, never the whole box. `guestRoot` is `{ guest, host }` — the path
+// the agent calls its worktree and the path the daemon calls it (#429); omit it
+// for a caller that already speaks host paths. Returns { files, refusals } —
+// refusals are strings meant to go straight back to the agent.
+export function resolveOutboundImages(images, { roots, cwd, guestRoot = null }) {
   const files = []
   const refusals = []
   for (const raw of images ?? []) {
@@ -73,10 +108,12 @@ export function resolveOutboundImages(images, { roots, cwd }) {
       refusals.push(`${raw}: refused — at most ${MAX_IMAGES} images per call`)
       continue
     }
-    const candidate = path.isAbsolute(raw) ? raw : path.resolve(cwd ?? roots[0] ?? '.', raw)
-    const real = containedIn(candidate, roots)
+    const candidate = path.isAbsolute(raw)
+      ? fromGuest(raw, guestRoot)
+      : path.resolve(cwd ?? roots[0] ?? '.', raw)
+    const { real, why } = containedIn(candidate, roots)
     if (!real) {
-      refusals.push(`${raw}: refused — not a readable path inside this agent's workspace`)
+      refusals.push(`${raw}: refused — ${why}. Send a file from your workspace, ${howToSay(guestRoot)}`)
       continue
     }
     const mime = mimeFor(real)
