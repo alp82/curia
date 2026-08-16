@@ -65,7 +65,7 @@ Two of these routes are the AGENT's, and since #159 they are gated: `/mcp` and `
 - `POST /command {text}` — canonical command text, REST parity with the Discord slash verbs.
 - `POST /reconcile` — on-demand reconcile (boot reconcile runs automatically).
 - `GET /repos` — the repos the settings screen offers (#265). The dashboard holds no GitHub credential, so the daemon reads them with the login every dispatch uses: the 100 most recently pushed repos it can reach, cached 10 minutes. A failed read answers `repos: null` with the reason, never an empty list.
-- `POST /restart {by?}` — the restart the settings screen orders (#265, per [#249](https://github.com/alp82/curia/issues/249)). The daemon journals `restart_requested`, answers, and then exits **75**. `restart: on-failure` in `deploy/compose.yaml` respawns it, and a clean exit deliberately does not. Agent panes live in the tmux container (#260), so they survive it.
+- `POST /restart {by?}` — the restart the settings screen orders (#265, per [#249](https://github.com/alp82/curia/issues/249)). The daemon journals `restart_requested`, answers, says goodbye, and then exits **75**. `restart: on-failure` in `deploy/compose.yaml` respawns it, and a clean exit deliberately does not. Agent panes live in the tmux container (#260), so they survive it.
 
 ## The verb catalogue (Discord slash commands, `POST /command`, or overseer prose)
 
@@ -536,6 +536,14 @@ Verified live in two runs, because one run cannot show both halves (see the cred
 Agents now **share the host's credential store** instead of snapshotting it: `agentEnv` sets `CLAUDE_SECURESTORAGE_CONFIG_DIR` to the host's `~/.claude` while `CLAUDE_CONFIG_DIR` keeps everything else per-agent, so an agent sits on the host's exact credentials path — one file, one refresh lineage, the same atomic rename, and a ~2 s mtime poll on both sides that picks up whichever process refreshed last. That is precisely what a second host session does, which is why several host sessions coexist for days. Either side may refresh, so an idle host no longer strands an agent and vice versa. An agent's config dir now holds **no credential of its own**, so the `removeCredentials` call and the reconcile sweep are pre-#53 leftover collectors rather than a live deletion owner; the planned auth-health watchdog (#21, #28) is retired as mis-framed — there is nothing left to watch.
 
 The cost, accepted deliberately: an agent can now reach the host's real credential file, so it has a host session's blast radius there (a `/logout` would log the human out) rather than only its own copy's.
+
+### The goodbye (#458, deciding [#426](https://github.com/alp82/curia/issues/426))
+
+A block ends when a human answers, or when the daemon dies. Before it dies, the daemon now ends every blocked call with a tool **error**. Three deaths say it: `POST /restart`, a SIGTERM from a deploy, and a fatal crash. A SIGKILL says nothing, and [#457](https://github.com/alp82/curia/issues/457) holds that case.
+
+An error is the point. [#341](https://github.com/alp82/curia/issues/341)'s retry ladder needs a failure to retry, and a text result would read as an answer. That is the exact fault [#56](https://github.com/alp82/curia/issues/56) recorded from a live agent. A codex client has no transport-drop watchdog, so this error is the only thing that gives that agent its turn back inside a day (`docs/research/tool-channel-mid-session-codex.md`). The claude lane gains too: its two minutes become about one second, and `CODEX_TOOL_TIMEOUT_S` does not move.
+
+Both wait registries wake: the escalation resolvers in `index.mjs`, and the cross-check park in `dispatch.mjs`. The escalation record stays **open**, because the question is still the operator's to answer. The agent asks again, and [#369](https://github.com/alp82/curia/issues/369) hands back an answer that landed in between. One `daemon_goodbye` event carries the reason and the count of calls woken, so the journal says what a restart cost. The exit waits about a quarter of a second for those errors to leave the socket, and only when a call was blocked at all. The words live in `daemon/src/goodbye.mjs`.
 
 ## Attachments, both directions (#34, #430)
 

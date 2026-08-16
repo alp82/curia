@@ -111,6 +111,13 @@ function describe(err) {
 // say it out loud (a silently-down bridge is the failure this ticket names);
 // `onFault` runs before the exit and must not throw.
 //
+// #458 gave `onFault` a second job and an await: the daemon says goodbye to
+// every blocked call on its way out, and the error it sends needs a bounded
+// moment to leave the socket. So a promise from `onFault` HOLDS the exit until
+// it settles, and it must bound itself — a goodbye that hangs is a daemon that
+// does not restart. A sync `onFault`, or none, exits in the same tick it always
+// did.
+//
 // `journal` must be SYNCHRONOUS (ADR-0017). This guard journals and then exits,
 // so a write that only started before `exit(1)` is a record curia loses at the
 // one moment it needs one. The journal's insert is synchronous, which is what
@@ -132,7 +139,13 @@ export function installCrashGuard({ log = console.log, journal, onTransient, onF
     }
     log(`[crash-guard] FATAL ${origin}: ${detail.message} (${why}) — exiting, journalled as daemon_fault`)
     if (detail.stack) log(detail.stack)
-    try { onFault?.(detail) } catch (e) { log(`crash guard onFault failed: ${e.message}`) }
+    let said = null
+    try { said = onFault?.(detail) } catch (e) { log(`crash guard onFault failed: ${e.message}`) }
+    if (said && typeof said.then === 'function') {
+      const die = () => exit(1)
+      said.then(die, (e) => { log(`crash guard onFault failed: ${e.message}`); die() })
+      return
+    }
     exit(1)
   }
 

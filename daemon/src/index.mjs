@@ -32,6 +32,7 @@ import { Reduction, CONFIRM_KIND, noteDisposition } from './reduction.mjs'
 import { JOURNAL } from './journal.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
+import { sayGoodbye, questionGoodbye } from './goodbye.mjs'
 import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
@@ -379,7 +380,10 @@ const statusLine = new StatusLine({
 })
 statusLine.start()
 reduction.onEvent = (ev) => statusLine.onEvent(ev)
-const pending = new Map() // escalation id -> resolve(answerText) — ephemeral, dies with the process
+// escalation id -> { resolve, reject } — ephemeral, dies with the process. The
+// reject half is #458's: the daemon ends every call in here with a tool ERROR
+// before it exits, rather than letting the call die unannounced.
+const pending = new Map()
 const renderRetries = new Map() // escalation id -> timeout handles — ephemeral, rebuilt on boot
 
 let bridge = null
@@ -433,14 +437,70 @@ function log(...args) {
   console.log(`[${new Date().toISOString()}] ${readable(format(...args))}`)
 }
 
+// ---- the three deaths that say goodbye (#458, deciding #426) ----------------
+//
+// A blocked call dies with this process, and until #458 it died in silence: a
+// codex agent holding an `ask_human` is told nothing and waits out a deadline a
+// day away. So the daemon speaks first. Every death it can see — the restart
+// order, a deploy's SIGTERM, and a fatal crash — ends every blocked call with a
+// tool ERROR, which is the failure #341's ladder needs to retry.
+//
+// The two wait registries are BOTH woken (#426): the escalation resolvers in
+// this file, and the cross-check park inside the dispatcher. A goodbye that woke
+// one would strand the other. See `goodbye.mjs` for the words and their rules.
+//
+// A SIGKILL reaches nobody, and nothing here pretends otherwise (#457).
+function sayDaemonGoodbye(reason) {
+  return sayGoodbye({
+    reason,
+    wake: {
+      // Named for the operator reading the journal afterwards, not for the code.
+      questions: wakeBlockedQuestions,
+      parks: () => dispatcher.wakeParkedBuilders(),
+    },
+    journal: (type, detail) => reduction.journal(type, detail),
+    log,
+  })
+}
+
+// The exit is once, whatever arrives twice. A second SIGTERM, or a crash inside
+// the goodbye, must not start a second goodbye or race a second exit code.
+let dying = null
+function goodbyeThenExit(reason, code, delayMs = 0) {
+  if (dying) return dying
+  dying = sayDaemonGoodbye(reason)
+    .catch((e) => log(`the goodbye failed (${e.message}) — exiting anyway`))
+    // A ref'd timer, so the exit code is this one rather than the 0 an empty
+    // event loop would leave. `restart: on-failure` reads that difference.
+    .then(() => { setTimeout(() => process.exit(code), delayMs) })
+  return dying
+}
+
+// Death two: the deploy. `deploy/self-deploy.sh` recreates this container, so
+// compose sends SIGTERM and waits out its default 10 s grace before the KILL.
+// Nothing caught it before this, which made every deploy the silent death #371
+// measured. The exit code is what the process left with no handler at all
+// (128 + 15), so the supervisor reads a deploy exactly as it did.
+const SIGTERM_EXIT_CODE = 143
+process.on('SIGTERM', () => {
+  log(`SIGTERM — saying goodbye to every blocked call, then exiting ${SIGTERM_EXIT_CODE}`)
+  goodbyeThenExit('sigterm', SIGTERM_EXIT_CODE)
+})
+
 // #56: a transient gateway/socket error must not take dispatch, escalation,
 // preview and reconcile down with it. Installed HERE, before the bridge and
 // before boot reconcile, because the crash it exists for fires from a timer
 // nobody in this file owns. Everything without a network signal still exits —
 // the difference from today is one journal line before it does.
+//
+// Death three (#458): a fatal crash says goodbye on its way out. It is a last
+// word and not a swallow — the daemon journals the fault, speaks, and exits 1
+// exactly as it did — so an OOM or a bug reaches a blocked agent the way a
+// deploy now does.
 installCrashGuard({
   log,
   journal: (type, detail) => reduction.journal(type, detail),
+  onFault: () => sayDaemonGoodbye('crash'),
 })
 
 // ---- escalation lifecycle -------------------------------------------------
@@ -507,7 +567,14 @@ function openEscalation({ agent, ticket, kind, prompt, options, preview_url, rec
   // recorded, queued as an agent note, and handed over on the agent's next tool
   // result. A resolver registered here would swallow the answer instead.
   if (awaited === false) return { record, answered: null }
-  const answered = new Promise((resolve) => pending.set(record.id, resolve))
+  const answered = new Promise((resolve, reject) => pending.set(record.id, { resolve, reject }))
+  // The goodbye (#458) rejects this promise, and not every caller awaits it:
+  // `POST /escalate` without `?wait` drops it on the floor. A dropped rejection
+  // is an unhandledRejection, which the #56 crash guard reads as a fault and
+  // kills the process over — during a restart, with the wrong exit code. One
+  // handler here makes the rejection handled for every caller that ignores it,
+  // and changes nothing for the callers that await.
+  answered.catch(() => {})
   return { record, answered }
 }
 
@@ -517,10 +584,25 @@ function openEscalation({ agent, ticket, kind, prompt, options, preview_url, rec
 // process, and the answer needs the #139 hand-off instead.
 function settle(record, text, attachments = []) {
   clearRenderRetries(record.id)
-  const resolve = pending.get(record.id)
+  const waiter = pending.get(record.id)
   pending.delete(record.id)
-  if (resolve) resolve({ text, attachments })
-  return Boolean(resolve)
+  if (waiter) waiter.resolve({ text, attachments })
+  return Boolean(waiter)
+}
+
+// The goodbye over the escalation resolvers (#458). Every blocked question ends
+// with a tool ERROR, and the RECORD IS LEFT ALONE: it stays open, it stays
+// rendered, and it stays answerable. The question is still the operator's to
+// answer, and an answer that lands in the seconds after this takes the #139
+// hand-off, which is exactly what a re-asked question reads back (#369).
+function wakeBlockedQuestions() {
+  let woken = 0
+  for (const [id, waiter] of [...pending]) {
+    pending.delete(id)
+    waiter.reject(new Error(questionGoodbye()))
+    woken += 1
+  }
+  return woken
 }
 
 // #139: the answer is recorded, but nothing live received it — no resolver
@@ -1957,6 +2039,10 @@ function providerUsage() {
 // The code is nonzero because `restart: on-failure` is what respawns this
 // process: a clean exit is how the daemon stays down for a deploy. The pause is
 // only long enough for the answer already written to leave the socket.
+//
+// The goodbye (#458) sits between the two, and it has a drain of its own for the
+// errors it sends to the blocked calls. This pause is unchanged and still means
+// what it says: it covers the restart ANSWER, which is written before either.
 const RESTART_EXIT_CODE = 75
 const RESTART_DELAY_MS = 50
 
@@ -2541,6 +2627,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // is scheduled behind it — an exit inside the handler would kill the socket
   // the sidecar is waiting on, and the operator would read a restart that
   // worked as a restart that failed.
+  //
+  // Death one of #458's three: the blocked calls get their goodbye between the
+  // answer and the exit. It costs this route the drain — a quarter of a second,
+  // and only when somebody was actually blocked.
   if (url.pathname === '/restart' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = typeof body?.by === 'string' ? body.by : 'loopback'
@@ -2548,7 +2638,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     log(`restart requested by ${by} — exiting ${RESTART_EXIT_CODE} so the supervisor respawns this process`)
     res.writeHead(200, { 'content-type': 'application/json' })
     return res.end(JSON.stringify({ ok: true, by, exit_code: RESTART_EXIT_CODE }), () => {
-      setTimeout(() => process.exit(RESTART_EXIT_CODE), RESTART_DELAY_MS).unref()
+      goodbyeThenExit('restart', RESTART_EXIT_CODE, RESTART_DELAY_MS)
     })
   }
 
