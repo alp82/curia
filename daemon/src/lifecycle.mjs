@@ -84,6 +84,11 @@ export const ENDING = [
       ? [
         'Then resolve the ticket: the resolution comment, the close, the map line, and the charting the',
         'human approved — the resolve step of the skill you are running, in that order.',
+        // The map-close is curia-side context, not skill doctrine: manual
+        // wayfinder sessions close an emptied map by judgment, and a checklist
+        // session exercises none past its steps — so the checklist says it.
+        'If your close left the map with no open child and nothing under Not yet specified, close the',
+        'map itself with a verdict comment: the way is walked, and no one else is dispatched to say so.',
       ]
       : [
         `Then resolve the ticket on the tracker with \`gh\`: post the resolution as a comment on ${repo}#{n},`,
