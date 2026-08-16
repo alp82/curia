@@ -22,7 +22,15 @@ export function resolveModel(routing, labels, override) {
   return routing.defaults.untyped
 }
 
-// In-memory only, never persisted (settled answer 6). Two distinct levels:
+// The live index, seeded at boot from the journal (#377). Settled answer 6 made
+// this in-memory only, and a 5-hour window outlives a deploy: a restart inside
+// one forgot every entry, and the next `start` spawned a container straight into
+// the cap it had already measured. So the entries themselves still live here and
+// nowhere else, and `Dispatcher#seedCooling` hands back the ones a previous
+// process journalled. Nothing writes from here: `#handleLimit` journals the cap
+// and calls this, in that order.
+//
+// Two distinct levels:
 // a model-level entry (Fable's own weekly sub-cap) cools only that model and
 // the chain falls back within the provider; a provider-level entry cools every
 // model under that provider at once. With two providers configured (#39) a

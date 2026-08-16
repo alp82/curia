@@ -569,6 +569,61 @@ describe('the limit resume curia still owes (#346)', () => {
   })
 })
 
+// The cap has to outlive the process that measured it (#377), for the reason
+// the arm above does: a 5-hour window outlives a deploy. Both events already
+// carried `reset_at`; this is the read side.
+describe('the cooling a previous process measured (#377)', () => {
+  let dir
+  const store = () => new EscalationStore(dir)
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-377-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('a landed cap is answered per level, with the reset instant it was journalled with', () => {
+    const s = store()
+    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
+    s.logEvent('model_cooling', { model: 'fable', reset_at: '2026-08-15T18:00:00.000Z', reset_source: 'transcript' })
+    assert.deepEqual(s.armedCoolings(), {
+      models: [{ model: 'fable', at: '2026-08-15T18:00:00.000Z' }],
+      providers: [{ provider: 'anthropic', at: '2026-08-15T14:00:00.000Z' }],
+    })
+  })
+
+  test('a restart replays it, which is the whole point of the reduction', () => {
+    const s = store()
+    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
+    assert.deepEqual(store().armedCoolings().providers, [{ provider: 'anthropic', at: '2026-08-15T14:00:00.000Z' }])
+  })
+
+  test('the one-hour floor is kept like any other cap — the guess is the fact curia has', () => {
+    const s = store()
+    s.logEvent('provider_cooling', { provider: 'openai', reset_at: '2026-08-15T10:00:00.000Z', reset_source: 'floor' })
+    assert.deepEqual(s.armedCoolings().providers, [{ provider: 'openai', at: '2026-08-15T10:00:00.000Z' }])
+  })
+
+  test('a later cap on the same key replaces the earlier one — a resume that re-cools states a fresh reset', () => {
+    const s = store()
+    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
+    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T19:00:00.000Z', reset_source: 'pane' })
+    assert.deepEqual(s.armedCoolings().providers, [{ provider: 'anthropic', at: '2026-08-15T19:00:00.000Z' }])
+  })
+
+  test('the two levels never mix: a model cap leaves its provider warm', () => {
+    const s = store()
+    s.logEvent('model_cooling', { model: 'fable', reset_at: '2026-08-15T18:00:00.000Z', reset_source: 'pane' })
+    assert.deepEqual(s.armedCoolings().models, [{ model: 'fable', at: '2026-08-15T18:00:00.000Z' }])
+    assert.deepEqual(s.armedCoolings().providers, [])
+  })
+
+  test('nothing else in the journal touches it — only a landed cap writes a hold', () => {
+    const s = store()
+    s.logEvent('dispatch_exhausted', { repo: 'o/r', ticket: 42, earliest_reset: '2026-08-15T14:00:00.000Z' })
+    s.logEvent('reset_unparseable', { agent: 'curia-42', scope: 'provider', applied_cooldown_h: 1 })
+    s.logEvent('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    assert.deepEqual(s.armedCoolings(), { models: [], providers: [] })
+  })
+})
+
 describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
   let tmp
   const dispatchers = []
