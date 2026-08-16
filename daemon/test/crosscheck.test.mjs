@@ -380,6 +380,38 @@ describe('the verdict\'s way back (#165)', () => {
     assert.equal(events.find((e) => e.type === 'verdict_commented').ok, true)
   })
 
+  // #421: the verdict is typed, and ONE composer builds it. The artifact keeps
+  // the parts beside the text, so a later reader gets more than the prose.
+  test('a typed verdict is composed once, and the artifact holds its grade and its parts', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    const { gate } = await pressAndPark(d)
+
+    await d.onResult('curia-review-42', {
+      ticket: '42',
+      status: 'resolved',
+      headline: 'One blocker: the loop never exits',
+      summary: 'I read the diff and ran the suite.',
+      findings: [
+        { text: 'a.mjs:7 loops forever, and the daemon never answers again.', severity: 'blocker' },
+        { text: 'b.mjs:2 could be named better, beyond this ticket.', severity: 'note', out_of_scope: true },
+      ],
+    })
+    await gate
+
+    const held = d.verdictFor('42')
+    assert.equal(held.grade, 'fail', 'curia derives the grade, and the reviewer never writes it')
+    assert.equal(held.findings.length, 2, 'the parts ride the artifact beside the text')
+    assert.match(held.verdict, /❌ \*\*fail\*\* — 1 blocker, 1 note/)
+    assert.match(held.verdict, /\*\*2\. note\*\* \(out of scope\)/)
+
+    // The comment, the note and the artifact are three renderings of ONE text.
+    const posted = comments.find((c) => /Cross-check verdict/.test(c.body))
+    assert.ok(posted.body.includes(held.verdict))
+    assert.ok(notes[0].text.includes(held.verdict))
+    assert.equal(events.find((e) => e.type === 'verdict_captured').grade, 'fail')
+  })
+
   test('the verdict reaches the builder on its note queue, stamped for that instance', async () => {
     const d = makeDispatcher()
     withBuilder(d)
@@ -405,7 +437,10 @@ describe('the verdict\'s way back (#165)', () => {
     assert.match(r.text, /CROSS-CHECK/)
     assert.match(r.text, /rides in this same tool result as a note/)
     assert.ok(!r.text.includes('b.mjs:2'), 'the verdict rides the note queue, not this string')
-    assert.match(r.text, /never a\n\s+gate/, 'the question is plain, never a gate')
+    assert.match(r.text, /never a gate/, 'the question is plain, never a gate')
+    // #421: the judgement is a ROUND, one question per finding. The shape is the
+    // one #418 typed, so the duty says how to use it rather than adding a field.
+    assert.match(r.text, /one question per finding/)
     assert.match(r.text, /pure\n\s+approve-or-reject/)
     assert.match(r.text, /charting line/)
     assert.match(r.text, /Never open a fault/)

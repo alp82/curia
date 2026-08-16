@@ -5,7 +5,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   composeCard, composeReviewBody, composeResultBody, composeResultReport, composeNotify, NOTIFY_KINDS,
-  visualBlock, optionLabels,
+  visualBlock, optionLabels, composeVerdict, composeVerdictReport,
 } from '../src/card.mjs'
 import { lintReply, CHUNK_LIMIT } from '../src/messaging.mjs'
 
@@ -240,5 +240,63 @@ describe('composeNotify: the status line (#420)', () => {
 
   test('curia writes the fence, so an agent that fenced its visual is not fenced twice', () => {
     assert.equal(composeNotify({ message: 'a', visual: '```\nx\n```' }), '⚙️ a\n\n```\nx\n```')
+  })
+})
+
+describe('composeVerdict: the cross-check verdict (#421)', () => {
+  const VERDICT = {
+    headline: 'One blocker and one note: the retry loop never exits.',
+    summary: 'I read the diff and ran the daemon suite. It is green.',
+    findings: [
+      { text: 'daemon/src/retry.mjs:41 loops while the socket is open, and nothing closes it.', severity: 'blocker' },
+      { text: 'daemon/src/card.mjs:52 could name the marker helper once.', severity: 'note', out_of_scope: true },
+    ],
+    detail: 'The suite ran 71 files.',
+    visual: 'blocker  1\nnote     1',
+  }
+
+  test('the grade leads under the headline, and curia derives it', () => {
+    const lines = composeVerdict(VERDICT).split('\n\n')
+    assert.equal(lines[0], '**One blocker and one note: the retry loop never exits.**')
+    assert.equal(lines[1], '❌ **fail** — 1 blocker, 1 note')
+  })
+
+  test('every finding carries its number, its severity and its own prose', () => {
+    const body = composeVerdict(VERDICT)
+    assert.ok(body.includes('**1. blocker**\ndaemon/src/retry.mjs:41 loops while the socket is open, and nothing closes it.'))
+    assert.ok(body.includes('**2. note** (out of scope)'), 'the scope mark is rendered, never left in the prose')
+  })
+
+  test('the parts read top down: headline, grade, visual, summary, findings, spoiler', () => {
+    const body = composeVerdict(VERDICT)
+    const at = (s) => body.indexOf(s)
+    assert.ok(at('**fail**') < at('```'))
+    assert.ok(at('```') < at('I read the diff'))
+    assert.ok(at('I read the diff') < at('**1. blocker**'))
+    assert.ok(at('**1. blocker**') < at('Details: ||'))
+  })
+
+  test('a clean reading says so, and it says it in words', () => {
+    const body = composeVerdict({ headline: 'Nothing to fix.', summary: 'The tests pass.', findings: [] })
+    assert.ok(body.includes('✅ **pass** — no findings'))
+  })
+
+  test('a concern with no blocker grades the verdict concerns', () => {
+    const body = composeVerdict({ headline: 'h', summary: 's', findings: [{ text: 't', severity: 'concern' }] })
+    assert.ok(body.includes('⚠️ **concerns** — 1 concern'))
+  })
+
+  test('an untyped verdict is its summary, whole and unchanged', () => {
+    assert.equal(composeVerdict({ summary: 'VERDICT: pass\n\nTESTS: green' }), 'VERDICT: pass\n\nTESTS: green')
+  })
+
+  test('the reviewer ending post wears the cross-check signal, not an ending tick', () => {
+    const post = composeVerdictReport('resolved', VERDICT)
+    assert.equal(post.split('\n')[0], '🔎 the cross-check reports **resolved**')
+    assert.ok(post.includes(composeVerdict(VERDICT)), 'no finding is dropped from the thread')
+  })
+
+  test('a reviewer that could not read the diff still leads with its status', () => {
+    assert.equal(composeVerdictReport('blocked', {}), '🔎 the cross-check reports **blocked**')
   })
 })

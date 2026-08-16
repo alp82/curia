@@ -2135,21 +2135,30 @@ export function writeReviewPrompt(cfgDir, issue, {
     '4. End with the verdict.',
   ]
 
+  // #421: the verdict is TYPED. The reviewer writes the parts and curia lays
+  // them out, which is the rule every other prose surface follows (ADR-0019).
+  // The reviewer never writes the grade word: curia derives it from the
+  // severities, so a verdict cannot say pass over its own blocker.
   const verdict = [
-    'Your `report_result` summary is the verdict, and a human reads it on a phone. Write it in this shape:',
+    'Your `report_result` IS the verdict, and a human reads it on a phone. You write the PARTS, and',
+    'curia lays them out:',
     '',
-    '```',
-    'VERDICT: pass | concerns | fail',
+    '- `headline` — the verdict in one line, at most 150 characters.',
+    '- `summary` — what you read and what you ran, at most 600 characters.',
+    '- `findings` — one entry per finding, most serious first. Each entry carries:',
+    '  - `text` — the file and the line, what is wrong, and why it matters.',
+    '  - `severity` — `blocker` (do not merge as it stands), `concern` (the operator decides),',
+    '    `note` (worth knowing).',
+    '  - `out_of_scope` — true when the finding is real but sits beyond this ticket.',
+    '- `detail` — short facts, rendered as a spoiler. Optional.',
+    '- `visual` — a table or a diagram, at most 42 columns by 20 lines. Optional.',
     '',
-    'TESTS: what you ran, and what happened.',
+    'curia reads the GRADE of the whole verdict off those severities: one blocker makes it `fail`, one',
+    'concern makes it `concerns`, and neither makes it `pass`. You never write that word yourself.',
     '',
-    'FINDINGS (most serious first, or "none"):',
-    '- <file>:<line> — what is wrong — why it matters',
-    '```',
-    '',
-    'Be specific and be short. Name the file and the line for every finding. Say "none" when you found',
-    'nothing: a clean reading is a real result, and padding it hides the findings that matter.',
-    'A finding that is real but beyond this ticket\'s scope goes in the list, marked `out of scope`.',
+    'Send an EMPTY `findings` list when the reading is clean. A clean reading is a real result, and',
+    'padding it hides the findings that matter. Be specific and be short. curia lints your words and',
+    'refuses the call when they break a rule: the refusal names the field and quotes your own text.',
   ]
 
   const body = [
@@ -2185,7 +2194,8 @@ export function writeReviewPrompt(cfgDir, issue, {
     '- `notify` — a status line for the human. Returns at once. Use it to say what you are reading.',
     '  `kind` says what they must DO: `progress` (nothing), `look` (open a file or a page now),',
     '  `ask` (reply when they can). A reviewer reads, so its lines are `progress`.',
-    '- `report_result` — exactly once, at the very end. Its summary is the verdict.',
+    '- `report_result` — exactly once, at the very end. Its headline, its summary and its findings',
+    '  are the verdict. curia lints them and lays them out.',
     '- Every other curia tool is refused for you, by name, with the reason.',
     '',
     '## The verdict',

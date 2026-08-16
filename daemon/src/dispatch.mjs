@@ -58,6 +58,8 @@ import {
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
 import { parkGoodbye } from './goodbye.mjs'
+import { composeVerdict } from './card.mjs'
+import { verdictGrade } from './lint.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, RESULT_KIND, NOTIFY_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, CROSS_CHECK_LABEL, VERDICT_LABEL } from './reduction.mjs'
 import {
@@ -2088,7 +2090,12 @@ export class Dispatcher {
       return 'result recorded — curia could not tell which ticket this reviewer was reading, so no verdict was captured'
     }
     const sameProvider = w?.sameProvider ?? Boolean(spawn?.same_provider)
-    const text = String(result.summary ?? '').trim()
+    // #421: ONE composer builds the verdict text, and the artifact stores what
+    // it built. The pull-request comment, the builder's note and the thread
+    // carrier are three renderings of this one string, so a typed verdict that
+    // composed differently per surface would be evidence of nothing.
+    const text = composeVerdict(result).trim()
+    const grade = verdictGrade(result.findings)
     const verdict = {
       repo,
       ticket,
@@ -2098,6 +2105,11 @@ export class Dispatcher {
       same_provider: sameProvider,
       sha: w?.sha ?? spawn?.sha ?? null,
       status: result.status,
+      // The grade curia DERIVED from the severities, and the findings it read
+      // them off. Both ride the artifact because it outlives the reviewer: a
+      // later reader gets the parts, not just the prose curia laid out (#421).
+      grade,
+      findings: result.findings ?? null,
       // The stamp rides IN the text, because the text is what a human and the
       // builder read. The flag beside it is for the daemon.
       verdict: sameProvider ? `**${SAME_PROVIDER_STAMP}**\n\n${text}` : text,
@@ -2116,9 +2128,14 @@ export class Dispatcher {
     this.reduction.journal('verdict_captured', {
       repo, ticket, agent: agentName, model: verdict.model, status: result.status,
       same_provider: sameProvider, chars: verdict.verdict.length, on_disk: held,
+      grade, findings: (result.findings ?? []).length,
     })
     const named = spawnModelId(this.routing, verdict.model ?? '')
     const stamp = sameProvider ? ` (**${SAME_PROVIDER_STAMP}**)` : ''
+    // The grade rides the holding line, because that line is what an operator
+    // scrolling the thread reads (#421). An untyped verdict has no grade and
+    // this says nothing rather than guess one.
+    const graded = grade ? ` — **${grade}**` : ''
     // #237: a verdict that lost the race says so, loudly, instead of the
     // neutral holding line. On #223 the merge beat the verdict by three
     // seconds, and "curia is holding it" read as a delivery — the operator had
@@ -2126,9 +2143,9 @@ export class Dispatcher {
     const late = this.#verdictIsLate(ticket)
     if (late) {
       this.reduction.journal('verdict_late', { repo, ticket, agent: agentName })
-      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — ⚠️ it arrived TOO LATE to gate anything: the ticket was resolved before the verdict landed. The verdict goes on the pull request; reopening is the operator's call.`)
+      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp}${graded} — ⚠️ it arrived TOO LATE to gate anything: the ticket was resolved before the verdict landed. The verdict goes on the pull request; reopening is the operator's call.`)
     } else {
-      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
+      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp}${graded} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
     }
     // The return path (#165). It runs INSIDE the reviewer's own tool call, so a
     // failure in it must never fail the capture: the verdict is already held,
