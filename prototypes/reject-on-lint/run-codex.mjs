@@ -220,6 +220,10 @@ function scriptRows(rollout) {
       const source = scripts.get(p.call_id) ?? ''
       rows.push({
         call_id: p.call_id,
+        // The header before `Output:`. It says whether the isolate completed or
+        // failed, and reading a rejection without it invites a wrong story
+        // about a script that threw.
+        outcome: text.split('Output:\n')[0].trim(),
         // Everything after the `Output:` header is what the script printed.
         printed: text.split('Output:\n').slice(1).join('Output:\n').trim(),
         carries_rejection: text.includes('REJECTED'),
