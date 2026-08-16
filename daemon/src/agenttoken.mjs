@@ -87,12 +87,11 @@ export function readAgentToken(dataDir, agent) {
   }
 }
 
-// Fails CLOSED in every direction that is not an exact match: no minted token,
-// an unreadable one, a missing header, a wrong one. An agent armed before this
-// shipped therefore has no way in — see docs/live-checks/159-worker-token.md for
-// the one restart that costs, and its recovery.
-export function agentTokenMatches(dataDir, agent, presented) {
-  const expected = readAgentToken(dataDir, agent)
+// One secret against another, in constant time. The overseer's per-turn secret
+// (#314) is checked with this same function: it is minted differently and it
+// lives in memory rather than in a file, but "is this the string curia handed
+// out" is one question and it gets one answer.
+export function tokensEqual(expected, presented) {
   if (!expected || typeof presented !== 'string') return false
   const a = Buffer.from(expected, 'utf8')
   const b = Buffer.from(presented.trim(), 'utf8')
@@ -100,6 +99,14 @@ export function agentTokenMatches(dataDir, agent, presented) {
   // fixed-width token is not a secret.
   if (a.length !== b.length) return false
   return crypto.timingSafeEqual(a, b)
+}
+
+// Fails CLOSED in every direction that is not an exact match: no minted token,
+// an unreadable one, a missing header, a wrong one. An agent armed before this
+// shipped therefore has no way in — see docs/live-checks/159-worker-token.md for
+// the one restart that costs, and its recovery.
+export function agentTokenMatches(dataDir, agent, presented) {
+  return tokensEqual(readAgentToken(dataDir, agent), presented)
 }
 
 export function forgetAgentToken(dataDir, agent) {

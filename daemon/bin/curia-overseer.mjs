@@ -12,13 +12,14 @@
 //      are not, and whether a model credential arrived. Every one of those
 //      failures otherwise surfaces hours later, inside a turn, where nothing
 //      names the missing key.
-//   3. Serves the health check the daemon reads (`GET /ping`).
+//   3. Serves the two routes: `GET /ping`, the health check the daemon reads,
+//      and `POST /turn`, one operator message (#314).
 //
-// IT ANSWERS NO TURN YET. [#314](https://github.com/alp82/curia/issues/314)
-// carries the turn across the boundary, and this ticket must not invent that
-// shape — so every other route is a 501 that names it. That is deliberate: the
-// image and the service ship first, so #314 lands a turn into a container that
-// already runs, already routes its tokens and is already deployed.
+// A TURN IS ONE REQUEST, and this process holds no conversation between them.
+// The daemon sends the resume id with the message and takes the session id
+// back, so a restart here loses nothing (ADR-0015). The config is re-read per
+// turn from the mounted `config/curia.yaml`, because the settings screen
+// rewrites the watch list and a turn must fetch what is watched NOW.
 //
 // The environment comes from `daemon/.env.overseer`, which compose hands over
 // whole, and NEVER from `daemon/.env.daemon` — that file carries the agents'
@@ -32,6 +33,7 @@ import { loadCuriaConfig } from '../src/config.mjs'
 import { checkoutsRootFor } from '../src/checkouts.mjs'
 import { installCredentialConfig, unroutedOwners } from '../src/overseercreds.mjs'
 import { readOverseer, overseerHandler, PING_PATH } from '../src/overseerservice.mjs'
+import { turnRoute, TURN_PATH, overseerConfigDirFor, overseerHomeFor } from '../src/overseerturn.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const CONFIG = process.env.CURIA_CONFIG ?? path.resolve(DIR, '..', '..', 'config', 'curia.yaml')
@@ -41,13 +43,14 @@ const log = (...a) => console.log(`[${new Date().toISOString()}] overseer:`, ...
 // `checkPaths: false`, the same call the checkout pass makes: those rules ask
 // about the DAEMON's filesystem — the attach index, the skills root — and this
 // container mounts none of them.
-const cfg = loadCuriaConfig(CONFIG, { checkPaths: false })
+const loadCfg = () => loadCuriaConfig(CONFIG, { checkPaths: false })
+const cfg = loadCfg()
 const repos = cfg.watch.map((w) => w.repo)
 const { port } = readOverseer(cfg, (msg) => { throw new Error(`bad config ${CONFIG}: ${msg}`) })
 
 // The same path on both sides of the mount, so the Chat screen reads the
 // transcript off the directory this container writes it to (ADR-0015).
-const configDir = path.join(cfg.dispatch.workspace_root, 'cfg', 'curia-overseer')
+const configDir = overseerConfigDirFor(cfg.dispatch.workspace_root)
 
 const routed = await installCredentialConfig(repos, { env: process.env })
 for (const { owner, key } of routed) log(`git routes ${owner}/* through ${key}`)
@@ -63,14 +66,20 @@ if (!process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
   log('WARNING: no CLAUDE_CODE_OAUTH_TOKEN and no ANTHROPIC_API_KEY — add one to daemon/.env.overseer, or no turn can run a model')
 }
 
-log(`checkouts at ${checkoutsRootFor(cfg.dispatch.workspace_root)}, config dir at ${configDir}`)
+log(`checkouts at ${checkoutsRootFor(cfg.dispatch.workspace_root)}, config dir at ${configDir}, turns run in ${overseerHomeFor(cfg.dispatch.workspace_root)}`)
 
 // 0.0.0.0 inside the container, published as `127.0.0.1:<port>:<port>` by
 // compose. The container is on the bridge network, so this listener is reachable
 // from the box's loopback and from nowhere else — not from the tailnet, and not
 // from another container.
 const bind = process.env.CURIA_OVERSEER_BIND ?? '0.0.0.0'
-const server = http.createServer(overseerHandler({ log }))
+const server = http.createServer(overseerHandler({ log, turn: turnRoute({ loadCfg, log }) }))
+// A turn is minutes of silence on an open socket while a model reads, and
+// node's 5-minute default header timeout would cut the reply off (#34 measured
+// the same shape on the agent side channel). The daemon is the only caller.
+server.headersTimeout = 0
+server.requestTimeout = 0
+server.timeout = 0
 server.listen(port, bind, () => {
-  log(`listening on ${bind}:${port} — ${PING_PATH} is the health check the daemon reads`)
+  log(`listening on ${bind}:${port} — ${PING_PATH} is the health check the daemon reads, ${TURN_PATH} is one operator message`)
 })

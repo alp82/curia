@@ -34,6 +34,8 @@
 // honesty lives here, on #328, and in CONTEXT.md under "Standing orders".
 
 import { checkoutDirNameFor } from './checkouts.mjs'
+import { elapsedLabel } from './messaging.mjs'
+import { VERB_TOOLS } from './overseerverbs.mjs'
 
 const BASE_PROMPT = `You are the curia overseer. Curia is a personal orchestration daemon: it watches GitHub trackers, dispatches AI agents on tickets, and keeps the operator in the loop from any device. You are the command brain over its Discord surface.
 
@@ -162,13 +164,54 @@ export function buildSystemPrompt({ shell = false, checkoutsRoot = null, repos =
 // The no-shell text, for the in-daemon host that still runs until #315.
 export const SYSTEM_PROMPT = buildSystemPrompt()
 
+// ---- this turn's checkouts (#314) ------------------------------------------
+//
+// #328 wrote the RULE: state the age before you answer from a stale checkout.
+// The VERDICT the rule acts on is per turn, and #314 owns the text that carries
+// it. It lives here because every word the overseer reads before a turn lives
+// here, and two homes for model-facing text is how one of them goes stale.
+//
+// It rides the SYSTEM prompt rather than the message, for one reason. A
+// `[curia: ...]` line in the prompt is conversation, so turn five would still
+// read turn one's stale verdict as news. The system prompt is composed per turn
+// and is never history, so each turn states the age of its own checkouts.
+//
+// A repo with no checkout at all and a repo with a stale one are two different
+// facts, and the model must be able to say which. `fetchedAt: null` with a
+// `staleSince` is the second. Both null is the first.
+export function checkoutReport({ repos = [], at = null } = {}, { now = () => new Date() } = {}) {
+  const head = 'This turn\'s checkouts:'
+  if (!repos.length) return `${head}\n- No repo is watched, so there is nothing checked out to read.`
+  const fresh = repos.filter((r) => r.ok)
+  const lines = []
+  if (fresh.length === repos.length) {
+    lines.push(`- Every watched repo was fetched at the start of this turn${at ? ` (${at})` : ''}. Every read below is consistent.`)
+  } else if (fresh.length) {
+    lines.push(`- ${fresh.length} of ${repos.length} watched repos were fetched at the start of this turn${at ? ` (${at})` : ''}: ${fresh.map((r) => r.repo).join(', ')}.`)
+  }
+  for (const r of repos.filter((x) => !x.ok)) {
+    const why = String(r.error ?? 'the fetch failed with no message').trim()
+    if (r.staleSince) {
+      const age = elapsedLabel(r.staleSince, now().getTime())
+      lines.push(`- ${r.repo} is STALE. This turn could not fetch it: ${why}. Its last good fetch was ${age ?? 'of unknown age'} ago, at ${r.staleSince}. State that age before you answer from it.`)
+    } else {
+      lines.push(`- ${r.repo} has NO checkout at all. This turn could not clone it: ${why}. You cannot read its files. Say so, and answer from \`gh\` or from the operator instead.`)
+    }
+  }
+  return [head, ...lines].join('\n')
+}
+
 // ---- the tool list, which has to AGREE with the text above -----------------
 //
 // #328 owns this list rather than #314, for one reason: a prompt that says "you
 // hold a shell" beside a list that refuses `Bash` is a lie, and one ticket
 // owning both is what keeps them true. #314 puts the list in the query call.
 
-export const VERB_TOOLS = ['tickets', 'next', 'status', 'start', 'map', 'cancel', 'resume', 'attach']
+// The catalogue itself lives in `overseerverbs.mjs` (#314), which is where both
+// transports read it. The allowed list is derived from it rather than typed
+// again here: a verb the model can call and the harness refuses is the same
+// class of lie this file exists to stop.
+export { VERB_TOOLS }
 
 export const ALLOWED_TOOLS = VERB_TOOLS.map((t) => `mcp__curia__${t}`)
 

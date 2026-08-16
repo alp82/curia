@@ -18,6 +18,7 @@ import YAML from 'yaml'
 import {
   DEFAULT_OVERSEER, PING_PATH, PING_MARK, readOverseer, overseerHandler, probeOverseer,
 } from '../src/overseerservice.mjs'
+import { TURN_PATH } from '../src/overseerturn.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -163,14 +164,44 @@ describe('the health check (ADR-0015: compose owns liveness, the daemon only rep
     srv.close()
   })
 
-  test('every route but the ping is a 501 that names #314', async () => {
+  // #314 landed the turn, so the container now has TWO routes and no third.
+  test('it serves the ping and the turn, and nothing else', async () => {
+    const seen = []
+    const srv = await listen(overseerHandler({
+      log: () => {},
+      turn: (req, res) => {
+        seen.push(req.url)
+        res.writeHead(200, { 'content-type': 'application/x-ndjson' })
+        res.end('{"event":"end","ok":true}\n')
+      },
+    }))
+    try {
+      const base = `http://127.0.0.1:${srv.address().port}`
+      const ping = await fetch(`${base}${PING_PATH}`)
+      assert.equal((await ping.text()).trim(), PING_MARK)
+
+      const turn = await fetch(`${base}${TURN_PATH}`, { method: 'POST', body: '{}' })
+      assert.equal(turn.status, 200)
+      assert.deepEqual(seen, [TURN_PATH])
+
+      // A turn is a POST. A GET that ran one would let anything that can reach
+      // this port spend a model turn by being pointed at it.
+      assert.equal((await fetch(`${base}${TURN_PATH}`)).status, 404)
+      assert.equal((await fetch(`${base}/state`)).status, 404)
+      assert.deepEqual(seen, [TURN_PATH])
+    } finally {
+      srv.close()
+    }
+  })
+
+  test('a container that could not build a turn route still answers the health check', async () => {
     const srv = await listen(overseerHandler({ log: () => {} }))
-    const base = `http://127.0.0.1:${srv.address().port}`
-    const ping = await fetch(`${base}${PING_PATH}`)
-    assert.equal((await ping.text()).trim(), PING_MARK)
-    const turn = await fetch(`${base}/turn`, { method: 'POST', body: '{}' })
-    assert.equal(turn.status, 501)
-    assert.match((await turn.text()), /#314/)
-    srv.close()
+    try {
+      const base = `http://127.0.0.1:${srv.address().port}`
+      assert.equal((await fetch(`${base}${PING_PATH}`)).status, 200)
+      assert.equal((await fetch(`${base}${TURN_PATH}`, { method: 'POST', body: '{}' })).status, 404)
+    } finally {
+      srv.close()
+    }
   })
 })
