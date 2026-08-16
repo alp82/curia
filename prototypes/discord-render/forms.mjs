@@ -125,9 +125,9 @@ then lines, then a hard slice. It never sees the fence.
 
 images: ["prototypes/discord-render/image-probe.png"]
   -> ok`,
-    why: 'The daemon resolves the path against its own host view of the worktree. A containerized agent calls that same directory `/workspace`, so its absolute path matches nothing and the file is dropped. The tool text says "local file paths inside your workspace", which points the agent straight at the failing form. Always send a worktree-relative path.',
+    why: 'The daemon resolved the path against its own host view of the worktree. A containerized agent calls that same directory `/workspace`, so its absolute path matched nothing and the file was dropped. The tool text said "local file paths inside your workspace", which pointed the agent straight at the failing form. FIXED IN #429: the daemon now maps an absolute `/workspace` path to its host root before it checks containment, so both forms work. This entry keeps the observation that found it. The live re-check belongs to the next rehearsal.',
     how: 'live',
-    code: 'daemon/src/images.mjs — containedIn(); roots come from the agent record wtPath',
+    code: 'daemon/src/images.mjs — containedIn(), fromGuest(); daemon/src/index.mjs — outboundImages() supplies the guestRoot',
   },
   {
     group: 'Attachments',

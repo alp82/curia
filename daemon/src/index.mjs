@@ -35,7 +35,7 @@ import { readable } from './logline.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mjs'
-import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, dockerGateway, probeSideChannel } from './sandbox.mjs'
+import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
@@ -1009,11 +1009,18 @@ const bootAt = Date.now()
 // exfiltration primitive for anything the box can read. An agent the dispatcher
 // does not know (synthetic/lab callers, whose MCP URL the daemon did not write)
 // falls back to the workspace root.
+//
+// #429: the roots are HOST paths, and every agent runs in a container that
+// calls that same worktree `/workspace`. So the daemon states the mapping and
+// images.mjs translates an absolute guest path before it checks containment.
+// A caller with no known worktree — /escalate, /answer — gets no mapping,
+// because it hands over host paths already.
 function outboundImages(agent, images) {
   if (!images?.length) return { files: [], refusals: [] }
   const known = dispatcher.agents.get(agent)
   const roots = [known?.wtPath ?? curiaConfig.dispatch.workspace_root, DATA]
-  return resolveOutboundImages(images, { roots, cwd: known?.wtPath })
+  const guestRoot = known?.wtPath ? { guest: GUEST_WT, host: known.wtPath } : null
+  return resolveOutboundImages(images, { roots, cwd: known?.wtPath, guestRoot })
 }
 
 // Keep a blocked ask_human alive on the wire (#34).
@@ -1056,6 +1063,13 @@ function startKeepAlive(extra, id, label = null) {
   return () => clearInterval(timer)
 }
 
+// What the two tools that take images say about the paths they accept (#429).
+// One sentence, written once, because two wordings for one rule is two rules to
+// keep true. It names the absolute form as well as the relative one: an agent
+// reaches for its own absolute path first, and the old text — "local file paths
+// inside your workspace" — pointed it straight at the form that got dropped.
+const IMAGES_HINT = `Files inside your workspace to show the human (screenshots, renders). Give a path relative to your workspace, or an absolute path under ${GUEST_WT}/.`
+
 function buildMcpServer(agent, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
 
@@ -1085,8 +1099,8 @@ function buildMcpServer(agent, ticket) {
 
   server.tool(
     'notify',
-    'Fire-and-forget status update to the human. Returns immediately. `images`: local file paths inside your workspace to show the human (screenshots, renders).',
-    { message: z.string(), images: z.array(z.string()).optional() },
+    'Fire-and-forget status update to the human. Returns immediately.',
+    { message: z.string(), images: z.array(z.string()).optional().describe(IMAGES_HINT) },
     async ({ message, images }) => {
       const { files, refusals } = outboundImages(agent, images)
       store.logEvent('notify', { agent, ticket, message, images: files.map((f) => f.attachment), refusals })
@@ -1206,7 +1220,7 @@ function buildMcpServer(agent, ticket) {
       // "all", and it is a lie about any question that had no recommendation.
       // free-text only: the other three kinds already answer with a button.
       recommended: z.boolean().optional(),
-      images: z.array(z.string()).optional(),
+      images: z.array(z.string()).optional().describe(IMAGES_HINT),
     },
     async ({ images, ...payload }, extra) => {
       // #164: the reviewer asks nobody. ADR-0010 gives it one output — the

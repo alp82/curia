@@ -91,6 +91,9 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
       return rec
     },
     openEscalations: () => [],
+    // #374: no test here records an answered escalation, so the resumed prompt
+    // inherits an empty exchange and says nothing about one.
+    answeredExchangeFor: () => [],
     cancel: () => ({ ok: true }),
     expireAgentNotes: () => 0,
     queueAgentNote: (agent, text, opts) => { notes.push({ agent, text, ...opts }); return { after: null } },

@@ -1036,6 +1036,11 @@ export class Dispatcher {
         // #173: the wayfinder invocation is spelled per harness, so the prompt
         // is no longer harness-blind.
         harness: harnessName,
+        // #374: every question a human has already answered on this session.
+        // The session name is the key and it does not change across dispatches,
+        // so a resumed agent reads the exchange its predecessor paid for. On a
+        // first dispatch this is empty and the prompt says nothing about it.
+        exchange: this.store.answeredExchangeFor(session),
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
@@ -2305,6 +2310,10 @@ export class Dispatcher {
       type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
       ports,
       harness: nextHarness,
+      // #374: a fallback respawn rewrites the prompt, so it rewrites the
+      // exchange with it. Without this the agent that crossed harnesses would
+      // be the one agent on the ticket with no memory of the answers.
+      exchange: this.store.answeredExchangeFor(agent.session),
     })
     agent.promptHarness = nextHarness
   }

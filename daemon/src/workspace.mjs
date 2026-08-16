@@ -20,7 +20,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
-import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines } from './lifecycle.mjs'
+import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
@@ -1216,6 +1216,126 @@ const researchParams = ({ repo, branch }) => [
   '  session, one whose subagent failed. Leave it open and unclaimed, and say so in your summary.',
 ]
 
+// ---- the inherited exchange (#374) -------------------------------------------
+
+// What bounds the push. Per FIELD first, so one runaway question cannot eat the
+// block, then per BLOCK, so a long ticket cannot eat the prompt. 2000 + 2000 is
+// a whole numbered round with its recommendations, and 16000 is about four
+// thousand tokens — the price of never asking the operator the same thing twice.
+export const EXCHANGE_FIELD_CAP = 2000
+export const EXCHANGE_BLOCK_CAP = 16000
+
+// Cut to `cap` characters on a whole line where one is near, so a truncated
+// question ends mid-sentence rather than mid-word.
+function capField(text, cap = EXCHANGE_FIELD_CAP) {
+  const s = String(text ?? '')
+  if (s.length <= cap) return { text: s, cut: false, total: s.length }
+  const head = s.slice(0, cap)
+  const nl = head.lastIndexOf('\n')
+  return { text: nl > cap * 0.6 ? head.slice(0, nl) : head, cut: true, total: s.length }
+}
+
+// Every line of a verbatim block, quoted. The operator's own words can carry
+// headings, rules and numbered lists of their own, and unquoted they would read
+// as instructions of this prompt rather than as a record of an older one.
+function quoteLines(text) {
+  return String(text).split('\n').map((l) => (l ? `> ${l}` : '>'))
+}
+
+// The block itself: the questions a human has already answered on this ticket,
+// oldest first, written into the parameters of the next dispatch.
+//
+// The operator settled all five of the ticket's questions plus two the code
+// forced (2026-08-16, esc round on #374):
+//
+//   1. It reaches EVERY dispatch this ticket has had, not just the dead agent.
+//      The store keys escalations by session, and a builder session is
+//      `curia-<n>` for the ticket's whole life, so the history is free.
+//   2. It carries QUESTION AND ANSWER, both verbatim. An answer alone is
+//      unreadable: "yes, option 2" says nothing without what was asked.
+//   3. A cancelled, lapsed or superseded record does NOT appear. It holds no
+//      answer, so it is no parameter — the fresh agent asks it again.
+//   4. The caps above bound it. NEWEST records are kept when something has to
+//      go, and the head line says how many were dropped.
+//   5. The agent is TOLD these are recorded. A recorded answer read as a fresh
+//      one is worse than no answer at all: the agent would take a stale ruling
+//      as this session's, and nobody would see it happen.
+//   6. Every kind rides along, the review gate included (see `store.mjs`).
+//   7. It runs on EVERY dispatch, not only `resume`. A first dispatch has no
+//      records and gets no block, so one rule covers both.
+//
+// Returns [] when nothing is recorded, which is the first dispatch of every
+// ticket — then the prompt says nothing about an exchange that never happened.
+export function exchangeBlock(exchange = []) {
+  if (!exchange?.length) return []
+
+  // Newest first while the budget is spent, so the answers nearest to the dead
+  // agent's last turn are the ones that survive a long history. Rendered oldest
+  // first, because a conversation reads forwards.
+  const kept = []
+  let spent = 0
+  for (const e of [...exchange].reverse()) {
+    const prompt = capField(e.prompt)
+    const answer = capField(e.answer)
+    const cost = prompt.text.length + answer.text.length
+    if (spent + cost > EXCHANGE_BLOCK_CAP) break
+    spent += cost
+    kept.unshift({ ...e, prompt, answer })
+  }
+  const dropped = exchange.length - kept.length
+
+  const lines = [
+    '',
+    '### What the operator has already answered on this ticket',
+    '',
+    `These ${kept.length === 1 ? 'is one question' : `are ${kept.length} questions`} an agent on this ticket asked, and the answer a human gave. They are`,
+    'RECORDED words, not a fresh reply: the asking is over and the operator has moved on. curia kept them',
+    'so the wait is paid once.',
+    '',
+    '- **Do not ask any of them again.** That is the whole point of this block.',
+    '- **A recorded answer is a ruling, not a fact you verified.** If one disagrees with what you find in',
+    '  the code, say so with `ask_human` rather than choosing between them yourself.',
+    '- **An answer covers the question it was given.** It does not settle a near neighbour, and reading it',
+    '  as if it did is how a session answers for the human.',
+    ...(dropped
+      ? [
+        '',
+        `**${dropped} older ${dropped === 1 ? 'answer is' : 'answers are'} not shown here.** The block is capped at ${EXCHANGE_BLOCK_CAP} characters, and the`,
+        'newest survive. Nothing else is missing.',
+      ]
+      : []),
+  ]
+
+  kept.forEach((e, i) => {
+    lines.push(
+      '',
+      `**${i + 1}. curia asked** (\`${e.id}\`, ${e.kind}):`,
+      '',
+      ...quoteLines(e.prompt.text),
+      ...(e.prompt.cut ? ['', `*(cut here: the question ran to ${e.prompt.total} characters)*`] : []),
+      '',
+      '**The operator answered:**',
+      '',
+      ...quoteLines(e.answer.text),
+      ...(e.answer.cut ? ['', `*(cut here: the answer ran to ${e.answer.total} characters)*`] : []),
+      // The ✅ button's one word (#285). Read cold it looks like a non-answer,
+      // and an agent that read it that way would ask the round again — which
+      // is the failure this whole block exists to close.
+      ...(e.answer.text.trim() === ALL_AS_RECOMMENDED
+        ? ['', `*(\`${ALL_AS_RECOMMENDED}\` is the one-tap button: the operator took the recommendation on every question above.)*`]
+        : []),
+      // #34 sends an answer's images to the agent that asked, as tool-result
+      // content. A file cannot carry them, and a path into the daemon's own
+      // disk would be a dead link, so the count is what this says.
+      ...(e.attachments
+        ? ['', `*(the answer carried ${e.attachments} ${e.attachments === 1 ? 'image' : 'images'}, which this file cannot repeat)*`]
+        : []),
+    )
+  })
+
+  return lines
+}
+
 // Prompt file lives in the config dir, not the worktree.
 //
 // It supplies PARAMETERS, NOT PROCEDURE (#49 decision 2). Since #57 every agent
@@ -1288,7 +1408,7 @@ const researchParams = ({ repo, branch }) => [
 // has to mean for an instruction that decides what the whole session does.
 // The text is never shell-substituted — the spawn template reads this file with
 // `$(cat …)` — so it needs no quoting rules of its own.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false, instruction = null, ports = null, harness = 'claude' }) {
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false, instruction = null, ports = null, harness = 'claude', exchange = [] }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
   // An unknown harness would take the claude spelling of the invocation in
   // silence, which is the failure #173 exists to end. harnessDef throws on a
@@ -1416,12 +1536,17 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  by nothing outside this container, and `publish_preview` takes no other port.',
   ] : []
 
+  // #374: a prior answer IS a parameter of this dispatch, so it lands here and
+  // nowhere else. It goes LAST, after the fixed lines: those are a handful of
+  // facts an operator reads at a glance, and a long exchange above them would
+  // bury the ticket number under a conversation.
   const allParams = [
     `- The tracker is **GitHub**, repo \`${repo}\`, reached with the \`gh\` CLI. Do not fall back to a`,
     '  local-markdown tracker: this repo carries `docs/agents/issue-tracker.md`.',
     ...params,
     `- Your worktree is ${wtPath}, on branch \`${branch}\`.`,
     ...portLines,
+    ...exchangeBlock(exchange),
   ]
 
   const bounds = [

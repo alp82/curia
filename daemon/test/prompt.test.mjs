@@ -14,7 +14,10 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { writePrompt, branchFor, STANDING_FILE, memoryFileFor, seedConfigDir } from '../src/workspace.mjs'
+import {
+  writePrompt, branchFor, STANDING_FILE, memoryFileFor, seedConfigDir,
+  EXCHANGE_FIELD_CAP, EXCHANGE_BLOCK_CAP,
+} from '../src/workspace.mjs'
 import { ENDING } from '../src/lifecycle.mjs'
 
 const ISSUE = { number: 42, title: 'Close the loop', body: 'the question' }
@@ -397,5 +400,126 @@ describe('the two files (#340)', () => {
 
   test('a harness that names no memory file is refused', () => {
     assert.throws(() => memoryFileFor('gemini'), /no agent harness/)
+  })
+})
+
+// #374, decided at #344: `resume` handed a fresh agent the worktree and the
+// model and none of the exchange, so every question the operator had already
+// answered was asked again — and the wait is the expensive part.
+//
+// The cure is a PUSH. The daemon writes the recorded questions and answers into
+// the prompt's own parameters, because a prior answer IS a parameter of this
+// dispatch. The seven rules the operator settled are pinned one test each.
+describe('the inherited exchange (#374)', () => {
+  const ANSWERED = [
+    { id: 'esc-1', kind: 'free-text', prompt: 'which store holds the record?', answer: 'the journal', attachments: 0 },
+    { id: 'esc-4', kind: 'review-gate', prompt: 'is this done?', answer: 'no — the cap is missing', attachments: 0 },
+  ]
+
+  test('a first dispatch has no exchange, and the prompt says nothing about one', () => {
+    // The block is absent, not empty: an agent told "no answers are recorded"
+    // learns nothing and reads one more paragraph for it.
+    const p = write({ mapNumber: 1 })
+    assert.ok(!p.includes('already answered on this ticket'))
+    assert.equal(write({ mapNumber: 1, exchange: [] }), p)
+  })
+
+  test('question and answer both ride, verbatim and quoted', () => {
+    // Rule 2. An answer alone is unreadable — "the journal" says nothing
+    // without what was asked. Quoted, because the operator's own words can
+    // carry headings and lists that would otherwise read as this prompt's.
+    const p = write({ mapNumber: 1, exchange: ANSWERED })
+    assert.match(p, /> which store holds the record\?/)
+    assert.match(p, /> the journal/)
+    assert.match(p, /\*\*1\. curia asked\*\* \(`esc-1`, free-text\):/)
+  })
+
+  test('the block sits in the parameters, not in the standing orders', () => {
+    // A prior answer is a parameter of THIS dispatch (#340): it changes with
+    // every spawn, and the orders hold for the whole ticket.
+    const { prompt, standing } = writeParts({ mapNumber: 1, exchange: ANSWERED })
+    assert.match(prompt, /## What curia already did \(parameters, not procedure\)/)
+    assert.ok(prompt.includes('which store holds the record?'))
+    assert.ok(!standing.includes('which store holds the record?'))
+  })
+
+  test('the agent is told the answers are recorded, and what that costs it', () => {
+    // Rule 5, and the reason it matters: a recorded answer read as a fresh one
+    // is a stale ruling taken as this session's, and nobody sees it happen.
+    const p = write({ mapNumber: 1, exchange: ANSWERED })
+    assert.match(p, /RECORDED words, not a fresh reply/)
+    assert.match(p, /\*\*Do not ask any of them again\.\*\*/)
+    assert.match(p, /say so with `ask_human` rather than choosing between them yourself/)
+    assert.match(p, /It does not settle a near neighbour/)
+  })
+
+  test('the review gate rides along with the rest', () => {
+    // Rule 6. A gate REJECTION is the operator's own instruction, and today it
+    // dies with the agent that read it.
+    const p = write({ mapNumber: 1, exchange: ANSWERED })
+    assert.match(p, /\(`esc-4`, review-gate\)/)
+    assert.match(p, /> no — the cap is missing/)
+  })
+
+  test('the oldest question is written first, whatever the caller hands over', () => {
+    const p = write({ mapNumber: 1, exchange: ANSWERED })
+    assert.ok(p.indexOf('which store holds the record?') < p.indexOf('is this done?'))
+  })
+
+  test('an answer that carried images says so, and carries no path', () => {
+    // #34 sends an answer's images to the agent as tool-result content. A file
+    // cannot hold them, and a path into the daemon's disk would be a dead link.
+    const p = write({ mapNumber: 1, exchange: [{ ...ANSWERED[0], attachments: 2 }] })
+    assert.match(p, /the answer carried 2 images, which this file cannot repeat/)
+  })
+
+  test('a runaway question is cut per field, and says how long it really was', () => {
+    // Rule 4, first half: one enormous round must not eat the whole block.
+    const long = 'x'.repeat(EXCHANGE_FIELD_CAP * 3)
+    const p = write({ mapNumber: 1, exchange: [{ id: 'esc-9', kind: 'free-text', prompt: long, answer: 'ok', attachments: 0 }] })
+    assert.ok(!p.includes(long), 'the whole question reached the prompt')
+    assert.match(p, new RegExp(`cut here: the question ran to ${EXCHANGE_FIELD_CAP * 3} characters`))
+  })
+
+  test('a long history keeps the NEWEST answers, and says how many it dropped', () => {
+    // Rule 4, second half. The answers nearest the dead agent's last turn are
+    // the ones a resumed agent is about to re-ask, so those are what survive.
+    const many = Array.from({ length: 40 }, (_, i) => ({
+      id: `esc-${i + 1}`,
+      kind: 'free-text',
+      prompt: `question ${i + 1} `.padEnd(EXCHANGE_FIELD_CAP, 'q'),
+      answer: `answer ${i + 1} `.padEnd(EXCHANGE_FIELD_CAP, 'a'),
+      attachments: 0,
+    }))
+    const { prompt } = writeParts({ mapNumber: 1, exchange: many })
+    assert.ok(prompt.includes('question 40'), 'the newest question was dropped')
+    assert.ok(!prompt.includes('question 1 '), 'the oldest question survived a full block')
+    assert.match(prompt, /older answers are not shown here/)
+    // The cap bounds the operator's own words. The block itself is a little
+    // larger, because every entry carries a heading and every line a `> `.
+    const block = prompt.slice(prompt.indexOf('### What the operator has already answered'))
+    assert.ok(block.length < EXCHANGE_BLOCK_CAP * 1.2, `the block ran to ${block.length} characters`)
+  })
+
+  test('one surviving answer reads as one, not as "1 questions"', () => {
+    assert.match(write({ mapNumber: 1, exchange: [ANSWERED[0]] }), /These is one question an agent on this ticket asked/)
+  })
+
+  test('the one-tap answer is glossed, because cold it reads as no answer at all', () => {
+    // #285's ✅ button records one word. An agent meeting it for the first time
+    // could take it for a non-answer and ask the round again, which is exactly
+    // the wait this block exists to spare the operator.
+    const p = write({
+      mapNumber: 1,
+      exchange: [{ id: 'esc-7', kind: 'free-text', prompt: '1. reach?\nRecommended: every dispatch', answer: 'all-as-recommended', attachments: 0 }],
+    })
+    assert.match(p, /the operator took the recommendation on every question above/)
+    assert.ok(!write({ mapNumber: 1, exchange: ANSWERED }).includes('one-tap button'), 'an ordinary answer is not glossed')
+  })
+
+  test('a charting agent inherits its map exchange too', () => {
+    // A map session is `curia-<map>`, and it holds a conversation of its own.
+    const p = write({ mapNumber: 42, charting: true, exchange: ANSWERED })
+    assert.match(p, /> which store holds the record\?/)
   })
 })

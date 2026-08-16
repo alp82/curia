@@ -433,6 +433,14 @@ const APPROVE_RE = /^(approve|approved|lgtm)$/i
 export const CROSS_CHECK_ANSWER = 'cross-check'
 const CROSS_CHECK_RE = /^cross[- ]?check$/i
 
+// The round's own literal (#285), whose meaning `bridge.mjs` states where the
+// button is built. It sits here, beside the review gate's answers, because #374
+// gave it a second reader: an answer recorded on one dispatch is written into
+// the NEXT agent's prompt, and there this word needs a sentence of its own. A
+// fresh agent reading `all-as-recommended` cold could take it for a non-answer
+// and ask the round again, which is the failure #374 closes.
+export const ALL_AS_RECOMMENDED = 'all-as-recommended'
+
 export function classifyReviewAnswer(text) {
   const t = String(text ?? '').trim()
   if (APPROVE_RE.test(t)) return { approved: true, crossCheck: false, feedback: '' }

@@ -274,7 +274,7 @@ const USAGE = [
   '`map <n> [<instruction>]` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after the number is what it should change, with or without a `--` in front of it',
   '`map [repo] <instruction>` — dispatch a charting agent with NO map: it settles the destination with you and creates the `wayfinder:map` issue itself. The first word is the repo only when it names a watched one',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
-  '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree and the model it last ran on',
+  '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree, the model it last ran on, and every question you already answered on it',
   '`attach <n>` — timeline + browser-terminal links for a live agent',
   '`cancel chat-1` / `resume chat-1` / `attach chat-1` — the same three verbs on an agent no ticket answers for, such as one charting a NEW map. `status` lists its handle',
   '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
