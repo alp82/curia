@@ -7,7 +7,8 @@
 //
 //   1. Writes the per-owner git credential config (#313), so every clone and
 //      fetch the checkout pass of #312 runs reaches GitHub as the right owner's
-//      read-only token.
+//      read-only token. THE TURN WRITES IT AGAIN (#361): this pass is the boot
+//      report, and the live answer is the one beside the config re-read.
 //   2. Says out loud what this container holds — which owners are routed, which
 //      are not, and whether a model credential arrived. Every one of those
 //      failures otherwise surfaces hours later, inside a turn, where nothing
@@ -21,6 +22,12 @@
 // turn from the mounted `config/curia.yaml`, because the settings screen
 // rewrites the watch list and a turn must fetch what is watched NOW.
 //
+// NOTHING THIS CONTAINER READS FROM THE CONFIG IS HELD FROM BOOT (#361). The
+// watch list feeds two things, the checkout pass and the git routing above, and
+// both run per turn. What a turn cannot pick up is `daemon/.env.overseer`:
+// compose hands an env file over at container CREATE, so a token for an owner
+// this container never held needs that file edited and this service recreated.
+//
 // The environment comes from `daemon/.env.overseer`, which compose hands over
 // whole, and NEVER from `daemon/.env.daemon` — that file carries the agents'
 // read-write tokens and the Discord bot token, and a shell in this container
@@ -31,7 +38,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { checkoutsRootFor } from '../src/checkouts.mjs'
-import { installCredentialConfig, unroutedOwners } from '../src/overseercreds.mjs'
+import { installCredentialConfig, unroutedOwners, unroutedNote } from '../src/overseercreds.mjs'
 import { readOverseer, overseerHandler, PING_PATH } from '../src/overseerservice.mjs'
 import { turnRoute, TURN_PATH, overseerConfigDirFor, overseerHomeFor } from '../src/overseerturn.mjs'
 
@@ -54,9 +61,7 @@ const configDir = overseerConfigDirFor(cfg.dispatch.workspace_root)
 
 const routed = await installCredentialConfig(repos, { env: process.env })
 for (const { owner, key } of routed) log(`git routes ${owner}/* through ${key}`)
-for (const { owner, key } of unroutedOwners(repos, process.env)) {
-  log(`WARNING: no ${key} — every read of ${owner}/* runs with no credential, which reaches public repositories only`)
-}
+for (const o of unroutedOwners(repos, process.env)) log(`WARNING: ${unroutedNote(o)}`)
 
 // The model credential is the one host secret that enters this container
 // (ADR-0014), and it rides the same env file the tokens do. Absent, the turn
