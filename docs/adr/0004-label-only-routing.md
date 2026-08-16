@@ -18,6 +18,6 @@ Every dispatch picks a model, and subscription plans expose no clean remaining-q
 ## Consequences
 
 - The first ticket after an exhaustion eats one failed spawn before the fallback. Accepted.
-- Cooling state is an in-memory cache. A restart re-learns it.
+- Cooling outlives the daemon, and the two entry kinds do so differently. The daemon journals a landed cap with its reset, and it arms that hold again from the journal as it starts ([#377](https://github.com/alp82/curia/issues/377)). Nothing seeds a predicted hold, and the next reading makes it again ([#384](https://github.com/alp82/curia/issues/384)).
 - A local retry queue is rejected. It would be the two-writer drift [ADR-0001](0001-github-is-the-only-durable-state-home.md) exists to avoid.
 - A small classifier as a routing leaf is a possible later upgrade and changes nothing architecturally.
