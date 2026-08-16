@@ -157,6 +157,9 @@
   .att-item .opts { margin-top: 5px; font-size: 12.5px; color: var(--ink-dim); }
   .att-item.gate { border-left-color: var(--accent); background: var(--chip-ok-bg); }
   .att-item.limit { border-left-color: var(--bad); background: var(--chip-bad-bg); }
+  /* A credential that is dying reads as bad, not as a warning: nothing on this
+     page fixes it, and an agent meets it as a failed first `gh` call (#380). */
+  .att-item.token { border-left-color: var(--bad); background: var(--chip-bad-bg); }
 
   .prov-strip { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; margin-top: 14px; font-size: 12px; color: var(--ink-dim); }
   .prov { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -453,9 +456,16 @@ function ticketName(repo, ticket) {
 /* How many things want the operator. The nav badge, the tab title and the tile
    read one function, so they can never disagree. Usage limits are NOT counted:
    a spent window is on the attention list because it explains a slow box, but
-   nobody can answer it. */
+   nobody can answer it.
+
+   A credential warning IS counted (#380). The test is whether an operator act
+   ends it, which is exactly what separates it from a spent window: a window
+   rolls on its own clock, and a token that nobody mints stays dead and takes
+   every agent's first `gh` call with it. So the badge stays hot until the act
+   happens, which is the whole point of moving this off a log line. */
 function needsYou(o) {
-  return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0);
+  return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0)
+    + (o?.token_warnings?.length ?? 0);
 }
 
 /* ---- the operator verbs (#266) ----------------------------------------------
@@ -1027,10 +1037,29 @@ function gateCard(r) {
     ${said("esc:" + r.id)}</div>`;
 }
 
+/* A credential warning (#380). It sits above the spent windows because it is
+   the only item on this list nobody else will fix: a window rolls by itself,
+   and a token does not. The words are the daemon's own measurement — the days,
+   the instant and the act — so this composes no second account of them. */
+function tokenCard(w) {
+  const head = w.fault === "unreachable"
+    ? `cannot reach ${esc(w.repo)} — ${esc(w.message)}`
+    : (w.days <= 0
+      ? "has expired"
+      : `expires in ${esc(w.days)} day${w.days === 1 ? "" : "s"}`);
+  const act = w.fault === "unreachable"
+    ? `add ${esc(w.repo)} to the token on GitHub, or mint a new one into ${esc(w.where)}`
+    : `mint a new token into ${esc(w.where)}`;
+  return `<div class="att-item token">
+    <span class="who">${esc(w.key)}</span>${head}
+    <div class="dim">${esc(w.refusal)} — ${act}</div></div>`;
+}
+
 function attentionList(o) {
   const items = [
     ...(o.escalations ?? []).map(escCard),
     ...(o.review_gate ?? []).map(gateCard),
+    ...(o.token_warnings ?? []).map(tokenCard),
     ...spentWindows(o.usage).map((w) => `<div class="att-item limit">
       <span class="who">${esc(w.provider)}</span>the ${esc(w.label)} window is spent at ${esc(w.pct)}%
       <div class="dim">${w.at ? `it rolls at ${esc(clock(w.at))}` : "no reset instant is stated"}</div></div>`),
@@ -1099,6 +1128,14 @@ const EVENTS = {
   deploy_requested: ["deploy", "", (e) => `deploy ordered by ${esc(e.by)}`],
   deploy_landed: ["deploy", "", (e) => `deploy landed${e.next ? ` at ${esc(String(e.next).slice(0, 7))}` : ""}`],
   deploy_rolled_back: ["deploy", "bad", (e) => `deploy rolled back — ${esc(e.reason ?? "the health check failed")}`],
+  /* The credential watch (#380). The feed says what curia measured; the
+     Needs-you item beside it says the condition still stands. */
+  token_warned: ["credential", "bad", (e) => (e.fault === "unreachable"
+    ? `${esc(e.key)} cannot reach ${esc(e.repo)} — ${esc(e.message)}`
+    : `${esc(e.key)} ${e.days <= 0 ? "has expired" : `expires in ${esc(e.days)} day(s)`}`)],
+  token_cleared: ["credential", "", (e) => (e.fault === "unreachable"
+    ? `${esc(e.key)} reaches ${esc(e.repo)} again`
+    : `${esc(e.key)} is renewed`)],
   bridge_wedged: ["bridge", "bad", (e) => `the Discord bridge is wedged`],
   bridge_recovered: ["bridge", "", (e) => `the Discord bridge is back`],
   bridge_health: ["bridge", "", (e) => `bridge ${esc(e.previous)} → ${esc(e.state)} — ${esc(e.reason)}`],

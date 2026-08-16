@@ -104,3 +104,68 @@ describe('the pre-#184 journal reads as one vocabulary', () => {
     assert.equal('nudges' in open, false, 'the counter nothing read is gone from the record')
   })
 })
+
+// The credential warnings still standing (#380). A reduction rather than a
+// re-read, for the two reasons the coolings (#377) are one: the ladder must not
+// re-say at every boot what it already said, and the Needs-you item has to
+// survive the deploy that happens between the warning and the operator acting
+// on it.
+describe('the credential warnings survive the restart (#380)', () => {
+  const dir = () => tmpdir()
+  const warn = (over = {}) => ({
+    holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
+    days: 3, step: 3, said: true, where: 'daemon/.env.daemon', refusal: 'r', ...over,
+  })
+
+  test('a warning is read back after a boot, with what it said', () => {
+    const d = dir()
+    new EscalationStore(d).logEvent('token_warned', warn())
+    const [w] = new EscalationStore(d).standingTokenWarnings()
+    assert.equal(w.key, 'GH_TOKEN_ALP82')
+    assert.equal(w.step, 3)
+    assert.equal(w.said, true)
+  })
+
+  test('a tighter step replaces the entry rather than adding a second', () => {
+    const d = dir()
+    const store = new EscalationStore(d)
+    store.logEvent('token_warned', warn({ days: 10, step: 14 }))
+    store.logEvent('token_warned', warn({ days: 2, step: 3 }))
+    const back = new EscalationStore(d).standingTokenWarnings()
+    assert.equal(back.length, 1)
+    assert.equal(back[0].step, 3)
+  })
+
+  test('the expiry keys on the TOKEN, so a long watch list cannot repeat it', () => {
+    const d = dir()
+    const store = new EscalationStore(d)
+    store.logEvent('token_warned', warn({ repo: 'alp82/curia' }))
+    store.logEvent('token_warned', warn({ repo: 'alp82/aistack' }))
+    assert.equal(new EscalationStore(d).standingTokenWarnings().length, 1)
+  })
+
+  test('a reach failure keys on the token AND the repo', () => {
+    const d = dir()
+    const store = new EscalationStore(d)
+    const reach = { ...warn(), fault: 'unreachable', message: 'HTTP 404' }
+    store.logEvent('token_warned', { ...reach, repo: 'alp82/curia' })
+    store.logEvent('token_warned', { ...reach, repo: 'alp82/aistack' })
+    assert.equal(new EscalationStore(d).standingTokenWarnings().length, 2)
+  })
+
+  test('a clear removes it, and a restart does not hand it back', () => {
+    const d = dir()
+    const store = new EscalationStore(d)
+    store.logEvent('token_warned', warn())
+    store.logEvent('token_cleared', { holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring' })
+    assert.deepEqual(new EscalationStore(d).standingTokenWarnings(), [])
+  })
+
+  test('one key is read on its own, which is what the ladder asks', () => {
+    const d = dir()
+    const store = new EscalationStore(d)
+    store.logEvent('token_warned', warn())
+    assert.equal(store.tokenWarning('agent:GH_TOKEN_ALP82').step, 3)
+    assert.equal(store.tokenWarning('agent:GH_TOKEN_NOBODY'), null)
+  })
+})
