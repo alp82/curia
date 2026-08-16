@@ -19,8 +19,9 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import {
   TURN_PATH, TURN_EVENTS, OVERSEER_MCP_PATH, OVERSEER_CONTAINER_MODEL, CONTAINER_MAX_TURNS,
-  turnRoute, refuseTurn, checkoutNote, overseerConfigDirFor, overseerHomeFor,
+  turnRoute, refuseTurn, checkoutNote, credentialPass, overseerConfigDirFor, overseerHomeFor,
 } from '../src/overseerturn.mjs'
+import { unroutedNote } from '../src/overseercreds.mjs'
 import { OverseerClient, OverseerTurns, buildVerbMcpServer, serveVerbMcp } from '../src/overseerclient.mjs'
 import { overseerHandler } from '../src/overseerservice.mjs'
 import { VERB_TOOLS, VERB_SPECS, canonicalFor } from '../src/overseerverbs.mjs'
@@ -52,9 +53,11 @@ function sayingModel(text, { sessionId = 'sess-1', onOptions = () => {} } = {}) 
   }
 }
 
-// A running container: the real handler, on a real port.
-async function startContainer({ cfg, queryFn, sync, log = quiet }) {
-  const server = http.createServer(overseerHandler({ log, turn: turnRoute({ loadCfg: () => cfg, log, queryFn, sync }) }))
+// A running container: the real handler, on a real port. `creds` is stubbed by
+// default because the real pass writes the RUNNER's global git config (#361),
+// and a test that does not ask about routing must not touch it.
+async function startContainer({ cfg, queryFn, sync, creds = async () => [], log = quiet }) {
+  const server = http.createServer(overseerHandler({ log, turn: turnRoute({ loadCfg: () => cfg, log, queryFn, sync, creds }) }))
   await new Promise((r) => server.listen(0, '127.0.0.1', r))
   return { server, port: server.address().port, stop: () => new Promise((r) => server.close(r)) }
 }
@@ -278,6 +281,7 @@ describe('the container half: POST /turn (#314)', () => {
         },
         log: quiet,
         queryFn: sayingModel('ok'),
+        creds: async () => [],
         sync: async (_root, repos) => {
           seen.push(repos)
           return { root: 'x', at: 'now', removed: [], repos: repos.map((repo) => ({ repo, ok: true })) }
@@ -326,6 +330,90 @@ describe('the container half: POST /turn (#314)', () => {
       checkoutNote({ repos: [{ repo: 'a/b', ok: true }, { repo: 'c/d', ok: false }], removed: ['e__f'] }),
       'checkouts: 1/2 fetched · stale: c/d · pruned: e__f',
     )
+  })
+})
+
+// The git routing, re-read per turn (#361). The real `install` writes the
+// runner's own global git config, so every case below injects its own.
+describe('the git routing follows the watch list (#361)', () => {
+  const TOKENS = { CURIA_OVERSEER_GH_TOKEN_ALP82: 'tok_alp82' }
+
+  test('a routed watch list produces no note at all', async () => {
+    const seen = []
+    const notes = await credentialPass(['alp82/curia'], {
+      env: TOKENS,
+      install: async (repos) => { seen.push(repos) },
+    })
+    assert.deepEqual(notes, [])
+    assert.deepEqual(seen, [['alp82/curia']], 'the pass writes the routing for the repos it was handed')
+  })
+
+  test('an owner with no token is named with its key AND its file', async () => {
+    const [note, ...rest] = await credentialPass(['alp82/curia', 'newperson/bar'], {
+      env: TOKENS,
+      install: async () => {},
+    })
+    assert.equal(rest.length, 0, 'one note per unrouted owner, and alp82 is routed')
+    assert.match(note, /CURIA_OVERSEER_GH_TOKEN_NEWPERSON/)
+    assert.match(note, /daemon\/\.env\.overseer/, 'the key alone does not say where to put it')
+    assert.match(note, /newperson\/\*/)
+    // One composer, so this sentence cannot drift from the container's boot log.
+    assert.ok(note.endsWith(unroutedNote({ owner: 'newperson', key: 'CURIA_OVERSEER_GH_TOKEN_NEWPERSON' })))
+  })
+
+  test('a routing that will not install leaves the last good one and says so', async () => {
+    const notes = await credentialPass(['alp82/curia'], {
+      env: TOKENS,
+      install: async () => { throw new Error('git config: could not lock config file\nand more') },
+      unrouted: () => { throw new Error('unreachable: a failed install answers before this') },
+    })
+    assert.equal(notes.length, 1)
+    assert.match(notes[0], /could not lock config file/)
+    assert.ok(!notes[0].includes('and more'), 'one line, not a stack')
+    assert.match(notes[0], /last good pass/)
+  })
+
+  test('the turn re-routes on the watch list of THAT turn, and streams what it cannot route', async (t) => {
+    const root = tmpRoot('turn-creds')
+    const seen = []
+    let watched = ['alp82/curia']
+    const server = http.createServer(overseerHandler({
+      log: quiet,
+      turn: turnRoute({
+        loadCfg: () => cfgFor(root, watched),
+        log: quiet,
+        queryFn: sayingModel('ok'),
+        sync: okSync(watched),
+        creds: async (repos) => {
+          seen.push(repos)
+          return repos.includes('newperson/bar') ? ['⚠️ no CURIA_OVERSEER_GH_TOKEN_NEWPERSON'] : []
+        },
+      }),
+    }))
+    await new Promise((r) => server.listen(0, '127.0.0.1', r))
+    // Closed on the way out however this test ends. A listener left open by a
+    // failed assertion holds the event loop, and the runner then reports a file
+    // that hangs instead of the assertion that broke.
+    t.after(() => new Promise((r) => server.close(r)))
+    const port = server.address().port
+    const post = () => fetch(`http://127.0.0.1:${port}${TURN_PATH}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key: 'console-1', prompt: 'hi', mcp: { url: 'http://x/mcp' } }),
+    })
+    const first = await (await post()).text()
+    assert.ok(!/CURIA_OVERSEER_GH_TOKEN_NEWPERSON/.test(first), 'nothing to say while every owner is routed')
+
+    // The operator adds a repo of an owner this container holds no token for.
+    // No restart, no recreate: the next turn is what re-routes.
+    watched = ['alp82/curia', 'newperson/bar']
+    const second = await (await post()).text()
+    assert.deepEqual(seen, [['alp82/curia'], ['alp82/curia', 'newperson/bar']],
+      'the second turn routes the watch list as it stands NOW, not as the container booted')
+    const notes = second.trim().split('\n').map((l) => JSON.parse(l))
+      .filter((e) => e.event === TURN_EVENTS.note).map((e) => e.text)
+    assert.ok(notes.some((n) => /CURIA_OVERSEER_GH_TOKEN_NEWPERSON/.test(n)), 'the operator reads the cause, not only a failed fetch')
+    assert.ok(notes.some((n) => /checkouts:/.test(n)), 'the checkout verdict still lands beside it')
   })
 })
 
