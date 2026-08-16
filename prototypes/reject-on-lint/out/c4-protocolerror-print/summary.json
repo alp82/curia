@@ -1,0 +1,39 @@
+{
+  "name": "c4-protocolerror-print",
+  "carriage": "protocol-error",
+  "exit_code": 0,
+  "requests": 3,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "tool_names": [
+    "mcp__lintcheck__ask_human"
+  ],
+  "variant": "print",
+  "rejection_carried_in": [
+    {
+      "request": 2,
+      "item_type": "custom_tool_call_output"
+    },
+    {
+      "request": 3,
+      "item_type": "custom_tool_call_output"
+    }
+  ],
+  "rejection_item": {
+    "type": "custom_tool_call_output",
+    "id": "ctco_01a00ae7-ab2c-7aa2-8841-9504369f511a",
+    "call_id": "call_1",
+    "output": [
+      {
+        "type": "input_text",
+        "text": "Script completed\nWall time 0.0 seconds\nOutput:\n"
+      },
+      {
+        "type": "input_text",
+        "text": "tool returned: {\"content\":[{\"type\":\"text\",\"text\":\"tool call error: tool call failed for `lintcheck/ask_human`\\n\\nCaused by:\\n    Mcp error: -32602: REJECTED: the prompt fails the voice rules.\\n    1. In headline: remove the em-dash. Write two sentences, or use a normal dash. Found 1.\\n    2. In prompt: remove the semicolon. Write two sentences. Found 1.\\n    3. In prompt: expand every contraction: We're, it's.\\n    4. In prompt: split this sentence. It has 40 words and the cap is 20: \\\"We're deciding the rewrite cap and it's a real tradeoff; a cap of 3 ends a stuck loop soon\\\"\\n    Rewrite the prompt yourself and call ask_human again. Keep every option and every constraint.\"}],\"isError\":true}"
+      }
+    ]
+  },
+  "codex_log_tail": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/reject-on-lint/c4-protocolerror-print/codex\"))\nReading additional input from stdin...\nOpenAI Codex v0.146.0\n--------\nworkdir: /tmp/reject-on-lint/c4-protocolerror-print/cwd\nmodel: gpt-5.6-sol\nprovider: fake\napproval: never\nsandbox: danger-full-access\nreasoning effort: none\nreasoning summaries: none\nsession id: 01a00ae7-a9bd-7052-9ebd-e518eeb647d4\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator whether the rewrite cap should be 3 or 5.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ntool call error: tool call failed for `lintcheck/ask_human`\n\nCaused by:\n    Mcp error: -32602: REJECTED: the prompt fails the voice rules.\n    1. In headline: remove the em-dash. Write two sentences, or use a normal dash. Found 1.\n    2. In prompt: remove the semicolon. Write two sentences. Found 1.\n    3. In prompt: expand every contraction: We're, it's.\n    4. In prompt: split this sentence. It has 40 words and the cap is 20: \"We're deciding the rewrite cap and it's a real tradeoff; a cap of 3 ends a stuck loop soon\"\n    Rewrite the prompt yourself and call ask_human again. Keep every option and every constraint.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nstub turn 3: done\ntokens used\n6\nstub turn 3: done\n"
+}

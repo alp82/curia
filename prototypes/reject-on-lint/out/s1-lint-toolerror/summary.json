@@ -1,0 +1,22 @@
+{
+  "name": "s1-lint-toolerror",
+  "carriage": "tool-error",
+  "policy": "lint",
+  "model": "opus",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "accepted_on_call": 2,
+  "distinct_prompts": 2,
+  "tool_result_is_error": [
+    false,
+    true,
+    false
+  ],
+  "num_turns": 4,
+  "cost_usd": 0.104789,
+  "result_subtype": "success",
+  "final_text": "I asked the operator via `ask_human`. What came back:\n\n- **First call was rejected.** The tool returned a voice-rules error: remove the em-dashes (2 found) and expand the contraction `can't`.\n- **Second call was accepted.** I rewrote the prompt using colons instead of em-dashes and \"cannot\" instead of \"can't\", keeping both options and both consequences. The tool returned: `ACCEPTED. The human reads it now.`\n\nNote that the tool has not returned an actual answer — only confirmation that the prompt passed the voice check and is now in front of the operator. I do not have a choice of 3 or 5 to report yet.",
+  "stderr": ""
+}

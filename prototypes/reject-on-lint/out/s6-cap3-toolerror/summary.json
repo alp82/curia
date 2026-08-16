@@ -1,0 +1,25 @@
+{
+  "name": "s6-cap3-toolerror",
+  "carriage": "tool-error",
+  "policy": "cap:3",
+  "model": "opus",
+  "exit_code": 0,
+  "tool_calls": 4,
+  "rejected": 3,
+  "accepted": 1,
+  "accepted_on_call": 4,
+  "distinct_prompts": 4,
+  "tool_result_is_error": [
+    false,
+    true,
+    true,
+    true,
+    false,
+    true
+  ],
+  "num_turns": 7,
+  "cost_usd": 0.15277349999999998,
+  "result_subtype": "success",
+  "final_text": "I asked the question, but **no answer came back from the operator.**\n\nWhat happened:\n\n1. **Attempt 1** — rejected: em-dashes, a contraction (`can't`), and a 25-word sentence over the 20-word cap.\n2. **Attempt 2** — rewrote with no em-dashes, no contractions, short sentences. Rejected: \"the wording is still not plain enough. Say it in shorter words.\"\n3. **Attempt 3** — cut it to the bone. Rejected with the identical message, and this exhausted the retry cap.\n4. **Attempt 4** — the tool returned: *\"SENT WITH A LINT WARNING. The retry cap is used up, so curia sent your text as it stands. The operator sees a warning that it failed the voice check. Do not call ask_human again for this question.\"*\n\nSo the final text that reached the operator was:\n\n> curia caps how many times an agent may redo a message that was turned down. Should the cap be 3 or 5?\n>\n> Option A, a cap of 3. A stuck loop ends sooner.\n>\n> Option B, a cap of 5. The agent gets more room to fix its own text.\n>\n> Do you want 3 or 5?\n\nBoth options and both consequences survived intact, but it was delivered flagged as failing the voice check, and the tool gave me no operator response to report. The 3-vs-5 question is still unanswered.\n\nOne observation worth flagging: attempts 2 and 3 were rejected with the same generic message (\"say it in shorter words\") and no indication of which words were the problem, so there was no signal to act on between those tries — the loop was unwinnable in practice. That is itself a data point for the very question being asked: a higher cap would not have helped here, since the feedback was not specific enough to converge on.\n\nI did not write anything to memory — the lint rules I inferred are guesses from three data points, and two of the three rejections gave no actionable detail, so recording them risks encoding something wrong.",
+  "stderr": ""
+}

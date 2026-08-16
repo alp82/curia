@@ -1,0 +1,22 @@
+{
+  "name": "s2-lint-oktext",
+  "carriage": "ok-text",
+  "policy": "lint",
+  "model": "opus",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "accepted_on_call": 2,
+  "distinct_prompts": 2,
+  "tool_result_is_error": [
+    false,
+    false,
+    false
+  ],
+  "num_turns": 4,
+  "cost_usd": 0.1117195,
+  "result_subtype": "success",
+  "final_text": "The question went through on the second attempt.\n\n**First call was rejected** by the lint layer, not by the operator. Three violations in my prompt: two em-dashes, one contraction (`can't`), and a 25-word sentence against a 20-word cap.\n\n**Second call was accepted.** The prompt I sent:\n\n> curia limits how many times an agent may rewrite a message that was rejected. Which cap should we use?\n>\n> Option A is a cap of 3. This ends a stuck loop sooner. An agent that cannot fix its text fails fast instead of burning turns.\n>\n> Option B is a cap of 5. This gives the agent more room to fix its own text before the attempt is abandoned.\n>\n> Which do you want: 3 or 5?\n\n**What the tool said back, verbatim:** `ACCEPTED. The human reads it now.`\n\nSo the tool confirmed delivery but returned no answer — the operator has not chosen between 3 and 5 yet. If you want the decision itself, the tool call needs to be made again once they have responded, or I can re-ask.",
+  "stderr": ""
+}

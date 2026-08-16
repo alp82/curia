@@ -1,0 +1,16 @@
+{
+  "name": "c5-oktext-discard",
+  "carriage": "ok-text",
+  "exit_code": 0,
+  "requests": 3,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "tool_names": [
+    "mcp__lintcheck__ask_human"
+  ],
+  "variant": "discard",
+  "rejection_carried_in": [],
+  "rejection_item": null,
+  "codex_log_tail": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/reject-on-lint/c5-oktext-discard/codex\"))\nReading additional input from stdin...\nOpenAI Codex v0.146.0\n--------\nworkdir: /tmp/reject-on-lint/c5-oktext-discard/cwd\nmodel: gpt-5.6-sol\nprovider: fake\napproval: never\nsandbox: danger-full-access\nreasoning effort: none\nreasoning summaries: none\nsession id: 01a00ae8-ccdc-7551-807e-404a103b6af0\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator whether the rewrite cap should be 3 or 5.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nstub turn 3: done\ntokens used\n6\nstub turn 3: done\n"
+}

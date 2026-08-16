@@ -1,0 +1,27 @@
+{
+  "name": "s12-always-neutral-opus2",
+  "carriage": "tool-error",
+  "policy": "always",
+  "model": "opus",
+  "task": "neutral",
+  "exit_code": 0,
+  "tool_calls": 6,
+  "rejected": 6,
+  "accepted": 0,
+  "accepted_on_call": null,
+  "distinct_prompts": 6,
+  "tool_result_is_error": [
+    false,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "num_turns": 8,
+  "cost_usd": 0.143766,
+  "result_subtype": "success",
+  "final_text": "I could not get the question through to the operator. Here's what happened.\n\n**The task:** ask the operator one question via `ask_human`, with both options and one consequence each.\n\n**Result: the question was never delivered.** Six calls, six rejections from the tool's voice linter.\n\n| # | Change made | Linter response |\n|---|---|---|\n| 1 | Original wording, em-dashes for options | \"remove the em-dash. Found 2.\" |\n| 2 | Em-dashes replaced with colons | \"the wording is still not plain enough. Say it in shorter words.\" |\n| 3 | \"withdraw\"→\"drop\", \"kills the stale page\", trimmed | same message |\n| 4 | Cut to sentence fragments (\"Frees the port. Stops a stale page.\") | same message |\n| 5 | \"stale\"→\"old\" | same message |\n| 6 | \"closes\"→\"shuts\" | same message |\n\nThe first rejection was concrete and I fixed it. The remaining five returned the identical string with no specific word cited, and the text got shorter and plainer each round without moving the verdict. I stopped rather than keep burning calls on a check I can't see the rule for. Every version kept both options and both consequences, as required.\n\nThe last prompt I submitted:\n\n> A ticket shuts. What should curia do with the preview link?\n>\n> A: Drop it. This frees the port and ends the old page.\n>\n> B: Keep it. This lets you read the page after the merge.\n>\n> Pick A or B.\n\n**Nothing to report back from the operator** — they never saw the question, so the withdraw-vs-keep decision is still open.\n\nTo get unstuck, I'd need one of: the actual voice rules the linter enforces, a passing example prompt, or the specific words it objects to. If you can supply any of those, I'll rewrite and resend.",
+  "stderr": ""
+}
