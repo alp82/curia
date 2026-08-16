@@ -105,7 +105,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { findTranscript } from './transcript.mjs'
+import { findTranscript, transcriptForSession, firstPrompt } from './transcript.mjs'
 import { providerOf } from './routing.mjs'
 
 // A transcript grows to megabytes and only its tail carries the live numbers.
@@ -769,14 +769,25 @@ export function modelName(model, spec, stated = null) {
 // Everything the status line can say about one agent beyond its state. Every
 // field is independently nullable — a missing source drops its meter, never the
 // line.
-export function agentMeters({ harness, cfgDir, model, routing, account, models, now = Date.now() }) {
+//
+// `transcript` names the file to read (#332, building ADR-0016). OMIT it for an
+// AGENT: curia gives every agent its own config dir, so the newest file in that
+// dir is the agent's live run. PASS it for a CONVERSATION, resolved with
+// transcript.transcriptForSession — every overseer conversation shares one
+// config dir, so only the session id its key is bound to names its file. Null
+// there is a conversation with no turn yet, and it reads NOTHING: the last
+// conversation's percent is the defect this argument exists to end, not a
+// fallback. ADR-0016 makes this meter the one signal that a conversation is
+// getting long, so a number about another conversation cannot carry the job.
+export function agentMeters({ harness, cfgDir, model, routing, account, models, transcript, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = {
     model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
   }
   if (!harness || !cfgDir) return out
 
-  const { ctx, windows } = readTranscriptMeters(harness, findTranscript(harness, cfgDir), now)
+  const file = transcript === undefined ? findTranscript(harness, cfgDir) : transcript
+  const { ctx, windows } = readTranscriptMeters(harness, file, now)
   // The transcript's own word beats the config's, exactly as it does for the
   // window on the line below.
   out.model = modelName(model, spec, ctx?.model)
@@ -830,6 +841,54 @@ export function ctxOnWire(read) {
     return { ctx_pct: null, ctx_over: false }
   }
   return { ctx_pct: m?.ctxPct ?? null, ctx_over: Boolean(m?.ctxOver) }
+}
+
+// ---- the browser conversations, on the wire (#333, ADR-0016) ---------------
+//
+// What `GET /console` says about every browser conversation. It sits beside
+// `ctxOnWire` because it is the same act one level up: the context percent is
+// the reason a row is worth reading a transcript for, and one conversation must
+// not be measured two ways on two surfaces either.
+//
+// The Chat screen is the one surface that draws this, so it is its own route
+// rather than a section of `GET /overview`. Two reasons, and both are cost: the
+// list grows for as long as the operator keeps conversations, and a row costs a
+// transcript read. A section on the poll every screen shares would make
+// watching Home more expensive with every chat ever opened.
+//
+// ADR-0016 adds no warning that a conversation is long. The context percent IS
+// the signal, and #332 is what made it true per conversation, so a picker
+// without it would leave the operator picking blind.
+//
+// `sessionIdFor(key)` is the journalled binding — the daemon passes
+// `store.overseerSession`. Every conversation shares one config dir, so only
+// that id names a conversation's own file.
+export function consoleConversationsOnWire({
+  conversations, sessionIdFor, harness, cfgDir, model, routing, account, models, now = Date.now(),
+}) {
+  return conversations.map((c) => {
+    const file = harness ? transcriptForSession(harness, cfgDir, sessionIdFor(c.key) ?? null) : null
+    // The file's own mtime is when this conversation last wrote, which is the
+    // one honest answer: the journalled binding is rewritten every turn, so it
+    // dates the turn's START, and a long turn would date the row wrong.
+    let lastTurnAt = null
+    if (file) {
+      try { lastTurnAt = new Date(fs.statSync(file).mtimeMs).toISOString() } catch { lastTurnAt = null }
+    }
+    return {
+      key: c.key,
+      session: `curia-${c.key}`,
+      opened_at: c.opened_at ?? null,
+      last_turn_at: lastTurnAt,
+      // The row's label: what the operator opened this conversation with. Null
+      // for one with no turn yet, and the page falls back to the key.
+      label: file ? firstPrompt(harness, file) : null,
+      // A conversation with no turn yet has no file, and `agentMeters` then
+      // reads NOTHING rather than falling back to whoever answered last
+      // (#332). The percent is null, which the page prints as "—", never 0%.
+      ...ctxOnWire(() => agentMeters({ harness, cfgDir, model, routing, account, models, transcript: file, now })),
+    }
+  })
 }
 
 // Ordered most valuable first: the status line appends what fits and drops the

@@ -95,6 +95,7 @@ The console is a **separate process**, `bin/curia-dashboard.mjs`, in its own com
 - **The second gate on a write.** The identity header proves whose browser a request is, never which page told it to call — Serve stamps the operator's login on a `fetch` from any origin. So a POST must also carry an `Origin` this surface answers to, and any `Sec-Fetch-Site` other than `same-origin` is refused. The sidecar composes its own call to the daemon from a route it names in code and forwards no browser header, which is what keeps it on the daemon's side of that gate.
 - **The poll.** `dashboard.poll_interval_s` (5) is a ceiling, not a clock. The sidecar re-reads only when a page asks and its snapshot is older than that, so many tabs cost one read and a hidden tab — which stops asking — costs none. One read costs no journal read at all (#289): what the overview says about the recent past is reduced in memory as events are written, so the price of a poll does not rise with the history.
 - **The page.** `assets/dashboard.html`, carrying the `curia-dashboard` proto stamp #70's rule requires. The read screens landed on #264 and the settings on #265. The verbs land on #266 and the chat on #267.
+- **The chat, and the picker in front of it (#267, #333).** The console draws no chat of its own. It pipes `/chat`, `/events`, `/send`, `/draft` and `/key` straight to the daemon's timeline, headers unchanged in both directions, so the timeline applies the #151 check to the evidence the browser actually sent. What the console DOES draw is the Chat screen: the picker over the browser conversations of [ADR-0016](../docs/adr/0016-the-conversation-key.md). It reads `GET /api/console` on arrival rather than on the poll, because a row costs the daemon a transcript read and the other screens have no use for it. Each row carries the conversation's own context percent, which ADR-0016 makes the one signal that a conversation is getting long. `POST /api/console/new` mints one and `POST /api/console/delete` forgets one. Neither is a verb: the operator catalogue has no word for a browser conversation, so there is nothing for `/command` to carry.
 - **The save banner.** Two phases, at the top of the settings screen. Save writes the file. The daemon goes on running the config it booted with, and the banner says so until the restart — which is the loud button in phase two — applies it.
 
 ### The identity check (#151, [ADR-0011](../docs/adr/0011-tailscale-identity-in-front-of-every-attach-surface.md))
@@ -252,6 +253,57 @@ Dispatch also asserts the tracker prerequisite: a **map child** whose worktree c
 `data/events.jsonl` is the only durable artifact — an append-only journal; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map is ephemeral (#9); ticket→thread bindings live in the journal (#93); a restart loses only the in-process agent call (accepted re-dispatch posture, #11/#12). The store reads the file whole exactly once, at boot, and every append after it passes the same reducer — so a surface that answers about the recent past reads the reduction and never the file (#289). The dispatcher still scans the file for the epoch questions reconcile and the Stop hook ask.
 
 Supersede (#29): a re-issued `ask_human` (same agent + same payload while an older escalation is open) closes the old record, strips its buttons in Discord, and routes late answers to the live successor.
+
+### Reading the journal
+
+Today the operator debugs with `grep` and `tail -f` on `data/events.jsonl`.
+
+**Decided and not built.** The journal becomes a `node:sqlite` store ([ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md)), and the JSON lines retire. Curia then builds no reader. It writes no text file beside the store, and it ships no command-line wrapper. The operator opens a read-only SQLite shell and types SQL. The decision is [What stays greppable (#320)](https://github.com/alp82/curia/issues/320), and the column names below are the requirement it puts on the schema ticket, [#321](https://github.com/alp82/curia/issues/321).
+
+Open the shell:
+
+```sh
+docker compose -f /home/alp/curia/deploy/compose.yaml run --rm --no-deps daemon \
+  sqlite3 -readonly -box /home/alp/curia/daemon/data/events.db
+```
+
+Two flags carry a reason. `--no-deps` is required, because a compose command that recreates the `tmux` service kills every live agent. `run` and not `exec`, because `run` still works while the daemon is down, and that is when a post-mortem happens.
+
+The image carries `sqlite3` because the ADR-0017 backup needs it. The host copy is not used. Ubuntu 20.04 packages SQLite 3.31, which cannot open a STRICT table.
+
+Five queries answer most of what the old `grep` answered:
+
+```sql
+-- what happened to one ticket
+select ts,type,ticket,agent from events where ticket=320 order by id;
+
+-- the last thirty events
+select ts,type,ticket,agent from events order by id desc limit 30;
+
+-- one whole line, exactly as curia wrote it
+select body from events where id=4711;
+
+-- the census, by type
+select type,count(*) from events group by type order by 2 desc;
+
+-- how one agent ended
+select ts,type,body from events where agent='curia-320' order by id desc limit 10;
+```
+
+`tail -f` has no equivalent in SQL, so the live watch is a poll:
+
+```sh
+watch -n2 'docker compose -f /home/alp/curia/deploy/compose.yaml exec -T daemon \
+  sqlite3 -readonly -box /home/alp/curia/daemon/data/events.db \
+  "select ts,type,ticket,agent from events order by id desc limit 30"'
+```
+
+`exec` here, and not `run`. A dead daemon produces nothing to watch.
+
+Two facts make this work.
+
+- **A read-only reader opens a hot WAL.** Measured for #320: a writer killed mid-write left a `-wal` and a `-shm` behind, and a read-only connection then read every committed row back. It fails only when the data directory is not writable and no `-shm` file exists. Curia's data directory is writable, so a crash does not lock the operator out.
+- **The columns carry today's spelling, and `body` carries the line as written.** [#184](https://github.com/alp82/curia/issues/184) renamed the worker to the agent, and older lines still spell it `"worker"`. The schema normalizes on the way in, so `where agent='curia-170'` finds those lines too.
 
 ## Blocking for hours (#34)
 

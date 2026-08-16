@@ -19,6 +19,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [landscape-scan.md](landscape-scan.md) | Sweep of daemons, bridges, orchestrators, and muxes | Informational — found no replacement candidates |
 | [matt-pocock-skills.md](matt-pocock-skills.md) | The Pocock skill set as worker procedure grammar | Adopted — ADR-0006 vendors the set at `skills/` and installs it into worker configs |
 | [multica.md](multica.md) | Multica as an orchestrator and tracker candidate | Rejected — its Postgres is the tracker, which ADR-0001 forbids |
+| [node-sqlite-guarantees.md](node-sqlite-guarantees.md) | Durability, operation, maturity, and write cost for `node:sqlite` on Node 24 | Informational - grounds the journal store decisions on [The journal becomes a queryable store](https://github.com/alp82/curia/issues/316) |
 | [openacp.md](openacp.md) | OpenACP as a Discord bridge and agent daemon | Rejected — ADR-0002 keeps it as a design reference only |
 | [openacp-handson.md](openacp-handson.md) | Building and booting the OpenACP fork bridge | Superseded — refines [openacp.md](openacp.md); vendoring was rejected |
 | [orca.md](orca.md) | Orca as a multi-device attach worker host | Rejected — benched; ADR-0003 picks tmux + ttyd + Tailscale |
@@ -30,4 +31,5 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [phone-attach.md](phone-attach.md) | tmux + ttyd + Tailscale browser terminal for phone attach | Adopted — this is ADR-0003's shipped worker host stack |
 | [pi.md](pi.md) | pi as a minimal embeddable worker runtime | Rejected — worker only; Claude Code in tmux shipped instead |
 | [pi-handson.md](pi-handson.md) | pi driven live via SDK, RPC, and pi-acp | Superseded — refines [pi.md](pi.md); the pi lane never shipped |
+| [tool-channel-mid-session.md](tool-channel-mid-session.md) | What a harness does when the daemon dies under it | Adopted — the channel survives a restart, so [#341](https://github.com/alp82/curia/issues/341) put the waits into the retry rule |
 | [worker-two-channels.md](worker-two-channels.md) | Side-channel driving plus human PTY attach | Adopted — the daemon never parses scrollback; underpins ADR-0005 |

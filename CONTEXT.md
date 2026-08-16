@@ -101,6 +101,11 @@ Merged. A ticket counts as resolved only when a human approved the work and the 
 **Dispatch**:
 The ordered act: claim, prepare, spawn. A failure before the spawn releases the claim.
 
+**Auto-dispatch**:
+The `dispatch.auto_dispatch` flag. The dispatch tick runs either way, because the liveness sweep rides it. While the flag is true, that same tick also starts takeable tickets, the map lane first, up to `max_concurrent`. It ships false, so the operator's press is the only door from a ticket to an agent.
+It is also the only door a clock could use. curia refuses scheduled tickets for that reason: a schedule that files one is auto-dispatch with a calendar in front of it. The demand behind the idea is a watch, not a clock. A watch states one event at its own instant, where the operator reads it. See [#345](https://github.com/alp82/curia/issues/345).
+_Avoid_: scheduler, cron.
+
 **Routing rule**:
 The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<type>` default table. No intelligence sits in the dispatch path. `wayfinder:map` is a row in that table like any other type.
 
@@ -121,13 +126,20 @@ A temporary hold on a model or provider after a usage-limit signal, until the st
 The instant a cooling ends. Two surfaces state it, and curia reads both: the anthropic pane text carries an epoch beside the reached-text, and the codex transcript carries `resets_at` beside the rate-limit window that is spent. A cap is account-level, so any live agent on that provider states it for the harness. With neither surface stating one, cooling holds for one hour.
 
 **Exhaustion**:
-The state where every candidate model is cooling. The frontier stays the queue, and a wake timer fires at the earliest reset.
+The state where every candidate model is cooling. The frontier stays the queue, and a wake timer fires at the earliest reset. Exhaustion that stops a LIVE agent also arms a limit resume.
+
+**Limit resume**:
+The dispatch curia owes a ticket its own cooling stopped. Exhaustion kills the agent and releases the claim, and the worktree stands, so the resume is `resume` and never `start`: `start` recreates the worktree from origin and takes every uncommitted file with it. It is not gated on `auto_dispatch`, because that setting decides whether curia takes NEW work off the frontier and this puts back work the operator already ordered. A reviewer gets none, because the builder has already been told the reviewer ended. One arm buys one attempt, and a resume that walks back into the cap arms again from the fresh reset. The arm is journalled, so a daemon restart inside the window does not lose it. The thread carries the promise with the exhaustion and the outcome at the reset, and it says so when the resume cannot be made.
 
 **Overseer**:
 The command brain of curia. The standing design is one brain with three skins (Discord, text, voice). The shipped daemon uses a deterministic router instead.
 
 **Overseer service**:
-The container that hosts the overseer. One long-lived service beside the dashboard. It is never a pane and never one container per conversation, because the overseer is not shaped like an agent: it holds many conversations at once and it has no screen. See [ADR-0015](docs/adr/0015-the-overseer-is-a-service.md).
+The container that hosts the overseer. One long-lived service beside the dashboard. It is never a pane and never one container per conversation, because the overseer is not shaped like an agent: it holds many conversations at once and it has no screen. It runs its own image, built from `deploy/overseer/Dockerfile`, which carries git, gh and a reading shell and no build toolchain — so the overseer reads every watched repo and runs no test suite. It is the one service off the host network: a shell in it reaches the daemon at `host.docker.internal` and no other surface on the box, and the daemon reaches it on one published loopback port. Compose owns its liveness, and the daemon only health-checks it. See [ADR-0015](docs/adr/0015-the-overseer-is-a-service.md) and [#327](https://github.com/alp82/curia/issues/327).
+
+**Standing orders**:
+The text the overseer model reads before every turn, plus the tool list that agrees with it. One function writes both, in `daemon/src/overseerprompt.mjs`, and a flag picks the posture: no shell for the in-daemon host, a shell for the overseer service. The shell posture states where the overseer checkouts are, that the checkout pass fetched them once before this turn, and that the overseer token cannot write. It is composed per turn, because the checkout path holds the workspace root and the watch list changes. It STATES the posture and enforces none of it, because a standing order cannot hold a shell. What enforces the posture is four controls: the read-only overseer token, the container, the ✅/❌ confirm on `cancel`, and the tool list. The rest are manners, and a shell undoes each in one command. The text never marks that difference itself, because a line naming an unenforced rule is a line hostile text can quote back. See [ADR-0014](docs/adr/0014-the-overseer-in-its-own-container.md) and [#328](https://github.com/alp82/curia/issues/328).
+_Avoid_: system prompt (that names one of the two things this word covers, and the tool list is the other half).
 
 **Conversation**:
 One thread's exchange with the overseer. The daemon holds its state, so a conversation outlives the container that answers it. Every top-level Discord message opens a thread and starts a new conversation. The browser holds many of its own, and a new one is how the operator resets. Nothing expires a conversation on a timer. See [ADR-0016](docs/adr/0016-the-conversation-key.md).
@@ -138,7 +150,7 @@ The identity of one conversation. It keys the resume id, the notes waiting for t
 _Avoid_: thread id (that names the Discord object, and only one shape of key is one).
 
 **Single-use conversation thread**:
-The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. Charting a map through the overseer breaks this today and opens two threads. [#326](https://github.com/alp82/curia/issues/326) owns the fix.
+The rule that a conversation thread carries one thing. Work dispatched from a conversation takes over that same thread, renamed on purpose, rather than opening a second thread beside it. One exception stands: an issuing thread that already carries another ticket sends the work elsewhere, and breadcrumbs link both ends. The thread stays bound to the name the dispatch ran under for the whole session, so every line the agent says lands in it. curia charts a new map under a chat handle. The map number takes that thread through the journal when the session ends. See [#326](https://github.com/alp82/curia/issues/326).
 
 **Turn**:
 One operator message, answered. It is the unit the overseer works in, and nothing of the overseer runs between turns. One turn at a time per conversation, and no cap across conversations.
@@ -152,7 +164,7 @@ _Avoid_: private clone (that is an agent's, per ticket, and it is a place to com
 What the overseer container runs at the start of every turn, before the model: clone every watched repo that is missing, delete the clone of one nobody watches, and fetch the rest in parallel. It is the whole reason every read inside one turn is consistent. The daemon asserts nothing about this tree. A repo whose fetch fails does not refuse the turn — the pass returns a verdict per repo, and the turn tells the model which checkout is stale and how old it is.
 
 **Overseer token**:
-The read-only GitHub token the overseer container holds, one fine-grained PAT per resource owner. It is the control that replaces the seam: the container has a shell, and a shell cannot mint a token. It lives in `daemon/.env.overseer` as `CURIA_OVERSEER_GH_TOKEN_<OWNER>`, a second env file the overseer service loads whole and the daemon only reads. See [ADR-0014](docs/adr/0014-the-overseer-in-its-own-container.md) and the [live checks](docs/live-checks/313-overseer-github-token.md).
+The read-only GitHub token the overseer container holds, one fine-grained PAT per resource owner. It is the control that replaces the seam: the container has a shell, and a shell cannot mint a token. It lives in `daemon/.env.overseer` as `CURIA_OVERSEER_GH_TOKEN_<OWNER>`, a second env file the overseer service loads whole and the daemon only reads. Each tool picks its owner differently, so the container installs two halves: git takes one `credential.https://github.com/<owner>.helper` line per owner, and `gh` takes a shim, because it reads a single `GH_TOKEN`. See [ADR-0014](docs/adr/0014-the-overseer-in-its-own-container.md) and the [live checks](docs/live-checks/313-overseer-github-token.md).
 _Avoid_: agent token (that one is per resource owner too, but it is read-write and it reaches an agent as `GH_TOKEN`).
 
 **The verbs**:
@@ -192,13 +204,16 @@ One of the three loopback ports an agent's container publishes, the same number 
 The agent's private config home for its harness. It holds the prompt, the skills, the harness settings, and on the claude path nothing else. It holds no credentials.
 
 **Tool namespace**:
-The MCP servers an agent can reach: curia's own, and nothing else. Two settings keys in the config dir hold that line. One stops the fetch of the operator's account-level claude.ai connectors, which follow the shared credential rather than the config dir. The other admits curia's server alone.
+The MCP servers an agent can reach: curia's own, and nothing else. Two settings keys in the config dir hold that line. One stops the fetch of the operator's account-level claude.ai connectors, which follow the shared credential rather than the config dir. The other admits curia's server alone. The line is closed by decision as well as by settings: a read-only MCP history server was proposed and refused (#344). History that ever reaches an agent arrives as tools on curia's own server, or it does not ship.
 
 **Skills**:
 The skill set curia symlinks into every agent's config dir, so an agent resolves in the same idiom as a hand session.
 
 **Standing orders**:
-The spawn prompt: parameters and bounds, not procedure. Procedure lives in the installed skills.
+The bounds, the tools and the ending: what holds for every turn of a ticket, not procedure. Procedure lives in the installed skills. They ride the CLI's global-memory file in the agent's config dir, because both harnesses load that file as instructions and a user message goes stale (#340).
+
+**Spawn prompt**:
+The parameters of one dispatch: the ticket, the map, the worktree, the ports, and the line that invokes the skill. It states no bound and no procedure, and it points at the standing orders.
 
 **Bounds**:
 The hard limits in the standing orders. Read anything. Write only inside the worktree, the ticket, and the map subtree. No browser. Never answer for the human. A failed call is not an answer, and silence is not an answer.
@@ -217,6 +232,9 @@ The boundary around an agent: one Docker container per agent, holding its own cl
 
 **Agent image**:
 The one image every agent container runs. It carries both harnesses at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
+
+**Image pin**:
+A container named `curia-agent-pin`, created against the live agent image and never started. The box's nightly docker cleanup deletes every image no container references, and no label protects one, so the reference is what keeps the image alive overnight. The daemon checks the pin on every dispatch. A new tag moves the pin and then removes every superseded tag of the same repository. See [#337](https://github.com/alp82/curia/issues/337) and [#350](https://github.com/alp82/curia/issues/350).
 
 **Cache volume**:
 A Docker volume shared by every agent for what is too heavy to bake into the image: the npm cache and the Playwright browsers. Cross-agent poisoning is an accepted risk.
@@ -288,7 +306,10 @@ The message curia queues at the builder the moment a reviewer spawns. It names t
 The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal.
 
 **Supersede**:
-A re-asked question closes the older record and routes late answers to the live one.
+A re-asked question closes the older record and routes late answers to the live one. The key is the agent and the kind, never the wording (#336). A re-send that explains itself in its own words is the same call, so it closes the original at birth. A confirm keys on the target instance instead.
+
+**Stale question**:
+An escalation still open when its own agent reports a result (#336). The result closes it, because nothing can read an answer to it any more. Reconcile runs the same rule over the journal, and it runs the ending a Stop hook deferred to such a record. Silence closes nothing: only the agent's own result or its next call does.
 
 **Render retry**:
 The escalation's own second try at a Discord render that failed (#261). It runs at 1 minute, 5 minutes and 15 minutes after the record opened, then never again. The offsets count from `esc_open`, not from the failure, so a restart re-arms only the tries still ahead. After the last one the record stays open and REST-answerable, and the dashboard shows it either way.
@@ -375,17 +396,27 @@ The shared ttyd page over Tailscale Serve. The raw TUI, honest for one device at
 The grid-free attach surface. It reads the agent's transcript and writes with tmux send-keys. The timeline is where you drive. The terminal is where you go to see the TUI itself.
 
 **Transcript**:
-The harness's own append-only run log. It carries no geometry, so any device lays it out at its own width.
+The harness's own append-only run log. It carries no geometry, so any device lays it out at its own width. The harness names the file after the session id, and a resume keeps that id, so one run is one file for its whole life.
+
+**Finding a transcript**:
+Two ways. What the config dir holds decides which one is right. An agent gets a config dir of its own, so the newest file in it by mtime is that agent's run. A conversation shares one config dir with every other conversation, so only the session id its key is bound to names its file. A key with no session id has no transcript. The honest answer there is nothing, and it is never the newest file. See [ADR-0016](docs/adr/0016-the-conversation-key.md) and the [live checks](docs/live-checks/332-transcript-by-key.md).
 
 **Driven session**:
-A timeline session that is no tmux pane. It names its own config dir and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
+A timeline session that is no tmux pane. It names its own config dir, the session id of the conversation it serves, and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
 
 **Console chat**:
-The Chat screen of the dashboard. It is the timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
+The timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
+_Avoid_: Chat screen (that is the picker in front of the chats, not a chat).
+
+**Conversation picker**:
+The Chat screen of the dashboard. It lists the browser conversations, opens one, and starts a new one. Each row carries the conversation's own context percent, which is the one signal that a conversation is getting long. It lives on the dashboard and not in the chat page, because an agent opens that same page and a conversation switcher there would put console words on the agent surface. It reads `GET /api/console` on arrival, never on the poll. See [#333](https://github.com/alp82/curia/issues/333).
 
 **Browser conversation**:
 An overseer conversation the console chat speaks to, keyed `console-<n>` rather than on a Discord thread. The browser holds many, and the Chat screen serves one as the session `curia-console-<n>`. One brain answers both surfaces. The answer is never posted, because the transcript already carries it to the page. Its verbs run with no origin thread, so a confirm goes where a REST press sends it. See [ADR-0016](docs/adr/0016-the-conversation-key.md).
 _Avoid_: browser thread (there is no Discord thread behind it, and there is more than one).
+
+**Spent number**:
+A browser conversation number that is used up. The daemon journals every key it mints, and it never mints one twice, so a delete spends that number for good. This is the one rule that separates a conversation number from a **Chat handle**: an agent is torn down whole and its index comes back, and a conversation is memory, so a reused number would wake the deleted conversation's own transcript. A delete forgets the key and leaves the file on disk. See [#333](https://github.com/alp82/curia/issues/333).
 
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.
@@ -478,7 +509,9 @@ How full an agent's context window is. The numerator is the last request's input
 ### State and evidence
 
 **Journal**:
-`daemon/data/events.jsonl`. Append-only, and the daemon's only durable artifact. In-memory state is a reduction over it. The file never rotates, so it only grows. The store reads it whole ONCE, at boot, and every append after that passes the same reducer. A surface that answers about the recent past reads the reduction and never the file again.
+`daemon/data/events.jsonl`. Append-only, and the daemon's only durable artifact. In-memory state is a reduction over it. The file never rotates, so it only grows. `EscalationStore` reads it whole ONCE, at boot, and every append after that passes the same reducer. A surface that answers about the recent past reads the reduction and never the file again.
+
+Decided and not built: the durable artifact becomes a `node:sqlite` store, and these JSON lines retire. A row keeps the written line verbatim, so the store is a superset of the file. The daemon is the only writer. See [ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md), built on [the store map (#316)](https://github.com/alp82/curia/issues/316).
 
 **State home**:
 The one durable place a fact lives. GitHub holds ticket truth. The journal holds curia's events. Everything in memory is a disposable cache.
@@ -522,7 +555,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 ## State homes
 
 - **GitHub**: ticket state, labels, claims, sub-issue parentage, map bodies, branches, pull requests. The source of truth.
-- **Journal** (`daemon/data/events.jsonl`): every durable curia event.
+- **Journal** (`daemon/data/events.jsonl`): every durable curia event. Decided and not built: a `node:sqlite` store replaces this file ([ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md)).
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.

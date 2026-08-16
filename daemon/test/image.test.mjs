@@ -15,8 +15,8 @@ import { parse } from 'yaml'
 
 import { loadCuriaConfig } from '../src/config.mjs'
 import {
-  BUILD_CONTEXT, DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS,
-  buildArgs, imageDigest, agentImageRef,
+  BUILD_CONTEXT, DEFAULT_IMAGE, DOCKERFILE, PIN_CONTAINER, SANDBOX_KEYS,
+  buildArgs, imageDigest, agentImageRef, ensureAgentImage,
 } from '../src/image.mjs'
 import { withSeededHome } from './fixtures/skills.mjs'
 
@@ -106,6 +106,148 @@ describe('the image tag (#154)', () => {
   test('the Dockerfile stays on the classic builder — the box runs docker 20.10', () => {
     assert.doesNotMatch(instructions(), /RUN\s+--mount/)
     assert.doesNotMatch(instructions(), /<<[A-Z]/)
+  })
+})
+
+// A fake docker: one box's images and one pin container, driven through the
+// same `exec` seam the daemon uses. It answers the four verbs this path runs
+// and records every argv, because the ORDER matters as much as the calls — the
+// pin has to move off a superseded tag before the rmi of that tag can work.
+function fakeDocker({ images = [], pin = null, refuse = [] } = {}) {
+  const calls = []
+  const box = { images: [...images], pin, calls }
+  const fail = (stderr) => { const e = new Error(stderr); e.stderr = stderr; throw e }
+  box.exec = async (bin, argv) => {
+    calls.push(argv.join(' '))
+    const [cmd, ...rest] = argv
+    if (cmd === 'image' && rest[0] === 'inspect') {
+      if (!box.images.includes(rest[1])) fail(`Error: No such image: ${rest[1]}`)
+      return { stdout: '[]', stderr: '' }
+    }
+    if (cmd === 'inspect') {
+      if (box.pin === null) fail(`Error: No such object: ${rest[0]}`)
+      return { stdout: `${box.pin}\n`, stderr: '' }
+    }
+    if (cmd === 'rm') { box.pin = null; return { stdout: '', stderr: '' } }
+    if (cmd === 'create') {
+      if (box.pin !== null) fail(`docker: Error response from daemon: Conflict. The container name "/${rest[1]}" is already in use.`)
+      box.pin = rest[2]
+      return { stdout: 'deadbeef\n', stderr: '' }
+    }
+    if (cmd === 'images') {
+      const repo = rest[0]
+      return { stdout: `${box.images.filter((i) => i.startsWith(`${repo}:`)).join('\n')}\n`, stderr: '' }
+    }
+    if (cmd === 'rmi') {
+      if (refuse.includes(rest[0])) fail(`Error response from daemon: conflict: unable to remove repository reference "${rest[0]}"`)
+      box.images = box.images.filter((i) => i !== rest[0])
+      return { stdout: '', stderr: '' }
+    }
+    throw new Error(`the fake docker was asked for \`${argv.join(' ')}\``)
+  }
+  // The build seam: a build puts the tag on the box and nothing else.
+  box.build = async (ref) => { box.images.push(ref.ref); return ref }
+  return box
+}
+
+const LIVE = agentImageRef(PINS).ref
+const OLD = 'curia-agent:2.1.219-0.146.0-aaaaaaaa'
+
+describe('the image pin (#337, built by #350)', () => {
+  test('a dispatch that builds nothing still pins the live image', async () => {
+    const box = fakeDocker({ images: [LIVE] })
+    const out = await ensureAgentImage(PINS, box)
+    assert.equal(out.built, false)
+    assert.equal(out.pin.created, true)
+    assert.equal(box.pin, LIVE)
+    assert.ok(box.calls.includes(`create --name ${PIN_CONTAINER} ${LIVE}`))
+  })
+
+  test('a pin already on the live image is left where it is', async () => {
+    const box = fakeDocker({ images: [LIVE], pin: LIVE })
+    const out = await ensureAgentImage(PINS, box)
+    assert.equal(out.pin.created, false)
+    assert.ok(!box.calls.some((c) => c.startsWith('create ')), 'it created a second pin')
+    assert.ok(!box.calls.some((c) => c.startsWith('rm ')), 'it removed the pin it should have kept')
+  })
+
+  test('a pin someone removed heals on the next dispatch, with no rebuild', async () => {
+    const box = fakeDocker({ images: [LIVE], pin: null })
+    const out = await ensureAgentImage(PINS, box)
+    assert.equal(out.built, false)
+    assert.equal(box.pin, LIVE)
+  })
+
+  // `npm run build-agent-image` ahead of a bump is how the dispatch path is
+  // kept warm, and it leaves the dispatch nothing to build. The old tag is
+  // still dead, so the moving pin is what says "sweep", not the build.
+  test('a tag built by hand before the dispatch still prunes the tag it supersedes', async () => {
+    const box = fakeDocker({ images: [OLD, LIVE], pin: OLD })
+    const out = await ensureAgentImage(PINS, box)
+    assert.equal(out.built, false)
+    assert.deepEqual(out.pruned, [OLD])
+    assert.deepEqual(box.images, [LIVE])
+  })
+
+  test('a new tag moves the pin, then the superseded tags go', async () => {
+    const box = fakeDocker({ images: [OLD], pin: OLD })
+    const out = await ensureAgentImage(PINS, box)
+    assert.equal(out.built, true)
+    assert.equal(box.pin, LIVE)
+    assert.deepEqual(out.pruned, [OLD])
+    assert.deepEqual(box.images, [LIVE])
+    // The pin has to leave the old tag before that tag can be removed.
+    assert.ok(box.calls.indexOf(`create --name ${PIN_CONTAINER} ${LIVE}`) < box.calls.indexOf(`rmi ${OLD}`))
+  })
+
+  test('every other tag of the repo goes, and no tag of another repo', async () => {
+    const other = 'curia-agent:2.1.218-0.145.0-bbbbbbbb'
+    const foreign = 'coolify/somethingelse:latest'
+    const box = fakeDocker({ images: [OLD, other, foreign] })
+    const out = await ensureAgentImage(PINS, box)
+    assert.deepEqual(out.pruned.sort(), [other, OLD].sort())
+    assert.deepEqual(box.images, [foreign, LIVE])
+  })
+
+  test('a tag a running agent still holds refuses safely, and the rest still go', async () => {
+    const other = 'curia-agent:2.1.218-0.145.0-bbbbbbbb'
+    const box = fakeDocker({ images: [OLD, other], refuse: [OLD] })
+    const out = await ensureAgentImage(PINS, box)
+    assert.deepEqual(out.pruned, [other])
+    assert.ok(box.images.includes(OLD), 'the refused tag was counted as removed')
+  })
+
+  test('an untagged image is never handed to rmi', async () => {
+    const box = fakeDocker({ images: [OLD, 'curia-agent:<none>'] })
+    await ensureAgentImage(PINS, box)
+    assert.ok(!box.calls.some((c) => c.includes('<none>')), 'it tried to remove a `<none>` tag by name')
+  })
+
+  test('a dispatch that builds nothing prunes nothing — the box has not changed', async () => {
+    const box = fakeDocker({ images: [LIVE, OLD], pin: LIVE })
+    const out = await ensureAgentImage(PINS, box)
+    assert.deepEqual(out.pruned, [])
+    assert.ok(!box.calls.some((c) => c.startsWith('images ')), 'it swept the tags with nothing built')
+  })
+
+  test('a pin curia cannot make is reported, not thrown — the agent has its image', async () => {
+    const box = fakeDocker({ images: [LIVE] })
+    const exec = box.exec
+    box.exec = async (bin, argv) => {
+      if (argv[0] === 'create') { const e = new Error('permission denied'); e.stderr = 'permission denied'; throw e }
+      return exec(bin, argv)
+    }
+    const out = await ensureAgentImage(PINS, box)
+    assert.equal(out.built, false)
+    assert.equal(out.pin.created, false)
+    assert.match(out.pin.error, /permission denied/)
+  })
+
+  test('two dispatches racing for the pin: the loser takes the winner\'s pin', async () => {
+    const box = fakeDocker({ images: [LIVE] })
+    const [a, b] = await Promise.all([ensureAgentImage(PINS, box), ensureAgentImage(PINS, box)])
+    assert.equal(box.pin, LIVE)
+    for (const out of [a, b]) assert.equal(out.pin.error, undefined)
   })
 })
 

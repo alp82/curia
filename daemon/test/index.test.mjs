@@ -436,6 +436,13 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
 // fakes only `docker network inspect` — the gateway it reports is 127.0.0.2,
 // another loopback address this box can bind and dial. So the container-facing
 // listener here is the shipped one, reached the way a container reaches it.
+//
+// #342 (gap 13 of the codex-lane inventory) makes this boot a TWO-harness box,
+// the shape `config/routing.yaml` actually ships. This file used to name the
+// claude harness alone, so everything below it was measured on a box that has
+// only ever had one lane — and the two things that read the harness table on
+// this surface (the side channel's list, and the Stop-hook body codex validates)
+// could both have regressed with the suite still green.
 describe('the per-agent token on the agent routes (#159, real boot, both listeners)', () => {
   let tmp
   let child
@@ -501,11 +508,16 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       '  untyped: sonnet',
       'models:',
       '  sonnet: { provider: anthropic, harness: claude }',
+      '  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol }',
       'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
     "    ready: '⏵⏵|bypass permissions'",
     "    tool_channel_grace_s: 15",
+      '  codex:',
+      '    template: codex --model {model} "$(cat {prompt_file})"',
+      "    ready: '·\\s[~/]'",
+      '    tool_channel_grace_s: 20',
       '',
     ].join('\n'))
 
@@ -533,6 +545,16 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
   after(() => {
     if (child && child.exitCode === null) child.kill('SIGKILL')
     fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  // #342, gap 13. The side channel is bound once and serves every containerized
+  // harness, and the list it names is `Object.keys(routingConfig.harnesses)` —
+  // not a constant, and not the dispatch lane. A daemon that named one harness
+  // on a two-harness box would be the #185 fault told backwards: the operator
+  // reads a line saying the codex containers have no side channel while they
+  // are in fact served, or the reverse.
+  test('the side channel names every configured harness, not the one that happened to be first', async () => {
+    assert.match(watch.log(), /the side channel for claude, codex containers/)
   })
 
   test('an agent route with no token is refused on loopback', async () => {
@@ -566,6 +588,33 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
     const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
     assert.ok(journal.includes('"type":"agent_token_refused"'), 'a refusal is journalled, or nobody ever learns it happened')
     assert.ok(journal.includes('"type":"agent_done"'), 'and the accepted call reached the route')
+  })
+
+  // #342, gap 13. The one place index.mjs speaks a codex dialect, and until now
+  // the only thing holding it was a comment beside the `return`.
+  //
+  // Both CLIs read "no decision" as allow, so `{ok:true}` looks harmless and is
+  // harmless on the claude lane. Codex validates this body against a CLOSED
+  // schema and rejects the extra key outright — `Stop hook (failed): hook
+  // returned invalid stop hook JSON output`, printed in the agent's own pane on
+  // every clean ending (observed, #152). It fails OPEN, so nothing is trapped
+  // and no test of the decision itself would notice; what it costs is the
+  // signal, because a genuinely broken hook looks exactly the same.
+  //
+  // So the assertion is on the KEYS, not on the decision: an allow answer must
+  // carry nothing at all.
+  test('the Stop hook\'s allow answer is an EMPTY object — codex refuses any extra key', async () => {
+    const token = mint('curia-46')
+    const res = await request(port, 'POST', '/agent_done?agent=curia-46', {
+      headers: { 'content-type': 'application/json', [TOKEN_HEADER]: token },
+      body: JSON.stringify({ hook_event_name: 'Stop', session_id: 'fixture' }),
+    })
+    assert.equal(res.status, 200)
+    assert.deepEqual(
+      Object.keys(JSON.parse(res.body)),
+      [],
+      'an allow answer says nothing — a key here is a failed Stop hook on the codex lane and a silent pass on the claude one',
+    )
   })
 
   test('the container-facing listener carries the agent surface and nothing else', async () => {
@@ -856,5 +905,60 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     const res = await post('/answer', { id: 'esc-nope', answer: 'approve', by: 'alp@example.com', via: 'dashboard' })
     assert.equal(res.status, 409)
     assert.equal(JSON.parse(res.body).reason, 'unknown')
+  })
+
+  // ---- the browser conversations (#333, ADR-0016) ----------------------------
+  //
+  // Live, on the real daemon, because the rule that matters is durable: a
+  // number is spent the moment it is minted, and the journal is what keeps it
+  // spent. A unit test over the store proves the reduction; this proves the
+  // route the Chat screen actually calls.
+
+  test('the list starts empty — the cutover copies no history and nothing mints on a read', async () => {
+    const res = await request(port, 'GET', '/console')
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.body).conversations, [])
+    // The old single `console` key does not survive, and no boot invents one.
+    assert.equal(journal().filter((e) => e.type === 'console_conversation_opened').length, 0)
+  })
+
+  test('a mint journals the key and the list carries its session name', async () => {
+    const first = JSON.parse((await post('/console/new', {})).body)
+    assert.equal(first.key, 'console-1')
+    assert.equal(first.session, 'curia-console-1')
+    const second = JSON.parse((await post('/console/new', {})).body)
+    assert.equal(second.key, 'console-2')
+
+    const list = JSON.parse((await request(port, 'GET', '/console')).body).conversations
+    assert.deepEqual(list.map((c) => c.key), ['console-2', 'console-1'], 'newest first')
+    // Neither has taken a turn, so neither has a transcript. ADR-0016 case 8:
+    // the honest answer is no reading, never another conversation's percent.
+    assert.deepEqual(list.map((c) => c.ctx_pct), [null, null])
+    assert.deepEqual(list.map((c) => c.label), [null, null])
+    assert.equal(journal().filter((e) => e.type === 'console_conversation_opened').length, 2)
+  })
+
+  test('a deleted number is spent — the next conversation counts past it', async () => {
+    assert.equal((await post('/console/delete', { key: 'console-1' })).status, 200)
+    const list = JSON.parse((await request(port, 'GET', '/console')).body).conversations
+    assert.deepEqual(list.map((c) => c.key), ['console-2'])
+    const next = JSON.parse((await post('/console/new', {})).body)
+    assert.equal(next.key, 'console-3', 'never console-1 again — that would wake the deleted memory')
+  })
+
+  test('deleting one that is not there is a refusal in words, not a silent success', async () => {
+    const res = await post('/console/delete', { key: 'console-1' })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.body).error, /no conversation/)
+  })
+
+  test('a key this daemon would never mint is refused before anything is journalled', async () => {
+    const before = journal().length
+    for (const key of ['', 'console', 'chat-1', 'curia-console-1', 'console-1; rm -rf /']) {
+      const res = await post('/console/delete', { key })
+      assert.equal(res.status, 400, key)
+      assert.match(JSON.parse(res.body).error, /not a browser conversation key/)
+    }
+    assert.equal(journal().length, before, 'nothing was written')
   })
 })

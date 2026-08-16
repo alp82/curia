@@ -16,6 +16,7 @@ import path from 'node:path'
 import { query as sdkQuery, createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
 import { seedConfigDir, agentEnv } from './workspace.mjs'
+import { SYSTEM_PROMPT, ALLOWED_TOOLS, DISALLOWED_TOOLS } from './overseerprompt.mjs'
 import { SIGNALS, smallPrint } from './messaging.mjs'
 
 // Haiku answers the verb catalogue reliably (measured on #83: fresh turn
@@ -23,20 +24,24 @@ import { SIGNALS, smallPrint } from './messaging.mjs'
 export const OVERSEER_MODEL = 'claude-haiku-4-5'
 export const OVERSEER_FALLBACK_MODEL = 'claude-sonnet-5'
 
-// The browser thread (#267). The console chat is the overseer in a thread of
-// its own: one brain, two surfaces, and no second chat anywhere.
+// The browser conversations (#267, made many by #333 on ADR-0016). The console
+// chat is the overseer in a thread of its own: one brain, two surfaces, and no
+// second chat anywhere.
 //
-// The key is a plain word rather than a Discord snowflake, and that is the
+// The key is `console-<n>` rather than a Discord snowflake, and that is the
 // whole distinction it carries — `store.overseerSession` keys the conversation
-// on it, so the browser thread resumes across a daemon restart exactly as a
+// on it, so a browser conversation resumes across a daemon restart exactly as a
 // Discord thread does, and it can never collide with one.
 //
-// The SESSION name is what the timeline surface serves this conversation under.
-// It reads as a curia session (attach.mjs validSessionName) because the
-// timeline admits nothing else, and it names the overseer rather than a number
-// because no ticket answers for it.
-export const CONSOLE_THREAD = 'console'
-export const CONSOLE_SESSION = 'curia-overseer'
+// It was ONE key, `console`, until #333. One conversation that never ends rots
+// its own context and compacts badly, so the browser now gets many, and a new
+// one is the reset a new Discord thread already is. The vocabulary — the key,
+// the session name it is served under, and the counter that only goes up —
+// lives in attach.mjs beside the chat handle it must not collide with.
+//
+// The SESSION name is what the timeline surface serves a conversation under. It
+// reads as a curia session (attach.mjs validSessionName) because the timeline
+// admits nothing else.
 
 // The tool → router contract, pure: what canonical text each verb tool posts
 // to /command. One string builder rather than seven inline template literals,
@@ -141,63 +146,12 @@ export function buildVerbTools(command) {
   ]
 }
 
-export const ALLOWED_TOOLS = ['tickets', 'next', 'status', 'start', 'map', 'cancel', 'resume', 'attach']
-  .map((t) => `mcp__curia__${t}`)
-
-// ToolSearch is in here for the #83 gap, not for containment: with it
-// available, Haiku spent its whole first turn searching for the curia tool
-// schemas before the first real call. Disallowing it makes the harness present
-// every schema eagerly.
-export const DISALLOWED_TOOLS = [
-  'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch',
-  'Task', 'TodoWrite', 'NotebookEdit', 'AskUserQuestion', 'ToolSearch',
-]
-
-export const SYSTEM_PROMPT = `You are the curia overseer. Curia is a personal orchestration daemon: it watches GitHub trackers, dispatches AI agents on tickets, and keeps the operator in the loop from any device. You are the command brain over its Discord surface.
-
-You speak with one operator, in one Discord thread, in short Discord markdown. You act only through the curia tools. The daemon executes every effect.
-
-What you do:
-- Translate the operator's prose into the verbs: tickets, next, status, start, map, cancel, resume, attach.
-- Answer reasoning questions from tool output ("what should I start next?" — call tickets, then recommend one, with a one-line reason).
-- Report tool replies faithfully. Do not invent agents, tickets, or states.
-
-Vocabulary the operator uses:
-- A "map" is a wayfinder map: a GitHub issue whose child tickets chart one effort. The operator names maps by topic ("the landing page map"). The \`tickets\` output groups tickets under their map's header line ("map #109 **The curia landing page**").
-- A map named in prose resolves to that map's header, never to repo-wide order: "continue with <map>" means \`start\` the FIRST ticket listed under that map's header. A repo can hold several maps — picking the repo's first takeable when the operator named a map dispatches the wrong ticket.
-- When a phrase names no repo or map you know, call \`tickets\` with no filter and match the phrase against the headers that come back before saying you cannot.
-- Two verbs take a map's own number, and they mean different things. \`start\` WORKS the map: it dispatches the map's next takeable ticket. \`map\` UPDATES the map: a charting agent edits the map itself.
-- Use \`map\` when the operator asks to CHANGE a map ("update the landing page map so that X", "add a ticket for Y", "the map is wrong about Z"). Put their sentence in the \`instruction\` field, in their own words. Do not rewrite it and do not summarize it.
-- Use \`start\` when the operator asks to work the map ("continue with <map>", "start the landing page map"). Either the map's own number or the ticket number listed under its header does this.
-- Use \`map\` with NO ticket when the operator asks for a map that does not exist YET: "create a new map for X", "chart a new map", "add a map for the next feature", "we need a map for Y". There is no number to give, and asking them for one is wrong — the whole point is that the map does not exist. Put their words in \`instruction\`, unchanged: it is the whole brief the charting agent settles the destination from. Add \`repo\` only when more than one repo is watched.
-- The test between the two shapes is whether the map EXISTS. A map you can name from \`tickets\` output takes its number. A map the operator is asking you to bring into being takes no number.
-
-Your memory goes stale:
-- Tool output from an earlier turn may be minutes or hours old, and the daemon, the trackers, and the operator all change state between your turns. Re-run \`tickets\` or \`status\` before you refuse, recommend, or report state. Never answer from a previous turn's tool output.
-
-Hard bounds (the never-list):
-- Never announce a dispatch. The daemon posts its own line when the agent reaches its composer, and yours beside it says the same fact twice (#253). Never write "the agent is running", "spawning", "dispatched", or a session name with a state.
-- You own the CHOICE, never the lifecycle. Say which ticket you picked and why, in one line, then stop. Everything the agent does after that belongs to the daemon.
-- Never answer an escalation or a review gate for the operator. If asked to, refuse and say why.
-- Cancel executes nothing by itself: the daemon posts a ✅/❌ button confirm and tears down only after the operator presses ✅. Call the tool directly when asked — do not ask for confirmation in conversation, and never report a cancel as done; say the confirm was posted and where.
-- You have no shell, no files, no repo checkout, and no process handles. Do not offer them.
-- A failed tool call is not an answer. Report the failure as a failure.
-
-Message shape (the standard, #89 — every answer follows it):
-- One answer message per turn, under 10 lines. The daemon narrates your tool calls separately; do not repeat them.
-- No headings, no tables, no blockquotes. Bold for ticket titles, inline code for verbs, session names, and ids.
-- Lists are one line per item. Filter long tool replies to what the question asked, and end a truncated list with "N more".
-- Wrap links in <> — except attach links, which stay bare.
-- Emoji only as signals, only these: ⚙️ ✅ ❌ ⚠️ 🎫 ⚰️ 🔗.
-
-Writing rules (mandatory, #133 — Simplified Technical English):
-- Use the short common word: start, use, help, make sure, before, after, about, get, show, also.
-- One name for one thing. Active voice. A verb for an action ("analyze the log", not "perform an analysis").
-- One instruction per sentence, max 20 words. Descriptive sentences max 25 words.
-- No contractions. No semicolons. No em-dashes — write two sentences.
-- No marketing adjectives (seamless, robust, powerful).
-
-Keep replies short. One thread is one conversation; you will be revived with full memory when the operator writes again.`
+// The standing orders and the tool list that agrees with them both live in
+// `overseerprompt.mjs` (#328). They moved out of this file because they outlive
+// it: this host has no shell, the overseer service of ADR-0014 has one, and
+// #315 deletes this host and not the text. What is re-exported here is the
+// NO-SHELL posture, which is byte for byte the text this host always sent.
+export { SYSTEM_PROMPT, ALLOWED_TOOLS, DISALLOWED_TOOLS }
 
 export class OverseerHost {
   // command: async (canonicalText, {threadId}) -> reply string — gate.command
@@ -224,7 +178,7 @@ export class OverseerHost {
     this.busy = new Set() // thread ids with a turn in flight
   }
 
-  // ---- the browser thread (#267) -------------------------------------------
+  // ---- a browser conversation's turn (#267, keyed per conversation by #333) -
   //
   // The console chat is this same overseer, in a thread of its own. One brain
   // answers the operator on Discord and in the browser, and neither surface
@@ -242,11 +196,19 @@ export class OverseerHost {
   //      put the buttons in — so it takes the same route a REST press takes and
   //      lands in the channel, plus the console's own needs-you list.
   //
+  // `key` names WHICH browser conversation, and it must be one the store holds.
+  // The refusal below is the deleted-conversation case: the page can sit on a
+  // key the operator has just deleted from another device, and a turn on it
+  // would mint a fresh conversation under a number that is spent.
+  //
   // What comes back is the failure, and only the failure: a turn that ends
   // without an answer must not read as silence on the page.
-  async browserTurn(text) {
+  async browserTurn(key, text) {
+    if (!this.store.hasConsoleConversation?.(key)) {
+      throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
+    }
     const said = []
-    const out = await this.runTurn(CONSOLE_THREAD, text, {
+    const out = await this.runTurn(key, text, {
       say: (t) => { said.push(t) },
       status: () => {},
       routeThreadId: null,
@@ -280,9 +242,10 @@ export class OverseerHost {
   // answer. Failures land in the answer slot; everything meta lands in status.
   //
   // `routeThreadId` (#267) is the thread the VERB TOOLS run in, which is the
-  // session key everywhere until the browser thread: a console turn keys its
-  // conversation on `console` and routes its verbs with no thread at all,
-  // because `console` is not a thread the bridge can post buttons into.
+  // session key everywhere until the browser conversations: a console turn keys
+  // its conversation on `console-<n>` and routes its verbs with no thread at
+  // all, because a console key is not a thread the bridge can post buttons
+  // into.
   async runTurn(threadId, prompt, { say, status, routeThreadId = threadId }) {
     if (this.busy.has(threadId)) {
       await say(smallPrint(`${SIGNALS.warn} still on your last message — one turn at a time per thread`))
@@ -367,8 +330,12 @@ export class OverseerHost {
       })
       for await (const msg of q) {
         if (msg.type === 'system' && msg.subtype === 'init') {
-          // resume mints a fresh session id for the continued conversation —
-          // journal the latest one per thread, last write wins.
+          // The session id a turn states, journalled per thread, last write
+          // wins. Measured on claude 2.1.220 (docs/live-checks/
+          // 332-transcript-by-key.md): a resume KEEPS the id and appends to the
+          // one file, so this write is the same id every turn after the first.
+          // It stays a write per turn because the id is the only handle on the
+          // conversation, and #332 now reads it to find the transcript too.
           this.store.bindOverseerSession(threadId, msg.session_id)
         }
         if (msg.type === 'assistant') {

@@ -12,8 +12,10 @@
      carries it).
 
      The four read screens draw one payload: `GET /api/overview`, which is the
-     sidecar's held snapshot of the daemon's own `GET /overview` (#262). The
-     chat (#267) draws nothing: it is the timeline page, served at /chat.
+     sidecar's held snapshot of the daemon's own `GET /overview` (#262). A chat
+     (#267) draws nothing: it is the timeline page, served at /chat. What the
+     Chat screen draws is the PICKER over the browser conversations (#333), off
+     a read of its own — `GET /api/console`, taken on arrival, not on the poll.
 
      THE VERBS (#266) POST to the sidecar, never to the daemon. It composes each
      daemon call from the fields the page sends, so this page names a ticket, an
@@ -27,7 +29,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=3">
+<meta name="curia-dashboard" content="proto=4">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia</title>
 <style>
@@ -302,6 +304,15 @@
   .door a.btn { display: inline-block; text-decoration: none; }
   .door a.btn:hover { text-decoration: none; }
   .door .cannot { font-size: 12.5px; color: var(--ink-faint); margin: 10px 0 0; }
+  /* The conversation picker (#333). A row is a tap target on a phone before it
+     is a table row, so the label runs full width and the two columns beside it
+     stay as narrow as their content. */
+  table.chats { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0 0 12px; }
+  table.chats td { padding: 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.chats td + td { padding-left: 12px; text-align: right; white-space: nowrap; width: 1%; }
+  table.chats tr:last-child td { border-bottom: 0; }
+  table.chats a { display: block; }
+  table.chats .over { color: var(--warn); }
 
   /* ---------- the screens that land later ---------- */
   .later {
@@ -358,6 +369,7 @@ var reachable = true; /* is the SIDECAR itself answering — a different fact fr
 var settings = null;  /* the last read of curia.yaml + routing.yaml off disk */
 var draft = null;     /* the same, with the operator's unsaved edits on it */
 var repos = null;     /* the watchable repos, read through the daemon on demand */
+var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
 
 /* ---- words ---------------------------------------------------------------- */
 
@@ -837,6 +849,10 @@ const EVENTS = {
   bridge_health: ["bridge", "", (e) => `bridge ${esc(e.previous)} → ${esc(e.state)} — ${esc(e.reason)}`],
   reconcile: ["reconcile", "", (e) => `reconcile pass${e.boot ? " at boot" : ""}`],
   command: ["command", "", (e) => `${esc(snip(e.canonical, 120))} — by ${esc(e.by)}`],
+  /* The browser conversations (#333). The delete says the number is spent,
+     because that is the half of it nobody can undo. */
+  console_conversation_opened: ["chat", "", (e) => `${esc(e.key)} opened — a new browser conversation`],
+  console_conversation_deleted: ["chat", "", (e) => `${esc(e.key)} deleted — its number is spent, and the next one counts past it`],
   map_adopted: ["charting", "", (e) => `${who(e)} adopted map ${esc(e.map)} — ${esc(snip(e.title, 80))}`],
   charting_finished: ["charting", "", (e) => `${who(e)} finished charting ${tkt(e)} — ${esc(e.status)}`],
 };
@@ -1321,36 +1337,103 @@ function setDispatch() {
     ${rows}</table>`);
 }
 
-/* ---- the chat (#267) -------------------------------------------------------
+/* ---- the chat (#267, many conversations by #333) ----------------------------
 
-   The console draws no chat of its own and frames none. The chat IS the
-   timeline attach — the same page a phone opens against an agent — pointed at
-   the overseer's browser thread and served under this address. One chat
+   The console draws no chat of its own and frames none. A chat IS the timeline
+   attach — the same page a phone opens against an agent — pointed at one
+   browser conversation of the overseer and served under this address. One chat
    surface: the composer, the history and every future thing the timeline grows
    arrive here for free, and there is no second one to keep in step.
 
-   So this screen is a door. It says who is on the other side, whether the
-   process holding them is answering, and it opens. */
+   So this screen is a door, and #333 made it a door with many rooms behind it.
+   ADR-0016 gives the browser many conversations rather than one that grows
+   forever, so this is where the operator picks one and opens a new one. A new
+   conversation is the reset, the same way a new Discord thread is.
+
+   The picker lives HERE and not in the chat page, because the chat page is the
+   timeline and an agent opens the same page. A conversation switcher there
+   would put console words on the agent surface.
+
+   Every row carries its own context percent. ADR-0016 adds no warning that a
+   conversation is long: that number IS the signal, and #332 is what made it
+   true per conversation. */
 const CHAT_PAGE = "/chat";
-const CHAT_SESSION = "curia-overseer";
-const chatHref = () => CHAT_PAGE + "?session=" + encodeURIComponent(CHAT_SESSION);
+const chatHref = (session) => CHAT_PAGE + "?session=" + encodeURIComponent(session);
 
 function screenChat(p) {
   /* The overseer runs INSIDE the daemon, so a daemon that is not answering is a
      chat that is not there. The bar above says why; this says what it means. */
   const down = p && !p.daemon_up;
-  return `${head(p, "Chat", `<span class="dim-note mono">${esc(CHAT_SESSION)}</span>`)}
-    <div class="door">
-      <p class="lead">This is the overseer — the same curia that answers your prose in Discord, in a
-        thread of its own. It sees every watched repo, and it holds the verbs: ask it what to start,
-        then say <code>start 256</code> and it dispatches.</p>
-      ${down ? `<p class="unread">The chat is down while the daemon restarts. The overseer runs inside it.</p>` : ""}
-      <p><a class="btn primary" href="${esc(chatHref())}">Open the chat</a></p>
-      <p>It opens at this same address, so the phone reaches it the same way. A destructive verb still
-        posts its ✅/❌ card, and that card lands on Home.</p>
+  const lead = `<p class="lead">This is the overseer — the same curia that answers your prose in
+      Discord. It sees every watched repo, and it holds the verbs: ask it what to start, then say
+      <code>start 256</code> and it dispatches.</p>
+    ${down ? `<p class="unread">The chat is down while the daemon restarts. The overseer runs inside it.</p>` : ""}`;
+  const count = conversations?.conversations?.length ?? null;
+  return `${head(p, "Chat", count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`)}
+    <div class="door">${lead}${chatList()}
       <p class="cannot">It has no shell and no checkout, so it cannot read a file or a diff. It tells
-        you what curia knows, and it acts.</p>
+        you what curia knows, and it acts. A destructive verb still posts its ✅/❌ card, and that
+        card lands on Home.</p>
     </div>`;
+}
+
+/* Null is not empty, the second rule of this page. A list curia could not be
+   asked for and a box with no conversations on it are opposite facts. */
+function chatList() {
+  if (conversations === null) return `<div class="later">Reading your conversations…</div>`;
+  if (conversations.conversations === null) {
+    return `<div class="unread">curia could not read your conversations — ${esc(conversations.error ?? "no reason given")}.</div>
+      ${newChatButton()}`;
+  }
+  const rows = conversations.conversations.map(chatRow).join("");
+  if (!rows) {
+    /* The state after the cutover, and after the last conversation is deleted.
+       Nothing is minted by looking at this screen: a page read must not spend a
+       number, and numbers only go up. */
+    return `<p>No conversations yet. Press below to open the first one.</p>${newChatButton()}`;
+  }
+  return `<table class="chats">${rows}</table>${newChatButton()}
+    <p class="cannot">A new conversation is the reset — the same thing a new thread is in Discord.
+      Open one when the context above reads full. Deleting one spends its number for good.</p>`;
+}
+
+function newChatButton() {
+  const k = "chat-new";
+  return `<p><button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doNewConversation()">
+    ${busy(k) ? "Opening…" : "New conversation"}</button></p>${said(k)}`;
+}
+
+function chatRow(c) {
+  const k = "chat-del-" + c.key;
+  /* The label is the operator's own first message, read off the transcript by
+     the daemon. A conversation with no turn yet has none, and says so rather
+     than showing a blank row. */
+  const label = c.label
+    ? `<b>${esc(c.label)}</b>`
+    : `<span class="dim-note">no turn yet</span>`;
+  const answer = said(k);
+  return `<tr>
+    <td><a href="${esc(chatHref(c.session))}">${label}</a>
+      <span class="dim-note mono" style="display:block;margin:2px 0 0">${esc(c.key)} · ${esc(ago(c.last_turn_at))}</span></td>
+    <td class="num">${ctxCell(c)}</td>
+    <td><button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
+      ${busy(k) ? "…" : "delete"}</button></td>
+  </tr>${answer ? `<tr><td colspan="3">${answer}</td></tr>` : ""}`;
+}
+
+/* Mint, then walk through the door. Opening a conversation you then have to
+   find in a list is two acts where the operator asked for one. */
+async function doNewConversation() {
+  const out = await verb("chat-new", "/api/console/new", {});
+  if (out?.session) location.href = chatHref(out.session);
+}
+
+async function doDeleteConversation(key) {
+  const ask = `Delete ${key}? Its number is spent for good — a later conversation never reuses it. `
+    + `curia stops offering the conversation, and its transcript stays on the box.`;
+  if (typeof confirm === "function" && !confirm(ask)) return;
+  await verb("chat-del-" + key, "/api/console/delete", { key });
+  loadConversations();
 }
 
 function screenSettings(p) {
@@ -1444,6 +1527,23 @@ async function loadRepos() {
     repos = await res.json();
   } catch (e) {
     repos = { login: null, repos: null, error: e.message };
+  }
+  render();
+}
+
+/* The browser conversations (#333). Taken on arrival at the Chat screen and
+   after a press that changes the list, never on the poll: a row costs the
+   daemon a transcript read, and the other five screens have no use for it.
+
+   A failure lands as `conversations: null`, which the screen draws as "curia
+   could not be asked" — not as an empty list. */
+async function loadConversations() {
+  try {
+    const res = await fetch("/api/console", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    conversations = await res.json();
+  } catch (e) {
+    conversations = { conversations: null, error: e.message };
   }
   render();
 }
@@ -1546,12 +1646,18 @@ function restoreField(f) {
   }
 }
 
-/* Entering a screen, from a click or from the hash. Settings is the one screen
-   with a read of its own, and it is taken on arrival rather than on every poll:
-   the file changes when somebody saves it, not every five seconds. */
+/* Entering a screen, from a click or from the hash. Settings and Chat are the
+   two screens with a read of their own, and each is taken on arrival rather
+   than on every poll: the config files change when somebody saves them, and the
+   conversations change when somebody opens or deletes one — neither happens
+   every five seconds.
+   Chat re-reads on EVERY arrival, unlike settings. The list carries a context
+   percent and a last-turn time, and both move with every turn taken from any
+   device, so a held copy would age. */
 function enter(k) {
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
+  if (k === "chat") loadConversations();
 }
 function goto(k) { enter(k); location.hash = k; render(); }
 window.addEventListener("hashchange", () => {

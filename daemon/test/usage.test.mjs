@@ -26,7 +26,7 @@ import path from 'node:path'
 import {
   AccountUsage, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
   readTranscriptMeters, modelName, windowFromModel, windowLabel, agentMeters,
-  spentReset, transcriptReset,
+  spentReset, transcriptReset, consoleConversationsOnWire,
   USAGE_ATTEMPT_MS, USAGE_STALE_MS, WINDOW_STALE_MS,
 } from '../src/usage.mjs'
 
@@ -561,6 +561,32 @@ describe('agentMeters', () => {
     const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
     assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
   })
+
+  // #332, building ADR-0016: the meter is the ONE signal that a conversation is
+  // getting long, so it has to read the conversation it was asked about. Every
+  // overseer conversation writes into one config dir, where newest-by-mtime is
+  // whoever answered last.
+  test('a named transcript beats the newest file in the dir', () => {
+    const d = cfgDir()
+    const mine = write(path.join('cfg', 'curia-1', 'projects', 'p', 'browser-1111.jsonl'), [claudeTurn(2, 399998, 0)])
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'discord-9999.jsonl'), [claudeTurn(2, 99998, 0)])
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(mine, old, old)
+    const models = lookup({ 'claude-opus-5': 1000000 })
+
+    // The mtime path reads the conversation that answered last: 10%, not 40%.
+    assert.equal(agentMeters({ harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models, now: NOW }).ctxPct, 10)
+    const m = agentMeters({ harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models, transcript: mine, now: NOW })
+    assert.equal(m.ctxPct, 40)
+  })
+
+  test('a conversation with no transcript reads NOTHING, never the newest file', () => {
+    const d = cfgDir()
+    write(path.join('cfg', 'curia-1', 'projects', 'p', 'discord-9999.jsonl'), [claudeTurn(2, 399998, 0)])
+    const models = lookup({ 'claude-opus-5': 1000000 })
+    const m = agentMeters({ harness: 'claude', cfgDir: d, model: 'opus', routing, account: null, models, transcript: null, now: NOW })
+    assert.equal(m.ctxPct, null)
+  })
 })
 
 describe('rendering', () => {
@@ -907,5 +933,82 @@ describe('AccountUsage', () => {
     fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), old, old)
     const u = new AccountUsage({ home: dir, enabled: false, fetchImpl: never, now: at(), env: env() })
     assert.deepEqual(u.windows().map((w) => w.pct), [18, 57])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the browser conversations on the wire (#333, ADR-0016)
+// ---------------------------------------------------------------------------
+//
+// One row per conversation, and every field of it is independently nullable —
+// a conversation with no turn has no file, so it has no label, no last-turn
+// time and no percent. What must never happen is a fallback: another
+// conversation's file is the defect #332 ended, not a substitute.
+
+describe('consoleConversationsOnWire (#333)', () => {
+  const ROUTING = { models: { 'claude-haiku-4-5': { provider: 'anthropic', context_window: 200000 } } }
+  const cfg = () => path.join(dir, 'overseer-config')
+  const write = (sessionId, lines) => {
+    const proj = path.join(cfg(), 'projects', 'home')
+    fs.mkdirSync(proj, { recursive: true })
+    fs.writeFileSync(path.join(proj, `${sessionId}.jsonl`), lines.map((l) => JSON.stringify(l) + '\n').join(''))
+  }
+  const rows = (conversations, bound) => consoleConversationsOnWire({
+    conversations,
+    sessionIdFor: (key) => bound[key],
+    harness: 'claude',
+    cfgDir: cfg(),
+    model: 'claude-haiku-4-5',
+    routing: ROUTING,
+    account: null,
+    models: null,
+    now: NOW,
+  })
+
+  test('a row carries its own label and its own percent, off its own file', () => {
+    write('sess-a', [
+      { type: 'user', message: { content: 'what is takeable on curia' } },
+      { type: 'assistant', message: { model: 'claude-haiku-4-5', usage: { input_tokens: 20000 } } },
+    ])
+    write('sess-b', [
+      { type: 'user', message: { content: 'the other conversation' } },
+      { type: 'assistant', message: { model: 'claude-haiku-4-5', usage: { input_tokens: 180000 } } },
+    ])
+    const out = rows(
+      [{ key: 'console-2', opened_at: 'T2' }, { key: 'console-1', opened_at: 'T1' }],
+      { 'console-2': 'sess-b', 'console-1': 'sess-a' },
+    )
+    assert.deepEqual(out.map((r) => r.session), ['curia-console-2', 'curia-console-1'])
+    assert.deepEqual(out.map((r) => r.label), ['the other conversation', 'what is takeable on curia'])
+    // The whole point: 90% belongs to console-2 and 10% to console-1. One
+    // number for both would be the defect ADR-0016 named.
+    assert.deepEqual(out.map((r) => r.ctx_pct), [90, 10])
+    assert.ok(out.every((r) => r.last_turn_at), 'each row dates its own file')
+  })
+
+  test('a conversation with no turn reads as nothing, never as another one\'s reading', () => {
+    write('sess-a', [
+      { type: 'user', message: { content: 'the one that spoke' } },
+      { type: 'assistant', message: { model: 'claude-haiku-4-5', usage: { input_tokens: 20000 } } },
+    ])
+    const [fresh] = rows([{ key: 'console-3', opened_at: 'T3' }], { 'console-1': 'sess-a' })
+    assert.equal(fresh.key, 'console-3')
+    assert.equal(fresh.label, null)
+    assert.equal(fresh.ctx_pct, null, 'not 0%, and not the other conversation\'s 10%')
+    assert.equal(fresh.last_turn_at, null)
+  })
+
+  test('no harness yet — the config dir before the first turn — costs no row', () => {
+    const out = consoleConversationsOnWire({
+      conversations: [{ key: 'console-1', opened_at: 'T1' }],
+      sessionIdFor: () => null,
+      harness: null,
+      cfgDir: cfg(),
+      model: 'claude-haiku-4-5',
+      routing: ROUTING,
+      now: NOW,
+    })
+    assert.equal(out.length, 1)
+    assert.equal(out[0].ctx_pct, null)
   })
 })

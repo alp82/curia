@@ -163,6 +163,30 @@ const sleep = (ms) => sleepFor(ms, undefined, { ref: false })
 // pressed the button reads it as an interrupt rather than a queue.
 const INTERRUPT_GRACE_MS = 5_000
 
+// The limit resume (#346). A window rolls at an instant the PROVIDER states, on
+// the provider's own clock, and the box's clock is its own. A resume that lands
+// one second early walks straight back into the cap and cools again, so the arm
+// sits a minute behind the stated reset. A minute costs nothing against a
+// window measured in hours.
+const RESUME_GRACE_MS = 60_000
+
+// The floor under every wake. It keeps a reset already in the past — the one a
+// daemon that was down through the window re-arms at boot — from firing inside
+// the same tick that armed it. A field on the dispatcher rather than a constant
+// at the call site, so a test can drive the path without waiting out a real one
+// (the same reason `interruptGraceMs` is one).
+const WAKE_FLOOR_MS = 5_000
+
+// An instant a phone can read. Discord renders `<t:…>` in the reader's own
+// timezone, so the operator reads a local clock time instead of an ISO string
+// in UTC, and `:R` beside it answers the question they actually have — how long
+// until then. Every surface these messages reach is Discord (`notify` goes to
+// the bridge and nowhere else), so nothing here renders the markup raw.
+export function discordTime(date) {
+  const s = Math.floor(date.getTime() / 1000)
+  return `<t:${s}:t> (<t:${s}:R>)`
+}
+
 const DEFAULT_DEPS = {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey,
@@ -364,6 +388,15 @@ export class Dispatcher {
     this.reviewWaits = new Map()
     this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
+    // The limit resumes curia owes (#346), ticket -> { repo, at: Date }. The
+    // journal is the durable half (`limit_resume_armed`, re-read at boot); this
+    // is the live index the wake timer reads.
+    this.limitResumes = new Map()
+    // Fields rather than constants at the call site, so a test can drive the
+    // whole path — cap, cooling, arm, wake, resume — without waiting out a real
+    // reset (the same reason `interruptGraceMs` above is one).
+    this.resumeGraceMs = RESUME_GRACE_MS
+    this.wakeFloorMs = WAKE_FLOOR_MS
     // The dashboard's frontier and the instant reconcile computed it (#262).
     // Null until the first pass lands, which is how `GET /overview` says "no
     // frontier has been read yet" rather than "the frontier is empty".
@@ -879,7 +912,14 @@ export class Dispatcher {
       // Returns null when #exhausted's latched notify fired (so a confirm
       // continuation cannot echo it) and the reply sentinel when the latch
       // suppressed it (so the continuation is never silent).
-      return this.#exhausted(n, repo)
+      //
+      // #346: a LIMIT RESUME that lands here re-arms rather than giving up. The
+      // wake fires at the earliest reset, and a second lane with a later one is
+      // still cooling then — dropping the arm there would strand exactly the
+      // ticket this path exists to bring back. Nothing else re-arms: an
+      // operator whose `start` is refused reads the refusal in their own reply
+      // and types it again, so curia holds no order they did not repeat.
+      return this.#exhausted(n, repo, { armFor: by === 'limit-reset' ? { ticket: n, repo } : null })
     }
 
     // The harness belongs to the model actually being SPAWNED, not the one that
@@ -1136,6 +1176,20 @@ export class Dispatcher {
       this.store.logEvent('agent_image_built', { agent: session, ticket, image: image.ref })
       this.log(`built the agent image ${image.ref} for ${session}`)
     }
+    // The pin and the prune (#350). Both are the image module's own work; what
+    // belongs here is saying what happened. A failed pin does not refuse the
+    // dispatch — the image is on the box — but it is the one warning that
+    // explains a four-minute rebuild after the next nightly docker cleanup.
+    if (image.pin?.error) {
+      this.log(`WARNING: could not pin the agent image ${image.ref}: ${image.pin.error} — the box's nightly docker cleanup deletes every image no container references`)
+    } else if (image.pin?.created) {
+      this.store.logEvent('agent_image_pinned', { agent: session, ticket, image: image.ref })
+      this.log(`pinned the agent image ${image.ref}`)
+    }
+    if (image.pruned?.length) {
+      this.store.logEvent('agent_image_pruned', { agent: session, ticket, tags: image.pruned })
+      this.log(`removed ${image.pruned.length} superseded agent image tag(s): ${image.pruned.join(', ')}`)
+    }
     // The side channel, before the agent rather than after it (#188). This is
     // the LAST thing checked and the first thing an agent needs: `ask_human`,
     // the Stop hook and every curia tool ride it, so a container started without
@@ -1256,26 +1310,145 @@ export class Dispatcher {
   // live agent died, exhaustion landed inside a latched window, and nothing
   // was ever said in the thread. The direct /start reply path builds its own
   // reply string (see #exhaustedReply); a reply is not a notify.
-  #exhausted(ticket, repo) {
+  //
+  // `armFor` is #346: pass `{ ticket, repo }` and this exhaustion also ARMS a
+  // limit resume for that ticket. The promise rides the one message rather than
+  // a second one, because the latch is per WINDOW and the promise is per
+  // TICKET: with the promise on its own line, the second ticket to exhaust in
+  // one window would be armed and never told (ADR-0013 — one fact, one voice,
+  // and the two facts land in two different threads).
+  #exhausted(ticket, repo, { armFor = null } = {}) {
     const reset = this.cooling.earliestReset()
     const when = reset ? reset.toISOString() : 'unknown'
     this.store.logEvent('dispatch_exhausted', { repo, ticket, earliest_reset: when })
-    if (this.exhaustionNotified) return this.#exhaustedReply()
+    const resumeAt = armFor ? this.#armLimitResume(armFor.ticket, armFor.repo) : null
+    this.#armWake(reset ?? new Date(Date.now() + 3600_000))
+    if (this.exhaustionNotified) return this.#exhaustedReply(resumeAt)
     this.exhaustionNotified = true
-    this.notify(ticket, `⚠️ every routing lane is cooling — no claim made. Earliest reset: ${when}`)
-    const ms = Math.max(5_000, (reset?.getTime() ?? Date.now() + 3600_000) - Date.now())
-    clearTimeout(this.wakeTimer)
-    this.wakeTimer = setTimeout(() => {
-      this.exhaustionNotified = false
-      this.#autoTick().catch((e) => this.log('post-cooldown auto tick failed:', e.message))
-    }, ms)
-    this.wakeTimer.unref()
+    this.notify(ticket, resumeAt
+      ? `⚠️ every routing lane is cooling. The claim is released and the worktree stands. curia resumes this ticket at ${discordTime(resumeAt)}`
+      : `⚠️ every routing lane is cooling — no claim made. Earliest reset: ${reset ? discordTime(reset) : 'unknown'}`)
     return null
   }
 
-  #exhaustedReply() {
+  #exhaustedReply(resumeAt = null) {
     const reset = this.cooling.earliestReset()
-    return `⚠️ all routing lanes are cooling (earliest reset ${reset ? reset.toISOString() : 'unknown'}) — nothing claimed`
+    if (resumeAt) {
+      return `⏳ every routing lane is cooling. The worktree stands, and curia resumes this ticket at ${discordTime(resumeAt)}`
+    }
+    return `⚠️ all routing lanes are cooling (earliest reset ${reset ? discordTime(reset) : 'unknown'}) — nothing claimed`
+  }
+
+  // ---- the limit resume (#346) ---------------------------------------------------
+  //
+  // A cap does not park an agent: #handleLimit kills it and falls down the
+  // chain, and only true exhaustion releases the claim and drops the ticket
+  // back on the frontier. What stayed parked was the TICKET. The wake timer
+  // fired `#autoTick`, `#autoTick` returns at once while `auto_dispatch` is
+  // false, and `auto_dispatch` ships false — so the work stopped until a human
+  // noticed and typed `resume` themselves.
+  //
+  // Three rules decide the shape, and each keeps a wrong answer out:
+  //
+  //   1. It resumes, it does not start. `resume` inherits the surviving
+  //      worktree and the last model; `start` calls createPrivateClone, which
+  //      DELETES that worktree first and takes every uncommitted file with it.
+  //   2. It is not gated on `auto_dispatch`. That flag decides whether curia
+  //      takes NEW work off the frontier by itself. This puts back work the
+  //      operator already ordered and curia itself stopped.
+  //   3. One arm buys ONE attempt. The cooling is its own throttle: a resume
+  //      that walks back into the cap re-cools with a fresh reset and arms
+  //      again from there, so a wrong reset instant costs one spawn per window
+  //      rather than a loop.
+
+  // Arm the resume, and answer with the instant it will run at. Null when
+  // nothing is cooling any more — there is then no reset to wait for, and the
+  // ordinary dispatch path is already open.
+  #armLimitResume(ticket, repo) {
+    const reset = this.cooling.earliestReset()
+    if (!reset) return null
+    const at = new Date(reset.getTime() + this.resumeGraceMs)
+    this.limitResumes.set(String(ticket), { repo: repo ?? null, at })
+    this.store.logEvent('limit_resume_armed', {
+      repo, ticket, resume_at: at.toISOString(), cooling_until: reset.toISOString(),
+    })
+    return at
+  }
+
+  // ONE timer for both wake reasons, set to whichever comes first: the earliest
+  // cooling reset (the exhaustion latch clears there, and the auto loop gets a
+  // tick) and the earliest armed resume. `floor` is the instant the exhaustion
+  // path insists on even with nothing cooling, so the latch can never stick.
+  #armWake(floor = null) {
+    const times = []
+    const reset = this.cooling.earliestReset()
+    if (reset) times.push(reset.getTime())
+    for (const e of this.limitResumes.values()) times.push(e.at.getTime())
+    if (floor) times.push(floor.getTime())
+    clearTimeout(this.wakeTimer)
+    this.wakeTimer = null
+    if (!times.length) return
+    const ms = Math.max(this.wakeFloorMs, Math.min(...times) - Date.now())
+    this.wakeTimer = setTimeout(() => {
+      this.#wake().catch((e) => this.log('post-cooldown wake failed:', e.message))
+    }, ms)
+    this.wakeTimer.unref()
+  }
+
+  // The resumes run BEFORE the auto tick, so an auto-dispatch that is on cannot
+  // `start` a ticket this pass is about to `resume` — the session is live by
+  // then and #autoTick skips it.
+  async #wake() {
+    this.wakeTimer = null
+    this.exhaustionNotified = false
+    const now = Date.now()
+    for (const [ticket, entry] of [...this.limitResumes]) {
+      if (entry.at.getTime() > now) continue
+      this.limitResumes.delete(ticket)
+      await this.#runLimitResume(ticket, entry)
+    }
+    this.#armWake()
+    await this.#autoTick()
+  }
+
+  // One attempt, and it always says what happened. Silence after a cap is the
+  // fault this whole path exists to end, so a resume that curia cannot make —
+  // the ticket closed, somebody else claimed it, the dispatch threw — lands in
+  // the same thread as the promise did.
+  async #runLimitResume(ticket, entry) {
+    let reply
+    try {
+      reply = await this.resume(ticket, { repo: entry.repo ?? undefined, by: 'limit-reset' })
+    } catch (e) {
+      this.store.logEvent('limit_resume', { repo: entry.repo, ticket, outcome: 'failed', error: e.message })
+      this.notify(ticket, `⚠️ the usage limit reset and curia could not resume this ticket: ${e.message}. \`resume ${ticket}\` starts a fresh agent on the surviving worktree`)
+      return
+    }
+    this.store.logEvent('limit_resume', { repo: entry.repo, ticket, outcome: 'ran' })
+    // A lane that is STILL cooling re-armed this ticket inside the dispatch —
+    // and #exhausted has already stated the new instant in this thread. Adding
+    // the reply on top would say the same window twice.
+    if (this.limitResumes.has(String(ticket))) return
+    this.notify(ticket, `⏰ the usage limit reset. ${reply}`)
+  }
+
+  // Boot repair (#346): the arms this process did not make. Cooling holds for
+  // hours and a deploy takes minutes, so most arms outlive the daemon that
+  // wrote them. An arm whose instant already passed is due at once, which is
+  // exactly the daemon that was down through the whole window.
+  #reArmLimitResumes() {
+    if (typeof this.store.armedLimitResumes !== 'function') return
+    for (const { ticket, repo, at } of this.store.armedLimitResumes()) {
+      const when = new Date(at)
+      if (!Number.isFinite(when.getTime())) continue
+      const session = `curia-${ticket}`
+      // Adoption has already run this pass, so a live agent here is an agent
+      // that came back some other way and needs no resume.
+      if (this.agents.has(session) || this.inFlight.has(session)) continue
+      this.limitResumes.set(String(ticket), { repo: repo ?? null, at: when })
+      this.log(`reconcile: re-armed the limit resume of ${repo ?? '?'}#${ticket} for ${when.toISOString()}`)
+    }
+    this.#armWake()
   }
 
   // ---- the cross-check (#164, ADR-0010) -----------------------------------------
@@ -1926,8 +2099,16 @@ export class Dispatcher {
     // which is the opposite of the truth when the unclaim failed — the ticket
     // stays assigned, filterTakeable drops it from every frontier, and only
     // reconcile's unclaim_failed retry will recover it.
+    //
+    // #346 arms the resume here, and here ONLY: this is the one exhaustion
+    // where curia stopped an agent it had already spawned, so the worktree it
+    // was writing in survives and the operator's order still stands. A REVIEWER
+    // is excluded. #releaseClaim has already unparked the builder with "the
+    // reviewer ended", so a resumed reviewer would read the same diff a second
+    // time and land its verdict on a builder that stopped waiting for one.
     const released = await this.#releaseClaim(agent, 'exhausted: all candidates cooling')
-    const suppressed = this.#exhausted(agent.ticket, agent.repo)
+    const armFor = agent.reviewer ? null : { ticket: agent.ticket, repo: agent.repo }
+    const suppressed = this.#exhausted(agent.ticket, agent.repo, { armFor })
     if (suppressed) this.notify(agent.ticket, suppressed)
     if (!released) this.notify(agent.ticket, `⚠️ \`${agent.session}\`: claim release FAILED: the issue is still assigned; reconcile will retry`)
     // the binding stays (#140): exhaustion re-frontiers the ticket, it does not end it
@@ -2991,6 +3172,7 @@ export class Dispatcher {
     }
     const w = this.agents.get(agentName)
     if (w) w.resultReceived = true
+    this.#closeQuestionsAtResult(agentName)
     if (!result) return 'result recorded'
 
     // #164: a reviewer's result IS the verdict, and nothing else happens on it.
@@ -3050,6 +3232,31 @@ export class Dispatcher {
       this.store.logEvent('resolve_failed', { repo, ticket, agent: agentName, status: result.status, error: e.message })
       this.#failureNotify(ticket, 'resolve', `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${failureProse(e.message)}`)
       return `result recorded — but curia's resolve step failed: ${e.message}`
+    }
+  }
+
+  // A question its own agent has finished past (#336).
+  //
+  // `report_result` is the agent's LAST call. A record still open on it can
+  // never be read: the call that opened it died, and the agent that would have
+  // resumed is at its end. Left open it does three things, all of them found
+  // live — it holds the ticket on the Needs-You list, it makes the next Stop
+  // hook mark a finished agent `blocked_on_human` (#47's evidence, reading a
+  // corpse), and through that mark it holds the container up.
+  //
+  // This closes nothing on silence (#285). The agent's own result is what
+  // closes the record, and only for the agent that reported it. A confirm
+  // belongs to the operator, never to an agent's call, so it is not one of
+  // these — `#openEscalationsFor` keys on the spawn binding.
+  //
+  // Cancel rather than lapse, for the reason every other void here cancels: it
+  // settles the dead promise and edits the card, so a question the operator can
+  // still see says it closed instead of asking on.
+  #closeQuestionsAtResult(agentName) {
+    for (const r of this.#openEscalationsFor(agentName)) {
+      this.cancelEscalation(r.id, { by: 'result' })
+      this.store.logEvent('escalation_stale_at_result', { id: r.id, agent: agentName, ticket: r.ticket })
+      this.log(`${agentName} reported a result with ${r.id} still open — the question is stale, so it is closed`)
     }
   }
 
@@ -4524,7 +4731,20 @@ export class Dispatcher {
       await this.previews.sweep(liveTickets).catch((e) => this.log(`preview sweep failed: ${e.message}`))
     }
 
+    // #336, the repair half of the result rule. `onResult` closes a stale
+    // question at the moment the result lands, and this pass closes the ones
+    // no live call could: a record whose agent reported a result under a
+    // previous daemon process, and the two the live box was still holding when
+    // this ticket was written. Journal-only evidence, so it needs neither the
+    // viewer identity nor a session list — a `result` line for that agent, and
+    // a record that opened before it.
+    await this.#reconcileStaleQuestions(ctx)
+
     if (boot) this.#voidBootConfirms()
+    // #346, after adoption: the limit resumes a previous process armed. Journal
+    // evidence only, so a failed identity read or an indeterminate tmux costs
+    // it nothing — and the arm is worth nothing if the resume is not made.
+    if (boot) this.#reArmLimitResumes()
     await this.#assertAttachSurface()
     // The timeline surface (#74) rides the same posture: asserted every
     // reconcile, never fatally, withdrawn when it cannot be verified. The
@@ -5026,6 +5246,49 @@ export class Dispatcher {
     }
   }
 
+  // Every open record its own agent already finished past (#336).
+  //
+  // The same rule `#closeQuestionsAtResult` runs at the result, said as a
+  // reduction over the journal so it also reaches what no live call could: a
+  // result reported under a previous daemon process, and the ghosts a box was
+  // already holding when the rule landed. Epoch-scoping is free here — a
+  // respawn clears the agent's result, so a question asked by a LATER dispatch
+  // of the same session name is never judged against an older one's ending.
+  //
+  // The second half is the container. A Stop hook that fired while the corpse
+  // was open deferred the whole ending to it (#47), and that deferral is a
+  // journal line: `agent_blocked_on_human` after the result. With the record
+  // closed, the ending it deferred has to run, or the pane and its container
+  // stay up on a ticket that merged days ago. An indeterminate session list
+  // costs only that half: the record still closes, and the next pass with a
+  // readable list ends the session.
+  async #reconcileStaleQuestions({ journal, sessions }) {
+    const results = new Map() // agent -> the ts of its last result
+    const deferred = new Set() // agents whose Stop hook then deferred to a question
+    for (const ev of journal) {
+      if (!ev.agent) continue
+      if (ev.type === 'agent_spawned') { results.delete(ev.agent); deferred.delete(ev.agent) }
+      else if (ev.type === 'result') { results.set(ev.agent, ev.ts); deferred.delete(ev.agent) }
+      else if (ev.type === 'agent_blocked_on_human' && results.has(ev.agent)) deferred.add(ev.agent)
+    }
+    const toEnd = new Set()
+    for (const r of this.store.openEscalations()) {
+      const reportedAt = Date.parse(results.get(r.agent) ?? '')
+      const openedAt = Date.parse(r.opened_at ?? '')
+      // An unreadable stamp on either side is not evidence, and the safe
+      // direction for a question is to leave it asking.
+      if (Number.isNaN(reportedAt) || Number.isNaN(openedAt) || openedAt >= reportedAt) continue
+      this.cancelEscalation(r.id, { by: 'result' })
+      this.store.logEvent('escalation_stale_at_result', { id: r.id, agent: r.agent, ticket: r.ticket, by: 'reconcile' })
+      this.log(`reconcile: ${r.id} was still open on ${r.agent}, which reported a result — the question is stale, so it is closed`)
+      if (deferred.has(r.agent) && sessions?.includes(r.agent)) toEnd.add(r.agent)
+    }
+    for (const session of toEnd) {
+      this.log(`reconcile: ${session} ended its turn on a stale question — running the ending that was deferred`)
+      await this.onAgentDone(session).catch((e) => this.log(`reconcile: the deferred ending of ${session} failed (${e.message}) — the next pass retries`))
+    }
+  }
+
   // Boot only. A restart mints fresh instance ids at adopt (#94), so no open
   // confirm can name a live instance any more — lapse them, message edited,
   // rather than leaving buttons whose targets can no longer be matched.
@@ -5153,6 +5416,11 @@ export class Dispatcher {
       if (liveCount() >= max) break
       const session = `curia-${num}`
       if (this.agents.has(session) || this.inFlight.has(session)) continue
+      // #346: curia owes this ticket a resume, and a resume is not what this
+      // loop does. `start` recreates the worktree from origin, so an auto
+      // dispatch landing here first would delete the very files the armed
+      // resume exists to hand back.
+      if (this.limitResumes.has(String(num))) continue
       if (await this.deps.hasSession(session)) continue // collision or leftover: skip, never churn
       const msg = await this.start(num, { repo, by: 'auto' })
       this.log(`[auto] ${msg}`)

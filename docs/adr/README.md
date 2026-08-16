@@ -5,6 +5,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 ## State and awareness
 
 - [ADR-0001](0001-github-is-the-only-durable-state-home.md): GitHub is the only durable state home. The daemon holds no board, and the journal is its one artifact.
+- [ADR-0017](0017-the-journal-is-a-queryable-store.md): That artifact is a `node:sqlite` store, and the JSON lines retire. A row keeps the written line verbatim, and the daemon is the only writer. Decided, not built.
 
 ## Daemon and agent host
 

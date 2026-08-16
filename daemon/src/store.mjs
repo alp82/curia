@@ -7,13 +7,14 @@
 //
 // Semantics owned here:
 //   - first-valid-wins: answer/cancel close atomically; later attempts are rejected
-//   - supersede (#29): a re-issued ask_human (same agent + same payload while an
-//     older escalation is open) marks the old record superseded; answers posted
-//     to a dead id are routed along the successor chain to the live call
+//   - supersede (#29, #336): a re-issued ask_human — a second open record of one
+//     kind on one agent, whatever its wording — marks the old record superseded;
+//     answers posted to a dead id route along the successor chain to the live call
 
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { nextConsoleKey } from './attach.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -133,16 +134,20 @@ export class EscalationStore {
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
+    this.consoleConversations = new Map() // console key -> the live browser conversation (#333)
+    this.consoleSpent = new Set() // every console key ever minted, deleted ones included (#333)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
     this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
     this.lastThreadTickets = new Map() // thread id -> last ticket ever bound to it, the same way round (#257)
+    this.mapCharters = new Map() // map number -> the chat handle that charted it (#241, read by #326)
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
     this.recent = [] // the last RECENT_EVENTS journal lines, oldest first (#262)
     this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
+    this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
     this.seq = 0
     this.noteSeq = 0
     this._replay()
@@ -201,6 +206,23 @@ export class EscalationStore {
     // the last one pushed. The order inside one journal is the order here.
     if (ev.agent && ev.type === 'agent_spawned') this.pullRequests.delete(ev.agent)
     if (ev.agent && ev.url && PR_EVENTS.has(ev.type)) this.pullRequests.set(ev.agent, ev.url)
+
+    // The limit resume curia owes a ticket (#346). A reduction for the reason
+    // the pull-request map above is one: the arm has to outlive the process
+    // that made it. Cooling holds for hours and a deploy takes minutes, so an
+    // arm kept only in the dispatcher would mostly never fire — and the boot
+    // replay is what hands it back.
+    //
+    // TWO events clear it, and both mean the same thing. `limit_resume` is the
+    // attempt itself, whatever it ended as: one arm buys one attempt, and a
+    // fresh cap arms a fresh one. `agent_spawned` is an agent on that ticket by
+    // any other route, which is what the resume was for.
+    if (ev.ticket != null && ev.type === 'limit_resume_armed') {
+      this.limitResumes.set(String(ev.ticket), { repo: ev.repo ?? null, at: ev.resume_at })
+    }
+    if (ev.ticket != null && (ev.type === 'limit_resume' || ev.type === 'agent_spawned')) {
+      this.limitResumes.delete(String(ev.ticket))
+    }
 
     switch (ev.type) {
       case 'esc_open': {
@@ -267,6 +289,17 @@ export class EscalationStore {
       case 'thread_released': {
         this.ticketThreads.delete(String(ev.ticket))
         this.threadTickets.delete(ev.thread_id)
+        break
+      }
+      // The dispatcher's own line, read here for the thread (#241, #326). A
+      // new-map session is named by a chat handle, and that handle stays bound
+      // to the conversation thread for the whole session — it is the identity
+      // every notify, escalation and status line addresses. The map number
+      // takes the thread through this index instead, which is what makes a
+      // later `map <n>` land back in the conversation that settled the
+      // destination.
+      case 'map_adopted': {
+        if (ev.map != null && ev.ticket != null) this.mapCharters.set(String(ev.map), String(ev.ticket))
         break
       }
       case 'overseer_note': {
@@ -346,6 +379,25 @@ export class EscalationStore {
         this.overseerSessions.set(ev.thread_id, ev.session_id)
         break
       }
+      // The browser conversations (#333, ADR-0016). Two reductions, because
+      // "which conversations exist" and "which numbers are spent" are different
+      // facts and only the second one survives a delete. The spent set never
+      // shrinks: it is what makes the numbers only go up, and it is the whole
+      // guard against a new conversation waking a deleted one's memory.
+      case 'console_conversation_opened': {
+        this.consoleSpent.add(ev.key)
+        this.consoleConversations.set(ev.key, { key: ev.key, opened_at: ev.ts ?? null })
+        break
+      }
+      case 'console_conversation_deleted': {
+        this.consoleConversations.delete(ev.key)
+        // The resume handle and the waiting notes go with it. Nothing can
+        // address this key again, so a binding left behind would only be a line
+        // the next boot replays for a conversation that is not there.
+        this.overseerSessions.delete(ev.key)
+        this.overseerNotes.delete(ev.key)
+        break
+      }
     }
   }
 
@@ -355,37 +407,54 @@ export class EscalationStore {
       .digest('hex').slice(0, 16)
   }
 
-  // Open a new escalation. If the same agent already has an OPEN escalation with
-  // the same payload, that record is a corpse from an aborted tool call (#29):
+  // Open a new escalation. If the same agent already has an OPEN escalation of
+  // this kind, that record is a corpse from an aborted tool call (#29):
   // supersede it and chain answers forward.
+  //
+  // The key is the agent and the KIND, not the wording (#336). It was the
+  // payload hash until a live re-send got past it: the standing orders tell an
+  // agent whose call failed to make the same call once more, the agent added
+  // "(Re-sent: the last call timed out with an error…)" to explain itself, and
+  // that note changed the hash. Two live cards for one question, and the
+  // original never closed. A re-send is the same call again, so the words are
+  // the one thing about it that can differ — and the promise the standing
+  // orders make, that curia routes the human to whichever call is live, is a
+  // promise about the call rather than about its wording.
+  //
+  // The kind stays in the key because one agent CAN hold two calls at once and
+  // mean both: a harness that backgrounds a pending `ask_human` leaves the
+  // question open while `request_review` opens the gate. Those are two
+  // questions to a human, and an approval routed into a free-text call would
+  // be read as an answer to it.
   //
   // A confirm (#94) supersedes on a different key: any open confirm sharing a
   // target INSTANCE — a newer confirm on the same agent replaces the older one
   // whatever its wording, so at most one set of live buttons ever points at a
-  // given agent.
+  // given agent. The two keys never cross: a confirm is an operator's record
+  // and belongs to no agent's call.
   open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id }) {
     const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
       .some((t) => (action?.targets ?? []).some((u) => u.instance === t.instance))
-    let superseded = null
-    for (const r of this.escalations.values()) {
-      if (r.status !== 'open') continue
-      const match = kind === CONFIRM_KIND
+    // Oldest first, and ALL of them: one agent should never hold two open
+    // records of one kind, but a journal written before this rule can carry
+    // several, and a corpse this call walks past stays on the Needs-You list
+    // forever.
+    const superseded_all = [...this.escalations.values()].filter((r) => {
+      if (r.status !== 'open') return false
+      return kind === CONFIRM_KIND
         ? r.kind === CONFIRM_KIND && sharesInstance(r)
-        : r.agent === agent && r.payload_hash === payload_hash
-      if (match) {
-        superseded = r
-        break
-      }
-    }
-    // `recommended` (#285) stays OUT of the payload hash on purpose: the hash
-    // keys supersession on the question, and the flag is not the question. An
-    // agent that re-asks the same round with the flag flipped supersedes its
-    // own record, which is what a re-ask should do.
+        : r.kind === kind && r.agent === agent
+    })
+    // The hash keyed supersession until #336 took the question out of the key.
+    // It stays on the line as EVIDENCE: it is what tells a later reader whether
+    // a superseded record held the same question its successor asks. Nothing
+    // decides on it, so a round re-asked with `recommended` flipped (#285)
+    // supersedes its own record either way.
     this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload_hash, action, origin_thread_id })
-    if (superseded) this._append({ type: 'esc_supersede', id: superseded.id, successor: id })
-    return { record: this.escalations.get(id), superseded }
+    for (const r of superseded_all) this._append({ type: 'esc_supersede', id: r.id, successor: id })
+    return { record: this.escalations.get(id), superseded: superseded_all[0] ?? null, superseded_all }
   }
 
   attachRender(id, discord) {
@@ -458,6 +527,46 @@ export class EscalationStore {
 
   overseerSession(threadId) {
     return this.overseerSessions.get(threadId)
+  }
+
+  // ---- the browser conversations (#333, ADR-0016) ---------------------------
+  //
+  // The daemon owns the key, so the daemon owns this list. It is journalled for
+  // the reason the resume handle is: a restart must not forget which
+  // conversations the operator has, and it must not hand a new one a number an
+  // old one spent.
+
+  // Mint one. The number is one higher than the highest ever minted, never the
+  // lowest free — see attach.nextConsoleKey for why a conversation differs from
+  // a chat handle here.
+  openConsoleConversation() {
+    const key = nextConsoleKey([...this.consoleSpent])
+    this._append({ type: 'console_conversation_opened', key })
+    return key
+  }
+
+  // Forget one. The transcript file is NOT touched: the number is spent, so
+  // nothing can ever read that file as this conversation again, and a delete
+  // the operator cannot undo is the wrong default for their own words.
+  // Answers false for a key that is not a live conversation, so the caller can
+  // refuse rather than journal a delete of nothing.
+  deleteConsoleConversation(key) {
+    if (!this.consoleConversations.has(key)) return false
+    this._append({ type: 'console_conversation_deleted', key })
+    return true
+  }
+
+  // The live ones, newest first — the order the picker draws. Sorted on the
+  // NUMBER rather than the timestamp: numbers only go up, so the number is the
+  // order, and two conversations opened in the same millisecond still come back
+  // in the order they were minted.
+  consoleConversationList() {
+    const n = (c) => Number(String(c.key).slice('console-'.length))
+    return [...this.consoleConversations.values()].sort((a, b) => n(b) - n(a))
+  }
+
+  hasConsoleConversation(key) {
+    return this.consoleConversations.has(key)
   }
 
   // Synthetic lines for a thread's overseer session (#94): a confirm resolves
@@ -637,8 +746,18 @@ export class EscalationStore {
   // The journal's last binding for a ticket, released or not (#140). The
   // dispatch backstop reads it so a resumed agent lands back in the thread
   // its predecessor's history, breadcrumbs and recorded answers live in.
+  //
+  // A map with no binding of its own falls back to the chat handle that
+  // charted it (#326): the thread that session ran in IS the map's thread, and
+  // the conversation that settled the destination is where `map <n>` belongs.
+  // A map dispatched on its own number later has a record here, and that one
+  // wins — the fallback answers only for a map nothing has bound yet.
   lastThreadForTicket(ticket) {
-    return this.lastTicketThreads.get(String(ticket))
+    const t = String(ticket)
+    const own = this.lastTicketThreads.get(t)
+    if (own) return own
+    const charter = this.mapCharters.get(t)
+    return charter ? this.lastTicketThreads.get(charter) : undefined
   }
 
   // The same pointer the other way round (#257): the last ticket this thread
@@ -691,5 +810,13 @@ export class EscalationStore {
   // the review gate card carries it too.
   pullRequestFor(agent) {
     return this.pullRequests.get(agent) ?? null
+  }
+
+  // Every limit resume curia still owes, as `{ ticket, repo, at }` (#346). The
+  // dispatcher re-arms its own timers from this at boot. `at` is the ISO
+  // instant the arm was written with, so a resume whose window rolled while the
+  // daemon was down is due the moment this is read.
+  armedLimitResumes() {
+    return [...this.limitResumes.entries()].map(([ticket, v]) => ({ ticket, repo: v.repo, at: v.at }))
   }
 }

@@ -19,7 +19,7 @@ import {
   classifyReviewAnswer, CROSS_CHECK_ANSWER, CROSS_CHECK_DUTY, dutyLines, outstanding, REVIEW_KIND,
 } from '../src/lifecycle.mjs'
 import { verdictComment, judgementComment, verdictNote } from '../src/resolve.mjs'
-import { writePrompt } from '../src/workspace.mjs'
+import { writePrompt, STANDING_FILE } from '../src/workspace.mjs'
 import { DiscordBridge } from '../src/bridge.mjs'
 import { StatusLine } from '../src/statusline.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
@@ -615,10 +615,12 @@ describe('what the two comments say (#165)', () => {
 // ---- 5. the orders -----------------------------------------------------------
 
 describe('the builder\'s duty, in its standing orders (#165)', () => {
-  const write = (opts = {}) => fs.readFileSync(
-    writePrompt(tmp, { number: 42, title: 'a ticket', body: 'q' }, { repo: 'o/r', wtPath: '/w/42', ...opts }),
-    'utf8',
-  )
+  // #340: the duty rides `standing.md` now, composed into the memory file. The
+  // agent reads it with the prompt, so this reads both.
+  const write = (opts = {}) => {
+    const file = writePrompt(tmp, { number: 42, title: 'a ticket', body: 'q' }, { repo: 'o/r', wtPath: '/w/42', ...opts })
+    return `${fs.readFileSync(file, 'utf8')}\n${fs.readFileSync(path.join(tmp, STANDING_FILE), 'utf8')}`
+  }
 
   test('the prompt states the third button, the wait, and every step of the duty', () => {
     const p = write({ mapNumber: 1 })

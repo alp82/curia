@@ -6,7 +6,9 @@
 // under CODEX_HOME — and the timeline surface reads it instead of parsing a
 // terminal (#72/#73). This module is the ONLY place that knows either
 // vocabulary. Everything here is pure given a line of text; the fs helpers
-// below are the two file-finding functions.
+// below are the file-finding functions — one per harness, plus the two ways to
+// ask for a file: newest-by-mtime for a pane, by session id for a conversation
+// (#332).
 //
 // Both formats are UNDOCUMENTED, so a break is a question of when, and the
 // spike's answer — drop the line silently — is exactly the silence #33 and #69
@@ -57,30 +59,121 @@ function newestFile(files) {
   return best?.path ?? null
 }
 
-export function findTranscript(harness, cfgDir) {
-  if (harness === 'claude') {
-    const projects = path.join(cfgDir, 'projects')
-    const files = []
-    for (const proj of readdirSafe(projects)) {
-      for (const f of readdirSafe(path.join(projects, proj))) {
-        if (f.endsWith('.jsonl')) files.push(path.join(projects, proj, f))
-      }
+// Every transcript a config dir holds, per harness.
+function claudeFiles(cfgDir) {
+  const projects = path.join(cfgDir, 'projects')
+  const files = []
+  for (const proj of readdirSafe(projects)) {
+    for (const f of readdirSafe(path.join(projects, proj))) {
+      if (f.endsWith('.jsonl')) files.push(path.join(projects, proj, f))
     }
-    return newestFile(files)
   }
-  if (harness === 'codex') {
-    // sessions/<year>/<month>/<day>/rollout-*.jsonl
-    const root = path.join(cfgDir, 'sessions')
-    const files = []
-    const walk = (dir, depth) => {
-      for (const entry of readdirSafe(dir)) {
-        const p = path.join(dir, entry)
-        if (depth < 3) walk(p, depth + 1)
-        else if (entry.startsWith('rollout-') && entry.endsWith('.jsonl')) files.push(p)
-      }
+  return files
+}
+
+function codexFiles(cfgDir) {
+  // sessions/<year>/<month>/<day>/rollout-*.jsonl
+  const files = []
+  const walk = (dir, depth) => {
+    for (const entry of readdirSafe(dir)) {
+      const p = path.join(dir, entry)
+      if (depth < 3) walk(p, depth + 1)
+      else if (entry.startsWith('rollout-') && entry.endsWith('.jsonl')) files.push(p)
     }
-    walk(root, 0)
-    return newestFile(files)
+  }
+  walk(path.join(cfgDir, 'sessions'), 0)
+  return files
+}
+
+const FILES = { claude: claudeFiles, codex: codexFiles }
+
+// What each harness NAMES a session's transcript. The claude harness names the
+// file after the session id — measured on the box (docs/live-checks/
+// 332-transcript-by-key.md). The codex harness puts the rollout's start time in
+// front of it, which is read off the name shape this module already walks
+// rather than measured: no codex conversation is keyed today, because the
+// overseer is the one thing curia keys and it runs the claude harness.
+const NAMES_SESSION = {
+  claude: (base, id) => base === `${id}.jsonl`,
+  codex: (base, id) => base.startsWith('rollout-') && base.endsWith(`-${id}.jsonl`),
+}
+
+// The newest transcript in a config dir, by mtime.
+//
+// This answers for a PANE, and the precondition is that the dir holds one
+// agent: curia gives every agent its own config dir, so an agent's re-dispatch
+// writes a new file and "newest" is the live run (spike shape, unchanged).
+// A dir that holds many CONVERSATIONS breaks that precondition — use
+// transcriptForSession there.
+export function findTranscript(harness, cfgDir) {
+  return newestFile(FILES[harness]?.(cfgDir) ?? [])
+}
+
+// The transcript one SESSION ID names (#332, building ADR-0016).
+//
+// Every overseer conversation shares one config dir and one cwd, so they all
+// write into one directory. Newest-by-mtime there answers "whichever
+// conversation spoke last", never "this one": a Discord turn hides the browser
+// chat, and the context percent reports another conversation's context. The
+// daemon journals the live session id per conversation key, so the key names
+// the file and both readers get the conversation they asked about.
+//
+// Null when the id names no file. A conversation with no turn yet has no
+// transcript, and so does a journalled id whose file the cutover left behind.
+// An empty screen is the honest answer to both. The last conversation's words
+// are not a fallback, they are the defect.
+export function transcriptForSession(harness, cfgDir, sessionId) {
+  const names = NAMES_SESSION[harness]
+  if (!names || !sessionId) return null
+  for (const p of FILES[harness](cfgDir)) {
+    if (names(path.basename(p), sessionId)) return p
+  }
+  return null
+}
+
+// What the operator opened a conversation with (#333).
+//
+// The Chat screen's picker labels each row with it. `console-1 console-2
+// console-3` is a list nobody can pick from, and a conversation has no other
+// name — ADR-0016 mints a number and nothing else, and #333 gave the operator
+// no field to type one in.
+//
+// Only the HEAD of the file is read. The first prompt is the first thing any
+// conversation writes, so a bounded read finds it, and the bound is what keeps
+// a label off the cost of a whole transcript. A file with no prompt inside that
+// window answers null, and the row falls back to its key.
+//
+// A malformed line is SKIPPED here, unlike everywhere else in this module. The
+// timeline reports a parse failure loudly because the transcript is the whole
+// content of that surface. Here it is a label, and half a line at the end of a
+// bounded read is the expected case, not evidence of anything.
+const LABEL_BYTES = 128 * 1024
+export function firstPrompt(harness, file, { max = 90, bytes = LABEL_BYTES } = {}) {
+  if (!harness || !file || !READERS[harness]) return null
+  let head
+  try {
+    const fd = fs.openSync(file, 'r')
+    try {
+      const buf = Buffer.alloc(bytes)
+      const read = fs.readSync(fd, buf, 0, bytes, 0)
+      head = buf.subarray(0, read).toString('utf8')
+    } finally {
+      fs.closeSync(fd)
+    }
+  } catch {
+    return null
+  }
+  for (const line of head.split('\n')) {
+    if (!line.trim()) continue
+    let r
+    try { r = parseLine(harness, line) } catch { return null }
+    if (r.malformed || r.unknown) continue
+    for (const item of r.items ?? []) {
+      if (item.kind !== 'prompt') continue
+      const text = String(item.text ?? '').replace(/\s+/g, ' ').trim()
+      if (!text) continue
+      return text.length > max ? `${text.slice(0, max - 1)}…` : text
+    }
   }
   return null
 }

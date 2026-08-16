@@ -15,6 +15,7 @@ import {
   probeTtyd, WRAPPER_PATH, validSessionName,
   attachUrl, serveOff, DEFAULT_INDEX, CHROME_BASENAME, indexRefusal, readIndexStamp,
   stampMeta, sha256, isChatHandle, nextChatHandle,
+  isConsoleKey, nextConsoleKey, consoleSession, consoleKeyForSession, sessionForConsoleKey,
 } from '../src/attach.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -220,5 +221,45 @@ describe('chat handles enumerate (#241)', () => {
 
   test('numbered and reviewer sessions are not chat handles', () => {
     assert.equal(nextChatHandle(['curia-147', 'curia-review-42', 'other-chat-1']), 'chat-1')
+  })
+})
+
+// #333, building ADR-0016. The second enumerated handle space on this box, and
+// the one rule that matters is how it DIFFERS from the first: a chat handle
+// takes the lowest free index because an agent is torn down whole, and a
+// conversation number only goes up because a conversation is memory.
+describe('console keys enumerate upward (#333)', () => {
+  test('numbers only go up, and a deleted one is spent', () => {
+    assert.equal(nextConsoleKey([]), 'console-1')
+    assert.equal(nextConsoleKey(['console-1']), 'console-2')
+    // console-1 was deleted. Its number does NOT come back: reusing it would
+    // point a new conversation at the deleted one's journalled memory.
+    assert.equal(nextConsoleKey(['console-1', 'console-2']), 'console-3')
+    assert.equal(nextConsoleKey(['console-3']), 'console-4', 'a gap below the high mark is not filled')
+  })
+
+  test('a chat handle is not a console key, and neither takes the other\'s name', () => {
+    assert.ok(isChatHandle('chat-1'))
+    assert.ok(!isConsoleKey('chat-1'))
+    assert.ok(isConsoleKey('console-1'))
+    assert.ok(!isChatHandle('console-1'))
+    // ADR-0016 rules `chat-<n>` unavailable to a conversation because it
+    // already names a ticketless agent. A counter fed the wrong space must
+    // therefore see nothing in it.
+    assert.equal(nextConsoleKey(['chat-9', 'curia-chat-9']), 'console-1')
+    assert.equal(nextChatHandle(['curia-console-9']), 'chat-1')
+  })
+
+  test('the session name and the key are each other, both ways', () => {
+    assert.equal(consoleSession(3), 'curia-console-3')
+    assert.equal(sessionForConsoleKey('console-3'), 'curia-console-3')
+    assert.equal(consoleKeyForSession('curia-console-3'), 'console-3')
+    assert.ok(validSessionName(consoleSession(3)), 'the timeline admits nothing else')
+  })
+
+  test('every other session name yields no console key', () => {
+    for (const s of ['curia-147', 'curia-chat-2', 'curia-review-42', 'curia-console', 'curia-console-x', 'console-3']) {
+      assert.equal(consoleKeyForSession(s), null, s)
+    }
   })
 })

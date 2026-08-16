@@ -413,6 +413,57 @@ describe('the recent past, answered without the file (#289)', () => {
   })
 })
 
+// The arm has to outlive the process that made it (#346). Cooling holds for
+// hours and a deploy takes minutes, so an arm kept only in the dispatcher would
+// mostly never fire. It is a reduction for the reason the pull request above is
+// one: the boot replay is what hands it back.
+describe('the limit resume curia still owes (#346)', () => {
+  let dir
+  const store = () => new EscalationStore(dir)
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-346-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('an arm is answered per ticket, with the repo and the instant it was written with', () => {
+    const s = store()
+    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 43, resume_at: '2026-08-15T13:00:00.000Z' })
+    assert.deepEqual(s.armedLimitResumes(), [
+      { ticket: '42', repo: 'o/r', at: '2026-08-15T12:00:00.000Z' },
+      { ticket: '43', repo: 'o/r', at: '2026-08-15T13:00:00.000Z' },
+    ])
+  })
+
+  test('a restart replays it, which is the whole point of the reduction', () => {
+    const s = store()
+    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    assert.deepEqual(store().armedLimitResumes(), s.armedLimitResumes())
+  })
+
+  test('the attempt clears it, so one arm buys one attempt and never a loop', () => {
+    const s = store()
+    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.logEvent('limit_resume', { repo: 'o/r', ticket: 42, outcome: 'ran' })
+    assert.deepEqual(s.armedLimitResumes(), [])
+  })
+
+  test('an agent on that ticket by any other route clears it too', () => {
+    const s = store()
+    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.logEvent('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    assert.deepEqual(s.armedLimitResumes(), [], 'the operator resumed it by hand, so curia owes nothing')
+  })
+
+  test('a fresh cap after an attempt arms again', () => {
+    const s = store()
+    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.logEvent('limit_resume', { repo: 'o/r', ticket: 42, outcome: 'ran' })
+    s.logEvent('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T17:00:00.000Z' })
+    assert.deepEqual(s.armedLimitResumes(), [{ ticket: '42', repo: 'o/r', at: '2026-08-15T17:00:00.000Z' }])
+  })
+})
+
 describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
   let tmp
   const dispatchers = []

@@ -23,6 +23,7 @@ import {
   Client, Events, GatewayIntentBits, ChannelType, REST, Routes,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder,
 } from 'discord.js'
+import { isChatHandle } from './attach.mjs'
 import { safeLeaf } from './images.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
@@ -704,14 +705,30 @@ export class DiscordBridge {
     return run
   }
 
+  // A name curia BINDS a thread to: an issue number, or a chat handle — the
+  // identity of an agent no issue answers for (#241). Anything else is a
+  // pseudo-ticket ('all') with no binding of its own.
+  static bindable(ticket) {
+    const t = String(ticket)
+    return /^\d+$/.test(t) || isChatHandle(t)
+  }
+
   // The thread a ticket's traffic lands in (#93): the journalled binding first.
   // An unbound ticket gets a fresh thread, bound on creation — that is the
   // "autonomous dispatch opens and binds a fresh thread" leg of #89, reached
   // lazily by whichever notify or escalation speaks first. Pseudo-tickets with
   // no binding seam ('all', tests without `bindings`) keep the old name-based
   // lookup so bulk confirms still share one thread.
+  //
+  // #326: the shape test was digits-only, so a new-map session — `chat-1`, not
+  // a number — fell through to the name-based lookup and got a thread called
+  // `ticket-chat-1`. The dispatch had already taken over the conversation
+  // thread and renamed it, so charting a map through the overseer ended with
+  // two threads: the renamed conversation, and a second one carrying every
+  // line the agent said. The binding is the answer for a handle exactly as it
+  // is for a number.
   ensureThread(ticket) {
-    if (!this.bindings || !/^\d+$/.test(String(ticket))) return this.#namedThread(`ticket-${ticket}`)
+    if (!this.bindings || !DiscordBridge.bindable(ticket)) return this.#namedThread(`ticket-${ticket}`)
     return this.#perTicket(ticket, () => this.#ensureThread(ticket))
   }
 
@@ -836,17 +853,20 @@ export class DiscordBridge {
     return this.#bindFreshThread(ticket, type, repo, null)
   }
 
-  // #241: the thread of a NEW-map charting session is bound to the handle
-  // `new`, because that word was the only name the session had. The moment the
-  // agent creates the map, this thread becomes THAT MAP's thread — the
-  // conversation that settled the destination is exactly the record a later
-  // `map <n>` should land back in, and #93's binding is what makes it land.
+  // #241: the thread of a NEW-map charting session is bound to a chat handle,
+  // because that handle is the only name the session has. The moment the agent
+  // creates the map, this thread becomes THAT MAP's thread — the conversation
+  // that settled the destination is exactly the record a later `map <n>`
+  // should land back in.
   //
-  // Two acts, in order: the binding moves off the handle onto the number, then
-  // the name follows so the thread list reads as the map instead of as a
-  // sentence the operator typed once. A bind that refuses puts the handle back
-  // — an unbound thread would send the running agent's next notify into a
-  // fresh thread, which is worse than a stale name.
+  // This is the NAME, and only the name (#326). The live binding stays on the
+  // handle, because the handle is what every notify, escalation and status
+  // line of the running session addresses: moving it here left the session
+  // speaking for a thread it no longer held, and the next line it said opened
+  // another one. The map takes the thread through the journal instead — the
+  // dispatcher's `map_adopted` line, which the store reads back as the map's
+  // last thread — so the hand-over happens when the session releases the
+  // handle and not a moment before.
   adoptMapThread(handle, mapNumber, opts = {}) {
     if (!this.bindings) return Promise.resolve({ ok: false, reason: 'no-bindings' })
     return this.#perTicket(mapNumber, () => this.#adoptMapThread(handle, mapNumber, opts))
@@ -855,12 +875,6 @@ export class DiscordBridge {
   async #adoptMapThread(handle, mapNumber, { repo = '' } = {}) {
     const threadId = this.bindings.get(handle)
     if (!threadId) return { ok: false, reason: 'unbound' }
-    this.bindings.release(handle, 'the map this session created now names it')
-    const r = this.bindings.bind(String(mapNumber), threadId)
-    if (!r.ok) {
-      this.bindings.bind(handle, threadId)
-      return r
-    }
     const name = DiscordBridge.labelName(mapNumber, 'map', repo)
     const t = await this.client.channels.fetch(threadId).catch(() => null)
     if (t && (this.renamer.desired(t.id) ?? t.name) !== name) await this.renamer.set(t.id, name)
@@ -1371,6 +1385,9 @@ export class DiscordBridge {
     switch (by) {
       case 'cancel': return 'its agent was cancelled'
       case 'agent-death': return 'its agent is gone'
+      // #336: the agent finished PAST this question. The words say so, because
+      // "cancelled" alone reads as somebody deciding against the question.
+      case 'result': return 'its agent finished and reported a result'
       case 'reconcile': return 'the daemon reconciled it away'
       case 'rest': return 'it was cancelled over the REST seam'
       default: return /^\d+$/.test(String(by)) ? `cancelled by <@${by}>` : `cancelled (${by})`

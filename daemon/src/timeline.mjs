@@ -44,7 +44,7 @@ import { fileURLToPath } from 'node:url'
 import { assertServe, serveOff, attachBase, validSessionName } from './attach.mjs'
 import { paneTail } from './dispatch.mjs'
 import { sendText, sendKey, capturePane } from './tmux.mjs'
-import { detectHarness, findTranscript, parseLine } from './transcript.mjs'
+import { detectHarness, findTranscript, transcriptForSession, parseLine } from './transcript.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -171,7 +171,13 @@ export class TimelineSurface {
       // keeps its transcript in the daemon's own data dir and it takes words as
       // a TURN rather than as keystrokes. A driver names both, and a session
       // with no driver is a pane exactly as before.
-      //   { cfgDir, send(text) -> Promise, harness? }
+      //
+      // `sessionId` is the live session id of the conversation this driver
+      // serves, read from the daemon's journal at call time (#332). It is what
+      // names the transcript file: many conversations share the driver's config
+      // dir, so nothing else can tell them apart. Null while the conversation
+      // has taken no turn.
+      //   { cfgDir, sessionId, send(text) -> Promise, harness? }
       driverFor: () => null,
       // escalationsFor(session): open escalation records for this agent.
       escalationsFor: () => [],
@@ -200,6 +206,21 @@ export class TimelineSurface {
 
   #cfgDir(session) {
     return this.#driver(session)?.cfgDir ?? path.join(this.workspaceRoot, 'cfg', session)
+  }
+
+  // Where this session's transcript is (#332, building ADR-0016).
+  //
+  // A PANE gets a config dir of its own, so the newest file in it is that
+  // agent's run. A DRIVEN session is a CONVERSATION, and every conversation
+  // writes into ONE config dir — so newest-by-mtime there shows whichever
+  // conversation answered last, and one Discord turn hides the browser chat.
+  // A conversation is found by the session id its key is bound to. A key with
+  // no session id yet has no transcript, and an empty screen is the right
+  // answer: another conversation's words are not a fallback.
+  #transcript(session, harness) {
+    const driver = this.#driver(session)
+    if (driver) return transcriptForSession(harness, this.#cfgDir(session), driver.sessionId ?? null)
+    return findTranscript(harness, this.#cfgDir(session))
   }
 
   // The dispatcher's word is about agents it spawned, and it spawned no driven
@@ -345,7 +366,7 @@ export class TimelineSurface {
     // spawned. Re-probed while null so a harness that appears later is picked up.
     if (!s.harness) s.harness = this.#harnessFor(name)
     if (!s.harness) return
-    const file = findTranscript(s.harness, this.#cfgDir(name))
+    const file = this.#transcript(name, s.harness)
     if (file !== s.file) {
       // A new run for this ticket: start over rather than splicing two
       // conversations together.

@@ -11,7 +11,7 @@ import path from 'node:path'
 
 import http from 'node:http'
 
-import { detectHarness, findTranscript, parseLine } from '../src/transcript.mjs'
+import { detectHarness, findTranscript, transcriptForSession, firstPrompt, parseLine } from '../src/transcript.mjs'
 import { TimelineSurface, pageRefusal, detectDialog, DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO } from '../src/timeline.mjs'
 
 // Real pane shapes, captured live on the deployment host (#75): the trust
@@ -298,6 +298,105 @@ describe('harness detection + transcript discovery', () => {
 })
 
 // ---------------------------------------------------------------------------
+// a transcript is found by KEY (#332, building ADR-0016)
+// ---------------------------------------------------------------------------
+//
+// The config dir of a conversation holds every conversation's transcript, so
+// mtime answers "who spoke last" rather than "which conversation is this". The
+// session id the key is bound to is what names the file.
+
+describe('transcriptForSession (#332)', () => {
+  test('the session id names the file, and a newer conversation does not take it', () => {
+    const c = path.join(tmp, 'cfg', 'conversations')
+    const proj = path.join(c, 'projects', 'home')
+    fs.mkdirSync(proj, { recursive: true })
+    const mine = path.join(proj, 'aaaa-1111.jsonl')
+    const theirs = path.join(proj, 'bbbb-2222.jsonl')
+    fs.writeFileSync(mine, '')
+    fs.writeFileSync(theirs, '')
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(mine, old, old)
+
+    // What the shipped mtime path would answer, and why it is the defect.
+    assert.equal(findTranscript('claude', c), theirs)
+    assert.equal(transcriptForSession('claude', c, 'aaaa-1111'), mine)
+    assert.equal(transcriptForSession('claude', c, 'bbbb-2222'), theirs)
+  })
+
+  test('an id that names no file reads as no transcript, never as the newest one', () => {
+    const c = path.join(tmp, 'cfg', 'conversations')
+    // A conversation with no turn yet has no session id at all (ADR-0016 case
+    // 8), and the cutover leaves journalled ids whose files are gone.
+    assert.equal(transcriptForSession('claude', c, null), null)
+    assert.equal(transcriptForSession('claude', c, undefined), null)
+    assert.equal(transcriptForSession('claude', c, 'cccc-3333'), null)
+    assert.equal(transcriptForSession('gemini', c, 'aaaa-1111'), null)
+  })
+
+  test('the codex rollout carries its session id after the start time', () => {
+    const c = path.join(tmp, 'cfg', 'codex-conversations')
+    const day = path.join(c, 'sessions', '2026', '07', '30')
+    fs.mkdirSync(day, { recursive: true })
+    const f = path.join(day, 'rollout-2026-07-30T00-00-00-dddd-4444.jsonl')
+    fs.writeFileSync(f, '')
+    assert.equal(transcriptForSession('codex', c, 'dddd-4444'), f)
+    assert.equal(transcriptForSession('codex', c, '2026-07-30T00-00-00'), null)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the label a conversation carries in the picker (#333)
+// ---------------------------------------------------------------------------
+//
+// ADR-0016 mints a conversation a number and nothing else, and #333 gave the
+// operator no field to type a name in. So the row's label is their own first
+// message, read off the head of the transcript.
+
+describe('firstPrompt (#333)', () => {
+  const line = (o) => JSON.stringify(o) + '\n'
+  const write = (name, body) => {
+    const proj = path.join(tmp, 'cfg', 'labels', 'projects', 'home')
+    fs.mkdirSync(proj, { recursive: true })
+    const f = path.join(proj, name)
+    fs.writeFileSync(f, body)
+    return f
+  }
+
+  test('the operator\'s first message is the label, whitespace collapsed', () => {
+    const f = write('a.jsonl',
+      line({ type: 'system', subtype: 'init' })
+      + line({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } })
+      + line({ type: 'user', message: { content: 'what is\n  takeable?' } })
+      + line({ type: 'user', message: { content: 'and the second one' } }))
+    assert.equal(firstPrompt('claude', f), 'what is takeable?')
+  })
+
+  test('a long first message is clipped, so one row stays one row', () => {
+    const f = write('b.jsonl', line({ type: 'user', message: { content: 'x'.repeat(400) } }))
+    const label = firstPrompt('claude', f, { max: 20 })
+    assert.equal(label.length, 20)
+    assert.match(label, /…$/)
+  })
+
+  test('no prompt is null, and the row falls back to its key', () => {
+    assert.equal(firstPrompt('claude', write('c.jsonl', line({ type: 'system', subtype: 'init' }))), null)
+    assert.equal(firstPrompt('claude', null), null)
+    assert.equal(firstPrompt('claude', path.join(tmp, 'cfg', 'labels', 'gone.jsonl')), null)
+    assert.equal(firstPrompt(null, write('d.jsonl', line({ type: 'user', message: { content: 'hi' } }))), null)
+  })
+
+  // Only the head of the file is read, so the last line in the window is
+  // normally half a line. A label is not the timeline: it skips what it cannot
+  // parse rather than reporting a parse failure over it.
+  test('a half-written line at the edge of the bounded read is skipped, not reported', () => {
+    const f = write('e.jsonl', '{"type":"user","message":{"content"')
+    assert.equal(firstPrompt('claude', f, { bytes: 34 }), null)
+    const g = write('f.jsonl', line({ type: 'user', message: { content: 'first' } }) + '{"type":"user"')
+    assert.equal(firstPrompt('claude', g), 'first')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // the page stamp (#70's rule, one layer up)
 // ---------------------------------------------------------------------------
 
@@ -384,10 +483,14 @@ describe('TimelineSurface', () => {
   const workspaceRoot = () => path.join(tmp, 'work')
   // The driven session (#267): the console chat is the overseer, whose
   // transcript sits outside the workspace and whose composer is a turn.
-  const DRIVEN = 'curia-overseer'
+  // #333: a browser conversation, and the session name carries its key.
+  const DRIVEN = 'curia-console-2'
   const drivenCfg = () => path.join(tmp, 'overseer-config')
   const turns = [] // every text handed to the driver
   let turnFails = null // a message to throw from send()
+  // The conversation key's live session id, as the daemon journals it (#332).
+  // Read per driverFor call, exactly as index.mjs reads it off the store.
+  let drivenSessionId = 'browser-1111'
 
   before(async () => {
     fs.mkdirSync(path.join(tmp, 'work', 'cfg'), { recursive: true })
@@ -415,6 +518,7 @@ describe('TimelineSurface', () => {
         driverFor: (session) => (session === DRIVEN
           ? {
             cfgDir: drivenCfg(),
+            sessionId: drivenSessionId,
             send: async (text) => {
               if (turnFails) throw new Error(turnFails)
               turns.push(text)
@@ -649,7 +753,7 @@ describe('TimelineSurface', () => {
   test('a driven session reads its transcript from the DRIVER\'s config dir, not the workspace', async () => {
     const proj = path.join(drivenCfg(), 'projects', 'home')
     fs.mkdirSync(proj, { recursive: true })
-    fs.writeFileSync(path.join(proj, 'console.jsonl'), [
+    fs.writeFileSync(path.join(proj, `${drivenSessionId}.jsonl`), [
       JSON.stringify({ type: 'user', message: { content: [{ type: 'text', text: 'what is next?' }] } }),
       JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: '#267 is first on the curia frontier' }] } }),
     ].join('\n') + '\n')
@@ -659,6 +763,37 @@ describe('TimelineSurface', () => {
     assert.equal(hello.data.harness, 'claude', 'the harness is probed in the driver\'s own dir')
     const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
     assert.ok(items.some((i) => i.kind === 'say' && /#267 is first/.test(i.text)))
+  })
+
+  // #332, building ADR-0016. This is the live defect the ticket names: one
+  // config dir holds every overseer conversation, so a Discord turn used to
+  // take the Chat screen over.
+  test('a Discord conversation answering later does NOT take the browser chat over', async () => {
+    const proj = path.join(drivenCfg(), 'projects', 'home')
+    fs.mkdirSync(proj, { recursive: true })
+    const discord = path.join(proj, 'discord-9999.jsonl')
+    fs.writeFileSync(discord, `${JSON.stringify({
+      type: 'assistant', message: { content: [{ type: 'text', text: 'answered in a Discord thread' }] },
+    })}\n`)
+    const now = new Date()
+    fs.utimesSync(discord, now, now) // newest by mtime, and not this conversation
+
+    const { events } = await sse(port, `session=${DRIVEN}`)
+    const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
+    assert.ok(items.some((i) => /#267 is first/.test(i.text ?? '')), 'the browser conversation is still on the page')
+    assert.ok(!items.some((i) => /Discord thread/.test(i.text ?? '')), 'and the other conversation is not')
+  })
+
+  test('a conversation with no turn yet shows an EMPTY screen, not the last conversation', async () => {
+    const was = drivenSessionId
+    drivenSessionId = null // ADR-0016 case 8: the key exists, no turn has run
+    try {
+      const { events } = await sse(port, `session=${DRIVEN}`)
+      const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
+      assert.deepEqual(items, [])
+    } finally {
+      drivenSessionId = was
+    }
   })
 
   test('a message to a driven session is a TURN — nothing reaches send-keys', async () => {

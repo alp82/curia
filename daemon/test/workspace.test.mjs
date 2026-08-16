@@ -217,15 +217,34 @@ describe('the agent skill set (#57)', () => {
     )
   })
 
-  test('the default set is the nine of #49, and the charting-and-PM skills are withheld', () => {
+  test('the default set is the nine of #49 plus writing-for-agents, and the rest are withheld', () => {
     for (const name of ['wayfinder', 'grilling', 'domain-modeling', 'research', 'prototype',
       'implement', 'tdd', 'code-review', 'diagnosing-bugs']) {
       assert.ok(DEFAULT_SKILLS.includes(name), `${name} must be installed`)
     }
+    // #348: an agent here edits agent-facing prose often, which is this
+    // skill's own trigger.
+    assert.ok(DEFAULT_SKILLS.includes('writing-for-agents'), 'writing-for-agents joined the set (#348)')
     for (const name of ['to-tickets', 'triage', 'to-spec', 'handoff']) {
       assert.equal(DEFAULT_SKILLS.includes(name), false, `${name} is deliberately withheld (#49)`)
     }
+    // #348: wizard writes a terminal script, and a task ticket hands its
+    // checklist to a phone through `ask_human`.
+    assert.equal(DEFAULT_SKILLS.includes('wizard'), false, 'wizard is deliberately withheld (#348)')
     assert.equal(defaultSkillsRoot(), path.join(os.homedir(), '.claude', 'skills'))
+  })
+
+  // The vendored tree carries every promoted skill, so a name in the list that
+  // the tree does not carry is a boot refusal on the operator's own box — the
+  // one place the suite's seeded fixture root cannot catch it (#212).
+  test('every default skill is really in the vendored tree', () => {
+    const vendored = path.resolve(import.meta.dirname, '..', '..', 'skills')
+    for (const name of DEFAULT_SKILLS) {
+      assert.ok(
+        fs.existsSync(path.join(vendored, name, 'SKILL.md')),
+        `skills/${name}/SKILL.md must exist, or the daemon refuses to boot`,
+      )
+    }
   })
 })
 

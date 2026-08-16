@@ -1,6 +1,6 @@
 # ADR-0016: One key per conversation, and what it carries
 
-**Status**: accepted (2026-08). Not built. The build is charted on [the container map (#309)](https://github.com/alp82/curia/issues/309).
+**Status**: accepted (2026-08). Partly built, on [the container map (#309)](https://github.com/alp82/curia/issues/309). The daemon half is shipped: a transcript is found by key ([#332](https://github.com/alp82/curia/issues/332)), and the browser holds many conversations with a picker and a new-chat action ([#333](https://github.com/alp82/curia/issues/333)). What is left is the container half — the key crossing the boundary as data, and the cutover ([#314](https://github.com/alp82/curia/issues/314), [#315](https://github.com/alp82/curia/issues/315)).
 **Provenance**: [The chat and the overseer become one thing, in a container (#301)](https://github.com/alp82/curia/issues/301), [The per-thread conversation key, in detail (#311)](https://github.com/alp82/curia/issues/311)
 
 ## Context
@@ -67,7 +67,7 @@ The cases this key has to survive:
 ## Consequences
 
 - **The key is opaque at the boundary.** Everything that knows what a key means stays in the daemon. This is what lets [#314](https://github.com/alp82/curia/issues/314) carry a turn as data rather than as a surface.
-- **The Chat screen needs a conversation picker.** Many browser conversations have no surface today. This record names them. Building the picker and the new-conversation action is its own ticket.
+- **The Chat screen needs a conversation picker.** Many browser conversations have no surface today. This record names them. Building the picker and the new-conversation action is its own ticket. **Built** by [#333](https://github.com/alp82/curia/issues/333). The picker sits on the Chat screen of the dashboard rather than in the chat page, because an agent opens that same page. Each row carries the conversation's own context percent, which is what makes the "no new warning" rule above workable. The daemon journals every key it mints, so a number is spent the moment it exists and a delete leaves the transcript on disk.
 - **The transcript fix is shipped in-daemon behavior, not container work.** It is a live defect on `main`, and it stands alone from the move.
-- **One check stays for the build.** A resumed session mints a fresh session id. Whether that new file carries the whole prior history is not verified here. If it does not, the file a key names is short, and the build must say so before it drops the mtime path.
+- **One check stays for the build.** A resumed session mints a fresh session id. Whether that new file carries the whole prior history is not verified here. If it does not, the file a key names is short, and the build must say so before it drops the mtime path. **Answered** by [#332](https://github.com/alp82/curia/issues/332), and the premise was wrong. A resume KEEPS the session id and appends to the one file. So one conversation is one file for its whole life, and the Chat screen loses nothing. Measured on claude 2.1.220: [live checks](../live-checks/332-transcript-by-key.md).
 - **[#326](https://github.com/alp82/curia/issues/326) agrees with this key.** The single-use conversation thread rule keeps the key working across a takeover, and the note above is what keeps the conversation honest when it comes back.

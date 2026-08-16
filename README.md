@@ -115,6 +115,8 @@ CURIA_OVERSEER_GH_TOKEN_<OWNER>=<a fine-grained GitHub PAT, read-only>
 
 The overseer runs in a container with a shell, so its own token is read-only (#313). Mint one fine-grained PAT per resource owner you watch, with **Contents**, **Issues**, **Pull requests** and **Commit statuses** at read, plus **Metadata** read. Nothing at write. An organization can cap the token lifetime, so a token for an org owner needs an expiry inside that cap.
 
+Add `CLAUDE_CODE_OAUTH_TOKEN` here too (#327): the overseer container runs its turns on it, and it cannot read the daemon's copy. Same value as the one in `daemon/.env.daemon`.
+
 Keep these keys in this second file. The overseer service loads the file whole, and `daemon/.env.daemon` holds the read-write tokens the overseer must never get.
 
 ## 8. `config/curia.yaml`
@@ -216,15 +218,17 @@ three verbs above take it: `attach chat-1`, `cancel chat-1`, `resume chat-1`. `s
 ## 13. Keep it running
 
 `deploy/compose.yaml` is a docker compose stack: the daemon, the dashboard sidecar, a tmux service
-that holds the agent panes, and ttyd for attach. Replace the `/home/alp` paths with yours, write
-`deploy/.env` with your docker group id (`DOCKER_GID=$(getent group docker | cut -d: -f3)`), then:
+that holds the agent panes, ttyd for attach, and the overseer container. Replace the `/home/alp` paths
+with yours, write `deploy/.env` with your docker group id (`DOCKER_GID=$(getent group docker | cut -d: -f3)`),
+make the overseer's two trees (`mkdir -p ~/curia-work/overseer/repos ~/curia-work/cfg/curia-overseer`,
+or docker makes them owned by root), then:
 
 ```
 docker compose -f deploy/compose.yaml up -d --build
 ```
 
-After that, deploy with `docker compose up -d --build --no-deps daemon dashboard` — never a bare `up -d`,
-which would recreate the tmux service and kill every live agent.
+After that, deploy with `docker compose up -d --build --no-deps daemon dashboard overseer` — never a
+bare `up -d`, which would recreate the tmux service and kill every live agent.
 
 Restarting is safe. `daemon/data/events.jsonl` is the record; everything else is rebuilt from GitHub,
 tmux and Tailscale on boot. Open questions keep their Discord buttons across a restart.

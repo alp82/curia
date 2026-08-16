@@ -196,6 +196,10 @@ describe('the mark on a cancelled question (#200)', () => {
   test('it names the ending, and only a Discord user id becomes a mention', () => {
     assert.equal(DiscordBridge.cancelWords('cancel'), 'its agent was cancelled')
     assert.equal(DiscordBridge.cancelWords('agent-death'), 'its agent is gone')
+    // #336: the ending that closes a question its agent finished past. The
+    // card has to say WHY, or a question the operator answered elsewhere
+    // reads as one somebody decided against.
+    assert.equal(DiscordBridge.cancelWords('result'), 'its agent finished and reported a result')
     assert.equal(DiscordBridge.cancelWords('reconcile'), 'the daemon reconciled it away')
     assert.equal(DiscordBridge.cancelWords('rest'), 'it was cancelled over the REST seam')
     assert.equal(DiscordBridge.cancelWords('4207'), 'cancelled by <@4207>')
