@@ -102,6 +102,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       '  max_concurrent: 1',
       '  poll_interval_s: 60',
       `  workspace_root: ${path.join(tmp, 'work')}`,
+      '  claim_login: alp82',
       '  ready_timeout_s: 5',
       '  confirm_ttl_h: 1',
       'attach:',

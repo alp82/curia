@@ -287,6 +287,7 @@ describe('the re-ask takes the recorded answer (#369, real boot pair + real MCP 
       '  max_concurrent: 1',
       '  poll_interval_s: 60',
       `  workspace_root: ${path.join(tmp, 'work')}`,
+      '  claim_login: alp82',
       '  ready_timeout_s: 5',
       '  confirm_ttl_h: 1',
       'attach:',

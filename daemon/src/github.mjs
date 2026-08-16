@@ -7,23 +7,46 @@
 // ready-for-agent lane returns PRs too (shared number space), so anything
 // carrying a `pull_request` key is dropped. `sub_issues` pages at 30 —
 // --paginate is mandatory.
+//
+// WHO EACH CALL RUNS AS (#390, ADR-0018). Every function below that names a repo
+// passes it to `gh`, which mints that owner's token and puts it in the child's
+// environment — so the daemon reads the frontier, claims, comments, closes,
+// opens pull requests and deletes branches as `curia-sh[bot]`. A call that names
+// NO repo gets no token and keeps the host login. There are two of those, both
+// account-wide questions an installation token cannot answer: `viewerLogin` and
+// the settings screen's `user/repos` read. See daemongh.mjs.
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileP } from './exec.mjs'
+import { daemonGhEnv } from './daemongh.mjs'
 
-export async function gh(args) {
-  const { stdout } = await execFileP('gh', args, { maxBuffer: 32 * 1024 * 1024 })
+export async function gh(args, { repo = null } = {}) {
+  const { stdout } = await execFileP('gh', args, {
+    maxBuffer: 32 * 1024 * 1024,
+    env: await daemonGhEnv(repo),
+  })
   return stdout
 }
 
 // `gh api … --jq '.[]'` emits compact one-object-per-line output (verified live).
-export async function ghJSONL(args) {
-  const out = await gh(args)
+export async function ghJSONL(args, opts) {
+  const out = await gh(args, opts)
   return out.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l))
 }
 
+// The HOST login's own name, and the last daemon call that asks for one.
+//
+// It is deliberately unrouted: `gh api user` answers nothing under an
+// installation token, because an app is not a user. What it serves is the
+// settings screen's repo picker — "which repos can the operator watch" — which
+// is an account-wide question about a person, so the person's own login is the
+// right credential and the only one that works.
+//
+// It is NOT the claim any more. A claim is an issue assignee and GitHub does not
+// let an app be one, so the daemon assigns `dispatch.claim_login` from
+// `config/curia.yaml` instead (#390).
 let cachedLogin = null
 export async function viewerLogin() {
   if (!cachedLogin) cachedLogin = (await gh(['api', 'user', '--jq', '.login'])).trim()
@@ -33,30 +56,33 @@ export async function viewerLogin() {
 // All wayfinder maps, open AND closed — selectLane needs the closed ones to
 // tell "all maps closed ⇒ empty" apart from "no maps ⇒ flat".
 export function repoMaps(repo) {
-  return ghJSONL(['api', '--paginate', `repos/${repo}/issues?labels=wayfinder:map&state=all&per_page=100`, '--jq', '.[]'])
+  return ghJSONL(['api', '--paginate', `repos/${repo}/issues?labels=wayfinder:map&state=all&per_page=100`, '--jq', '.[]'], { repo })
 }
 
 // Unfiltered sub-issues of one map.
 export function mapFrontier(repo, mapNo) {
-  return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${mapNo}/sub_issues`, '--jq', '.[]'])
+  return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${mapNo}/sub_issues`, '--jq', '.[]'], { repo })
 }
 
 // Unfiltered open ready-for-agent items (PRs included — filterTakeable drops them).
 export function flatFrontier(repo) {
-  return ghJSONL(['api', '--paginate', `repos/${repo}/issues?labels=ready-for-agent&state=open&per_page=100`, '--jq', '.[]'])
+  return ghJSONL(['api', '--paginate', `repos/${repo}/issues?labels=ready-for-agent&state=open&per_page=100`, '--jq', '.[]'], { repo })
 }
 
 // Lazy full issue (body included) at dispatch time.
 export async function fetchIssue(repo, n) {
-  return JSON.parse(await gh(['api', `repos/${repo}/issues/${n}`]))
+  return JSON.parse(await gh(['api', `repos/${repo}/issues/${n}`], { repo }))
 }
 
+// The login assigned here is the operator's, not the caller's (#390). The daemon
+// runs this call as the bot and names a real user, because GitHub does not let
+// an app be an assignee. `dispatch.claim_login` is where that name comes from.
 export async function claim(repo, n, login) {
-  await gh(['issue', 'edit', String(n), '--repo', repo, '--add-assignee', login])
+  await gh(['issue', 'edit', String(n), '--repo', repo, '--add-assignee', login], { repo })
 }
 
 export async function unclaim(repo, n, login) {
-  await gh(['issue', 'edit', String(n), '--repo', repo, '--remove-assignee', login])
+  await gh(['issue', 'edit', String(n), '--repo', repo, '--remove-assignee', login], { repo })
 }
 
 // ---- resolve protocol + landing (#41) ---------------------------------------
@@ -82,26 +108,26 @@ async function withBodyFile(body, fn) {
 }
 
 export function commentIssue(repo, n, body) {
-  return withBodyFile(body, (f) => gh(['issue', 'comment', String(n), '--repo', repo, '--body-file', f]))
+  return withBodyFile(body, (f) => gh(['issue', 'comment', String(n), '--repo', repo, '--body-file', f], { repo }))
 }
 
 export async function closeIssue(repo, n) {
-  await gh(['issue', 'close', String(n), '--repo', repo])
+  await gh(['issue', 'close', String(n), '--repo', repo], { repo })
 }
 
 export function setIssueBody(repo, n, body) {
-  return withBodyFile(body, (f) => gh(['issue', 'edit', String(n), '--repo', repo, '--body-file', f]))
+  return withBodyFile(body, (f) => gh(['issue', 'edit', String(n), '--repo', repo, '--body-file', f], { repo }))
 }
 
 export function issueComments(repo, n) {
-  return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/comments?per_page=100`, '--jq', '.[]'])
+  return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/comments?per_page=100`, '--jq', '.[]'], { repo })
 }
 
 // The open issues blocking one ticket — number and state per blocker, the
 // same native-dependency edge the tracker doc writes with POST. Only called
 // for tickets whose summary says blocked_by > 0.
 export function blockedByOf(repo, n) {
-  return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/dependencies/blocked_by`, '--jq', '.[]'])
+  return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/dependencies/blocked_by`, '--jq', '.[]'], { repo })
 }
 
 // The sub-issue parent, straight off the issue payload — `parent_issue_url` is
@@ -120,7 +146,7 @@ export function hasLabel(issue, name) {
 // fails on that, so the landing step reuses instead. Prefers an open PR over a
 // closed/merged one from an earlier run.
 export async function findPullRequest(repo, head) {
-  const list = JSON.parse(await gh(['pr', 'list', '--repo', repo, '--head', head, '--state', 'all', '--json', 'number,url,state']))
+  const list = JSON.parse(await gh(['pr', 'list', '--repo', repo, '--head', head, '--state', 'all', '--json', 'number,url,state'], { repo }))
   return list.find((p) => p.state === 'OPEN') ?? list[0] ?? null
 }
 
@@ -130,21 +156,26 @@ export async function findPullRequest(repo, head) {
 // long as the pull request is known. It is a network read, so nothing on the
 // poll path may call it — only a card the operator opened.
 export function pullRequestDiff(repo, n) {
-  return gh(['pr', 'diff', String(n), '--repo', repo, '--patch'])
+  return gh(['pr', 'diff', String(n), '--repo', repo, '--patch'], { repo })
 }
 
 // Prints the PR URL on success.
+//
+// This is the call the gate cutover waits on (#390). The pull request is
+// authored by whoever runs it, so under a minted token it is `curia-sh[bot]`'s —
+// and an operator approving it is then a real GitHub approval by a different
+// account, which is what makes branch protection usable at all.
 export async function createPullRequest(repo, { head, base, title, body }) {
   const out = await withBodyFile(body, (f) => gh([
     'pr', 'create', '--repo', repo, '--head', head, '--base', base, '--title', title, '--body-file', f,
-  ]))
+  ], { repo }))
   return out.trim().split('\n').filter(Boolean).at(-1) ?? ''
 }
 
 // Replace an open PR's body in place — the rejection loop opens one pull request
 // and updates it, rather than a new one per round (#54 item 1).
 export function setPullRequestBody(repo, n, body) {
-  return withBodyFile(body, (f) => gh(['pr', 'edit', String(n), '--repo', repo, '--body-file', f]))
+  return withBodyFile(body, (f) => gh(['pr', 'edit', String(n), '--repo', repo, '--body-file', f], { repo }))
 }
 
 // Merge ends the workspace lease (#54 item 7), and `gh pr merge --delete-branch`
@@ -153,7 +184,7 @@ export function setPullRequestBody(repo, n, body) {
 // merge already deleted it, which is the expected case.
 export async function deleteRemoteBranch(repo, branch) {
   try {
-    await gh(['api', '-X', 'DELETE', `repos/${repo}/git/refs/heads/${branch}`])
+    await gh(['api', '-X', 'DELETE', `repos/${repo}/git/refs/heads/${branch}`], { repo })
     return { deleted: true }
   } catch (e) {
     if (/HTTP 404|Not Found|Reference does not exist/i.test(e.message)) return { deleted: false, absent: true }

@@ -276,6 +276,9 @@ export class TokenMinter {
 
   #bot = null
 
+  // `<owner>|<role>` → the promise of a mint that has not answered yet (#390).
+  #minting = new Map()
+
   constructor({
     appId, key, keyFile = null, fetchImpl = globalThis.fetch, now = Date.now, log = () => {},
   } = {}) {
@@ -318,19 +321,38 @@ export class TokenMinter {
   // again. Throws when the app is not installed on that owner, because a null
   // here would send an unauthenticated `git push` at a private repo and the
   // failure would name the repo instead of the missing install.
+  // ONE MINT AT A TIME PER KEY. The daemon cut over at #390, and it makes many
+  // more calls per owner than an agent does: one reconcile pass fires the map
+  // read, the frontier read and the flat read for every watched repo at once.
+  // With a bare cache each of those would find it cold and mint its own token,
+  // so a boot would burn a dozen mints where one is wanted. So a mint already in
+  // flight for the same owner and role is AWAITED rather than started again.
+  //
+  // The entry is dropped on failure, which is what keeps a network stall from
+  // being remembered as an answer: the next caller starts a fresh mint.
   async tokenFor(owner, role) {
     const permissions = permissionsFor(role)
     const cacheKey = `${owner}|${role}`
     const hit = this.cache.get(cacheKey)
     if (hit && hit.expiresAt - this.now() > REFRESH_MARGIN_MS) return hit.token
-    const install = await this.installationFor(owner)
-    if (!install) {
-      throw new Error(`curia's GitHub App is not installed on ${owner} — install it on that owner and grant it the watched repos`)
+    const inFlight = this.#minting.get(cacheKey)
+    if (inFlight) return inFlight
+    const pending = (async () => {
+      const install = await this.installationFor(owner)
+      if (!install) {
+        throw new Error(`curia's GitHub App is not installed on ${owner} — install it on that owner and grant it the watched repos`)
+      }
+      const minted = await mintInstallationToken(install.id, { jwt: this.jwt(), permissions, fetchImpl: this.fetchImpl })
+      this.cache.set(cacheKey, minted)
+      this.log(`minted a ${role} token for ${owner} (expires ${new Date(minted.expiresAt).toISOString()})`)
+      return minted.token
+    })()
+    this.#minting.set(cacheKey, pending)
+    try {
+      return await pending
+    } finally {
+      this.#minting.delete(cacheKey)
     }
-    const minted = await mintInstallationToken(install.id, { jwt: this.jwt(), permissions, fetchImpl: this.fetchImpl })
-    this.cache.set(cacheKey, minted)
-    this.log(`minted a ${role} token for ${owner} (expires ${new Date(minted.expiresAt).toISOString()})`)
-    return minted.token
   }
 
   // The app's own user, as GIT has to name it (#389).
@@ -368,6 +390,7 @@ export class TokenMinter {
   // scratch — a rotated key, or an install the operator has just repaired.
   forget() {
     this.cache.clear()
+    this.#minting.clear()
     this.#installations = null
     this.#bot = null
   }

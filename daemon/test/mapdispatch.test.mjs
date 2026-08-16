@@ -101,7 +101,7 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     watch: [{ repo: 'o/r', mode: 'auto' }],
     dispatch: {
       auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60,
-      workspace_root: root, ready_timeout_s: 45, stop_nudge_budget: 3,
+      workspace_root: root, ready_timeout_s: 45, stop_nudge_budget: 3, claim_login: 'me',
     },
     attach: { ttyd_port: 7681, serve_port: 8443 },
     identity: { allow: ['tester@example.com'], proxy_port: 7682 },
@@ -130,7 +130,6 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     expireAgentNotes: () => 0,
   }
   const base = {
-    viewerLogin: async () => 'me',
     repoMaps: async () => [],
     mapFrontier: async () => [],
     flatFrontier: async () => [],

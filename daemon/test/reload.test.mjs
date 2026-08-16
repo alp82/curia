@@ -81,6 +81,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
       '  max_concurrent: 2',
       '  poll_interval_s: 60',
       `  workspace_root: ${path.join(tmp, 'work')}`,
+      '  claim_login: alp82',
       '  ready_timeout_s: 45',
       'attach:',
       `  ttyd_port: ${ttydPort}`,
