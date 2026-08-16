@@ -1,0 +1,9 @@
+diff --git a/daemon/src/images.mjs b/daemon/src/images.mjs
+--- a/daemon/src/images.mjs
++++ b/daemon/src/images.mjs
+@@ -29,6 +29,8 @@ const MIME_BY_EXT = {
+   '.gif': 'image/gif',
+   '.webp': 'image/webp',
++  '.md': 'text/markdown',
++  '.patch': 'text/x-patch',
+ }

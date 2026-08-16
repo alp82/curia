@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#414 — What Discord renders well</title>
+<style>
+  :root {
+    --bg: #16181d;
+    --card: #1e2128;
+    --line: #2f333d;
+    --ink: #e3e6ea;
+    --dim: #98a0ad;
+    --keep: #57f287;
+    --drop: #ed4245;
+    --hold: #fee75c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 0 4rem;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    padding: 1.6rem 1.1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg));
+  }
+  header h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header .tag {
+    display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--keep); letter-spacing: .04em;
+  }
+  header p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2 {
+    margin: 2rem 0 .8rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700;
+  }
+  .tally {
+    display: flex; flex-wrap: wrap; gap: .5rem; margin: 1.1rem 0 0;
+  }
+  .tally span {
+    padding: .3rem .6rem; border-radius: 6px; font: 600 .78rem/1 var(--mono);
+    background: var(--card); border: 1px solid var(--line);
+  }
+  .form {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: .95rem 1rem 1.1rem; margin: 0 0 .85rem;
+    border-left: 4px solid var(--line);
+  }
+  .form.keep { border-left-color: var(--keep); }
+  .form.drop { border-left-color: var(--drop); }
+  .form.hold { border-left-color: var(--hold); }
+  .form h3 {
+    margin: 0 0 .1rem; font-size: 1.02rem; display: flex; gap: .5rem;
+    align-items: baseline; flex-wrap: wrap;
+  }
+  .form h3 .n { color: var(--dim); font: 600 .8rem/1 var(--mono); }
+  .verdict {
+    display: inline-block; margin: .45rem 0 .6rem; padding: .22rem .55rem;
+    border-radius: 5px; font: 700 .72rem/1.3 var(--mono); letter-spacing: .04em;
+  }
+  .keep .verdict { background: rgba(87,242,135,.13); color: var(--keep); }
+  .drop .verdict { background: rgba(237,66,69,.13); color: var(--drop); }
+  .hold .verdict { background: rgba(254,231,92,.13); color: var(--hold); }
+  .form p { margin: .45rem 0; font-size: .93rem; }
+  .form p.why { color: var(--dim); }
+  pre {
+    margin: .55rem 0; padding: .7rem .8rem; overflow-x: auto;
+    background: #12141a; border: 1px solid var(--line); border-radius: 7px;
+    font: .78rem/1.5 var(--mono); color: #cdd3db;
+  }
+  code { font: .84em var(--mono); background: #12141a; padding: .1rem .3rem; border-radius: 4px; }
+  .meta { margin: .6rem 0 0; padding-top: .55rem; border-top: 1px solid var(--line); }
+  .meta div { display: flex; gap: .5rem; font-size: .83rem; margin: .22rem 0; }
+  .meta b { color: var(--dim); font-weight: 600; flex: 0 0 5.6rem; }
+  img.probe { max-width: 100%; border-radius: 7px; border: 1px solid var(--line); display: block; margin: .55rem 0; }
+  footer { margin: 2.5rem 1.1rem 0; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--dim); font-size: .85rem; max-width: 48rem; }
+  footer ul { padding-left: 1.1rem; }
+  footer li { margin: .35rem 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="tag">alp82/curia#414</span>
+  <h1>What Discord renders well</h1>
+  <p>A render test of every visual form a curia message could use. One message per form in the ticket
+     thread, then a keep or drop verdict from the operator's own eyes on a phone. The forms the daemon
+     cannot emit today carry a code-read verdict instead, with the file that blocks them.</p>
+  <div class="tally" id="tally"></div>
+</header>
+
+<main id="catalog"></main>
+
+<footer>
+  <p><b>How each verdict was reached.</b></p>
+  <ul>
+    <li><b>Live:</b> the form was posted into the #414 thread and the operator judged it on a phone.</li>
+    <li><b>Code:</b> the daemon cannot emit the form. The verdict names the file that blocks it.</li>
+  </ul>
+  <p>The thread itself is the render evidence. This page holds the exact source per form, so a later
+     ticket can reproduce any row without a screenshot.</p>
+</footer>
+
+<script>
+const FORMS = []
+const CLASS = { keep: 'keep', drop: 'drop', hold: 'hold' }
+
+function render() {
+  const main = document.getElementById('catalog')
+  let group = null
+  FORMS.forEach((f, i) => {
+    if (f.group !== group) {
+      group = f.group
+      const h = document.createElement('h2')
+      h.textContent = group
+      main.appendChild(h)
+    }
+    const el = document.createElement('section')
+    el.className = 'form ' + CLASS[f.verdict]
+    const src = f.source
+      ? '<pre>' + f.source.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>'
+      : ''
+    el.innerHTML =
+      '<h3><span class="n">' + String(i + 1).padStart(2, '0') + '</span>' + f.name + '</h3>' +
+      '<span class="verdict">' + f.label + '</span>' +
+      '<p>' + f.what + '</p>' +
+      (f.image ? '<img class="probe" alt="' + f.name + '" src="' + f.image + '">' : '') +
+      src +
+      '<p class="why">' + f.why + '</p>' +
+      '<div class="meta">' +
+        '<div><b>Tested by</b><span>' + f.how + '</span></div>' +
+        '<div><b>Code path</b><span>' + f.code + '</span></div>' +
+      '</div>'
+    main.appendChild(el)
+  })
+  const counts = { keep: 0, drop: 0, hold: 0 }
+  FORMS.forEach((f) => counts[f.verdict]++)
+  document.getElementById('tally').innerHTML =
+    '<span style="color:var(--keep)">keep ' + counts.keep + '</span>' +
+    '<span style="color:var(--drop)">drop ' + counts.drop + '</span>' +
+    '<span style="color:var(--hold)">needs code ' + counts.hold + '</span>'
+}
+render()
+</script>
+
+</body>
+</html>
