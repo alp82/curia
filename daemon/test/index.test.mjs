@@ -22,7 +22,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { PROBE_MARK, PROBE_PATH } from '../src/sandbox.mjs'
-import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
 import { journalEvents, journalText } from './fixtures/journal.mjs'
@@ -69,7 +69,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
@@ -222,7 +222,7 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
@@ -335,9 +335,7 @@ describe('attach refusal withdraws the serve rule (index.mjs, real boot)', () =>
     fs.writeFileSync(path.join(shim, 'tailscale'), `#!/bin/sh\necho "$@" >> ${tsLog}\nexit 0\n`)
     for (const bin of ['gh', 'tmux', 'tailscale']) fs.chmodSync(path.join(shim, bin), 0o755)
 
-    const [daemonPort, ttydPort, sPort, tlPort, tlServePort, proxyPort] = [
-      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
-    ]
+    const [daemonPort, ttydPort, sPort, tlPort, tlServePort, proxyPort] = await freePorts(6)
     port = daemonPort
     servePort = sPort
     // timeline ports pinned so the surface never lands on its defaults — with
@@ -473,7 +471,7 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
     fs.writeFileSync(docker, `#!/bin/sh\necho '[{"Gateway":"${GATEWAY}"}]'\n`)
     fs.chmodSync(docker, 0o755)
 
-    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
@@ -711,9 +709,7 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort, proxyPort, tlPort, tlServePort] = [
-      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
-    ]
+    const [daemonPort, ttydPort, servePort, proxyPort, tlPort, tlServePort] = await freePorts(6)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:', '  - repo: example/fixture', '    mode: ready-for-agent',
@@ -820,9 +816,7 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort, proxyPort, tlPort, tlServePort] = [
-      await freePort(), await freePort(), await freePort(), await freePort(), await freePort(), await freePort(),
-    ]
+    const [daemonPort, ttydPort, servePort, proxyPort, tlPort, tlServePort] = await freePorts(6)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:', '  - repo: example/fixture', '    mode: ready-for-agent',

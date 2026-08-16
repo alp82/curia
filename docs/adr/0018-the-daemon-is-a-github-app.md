@@ -1,6 +1,6 @@
 # ADR-0018: The daemon is a GitHub App
 
-**Status**: accepted (2026-08). Partly built. The minting core ships with this ADR. Each holder cuts over on its own ticket: the agents on [#389](https://github.com/alp82/curia/issues/389), the overseer on [#392](https://github.com/alp82/curia/issues/392), the daemon's own `gh` on [#390](https://github.com/alp82/curia/issues/390).
+**Status**: accepted (2026-08). Built. The minting core shipped with this ADR, and every holder cut over on its own ticket: the agents on [#389](https://github.com/alp82/curia/issues/389), the daemon's own `gh` on [#390](https://github.com/alp82/curia/issues/390), the overseer on [#392](https://github.com/alp82/curia/issues/392). The gate approval and branch protection followed on [#391](https://github.com/alp82/curia/issues/391).
 **Provenance**: [A GitHub App replaces the PAT (#338)](https://github.com/alp82/curia/issues/338), [The daemon becomes a GitHub App: one key, minted tokens (#352)](https://github.com/alp82/curia/issues/352)
 
 ## Context
@@ -40,7 +40,7 @@ Five costs come out of that shape.
 
 - **The agent keeps `gh pr merge`.** The merge is the one write to the remote an agent owns, in the standing orders, in the Stop hook and in [ADR-0008](0008-resolved-means-merged.md). Branch protection is satisfied by the operator's approval, so the bot's merge goes through and nothing about the ending changes.
 
-- **Branch protection turns on with the gate cutover, and not before.** One required review on the watched repos, turned on in the same act that starts posting the approval. Turned on earlier it blocks every curia pull request behind an approval nobody posts.
+- **Branch protection turns on with the gate cutover, and not before.** One required review on the watched repos, turned on in the same act that starts posting the approval. Turned on earlier it blocks every curia pull request behind an approval nobody posts. Amended on [#391](https://github.com/alp82/curia/issues/391): the rule is the operator's own OPTIONAL act, per repo, and curia never requires a setting in a watched repo. Nothing in the daemon reads it. This box protects `alp82/curia` alone.
 
 - **No PAT comes out ahead of its replacement.** The minting core ships first and swaps no holder. Each holder cuts over on its own ticket, provable live on the box, and its PAT retires only after that.
 

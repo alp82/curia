@@ -20,15 +20,34 @@ const NO_DAEMON = 'the real-boot fixture never got a daemon'
 
 const AND_SO = 'Nothing under this hook ran against a live daemon. A cancelled test here is a boot that FAILED, never a test that was skipped.'
 
-export function freePort() {
+function bindEphemeral() {
   return new Promise((resolve, reject) => {
     const srv = net.createServer()
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address()
-      srv.close(() => resolve(port))
-    })
     srv.once('error', reject)
+    srv.listen(0, '127.0.0.1', () => resolve(srv))
   })
+}
+
+// Draws `n` free ports as ONE set, and holds every socket bound until the last
+// number is read.
+//
+// A draw that closed each socket before it opened the next one can hand back
+// the same number twice, because nothing then holds the first one. That is how
+// `attach.ttyd_port` and `attach.serve_port` both landed on 34155 once (#472):
+// the daemon refused the config, the `before` hook died, and every test under
+// it reported as failed. A flake in a real-boot hook costs a rerun and a doubt
+// every time it lands, which is the cost #212 was about.
+//
+// Held sockets also keep a suite from taking a number another test FILE is
+// drawing at the same moment, because node runs the files in parallel.
+export async function freePorts(n) {
+  const held = []
+  try {
+    for (let i = 0; i < n; i += 1) held.push(await bindEphemeral())
+    return held.map((srv) => srv.address().port)
+  } finally {
+    await Promise.all(held.map((srv) => new Promise((done) => srv.close(done))))
+  }
 }
 
 // Collects everything the daemon child says and notices when it dies.

@@ -157,6 +157,9 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     setIssueBody: async (repo, n) => calls.push(`setBody ${repo}#${n}`),
     issueComments: async () => [],
     findPullRequest: async () => null,
+    // #391: the gate press posts a real approval. Stubbed everywhere but its
+    // own tests, so no suite reaches for `gh`.
+    approvePullRequest: async () => {},
     createPullRequest: async () => { calls.push('createPullRequest'); return 'https://github.com/o/r/pull/1' },
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [],

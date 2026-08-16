@@ -273,13 +273,27 @@ The daemon reaches GitHub as a `gh` child process, and every one of those childr
 
 One thing to watch on a new box: `~/.config/gh` must already be MIGRATED. A `hosts.yml` in the pre-multi-account shape makes `gh` run a migration that calls `GET /user`, which an installation token answers 403 (#389 measured that inside a container). Any interactive `gh` command by the operator migrates the file once and for good, so a box whose login is in use is already past it.
 
-**Two calls keep the host login**, and both are the settings screen's repo picker: `viewerLogin()` and `gh api user/repos`. Neither names a repo, both ask an account-wide question about a person, and an installation token answers neither. `test/daemongh.test.mjs` reads `github.mjs` and refuses any other unrouted call, because a call that forgets its repo runs as the operator again and nothing else would say so.
+**Three calls keep the host login.** Two are the settings screen's repo picker: `viewerLogin()` and `gh api user/repos`. Neither names a repo, both ask an account-wide question about a person, and an installation token answers neither. The third is the gate approval (#391), which names a repo and keeps the operator's login anyway — see the section below. `test/daemongh.test.mjs` reads `github.mjs` and refuses any other unrouted call, because a call that forgets its repo runs as the operator again and nothing else would say so.
 
 **The claim assigns a person.** A claim is an issue assignee and GitHub does not let an App be one. So the daemon calls as the bot and assigns `dispatch.claim_login` from `config/curia.yaml`. The key is required, with no default, and the boot refuses a config without it: every other source for that name is a guess, and a guess claims tickets in a stranger's name.
 
 **A mint that fails falls back**, loudly, to the host login. A box with no app, an owner the app is not installed on, and a GitHub that could not be reached all read the same way — the same rule the agents got at #389, applied to their daemon.
 
 **What the host login still holds on the daemon**: dev sessions, the deploy sibling, and the gate approval. An app cannot approve for a human, and an app-minted approval on an app-authored pull request is a self-approval again.
+
+## The gate approval, and branch protection (#391)
+
+The ✅ press submits a real GitHub approval. `approvePullRequest` in `github.mjs` runs `gh pr review --approve` on the pull request the gate showed, deliberately unrouted, so it carries the operator's own `~/.config/gh`. That is the reason the host login did not retreat whole at #390: the approval is a person's judgement, an app cannot post one for them, and the pull request is the bot's own since #390.
+
+**Branch protection is what makes the press binding, and it is OPTIONAL.** One required review on `main`, administrators exempt, turned on by hand — [docs/github-app.md](../docs/github-app.md) step 7 carries the command. Curia requires no setting in a watched repo and nothing here reads the rule, so a repo without it loses the enforcement and keeps everything else. It turns on with this code and not before: turned on earlier it blocks every curia pull request behind an approval nobody posts. This box protects `alp82/curia` only (#391).
+
+**The submission decides what is journalled.** `#submitGateApproval` runs before the `review_answered` line is written, and a failure makes that line `approved: false` with `outcome: 'approval-failed'` and the press kept beside it. So a press whose approval never reached GitHub does not read as approved to the Stop hook, to `/status`, or to the next dispatch's inherited exchange (#374). The agent is told not to merge and not to resolve, and told that no commit of its own fixes it — the fault is on GitHub, and the next act is a question to the operator. The status line corrects itself the same way: `esc_answer` draws "executing approved writes" off the button, and the failed approval lands right behind it.
+
+**Three skips are not failures.** A ticket that produced no code has no pull request and no merge either. A pull request already merged cannot take an approval, which is the #369 replay landing on work approved once already. And a SELF-APPROVAL is a box with no app for this owner: #390's fallback opened the pull request on the host login, so the press and the pull request carry one account and GitHub refuses the review. That box keeps exactly the gate it had before #391, because ADR-0018 says no credential comes out ahead of its replacement — the operator hears it once per ticket, and the cure is an installation. Everything else — including a pull request curia cannot name — is a failure, because an indeterminate approval leaves a merge waiting on a review nobody can see.
+
+**The pull request is re-read at the press.** The gate opens with one read and a human takes hours to answer, so the state that decides is the state at the press.
+
+**Nothing is submitted on ❌**, and nothing on the 🔎 cross-check press either. The third button answers neither way.
 
 ## The overseer's GitHub authority (#313, cut over by #392)
 

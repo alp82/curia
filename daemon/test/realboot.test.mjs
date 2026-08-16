@@ -12,10 +12,11 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
 
@@ -89,6 +90,33 @@ describe('waitForBoot: a child that dies is a failure, never a silence', () => {
   })
 })
 
+// #472: `attach.ttyd_port` and `attach.serve_port` both came back as 34155,
+// the daemon refused the config, and a whole suite reported as failed.
+//
+// A draw of 200 is the size that makes the old shape show itself. Closing each
+// socket before opening the next one puts every number back in the pool the
+// next bind draws from, so a repeat inside 200 is near certain. Holding them
+// all bound makes a repeat impossible, so this test cannot flake on code that
+// is right.
+describe('freePorts: one draw, no number twice (#472)', () => {
+  test('a draw of 200 hands back 200 different numbers', async () => {
+    const ports = await freePorts(200)
+    assert.equal(ports.length, 200)
+    assert.equal(new Set(ports).size, 200, 'a repeated number is a config the daemon refuses')
+  })
+
+  test('the draw hands its sockets back, so every number is free to bind', async () => {
+    const ports = await freePorts(4)
+    for (const port of ports) {
+      await new Promise((resolve, reject) => {
+        const srv = net.createServer()
+        srv.once('error', reject)
+        srv.listen(port, '127.0.0.1', () => srv.close(resolve))
+      })
+    }
+  })
+})
+
 // The end-to-end half, and the one that would have caught #212 itself: the
 // REAL daemon, refusing a real config, through the wait every real-boot suite
 // uses.
@@ -101,7 +129,7 @@ describe('waitForBoot against the real daemon (real boot, refused)', () => {
   test('a config the daemon refuses fails the wait fast, naming the key', async () => {
     const cfgDir = path.join(tmp, 'config')
     fs.mkdirSync(cfgDir, { recursive: true })
-    const [port, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [port, ttydPort, servePort, proxyPort] = await freePorts(4)
     // A root the daemon cannot read, which is exactly the shape an agent
     // container gave every suite before its fixtures owned their own root.
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
@@ -166,7 +194,7 @@ describe('waitForBoot against the real daemon (real boot, refused)', () => {
   test('and the same daemon boots once the fixture owns the root', async () => {
     const cfgDir = path.join(tmp, 'config-ok')
     fs.mkdirSync(cfgDir, { recursive: true })
-    const [port, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [port, ttydPort, servePort, proxyPort] = await freePorts(4)
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
       '  - repo: example/fixture',

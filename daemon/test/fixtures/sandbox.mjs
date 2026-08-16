@@ -73,7 +73,7 @@ export function withTestCredential() {
 
 // The `sandbox:` block a hand-written test curia.yaml must carry since #195.
 // The default container port range (9000-9299) is clear of the ephemeral ports
-// `freePort()` hands out, so a real-boot fixture can splice this in unchanged.
+// `freePorts()` hands out, so a real-boot fixture can splice this in unchanged.
 export function sandboxYaml() {
   return [
     'sandbox:',
