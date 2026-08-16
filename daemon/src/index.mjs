@@ -71,10 +71,11 @@ import {
   TYPED_FLOOR, isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
   lintResult, resultFloorFaults,
   lintNotify, notifyFloorFaults, notifyHasText,
+  lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES,
 } from './lint.mjs'
 import {
   composeCard, composeReviewBody, composeResultReport, optionLabels, derivedRecommended,
-  composeNotify, NOTIFY_KINDS,
+  composeNotify, NOTIFY_KINDS, composeVerdictReport,
 } from './card.mjs'
 import { LintGate, flaggedResultText, flaggedNotifyText } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
@@ -1659,6 +1660,14 @@ function buildMcpServer(agent, ticket) {
       // ADR-0019 rule 3: a free record. No surface renders it and no lint reads
       // it, so it stays the one field an agent may shape for itself.
       details: z.record(z.string(), z.any()).optional(),
+      // #421: the CROSS-CHECK REVIEWER's field, and nobody else's. A verdict is
+      // a list of findings rather than one block of prose, and the severities
+      // are what curia derives the verdict's grade from.
+      findings: z.array(z.object({
+        text: z.string().optional().describe('One finding: the file and the line, what is wrong, why it matters. Block prose, 600 characters.'),
+        severity: z.enum(VERDICT_SEVERITIES).optional().describe('blocker (do not merge as it stands), concern (the operator decides), note (worth knowing).'),
+        out_of_scope: z.boolean().optional().describe('True when the finding is real but sits beyond this ticket. The builder carries it into its charting.'),
+      })).optional().describe('The cross-check reviewer only: one entry per finding. Send an empty list when the reading is clean.'),
     },
     async (result, extra) => {
       // The lint gate, BEFORE the park and before anything persists (#419). A
@@ -1667,30 +1676,32 @@ function buildMcpServer(agent, ticket) {
       // Linting after the cross-check park would make an agent wait hours for a
       // rejection it could have read at once.
       //
-      // The cross-check REVIEWER is exempt. Its `report_result` summary is the
-      // VERDICT, which ADR-0019 lists as a surface of its own with its own
-      // fields, and #421 types it. Holding a verdict to the report's shape here
-      // would half-type a surface another ticket owns, and a verdict runs to as
-      // many findings as the diff earns.
-      let flags = null
-      let flagNote = null
-      if (!dispatcher.isReviewerSession(agent)) {
-        const floor = resultFloorFaults(result)
-        const verdict = lintGate.judge({
-          agent, kind: RESULT_KIND, faults: [...floor, ...lintResult(result)],
-          schema: floor.length > 0, prompt: result.summary ?? null, payload: result,
-          // A report always carries something a human can read: the status. So
-          // the cap always ends in a flagged send, and the dead end a textless
-          // question gets has no counterpart here. An ending that reaches the
-          // thread flagged beats an ending that reaches it never.
-          hasText: true,
-        })
-        if (verdict.reject) return { content: [{ type: 'text', text: verdict.reject }] }
-        flags = verdict.flags ?? null
-        // The gate's own flagged line speaks of a card and of an operator about
-        // to answer. A report has neither, so the report says its own words.
-        flagNote = flags ? flaggedResultText(flags) : null
-      }
+      // The cross-check REVIEWER takes the VERDICT's shape here, not the
+      // report's (#421). Its `report_result` is the verdict, which ADR-0019
+      // lists as a surface of its own: a headline, the findings as a list, and
+      // the summary that says what it read and what it ran. It was exempt from
+      // this gate while that surface stayed untyped (#419), and the exemption
+      // ends with the shape it was waiting for.
+      //
+      // ONE ledger key for both (`RESULT_KIND`). A reviewer makes no other
+      // linted call, so nothing of its own can spend those three attempts, and
+      // the Stop hook's report words fit a verdict as they stand.
+      const reviewer = dispatcher.isReviewerSession(agent)
+      const floor = reviewer ? verdictFloorFaults(result) : resultFloorFaults(result)
+      const judged = lintGate.judge({
+        agent, kind: RESULT_KIND, faults: [...floor, ...(reviewer ? lintVerdict(result) : lintResult(result))],
+        schema: floor.length > 0, prompt: result.summary ?? null, payload: result,
+        // A report always carries something a human can read: the status. So
+        // the cap always ends in a flagged send, and the dead end a textless
+        // question gets has no counterpart here. An ending that reaches the
+        // thread flagged beats an ending that reaches it never.
+        hasText: true,
+      })
+      if (judged.reject) return { content: [{ type: 'text', text: judged.reject }] }
+      const flags = judged.flags ?? null
+      // The gate's own flagged line speaks of a card and of an operator about
+      // to answer. A report has neither, so the report says its own words.
+      const flagNote = flags ? flaggedResultText(flags) : null
       // #258: a cross-check still reading PARKS this call, exactly as it parks
       // the gate. The keepalive starts first, because the park lasts as long as
       // a reviewer takes and the client aborts an MCP call after 300s of silence
@@ -1742,7 +1753,14 @@ function buildMcpServer(agent, ticket) {
       if (bridge) {
         const pr = dispatcher.pullRequestUrlFor(agent)
         const tail = pr && !String(result.summary ?? '').includes(pr) ? `\n🔗 ${pr}` : ''
-        bridge.notify(bound, `${composeResultReport(result.status, result)}${tail}`, { as: speaker }).catch(() => {})
+        // #421: a verdict is a list of findings, and `composeResultReport` can
+        // render only a summary. A reviewer posting through the report shape
+        // would drop every finding from the thread, which is the one thing this
+        // map forbids: shortening must never lose information.
+        const report = reviewer
+          ? composeVerdictReport(result.status, result)
+          : composeResultReport(result.status, result)
+        bridge.notify(bound, `${report}${tail}`, { as: speaker }).catch(() => {})
         // A flagged send is CURIA's fact about the agent's text, so it is curia
         // that says it (ADR-0013). It rides a second message in the bot voice,
         // under the report it is about, rather than inside the agent's own.

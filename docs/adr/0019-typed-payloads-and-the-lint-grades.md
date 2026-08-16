@@ -1,7 +1,7 @@
 # ADR-0019: Typed payloads and the lint grades
 
 **Status**: accepted (2026-08)
-**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438), [Typed notify (#420)](https://github.com/alp82/curia/issues/420)
+**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438), [Typed notify (#420)](https://github.com/alp82/curia/issues/420), [Typed verdict carriage (#421)](https://github.com/alp82/curia/issues/421)
 
 ## Context
 
@@ -44,14 +44,14 @@ Every `ask_human` kind takes `headline` (required), and `detail`, `visual`, `tim
 | `request_review` | `headline`, `summary`, `charting` | `detail`, `visual` |
 | `report_result` | `ticket`, `status`, `headline`, `summary` | `detail`, `visual`, `details` |
 | `notify` | `message` | `kind`, `detail`, `visual`, `images` |
-| verdict | `headline`, `findings[]` of `{ text }` | `detail`, `visual` |
+| verdict | `headline`, `summary`, `findings[]` of `{ text, severity }` | `detail`, `visual`, `findings[].out_of_scope` |
 
 Four rules read this table.
 
 1. **A round is typed.** `questions[]` replaces the numbered questions an agent writes inside one prose prompt (#285). curia derives the **✅ All as recommended** button from the array: the button renders when every question carries a `recommendation`, and it renders on no other round. The `recommended` boolean retires. An agent could set that flag on a round where one question had no recommendation, and the button then lied about it. A derived button cannot lie.
 2. **approve-reject and preview-review keep curia's button words.** When the agent gives two options, curia takes the two consequences and keeps its own labels. The order is fixed: approve first.
 3. **`details` on `report_result` stays a free record.** It is machine-facing, no surface renders it, and no lint reads it.
-4. **The verdict floor is a headline and one finding.** Whether a finding also carries a severity is [#421](https://github.com/alp82/curia/issues/421)'s decision, not this one. The `notify` kind set was [#420](https://github.com/alp82/curia/issues/420)'s decision the same way, and the section below is what it settled.
+4. **The verdict floor is a headline, a summary and a findings list.** The list may be empty, and a finding carries a severity. [#421](https://github.com/alp82/curia/issues/421) settled both, and the second section below is what it settled. The `notify` kind set was [#420](https://github.com/alp82/curia/issues/420)'s decision the same way, and the first section below is what it settled.
 
 ### The notify kind set (#420)
 
@@ -74,6 +74,33 @@ An `ask` blocks nothing, and that is the whole difference between it and `ask_hu
 ❓ joins the signal set of [ADR-0013](0013-one-voice-per-fact.md). The other six signals say what curia or an agent did, and none of them says that a reply is wanted.
 
 **A refused status line never holds a turn.** The gate is the same three-strike gate, on a key of its own, so a refused line and a refused question never spend each other's attempts. The Stop-hook catch differs, because nobody waits on a status line: curia posts the held text itself, flagged, and lets the turn end. Holding a turn to redeliver a line the operator did not ask for costs more than the line is worth. #438's rule still holds, because the words reach the human either way.
+
+### The verdict shape (#421)
+
+Rule 4 left the finding shape open. [#421](https://github.com/alp82/curia/issues/421) settles it, on the last untyped surface of this map. The cross-check verdict is the reviewer's `report_result`, and [ADR-0010](0010-the-cross-check.md) makes it the reviewer's only output.
+
+| Field | What it carries | Grade |
+|---|---|---|
+| `headline` | the verdict in one line | A |
+| `summary` | what the reviewer read and what it ran | B |
+| `findings[].text` | one finding: the file and the line, what is wrong, why it matters | B |
+| `findings[].severity` | `blocker`, `concern` or `note` | enum |
+| `findings[].out_of_scope` | the finding is real and sits beyond this ticket | flag |
+| `detail`, `visual` | as everywhere else | A, geometry |
+
+**A finding carries a severity, and the grade of the verdict is derived from it.** One blocker makes the verdict `fail`. One concern makes it `concerns`. Neither makes it `pass`. The reviewer never writes that word, so a verdict cannot pass over its own blocker. This is the rule that retired the `recommended` boolean, read on a second surface: a derived fact cannot lie, and a typed one can.
+
+A severity is still the reviewer's own weighting, which [#420](https://github.com/alp82/curia/issues/420) refused as an axis for the `notify` kinds. The two differ in what the claim is about. A `notify` kind claims something about its own payload, which the payload can contradict. A severity claims something about the diff, which is the whole thing a cross-check is for. The verdict is an opinion by design, and ADR-0010 gives the builder and the operator the last word on it.
+
+**An empty findings list is a verdict.** A clean reading is a real result, and a floor of one finding would make a reviewer that found nothing write filler — the fault this ADR named when it left `example` to agent judgment. The field is still required after the flip: an empty list says the reviewer found nothing, and a missing one says nothing at all.
+
+**An out-of-scope finding is marked, not dropped.** ADR-0010 sends it to the builder's charting field, and the mark is what the builder sorts on. The reviewer marked it inside its own prose before this ticket, which no reader could sort by.
+
+**The judgement keeps the round it already has.** The builder answers a verdict with `ask_human`, and #418 typed that surface. So the judgement needs no shape of its own: the builder puts one question per finding in one round, each with its recommendation, which earns the ✅ All as recommended button. `noteJudgement` posts the composed card as the second pull-request comment, so the record and the thread read the same text.
+
+**One composer, and the artifact stores what it built.** The pull-request comment, the builder's note and the thread carrier (#252) are three renderings of one verdict. `composeVerdict` builds that text once, and `data/verdicts/<ticket>.json` keeps the parts beside it. The reviewer's ending post in the thread reads the same composer, because `composeResultReport` can render only a summary and would drop every finding.
+
+**The reviewer's exemption ends here.** #419 exempted the reviewer from the report lint while this surface stayed untyped. It now takes the verdict lint, on the same `report-result` ledger key: a reviewer makes no other linted call, so nothing of its own spends those three attempts, and the Stop-hook catch the report already has fits a verdict unchanged.
 
 ### Two grades, and one check that is not a grade
 
@@ -158,6 +185,6 @@ The typed fields ship one surface per ticket, and one deploy lands them all ([#4
 - The `recommended` boolean retires, and the ✅ button becomes a fact about the payload rather than a claim about it.
 - An agent loses the freedom to lay out its own card. It writes the parts, and the bridge lays them out. This is ADR-0002 read at the level of one message: the bridge renders, it never interprets.
 - A cap refuses rather than truncates. Truncation loses information in silence, and losing no information is the requirement this whole map serves.
-- One surface keeps an open decision after this ADR: the verdict finding shape (#421). It builds against this vocabulary. The `notify` kind set is settled above (#420).
+- Every surface is settled. The `notify` kind set (#420) and the verdict shape (#421) are the two sections above, and both build against this vocabulary. What remains is the flip itself (#422).
 - The lint is weaker than `voice.md`. It checks the deterministic rules only, so prose that passes the gate can still read badly. The operator remains the last reader.
 - The `visual` field emits a fence on a common path, and the render path already carries it (#432). `fenceParts()` and `CODE_BLOCK_LIMIT` are exported from `daemon/src/messaging.mjs`, so [#418](https://github.com/alp82/curia/issues/418) reuses them rather than writing a second fence reader.

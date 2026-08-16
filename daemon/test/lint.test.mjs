@@ -9,6 +9,7 @@ import {
   lintRequestReview, reviewFloorFaults, hasText,
   isTypedResult, lintResult, resultFloorFaults,
   lintNotify, notifyFloorFaults, notifyHasText,
+  lintVerdict, verdictFloorFaults, verdictGrade, isTypedVerdict, VERDICT_SEVERITIES,
 } from '../src/lint.mjs'
 
 const names = (faults) => faults.join(' | ')
@@ -329,6 +330,11 @@ describe('lintResult: the ending report (#419)', () => {
     assert.deepEqual(resultFloorFaults({ headline: 'h', summary: 's' }, { typedFloor: true }), [])
   })
 
+  test('findings are the verdict\'s field, so a builder that sends them is refused (#421)', () => {
+    const faults = resultFloorFaults({ summary: 's', findings: [{ text: 't', severity: 'note' }] })
+    assert.match(names(faults), /findings: the cross-check reviewer's field/)
+  })
+
   test('isTypedResult reads the SHAPE, and a bare summary is the old one', () => {
     assert.equal(isTypedResult({ summary: 'what changed' }), false)
     assert.equal(isTypedResult({ headline: 'h' }), true)
@@ -375,5 +381,69 @@ describe('the status line (#420)', () => {
     assert.equal(notifyHasText(LINE), true)
     assert.equal(notifyHasText({ visual: 'a  b' }), true, 'a visual alone still says something')
     assert.equal(notifyHasText({ images: ['a.png'] }), false, 'a file is not prose, so it is the dead end')
+  })
+})
+
+describe('the cross-check verdict (#421)', () => {
+  const VERDICT = {
+    headline: 'One blocker: the gate counts a rejection it never journalled',
+    summary: 'I read the diff and ran the daemon suite. It is green on 71 files.',
+    findings: [
+      { text: 'daemon/src/lintgate.mjs:108 counts the attempt before the journal line lands.', severity: 'blocker' },
+      { text: 'daemon/src/card.mjs:52 could name the marker helper once.', severity: 'note', out_of_scope: true },
+    ],
+  }
+
+  test('a typed verdict passes both the floor and the words', () => {
+    assert.deepEqual(verdictFloorFaults(VERDICT, { typedFloor: true }), [])
+    assert.deepEqual(lintVerdict(VERDICT), [])
+  })
+
+  test('the headline is grade A and every finding is grade B', () => {
+    assert.match(names(lintVerdict({ ...VERDICT, headline: 'one\ntwo' })), /headline: a newline/)
+    const long = { text: 'x'.repeat(CAPS.block + 1), severity: 'note' }
+    assert.match(names(lintVerdict({ ...VERDICT, findings: [long] })), /findings\[0\]\.text: 601 characters/)
+    const dashed = { text: 'a.mjs:1 is wrong — and it matters', severity: 'note' }
+    assert.match(names(lintVerdict({ ...VERDICT, findings: [dashed] })), /findings\[0\]\.text: an em-dash/)
+  })
+
+  test('a finding with no severity is a schema fault, and the fault names the set', () => {
+    const faults = verdictFloorFaults({ ...VERDICT, findings: [{ text: 'a.mjs:1 is wrong.' }] })
+    assert.match(names(faults), /findings\[0\]\.severity: missing/)
+    assert.match(names(faults), /blocker, concern, note/)
+  })
+
+  test('a severity outside the set is refused, never coerced', () => {
+    const faults = verdictFloorFaults({ ...VERDICT, findings: [{ text: 'a.mjs:1 is wrong.', severity: 'critical' }] })
+    assert.match(names(faults), /findings\[0\]\.severity: "critical" is not one of/)
+  })
+
+  test('AN EMPTY findings list is a verdict, and a missing one is not', () => {
+    assert.deepEqual(verdictFloorFaults({ headline: 'h', summary: 's', findings: [] }, { typedFloor: true }), [])
+    assert.match(names(verdictFloorFaults({ headline: 'h', summary: 's' }, { typedFloor: true })), /findings: missing/)
+  })
+
+  test('the floor is the summary now, and the typed fields wait for the flip', () => {
+    assert.deepEqual(verdictFloorFaults({ summary: 's' }), [],
+      'before #422 a reviewer may still send the summary alone')
+    assert.match(names(verdictFloorFaults({ headline: 'h' })), /summary: missing/)
+  })
+
+  test('the grade is DERIVED from the severities, so no verdict passes over its own blocker', () => {
+    assert.equal(verdictGrade(VERDICT.findings), 'fail')
+    assert.equal(verdictGrade([{ severity: 'concern' }, { severity: 'note' }]), 'concerns')
+    assert.equal(verdictGrade([{ severity: 'note' }]), 'pass')
+    assert.equal(verdictGrade([]), 'pass', 'a clean reading is a real result')
+  })
+
+  test('an untyped verdict has no findings, so curia states no grade', () => {
+    assert.equal(verdictGrade(undefined), null)
+    assert.equal(isTypedVerdict({ summary: 'VERDICT: pass' }), false)
+    assert.equal(isTypedVerdict({ headline: 'h' }), true)
+    assert.equal(isTypedVerdict({ findings: [] }), true, 'an empty list is a typed verdict')
+  })
+
+  test('the three severities, most serious first', () => {
+    assert.deepEqual(VERDICT_SEVERITIES, ['blocker', 'concern', 'note'])
   })
 })

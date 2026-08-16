@@ -1,14 +1,11 @@
-// The typed ending report on the wire (#419, ADR-0019).
+// The typed cross-check verdict on the wire (#421, ADR-0010, ADR-0019).
 //
-// The composers and the grades are unit-tested next door (card.test.mjs,
-// lint.test.mjs). What only a real boot can answer is whether the MCP tool
-// really carries the new fields and really refuses a report whose words break a
-// rule: the schema is zod, the refusal is a tool RESULT rather than a throw, and
-// #416 measured that carriage dying in silence on codex.
-//
-// Two cases, and the second is the one that guards another ticket's surface. A
-// reviewer's `report_result` summary IS the verdict, which ADR-0019 lists as a
-// surface of its own and #421 types. It must reach the daemon untouched here.
+// The composer and the grades are unit-tested next door (card.test.mjs,
+// lint.test.mjs), and the way back is in crosscheck.test.mjs. What only a real
+// boot can answer is whether the MCP tool really carries `findings`, and whether
+// the reviewer really takes the lint it was exempt from until this ticket: the
+// schema is zod, the refusal is a tool RESULT rather than a throw, and #416
+// measured that carriage dying in silence on codex.
 
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -41,12 +38,12 @@ function request(port, method, urlPath) {
   })
 }
 
-describe('report_result carries the typed fields and the lint gate (#419, real boot)', () => {
+describe('report_result carries a typed verdict, and the reviewer is linted (#421, real boot)', () => {
   let tmp, child, port, watch
 
-  const call = async (agent, ticket, args) => {
+  const verdict = async (agent, ticket, args) => {
     const token = mintAgentToken(path.join(tmp, 'data'), agent)
-    const client = new Client({ name: 'curia-419-test', version: '0.0.0' })
+    const client = new Client({ name: 'curia-421-test', version: '0.0.0' })
     const transport = new StreamableHTTPClientTransport(
       new URL(`http://127.0.0.1:${port}/mcp?agent=${agent}&ticket=${ticket}`),
       { requestInit: { headers: { [TOKEN_HEADER]: token } } },
@@ -61,7 +58,7 @@ describe('report_result carries the typed fields and the lint gate (#419, real b
   }
 
   before(async () => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-419-test-'))
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-421-test-'))
     const cfgDir = path.join(tmp, 'config')
     const shim = path.join(tmp, 'shim')
     fs.mkdirSync(cfgDir, { recursive: true })
@@ -84,8 +81,6 @@ describe('report_result carries the typed fields and the lint gate (#419, real b
       `  workspace_root: ${path.join(tmp, 'work')}`,
       '  ready_timeout_s: 5',
       '  confirm_ttl_h: 1',
-      // Required since #390, with no default: a claim assigns a person, because
-      // GitHub does not let an App be an assignee. Without it this boot refuses.
       '  claim_login: fixture-operator',
       'attach:',
       `  ttyd_port: ${ttydPort}`,
@@ -137,40 +132,68 @@ describe('report_result carries the typed fields and the lint gate (#419, real b
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  test('a report whose words break a rule is refused, and the refusal names the field', async () => {
-    const text = await call('curia-419', '419', {
-      ticket: '419',
+  test('the wire carries the findings, and a typed verdict lands whole', async () => {
+    const text = await verdict('curia-review-4211', '4211', {
+      ticket: '4211',
       status: 'resolved',
-      headline: 'The report is typed; the lint reads it',
-      summary: 'The gate refuses the call and the agent rewrites its own text.',
-    })
-
-    assert.match(text, /curia refused this call/)
-    assert.match(text, /attempt 1 of 3/)
-    assert.match(text, /headline: a semicolon/)
-    assert.match(text, /Keep every option and every constraint/)
-    const events = journalEvents(path.join(tmp, 'data'))
-    assert.ok(events.some((e) => e.type === 'lint_rejected' && e.kind === 'report-result'),
-      'the rejection is counted under the report, not under a question')
-    assert.ok(!events.some((e) => e.type === 'result'),
-      'a refused report reported nothing: no journal line, no results file, no word in the thread')
-    assert.ok(!fs.existsSync(path.join(tmp, 'data', 'results', 'curia-419.json')))
-  })
-
-  test("a reviewer takes the VERDICT's shape, which #421 typed and this ticket exempted", async () => {
-    // The exemption this test guarded ended with #421. A verdict is linted on
-    // its own fields now, and `typedverdict.test.mjs` holds that surface whole.
-    const text = await call('curia-review-419', '419', {
-      ticket: '419',
-      status: 'resolved',
-      headline: 'One blocker: the gate counts the wrong attempt',
+      headline: 'One blocker: the retry loop never exits',
       summary: 'I read the diff and ran the daemon suite. It is green.',
-      findings: [{ text: 'daemon/src/lint.mjs:1 says the cap is a ceiling.', severity: 'note' }],
+      findings: [
+        { text: 'daemon/src/retry.mjs:41 loops while the socket is open, and nothing closes it.', severity: 'blocker' },
+        { text: 'daemon/src/card.mjs:52 could name the marker helper once.', severity: 'note', out_of_scope: true },
+      ],
     })
 
     assert.doesNotMatch(text, /curia refused this call/)
     const events = journalEvents(path.join(tmp, 'data'))
-    assert.ok(events.some((e) => e.type === 'result' && e.agent === 'curia-review-419'))
-    assert.ok(!events.some((e) => e.type === 'lint_rejected' && e.agent === 'curia-review-419'))
+    const done = events.find((e) => e.type === 'result' && e.agent === 'curia-review-4211')
+    assert.ok(done, 'the verdict is recorded')
+    assert.equal(done.findings.length, 2, 'the findings reach the daemon as parts, not as prose')
+  })
+
+  test('a finding whose words break a rule is refused, and the refusal names the entry', async () => {
+    const text = await verdict('curia-review-4212', '4212', {
+      ticket: '4212',
+      status: 'resolved',
+      headline: 'One concern about the cap',
+      summary: 'I read the diff and ran the suite.',
+      findings: [{ text: 'daemon/src/lint.mjs:44 is wrong — and the cap is off by one.', severity: 'concern' }],
+    })
+
+    assert.match(text, /curia refused this call/)
+    assert.match(text, /findings\[0\]\.text: an em-dash/)
+    assert.match(text, /attempt 1 of 3/)
+    const events = journalEvents(path.join(tmp, 'data'))
+    assert.ok(events.some((e) => e.type === 'lint_rejected' && e.agent === 'curia-review-4212' && e.kind === 'report-result'),
+      'one ledger for the reviewer, because it makes no other linted call')
+    assert.ok(!events.some((e) => e.type === 'result' && e.agent === 'curia-review-4212'),
+      'a refused verdict captured nothing')
+  })
+
+  test('a finding with no severity is a schema fault, and the fault names the set', async () => {
+    const text = await verdict('curia-review-4213', '4213', {
+      ticket: '4213',
+      status: 'resolved',
+      headline: 'One thing to fix',
+      summary: 'I read the diff and ran the suite.',
+      findings: [{ text: 'daemon/src/lint.mjs:44 states the cap twice.' }],
+    })
+
+    assert.match(text, /curia refused this call/)
+    assert.match(text, /findings\[0\]\.severity: missing/)
+    assert.match(text, /blocker, concern, note/)
+    assert.match(text, /fields this kind needs/, 'a missing field is a schema fault, not a word fault')
+  })
+
+  test('an untyped verdict still lands before the flip, and its words are still linted', async () => {
+    const text = await verdict('curia-review-4214', '4214', {
+      ticket: '4214',
+      status: 'resolved',
+      summary: 'VERDICT: pass. I read the diff and ran the tests. They are green.',
+    })
+
+    assert.doesNotMatch(text, /curia refused this call/)
+    const events = journalEvents(path.join(tmp, 'data'))
+    assert.ok(events.some((e) => e.type === 'result' && e.agent === 'curia-review-4214'))
   })
 })
