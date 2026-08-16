@@ -137,6 +137,7 @@ export class Reduction {
     this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
+    this.spawnFailures = new Map() // ticket -> its consecutive failed spawns (#444)
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
     this.tokenWarnings = new Map() // credential key -> the last warning curia said about it (#380)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
@@ -247,6 +248,29 @@ export class Reduction {
     }
     if (ev.ticket != null && (ev.type === 'limit_resume' || ev.type === 'agent_spawned')) {
       this.limitResumes.delete(String(ev.ticket))
+    }
+
+    // The failed spawns of a ticket (#444). A reduction for the reason the limit
+    // resume above is one: the count decides what the auto loop does NEXT tick,
+    // and a count kept only in the dispatcher would start again at zero after
+    // every deploy — which is the loop this exists to stop.
+    //
+    // TWO events clear it, and each one says the same thing in its own way: this
+    // ticket is not the one that dies at every spawn.
+    //
+    //   agent_mcp_first   the agent reached its tool channel, so the container
+    //                     came up and the agent can speak. Whatever ends that
+    //                     dispatch, it did not die at the spawn.
+    //   dispatch_claimed  a dispatch the auto loop did not make. The operator
+    //                     typed it, and a fresh order deserves a fresh count.
+    //                     `by` names the caller, and only `auto` is the loop.
+    if (ev.ticket != null && ev.type === 'dispatch_failed') {
+      const key = String(ev.ticket)
+      const held = this.spawnFailures.get(key)
+      this.spawnFailures.set(key, { repo: ev.repo ?? held?.repo ?? null, count: (held?.count ?? 0) + 1 })
+    }
+    if (ev.ticket != null && (ev.type === 'agent_mcp_first' || (ev.type === 'dispatch_claimed' && ev.by !== 'auto'))) {
+      this.spawnFailures.delete(String(ev.ticket))
     }
 
     // The cooling curia has already MEASURED (#377). A reduction for the reason
@@ -1202,6 +1226,21 @@ export class Reduction {
   // daemon was down is due the moment this is read.
   armedLimitResumes() {
     return [...this.limitResumes.entries()].map(([ticket, v]) => ({ ticket, repo: v.repo, at: v.at }))
+  }
+
+  // How many times in a row a ticket died at the spawn (#444). The auto loop
+  // reads this before every dispatch, and the dispatcher writes the count with
+  // `dispatch_failed`. Zero for a ticket that never failed, and zero again the
+  // moment an agent on it speaks.
+  failedSpawns(ticket) {
+    return this.spawnFailures.get(String(ticket))?.count ?? 0
+  }
+
+  // Every ticket that still carries failed spawns, as `{ ticket, repo, failures }`
+  // (#444). The surfaces read this: `status` and the dashboard say which tickets
+  // the auto loop steps over, and one operator press is what clears each.
+  spawnFailureCounts() {
+    return [...this.spawnFailures.entries()].map(([ticket, v]) => ({ ticket, repo: v.repo, failures: v.count }))
   }
 
   // Every landed cap the journal states, as `{ models, providers }` of

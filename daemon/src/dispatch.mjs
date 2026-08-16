@@ -245,6 +245,18 @@ const SELF_APPROVAL_RE = /can ?not approve your own pull request/i
 // the refusal it drives says so plainly enough for an operator to act on.
 export const CHARTING_WRITE_PREFIX = 'docs/research/'
 
+// How many failed spawns in a row a ticket gets before the auto loop steps over
+// it (#444). A dispatch that fails releases the claim, so the ticket is back on
+// the frontier for the next tick, and a ticket that dies for ITS OWN reason — a
+// broken image pin, a container that dies at once — repeated that for as long as
+// `auto_dispatch` stayed on, one container per tick.
+//
+// Two, and the operator settled on two. One would park a ticket on a single
+// GitHub blip, and the loop has no way to tell a blip from a fault. The bound
+// matters more than the number: a ticket that is broken for good costs two
+// containers and then nothing.
+export const FAILED_SPAWN_CAP = 2
+
 // How many trailing pane lines the two pane classifiers are allowed to see.
 const PANE_TAIL_LINES = 20
 
@@ -1260,6 +1272,13 @@ export class Dispatcher {
         } catch (unclaimErr) {
           this.reduction.journal('unclaim_failed', { repo, ticket: n, agent: session, reason: e.message, error: unclaimErr.message })
         }
+        // #444: no agent ran, so this is a failed spawn whatever the cause was —
+        // the broken image pin is exactly this path. Counted even when the
+        // unclaim failed: reconcile releases the ticket later, and the count is
+        // about the SPAWN rather than about the claim. A charting dispatch is
+        // excluded here for the reason it takes no claim: a map is never on a
+        // frontier, so no loop picks one up again.
+        this.#failedSpawn({ repo, ticket: n, agent: session, reason: e.message })
       }
       // The binding stays (#140): a failed dispatch is a claim release, not a
       // ticket-terminal state — the retry's traffic belongs in the same thread.
@@ -2341,12 +2360,16 @@ export class Dispatcher {
         const verb = e.refusal ? 'refused' : 'failed'
         this.log(`mute respawn of ${agent.session} on ${model} ${verb}:`, e.message)
         const released = await this.#releaseClaim(agent, `respawn after a mute agent ${verb}: ${e.message}`)
+        // #444: a mute agent never spoke, so both endings of this path are
+        // failed spawns. The ticket is back on the frontier either way.
+        this.#failedSpawn({ repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason: `respawn after a mute agent ${verb}` })
         this.notify(agent.ticket, this.#noRespawnNotify(agent, model, 'had no curia tools', e, released))
         return
       }
     }
 
     const released = await this.#releaseClaim(agent, 'no tool channel, twice')
+    this.#failedSpawn({ repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason: 'no tool channel, twice' })
     this.notify(agent.ticket, `🚫 \`${agent.session}\` reached its composer with **no curia tools** twice — refusing to dispatch #${agent.ticket} again on this fault — ${this.#releaseTail(agent, released)}. The MCP client connects once at startup and never retries, so the side channel has to be up BEFORE the agent (\`/state\`, then the daemon log for the last \`side_channel_ready\`).`)
   }
 
@@ -2429,6 +2452,11 @@ export class Dispatcher {
         const verb = e.refusal ? 'refused' : 'failed'
         this.log(`respawn of ${agent.session} on ${next} ${verb}:`, e.message)
         const released = await this.#releaseClaim(agent, `respawn after ${limit.scope} usage limit ${verb}: ${e.message}`)
+        // #444: the cap is not this ticket's fault, and the RESPAWN failing is a
+        // box fault the next tick would walk straight back into. An agent that
+        // had already spoken cleared its count, so this only ever bites a ticket
+        // that never got one running.
+        this.#failedSpawn({ repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason: `respawn after ${limit.scope} usage limit ${verb}` })
         this.notify(agent.ticket, this.#noRespawnNotify(agent, next, cause, e, released))
         // the binding stays (#140): a claim release is not a ticket-terminal state
         return
@@ -2669,6 +2697,57 @@ export class Dispatcher {
       this.reduction.journal('unclaim_failed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason, error: failure ?? 'the unclaim did not run' })
     }
     return released
+  }
+
+  // ---- the failed-spawn step-over (#444) ----------------------------------------
+  //
+  // A dispatch that fails releases the claim, so the ticket is back on the
+  // frontier and the next auto tick takes it again. Nothing counted, so a ticket
+  // that failed for ITS OWN reason ran that loop for as long as `auto_dispatch`
+  // stayed on, one container and one claim round-trip per tick. [#376](https://github.com/alp82/curia/issues/376)
+  // made the loop RESUME a surviving worktree rather than start over it, which
+  // keeps the files and arms the same loop when the resume dies the same way.
+  //
+  // Three rules decide the shape, and each keeps a wrong answer out:
+  //
+  //   1. It counts a spawn that never SPOKE. The count clears on
+  //      `agent_mcp_first`, so an agent that reached its tool channel and died
+  //      an hour later starts the next dispatch from zero — that ticket does not
+  //      die at the spawn, and #376's resume carries its files forward.
+  //   2. It binds the AUTO LOOP only. A typed `start` or `resume` dispatches a
+  //      held ticket at once and clears the count with it, which is the rule
+  //      #346 already follows: curia holds no order the operator did not repeat.
+  //   3. Exhaustion is not a failed spawn. Every lane cooling is not this
+  //      ticket's fault, and the cooling is already its own throttle.
+  //
+  // The count lives in the journal, so a deploy inside the window does not lose
+  // it. Nothing here writes an event per tick: the step-over is derived from the
+  // count, and a line per skipped tick would make the journal a traffic log.
+  #failedSpawn({ repo, ticket, agent = null, reason }) {
+    const n = String(ticket)
+    this.reduction.journal('dispatch_failed', { repo, ticket: n, agent, reason })
+    const failures = this.reduction.failedSpawns?.(n) ?? 0
+    // Said ONCE, at the instant the step-over arms (ADR-0013). A later failure
+    // of a held ticket is a failure the operator asked for by typing `start`,
+    // and their own reply carries it.
+    if (failures !== FAILED_SPAWN_CAP) return
+    this.reduction.journal('dispatch_held', { repo, ticket: n, failures })
+    this.notify(n, `⚠️ ${repo ? `${repo}#${n}` : `#${n}`} died at the spawn ${failures} times in a row, so auto-dispatch steps over it now. Fix the cause, then \`start ${n}\` or \`resume ${n}\` — a dispatch you type clears the count, and so does an agent that reaches its curia tools.`)
+  }
+
+  // Does the auto loop step over this ticket? The count is the journal's, so the
+  // answer survives the deploy that happens between the failures and the tick.
+  #steppedOver(ticket) {
+    return (this.reduction.failedSpawns?.(ticket) ?? 0) >= FAILED_SPAWN_CAP
+  }
+
+  // Every ticket the auto loop steps over, for the surfaces that say so (#444):
+  // `status` in Discord and the dashboard's own list. Each one waits on an
+  // operator act, which is what puts it on the Needs-you list where a cooling
+  // hold does not belong.
+  dispatchHolds() {
+    return (this.reduction.spawnFailureCounts?.() ?? [])
+      .filter((r) => r.failures >= FAILED_SPAWN_CAP)
   }
 
   // What a failure message says about the claim after #releaseClaim ran. Two
@@ -5233,6 +5312,13 @@ export class Dispatcher {
           released: 'claim released, ticket re-frontiered',
           'not-ours': 'the ticket is no longer claimed by curia',
         }[outcome]
+        // #444: a re-frontiered ticket is one the next tick takes again, so this
+        // is the death the loop repeats. The count clears on `agent_mcp_first`,
+        // so an agent that spoke before it died lands here at zero and the loop
+        // resumes it as #376 says. A kept claim is off the frontier already.
+        if (outcome === 'released') {
+          this.#failedSpawn({ repo, ticket, agent: session, reason: 'the agent died without reporting a result' })
+        }
       } catch (e) {
         claimLine = `the claim decision failed (${e.message}) — reconcile will retry`
       }
@@ -6050,6 +6136,13 @@ export class Dispatcher {
       // dispatch landing here first would delete the very files the armed
       // resume exists to hand back.
       if (this.limitResumes.has(String(num))) continue
+      // #444: this ticket died at the spawn twice in a row, and nothing about
+      // this tick is different from the two that failed. The thread was told
+      // once, at the instant the count reached the cap, so the step-over is
+      // silent here — a line per tick is the traffic this ticket exists to end.
+      // An operator who fixes the cause types `start` or `resume`, and that
+      // dispatch clears the count.
+      if (this.#steppedOver(num)) continue
       if (await this.deps.hasSession(session)) continue // collision or leftover: skip, never churn
       // #376: the same rule for the whole class. A takeable ticket with a
       // worktree still on disk is the work of an agent that ended without

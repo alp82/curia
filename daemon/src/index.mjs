@@ -2081,6 +2081,9 @@ async function overview() {
     // a window is; this says curia has STOPPED dispatching on it, which is a
     // different fact and gets its own banner.
     pre_cooling: dispatcher.preCoolings(),
+    // The tickets the auto loop steps over (#444). Unlike the hold above, an
+    // operator act is what ends each one, so the page counts these in Needs-you.
+    dispatch_holds: dispatcher.dispatchHolds(),
     // The credential warnings still standing (#380). Discord states each one
     // once, at its instant, and this is where it STAYS until the operator mints
     // the token — the half a Discord line cannot do, because a message scrolls

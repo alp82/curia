@@ -477,7 +477,7 @@ function ticketName(repo, ticket) {
    happens, which is the whole point of moving this off a log line. */
 function needsYou(o) {
   return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0)
-    + (o?.token_warnings?.length ?? 0);
+    + (o?.token_warnings?.length ?? 0) + (o?.dispatch_holds?.length ?? 0);
 }
 
 /* ---- the operator verbs (#266) ----------------------------------------------
@@ -1092,6 +1092,13 @@ function attentionList(o) {
     ...spentWindows(o.usage).map((w) => `<div class="att-item limit">
       <span class="who">${esc(w.provider)}</span>the ${esc(w.label)} window is spent at ${esc(w.pct)}%
       <div class="dim">${w.at ? `it rolls at ${esc(clock(w.at))}` : "no reset instant is stated"}</div></div>`),
+    /* The tickets the auto loop steps over (#444). On this list where a spent
+       window is not, by this list's own test: an operator act is what ends one.
+       Nothing lifts it on a clock, and the ticket sits on the frontier
+       untouched until somebody fixes the cause and dispatches it. */
+    ...(o.dispatch_holds ?? []).map((h) => `<div class="att-item limit">
+      <span class="who">${esc(ticketName(h.repo, h.ticket))}</span>died at the spawn ${esc(h.failures)} times, so auto-dispatch steps over it
+      <div class="dim">a <code>start</code> or <code>resume</code> you type dispatches it again and clears the count</div></div>`),
   ];
   return { count: items.length, html: items.length ? items.join("") : `<div class="empty">Nothing wants you.</div>` };
 }
@@ -1109,6 +1116,11 @@ const subject = (e) => [who(e), tkt(e)].filter(Boolean).join(" · ");
 const EVENTS = {
   dispatch_claimed: ["claim", "", (e) => `${tkt(e)} claimed for ${who(e)} by ${esc(e.by)}`],
   dispatch_unclaimed: ["claim", "", (e) => `${tkt(e)} unclaimed — back on the frontier`],
+  /* The failed spawn and the step-over it arms (#444). Two lines, because they
+     are two facts: one dispatch died, and the loop has stopped taking this
+     ticket. */
+  dispatch_failed: ["spawn", "bad", (e) => `${tkt(e)} died at the spawn${e.reason ? ` — ${esc(snip(e.reason, 120))}` : ""}`],
+  dispatch_held: ["spawn", "warn", (e) => `auto-dispatch steps over ${tkt(e)} — it died at the spawn ${esc(e.failures)} times. A start or a resume you type clears the count`],
   dispatch_exhausted: ["cooling", "bad", (e) => `${tkt(e)} could not be dispatched — every model is cooling${e.earliest_reset ? `, the earliest rolls ${esc(clock(e.earliest_reset))}` : ""}`],
   agent_spawned: ["spawn", "", (e) => `${who(e)} spawned on ${esc(e.model)}${e.harness ? ` — ${esc(e.harness)}` : ""}${e.kind ? `, ${esc(e.kind)}` : ""} · ${tkt(e)}`],
   agent_ready: ["spawn", "", (e) => `${who(e)} is at work on ${tkt(e)}`],

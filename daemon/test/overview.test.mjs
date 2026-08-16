@@ -574,6 +574,57 @@ describe('the limit resume curia still owes (#346)', () => {
   })
 })
 
+// The count has to outlive the process that took it (#444), for the reason the
+// arm above does: the auto loop reads it one tick after the failure wrote it,
+// and a deploy is allowed in between. A count that started again at zero after
+// every restart would arm the very loop it exists to stop.
+describe('the failed spawns of a ticket (#444)', () => {
+  let dir
+  const reduction = () => new Reduction(dir)
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-444-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('the count is per ticket, and a ticket that never failed reads zero', () => {
+    const s = reduction()
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 42, reason: 'the image pin is broken' })
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 42, reason: 'the image pin is broken' })
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 43, reason: 'the image pin is broken' })
+    assert.equal(s.failedSpawns(42), 2)
+    assert.equal(s.failedSpawns(43), 1)
+    assert.equal(s.failedSpawns(99), 0)
+    assert.deepEqual(s.spawnFailureCounts(), [
+      { ticket: '42', repo: 'o/r', failures: 2 },
+      { ticket: '43', repo: 'o/r', failures: 1 },
+    ])
+  })
+
+  test('a restart replays it, which is the whole point of the reduction', () => {
+    const s = reduction()
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 42, reason: 'the image pin is broken' })
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 42, reason: 'the image pin is broken' })
+    assert.equal(reduction().failedSpawns(42), 2)
+  })
+
+  test('an agent that reached its curia tools clears it — that ticket does not die at the spawn', () => {
+    const s = reduction()
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 42, reason: 'the container died at once' })
+    s.journal('agent_mcp_first', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    assert.equal(s.failedSpawns(42), 0)
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 42, reason: 'the agent died without reporting a result' })
+    assert.equal(s.failedSpawns(42), 1, 'the death after a working spawn counts from zero, so the loop keeps resuming it')
+  })
+
+  test('a dispatch the operator typed clears it, and one the auto loop made does not', () => {
+    const s = reduction()
+    s.journal('dispatch_failed', { repo: 'o/r', ticket: 42, reason: 'the image pin is broken' })
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    assert.equal(s.failedSpawns(42), 1, 'the loop taking the ticket again is the repeat, not a fresh order')
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'alp82' })
+    assert.equal(s.failedSpawns(42), 0)
+  })
+})
+
 // The cap has to outlive the process that measured it (#377), for the reason
 // the arm above does: a 5-hour window outlives a deploy. Both events already
 // carried `reset_at`; this is the read side.
