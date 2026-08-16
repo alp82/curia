@@ -51,12 +51,77 @@ export function clampList(lines, max = 10) {
 // resort (a single 1600-char line is code, not prose).
 export const CHUNK_LIMIT = 1600
 
+// ---- fenced code blocks (#432) ----------------------------------------------
+//
+// The code-block table and the ASCII diagram are the two visual forms #414 kept,
+// and both live in a fence. The same test proved the fence break live: a 34-row
+// table crossed a chunk boundary, both halves then rendered as literal
+// backticks, the font fell back to proportional, and the columns lost the
+// alignment that made it a table.
+//
+// Two rules answer it, and the code needs both.
+//
+// The LINT caps a block, so a block that large never reaches the chunker at all.
+// A capped table plus a `.md` attachment (#430) beats two half-tables, which is
+// the verdict #414 recommended.
+//
+// The CHUNKER reads the fence anyway, because the cap is not a guarantee. Bot
+// prose never passes the lint. The flagged send (#416) puts un-fixed text
+// through on purpose. And a block well under the cap still straddles a boundary
+// when the prose in front of it is long, so the cap alone leaves the defect
+// standing. A block that fits moves whole into one chunk. A block that cannot
+// fit closes its fence at the split and reopens it on the next chunk, so every
+// half is still monospace and still aligned.
+
+// A fence opens on up to three spaces of indent, then three or more backticks
+// or tildes. An info string (```js) may follow the opening marker only.
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
+
+// Split text into parts: prose runs and whole fenced blocks, in source order.
+// A fence with no closing marker runs to the end of the text, which is how
+// Discord renders it too.
+export function fenceParts(text) {
+  const lines = String(text).split('\n')
+  const parts = []
+  let prose = []
+  const flushProse = () => {
+    if (prose.length) parts.push({ code: false, text: prose.join('\n') })
+    prose = []
+  }
+  for (let i = 0; i < lines.length;) {
+    const opened = lines[i].match(FENCE_OPEN)
+    if (!opened) {
+      prose.push(lines[i])
+      i += 1
+      continue
+    }
+    flushProse()
+    const open = lines[i]
+    const marker = opened[1]
+    // Neither fence character is a regex metacharacter, so neither needs an escape.
+    const closeRe = new RegExp(`^ {0,3}${marker[0]}{${marker.length},}\\s*$`)
+    const block = [open]
+    let close = null
+    for (i += 1; i < lines.length; i += 1) {
+      block.push(lines[i])
+      if (closeRe.test(lines[i])) { close = lines[i]; i += 1; break }
+    }
+    parts.push({ code: true, text: block.join('\n'), open, close })
+  }
+  flushProse()
+  return parts
+}
+
 export function chunkMessage(text, limit = CHUNK_LIMIT) {
   const s = String(text)
   if (s.length <= limit) return [s]
   const chunks = []
   let current = ''
-  const push = () => { if (current) { chunks.push(current); current = '' } }
+  const push = () => {
+    const done = current.replace(/^\n+|\n+$/g, '')
+    if (done) chunks.push(done)
+    current = ''
+  }
   const add = (piece, sep) => {
     if (current && current.length + sep.length + piece.length <= limit) {
       current += sep + piece
@@ -69,11 +134,50 @@ export function chunkMessage(text, limit = CHUNK_LIMIT) {
     }
     current = piece
   }
-  for (const para of s.split('\n\n')) {
-    if (para.length <= limit) {
-      add(para, '\n\n')
-    } else {
-      for (const line of para.split('\n')) add(line, '\n')
+  // A block that fits rides `add`, which starts a new chunk rather than break
+  // it. A block that does not fit is rebuilt, one fenced part per chunk.
+  const addFence = (part) => {
+    const close = part.close ?? part.open.match(FENCE_OPEN)[1]
+    const room = limit - part.open.length - close.length - 2
+    if (part.text.length <= limit || room < 1) {
+      add(part.text, '\n')
+      return
+    }
+    push()
+    const body = part.text.split('\n').slice(1, part.close ? -1 : undefined)
+    let held = []
+    let len = 0
+    const flushBlock = () => {
+      chunks.push([part.open, ...held, close].join('\n'))
+      held = []
+      len = 0
+    }
+    for (let line of body) {
+      while (line.length > room) {
+        if (held.length) flushBlock()
+        chunks.push([part.open, line.slice(0, room), close].join('\n'))
+        line = line.slice(room)
+      }
+      if (len + (held.length ? 1 : 0) + line.length > room) flushBlock()
+      len += (held.length ? 1 : 0) + line.length
+      held.push(line)
+    }
+    // The tail stays open for the prose that follows it, and it keeps the
+    // closing marker only where the source had one.
+    current = [part.open, ...held, ...(part.close ? [close] : [])].join('\n')
+  }
+  for (const part of fenceParts(s)) {
+    if (part.code) {
+      addFence(part)
+      continue
+    }
+    // The parts are line-adjacent, so the first paragraph of a prose run joins
+    // with one newline. The blank line the source had is inside the run.
+    let sep = '\n'
+    for (const para of part.text.split('\n\n')) {
+      if (para.length <= limit) add(para, sep)
+      else for (const line of para.split('\n')) add(line, '\n')
+      sep = '\n\n'
     }
   }
   push()
@@ -220,16 +324,36 @@ const bare = (s) => s.replace(/️/g, '')
 const SIGNAL_SET = new Set(Object.values(SIGNALS).map(bare))
 const EMOJI_RE = /[\u{2300}-\u{23FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1FAFF}]\u{FE0F}?/gu
 
+// The cap on one fenced block (#432). 1000 chars is 42 columns by 23 rows —
+// the width #414 kept, at the depth a phone still scrolls — and it leaves 600
+// chars of the chunk for the prose around the block. A block over the cap
+// belongs in an attachment (#430), so the message keeps a short table and a
+// file carries the long one.
+export const CODE_BLOCK_LIMIT = 1000
+
 // The executable half of the standard: no headings, no tables, no
-// blockquotes, no emoji outside the signal set. Returns the violations, empty
-// when the text conforms — tests assert on that.
+// blockquotes, no emoji outside the signal set, no code block over the cap.
+// Returns the violations, empty when the text conforms — tests assert on that.
+//
+// The three markdown rules read prose only. A table inside a fence is the ONE
+// table form Discord renders (#414), so the lint that bans a markdown table
+// must not ban the form the standard keeps. The emoji rule stays whole-text: a
+// reader sees an emoji in a code block the same way as one in a sentence.
 export function lintReply(text) {
   const problems = []
-  for (const raw of String(text).split('\n')) {
-    const line = raw.replace(/^-# /, '')
-    if (/^#{1,6} /.test(line)) problems.push(`heading: ${line}`)
-    if (/^>/.test(line.trim())) problems.push(`blockquote: ${line}`)
-    if (/^\|.*\|/.test(line.trim())) problems.push(`table: ${line}`)
+  for (const part of fenceParts(String(text))) {
+    if (part.code) {
+      if (part.text.length > CODE_BLOCK_LIMIT) {
+        problems.push(`code block of ${part.text.length} chars over the ${CODE_BLOCK_LIMIT} cap: shorten it and attach the whole thing as a file`)
+      }
+      continue
+    }
+    for (const raw of part.text.split('\n')) {
+      const line = raw.replace(/^-# /, '')
+      if (/^#{1,6} /.test(line)) problems.push(`heading: ${line}`)
+      if (/^>/.test(line.trim())) problems.push(`blockquote: ${line}`)
+      if (/^\|.*\|/.test(line.trim())) problems.push(`table: ${line}`)
+    }
   }
   for (const m of String(text).match(EMOJI_RE) ?? []) {
     if (!SIGNAL_SET.has(bare(m))) problems.push(`emoji outside the signal set: ${m}`)
