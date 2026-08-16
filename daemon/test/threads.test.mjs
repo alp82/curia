@@ -996,6 +996,9 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
     store: {
       logEvent: (type, data) => ({ type, ...data }),
       openEscalations: () => escalations,
+      // #374: no test here records an answered escalation, so the prompt
+      // inherits an empty exchange and says nothing about one.
+      answeredExchangeFor: () => [],
       cancel: () => ({ ok: true }),
       boundTickets: () => bound,
       // #208: no test here queues an operator note, so nothing ever expires

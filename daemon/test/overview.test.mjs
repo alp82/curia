@@ -679,7 +679,7 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
     const d = new Dispatcher({
       config,
       routing: { defaults: { untyped: 'sonnet' }, models: { sonnet: { provider: 'anthropic', harness: 'claude' } }, fallbacks: {}, harnesses: {} },
-      store: { logEvent: () => {}, openEscalations: () => [], boundTickets: () => [] },
+      store: { logEvent: () => {}, openEscalations: () => [], answeredExchangeFor: () => [], boundTickets: () => [] },
       notify: () => {},
       log: () => {},
       dataDir: path.join(tmp, 'data'),

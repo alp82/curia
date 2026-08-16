@@ -99,6 +99,9 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
       return rec
     },
     openEscalations: () => [],
+    // #374: no test here records an answered escalation, so the resumed prompt
+    // inherits an empty exchange and says nothing about one.
+    answeredExchangeFor: () => [],
     cancel: () => ({ ok: true }),
     // #208: no test here queues an operator note, so nothing ever expires
     expireAgentNotes: () => 0,

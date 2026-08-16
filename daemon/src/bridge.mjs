@@ -25,7 +25,7 @@ import {
 } from 'discord.js'
 import { isChatHandle } from './attach.mjs'
 import { safeLeaf } from './images.mjs'
-import { REVIEW_KIND, CROSS_CHECK_ANSWER } from './lifecycle.mjs'
+import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './store.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
@@ -37,7 +37,11 @@ const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
 // applies the recommendations IT wrote. The daemon never reads the prompt and
 // never decides what "recommended" meant, which is the no-interpret rule of
 // ADR-0005 held exactly where a round would be tempted to break it.
-export const ALL_AS_RECOMMENDED = 'all-as-recommended'
+//
+// The word itself moved to `lifecycle.mjs` on #374, beside the review gate's
+// own literals, because the spawn prompt reads it too now. Re-exported here so
+// the button and everything that reads its press keep one import.
+export { ALL_AS_RECOMMENDED }
 
 // The signal position of a bound thread's name (#93, #199, #200). The live
 // glyphs — states a running agent can hold — are the only ones another state
@@ -303,7 +307,7 @@ const SLASH_MANIFEST = [
     .addStringOption((o) => o.setName('model').setDescription('Model override')),
   new SlashCommandBuilder().setName('cancel').setDescription('Cancel a running ticket, or all of them')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true)),
-  new SlashCommandBuilder().setName('resume').setDescription('Fresh agent on a ticket, inheriting its worktree and its model')
+  new SlashCommandBuilder().setName('resume').setDescription('Fresh agent on a ticket, inheriting its worktree, its model and your answers')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or "all"').setRequired(true))
     // #177: resume inherits the model of the dead agent, and this is the way
     // out. `resume all` ignores it — see parseCommand.

@@ -125,7 +125,7 @@ export const VERB_SPECS = [
   },
   {
     verb: 'resume',
-    description: 'Fresh agent on a ticket, inheriting its surviving worktree and the model the dead agent ran on. "all" resumes every resumable ticket, each on its own model.',
+    description: 'Fresh agent on a ticket, inheriting its surviving worktree, the model the dead agent ran on, and every question the operator already answered on it. "all" resumes every resumable ticket, each on its own model.',
     args: {
       ticket: bulkArg,
       model: z.string().optional().describe('model override — otherwise the model the dead agent ran on. Ignored for "all".'),

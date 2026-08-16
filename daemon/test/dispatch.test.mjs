@@ -138,6 +138,10 @@ function makeDispatcher(deps = {}, {
     // at construction is the real reduction over the real journal file.
     armedCoolings: () => journal.armedCoolings(),
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
+    // #374: the real reduction over the real journal. A test seeds `esc_open`
+    // and `esc_answer` through `logEvent` above, and the exchange the prompt
+    // inherits is built by the code that owns the rule.
+    answeredExchangeFor: (agent) => journal.answeredExchangeFor(agent),
     cancel: () => ({ ok: true }),
     // #208, the real EscalationStore predicate: a note stamped with an
     // instance dies when that instance is no longer the live one. An
@@ -2980,6 +2984,41 @@ describe('the spawn prompt names the parent map (#41)', () => {
     }, { readyTimeoutS: 0 })
     await d2.start('42', { repo: 'o/r' })
     assert.equal(prompt.mapNumber, null, 'a failed read must not invent a map for the agent to edit')
+  })
+})
+
+// #374: `resume` handed a fresh agent the worktree and the model and none of
+// the exchange, so the operator answered the same question twice. The push is
+// one argument on the prompt, read out of the store the daemon already holds.
+// The rule itself is pinned in `inheritedexchange.test.mjs`, and its wording in
+// `prompt.test.mjs`; what belongs HERE is that a dispatch actually asks.
+describe('a dispatch hands the recorded exchange to the prompt (#374)', () => {
+  test('a resumed agent is handed what a human already answered on this ticket', async () => {
+    let prompt = null
+    const d = makeDispatcher({
+      writePrompt: (cfgDir, issue, opts) => { prompt = opts; return '/p' },
+    }, { readyTimeoutS: 0 })
+    // The dead agent's round, as the journal really carries it. Both events go
+    // through the store double, which writes them to the real journal file.
+    d.store.logEvent('esc_open', { id: 'esc-1', agent: 'curia-42', ticket: '42', kind: 'free-text', prompt: 'which lane?' })
+    d.store.logEvent('esc_answer', { id: 'esc-1', answer: 'the flat one', by: 'operator', via: 'discord' })
+
+    await d.start('42', { repo: 'o/r', reuse: true })
+
+    assert.deepEqual(prompt.exchange, [
+      { id: 'esc-1', kind: 'free-text', prompt: 'which lane?', answer: 'the flat one', attachments: 0 },
+    ])
+  })
+
+  test('a first dispatch hands over an empty exchange, not a missing one', async () => {
+    // Rule 7: one rule for every dispatch. The prompt writes no block for an
+    // empty list, so `resume` needs no branch of its own.
+    let prompt = null
+    const d = makeDispatcher({
+      writePrompt: (cfgDir, issue, opts) => { prompt = opts; return '/p' },
+    }, { readyTimeoutS: 0 })
+    await d.start('42', { repo: 'o/r' })
+    assert.deepEqual(prompt.exchange, [])
   })
 })
 
