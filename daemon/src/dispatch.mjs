@@ -5459,7 +5459,19 @@ export class Dispatcher {
   // The tick runs whatever auto_dispatch says (#138): the liveness sweep needs
   // it, and auto_dispatch is shipped OFF. Only the dispatch half of #autoTick
   // is gated on the flag.
+  // Stop the tick, so it can be armed again on a new interval (#362). Idempotent:
+  // a loop that was never started has nothing to clear, and `autoTimer` staying
+  // null is what tells a reload not to arm one early — the loop belongs to the
+  // end of boot reconcile, not to a save.
+  stopAutoLoop() {
+    if (this.autoTimer) clearInterval(this.autoTimer)
+    this.autoTimer = null
+  }
+
   startAutoLoop() {
+    // Never two timers on one dispatcher: `poll_interval_s` is reloadable, and
+    // a re-arm that left the old interval running would tick at both.
+    this.stopAutoLoop()
     const ms = this.config.dispatch.poll_interval_s * 1000
     this.autoTimer = setInterval(() => {
       this.#autoTick().catch((e) => this.log('auto tick failed:', e.message))

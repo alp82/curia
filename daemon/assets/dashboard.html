@@ -240,7 +240,8 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
   .btn.sm { padding: 2px 8px; font-size: 12px; }
-  /* The restart, once a save has landed: the loud half of the two-phase banner. */
+  /* The restart where it is the mitigation (#362): a save the daemon declined,
+     and the Maintenance button while the daemon and the files disagree. */
   .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
   .btn[disabled] { opacity: .55; cursor: default; }
 
@@ -265,8 +266,8 @@
   .model-mgr { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
   .gh-connect { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 10px; flex-wrap: wrap; }
 
-  /* The banner sits at the TOP and runs two phases (#248): save first, then the
-     restart that applies it. */
+  /* The banner sits at the TOP and states one act (#248, collapsed by #362):
+     the save, and what the daemon did with it. */
   .save-banner {
     display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
     background: var(--bg-raise); border: 1px solid var(--line); border-radius: 9px;
@@ -397,8 +398,9 @@ const REVIEW_KIND = "review-gate";
 var UI = {
   screen: "home",
   fr: { view: "cards", repo: "all", type: "all" },
-  /* The settings screen's own state (#265). `phase` is the save banner's two
-     phases plus the two that can interrupt them: clean, dirty, saved,
+  /* The settings screen's own state (#265). `phase` is what the banner says:
+     clean and dirty before a save, then the three outcomes a save can have
+     (#362) — applied, declined, offline — plus the three that interrupt them:
      restarting, refused, unread. */
   set: { section: "routing", models: false, phase: "clean", error: null, busy: false, note: null },
   /* The operator verbs (#266). `busy` names the ONE press in flight, keyed to
@@ -1070,6 +1072,11 @@ const EVENTS = {
   model_cooling: ["cooling", "bad", (e) => `${esc(e.model)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
   provider_cooling: ["cooling", "bad", (e) => `${esc(e.provider)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
   restart_requested: ["restart", "warn", (e) => `restart ordered by ${esc(e.by)} — the daemon exits ${esc(e.exit_code)} and the supervisor respawns it`],
+  /* The live reload (#362). A save applies, so the feed says what moved — and
+     a reload the daemon would not take says which key needs the restart. */
+  config_reloaded: ["config", "", (e) => `config reloaded by ${esc(e.by)}${
+    e.keys?.length ? ` — ${esc(e.keys.join(", "))}` : " — nothing moved"}`],
+  config_reload_declined: ["config", "warn", (e) => `config reload declined for ${esc(e.by)} — ${esc(snip(e.error, 160))}`],
   deploy_requested: ["deploy", "", (e) => `deploy ordered by ${esc(e.by)}`],
   deploy_landed: ["deploy", "", (e) => `deploy landed${e.next ? ` at ${esc(String(e.next).slice(0, 7))}` : ""}`],
   deploy_rolled_back: ["deploy", "bad", (e) => `deploy rolled back — ${esc(e.reason ?? "the health check failed")}`],
@@ -1410,15 +1417,19 @@ function screenFeed(p) {
       and `settings`, so a field nobody touched is not written — which is what
       keeps a hand edit made while this tab was open from being clobbered by a
       save of something else.
-   3. SAVE AND APPLY ARE TWO ACTS. A save writes the file. The daemon goes on
-      running the config it booted with until it restarts, and the banner says
-      so rather than letting a saved page look like a changed daemon. */
+   3. A SAVE APPLIES (#362). The sidecar asks the daemon to reload after a
+      write that landed, and the answer rides back with the save. So the banner
+      states an outcome — applied, declined, or the daemon is not answering —
+      instead of handing the operator a second button to press. What "applied"
+      means is measured: the daemon reports the six settings it is RUNNING, and
+      this screen compares them against the file it read. */
 
-const SET_SECTIONS = { routing: "Routing", projects: "Projects", dispatch: "Dispatch" };
+const SET_SECTIONS = { routing: "Routing", projects: "Projects", dispatch: "Dispatch", maintenance: "Maintenance" };
 const SET_HINTS = {
   routing: "The model each ticket type gets when no label on the ticket says otherwise.",
   projects: "The repos curia watches. It dispatches against these and no others.",
   dispatch: "Whether curia starts work by itself, how many agents run at once, and how often it looks for work.",
+  maintenance: "Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.",
 };
 const DISPATCH_FIELDS = [
   ["max_concurrent", "How many agents may run at once. Each one costs a container, and three sandbox ports."],
@@ -1462,19 +1473,56 @@ function changeCount() {
     + Object.keys(p.routing?.models ?? {}).length;
 }
 
-/* ---- the save banner: two phases, at the top (#248) ---- */
+/* ---- what the daemon is running (#362) --------------------------------------
+
+   Applied is a fact curia measured, not a claim the save made. `GET /overview`
+   carries the six settings the daemon RUNS and the instant it read them; this
+   compares them, key by key, against the file this screen read.
+
+   Null means curia cannot tell — no snapshot, no file read, or a daemon that is
+   not answering, whose last reading says what WAS true and not what is. Null is
+   never drawn as agreement: "unknown" and "in step" are opposite facts. */
+const sameJSON = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+function runningDiff(p) {
+  const run = p?.overview?.daemon?.config;
+  if (!run || !settings || !p.daemon_up) return null;
+  const out = [];
+  for (const k of Object.keys(settings.dispatch)) {
+    if (!sameJSON(settings.dispatch[k], run.dispatch?.[k])) out.push("dispatch." + k);
+  }
+  if (!sameJSON(settings.watch, run.watch)) out.push("watch");
+  const rows = (list) => new Map((list ?? []).map((r) => [r.type, r.model]));
+  const [fileRows, runRows] = [rows(settings.routing.defaults), rows(run.routing?.defaults)];
+  for (const type of new Set([...fileRows.keys(), ...runRows.keys()])) {
+    if (!sameJSON(fileRows.get(type), runRows.get(type))) out.push("routing.defaults." + type);
+  }
+  const switches = (list) => new Map((list ?? []).map((m) => [m.name, m.active !== false]));
+  const [fileSw, runSw] = [switches(settings.routing.models), switches(run.routing?.models)];
+  for (const name of new Set([...fileSw.keys(), ...runSw.keys()])) {
+    if (!sameJSON(fileSw.get(name), runSw.get(name))) out.push("routing.models." + name + ".active");
+  }
+  return out;
+}
+
+/* ---- the save banner: one act, at the top (#362) ---- */
 
 function saveBanner() {
   const n = changeCount();
   const s = UI.set;
   const save = (on) => `<button class="btn${on ? " primary" : ""}" ${on && !s.busy ? "" : "disabled"} onclick="doSave()">${
     s.busy ? "Saving…" : "Save"}</button>`;
-  const restart = (loud) => `<button class="btn${loud ? " restart-hot" : ""}" ${s.busy ? "disabled" : ""} onclick="doRestart()">${
-    loud ? "Restart to apply" : "Restart daemon"}</button>`;
+  /* One button, one shape: the banner offers a restart only where it is the
+     mitigation, so the one it offers is always the loud one. */
+  const restart = () => `<button class="btn restart-hot" ${s.busy ? "disabled" : ""} onclick="doRestart()">Restart to apply</button>`;
   const line = (cls, body) => `<div class="save-banner${cls ? " " + cls : ""}">${body}</div>`;
 
+  /* The bar is just Save. The restart left this banner with #362 and lives in
+     Maintenance, because it is now a rare act about a hand edit — the one place
+     it still belongs here is a save the daemon declined, where it is the
+     mitigation for that save. */
   if (s.phase === "unread") {
-    return line("refused", `${save(false)}${restart(false)}
+    return line("refused", `${save(false)}
       <span class="toast">The settings could not be read.</span>
       <span class="toast why">${esc(s.error)}</span>`);
   }
@@ -1482,25 +1530,40 @@ function saveBanner() {
     /* The loaders refused the candidate, so nothing on disk moved. The draft
        stays on screen: the operator fixes the value they typed, they do not
        type it again. */
-    return line("refused", `${save(n > 0)}${restart(false)}
+    return line("refused", `${save(n > 0)}
       <span class="toast">Refused — nothing was written.</span>
       <span class="toast why">${esc(s.error)}</span>`);
   }
   if (s.phase === "restarting") {
-    return line("", `${save(n > 0)}${restart(false)}
+    return line("", `${save(n > 0)}
       <span class="toast">The daemon exited nonzero and the supervisor respawns it. This page serves its last snapshot meanwhile.</span>`);
   }
-  if (s.phase === "saved") {
-    /* Phase two. The restart is the loud button now, because the file on disk
-       and the running daemon disagree until it is pressed. */
-    return line("saved", `<button class="btn" disabled>Saved ✓</button>${restart(true)}
-      <span class="toast">${esc(s.note ?? "Saved.")} The daemon still runs the config it booted with.</span>`);
+  /* The three outcomes a save can have. Each one states what happened to the
+     daemon, and carries a button only where a button is the mitigation. */
+  if (s.phase === "applied") {
+    return line("saved", `<button class="btn" disabled>Saved ✓</button>
+      <span class="toast">${esc(s.note ?? "Saved.")} The daemon is running it.</span>`);
+  }
+  if (s.phase === "declined") {
+    /* The file moved a key a reload cannot apply, so the daemon kept the config
+       it booted with. The restart is the mitigation, and it is the loud one. */
+    return line("saved", `<button class="btn" disabled>Saved ✓</button>${restart()}
+      <span class="toast">${esc(s.note ?? "Saved.")} The daemon did not apply it.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
+  }
+  if (s.phase === "offline") {
+    /* No button: a restart is not the mitigation for a daemon that is already
+       not answering, and pressing one would be an order nobody takes. */
+    return line("saved", `<button class="btn" disabled>Saved ✓</button>
+      <span class="toast">${esc(s.note ?? "Saved.")} The daemon is not answering, so it takes this file at its next boot.
+        If it refuses to boot, the daemon log names the key.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
   }
   if (n === 0) {
-    return line("", `${save(false)}${restart(false)}
+    return line("", `${save(false)}
       <span class="toast">${esc(s.note ?? "No unsaved changes.")}</span>`);
   }
-  return line("", `${save(true)}${restart(false)}
+  return line("", `${save(true)}
     <span class="toast">${n} unsaved change${n === 1 ? "" : "s"}.</span>`);
 }
 
@@ -1580,7 +1643,36 @@ function setDispatch() {
     <tr><td><label for="set-auto"><b>auto_dispatch</b></label>
       <span class="hint" style="display:block;margin:2px 0 0">On, curia starts the next takeable ticket by itself. Off, every dispatch is one the operator ordered.</span></td>
       <td><input type="checkbox" id="set-auto" ${auto ? "checked" : ""} onchange="setDispatchField('auto_dispatch', this.checked)"></td></tr>
-    ${rows}</table>`);
+    ${rows}</table>
+    <p class="hint" style="margin:10px 0 0">A save applies at once. It cancels no running agent:
+      auto_dispatch off leaves every live agent running, and a max_concurrent below the live count
+      starts nothing new until the count falls. A model change reaches the next dispatch, never a
+      running one.</p>`);
+}
+
+/* Maintenance (#362). Last of the four, because it is the section an operator
+   reads rather than edits. It says one thing — whether the daemon runs the
+   file — and carries the one act that answers a no. */
+function setMaintenance(p) {
+  const differs = runningDiff(p);
+  const run = p?.overview?.daemon?.config;
+  let state;
+  if (differs === null) {
+    state = `<p class="unread">curia cannot tell whether the daemon runs these files: ${
+      p?.daemon_up === false ? "it is not answering." : "there is no reading of it yet."}</p>`;
+  } else if (differs.length) {
+    state = `<p class="unread">The daemon is NOT running the files. These differ:
+      <span class="mono">${differs.map(esc).join(", ")}</span>. A restart takes them.</p>`;
+  } else {
+    state = `<p class="hint">The daemon is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
+  }
+  return setBlock("Maintenance", SET_HINTS.maintenance, `${state}
+    <button class="btn${differs?.length ? " restart-hot" : ""}" ${UI.set.busy ? "disabled" : ""}
+      onclick="doRestart()">Restart daemon</button>
+    <p class="hint" style="margin:10px 0 0">A restart is for the keys a save cannot apply: the ports,
+      <span class="mono">workspace_root</span>, <span class="mono">sandbox</span>,
+      <span class="mono">identity</span>, and every routing key this screen does not write.
+      Agent panes live in their own container, so they survive it.</p>`);
 }
 
 /* ---- the chat (#267, many conversations by #333) ----------------------------
@@ -1689,7 +1781,7 @@ function screenSettings(p) {
     return `${head(p, "Settings")}${saveBanner()}
       <div class="later">Reading curia.yaml and routing.yaml…</div>`;
   }
-  const bodies = { routing: setRouting, projects: setProjects, dispatch: setDispatch };
+  const bodies = { routing: setRouting, projects: setProjects, dispatch: setDispatch, maintenance: setMaintenance };
   if (!bodies[UI.set.section]) UI.set.section = "routing";
   const files = `<span class="dim-note mono">${esc(fileName(settings.files.curia))} · ${esc(fileName(settings.files.routing))}</span>`;
   /* #292: the screen reads two layers and writes only the top one. Said here,
@@ -1705,7 +1797,7 @@ function screenSettings(p) {
   return `${head(p, "Settings", files)}${saveBanner()}
     <div class="set-subnav">${Object.entries(SET_SECTIONS).map(([k, label]) =>
       `<button class="${UI.set.section === k ? "on" : ""}" onclick="setSection('${k}')">${esc(label)}</button>`).join("")}</div>
-    <div style="max-width:620px">${bodies[UI.set.section]()}</div>
+    <div style="max-width:620px">${bodies[UI.set.section](p)}</div>
     ${writes}`;
 }
 const fileName = (p) => String(p ?? "").split("/").pop();
@@ -1813,11 +1905,20 @@ async function doSave() {
        rather than what was typed. */
     settings = body.settings ?? settings;
     draft = clone(settings);
-    UI.set.phase = body.written?.length ? "saved" : "clean";
-    UI.set.note = body.written?.length
-      ? `Wrote ${body.written.join(" and ")}, atomically, with the comments kept.`
-      : "That was already what the files say.";
+    /* The save carries the apply's own answer (#362). Three outcomes, and the
+       page states the one that came back rather than guessing from the write:
+       applied, declined by the daemon, or a daemon that could not be asked. */
+    const r = body.reload;
     UI.set.error = null;
+    if (!body.written?.length) {
+      UI.set.phase = "clean";
+      UI.set.note = "That was already what the files say.";
+    } else {
+      UI.set.note = `Wrote ${body.written.join(" and ")}, atomically, with the comments kept.`;
+      if (r?.ok) UI.set.phase = "applied";
+      else if (r?.reason === "daemon-down") { UI.set.phase = "offline"; UI.set.error = r.error; }
+      else { UI.set.phase = "declined"; UI.set.error = r?.error ?? "the daemon gave no reason"; }
+    }
   } catch (e) {
     UI.set.phase = "refused";
     UI.set.error = e.message;
@@ -1861,11 +1962,15 @@ function render() {
   const app = document.getElementById("app");
   if (!app) return;
   const n = needsYou(payload?.overview);
+  /* The stale-daemon marker (#362). A daemon running something other than the
+     files is visible from every screen, so nobody has to open Settings to find
+     out. It reads the same comparison the Maintenance section draws. */
+  const stale = runningDiff(payload)?.length ? ` <span class="n" title="the daemon is not running these files">●</span>` : "";
   const field = activeField();
   app.innerHTML = `<div class="shell">
     <nav><span class="brand">curia</span>
       ${NAMES.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">${SCREENS[k][0]}${
-        k === "home" && n ? ` <span class="n">${n}</span>` : ""}</button>`).join("")}
+        k === "home" && n ? ` <span class="n">${n}</span>` : ""}${k === "settings" ? stale : ""}</button>`).join("")}
     </nav>
     <main>${SCREENS[UI.screen][1](payload)}</main>
   </div>`;
@@ -1955,6 +2060,11 @@ document.addEventListener("visibilitychange", () => {
    render into no document. */
 if (typeof document !== "undefined" && document.getElementById("app")) {
   enter(NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home");
+  /* The file read happens at boot even when the operator lands somewhere else
+     (#362): the stale-daemon marker on the Settings nav item compares the two,
+     and a marker that needed the section opened would be a marker nobody sees.
+     `enter` already took the read on the settings screen itself. */
+  if (UI.screen !== "settings") loadSettings();
   render();
   tick();
 }

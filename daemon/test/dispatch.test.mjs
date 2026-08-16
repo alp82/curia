@@ -1629,6 +1629,32 @@ describe('the limit resume: the window rolls and curia puts the agent back (#346
 
     assert.ok(!started.includes('42'), 'the armed ticket is the resume\'s, and a start would recreate its worktree')
   })
+
+  // #362: `poll_interval_s` is the one reloadable setting the daemon CAPTURES —
+  // it lives in the interval this arms. So a reload re-arms the loop, and the
+  // old timer has to die with it: two timers on one dispatcher would tick twice
+  // per interval for the rest of the process.
+  test('the auto loop re-arms on the new interval, and the old timer stops ticking', async () => {
+    let sweeps = 0
+    const d = makeDispatcher({ hasSession: async () => { sweeps += 1; return true } })
+    d.agents.set('curia-42', { session: 'curia-42', ticket: '42', repo: 'o/r' })
+    d.config.dispatch.poll_interval_s = 0.05
+
+    d.startAutoLoop()
+    const fast = d.autoTimer
+    await waitFor(() => sweeps >= 2)
+
+    // The reload: a slower interval, armed over the top of the fast one.
+    d.config.dispatch.poll_interval_s = 3600
+    d.startAutoLoop()
+    assert.notEqual(d.autoTimer, fast, 'a re-arm is a new timer')
+    const taken = sweeps
+    await new Promise((r) => setTimeout(r, 300))
+    assert.equal(sweeps, taken, 'the old 50ms timer would have fired several times by now')
+
+    d.stopAutoLoop()
+    assert.equal(d.autoTimer, null, 'a stopped loop holds no timer, so a reload does not arm one before boot reconcile has')
+  })
 })
 
 describe('an indeterminate hasSession answer never authorises a claim (W1)', () => {

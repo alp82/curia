@@ -22,7 +22,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse, parseDocument } from 'yaml'
 
-import { readSettings, saveSettings, candidateFor, PRINT_OPTS } from '../src/settings.mjs'
+import {
+  readSettings, saveSettings, candidateFor, PRINT_OPTS,
+  LIVE_PATHS, liveSettings, liveDiff, frozenDifference,
+} from '../src/settings.mjs'
 import { loadCuriaConfig, loadRoutingConfig, localConfigFile } from '../src/config.mjs'
 import { candidates, isActive, resolveReviewer, Cooling } from '../src/routing.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
@@ -428,6 +431,87 @@ describe('checkPaths: the sidecar validates what it can actually see (#263\'s ru
   test('every OTHER rule still runs with the checks off', () => {
     writeCuria(['timeline:', '  port: 8443'])
     assert.throws(() => loadCuriaConfig(curiaFile, { checkPaths: false }), /every surface needs its own port/)
+  })
+})
+
+// The closed set (#362). A reload applies the six things this screen writes and
+// nothing else, so the question every test below asks is one of two: did this
+// edit stay inside the set, and what did it move?
+//
+// The comparison runs on LOADED configs — the same objects the daemon holds —
+// because that is what a reload compares. A hand edit to a key the screen
+// cannot write must decline the whole reload and name that key, which is the
+// half nobody could see by looking at the settings screen.
+describe('the closed set a reload applies (#362)', () => {
+  const load = () => ({ curia: loadCuriaConfig(curiaFile), routing: loadRoutingConfig(routingFile) })
+  const overCuriaFile = (lines) => fs.writeFileSync(overCuria(), `${lines.join('\n')}\n`)
+  const overRoutingFile = (lines) => fs.writeFileSync(overRouting(), `${lines.join('\n')}\n`)
+  const frozen = (before, after) => (
+    frozenDifference(before.curia, after.curia, LIVE_PATHS.curia)
+    ?? frozenDifference(before.routing, after.routing, LIVE_PATHS.routing)
+  )
+
+  test('the six read out of a loaded config in the shape the screen reads them', () => {
+    const live = liveSettings(load())
+    assert.deepEqual(live.dispatch, { auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60 })
+    assert.deepEqual(live.watch, [{ repo: 'o/first', mode: 'auto' }, { repo: 'o/second', mode: 'auto' }])
+    assert.deepEqual(live.routing.defaults, [{ type: 'untyped', model: 'opus' }, { type: 'research', model: 'gpt' }])
+    assert.deepEqual(live.routing.models, [
+      { name: 'opus', active: true }, { name: 'sonnet', active: true }, { name: 'gpt', active: true },
+    ])
+    // And the same six the file read draws, so the page compares one shape.
+    const file = readSettings(files())
+    assert.deepEqual(live.dispatch, file.dispatch)
+    assert.deepEqual(live.watch, file.watch)
+    assert.deepEqual(live.routing.defaults, file.routing.defaults)
+  })
+
+  test('a file that says what the daemon runs moves nothing and declines nothing', () => {
+    const before = load()
+    assert.equal(frozen(before, load()), null)
+    assert.deepEqual(liveDiff(liveSettings(before), liveSettings(load())), [])
+  })
+
+  for (const [what, write, moved] of [
+    ['a dispatch number', () => overCuriaFile(['dispatch:', '  max_concurrent: 5']), ['dispatch.max_concurrent']],
+    ['the switch', () => overCuriaFile(['dispatch:', '  auto_dispatch: true']), ['dispatch.auto_dispatch']],
+    ['the tick', () => overCuriaFile(['dispatch:', '  poll_interval_s: 15']), ['dispatch.poll_interval_s']],
+    ['the watch list', () => overCuriaFile(['watch:', '  - repo: o/first', '  - repo: o/third']), ['watch']],
+    ['a routing default', () => overRoutingFile(['defaults:', '  untyped: sonnet']), ['routing.defaults.untyped']],
+    ['a model switch', () => overRoutingFile(['models:', '  sonnet:', '    active: false']), ['routing.models.sonnet.active']],
+  ]) {
+    test(`${what} is inside the set, and the reload names it`, () => {
+      const before = load()
+      write()
+      const after = load()
+      assert.equal(frozen(before, after), null, 'nothing outside the six moved, so the reload applies')
+      assert.deepEqual(liveDiff(liveSettings(before), liveSettings(after)), moved)
+    })
+  }
+
+  for (const [what, write, key] of [
+    ['a dispatch key the screen does not write', () => overCuriaFile(['dispatch:', '  ready_timeout_s: 90']), 'dispatch.ready_timeout_s'],
+    ['a port', () => overCuriaFile(['attach:', '  ttyd_port: 7999']), 'attach.ttyd_port'],
+    ['the sandbox image', () => overCuriaFile(['sandbox:', '  image: something-else']), 'sandbox.image'],
+    ['the identity allowlist', () => overCuriaFile(['identity:', '  allow: [someone@example.com]']), 'identity.allow'],
+    ['a model the routing table did not have', () => overRoutingFile(['models:', '  haiku:', '    provider: anthropic', '    harness: claude']), 'models.haiku'],
+    ['a model key that is not the switch', () => overRoutingFile(['models:', '  sonnet:', '    harness: codex']), 'models.sonnet.harness'],
+    // The screen edits the rows that are there and adds none, so a row that
+    // appears is a hand edit — outside the set like every other hand edit.
+    ['a defaults row nobody could add from the screen', () => overRoutingFile(['defaults:', '  grilling: opus']), 'defaults.grilling'],
+    ['the cross-check pairing', () => overRoutingFile(['review:', '  openai: sonnet']), 'review.openai'],
+  ]) {
+    test(`${what} is outside it, and the reload declines naming that key`, () => {
+      const before = load()
+      write()
+      assert.equal(frozen(before, load()), key)
+    })
+  }
+
+  test('the first differing key is named, not the last', () => {
+    const before = load()
+    overCuriaFile(['dispatch:', '  max_concurrent: 5', '  ready_timeout_s: 90'])
+    assert.equal(frozen(before, load()), 'dispatch.ready_timeout_s', 'the reloadable half is blanked, the rest is the answer')
   })
 })
 

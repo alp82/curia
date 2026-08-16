@@ -58,6 +58,7 @@ import {
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
 } from './attach.mjs'
 import { probeOverseer } from './overseerservice.mjs'
+import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } from './settings.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
@@ -106,8 +107,15 @@ fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
 // dispatch-loop config (#33) — hand-edited YAML, validated on load; a bad
 // shape refuses the boot rather than limping
 const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
-const curiaConfig = loadCuriaConfig(path.join(CONFIG_DIR, 'curia.yaml'))
-const routingConfig = loadRoutingConfig(path.join(CONFIG_DIR, 'routing.yaml'))
+const CURIA_FILE = path.join(CONFIG_DIR, 'curia.yaml')
+const ROUTING_FILE = path.join(CONFIG_DIR, 'routing.yaml')
+const curiaConfig = loadCuriaConfig(CURIA_FILE)
+const routingConfig = loadRoutingConfig(ROUTING_FILE)
+// When the values this process RUNS were read off disk (#362). Boot sets it,
+// and a reload that applies moves it. `GET /overview` stamps the six live
+// settings with it, which is what lets the console say "applied" as a fact it
+// measured rather than as a claim about a save that returned 200.
+let configLoadedAt = new Date().toISOString()
 // #292: the dashboard writes an override file beside each tracked one, and git
 // does not track those. Said out loud at boot, because a config the operator
 // reads in the repo is no longer the config this daemon runs, and nothing else
@@ -128,12 +136,12 @@ const SANDBOXED_HARNESSES = Object.keys(routingConfig.harnesses)
 // watched owner, because an owner with no token silently keeps the host's
 // account-wide login and that is the thing this ticket exists to end. The daemon
 // itself never uses these (see agentGhToken).
-const WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
+//
+// Re-derived rather than fixed, because the watch list is reloadable (#362): a
+// repo added live must get the same per-owner reading a booted one gets, or it
+// looks watched here and fails at the first agent's first `gh` call.
+let WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
 for (const { key, token } of assertGhTokens()) log(`agent GitHub token ${key} (…${token.slice(-4)})`)
-for (const owner of WATCHED_OWNERS) {
-  const key = ghTokenKeyFor(owner)
-  if (!agentGhToken(`${owner}/x`)) log(`WARNING: no ${key} — agents on ${owner}/* inherit the host gh login (account-wide)`)
-}
 
 // #313: the overseer's own GitHub authority — the same shape one prefix over,
 // READ-ONLY, and in a second env file. The overseer container loads that file
@@ -145,10 +153,6 @@ for (const key of daemonOnlyKeys(overseerEnv)) {
   log(`WARNING: ${key} is in daemon/${OVERSEER_ENV_FILE} — that file is the overseer's read-only boundary, and its container gets every key in it`)
 }
 for (const { key, token } of assertOverseerTokens(overseerEnv)) log(`overseer GitHub token ${key} (…${token.slice(-4)})`)
-for (const owner of WATCHED_OWNERS) {
-  const key = overseerTokenKeyFor(owner)
-  if (!overseerGhToken(`${owner}/x`, overseerEnv)) log(`WARNING: no ${key} — the overseer holds no credential for ${owner}/*`)
-}
 // #327: the model credential rides the same file. ADR-0014 lets exactly one
 // host secret into that container, and this is it — `.env.daemon` is the file
 // the overseer service must never load, so the value cannot come from there.
@@ -190,18 +194,33 @@ function probeWatchedTokens({ holder, tokenFor, keyFor, refusal }) {
     }
   })).catch(() => {})
 }
-probeWatchedTokens({
-  holder: 'agent',
-  tokenFor: (repo) => agentGhToken(repo),
-  keyFor: ghTokenKeyFor,
-  refusal: 'an agent on it will fail at its first gh call',
-})
-probeWatchedTokens({
-  holder: 'overseer',
-  tokenFor: (repo) => overseerGhToken(repo, overseerEnv),
-  keyFor: overseerTokenKeyFor,
-  refusal: 'the overseer cannot read it',
-})
+// Everything the boot says about the credentials behind the WATCH LIST, in one
+// function, because a reload runs it again (#362). A repo added from the
+// settings screen gets the same per-owner warning and the same GitHub probe a
+// booted one gets — without this, a live add looks watched and the failure
+// arrives as a 401 in the middle of the first agent's first `gh` call.
+function checkWatchedCredentials() {
+  WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
+  for (const owner of WATCHED_OWNERS) {
+    const key = ghTokenKeyFor(owner)
+    if (!agentGhToken(`${owner}/x`)) log(`WARNING: no ${key} — agents on ${owner}/* inherit the host gh login (account-wide)`)
+    const overseerKey = overseerTokenKeyFor(owner)
+    if (!overseerGhToken(`${owner}/x`, overseerEnv)) log(`WARNING: no ${overseerKey} — the overseer holds no credential for ${owner}/*`)
+  }
+  probeWatchedTokens({
+    holder: 'agent',
+    tokenFor: (repo) => agentGhToken(repo),
+    keyFor: ghTokenKeyFor,
+    refusal: 'an agent on it will fail at its first gh call',
+  })
+  probeWatchedTokens({
+    holder: 'overseer',
+    tokenFor: (repo) => overseerGhToken(repo, overseerEnv),
+    keyFor: overseerTokenKeyFor,
+    refusal: 'the overseer cannot read it',
+  })
+}
+checkWatchedCredentials()
 
 // #352, building ADR-0018: the GitHub App that replaces every token above. It
 // SWAPS NO HOLDER YET — each one cuts over on its own ticket, and no PAT comes
@@ -1574,6 +1593,11 @@ async function overview() {
       uptime_s: Math.round(process.uptime()),
       auto_dispatch: curiaConfig.dispatch.auto_dispatch,
       max_concurrent: curiaConfig.dispatch.max_concurrent,
+      // The six reloadable settings this process is RUNNING, and when it read
+      // them (#362). The console compares these against the file it read: a
+      // save that says "applied" is then a fact curia measured, and a daemon
+      // running something else is visible without opening the section.
+      config: { loaded_at: configLoadedAt, ...liveSettings({ curia: curiaConfig, routing: routingConfig }) },
     },
     // Null, never empty, when the read above failed: an unreadable fleet and an
     // idle box are opposite facts and must never render the same.
@@ -1963,6 +1987,85 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // `owner/name` for anything outside it.
   if (url.pathname === '/repos' && req.method === 'GET') {
     return json(200, await watchableRepos())
+  }
+
+  // The reload (#362, building the hot-reload decision #347). The save applies:
+  // the daemon re-reads both files and takes the six settings the settings
+  // screen writes, without the restart that used to be phase two of every save.
+  //
+  // A RELOAD IS TOTAL OR IT IS NOTHING. Three ways out, and only the last one
+  // moves anything:
+  //
+  //   1. A file the loaders refuse applies nothing and answers their message.
+  //      `checkPaths` is ON here, unlike the sidecar's pre-save validation: this
+  //      container mounts the paths that one cannot see, so it runs every rule.
+  //   2. A file that moved a key outside the closed set applies nothing and
+  //      names the first key that differs. That key needs the restart.
+  //   3. Otherwise the six go into the objects this file already holds, and the
+  //      auto loop is re-armed if its interval moved.
+  //
+  // What makes 3 small is that the daemon reads five of the six PER USE, off a
+  // live object reference — `this.config.dispatch`, `this.config.watch`,
+  // `resolveModel(this.routing, …)`, `isActive(this.routing, …)`. Only
+  // `poll_interval_s` is captured, by the interval `startAutoLoop` arms.
+  if (url.pathname === '/reload' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    const by = named(body?.by)
+    const decline = (reason, detail) => {
+      store.logEvent('config_reload_declined', { by, reason, ...detail })
+      log(`reload declined for ${by}: ${detail.error ?? detail.key}`)
+      return json(200, { ok: false, reason, ...detail })
+    }
+
+    let nextCuria
+    let nextRouting
+    try {
+      nextCuria = loadCuriaConfig(CURIA_FILE)
+      nextRouting = loadRoutingConfig(ROUTING_FILE)
+    } catch (e) {
+      // The loader's own message, unedited. It names the file and the key, and
+      // it is the same sentence a refused boot would print.
+      return decline('invalid', { error: e.message })
+    }
+
+    for (const [file, running, candidate, paths] of [
+      ['curia.yaml', curiaConfig, nextCuria, LIVE_PATHS.curia],
+      ['routing.yaml', routingConfig, nextRouting, LIVE_PATHS.routing],
+    ]) {
+      const key = frozenDifference(running, candidate, paths)
+      if (key) {
+        return decline('restart-needed', {
+          file,
+          key,
+          error: `${file} \`${key}\` changed, and that key is not one a reload applies — restart the daemon to take it`,
+        })
+      }
+    }
+
+    const before = liveSettings({ curia: curiaConfig, routing: routingConfig })
+    const after = liveSettings({ curia: nextCuria, routing: nextRouting })
+    const applied = liveDiff(before, after)
+    // The apply, into the objects index.mjs already holds. Nothing here builds a
+    // new config object: the dispatcher, the command router and every closure
+    // above hold references to these two, and replacing either would leave half
+    // the process reading the old one.
+    for (const key of DISPATCH_KEYS) curiaConfig.dispatch[key] = nextCuria.dispatch[key]
+    curiaConfig.watch = nextCuria.watch
+    for (const [type, model] of Object.entries(nextRouting.defaults)) routingConfig.defaults[type] = model
+    for (const [name, m] of Object.entries(nextRouting.models)) routingConfig.models[name].active = m.active
+    configLoadedAt = new Date().toISOString()
+
+    if (applied.includes('watch')) checkWatchedCredentials()
+    // The one captured setting. Only re-armed if the loop is running: before
+    // boot reconcile finishes there is no timer, and arming one here would
+    // start dispatching against a fleet nobody has reconciled yet.
+    if (applied.includes('dispatch.poll_interval_s') && dispatcher.autoTimer) dispatcher.startAutoLoop()
+
+    store.logEvent('config_reloaded', { by, keys: applied })
+    log(applied.length
+      ? `config reloaded by ${by}: ${applied.join(', ')}`
+      : `config reloaded by ${by} — the file says what this daemon was already running`)
+    return json(200, { ok: true, by, applied, loaded_at: configLoadedAt })
   }
 
   // The restart (#249 item 6, built by #265). No sudoers, no host change and no

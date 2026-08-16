@@ -46,7 +46,24 @@ const ahead = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString()
 
 const OVERVIEW = () => ({
   at: at(0),
-  daemon: { port: 4271, uptime_s: 7200, auto_dispatch: true, max_concurrent: 3 },
+  // `config` is the six reloadable settings the daemon is RUNNING (#362). It
+  // agrees with SETTINGS() below on purpose: the ordinary state is a daemon
+  // running the files, and each test that wants a stale one says so.
+  daemon: {
+    port: 4271,
+    uptime_s: 7200,
+    auto_dispatch: true,
+    max_concurrent: 3,
+    config: {
+      loaded_at: at(7200),
+      dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60 },
+      watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
+      routing: {
+        defaults: [{ type: 'grilling', model: 'opus' }, { type: 'research', model: 'gpt' }, { type: 'untyped', model: 'opus' }],
+        models: [{ name: 'fable', active: false }, { name: 'opus', active: true }, { name: 'gpt', active: true }],
+      },
+    },
+  },
   agents: [
     {
       session: 'curia-263', repo: 'alp82/curia', ticket: '263', title: 'The sidecar stands up',
@@ -392,7 +409,7 @@ describe('the read screens (#264)', () => {
 
 const SETTINGS = () => ({
   files: { curia: '/home/alp/curia/config/curia.yaml', routing: '/home/alp/curia/config/routing.yaml' },
-  dispatch: { auto_dispatch: false, max_concurrent: 6, poll_interval_s: 60 },
+  dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60 },
   watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
   watch_modes: ['auto', 'map', 'ready-for-agent'],
   routing: {
@@ -526,24 +543,43 @@ describe('the settings screen (#265)', () => {
     assert.deepEqual(plain(page.settingsPatch()), {})
   })
 
-  // ---- the two-phase banner ------------------------------------------------
+  // ---- the banner: one act, three outcomes (#362) ---------------------------
 
-  test('phase one: unsaved changes count, and save is the primary button', () => {
+  test('before a save: unsaved changes count, save is the primary button, and no restart is offered', () => {
     page.setDispatchField('max_concurrent', '4')
     const html = screen()
     assert.match(text(html), /1 unsaved change\./)
     assert.match(html, /class="btn primary" {2}onclick="doSave\(\)"/)
     assert.ok(!html.includes('restart-hot'), 'nothing is applied yet, so nothing is loud')
+    assert.ok(!html.includes('doRestart()'), 'the bar is just Save — the restart lives in Maintenance now')
   })
 
-  test('phase two: saved, and the RESTART is the loud one — the daemon still runs the old config', () => {
-    page.UI.set.phase = 'saved'
-    page.UI.set.note = 'Wrote curia.yaml, atomically, with the comments kept.'
+  test('applied: one sentence, and no button — the daemon took it', () => {
+    page.UI.set.phase = 'applied'
+    page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
     const html = screen()
-    assert.match(html, /restart-hot/)
-    assert.match(text(html), /Saved ✓ Restart to apply/)
-    assert.match(text(html), /Wrote curia\.yaml, atomically, with the comments kept\./)
-    assert.match(text(html), /The daemon still runs the config it booted with\./)
+    assert.match(text(html), /Saved ✓/)
+    assert.match(text(html), /The daemon is running it\./)
+    assert.ok(!html.includes('doRestart()'), 'an applied save needs no button at all')
+  })
+
+  test('declined: the key that differs is named, and the restart is the mitigation', () => {
+    page.UI.set.phase = 'declined'
+    page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
+    page.UI.set.error = 'curia.yaml `dispatch.workspace_root` changed, and that key is not one a reload applies — restart the daemon to take it'
+    const html = screen()
+    assert.match(html, /restart-hot/, 'the restart is the loud one here, because it is what applies the file')
+    assert.match(text(html), /The daemon did not apply it\./)
+    assert.match(text(html), /dispatch\.workspace_root/)
+  })
+
+  test('the daemon is down: the file is saved, no button, and the next boot is what takes it', () => {
+    page.UI.set.phase = 'offline'
+    page.UI.set.error = 'the daemon did not answer /reload within 4s'
+    const html = screen()
+    assert.ok(!html.includes('doRestart()'), 'a restart is not the mitigation for a daemon that is already not answering')
+    assert.match(text(html), /takes this file at its next boot/)
+    assert.match(text(html), /the daemon log names the key/)
   })
 
   test('a refused save keeps the draft on screen and says nothing was written', () => {
@@ -571,9 +607,62 @@ describe('the settings screen (#265)', () => {
     assert.match(t, /the sidecar answered 500/)
   })
 
+  // ---- maintenance, and the marker on the nav (#362) ------------------------
+
+  test('maintenance reads last, and says the daemon runs the files when it does', () => {
+    const html = screen('maintenance')
+    assert.match(text(html), /The daemon is running these files\./)
+    assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
+    assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
+    const tabs = [...html.matchAll(/onclick="setSection\('(\w+)'\)"/g)].map((m) => m[1])
+    assert.deepEqual(tabs, ['routing', 'projects', 'dispatch', 'maintenance'], 'the fourth section, and it reads last')
+  })
+
+  test('a daemon running something else names the keys, and the button goes red', () => {
+    page.settings.dispatch.max_concurrent = 9
+    page.settings.routing.models[0].active = true
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    const html = screen('maintenance')
+    assert.match(html, /restart-hot/)
+    assert.match(text(html), /The daemon is NOT running the files/)
+    assert.match(text(html), /dispatch\.max_concurrent, routing\.models\.fable\.active/)
+  })
+
+  // Null is not agreement. A daemon that is not answering says what WAS true.
+  test('a daemon that is not answering is unknown, never in step', () => {
+    const p = { ...payload(), daemon_up: false }
+    assert.equal(page.runningDiff(p), null)
+    page.UI.set.section = 'maintenance'
+    assert.match(text(page.screenSettings(p)), /cannot tell whether the daemon runs these files: it is not answering/)
+  })
+
+  test('the settings nav item carries a marker while the daemon and the files disagree', () => {
+    // `render` needs a mount point; everything else about the shell is inert.
+    let html = ''
+    page.document.getElementById = (id) => (id === 'app' ? { set innerHTML(v) { html = v } } : null)
+    page.payload = payload()
+    page.render()
+    assert.ok(!/Settings <span class="n">/.test(html), 'nothing to say while the daemon runs the files')
+    page.settings.dispatch.poll_interval_s = 5
+    page.render()
+    assert.match(html, /Settings <span class="n" title="the daemon is not running these files">/)
+  })
+
   test('a restart the journal recorded reads as a sentence in the feed', () => {
     const p = payload({ events: [{ ts: at(30), type: 'restart_requested', by: 'dashboard', exit_code: 75 }] })
     assert.match(text(page.screenFeed(p)), /restart ordered by dashboard — the daemon exits 75/)
+  })
+
+  test('the reload reads as a sentence too, and so does one the daemon declined', () => {
+    const p = payload({
+      events: [
+        { ts: at(40), type: 'config_reloaded', by: 'alp@example.com', keys: ['dispatch.max_concurrent', 'watch'] },
+        { ts: at(20), type: 'config_reload_declined', by: 'alp@example.com', reason: 'restart-needed', error: 'curia.yaml `sandbox.image` changed' },
+      ],
+    })
+    const t = text(page.screenFeed(p))
+    assert.match(t, /config reloaded by alp@example\.com — dispatch\.max_concurrent, watch/)
+    assert.match(t, /config reload declined for alp@example\.com — curia\.yaml `sandbox\.image` changed/)
   })
 })
 

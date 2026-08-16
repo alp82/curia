@@ -143,6 +143,102 @@ export function readSettings({ curiaFile, routingFile }) {
   }
 }
 
+// Value equality for anything a config file can hold. Shared by the live set
+// below and by the edits further down, which is why it sits above both.
+const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+// ---------------------------------------------------------------------------
+// the live set (#362)
+// ---------------------------------------------------------------------------
+//
+// The six things this screen writes are the six things `POST /reload` applies,
+// and no others. Rule 3 above is the reason they are one list rather than two:
+// a reload that applied a key the screen cannot write would be a second patch
+// set, free to disagree with this one.
+//
+// A `*` stands for exactly one key. `defaults.*` is every routing row, and
+// `models.*.active` is the switch on every model — the screen edits the rows
+// that are there and adds none, so a row that appears or goes is NOT in the set
+// and needs the restart.
+export const LIVE_PATHS = {
+  curia: ['dispatch.auto_dispatch', 'dispatch.max_concurrent', 'dispatch.poll_interval_s', 'watch'],
+  routing: ['defaults.*', 'models.*.active'],
+}
+
+// The six values, out of two loaded configs, in the shape `readSettings` gives
+// the same six. One shape, so the page compares what the daemon RUNS against
+// what the file says with a plain equality per key.
+export function liveSettings({ curia, routing }) {
+  const dispatch = {}
+  for (const key of DISPATCH_KEYS) dispatch[key] = curia?.dispatch?.[key] ?? null
+  return {
+    dispatch,
+    watch: (curia?.watch ?? []).map((w) => ({ repo: w?.repo ?? '', mode: w?.mode ?? 'auto' })),
+    routing: {
+      defaults: Object.entries(routing?.defaults ?? {}).map(([type, model]) => ({ type, model: String(model ?? '') })),
+      // `active` and the name, because they are what the switch moves. Provider
+      // and harness are on the screen's own read and are not reloadable.
+      models: Object.entries(routing?.models ?? {}).map(([name, m]) => ({ name, active: m?.active !== false })),
+    },
+  }
+}
+
+// Which of the six moved, named the way the operator reads them. The reload
+// journals this list, and the page draws it when the daemon and the file
+// disagree.
+export function liveDiff(before, after) {
+  const out = []
+  for (const key of DISPATCH_KEYS) {
+    if (!same(before.dispatch?.[key], after.dispatch?.[key])) out.push(`dispatch.${key}`)
+  }
+  // The list replaces whole (config.mjs states that rule), so it moves as one
+  // key rather than as one key per repo.
+  if (!same(before.watch, after.watch)) out.push('watch')
+  const rows = (s) => new Map((s.routing?.defaults ?? []).map((r) => [r.type, r.model]))
+  const [rb, ra] = [rows(before), rows(after)]
+  for (const type of new Set([...rb.keys(), ...ra.keys()])) {
+    if (!same(rb.get(type), ra.get(type))) out.push(`routing.defaults.${type}`)
+  }
+  const switches = (s) => new Map((s.routing?.models ?? []).map((m) => [m.name, m.active !== false]))
+  const [sb, sa] = [switches(before), switches(after)]
+  for (const name of new Set([...sb.keys(), ...sa.keys()])) {
+    if (!same(sb.get(name), sa.get(name))) out.push(`routing.models.${name}.active`)
+  }
+  return out
+}
+
+const isMapping = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+
+const live = (paths, parts) => paths.some((p) => {
+  const pat = p.split('.')
+  return pat.length === parts.length && pat.every((seg, i) => seg === '*' || seg === parts[i])
+})
+
+// The FIRST key outside the live set where two loaded configs differ, or null.
+// This is what makes a reload total: the candidate is compared against what the
+// daemon runs with the six blanked on both sides, and anything else that moved
+// declines the whole reload rather than applying half of it.
+//
+// A regular expression compares equal to a regular expression here, because
+// neither has own keys — the pattern it was built from is a string on the same
+// object and is compared as one (routing.mjs `ready` / `readyRe`).
+export function frozenDifference(before, after, paths, parts = []) {
+  if (isMapping(before) && isMapping(after)) {
+    for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+      const child = [...parts, key]
+      // A live path is blanked only where the key is on BOTH sides. The screen
+      // edits the rows that are there and adds none, so a `defaults` row or a
+      // model that appears or goes is a hand edit outside the set, and it needs
+      // the restart like every other hand edit.
+      if (live(paths, child) && key in before && key in after) continue
+      const found = frozenDifference(before[key], after[key], paths, child)
+      if (found) return found
+    }
+    return null
+  }
+  return same(before, after) ? null : (parts.join('.') || 'the whole file')
+}
+
 // ---------------------------------------------------------------------------
 // the patch
 // ---------------------------------------------------------------------------
@@ -207,8 +303,6 @@ function checkPatch(patch) {
 // Every edit below takes three things: the override DOCUMENT it writes, the
 // patch, and the data the TRACKED file holds. The third is what decides the
 // shape of the first — an override exists only where the two disagree.
-
-const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 // Write the override, or drop it. `baseValue` is what the tracked file says: an
 // answer equal to it needs no override, and leaving one behind would pin this
