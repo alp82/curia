@@ -325,7 +325,7 @@ Which rules of `voice.md` a typed field is held to. Grade A is inline decision t
 _Avoid_: strict lint, soft lint.
 
 **Visual**:
-The optional code-block table or ASCII diagram on a card. At most 42 columns by 20 lines, which is the phone limit from #414 and keeps a typed card under the 1600-character chunk limit. curia writes the fence, never the agent. A visual earns its space by removing prose (#415).
+The optional code-block table or ASCII diagram on a card. At most 42 columns by 20 lines, which is the phone limit from #414. That sits under `CODE_BLOCK_LIMIT`, so a typed visual passes the block cap the lint already ships (#432). curia writes the fence, never the agent. A visual earns its space by removing prose (#415).
 _Avoid_: diagram, figure.
 
 **Lint gate**:
