@@ -34,7 +34,7 @@ Five costs come out of that shape.
 
 - **A holder reads a file the daemon rewrites.** An installation token lives one hour, and a ticket outlives it. So no holder is handed a value at spawn. The daemon refreshes a per-holder file, and the existing credential-helper path reads it. `GH_TOKEN` leaves the container environment.
 
-- **The claim assigns the operator, not the bot.** A claim is an issue assignee, and GitHub does not let an App be one. `gh api user` also answers nothing under an installation token, which is where `viewerLogin()` reads the name today. So the daemon calls as `curia[bot]` and assigns a login it reads from `dispatch.claim_login` in `config/curia.yaml`.
+- **The claim assigns the operator, not the bot.** A claim is an issue assignee, and GitHub does not let an App be one. `gh api user` also answers nothing under an installation token, which is where `viewerLogin()` reads the name today. So the daemon calls as `curia-sh[bot]` and assigns a login it reads from `dispatch.claim_login` in `config/curia.yaml`.
 
 - **The gate approval is the operator's own.** On the ✅ press the daemon submits a real GitHub approval with the host `gh` login. An app cannot approve for a human, and an app-minted approval on an app-authored pull request is a self-approval again. So the host login does not retreat whole. It keeps exactly one job on the daemon, beside dev sessions and the deploy sibling.
 
@@ -48,7 +48,7 @@ Five costs come out of that shape.
 
 - **The hour is the price.** A PAT was set once and stayed good for a year. An installation token dies inside a long ticket, so every holder gains a refresh path, and the daemon gains a duty it did not have.
 - **The private key never expires**, so nothing here is a calendar item any more. The 366-day cap stops mattering.
-- **Attribution becomes honest.** A push the daemon performs for an agent reads as `curia[bot]`.
+- **Attribution becomes honest.** A push the daemon performs for an agent reads as `curia-sh[bot]`.
 - **The gate becomes a real GitHub approval**, which is what makes branch protection usable at all.
 - **`.env.overseer` retires as a token file** when the overseer cuts over. What is left in it is the model credential, which is the one host secret ADR-0014 lets into that container.
 - **One-click setup from the dashboard** rides GitHub's app manifest flow. It stays fog on [#244](https://github.com/alp82/curia/issues/244) until the app is real.

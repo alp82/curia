@@ -8,14 +8,30 @@ Nothing on this page can be done by an agent. An app is created under a human ac
 
 The daemon runs fine with no app. Every PAT keeps working until its holder cuts over, so you can stop after any step here and nothing breaks.
 
+## What this box registered
+
+Run on 2026-08-16, as [#352](https://github.com/alp82/curia/issues/352). The cutover tickets read these facts from here.
+
+| Fact | Value |
+| --- | --- |
+| App name | `curia.sh` |
+| Settings page | <https://github.com/settings/apps/curia-sh> |
+| App ID | `4610603` |
+| Bot login | `curia-sh[bot]` |
+| Installed on | `alp82` and `getalfredo` |
+
+None of this is secret. The app id travels in every JWT the daemon signs. The private key is the secret, and it is never in this repo.
+
 ## 1. Create the app
 
 1. Open <https://github.com/settings/apps/new>.
-2. Set **GitHub App name** to `curia`. The bot then posts as `curia[bot]`, which is the name ADR-0018 uses. If GitHub says the name is taken, use `curia-daemon` and tell the daemon nothing: the name is cosmetic, and only the app id matters.
+2. Set **GitHub App name**. GitHub slugifies it, and the bot posts as `<slug>[bot]`, so the name is read as the author of every commit, pull request and gate approval. Nothing in the daemon reads it. The name must be free across the whole of GitHub, and `curia` is taken.
 3. Set **Homepage URL** to `https://github.com/alp82/curia`.
 4. Clear the **Webhook** → **Active** checkbox. Curia polls. It listens for no webhook.
-5. Set **Where can this GitHub App be installed?** to **Only on this account**.
+5. Set **Where can this GitHub App be installed?** to **Any account**.
 6. Press **Create GitHub App**.
+
+**Any account, and not "Only on this account".** The app is owned by the user `alp82`, and `getalfredo` is an organization. An organization is a different account, so "Only on this account" leaves it off the **Install App** page and there is no way to install there. "Any account" is what makes one app cover both owners, which is what [#338](https://github.com/alp82/curia/issues/338) decided. The app is not listed on the Marketplace, so it is reachable only through its own install URL, and a stranger who installed it would grant it their repos and reach none of curia's. The setting is on the **General** page and can be changed after the app exists.
 
 ## 2. Grant the permissions
 
@@ -58,7 +74,7 @@ The watch list lives in `config/curia.yaml`. A repo added there later must be ad
 Three facts resolve [#352](https://github.com/alp82/curia/issues/352) and the cutover tickets read them:
 
 - the **App ID**,
-- the **bot login** GitHub gave the app (`curia[bot]`, or whatever the name in step 1 produced),
+- the **bot login** GitHub gave the app: the slug in the settings URL, plus `[bot]`,
 - that **both installations** exist.
 
 ## 6. Put the key on the box (dev session)
@@ -87,6 +103,7 @@ The key never travels through an agent. This step happens in a dev session on th
 ## If something is wrong
 
 - **The boot says the JWT was refused (401).** The app id and the key file belong to different apps, or the box clock is wrong.
+- **The Install App page does not list `getalfredo`.** The app is set to **Only on this account**. An organization is a different account. Set **Where can this GitHub App be installed?** to **Any account** on the **General** page, then reload the Install App page.
 - **The boot lists no installation for a watched owner.** Step 4 was not run for that owner.
 - **A mint answers 422.** The app grants less than curia asked for. Fix the level on the app's **Permissions & events** page, then accept the new grant on EACH installation — GitHub holds a widened permission until the installation approves it.
 - **The key is lost.** Generate a second one on the **General** page and delete the old one. The app id does not change, and no installation has to be redone.

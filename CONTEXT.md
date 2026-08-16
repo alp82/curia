@@ -169,7 +169,7 @@ _Avoid_: agent token (that one is per resource owner too, but it is read-write a
 [ADR-0018](docs/adr/0018-the-daemon-is-a-github-app.md) retires this PAT: the same read set becomes an installation token the daemon mints, and `.env.overseer` keeps only the model credential.
 
 **GitHub App**:
-Curia's one GitHub identity. The operator creates one app and installs it on each watched owner. The daemon holds its private key at `daemon/.curia-app.pem`, names it with `CURIA_GH_APP_ID` and `CURIA_GH_APP_KEY_FILE` in `daemon/.env.daemon`, and mints every GitHub token from it. The bot is `curia[bot]`. Decided at [ADR-0018](docs/adr/0018-the-daemon-is-a-github-app.md). The operator's own steps are [docs/github-app.md](docs/github-app.md). Partly built: the minting core ships, and each holder cuts over on its own ticket.
+Curia's one GitHub identity. The operator creates one app and installs it on each watched owner. The daemon holds its private key at `daemon/.curia-app.pem`, names it with `CURIA_GH_APP_ID` and `CURIA_GH_APP_KEY_FILE` in `daemon/.env.daemon`, and mints every GitHub token from it. The bot is `curia-sh[bot]`, and the app id is 4610603. Decided at [ADR-0018](docs/adr/0018-the-daemon-is-a-github-app.md). The operator's own steps are [docs/github-app.md](docs/github-app.md). Partly built: the minting core ships, and each holder cuts over on its own ticket.
 _Avoid_: OAuth app.
 
 **Installation token**:
