@@ -35,7 +35,11 @@ Cooling is in memory and never persisted (settled answer 6). A 5-hour window out
 
 _Reply in this thread to answer._`,
     look: 'The decision is in the second half of a paragraph. The options are never listed, so the operator has to build them from the prose. This is the shape that produced the anti-example on the map.',
-    verdict: null,
+    verdict: {
+      pick: "drop",
+      label: "NOT PICKED",
+      why: "The control. The decision sits in the second half of a paragraph and the options are never listed, so the operator has to build them from the prose.",
+    },
   },
   {
     kind: 'card',
@@ -60,7 +64,11 @@ Cooling lives in memory only. A deploy inside a 5-hour window clears it. The nex
 
 Recommendation: **A**.`,
     look: 'The headline carries the whole decision in one line. Each option states its own cost, so nothing has to be inferred from the prose above it.',
-    verdict: null,
+    verdict: {
+      pick: "part",
+      label: "THE MANDATORY FLOOR",
+      why: "Its three fields become the mandatory floor of card 4: a headline, the options, and one consequence per option. An agent may not drop any of them.",
+    },
   },
   {
     kind: 'card',
@@ -88,7 +96,11 @@ Cooling lives in memory only. A deploy inside a 5-hour window clears it. The nex
 
 Recommendation: **A**.`,
     look: 'B\'s example is the one that earns its line: it names the failure the consequence only gestures at. C\'s example restates its own consequence in longer words. That is what a mandatory example field produces when the option has nothing left to show.',
-    verdict: null,
+    verdict: {
+      pick: "part",
+      label: "ITS EXAMPLE IS A JUDGMENT FIELD",
+      why: "The example survives, but as a judgment field, not a required one per option. Option C's example is the evidence: it restates its own consequence in longer words, which is what a mandatory field produces when the option has nothing left to show.",
+    },
   },
   {
     kind: 'card',
@@ -123,7 +135,11 @@ Recommendation: **A**.`,
 
 Recommendation: **A**.`,
     look: 'The diagram carries the three outcomes side by side, so the intro paragraph and half of every example come out. A visual earns its space by removing prose, not by sitting beside it. Width is 42 columns, the cap #414 set.',
-    verdict: null,
+    verdict: {
+      pick: "pick",
+      label: "PICKED - THE TARGET SHAPE",
+      why: "The operator picked this shape. The example and the visual inside it stay agent judgment, so a card that needs neither is still card 4.",
+    },
   },
 
   {
@@ -137,7 +153,11 @@ Recommendation: **A**.`,
 
 Details: ||\`#handleLimit\` has journalled \`model_cooling\` and \`provider_cooling\` with \`reset_at\` and \`reset_source\` since #175, so this reads events curia already writes. #346 made the limit resume a store reduction and left cooling alone. #339 decides cooling BEFORE a cap lands, which is a different trigger and a different ticket.||`,
     look: 'One message, one tap, no button and no second post. #414 already proved the render. The cost is that a long detail block still lives inside the card, so the card grows even while it looks short.',
-    verdict: null,
+    verdict: {
+      pick: "part",
+      label: "KEPT AS THE SHORT FIELD",
+      why: "Kept, but as one of two typed fields rather than the whole answer. A short detail renders as a spoiler in the card. It carries facts, and it takes a character cap, because this 334-character block put a paragraph of argument back inside the card.",
+    },
   },
   {
     kind: 'details',
@@ -149,7 +169,11 @@ Details: ||\`#handleLimit\` has journalled \`model_cooling\` and \`provider_cool
 **[esc-1]** \`curia-377\` asks (*choice*): **A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?** (A journal / B fresh reading / C leave it)`,
     followUp: `-# Details: #175 already journals model_cooling and provider_cooling with reset_at, so this reads events curia writes today. #346 left cooling alone. #339 is the before-the-cap trigger.`,
     look: 'The card stays short, and the evidence never has to be opened. #414 caps small print at ONE line, so this affordance also caps the detail length. Two stacked small-print lines read as one mangled line on a phone.',
-    verdict: null,
+    verdict: {
+      pick: "drop",
+      label: "NOT PICKED",
+      why: "Dropped. It costs a second message, and #414 caps small print at one line, so the affordance caps the detail length rather than the agent judging it.",
+    },
   },
   {
     kind: 'details',
@@ -162,6 +186,10 @@ Details: ||\`#handleLimit\` has journalled \`model_cooling\` and \`provider_cool
 
 Details: the agent's own timeline, \`/timeline/curia-377\`. curia composes the real link.`,
     look: 'The card cannot grow, whatever the agent wants to say. The cost is a trip out of Discord, and the timeline shows the agent\'s turns, not a written argument for this decision.',
-    verdict: null,
+    verdict: {
+      pick: "pick",
+      label: "PICKED - THE DETAILS FIELD",
+      why: "The operator picked this. It carries the reasoning behind the decision, and the card cannot grow whatever the agent wants to say. curia composes the link from its own records, so this field is a flag the daemon renders, never text the agent writes.",
+    },
   },
 ]
