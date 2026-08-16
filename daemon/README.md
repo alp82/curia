@@ -154,7 +154,7 @@ The model there is `claude-sonnet-5` and there is no fallback: Sonnet IS the mod
 
 ## The per-agent status line (#108 item 8, #146)
 
-Each agent gets one Discord message in its ticket thread that says what it is doing now: dispatched, working, waiting on an escalation, awaiting review, cross-checking, executing approved writes, or resolving. `statusline.mjs` builds it from the journal's own events through the store's append hook, so no transition needs a callback threaded through the dispatcher. The daemon composes every string. Agent text never lands here as it was written. A state change deletes the message and reposts it at the thread bottom (item 17). Everything else edits it in place.
+Each agent gets one Discord message in its ticket thread that says what it is doing now: dispatched, working, waiting on an escalation, awaiting review, cross-checking, executing approved writes, or resolving. `statusline.mjs` builds it from the journal's own events through the reduction's append hook, so no transition needs a callback threaded through the dispatcher. The daemon composes every string. Agent text never lands here as it was written. A state change deletes the message and reposts it at the thread bottom (item 17). Everything else edits it in place.
 
 The line carries LIVE state only (#253, [ADR-0013](../docs/adr/0013-one-voice-per-fact.md)). A terminal event deletes the line. It does not draw a last state onto it. The terminal events are the ending, an abnormal exit, a death, a cancel, and a watchdog failure. Each one already carries its own CuriaBot message, and a 🏁 beside that message narrated one event twice.
 
@@ -264,7 +264,7 @@ Dispatch also asserts the tracker prerequisite: a **map child** whose worktree c
 
 ## State posture
 
-`data/events.jsonl` is the only durable artifact — an append-only journal; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map is ephemeral (#9); ticket→thread bindings live in the journal (#93); a restart loses only the in-process agent call (accepted re-dispatch posture, #11/#12). The store reads the file whole exactly once, at boot, and every append after it passes the same reducer — so a surface that answers about the recent past reads the reduction and never the file (#289). The dispatcher still scans the file for the epoch questions reconcile and the Stop hook ask.
+`data/events.jsonl` is the only durable artifact — an append-only journal; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map is ephemeral (#9); ticket→thread bindings live in the journal (#93); a restart loses only the in-process agent call (accepted re-dispatch posture, #11/#12). The reduction reads the file whole exactly once, at boot, and every append after it passes the same reducer — so a surface that answers about the recent past reads the reduction and never the file (#289). The dispatcher still scans the file for the epoch questions reconcile and the Stop hook ask.
 
 Supersede (#29): a re-issued `ask_human` (same agent + same payload while an older escalation is open) closes the old record, strips its buttons in Discord, and routes late answers to the live successor.
 
@@ -272,7 +272,7 @@ Supersede (#29): a re-issued `ask_human` (same agent + same payload while an old
 
 Today the operator debugs with `grep` and `tail -f` on `data/events.jsonl`.
 
-**Decided and not built.** The journal becomes a `node:sqlite` store ([ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md)), and the JSON lines retire. Curia then builds no reader. It writes no text file beside the store, and it ships no command-line wrapper. The operator opens a read-only SQLite shell and types SQL. The decision is [What stays greppable (#320)](https://github.com/alp82/curia/issues/320), and the column names below are the requirement it puts on the schema ticket, [#321](https://github.com/alp82/curia/issues/321).
+**Decided and not built.** The journal moves to a `node:sqlite` database ([ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md)), and the JSON lines retire. The database IS the journal, because the name follows the record and not the medium ([#358](https://github.com/alp82/curia/issues/358)). Curia then builds no reader. It writes no text file beside the journal, and it ships no command-line wrapper. The operator opens a read-only SQLite shell and types SQL. The decision is [What stays greppable (#320)](https://github.com/alp82/curia/issues/320), and the column names below are the requirement it puts on the schema ticket, [#321](https://github.com/alp82/curia/issues/321).
 
 Open the shell:
 
