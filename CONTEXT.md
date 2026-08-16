@@ -259,6 +259,11 @@ A Docker volume shared by every agent for what is too heavy to bake into the ima
 **Side channel**:
 The daemon's structured channel to an agent: the MCP tools and the Stop hook. Curia never parses the terminal to learn agent state.
 
+**Last contact**:
+How long ago an agent last reached curia on the side channel. Every tool call moves it, and it lives in memory, because a call is traffic and the journal holds evidence. The daemon journals the FIRST call per agent and no other ([#194](https://github.com/alp82/curia/issues/194)).
+
+It is a reading of the live daemon process. No contact is two different facts, and every surface states which one it is. An agent this process spawned has said nothing at all. An agent it adopted after a restart has said nothing yet, and that silence belongs to the restart. Curia decides between neither: a working agent and a deaf one are both silent, so the operator reads the row and judges the silence ([#341](https://github.com/alp82/curia/issues/341), [#370](https://github.com/alp82/curia/issues/370)).
+
 **Spawn binding**:
 The rule that an agent's repo and ticket come from the spawn record, never from the agent's own account.
 
@@ -458,7 +463,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters, the open escalations, the review gate, bridge health, the usage windows, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.

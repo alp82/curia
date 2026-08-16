@@ -691,6 +691,21 @@ function ctxCell(a) {
   return `${esc(a.ctx_pct)}%${a.ctx_over ? ` <span class="over">⚠</span>` : ""}`;
 }
 
+/* How long ago the agent last reached curia (#370, dispatch.mjs onMcpCall). The
+   daemon holds the reading in memory, so this column speaks for the live daemon
+   process and for nothing before it.
+
+   The two nulls are two different facts, and the cell says which one it is. An
+   agent this process spawned and never heard is "never". An agent it adopted
+   after a restart has no uptime either, and it is "adopted": the silence
+   belongs to the restart. Neither word is a verdict — a working agent and a
+   deaf one are both silent (#341), so the operator judges the silence. */
+function contactCell(a) {
+  if (a.last_contact_s != null) return esc(dur(a.last_contact_s));
+  return `<span class="dim-note">${a.uptime_s == null ? "adopted" : "never"}</span>`;
+}
+const CONTACT_NOTE = "contact is how long ago the agent last reached curia on its side channel, as this daemon process heard it. never is an agent that has said nothing since it spawned. adopted is an agent this process never spawned, so its silence belongs to the daemon restart.";
+
 /* The fleet, narrow: the home's right column. `agents: null` is an unreadable
    tmux, which is the opposite fact from an idle box, so it renders as neither a
    table nor an empty line. */
@@ -701,12 +716,13 @@ function fleetTable(o) {
   if (!o.agents.length) return `<div class="empty">No agent is running.</div>`;
   const rows = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
   return `<div class="tbl-wrap"><table class="agents narrow">
-    <tr><th>session</th><th>state</th><th>ticket</th><th>ctx</th><th>up</th></tr>
+    <tr><th>session</th><th>state</th><th>ticket</th><th>ctx</th><th>contact</th><th>up</th></tr>
     ${rows.map((a) => `<tr class="${wantsYou(a) ? "esc-row" : ""}">
       <td class="sess">${esc(a.session)}</td>
       <td><span class="state">${agentDot(a)} ${esc(stateWord(a))}</span></td>
       <td><span class="t">${esc(ticketName(a.repo, a.ticket))}</span>${esc(a.title ?? "")}</td>
       <td class="num">${ctxCell(a)}</td>
+      <td class="num">${contactCell(a)}</td>
       <td class="num">${esc(dur(a.uptime_s))}</td></tr>`).join("")}
   </table></div>`;
 }
@@ -1171,18 +1187,19 @@ function agentsTable(o) {
   if (!o.agents.length) return `<div class="empty">No agent is running.</div>`;
   const rows = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
   return `<div class="tbl-wrap"><table class="agents wide">
-    <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>up</th><th>waiting on</th><th>do</th></tr>
+    <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>contact</th><th>up</th><th>waiting on</th><th>do</th></tr>
     ${rows.map((a) => `<tr class="${wantsYou(a) ? "esc-row" : ""}">
       <td class="sess">${esc(a.session)}${a.reviewer ? ` <span class="dim-note">reviewer</span>` : ""}</td>
       <td><span class="state">${agentDot(a)} ${esc(stateWord(a))}</span>${a.tmux_live ? "" : `<div class="dim-note">no tmux session</div>`}</td>
       <td><span class="t">${esc(ticketName(a.repo, a.ticket))}</span>${esc(a.title ?? "")}</td>
       <td class="mono">${esc(a.model ?? "—")}</td>
       <td class="num">${ctxCell(a)}</td>
+      <td class="num">${contactCell(a)}</td>
       <td class="num">${esc(dur(a.uptime_s))}</td>
       <td>${waitingCell(a)}</td>
       <td>${agentVerbs(a)}</td></tr>
     ${agentBoxes(a)}`).join("")}
-  </table></div>`;
+  </table></div><div class="dim-note">${esc(CONTACT_NOTE)}</div>`;
 }
 
 /* The three per-agent verbs (#266). They sit in the row that already names the
@@ -1214,7 +1231,7 @@ function agentBoxes(a) {
     said(key),
   ].filter(Boolean);
   if (!parts.length) return "";
-  return `<tr><td colspan="8">${parts.join("")}</td></tr>`;
+  return `<tr><td colspan="9">${parts.join("")}</td></tr>`;
 }
 
 /* The two delivery modes, in ADR-0013's own words. Queued is the default and
