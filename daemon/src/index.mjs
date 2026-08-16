@@ -49,8 +49,7 @@ import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import { APP_ID_KEY, APP_KEY_FILE_KEY, minterFrom } from './githubapp.mjs'
 import {
-  OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, assertOverseerTokens,
-  overseerGhToken, overseerTokenKeyFor, daemonOnlyKeys,
+  OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
@@ -156,16 +155,19 @@ const SANDBOXED_HARNESSES = Object.keys(routingConfig.harnesses)
 let WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
 for (const { key, token } of assertGhTokens()) log(`agent GitHub token ${key} (…${token.slice(-4)})`)
 
-// #313: the overseer's own GitHub authority — the same shape one prefix over,
-// READ-ONLY, and in a second env file. The overseer container loads that file
-// whole, so what is in it is what a shell in that container holds. The daemon
-// only reads it, and never into `process.env`: a bare token there would
-// re-authenticate the daemon's own `gh`.
+// #313 gave the overseer its own read-only PAT per owner, in a second env file.
+// #392 retired that: the daemon mints the overseer's token from the app and
+// writes one file per owner into a tree the container mounts read-only, and the
+// refresh rides the dispatch tick. What is left in the env file is the model
+// credential. The daemon still reads that file, and never into `process.env`: a
+// bare token there would re-authenticate the daemon's own `gh`.
 const overseerEnv = loadOverseerEnv(overseerEnvPath(ROOT))
 for (const key of daemonOnlyKeys(overseerEnv)) {
   log(`WARNING: ${key} is in daemon/${OVERSEER_ENV_FILE} — that file is the overseer's read-only boundary, and its container gets every key in it`)
 }
-for (const { key, token } of assertOverseerTokens(overseerEnv)) log(`overseer GitHub token ${key} (…${token.slice(-4)})`)
+for (const key of retiredTokenKeys(overseerEnv)) {
+  log(`WARNING: ${key} is in daemon/${OVERSEER_ENV_FILE} and nothing reads it — the overseer mints its own token now (#392). Delete the key and revoke the token on GitHub`)
+}
 // #327: the model credential rides the same file. ADR-0014 lets exactly one
 // host secret into that container, and this is it — `.env.daemon` is the file
 // the overseer service must never load, so the value cannot come from there.
@@ -182,9 +184,11 @@ log(overseerEnv.CLAUDE_CODE_OAUTH_TOKEN || overseerEnv.ANTHROPIC_API_KEY
 // slow or down must never hold up a daemon whose other duties do not need it.
 // See probeRepoToken for the one case it cannot see.
 //
-// One pass per holder. The overseer's token is the one whose expiry is a
-// certainty rather than a risk — an org caps its lifetime — so the same warning
-// has to speak for both.
+// ONE HOLDER IS LEFT HERE. The overseer's PAT retired with #392, and a minted
+// token has no expiry an operator can act on — the daemon refreshes it every
+// fifty minutes. So this measures the agents' fallback PAT and nothing else.
+// The overseer's reach is measured where it lives now: the container names an
+// owner it holds no token for, in the chat, once per turn.
 //
 // #380 moved the JUDGEMENT out of here. This function now only measures, and
 // hands every answer to the credential watch, which decides what the operator
@@ -198,13 +202,6 @@ const HOLDERS = [
     keyFor: ghTokenKeyFor,
     refusal: 'an agent on it will fail at its first gh call',
     where: 'daemon/.env.daemon',
-  },
-  {
-    holder: 'overseer',
-    tokenFor: (repo) => overseerGhToken(repo, overseerEnv),
-    keyFor: overseerTokenKeyFor,
-    refusal: 'the overseer cannot read it',
-    where: `daemon/${OVERSEER_ENV_FILE}`,
   },
 ]
 
@@ -257,8 +254,6 @@ function checkWatchedCredentials() {
   for (const owner of WATCHED_OWNERS) {
     const key = ghTokenKeyFor(owner)
     if (!agentGhToken(`${owner}/x`)) log(`WARNING: no ${key} — agents on ${owner}/* inherit the host gh login (account-wide)`)
-    const overseerKey = overseerTokenKeyFor(owner)
-    if (!overseerGhToken(`${owner}/x`, overseerEnv)) log(`WARNING: no ${overseerKey} — the overseer holds no credential for ${owner}/*`)
   }
   tokenWatch.pass().catch((e) => log(`the credential watch failed (${e.message})`))
 }
@@ -284,7 +279,7 @@ if (!appMinter) {
     for (const { id, owner } of installs) log(`GitHub App installed on ${owner} (installation ${id})`)
     const seen = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
     for (const owner of WATCHED_OWNERS) {
-      if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — every daemon call on that owner falls back to the host gh login, and its pull requests stay operator-authored (docs/github-app.md)`)
+      if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — every daemon call on that owner falls back to the host gh login, its pull requests stay operator-authored, and the overseer reads ${owner}/* with no credential at all (docs/github-app.md)`)
     }
   }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — no holder mints yet, so nothing is broken by it`))
 }
@@ -2436,7 +2431,14 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     for (const [name, m] of Object.entries(nextRouting.models)) routingConfig.models[name].active = m.active
     configLoadedAt = new Date().toISOString()
 
-    if (applied.includes('watch')) checkWatchedCredentials()
+    if (applied.includes('watch')) {
+      checkWatchedCredentials()
+      // #392: and the overseer's token for an owner this save has just added.
+      // The tick would reach it within 60 s. Doing it here is what makes
+      // watching a repo of a brand new owner an ordinary save, with nothing
+      // recreated and nothing else edited.
+      dispatcher.refreshOverseerCredentials().catch((e) => log(`the overseer credential refresh failed (${e.message})`))
+    }
     // The one captured setting. Only re-armed if the loop is running: before
     // boot reconcile finishes there is no timer, and arming one here would
     // start dispatching against a fleet nobody has reconciled yet.

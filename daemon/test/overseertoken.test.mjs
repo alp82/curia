@@ -1,74 +1,104 @@
-// #313: the overseer's read-only GitHub token — the keys, the second env file,
-// and the boundary that file exists to be.
-import { test, describe, before, after } from 'node:test'
+// #392: the overseer's minted read-only token — the file per owner the daemon
+// writes, and what is left of the second env file after the cutover.
+import { test, describe, before, after, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
 import {
-  OVERSEER_TOKEN_KEY, OVERSEER_ENV_FILE, overseerEnvPath, overseerTokenKeyFor,
-  loadOverseerEnv, overseerGhToken, assertOverseerTokens, daemonOnlyKeys,
+  OVERSEER_ENV_FILE, RETIRED_TOKEN_KEY, overseerEnvPath, loadOverseerEnv,
+  daemonOnlyKeys, retiredTokenKeys, overseerTokensRootFor, overseerTokenFile,
+  writeOverseerToken, readOverseerToken, sweepOverseerTokens,
 } from '../src/overseertoken.mjs'
-import { ghTokenKeyFor } from '../src/workspace.mjs'
 
-describe('the overseer token keys (#313)', () => {
-  test('the key carries the owner, spelled exactly as the agent key spells it', () => {
-    assert.equal(overseerTokenKeyFor('alp82/curia'), 'CURIA_OVERSEER_GH_TOKEN_ALP82')
-    assert.equal(overseerTokenKeyFor('getalfredo/landing-page'), 'CURIA_OVERSEER_GH_TOKEN_GETALFREDO')
-    // an owner is a GitHub login, so the hyphen is the only character to fold
-    assert.equal(overseerTokenKeyFor('some-org/repo'), 'CURIA_OVERSEER_GH_TOKEN_SOME_ORG')
-    assert.equal(overseerTokenKeyFor(''), null)
+describe('the overseer token files (#392)', () => {
+  let root
+  let dir
+  before(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-ovt-')) })
+  after(() => { fs.rmSync(root, { recursive: true, force: true }) })
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(root, 'tokens-'))
   })
 
-  // One spelling rule for both holders: an operator who has written one pair of
-  // keys has written the other. A drift here is an operator editing the wrong
-  // line and getting no signal.
-  test('the two prefixes differ and nothing else does', () => {
-    for (const repo of ['alp82/curia', 'getalfredo/landing-page', 'some-org/repo']) {
-      assert.equal(
-        overseerTokenKeyFor(repo).replace(`${OVERSEER_TOKEN_KEY}_`, ''),
-        ghTokenKeyFor(repo).replace('CURIA_AGENT_GH_TOKEN_', ''))
+  test('the tree sits beside the checkouts, under the workspace root', () => {
+    assert.equal(overseerTokensRootFor('/home/alp/curia-work'), '/home/alp/curia-work/overseer/tokens')
+  })
+
+  // The daemon writes this name and the `gh` shim builds it from an owner it
+  // read off a command line. Two spellings of one owner would be a token
+  // nobody finds.
+  test('one file per owner, named by the owner in lower case', () => {
+    assert.equal(overseerTokenFile('/t', 'alp82'), '/t/alp82')
+    assert.equal(overseerTokenFile('/t', 'Get-Alfredo'), '/t/get-alfredo')
+  })
+
+  test('an owner GitHub could not issue names no file, so `..` reaches nothing', () => {
+    for (const bad of ['', '..', '../etc', 'a/b', '-lead', 'has_underscore', 'has.dot']) {
+      assert.equal(overseerTokenFile('/t', bad), null, `${bad} must name no file`)
     }
   })
 
-  test('the token is picked by the repo owner, and an owner with no key gets null', () => {
-    const env = {
-      CURIA_OVERSEER_GH_TOKEN_ALP82: 'github_pat_11ALP82',
-      CURIA_OVERSEER_GH_TOKEN_GETALFREDO: 'github_pat_11ORG',
-    }
-    assert.equal(overseerGhToken('alp82/curia', env), 'github_pat_11ALP82')
-    assert.equal(overseerGhToken('getalfredo/landing-page', env), 'github_pat_11ORG')
-    assert.equal(overseerGhToken('stranger/repo', env), null)
-    // a blank value is no token, not an empty one
-    assert.equal(overseerGhToken('alp82/curia', { CURIA_OVERSEER_GH_TOKEN_ALP82: '   ' }), null)
+  test('the token is written, read back, and the file is the owner\'s alone', () => {
+    const file = writeOverseerToken(dir, 'alp82', 'ghs_11ALP82')
+    assert.equal(file, path.join(dir, 'alp82'))
+    assert.equal(readOverseerToken(dir, 'alp82'), 'ghs_11ALP82')
+    assert.equal(readOverseerToken(dir, 'getalfredo'), null, 'an owner with no file holds no token')
+    // A credential the box's other users can read is a credential shared.
+    assert.equal(fs.statSync(file).mode & 0o077, 0)
+    assert.equal(fs.statSync(dir).mode & 0o077, 0)
   })
 
-  test('a malformed value refuses, and the refusal names the OVERSEER file', () => {
-    for (const bad of ['"quoted"', 'github_pat_x github_pat_y', "'single'"]) {
-      assert.throws(
-        () => overseerGhToken('alp82/curia', { CURIA_OVERSEER_GH_TOKEN_ALP82: bad }),
-        new RegExp(`CURIA_OVERSEER_GH_TOKEN_ALP82 in daemon/${OVERSEER_ENV_FILE.replace('.', '\\.')}`),
-        'a message naming daemon/.env.daemon would send the operator to the wrong file')
-    }
+  test('a refresh replaces the value, and leaves one file', () => {
+    writeOverseerToken(dir, 'alp82', 'ghs_first')
+    writeOverseerToken(dir, 'alp82', 'ghs_second')
+    assert.equal(readOverseerToken(dir, 'alp82'), 'ghs_second')
+    assert.deepEqual(fs.readdirSync(dir), ['alp82'], 'a `.tmp` left behind would be a token nothing sweeps')
   })
 
-  test('assertOverseerTokens returns every overseer token and nothing beside it', () => {
-    const env = {
-      CURIA_OVERSEER_GH_TOKEN_ALP82: ' github_pat_11ALP82 \n',
-      CURIA_OVERSEER_GH_TOKEN_BLANK: '',
-      CURIA_AGENT_GH_TOKEN_ALP82: 'github_pat_11WRITE',
-      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x',
+  test('an owner spelled two ways reads one file', () => {
+    writeOverseerToken(dir, 'Alp82', 'ghs_11ALP82')
+    assert.equal(readOverseerToken(dir, 'alp82'), 'ghs_11ALP82')
+  })
+
+  test('a value that is not a token refuses the WRITE', () => {
+    for (const bad of ['', '   ', 'ghs_a ghs_b', '"quoted"', 'two\nlines']) {
+      assert.throws(() => writeOverseerToken(dir, 'alp82', bad), /a GitHub token is word characters only/)
     }
-    assert.deepEqual(assertOverseerTokens(env), [{ key: 'CURIA_OVERSEER_GH_TOKEN_ALP82', token: 'github_pat_11ALP82' }])
+    assert.throws(() => writeOverseerToken(dir, '../etc', 'ghs_x'), /alphanumerics and hyphens/)
+  })
+
+  // The same rule #313 held on the env value: a bad credential fails where it
+  // can be read, and not as a 401 in the middle of a turn.
+  test('a file that is not a token refuses the READ, naming the file', () => {
+    fs.writeFileSync(path.join(dir, 'alp82'), 'not a token at all\n')
+    assert.throws(() => readOverseerToken(dir, 'alp82'), new RegExp(`${path.join(dir, 'alp82')} does not hold a GitHub token`))
+  })
+
+  test('an empty file is no token, not an empty one', () => {
+    fs.writeFileSync(path.join(dir, 'alp82'), '\n')
+    assert.equal(readOverseerToken(dir, 'alp82'), null)
+  })
+
+  test('the sweep takes every owner the watch list no longer names', () => {
+    writeOverseerToken(dir, 'alp82', 'ghs_a')
+    writeOverseerToken(dir, 'getalfredo', 'ghs_b')
+    fs.writeFileSync(path.join(dir, 'stranger.tmp'), 'ghs_c')
+    assert.deepEqual(sweepOverseerTokens(dir, ['alp82']).sort(), ['getalfredo', 'stranger.tmp'])
+    assert.deepEqual(fs.readdirSync(dir), ['alp82'])
+    assert.deepEqual(sweepOverseerTokens(dir, ['alp82']), [], 'a second pass has nothing to take')
+  })
+
+  test('a tree that is not there yet sweeps nothing and does not throw', () => {
+    assert.deepEqual(sweepOverseerTokens(path.join(root, 'never-made'), ['alp82']), [])
   })
 })
 
-// The file IS the boundary: the overseer service loads it whole, so a key in it
-// is a key a shell in that container holds.
-describe('the overseer env file (#313)', () => {
+// The file stopped being a token file with #392. It is still the boundary for
+// the one host secret ADR-0014 lets in, and the daemon still reads it whole.
+describe('the second env file after the cutover (#313, #392)', () => {
   let tmp
-  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-ovt-')) })
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-ovenv-')) })
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
 
   test('it sits beside daemon/.env.daemon', () => {
@@ -82,20 +112,16 @@ describe('the overseer env file (#313)', () => {
   test('the file is parsed, and nothing in it reaches process.env', () => {
     const file = path.join(tmp, OVERSEER_ENV_FILE)
     fs.writeFileSync(file, [
-      '# the overseer\'s read-only tokens (#313)',
-      'CURIA_OVERSEER_GH_TOKEN_ALP82=github_pat_11ALP82',
-      'CURIA_OVERSEER_GH_TOKEN_GETALFREDO=github_pat_11ORG',
+      '# the model credential, and nothing else (#392)',
+      'CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x',
       '',
     ].join('\n'))
 
-    const env = loadOverseerEnv(file)
-    assert.equal(env.CURIA_OVERSEER_GH_TOKEN_ALP82, 'github_pat_11ALP82')
-    assert.equal(env.CURIA_OVERSEER_GH_TOKEN_GETALFREDO, 'github_pat_11ORG')
-
+    assert.equal(loadOverseerEnv(file).CLAUDE_CODE_OAUTH_TOKEN, 'sk-ant-oat01-x')
     // A bare token in the daemon's own environment re-authenticates the daemon's
     // `gh` silently — the trap #155 named. Parsing, never loading, is what keeps
     // this file out of that.
-    assert.equal('CURIA_OVERSEER_GH_TOKEN_ALP82' in process.env, false)
+    assert.equal('CLAUDE_CODE_OAUTH_TOKEN' in process.env, false)
   })
 
   test('a copied daemon/.env.daemon is named back, key by key', () => {
@@ -103,10 +129,20 @@ describe('the overseer env file (#313)', () => {
       DISCORD_BOT_TOKEN: 'x',
       DISCORD_ALLOWED_USERS: '1',
       CURIA_AGENT_GH_TOKEN_ALP82: 'github_pat_11WRITE',
-      CURIA_OVERSEER_GH_TOKEN_ALP82: 'github_pat_11READ',
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x',
     }
     assert.deepEqual(daemonOnlyKeys(copied).sort(),
       ['CURIA_AGENT_GH_TOKEN_ALP82', 'DISCORD_ALLOWED_USERS', 'DISCORD_BOT_TOKEN'])
-    assert.deepEqual(daemonOnlyKeys({ CURIA_OVERSEER_GH_TOKEN_ALP82: 'github_pat_11READ' }), [])
+  })
+
+  // A key nothing reads is a live PAT with no job. The boot asks for two acts:
+  // delete the key, and revoke the token.
+  test('#313\'s own keys are named back as retired', () => {
+    assert.deepEqual(retiredTokenKeys({
+      [`${RETIRED_TOKEN_KEY}_ALP82`]: 'github_pat_11READ',
+      [`${RETIRED_TOKEN_KEY}_GETALFREDO`]: 'github_pat_11ORG',
+      CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x',
+    }).sort(), [`${RETIRED_TOKEN_KEY}_ALP82`, `${RETIRED_TOKEN_KEY}_GETALFREDO`])
+    assert.deepEqual(retiredTokenKeys({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-x' }), [])
   })
 })

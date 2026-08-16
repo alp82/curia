@@ -38,6 +38,11 @@ import {
 } from './workspace.mjs'
 // the agent's minted GitHub credential (#389, ADR-0018)
 import { GH_DIR, forgetGhCredentials, readGhCredentials, writeGhCredentials } from './agentgh.mjs'
+// the overseer's minted read-only credential (#392, the same ADR)
+import {
+  overseerTokensRootFor, readOverseerToken, writeOverseerToken, sweepOverseerTokens,
+} from './overseertoken.mjs'
+import { ownersOf } from './overseercreds.mjs'
 import { ensureAgentImage } from './image.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
@@ -1367,6 +1372,58 @@ export class Dispatcher {
       } catch (e) {
         this.log(`could not refresh the GitHub credential of ${agent.session} (${e.message}) — the file it already holds stands until the next tick`)
       }
+    }
+  }
+
+  // The OVERSEER's credential, on the same tick and for the same reason (#392).
+  //
+  // The overseer is one long-lived container, not a fleet, so this pass is per
+  // WATCHED OWNER rather than per agent: one read-only token each, written to
+  // the tree the container mounts read-only. An installation token lives one
+  // hour and that container runs for weeks, so the file is the only shape the
+  // value can take.
+  //
+  // IT WRITES FOR EVERY WATCHED OWNER, whether or not the container has ever
+  // asked. That is the point of the ticket: compose used to hand the token over
+  // at container create, so an owner the container never held needed an env file
+  // edited and the service recreated. Now the watch list is the whole input, and
+  // the next turn re-reads the tree.
+  //
+  // It never throws. An owner curia cannot mint for keeps whatever file it has —
+  // that token is good for up to another hour — and the container says the rest
+  // in the chat, once per turn, through `unroutedNote`.
+  async refreshOverseerCredentials() {
+    if (!this.minter) return
+    const dir = overseerTokensRootFor(this.config.dispatch.workspace_root)
+    const owners = ownersOf((this.config.watch ?? []).map((w) => w.repo))
+    for (const owner of owners) {
+      let token = null
+      try {
+        token = await this.minter.tokenFor(owner, 'read')
+      } catch (e) {
+        this.log(`could not mint the overseer's read token for ${owner} (${e.message}) — it reads ${owner}/* with no credential until this passes`)
+        continue
+      }
+      // Read back first, so the log states the arming of an owner once instead
+      // of every sixty seconds. A file this pass cannot read is one it replaces.
+      let armed = null
+      try {
+        armed = readOverseerToken(dir, owner)
+      } catch { /* a file that is not a token is a file this pass overwrites */ }
+      try {
+        const file = writeOverseerToken(dir, owner, token)
+        if (!armed) this.log(`the overseer reads ${owner}/* through ${file}`)
+      } catch (e) {
+        this.log(`could not write the overseer's token for ${owner} (${e.message})`)
+      }
+    }
+    // A credential nobody watches is a credential nobody refreshes either.
+    try {
+      for (const name of sweepOverseerTokens(dir, owners)) {
+        this.log(`removed the overseer token file ${name} — no watched repo names that owner`)
+      }
+    } catch (e) {
+      this.log(`could not sweep the overseer token files (${e.message})`)
     }
   }
 
@@ -5085,6 +5142,11 @@ export class Dispatcher {
     // already be past its hour, and the agent's next `gh` call is a 401 nobody
     // can place. Adoption is exactly the moment to rewrite it.
     await this.refreshGhCredentials().catch((e) => this.log(`reconcile: the GitHub credential refresh failed (${e.message})`))
+    // And the overseer's, for a sharper version of the same reason (#392): that
+    // container was NOT restarted with this daemon, so it is standing on
+    // whatever the last write left. Boot reconcile is the first pass that can
+    // arm it at all, and the first tick is 60 s further away.
+    await this.refreshOverseerCredentials().catch((e) => this.log(`reconcile: the overseer credential refresh failed (${e.message})`))
 
     // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
     // a TICKET-terminal state — the issue is positively closed (or positively
@@ -5790,6 +5852,10 @@ export class Dispatcher {
     // new, so a refresh under the gate would strand every agent on a box with
     // auto-dispatch off — which is how curia is shipped.
     await this.refreshGhCredentials().catch((e) => this.log('the GitHub credential refresh failed:', e.message))
+    // #392: and the overseer's, above the gate for the same reason again. That
+    // container answers the operator whether or not this box dispatches
+    // anything, and its token dies in an hour either way.
+    await this.refreshOverseerCredentials().catch((e) => this.log('the overseer credential refresh failed:', e.message))
     if (!this.config.dispatch.auto_dispatch) return
     const max = this.config.dispatch.max_concurrent
     const liveCount = () => this.agents.size + this.inFlight.size

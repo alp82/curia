@@ -84,6 +84,9 @@ describe('report_result carries the typed fields and the lint gate (#419, real b
       `  workspace_root: ${path.join(tmp, 'work')}`,
       '  ready_timeout_s: 5',
       '  confirm_ttl_h: 1',
+      // Required since #390, with no default: a claim assigns a person, because
+      // GitHub does not let an App be an assignee. Without it this boot refuses.
+      '  claim_login: fixture-operator',
       'attach:',
       `  ttyd_port: ${ttydPort}`,
       `  serve_port: ${servePort}`,

@@ -20,6 +20,7 @@ import { parseUsageLimit } from '../src/routing.mjs'
 import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
 import { GH_DIR, readGhCredentials, writeGhCredentials } from '../src/agentgh.mjs'
+import { readOverseerToken } from '../src/overseertoken.mjs'
 import { removeCredentials } from '../src/workspace.mjs'
 
 const ROUTING = {
@@ -1599,6 +1600,81 @@ describe('the agent mints its GitHub token (#389)', () => {
     removeCredentials(cfgOf('curia-42'))
     assert.equal(fs.existsSync(hostsOf('curia-42')), false)
     d.agents.delete('curia-42')
+  })
+})
+
+// The overseer is the second holder to move (ADR-0018). It is one long-lived
+// container rather than a fleet, so the pass is per WATCHED OWNER and it runs
+// whether or not that container has ever asked for a token.
+describe('the overseer mints its read-only token (#392)', () => {
+  const tokensDir = () => path.join(tmp, 'work', 'overseer', 'tokens')
+  const tokenOf = (owner) => readOverseerToken(tokensDir(), owner)
+
+  const readMinter = ({ fail = null } = {}) => {
+    const calls = []
+    let n = 0
+    return {
+      calls,
+      tokenFor: async (owner, role) => {
+        calls.push({ owner, role })
+        if (fail === owner || fail === true) throw new Error(`curia's GitHub App is not installed on ${owner}`)
+        n += 1
+        return `ghs_read${n}`
+      },
+    }
+  }
+
+  test('one READ token per watched owner, in a file the container can only read', async () => {
+    const minter = readMinter()
+    const d = makeDispatcher({}, {
+      minter, watch: [{ repo: 'o/r' }, { repo: 'o/second' }, { repo: 'other/thing' }],
+    })
+
+    await d.refreshOverseerCredentials()
+
+    assert.deepEqual(minter.calls, [{ owner: 'o', role: 'read' }, { owner: 'other', role: 'read' }],
+      'one call per OWNER, never per repo, and never the write set')
+    assert.equal(tokenOf('o'), 'ghs_read1')
+    assert.equal(tokenOf('other'), 'ghs_read2')
+    assert.equal(fs.statSync(path.join(tokensDir(), 'o')).mode & 0o077, 0)
+  })
+
+  test('the refresh replaces the value, which is what makes the hour survivable', async () => {
+    const d = makeDispatcher({}, { minter: readMinter() })
+    await d.refreshOverseerCredentials()
+    assert.equal(tokenOf('o'), 'ghs_read1')
+    await d.refreshOverseerCredentials()
+    assert.equal(tokenOf('o'), 'ghs_read2')
+  })
+
+  test('an owner curia cannot mint for keeps the token it has, and the others still land', async () => {
+    const d = makeDispatcher({}, { minter: readMinter(), watch: [{ repo: 'o/r' }, { repo: 'other/thing' }] })
+    await d.refreshOverseerCredentials()
+    const held = tokenOf('o')
+
+    d.minter = readMinter({ fail: 'o' })
+    await d.refreshOverseerCredentials()
+
+    assert.equal(tokenOf('o'), held, 'that token is good for up to another hour, and the next tick is 60 s away')
+    assert.equal(tokenOf('other'), 'ghs_read1', 'one owner curia cannot reach does not strand the rest')
+  })
+
+  test('an owner the watch list drops loses its file: nothing refreshes it any more', async () => {
+    const d = makeDispatcher({}, { minter: readMinter(), watch: [{ repo: 'o/r' }, { repo: 'other/thing' }] })
+    await d.refreshOverseerCredentials()
+    assert.equal(tokenOf('other'), 'ghs_read2')
+
+    d.config.watch = [{ repo: 'o/r' }]
+    await d.refreshOverseerCredentials()
+
+    assert.equal(tokenOf('other'), null)
+    assert.deepEqual(fs.readdirSync(tokensDir()), ['o'])
+  })
+
+  test('a box with no app writes nothing at all, rather than an empty file', async () => {
+    const d = makeDispatcher()
+    await d.refreshOverseerCredentials()
+    assert.equal(fs.existsSync(tokensDir()), false)
   })
 })
 

@@ -43,6 +43,7 @@ import { seedConfigDir, agentEnv } from './workspace.mjs'
 import { buildSystemPrompt, toolsFor, checkoutReport } from './overseerprompt.mjs'
 import { syncCheckouts, checkoutsRootFor } from './checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from './overseercreds.mjs'
+import { overseerTokensRootFor } from './overseertoken.mjs'
 import { SIGNALS } from './messaging.mjs'
 
 // The route the daemon POSTs a turn to, on the container.
@@ -138,9 +139,9 @@ export function checkoutNote({ repos = [], removed = [] } = {}) {
 // live for the checkout pass below. The credential lines stayed on the list the
 // container booted on, so a repo added under an owner that had no line was
 // cloned with no token until somebody recreated the container. This closes that
-// half. What it cannot close is a token that is not in the container at all:
-// compose hands `daemon/.env.overseer` over at container CREATE, so a brand new
-// owner needs that file edited and the service recreated whatever runs here.
+// half, and #392 closed the other one: the token is a file the daemon writes
+// into a read-only mount, so a brand new owner needs no edit of an env file and
+// no recreate of this service. Watching its repo is an ordinary save.
 //
 // IT NEVER REFUSES THE TURN, for the reason a failed fetch does not: a chat that
 // will not answer is no way to fix a broken config. A throw leaves the lines the
@@ -149,16 +150,16 @@ export function checkoutNote({ repos = [], removed = [] } = {}) {
 //
 // It returns notes rather than emitting them, so the caller owns the stream and
 // the suite can read the sentences without one.
-export async function credentialPass(repos, {
-  env = process.env, install = installCredentialConfig, unrouted = unroutedOwners,
+export async function credentialPass(repos, dir, {
+  install = installCredentialConfig, unrouted = unroutedOwners,
 } = {}) {
   try {
-    await install(repos, { env })
+    await install(repos, { dir })
   } catch (e) {
     const why = String(e.message ?? e).split('\n')[0]
     return [`${SIGNALS.warn} the git credentials did not reload (${why}). This turn runs on the routing of the last good pass`]
   }
-  return unrouted(repos, env).map((o) => `${SIGNALS.warn} ${unroutedNote(o)}`)
+  return unrouted(repos, dir).map((o) => `${SIGNALS.warn} ${unroutedNote(o)}`)
 }
 
 // THE TURN, inside the container.
@@ -196,7 +197,7 @@ function runOneTurn({
       // returns names an owner the watch list added and this container holds no
       // token for, which is the cause of the clone failure the verdict below
       // would otherwise report without a reason.
-      for (const text of await creds(repos)) {
+      for (const text of await creds(repos, overseerTokensRootFor(root))) {
         log(text)
         emit(TURN_EVENTS.note, { text })
       }
