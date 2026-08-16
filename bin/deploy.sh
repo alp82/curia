@@ -14,6 +14,11 @@ HOST="${CURIA_DEPLOY_HOST:-alp@coinmatica.net}"
 ssh "$HOST" 'set -euo pipefail
 cd ~/curia
 git pull --ff-only
+# The overseer bind-mount sources, before compose can create them as root
+# (alp82/curia#474). The path comes from the committed config, so the two
+# stay one fact.
+WORK=$(awk "/^ *workspace_root:/ {print \$2; exit}" config/curia.yaml)
+mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos"
 # --force-recreate: code runs from the repo mount, so a code-only deploy
 # changes no image layer, and without the flag compose leaves the old
 # daemon running (#270).

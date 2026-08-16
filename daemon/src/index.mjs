@@ -1177,7 +1177,10 @@ dispatcher.identityProxy = identityProxy // #151: reconcile publishes the proxy,
 
 // The self-deploy seam (#270): the verb orders, a sibling container executes,
 // resolvePending() below announces whichever outcome the sibling wrote.
-const selfDeploy = new SelfDeploy({ repoRoot: path.dirname(ROOT), dataDir: DATA, reduction, log, port: PORT })
+const selfDeploy = new SelfDeploy({
+  repoRoot: path.dirname(ROOT), dataDir: DATA, reduction, log, port: PORT,
+  workRoot: curiaConfig.dispatch.workspace_root,
+})
 
 const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDeploy, log })
 

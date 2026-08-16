@@ -46,7 +46,7 @@ const short = (sha) => String(sha).slice(0, 7)
 // lives in deploy.log, not in docker), and named — the fixed name is the
 // concurrency guard: a second deploy while one is in flight fails the run
 // with a name conflict instead of racing it.
-export function helperRunArgs({ repoRoot, dataDir, home, uid, gid }) {
+export function helperRunArgs({ repoRoot, dataDir, home, uid, gid, workRoot }) {
   return [
     'run', '-d', '--rm', '--name', 'curia-deploy',
     // host network: the health check curls the daemon on host loopback
@@ -57,6 +57,10 @@ export function helperRunArgs({ repoRoot, dataDir, home, uid, gid }) {
     // same-path principle: the checkout and the data dir mount where they live
     '-v', `${repoRoot}:${repoRoot}`,
     '-v', `${dataDir}:${dataDir}`,
+    // the workspace, so the script can pre-create the overseer's bind-mount
+    // sources as uid 1000 — dockerd creates a missing source as root, and the
+    // overseer then cannot write its own trees (alp82/curia#474)
+    '-v', `${workRoot}:${workRoot}`,
     // git over https via gh's credential helper, same mounts the daemon has
     '-v', `${home}/.config/gh:${home}/.config/gh`,
     '-v', `${home}/.gitconfig:${home}/.gitconfig:ro`,
@@ -69,9 +73,10 @@ export function helperRunArgs({ repoRoot, dataDir, home, uid, gid }) {
 }
 
 export class SelfDeploy {
-  constructor({ repoRoot, dataDir, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? '/home/alp', dockerSocket = '/var/run/docker.sock' }) {
+  constructor({ repoRoot, dataDir, workRoot, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? '/home/alp', dockerSocket = '/var/run/docker.sock' }) {
     this.repoRoot = repoRoot
     this.dataDir = dataDir
+    this.workRoot = workRoot
     this.reduction = reduction
     this.log = log
     this.exec = exec
@@ -150,10 +155,10 @@ export class SelfDeploy {
     const args = [
       ...helperRunArgs({
         repoRoot: this.repoRoot, dataDir: this.dataDir, home: this.home,
-        uid: process.getuid?.() ?? 1000, gid,
+        uid: process.getuid?.() ?? 1000, gid, workRoot: this.workRoot,
       }),
-      // script argv: prev next repoRoot markerFile logFile port
-      prev, next, this.repoRoot, this.markerPath, this.logPath, String(this.port),
+      // script argv: prev next repoRoot markerFile logFile port workRoot
+      prev, next, this.repoRoot, this.markerPath, this.logPath, String(this.port), this.workRoot,
     ]
     try {
       await this.exec('docker', args, { timeout: 60_000 })
