@@ -76,11 +76,14 @@ describe('the per-owner git config (#313 section 3, installed by #327)', () => {
     // `cwd` is the scratch dir and not the repo: this checkout carries its own
     // `credential.helper` in `.git/config`, and a local helper would answer
     // every row below with the agent's token instead of the overseer's.
+    // GIT_ASKPASS is scrubbed for the same reason: a VS Code terminal sets it,
+    // and its helper answers the stranger row with the developer's own token.
+    const { GIT_ASKPASS, SSH_ASKPASS, ...hostEnv } = process.env
     const fill = (repo) => spawnSync('git', ['credential', 'fill'], {
       timeout: 30_000,
       encoding: 'utf8',
       cwd: home,
-      env: { ...process.env, ...TOKENS, HOME: home },
+      env: { ...hostEnv, ...TOKENS, HOME: home, GIT_TERMINAL_PROMPT: '0' },
       input: `protocol=https\nhost=github.com\npath=${repo}\n\n`,
     })
     assert.equal(/^password=(.*)$/m.exec(fill('alp82/curia.git').stdout)?.[1], 'tok_alp82')

@@ -7,6 +7,7 @@
 # Every version is a pin, same rule as config/curia.yaml `sandbox:`.
 
 ARG NODE_VERSION=22.17.1
+ARG NPM_VERSION=11.12.1
 ARG DOCKER_CLI_VERSION=28
 ARG COMPOSE_VERSION=v2.39.2
 ARG TAILSCALE_VERSION=v1.98.10
@@ -17,6 +18,13 @@ FROM tailscale/tailscale:${TAILSCALE_VERSION} AS tailscale
 
 FROM node:${NODE_VERSION}-bookworm-slim
 ARG GH_VERSION=2.97.0
+ARG NPM_VERSION
+
+# node 22 ships npm 10, and npm 10 strips the `libc` field that npm 11 writes
+# into package-lock.json. The start-time `npm install` runs against the repo
+# mount, so a mismatched npm dirties the checkout and the next deploy refuses.
+# Pin the same major the dev machines run.
+RUN npm install -g --no-fund --no-audit "npm@${NPM_VERSION}"
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git tmux bash curl ca-certificates \
