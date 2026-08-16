@@ -5573,6 +5573,28 @@ export class Dispatcher {
       // resume exists to hand back.
       if (this.limitResumes.has(String(num))) continue
       if (await this.deps.hasSession(session)) continue // collision or leftover: skip, never churn
+      // #376: the same rule for the whole class. A takeable ticket with a
+      // worktree still on disk is the work of an agent that ended without
+      // landing it — it died, or the daemon went down under it — and `start`
+      // would delete every uncommitted file in that worktree. So the auto loop
+      // RESUMES it, which is the verb the death notify already promises the
+      // operator, and which inherits the worktree and the last model.
+      //
+      // The path is the evidence, exactly as it is for `resume <n>` and
+      // `resume all`. Nothing else leaves a worktree at a TAKEABLE ticket: a
+      // cancel removes it, a live agent holds a session (skipped above), and an
+      // armed limit resume is stepped over above.
+      if (fs.existsSync(worktreePathFor(this.root, repo, num))) {
+        const reply = await this.resume(num, { repo, by: 'auto' })
+        this.store.logEvent('auto_resume', { repo, ticket: String(num) })
+        // The death notify promised `resume <n>` in this thread. Saying that
+        // curia made that resume itself is what closes the promise — without
+        // it the operator reads an ordinary dispatch line and cannot tell
+        // whether the surviving files were kept or thrown away.
+        this.notify(num, `▶️ a worktree from an earlier agent stands at ${repo}#${num}, so auto-dispatch RESUMED this ticket instead of starting it. Nothing was recreated from origin. ${reply}`)
+        this.log(`[auto] ${reply}`)
+        continue
+      }
       const msg = await this.start(num, { repo, by: 'auto' })
       this.log(`[auto] ${msg}`)
     }

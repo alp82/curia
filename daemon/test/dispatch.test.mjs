@@ -1761,6 +1761,72 @@ describe('the limit resume: the window rolls and curia puts the agent back (#346
     assert.ok(!started.includes('42'), 'the armed ticket is the resume\'s, and a start would recreate its worktree')
   })
 
+  // #376: #346 closed ONE instance of this and not the class. A ticket whose
+  // agent died is unclaimed and back on the frontier with its worktree
+  // standing, and it carries no arm — so the auto loop used to `start` it, and
+  // `start` calls createPrivateClone, which deletes that worktree first.
+  describe('and it resumes a surviving worktree rather than starting over one (#376)', () => {
+    test('the uncommitted files of the dead agent stand, and the resumed agent runs in them', async () => {
+      const clones = []
+      const d = makeDispatcher({
+        repoMaps: async () => MAP,
+        mapFrontier: async () => [child(42)],
+        createPrivateClone: async (r, repo, n) => { clones.push(String(n)); return fakePrivateClone(r, repo, n) },
+      })
+      // what the dead agent wrote and never committed
+      const wt = fakePrivateClone(d.root, 'o/r', '42')
+      fs.writeFileSync(path.join(wt, 'work-in-progress.txt'), 'half a day of it')
+      d.config.dispatch.auto_dispatch = true
+      d.config.dispatch.poll_interval_s = 0.05
+
+      d.startAutoLoop()
+      await waitFor(() => d.agents.has('curia-42'))
+      d.stopAutoLoop()
+
+      assert.deepEqual(clones, [], 'createPrivateClone deletes the worktree first, so the auto loop must never reach it')
+      assert.equal(fs.readFileSync(path.join(wt, 'work-in-progress.txt'), 'utf8'), 'half a day of it')
+      assert.equal(d.agents.get('curia-42').wtPath, wt, 'the resumed agent runs in the worktree that survived')
+    })
+
+    test('the thread is told curia resumed, and the journal records it', async () => {
+      const d = makeDispatcher({
+        repoMaps: async () => MAP,
+        mapFrontier: async () => [child(42)],
+      })
+      fakePrivateClone(d.root, 'o/r', '42')
+      d.config.dispatch.auto_dispatch = true
+      d.config.dispatch.poll_interval_s = 0.05
+
+      d.startAutoLoop()
+      await waitFor(() => events.some((e) => e.type === 'auto_resume'))
+      d.stopAutoLoop()
+
+      const said = notifies.find((n) => String(n.ticket) === '42' && /RESUMED/.test(n.message))
+      assert.ok(said, 'the death notify promised `resume 42` in this thread — curia says it made that resume itself')
+      assert.match(said.message, /Nothing was recreated from origin/)
+      const rec = events.find((e) => e.type === 'auto_resume')
+      assert.equal(String(rec.ticket), '42')
+      assert.equal(rec.repo, 'o/r')
+    })
+
+    test('a takeable ticket with no worktree is still started', async () => {
+      const clones = []
+      const d = makeDispatcher({
+        repoMaps: async () => MAP,
+        mapFrontier: async () => [child(43)],
+        createPrivateClone: async (r, repo, n) => { clones.push(String(n)); return fakePrivateClone(r, repo, n) },
+      })
+      d.config.dispatch.auto_dispatch = true
+      d.config.dispatch.poll_interval_s = 0.05
+
+      d.startAutoLoop()
+      await waitFor(() => clones.includes('43'))
+      d.stopAutoLoop()
+
+      assert.equal(events.some((e) => e.type === 'auto_resume'), false, 'no worktree stood, so nothing was resumed')
+    })
+  })
+
   // #362: `poll_interval_s` is the one reloadable setting the daemon CAPTURES —
   // it lives in the interval this arms. So a reload re-arms the loop, and the
   // old timer has to die with it: two timers on one dispatcher would tick twice
