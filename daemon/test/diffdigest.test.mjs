@@ -308,7 +308,7 @@ describe('the one Discord line (#355)', () => {
     files: 14, added: 812, deleted: 233, capped: false, uncommitted: false,
     list: [
       { path: 'daemon/src/dashboard.mjs', added: 120, deleted: 4 },
-      { path: 'daemon/src/store.mjs', added: 8, deleted: 1 },
+      { path: 'daemon/src/reduction.mjs', added: 8, deleted: 1 },
     ],
   }
 

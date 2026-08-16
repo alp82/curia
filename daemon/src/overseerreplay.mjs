@@ -15,7 +15,7 @@
 //
 // WHERE THE COUNT COMES FROM after the process holding it died: the seam
 // journals every crossing as a `command` event, and #388 put the conversation
-// key on that event. The store counts them onto the pending turn, so the boot
+// key on that event. The reduction counts them onto the pending turn, so the boot
 // reads a number this process never saw.
 //
 // WHAT MAKES A TURN "KILLED": the journal started it and never ended it. A turn
@@ -109,7 +109,7 @@ async function waitUntil(ready, { deadline, pollMs, nowMs, sleep }) {
 //               thread: its answer reaches the Chat screen through the
 //               transcript, and the dropped line reaches it through the journal
 export async function replayKilledTurns({
-  killed, store, probe, discord = null, browser = null, live = () => false,
+  killed, reduction, probe, discord = null, browser = null, live = () => false,
   bootAt, log = console.log, nowMs = () => Date.now(), sleep = sleepFor,
   waitMs = REPLAY_WAIT_MS, pollMs = REPLAY_POLL_MS, freshMs = REPLAY_FRESH_MS,
 }) {
@@ -132,12 +132,12 @@ export async function replayKilledTurns({
   const out = killed.map((k) => {
     const browserKey = isConsoleKey(k.key)
     let why = refuseReplay(k, {
-      nowMs: nowMs(), bootAt, lastTurnAt: store.lastOverseerTurnAt(k.key), live: live(k.key), freshMs,
+      nowMs: nowMs(), bootAt, lastTurnAt: reduction.lastOverseerTurnAt(k.key), live: live(k.key), freshMs,
     })
     if (!why && !up) why = 'the overseer container did not come back'
     if (!why && !browserKey && !bridgeUp) why = 'the Discord bridge did not come back'
     if (!why && !browserKey && !k.thread_id) why = 'that turn names no thread to answer in'
-    store.dropOverseerTurn({
+    reduction.dropOverseerTurn({
       key: k.key, turn: k.turn, crossings: k.crossings, commands: k.commands,
       replayed: !why, why,
     })

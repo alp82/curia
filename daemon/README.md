@@ -285,15 +285,15 @@ Dispatch also asserts the tracker prerequisite: a **map child** whose worktree c
 
 ## State posture
 
-`data/events.jsonl` is the only durable artifact — an append-only journal; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map is ephemeral (#9); ticket→thread bindings live in the journal (#93); a restart loses only the in-process agent call (accepted re-dispatch posture, #11/#12). The reduction reads the file whole exactly once, at boot, and every append after it passes the same reducer — so a surface that answers about the recent past reads the reduction and never the file (#289). The dispatcher still scans the file for the epoch questions reconcile and the Stop hook ask.
+`data/events.db` is the only durable artifact — the journal, a `node:sqlite` database whose rows are append-only; in-memory state is a pure reduction over it, rebuilt on boot. Open escalations survive daemon restarts with their Discord message ids intact (the rebooted process still honors clicks on messages posted before the restart — verified live). The pending-resolver map is ephemeral (#9); ticket→thread bindings live in the journal (#93); a restart loses only the in-process agent call (accepted re-dispatch posture, #11/#12). The reduction reads the journal whole exactly once, at boot, page by page. Every append after it passes the same reducer, so a surface that answers about the recent past reads the reduction and never the journal (#289). The dispatcher still reads every row for the epoch questions reconcile and the Stop hook ask.
+
+The daemon owns the only write connection, and it runs WAL with `synchronous=full` (ADR-0017). `src/journal.mjs` holds the schema, the writer and the migration. Every other process opens the journal read-only.
 
 Supersede (#29): a re-issued `ask_human` (same agent + same payload while an older escalation is open) closes the old record, strips its buttons in Discord, and routes late answers to the live successor.
 
 ### Reading the journal
 
-Today the operator debugs with `grep` and `tail -f` on `data/events.jsonl`.
-
-**Decided and not built.** The journal moves to a `node:sqlite` database ([ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md)), and the JSON lines retire. The database IS the journal, because the name follows the record and not the medium ([#358](https://github.com/alp82/curia/issues/358)). Curia then builds no reader. It writes no text file beside the journal, and it ships no command-line wrapper. The operator opens a read-only SQLite shell and types SQL. The decision is [What stays greppable (#320)](https://github.com/alp82/curia/issues/320), and the column names below are the requirement it puts on the schema ticket, [#321](https://github.com/alp82/curia/issues/321).
+The journal is a `node:sqlite` database ([ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md)), and the JSON lines have retired. The database IS the journal, because the name follows the record and not the medium ([#358](https://github.com/alp82/curia/issues/358)). Curia builds no reader. It writes no text file beside the journal, and it ships no command-line wrapper. The operator opens a read-only SQLite shell and types SQL. The decision is [What stays greppable (#320)](https://github.com/alp82/curia/issues/320), and the column names below are the requirement it put on the schema, [#321](https://github.com/alp82/curia/issues/321).
 
 Open the shell:
 
@@ -342,13 +342,13 @@ Two facts make this work.
 
 ### The migration to the database
 
-**Decided and not built.** [The migration (#323)](https://github.com/alp82/curia/issues/323) rules how the journal file becomes `data/events.db`.
+[The migration (#323)](https://github.com/alp82/curia/issues/323) rules how the journal file becomes `data/events.db`, and [#407](https://github.com/alp82/curia/issues/407) shipped it in `src/journal.mjs`.
 
-**The daemon converts at first boot.** It finds `events.db` absent, reads the journal file whole, and inserts every line in one transaction. It builds `events.db.migrating`, checks that the row count matches the line count, and renames the file into place. It accepts exactly what `_replay` accepts today, and it stops the boot on anything else. The measured cost is 298 ms for the 4,282 events the box held on 2026-08-13 ([#321](https://github.com/alp82/curia/issues/321), `prototypes/journal-schema/results.json`).
+**The daemon converts at first boot.** It finds `events.db` absent, reads the journal file whole, and inserts every line in one transaction. It builds `events.db.migrating`, checks that the row count matches the line count, and renames the file into place. It accepts exactly what the old boot pass accepted: a blank line is skipped, and anything else that is not one JSON object stops the boot. The measured cost is 298 ms for the 4,282 events the box held on 2026-08-13 ([#321](https://github.com/alp82/curia/issues/321), `prototypes/journal-schema/results.json`).
 
 A conversion that fails needs no hand. The daemon crash-loops, the self-deploy health check fails, and the box resets to the previous ref. That daemon still finds a whole journal file.
 
-**The journal file stays where it is.** The migration does not rename it and does not delete it. `git reset --hard` never touches it, because `daemon/data/` is git-ignored. So the automatic rollback finds the exact path the previous daemon looks for, and a rename would hand that daemon an empty reduction. The daemon never writes the file again. A follow-up ticket deletes it once the journal is checked on the box.
+**The journal file stays where it is.** The migration does not rename it and does not delete it. `git reset --hard` never touches it, because `daemon/data/` is git-ignored. So the automatic rollback finds the exact path the previous daemon looks for, and a rename would hand that daemon an empty reduction. The daemon never writes the file again. [#427](https://github.com/alp82/curia/issues/427) deletes it once the journal is checked on the box.
 
 **Take the migration deploy at zero live agents, with auto-dispatch off.** No agent is then mid-turn while the write path changes under it, and the window below carries only the daemon's own boot lines.
 

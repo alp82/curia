@@ -11,7 +11,7 @@
 // The cure has two conditions and no clock: the payload must match word for
 // word, and the parked note must still be unread. The note IS the window.
 //
-// Two levels here. The store half is a unit test, because the rule lives in the
+// Two levels here. The reduction half is a unit test, because the rule lives in the
 // reduction. The wire half boots the REAL daemon twice on one data dir and
 // drives it with a real MCP client, because nothing smaller exercises the path
 // that actually failed: the resolver has to die with a process for `settle` to
@@ -27,13 +27,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { EscalationStore } from '../src/store.mjs'
+import { Reduction } from '../src/reduction.mjs'
 import { sameDigest } from '../src/diffdigest.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
+import { journalEvents, journalText } from './fixtures/journal.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -53,114 +54,114 @@ function request(port, method, urlPath, { headers = {}, body = null } = {}) {
 
 // The whole fault in one helper: open, answer with nothing waiting, park the
 // answer. That is what a restart leaves behind.
-function parkedAnswer(store, { agent = 'curia-9', ticket = '9', kind = 'free-text', prompt, options, answer, attachments = [], by = 'alp', diff = null } = {}) {
-  const { record } = store.open({ agent, ticket, kind, prompt, options, diff })
-  store.answer(record.id, { answer, attachments, by, via: 'button' })
-  store.queueRecordedAnswer(store.get(record.id))
-  return store.get(record.id)
+function parkedAnswer(reduction, { agent = 'curia-9', ticket = '9', kind = 'free-text', prompt, options, answer, attachments = [], by = 'alp', diff = null } = {}) {
+  const { record } = reduction.open({ agent, ticket, kind, prompt, options, diff })
+  reduction.answer(record.id, { answer, attachments, by, via: 'button' })
+  reduction.queueRecordedAnswer(reduction.get(record.id))
+  return reduction.get(record.id)
 }
 
-describe('the recorded answer a re-asked question takes back (#369, store)', () => {
-  let dir, store
+describe('the recorded answer a re-asked question takes back (#369, reduction)', () => {
+  let dir, reduction
   const dirs = []
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-recorded-'))
     dirs.push(dir)
-    store = new EscalationStore(dir)
+    reduction = new Reduction(dir)
   })
 
   after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }) })
 
   test('the same question, asked again while the note is unread, finds its answer', () => {
-    const record = parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    const hit = store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })
+    const record = parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    const hit = reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })
     assert.equal(hit?.record.id, record.id)
     assert.equal(hit.record.answer, '9012')
     assert.equal(hit.note.handoff_for, record.id, 'the note names the record it carries')
   })
 
   test('taking it drops the note, so the answer is said once', () => {
-    const record = parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    const hit = store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })
-    store.takeRecordedAnswer(hit.record, hit.note)
-    assert.deepEqual(store.takeAgentNotes('curia-9'), [], 'the drain has nothing left to deliver')
-    assert.equal(store.get(record.id).replayed_at != null, true, 'the record says the answer was served again')
+    const record = parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    const hit = reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })
+    reduction.takeRecordedAnswer(hit.record, hit.note)
+    assert.deepEqual(reduction.takeAgentNotes('curia-9'), [], 'the drain has nothing left to deliver')
+    assert.equal(reduction.get(record.id).replayed_at != null, true, 'the record says the answer was served again')
   })
 
   test('and it cannot be taken twice', () => {
-    parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    const hit = store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })
-    store.takeRecordedAnswer(hit.record, hit.note)
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
+    parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    const hit = reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })
+    reduction.takeRecordedAnswer(hit.record, hit.note)
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
   })
 
   test('an answer the agent has already drained is delivered, so nothing replays', () => {
-    parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    store.takeAgentNotes('curia-9')
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
+    parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    reduction.takeAgentNotes('curia-9')
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
   })
 
   // The load-bearing refusal. Supersede keys on the agent and the kind (#336);
   // this must not, or a genuinely new question is answered by an old answer
   // instead of by a human.
   test('a DIFFERENT question of the same kind never takes that answer', () => {
-    parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port, and which path?' }), null)
+    parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port, and which path?' }), null)
   })
 
   test('every part of the payload is part of the question', () => {
-    parkedAnswer(store, { kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex'], answer: 'claude' })
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex'] })?.record.answer, 'claude')
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex', 'pi'] }), null)
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which harness?', options: ['claude', 'codex'] }), null)
+    parkedAnswer(reduction, { kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex'], answer: 'claude' })
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex'] })?.record.answer, 'claude')
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex', 'pi'] }), null)
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which harness?', options: ['claude', 'codex'] }), null)
   })
 
   test('another agent asking the same words gets nothing', () => {
-    parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-4', kind: 'free-text', prompt: 'which port?' }), null)
+    parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-4', kind: 'free-text', prompt: 'which port?' }), null)
   })
 
   test('an answer that reached its own live call parks no note and never replays', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'which port?' })
-    store.answer(record.id, { answer: '9012', by: 'alp', via: 'button' })
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'which port?' })
+    reduction.answer(record.id, { answer: '9012', by: 'alp', via: 'button' })
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
   })
 
   test('a cancelled question holds no answer to hand back', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'which port?' })
-    store.cancel(record.id, { by: 'alp' })
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'which port?' })
+    reduction.cancel(record.id, { by: 'alp' })
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
   })
 
   test('the answer and its window survive a restart, because both are journalled', () => {
-    parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    const reborn = new EscalationStore(dir)
+    parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    const reborn = new Reduction(dir)
     const hit = reborn.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })
     assert.equal(hit?.record.answer, '9012')
     reborn.takeRecordedAnswer(hit.record, hit.note)
-    assert.equal(new EscalationStore(dir).recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
+    assert.equal(new Reduction(dir).recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
   })
 
   // The journal is append-only, and every hand-off written before this ticket
   // carries no `handoff_for`. Those notes keep the delivery they always had.
   test('a hand-off note from before this ticket is delivered by the drain alone', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'which port?' })
-    store.answer(record.id, { answer: '9012', by: 'alp', via: 'button' })
-    store.queueAgentNote('curia-9', 'a human answered esc-1 ...', { by: 'alp' })
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
-    assert.equal(store.takeAgentNotes('curia-9').length, 1)
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'which port?' })
+    reduction.answer(record.id, { answer: '9012', by: 'alp', via: 'button' })
+    reduction.queueAgentNote('curia-9', 'a human answered esc-1 ...', { by: 'alp' })
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' }), null)
+    assert.equal(reduction.takeAgentNotes('curia-9').length, 1)
   })
 
   test('the newest answer wins when one question was somehow answered twice', () => {
-    parkedAnswer(store, { prompt: 'which port?', answer: '9012' })
-    parkedAnswer(store, { prompt: 'which port?', answer: '9013' })
-    assert.equal(store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })?.record.answer, '9013')
+    parkedAnswer(reduction, { prompt: 'which port?', answer: '9012' })
+    parkedAnswer(reduction, { prompt: 'which port?', answer: '9013' })
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which port?' })?.record.answer, '9013')
   })
 
   test('the attachments ride with the recorded answer', () => {
-    parkedAnswer(store, { prompt: 'does this look right?', answer: 'yes', attachments: ['/data/attachments/esc-1/shot.png'] })
-    const hit = store.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'does this look right?' })
+    parkedAnswer(reduction, { prompt: 'does this look right?', answer: 'yes', attachments: ['/data/attachments/esc-1/shot.png'] })
+    const hit = reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'does this look right?' })
     assert.deepEqual(hit.record.attachments, ['/data/attachments/esc-1/shot.png'])
   })
 })
@@ -171,8 +172,8 @@ describe('the digest guard on a recorded approval (#369)', () => {
   const digest = (over = {}) => ({
     uncommitted: false, files: 2, added: 30, deleted: 4, capped: false,
     list: [
-      { path: 'daemon/src/store.mjs', status: 'M', added: 25, deleted: 4 },
-      { path: 'daemon/test/store.test.mjs', status: 'A', added: 5, deleted: 0 },
+      { path: 'daemon/src/reduction.mjs', status: 'M', added: 25, deleted: 4 },
+      { path: 'daemon/test/reduction.test.mjs', status: 'A', added: 5, deleted: 0 },
     ],
     ...over,
   })
@@ -184,7 +185,7 @@ describe('the digest guard on a recorded approval (#369)', () => {
   test('a changed total, a changed path, or a changed count is a different diff', () => {
     assert.equal(sameDigest(digest(), digest({ added: 31 })), false)
     assert.equal(sameDigest(digest(), digest({ files: 3 })), false)
-    assert.equal(sameDigest(digest(), digest({ list: [{ path: 'daemon/src/index.mjs', status: 'M', added: 25, deleted: 4 }, { path: 'daemon/test/store.test.mjs', status: 'A', added: 5, deleted: 0 }] })), false)
+    assert.equal(sameDigest(digest(), digest({ list: [{ path: 'daemon/src/index.mjs', status: 'M', added: 25, deleted: 4 }, { path: 'daemon/test/reduction.test.mjs', status: 'A', added: 5, deleted: 0 }] })), false)
   })
 
   // Null is not empty (#355), and it is not evidence either.
@@ -196,9 +197,9 @@ describe('the digest guard on a recorded approval (#369)', () => {
   test('a recorded gate answer is found by the same rule as any other question', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-recorded-gate-'))
     try {
-      const store = new EscalationStore(dir)
-      parkedAnswer(store, { kind: REVIEW_KIND, prompt: 'summary + charting', answer: 'approve', diff: digest() })
-      const hit = store.recordedAnswerFor({ agent: 'curia-9', kind: REVIEW_KIND, prompt: 'summary + charting' })
+      const reduction = new Reduction(dir)
+      parkedAnswer(reduction, { kind: REVIEW_KIND, prompt: 'summary + charting', answer: 'approve', diff: digest() })
+      const hit = reduction.recordedAnswerFor({ agent: 'curia-9', kind: REVIEW_KIND, prompt: 'summary + charting' })
       assert.equal(hit.record.answer, 'approve')
       assert.equal(sameDigest(hit.record.diff, digest()), true, 'the stored digest is what the guard compares')
       assert.equal(sameDigest(hit.record.diff, digest({ files: 5, added: 400 })), false, 'three more commits and the operator sees a fresh gate')
@@ -369,8 +370,7 @@ describe('the re-ask takes the recorded answer (#369, real boot pair + real MCP 
       'the note went with the answer rather than riding the next tool result',
     )
 
-    const events = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
-      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const events = journalEvents(path.join(tmp, 'data'))
     const replay = events.find((e) => e.type === 'esc_replayed')
     assert.ok(replay, 'the take is journalled, so a reader can see the operator was asked once')
     assert.equal(replay.id, open.id)

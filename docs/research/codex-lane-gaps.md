@@ -206,7 +206,7 @@ backend-blind, which is gap 4), `statusline.test.mjs`, `keepalive.test.mjs` and
 - **Context percent** and the **account bars** are per backend, and the codex lane is the
   cheaper of the two (`usage.mjs:168`).
 - `lifecycle.mjs`, `resolve.mjs`, `github.mjs`, `attach.mjs`, `preview.mjs`, `health.mjs`,
-  `messaging.mjs`, `store.mjs` and `identity.mjs` name neither backend. They act through
+  `messaging.mjs`, `reduction.mjs` and `identity.mjs` name neither backend. They act through
   `gh`, Discord and the daemon, so they carry no lane at all.
 
 ## What graduates from here

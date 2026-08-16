@@ -28,8 +28,8 @@ const AGENT = {
 const inDays = (n) => new Date(Date.now() + n * 86_400_000 + 3_600_000)
   .toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')
 
-// A store stand-in: the reduction store.mjs builds, with the same key rule.
-function fakeStore() {
+// A reduction stand-in: the reduction `reduction.mjs` builds, with the same key rule.
+function fakeReduction() {
   const map = new Map()
   return {
     map,
@@ -44,13 +44,13 @@ function fakeStore() {
 }
 
 // `said` is what reached Discord, which is the only thing that counts as said.
-function watchOver(store, { answers, bridge = true }) {
+function watchOver(reduction, { answers, bridge = true }) {
   const said = []
   const watch = new TokenWatch({
     probe: async () => (typeof answers === 'function' ? answers() : answers),
-    entries: store.entries,
-    entryFor: store.entryFor,
-    journal: store.journal,
+    entries: reduction.entries,
+    entryFor: reduction.entryFor,
+    journal: reduction.journal,
     announce: (text) => {
       if (!bridge) return false
       said.push(text)
@@ -231,9 +231,9 @@ describe('a pass over a whole watch list', () => {
   })
 
   test('one warning, then silence, then a tighter step speaks again', async () => {
-    const store = fakeStore()
+    const reduction = fakeReduction()
     let days = 10
-    const { watch, said } = watchOver(store, {
+    const { watch, said } = watchOver(reduction, {
       answers: () => [{ ...AGENT, ok: true, expiresAt: inDays(days) }],
     })
 
@@ -253,17 +253,17 @@ describe('a pass over a whole watch list', () => {
   })
 
   test('a renewed token clears the standing warning and says so once', async () => {
-    const store = fakeStore()
+    const reduction = fakeReduction()
     let days = 3
-    const { watch, said } = watchOver(store, {
+    const { watch, said } = watchOver(reduction, {
       answers: () => [{ ...AGENT, ok: true, expiresAt: inDays(days) }],
     })
     await watch.pass()
-    assert.equal(store.map.size, 1)
+    assert.equal(reduction.map.size, 1)
 
     days = 90
     await watch.pass()
-    assert.equal(store.map.size, 0)
+    assert.equal(reduction.map.size, 0)
     assert.match(said[1], /renewed/)
 
     // And the ladder is re-armed: the next token to get near speaks from 14.
@@ -272,67 +272,67 @@ describe('a pass over a whole watch list', () => {
   })
 
   test('a probe curia could not take clears nothing', async () => {
-    const store = fakeStore()
+    const reduction = fakeReduction()
     let answers = [{ ...AGENT, ok: true, expiresAt: inDays(3) }]
-    const { watch, said } = watchOver(store, { answers: () => answers })
+    const { watch, said } = watchOver(reduction, { answers: () => answers })
     await watch.pass()
-    assert.equal(store.map.size, 1)
+    assert.equal(reduction.map.size, 1)
 
     // GitHub was slow. That is a fact about the network, and the token is still
     // three days from dying.
     answers = [{ ...AGENT, unmeasured: true }]
     await watch.pass()
-    assert.equal(store.map.size, 1)
+    assert.equal(reduction.map.size, 1)
     assert.equal(said.length, 1) // no ✅, and no repeat of the ⚠️
   })
 
   test('a probe that throws leaves every standing warning alone', async () => {
-    const store = fakeStore()
+    const reduction = fakeReduction()
     let answers = () => [{ ...AGENT, ok: true, expiresAt: inDays(3) }]
-    const { watch } = watchOver(store, { answers: () => answers() })
+    const { watch } = watchOver(reduction, { answers: () => answers() })
     await watch.pass()
     answers = () => { throw new Error('getaddrinfo ENOTFOUND api.github.com') }
     await watch.pass()
-    assert.equal(store.map.size, 1)
+    assert.equal(reduction.map.size, 1)
   })
 
   test('a warning measured with no bridge is not said, and lands at bridge start', async () => {
-    const store = fakeStore()
+    const reduction = fakeReduction()
     const answers = [{ ...AGENT, ok: true, expiresAt: inDays(4) }]
 
     // Boot: the probe runs before the bridge is up.
-    const dark = watchOver(store, { answers, bridge: false })
+    const dark = watchOver(reduction, { answers, bridge: false })
     await dark.watch.pass()
-    assert.equal(store.map.size, 1)
-    assert.equal([...store.map.values()][0].said, false)
+    assert.equal(reduction.map.size, 1)
+    assert.equal([...reduction.map.values()][0].said, false)
 
     // The bridge comes up. flush() re-announces from the reduction — it probes
     // nothing, so a bridge that flaps costs GitHub nothing.
     let probed = 0
     const lit = new TokenWatch({
       probe: async () => { probed++; return [] },
-      entries: store.entries,
-      entryFor: store.entryFor,
-      journal: store.journal,
+      entries: reduction.entries,
+      entryFor: reduction.entryFor,
+      journal: reduction.journal,
       announce: () => Promise.resolve(true),
       log: () => {},
     })
     await lit.flush()
     assert.equal(probed, 0)
-    assert.equal([...store.map.values()][0].said, true)
+    assert.equal([...reduction.map.values()][0].said, true)
 
     // And now it is said, so it is not said again.
     await lit.flush()
-    assert.equal([...store.map.values()][0].said, true)
+    assert.equal([...reduction.map.values()][0].said, true)
   })
 
   test('both holders warn separately about the same repo', async () => {
-    const store = fakeStore()
+    const reduction = fakeReduction()
     const overseer = {
       holder: 'overseer', key: 'OVERSEER_GH_TOKEN_ALP82', repo: 'alp82/curia',
       where: 'daemon/.env.overseer', refusal: 'the overseer cannot read it',
     }
-    const { watch, said } = watchOver(store, {
+    const { watch, said } = watchOver(reduction, {
       answers: [
         { ...AGENT, ok: true, expiresAt: inDays(5) },
         { ...overseer, ok: true, expiresAt: inDays(5) },
@@ -340,6 +340,6 @@ describe('a pass over a whole watch list', () => {
     })
     await watch.pass()
     assert.equal(said.length, 2)
-    assert.equal(store.map.size, 2)
+    assert.equal(reduction.map.size, 2)
   })
 })

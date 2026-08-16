@@ -16,9 +16,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { classifyFault, installCrashGuard } from '../src/health.mjs'
+import { Reduction } from '../src/reduction.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
+import { journalEvents } from './fixtures/journal.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -45,9 +47,7 @@ const json = (port, method, urlPath, obj) => request(port, method, urlPath, {
 })
 
 function events(dataDir) {
-  const p = path.join(dataDir, 'events.jsonl')
-  if (!fs.existsSync(p)) return []
-  return fs.readFileSync(p, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  return journalEvents(dataDir)
 }
 
 describe('classifyFault (#56) — narrow on purpose', () => {
@@ -145,6 +145,28 @@ describe('installCrashGuard (#56) — journal, then decide', () => {
     assert.equal(exited, 1)
     assert.equal(seen[0][0], 'daemon_fault')
     assert.match(seen[0][1].stack, /planted/)
+    process.removeAllListeners('uncaughtException')
+    process.removeAllListeners('unhandledRejection')
+  })
+
+  // The journal is a `node:sqlite` database since #407, and this guard journals
+  // and then exits. So the insert has to be COMMITTED by the moment `exit` runs.
+  // A write that merely started is a record curia loses at the one moment it
+  // needs one, and the shape of that loss is invisible from inside the process.
+  test('the fault is on disk before the exit runs (#407, ADR-0017)', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-crashguard-'))
+    const reduction = new Reduction(dir)
+    let onDisk = null
+    const handle = installCrashGuard({
+      log: () => {},
+      journal: (type, detail) => reduction.journal(type, detail),
+      // A second connection, opened inside the exit: it sees only what is
+      // committed, so this is the same read a next boot makes.
+      exit: () => { onDisk = journalEvents(dir) },
+    })
+    handle(new TypeError('planted'), 'uncaughtException')
+    assert.equal(onDisk.length, 1, 'the insert completed before the exit')
+    assert.equal(onDisk[0].type, 'daemon_fault')
     process.removeAllListeners('uncaughtException')
     process.removeAllListeners('unhandledRejection')
   })

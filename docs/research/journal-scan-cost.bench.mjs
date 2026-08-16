@@ -10,7 +10,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { normalizeEvent } from '../../daemon/src/store.mjs'
+import { normalizeEvent } from '../../daemon/src/journal.mjs'
 
 const dir = process.argv[2] || path.join(os.tmpdir(), 'curia-journal-bench')
 fs.mkdirSync(dir, { recursive: true })

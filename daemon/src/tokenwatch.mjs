@@ -90,7 +90,7 @@ export function warningKey({ fault, holder, key, repo }) {
 }
 
 // Rule 2 and rule 4, in one predicate. `entry` is the last `token_warned` this
-// key has, out of the store's reduction, or null.
+// key has, out of the reduction, or null.
 export function shouldSay(entry, reading) {
   if (!entry) return true
   if (!entry.said) return true // rule 4: it was measured, not said
@@ -177,7 +177,7 @@ export function clearedLine(entry) {
 
 export class TokenWatch {
   // `probe` returns every reading this pass measured, one per repo per holder,
-  // in the shape `readingOf` takes. `entries` and `entryFor` read the store's
+  // in the shape `readingOf` takes. `entries` and `entryFor` read the reduction's
   // reduction. `announce` resolves true when the words reached Discord.
   constructor({ probe, entries, entryFor, journal, announce, log = () => {}, intervalMs = PROBE_INTERVAL_MS }) {
     this.probe = probe

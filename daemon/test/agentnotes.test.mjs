@@ -8,57 +8,57 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EscalationStore, noteDisposition } from '../src/store.mjs'
+import { Reduction, noteDisposition } from '../src/reduction.mjs'
 import { COMMAND_SHAPED, QUESTION_SHAPED, commandHint, queuedNoteReply, statusAnswer } from '../src/bridge.mjs'
 import { parseCommand } from '../src/commands.mjs'
 
 describe('agent-note queue', () => {
-  let dir, store
+  let dir, reduction
   const dirs = []
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-notes-'))
     dirs.push(dir)
-    store = new EscalationStore(dir)
+    reduction = new Reduction(dir)
   })
 
   after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }) })
 
   test('a note queues, drains once, and the drain is journalled', () => {
-    store.queueAgentNote('curia-9', 'D could be mentioned as well', { by: 'alp' })
-    store.queueAgentNote('curia-9', 'also check mobile', { by: 'alp' })
-    const notes = store.takeAgentNotes('curia-9')
+    reduction.queueAgentNote('curia-9', 'D could be mentioned as well', { by: 'alp' })
+    reduction.queueAgentNote('curia-9', 'also check mobile', { by: 'alp' })
+    const notes = reduction.takeAgentNotes('curia-9')
     assert.deepEqual(notes.map((n) => n.text), ['D could be mentioned as well', 'also check mobile'])
-    assert.deepEqual(store.takeAgentNotes('curia-9'), [], 'drained means gone')
+    assert.deepEqual(reduction.takeAgentNotes('curia-9'), [], 'drained means gone')
   })
 
   test('notes are per agent — another session drains nothing', () => {
-    store.queueAgentNote('curia-9', 'for nine', {})
-    assert.deepEqual(store.takeAgentNotes('curia-4'), [])
-    assert.equal(store.takeAgentNotes('curia-9').length, 1)
+    reduction.queueAgentNote('curia-9', 'for nine', {})
+    assert.deepEqual(reduction.takeAgentNotes('curia-4'), [])
+    assert.equal(reduction.takeAgentNotes('curia-9').length, 1)
   })
 
   test('a note inside the grace window is tagged with the just-closed escalation', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'A or B?', options: ['A', 'B'] })
-    store.answer(record.id, { answer: 'B', by: 'alp', via: 'button' })
-    const { after } = store.queueAgentNote('curia-9', 'D could be mentioned as well', {})
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'A or B?', options: ['A', 'B'] })
+    reduction.answer(record.id, { answer: 'B', by: 'alp', via: 'button' })
+    const { after } = reduction.queueAgentNote('curia-9', 'D could be mentioned as well', {})
     assert.equal(after, record.id)
-    const [note] = store.takeAgentNotes('curia-9')
+    const [note] = reduction.takeAgentNotes('curia-9')
     assert.equal(note.after, record.id)
   })
 
   test('outside the grace window the tag is off — the note stands alone', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
-    store.answer(record.id, { answer: 'x', by: 'alp', via: 'button' })
-    const { after } = store.queueAgentNote('curia-9', 'much later thought', {
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
+    reduction.answer(record.id, { answer: 'x', by: 'alp', via: 'button' })
+    const { after } = reduction.queueAgentNote('curia-9', 'much later thought', {
       now: Date.now() + 10 * 60_000,
     })
     assert.equal(after, null)
   })
 
   test('an OPEN escalation never tags — only closed records are "just answered"', () => {
-    store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'still open' })
-    const { after } = store.queueAgentNote('curia-9', 'note while open', {})
+    reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'still open' })
+    const { after } = reduction.queueAgentNote('curia-9', 'note while open', {})
     assert.equal(after, null)
   })
 
@@ -203,28 +203,28 @@ describe('agent-note queue', () => {
   // re-queued as an agent note, so the resumed agent gets question and answer
   // on its first tool result.
   test('escalation_agent_died marks the record, and the mark survives a restart', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
-    store.logEvent('escalation_agent_died', { id: record.id, agent: 'curia-9', ticket: '9' })
-    assert.equal(store.get(record.id).agent_died, true)
-    const reborn = new EscalationStore(dir)
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
+    reduction.journal('escalation_agent_died', { id: record.id, agent: 'curia-9', ticket: '9' })
+    assert.equal(reduction.get(record.id).agent_died, true)
+    const reborn = new Reduction(dir)
     assert.equal(reborn.get(record.id).agent_died, true)
   })
 
   test('queueRecordedAnswer queues question and answer, tagged with the escalation id', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'deploy to staging first?' })
-    store.answer(record.id, { answer: 'yes, staging first', by: 'alp', via: 'button' })
-    store.queueRecordedAnswer(store.get(record.id))
-    const [note] = store.takeAgentNotes('curia-9')
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'deploy to staging first?' })
+    reduction.answer(record.id, { answer: 'yes, staging first', by: 'alp', via: 'button' })
+    reduction.queueRecordedAnswer(reduction.get(record.id))
+    const [note] = reduction.takeAgentNotes('curia-9')
     assert.equal(note.after, record.id)
     assert.match(note.text, /deploy to staging first\?/)
     assert.match(note.text, /yes, staging first/)
   })
 
   test('the hand-off note names attachment paths so a fresh agent can read them', () => {
-    const { record } = store.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
-    store.answer(record.id, { answer: 'see the screenshot', attachments: ['/data/attachments/esc-1/image.png'], by: 'alp', via: 'thread' })
-    store.queueRecordedAnswer(store.get(record.id))
-    const [note] = store.takeAgentNotes('curia-9')
+    const { record } = reduction.open({ agent: 'curia-9', ticket: '9', kind: 'free-text', prompt: 'q' })
+    reduction.answer(record.id, { answer: 'see the screenshot', attachments: ['/data/attachments/esc-1/image.png'], by: 'alp', via: 'thread' })
+    reduction.queueRecordedAnswer(reduction.get(record.id))
+    const [note] = reduction.takeAgentNotes('curia-9')
     assert.match(note.text, /\/data\/attachments\/esc-1\/image\.png/)
   })
 
@@ -234,38 +234,38 @@ describe('agent-note queue', () => {
   // none, because reaching the successor is its whole point.
   describe('a note expires with the instance it was addressed to (#208)', () => {
     test('a stamped note dies with its instance, an unstamped one lives on', () => {
-      store.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@1' })
-      store.queueRecordedAnswer({ id: 'esc-3', agent: 'curia-166', prompt: 'ship it?', answer: 'yes' })
+      reduction.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@1' })
+      reduction.queueRecordedAnswer({ id: 'esc-3', agent: 'curia-166', prompt: 'ship it?', answer: 'yes' })
 
       // #252: expiry hands back the notes themselves, not a count — a dead
       // verdict is posted in full and a number cannot carry it.
-      assert.deepEqual(store.expireAgentNotes('curia-166', null).map((n) => n.text), ['cancel 166'])
-      const [survivor, ...rest] = store.takeAgentNotes('curia-166')
+      assert.deepEqual(reduction.expireAgentNotes('curia-166', null).map((n) => n.text), ['cancel 166'])
+      const [survivor, ...rest] = reduction.takeAgentNotes('curia-166')
       assert.deepEqual(rest, [], 'exactly one note survived')
       assert.match(survivor.text, /a human answered esc-3/)
     })
 
     test('the successor never reads its predecessor\'s words, even if no exit path ran', () => {
-      store.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@15:13' })
+      reduction.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@15:13' })
       // the #170 run: a fresh agent takes the session name an hour later
-      assert.deepEqual(store.takeAgentNotes('curia-166', 'curia-166@16:36'), [])
+      assert.deepEqual(reduction.takeAgentNotes('curia-166', 'curia-166@16:36'), [])
     })
 
     test('the instance that WAS addressed still reads its own notes', () => {
-      store.queueAgentNote('curia-166', 'look at the tail', { instance: 'curia-166@1' })
-      assert.deepEqual(store.takeAgentNotes('curia-166', 'curia-166@1').map((n) => n.text), ['look at the tail'])
+      reduction.queueAgentNote('curia-166', 'look at the tail', { instance: 'curia-166@1' })
+      assert.deepEqual(reduction.takeAgentNotes('curia-166', 'curia-166@1').map((n) => n.text), ['look at the tail'])
     })
 
     test('expiry is journalled, so a restart does not resurrect the words', () => {
-      store.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@1' })
-      store.expireAgentNotes('curia-166', null)
-      assert.deepEqual(new EscalationStore(dir).takeAgentNotes('curia-166'), [])
+      reduction.queueAgentNote('curia-166', 'cancel 166', { instance: 'curia-166@1' })
+      reduction.expireAgentNotes('curia-166', null)
+      assert.deepEqual(new Reduction(dir).takeAgentNotes('curia-166'), [])
     })
 
     test('expiring nothing writes nothing — an empty sweep is not an event', () => {
-      store.queueAgentNote('curia-166', 'a note for whoever resumes', {})
-      assert.deepEqual(store.expireAgentNotes('curia-166', null), [])
-      assert.deepEqual(store.takeAgentNotes('curia-166').map((n) => n.text), ['a note for whoever resumes'])
+      reduction.queueAgentNote('curia-166', 'a note for whoever resumes', {})
+      assert.deepEqual(reduction.expireAgentNotes('curia-166', null), [])
+      assert.deepEqual(reduction.takeAgentNotes('curia-166').map((n) => n.text), ['a note for whoever resumes'])
     })
 
     // The gate's own decision, pure for the reason queuedNoteReply is pure:
@@ -293,9 +293,9 @@ describe('agent-note queue', () => {
     })
 
     test('a note journalled before #208 carries no stamp, so it keeps the old rule', () => {
-      fs.appendFileSync(path.join(dir, 'events.jsonl'),
-        JSON.stringify({ ts: '2026-08-01T00:00:00Z', type: 'agent_note', agent: 'curia-166', text: 'from before', after: null }) + '\n')
-      const reborn = new EscalationStore(dir)
+      // The pre-#208 shape, straight into the journal: no `instance` on the line.
+      new Reduction(dir).journal('agent_note', { agent: 'curia-166', text: 'from before', after: null })
+      const reborn = new Reduction(dir)
       assert.deepEqual(reborn.takeAgentNotes('curia-166', 'curia-166@2').map((n) => n.text), ['from before'])
     })
   })
@@ -381,21 +381,21 @@ describe('agent-note queue', () => {
     })
 
     test('the journal answers "what did it last do" — and the note itself never counts', () => {
-      store.logEvent('notify', { agent: 'curia-81', ticket: '81', message: 'built the page' })
-      store.queueAgentNote('curia-81', 'whats taking so long', { by: 'alp' })
-      assert.equal(store.lastAgentEvent('curia-81').type, 'notify')
+      reduction.journal('notify', { agent: 'curia-81', ticket: '81', message: 'built the page' })
+      reduction.queueAgentNote('curia-81', 'whats taking so long', { by: 'alp' })
+      assert.equal(reduction.lastAgentEvent('curia-81').type, 'notify')
       // replay fills it too — a restarted daemon still answers
-      assert.equal(new EscalationStore(dir).lastAgentEvent('curia-81').type, 'notify')
-      assert.equal(store.lastAgentEvent('curia-unknown'), null)
+      assert.equal(new Reduction(dir).lastAgentEvent('curia-81').type, 'notify')
+      assert.equal(reduction.lastAgentEvent('curia-unknown'), null)
     })
   })
 
   test('the queue survives a daemon restart — journal, not memory', () => {
-    store.queueAgentNote('curia-9', 'undelivered', {})
-    const reborn = new EscalationStore(dir)
+    reduction.queueAgentNote('curia-9', 'undelivered', {})
+    const reborn = new Reduction(dir)
     assert.deepEqual(reborn.takeAgentNotes('curia-9').map((n) => n.text), ['undelivered'])
     // and the drain replays too: a third boot sees nothing
-    const third = new EscalationStore(dir)
+    const third = new Reduction(dir)
     assert.deepEqual(third.takeAgentNotes('curia-9'), [])
   })
 })

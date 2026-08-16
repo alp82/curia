@@ -23,7 +23,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EscalationStore } from '../src/store.mjs'
+import { Reduction } from '../src/reduction.mjs'
 import { DiscordBridge, ALL_AS_RECOMMENDED } from '../src/bridge.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-round-test-'))
@@ -122,16 +122,16 @@ describe('the round survives a restart (#285)', () => {
     // daemon restart can land inside that window. The flag has to be on the
     // journal line, or the retry posts the round with no way to accept it.
     const dir = tmp()
-    const first = new EscalationStore(dir)
+    const first = new Reduction(dir)
     first.open({ agent: 'curia-285', ticket: '285', kind: 'free-text', prompt: 'Q1, Q2', recommended: true })
-    const [replayed] = new EscalationStore(dir).openEscalations()
+    const [replayed] = new Reduction(dir).openEscalations()
     assert.equal(replayed.recommended, true)
   })
 
   test('a record opened without the flag replays as false, never undefined', () => {
     const dir = tmp()
-    new EscalationStore(dir).open({ agent: 'curia-285', ticket: '285', kind: 'free-text', prompt: 'which port?' })
-    const [replayed] = new EscalationStore(dir).openEscalations()
+    new Reduction(dir).open({ agent: 'curia-285', ticket: '285', kind: 'free-text', prompt: 'which port?' })
+    const [replayed] = new Reduction(dir).openEscalations()
     assert.equal(replayed.recommended, false)
   })
 
@@ -140,9 +140,9 @@ describe('the round survives a restart (#285)', () => {
     // agent that re-asks the same round with the flag flipped is re-asking, not
     // asking something new — two live cards for one question is the bug #200
     // and #139 both circle.
-    const store = new EscalationStore(tmp())
-    const a = store.open({ agent: 'curia-285', ticket: '285', kind: 'free-text', prompt: 'Q1, Q2' })
-    const b = store.open({ agent: 'curia-285', ticket: '285', kind: 'free-text', prompt: 'Q1, Q2', recommended: true })
+    const reduction = new Reduction(tmp())
+    const a = reduction.open({ agent: 'curia-285', ticket: '285', kind: 'free-text', prompt: 'Q1, Q2' })
+    const b = reduction.open({ agent: 'curia-285', ticket: '285', kind: 'free-text', prompt: 'Q1, Q2', recommended: true })
     assert.equal(b.superseded?.id, a.record.id)
   })
 })

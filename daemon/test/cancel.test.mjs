@@ -16,7 +16,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EscalationStore, CONFIRM_KIND } from '../src/store.mjs'
+import { Reduction, CONFIRM_KIND } from '../src/reduction.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
 import { DiscordBridge } from '../src/bridge.mjs'
 
@@ -127,22 +127,22 @@ describe('a press on an old cancel button (#200)', () => {
 })
 
 describe('the thread name after a cancel (#200)', () => {
-  let store, bridge, threads
+  let reduction, bridge, threads
 
   const makeThread = (id, name, renames) => ({
     id, name, send: async () => {}, setName: async (n) => { renames.push(n) },
   })
 
   beforeEach(() => {
-    store = new EscalationStore(tmp())
+    reduction = new Reduction(tmp())
     threads = new Map()
     bridge = new DiscordBridge({
       token: 'x', allowedUsers: [], dataDir: tmp(), handlers: {}, log: () => {},
       bindings: {
-        get: (t) => store.threadForTicket(t),
-        bind: (t, id) => store.bindTicketThread(t, id),
-        release: (t, r) => store.releaseTicketThread(t, r),
-        last: (t) => store.lastThreadForTicket(t),
+        get: (t) => reduction.threadForTicket(t),
+        bind: (t, id) => reduction.bindTicketThread(t, id),
+        release: (t, r) => reduction.releaseTicketThread(t, r),
+        last: (t) => reduction.lastThreadForTicket(t),
       },
     })
     bridge.guild = { id: 'G' }
@@ -160,31 +160,31 @@ describe('the thread name after a cancel (#200)', () => {
     const renames = []
     const t = makeThread('t-c', '🎫 200 · task', renames)
     threads.set(t.id, t)
-    store.bindTicketThread('200', 't-c')
+    reduction.bindTicketThread('200', 't-c')
 
     await bridge.cancelTicket('200')
     assert.deepEqual(renames, ['⚰️ 200 · task'])
-    assert.equal(store.threadForTicket('200'), 't-c', 'the ticket keeps its history where a re-dispatch will land')
+    assert.equal(reduction.threadForTicket('200'), 't-c', 'the ticket keeps its history where a re-dispatch will land')
   })
 
   test('a cancel leaves an unlabeled thread alone and survives a deleted one', async () => {
     const renames = []
     const t = makeThread('t-plain', 'deploy talk', renames)
     threads.set(t.id, t)
-    store.bindTicketThread('201', 't-plain')
+    reduction.bindTicketThread('201', 't-plain')
     await bridge.cancelTicket('201')
     assert.deepEqual(renames, [])
 
-    store.bindTicketThread('202', 't-gone') // never registered ⇒ the fetch misses
+    reduction.bindTicketThread('202', 't-gone') // never registered ⇒ the fetch misses
     await bridge.cancelTicket('202') // no throw
-    assert.equal(store.threadForTicket('202'), 't-gone')
+    assert.equal(reduction.threadForTicket('202'), 't-gone')
   })
 
   test('a re-dispatch takes the same thread back and puts 🎫 on it again', async () => {
     const renames = []
     const t = makeThread('t-again', '⚰️ 203 · task', renames)
     threads.set(t.id, t)
-    store.bindTicketThread('203', 't-again')
+    reduction.bindTicketThread('203', 't-again')
 
     const r = await bridge.bindTicket('203', { threadId: 't-again', type: 'task' })
     assert.equal(r.ok, true)
@@ -234,7 +234,7 @@ describe('the mark on a cancelled question (#200)', () => {
 // on a press nobody was shown. The rule settled here is who a record is
 // addressed to, not which ticket it names.
 describe('where a confirm renders (#218)', () => {
-  let bridge, store, posts, threads
+  let bridge, reduction, posts, threads
 
   const makeThread = (id) => ({
     id,
@@ -250,19 +250,19 @@ describe('where a confirm renders (#218)', () => {
 
   beforeEach(() => {
     posts = []
-    store = new EscalationStore(tmp())
+    reduction = new Reduction(tmp())
     threads = new Map()
     for (const id of ['t-208', 't-209', 't-origin']) threads.set(id, makeThread(id))
-    store.bindTicketThread('208', 't-208')
-    store.bindTicketThread('209', 't-209')
+    reduction.bindTicketThread('208', 't-208')
+    reduction.bindTicketThread('209', 't-209')
 
     bridge = new DiscordBridge({
       token: 'x', allowedUsers: [], dataDir: tmp(), handlers: {}, log: () => {},
       bindings: {
-        get: (t) => store.threadForTicket(t),
-        bind: (t, id) => store.bindTicketThread(t, id),
-        release: (t, r) => store.releaseTicketThread(t, r),
-        last: (t) => store.lastThreadForTicket(t),
+        get: (t) => reduction.threadForTicket(t),
+        bind: (t, id) => reduction.bindTicketThread(t, id),
+        release: (t, r) => reduction.releaseTicketThread(t, r),
+        last: (t) => reduction.lastThreadForTicket(t),
       },
     })
     bridge.guild = { id: 'G' }

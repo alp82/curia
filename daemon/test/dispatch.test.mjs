@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Dispatcher, discordTime, paneTail, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
-import { EscalationStore } from '../src/store.mjs'
+import { Reduction } from '../src/reduction.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
 import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
@@ -43,7 +43,7 @@ const OPEN_ISSUE = {
 let tmp
 let notifies
 let events
-let escalations // open escalation records the store double reports (#47)
+let escalations // open escalation records the reduction double reports (#47)
 let cancelled // ids the dispatcher cancelled through the injected gate
 let confirms // confirm records opened through the injected openConfirm (#94)
 let lapses // {id, reason} lapsed through the injected lapseEscalation (#94)
@@ -116,44 +116,48 @@ function makeDispatcher(deps = {}, {
     // #195: every dispatch prepares a container, so every Dispatcher needs pins
     sandbox: TEST_PINS,
   }
-  // A REAL store behind the double (#289). The journal must reach disk,
+  // A REAL reduction behind the double (#289). The journal must reach disk,
   // because several dispatcher reductions read it back off disk — the ending
   // clause (#253) among them, which is how report_result's sentence reaches
   // the Stop hook. Two reductions no longer do, so the double delegates them
   // to the code that owns them instead of keeping a second copy of the rule.
-  // Its constructor replays the file, so a test that seeds `events.jsonl`
-  // before it builds a dispatcher still gets those lines counted.
-  const journal = new EscalationStore(path.join(tmp, 'data'))
-  const store = {
-    logEvent: (type, data) => {
-      const rec = journal.logEvent(type, data)
+  // Its constructor converts a seeded `events.jsonl` into the journal (#323),
+  // so a test that seeds the file before it builds a dispatcher still gets
+  // those lines counted.
+  const journal = new Reduction(path.join(tmp, 'data'))
+  const reduction = {
+    journal: (type, data) => {
+      const rec = journal.journal(type, data)
       events.push(rec)
       return rec
     },
+    // The dispatcher's epoch questions read the journal the real reduction
+    // wrote, which is what a test that seeds it before this line depends on.
+    journalEvents: () => journal.journalEvents(),
     recentOutcomes: () => journal.recentOutcomes(),
     pullRequestFor: (agent) => journal.pullRequestFor(agent),
     // #346: the arm outlives the process, so the reduction is the real one.
     armedLimitResumes: () => journal.armedLimitResumes(),
     // #377, for the same reason: the cooling the dispatcher seeds itself from
-    // at construction is the real reduction over the real journal file.
+    // at construction is the real reduction over the real journal.
     armedCoolings: () => journal.armedCoolings(),
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     // #374: the real reduction over the real journal. A test seeds `esc_open`
-    // and `esc_answer` through `logEvent` above, and the exchange the prompt
+    // and `esc_answer` through `journal` above, and the exchange the prompt
     // inherits is built by the code that owns the rule.
     answeredExchangeFor: (agent) => journal.answeredExchangeFor(agent),
     cancel: () => ({ ok: true }),
-    // #208, the real EscalationStore predicate: a note stamped with an
+    // #208, the real Reduction predicate: a note stamped with an
     // instance dies when that instance is no longer the live one. An
     // unstamped note is session-keyed and stays (the #139 hand-off).
-    // #252 moved the ANNOUNCEMENT behind the hook the real store fires here,
+    // #252 moved the ANNOUNCEMENT behind the hook the real reduction fires here,
     // so the double fires it too — the count in the thread comes from it now.
     expireAgentNotes: (agent, live = null, why = 'is gone') => {
       const arr = agentNotes.get(agent) ?? []
       const keep = arr.filter((n) => !n.instance || n.instance === live)
       const stale = arr.filter((n) => n.instance && n.instance !== live)
       agentNotes.set(agent, keep)
-      if (stale.length) store.onNotesExpired?.({ agent, notes: stale, liveInstance: live, why })
+      if (stale.length) reduction.onNotesExpired?.({ agent, notes: stale, liveInstance: live, why })
       return stale
     },
     // #252: the note-by-id half the interrupt button reads.
@@ -205,7 +209,7 @@ function makeDispatcher(deps = {}, {
   const d = new Dispatcher({
     config,
     routing,
-    store,
+    reduction,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     // the #94 confirm seams: records land in `escalations` so the dispatcher's
     // own openEscalations() reads find them (lapse-on-exit walks that list)
@@ -237,9 +241,9 @@ function makeDispatcher(deps = {}, {
   // the timeline. Reconcile refuses to publish the terminal surface while the
   // proxy is down, so the default here is up — the down case gets its own test.
   d.identityProxy = identityProxy
-  // #252: index.mjs wires the store's expiry hook to the dispatcher's one
+  // #252: index.mjs wires the reduction's expiry hook to the dispatcher's one
   // announcer, so every expiry — exit, adoption, drain — says so exactly once.
-  store.onNotesExpired = (ev) => d.announceExpiredNotes(ev)
+  reduction.onNotesExpired = (ev) => d.announceExpiredNotes(ev)
   dispatchers.push(d)
   return d
 }
@@ -1341,7 +1345,7 @@ describe('the usage-credits dialog gates the model (#126, #108 item 12)', () => 
 describe('every spawn path authenticates the agent the same way (#53, #156)', () => {
   // #53 pinned this against the host credential store, which a bare pane shared
   // through `CLAUDE_SECURESTORAGE_CONFIG_DIR`. #195 deleted the bare pane, so
-  // the store is gone: the pane environment is EMPTY on purpose (a pane env
+  // the reduction is gone: the pane environment is EMPTY on purpose (a pane env
   // would put every value in `ps`, the cost #155 measured), and the credential
   // rides the container's `--env-file` instead.
   //
@@ -2843,14 +2847,14 @@ describe('the ending is one CuriaBot message (#253)', () => {
 
     test('the journal answers for a session this process never held', () => {
       const d = makeDispatcher()
-      d.store.logEvent('pr_opened', { repo: 'o/r', ticket: '42', agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+      d.reduction.journal('pr_opened', { repo: 'o/r', ticket: '42', agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
       assert.equal(d.pullRequestUrlFor('curia-42'), 'https://github.com/o/r/pull/9')
     })
 
     test('a fresh dispatch does not inherit the last one\'s pull request', () => {
       const d = makeDispatcher()
-      d.store.logEvent('pr_opened', { repo: 'o/r', ticket: '42', agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
-      d.store.logEvent('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet' })
+      d.reduction.journal('pr_opened', { repo: 'o/r', ticket: '42', agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+      d.reduction.journal('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet' })
       assert.equal(d.pullRequestUrlFor('curia-42'), null)
     })
   })
@@ -2860,7 +2864,7 @@ describe('the ending is one CuriaBot message (#253)', () => {
     d.agents.set('curia-42', agent())
     await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
     // the next dispatch of the same ticket, on the same session name
-    d.store.logEvent('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet' })
+    d.reduction.journal('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet' })
     fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
     d.agents.set('curia-42', agent())
 
@@ -3055,7 +3059,7 @@ describe('the spawn prompt names the parent map (#41)', () => {
 
 // #374: `resume` handed a fresh agent the worktree and the model and none of
 // the exchange, so the operator answered the same question twice. The push is
-// one argument on the prompt, read out of the store the daemon already holds.
+// one argument on the prompt, read out of the reduction the daemon already holds.
 // The rule itself is pinned in `inheritedexchange.test.mjs`, and its wording in
 // `prompt.test.mjs`; what belongs HERE is that a dispatch actually asks.
 describe('a dispatch hands the recorded exchange to the prompt (#374)', () => {
@@ -3065,9 +3069,9 @@ describe('a dispatch hands the recorded exchange to the prompt (#374)', () => {
       writePrompt: (cfgDir, issue, opts) => { prompt = opts; return '/p' },
     }, { readyTimeoutS: 0 })
     // The dead agent's round, as the journal really carries it. Both events go
-    // through the store double, which writes them to the real journal file.
-    d.store.logEvent('esc_open', { id: 'esc-1', agent: 'curia-42', ticket: '42', kind: 'free-text', prompt: 'which lane?' })
-    d.store.logEvent('esc_answer', { id: 'esc-1', answer: 'the flat one', by: 'operator', via: 'discord' })
+    // through the reduction double, which writes them to the real journal.
+    d.reduction.journal('esc_open', { id: 'esc-1', agent: 'curia-42', ticket: '42', kind: 'free-text', prompt: 'which lane?' })
+    d.reduction.journal('esc_answer', { id: 'esc-1', answer: 'the flat one', by: 'operator', via: 'discord' })
 
     await d.start('42', { repo: 'o/r', reuse: true })
 

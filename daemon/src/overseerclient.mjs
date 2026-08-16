@@ -30,7 +30,7 @@
 // nothing to adopt, and nothing on disk to sweep.
 //
 // WHAT THE DAEMON STILL OWNS after the model left the process: the conversation
-// (store.overseerSession), the one-turn-at-a-time rule per conversation, the
+// (reduction.overseerSession), the one-turn-at-a-time rule per conversation, the
 // operator notes a confirm left behind, and every effect. The container owns
 // the model, the shell and the checkouts. Nothing owns both.
 
@@ -143,11 +143,11 @@ export class OverseerClient {
   // and never typed twice). `daemonHost`/`daemonPort` are how the container
   // reaches back — the docker host gateway, the same path an agent takes.
   constructor({
-    store, command, workspaceRoot, port, daemonPort,
+    reduction, command, workspaceRoot, port, daemonPort,
     daemonHost = 'host.docker.internal', model = OVERSEER_CONTAINER_MODEL,
     log = console.log, fetchImpl = fetch, turns = new OverseerTurns(),
   }) {
-    this.store = store
+    this.reduction = reduction
     this.command = command
     this.workspaceRoot = workspaceRoot
     this.port = port
@@ -177,7 +177,7 @@ export class OverseerClient {
   // tails the transcript, and the verb tools run with NO origin thread, so a
   // confirm lands in the channel and in the console's needs-you list.
   async browserTurn(key, text, { replay = false } = {}) {
-    if (!this.store.hasConsoleConversation?.(key)) {
+    if (!this.reduction.hasConsoleConversation?.(key)) {
       throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
     }
     const said = []
@@ -213,7 +213,7 @@ export class OverseerClient {
     try {
       // Confirm outcomes that resolved between turns (#94) ran button → daemon
       // with no model in the loop, so the conversation never heard them.
-      const notes = this.store.takeOverseerNotes?.(key) ?? []
+      const notes = this.reduction.takeOverseerNotes?.(key) ?? []
       const fullPrompt = notes.length
         ? `${notes.map((t) => `[curia: ${t}]`).join('\n')}\n\n${prompt}`
         : prompt
@@ -239,13 +239,13 @@ export class OverseerClient {
     const turn = this.turns.begin({
       key, routeThreadId, command: this.command, narrate: (text) => step(`\`${text}\``),
     })
-    this.store.beginOverseerTurn({ key, turn: turn.id, prompt, threadId: routeThreadId, replay })
+    this.reduction.beginOverseerTurn({ key, turn: turn.id, prompt, threadId: routeThreadId, replay })
     let out
     try {
       out = await this.#hop(key, prompt, turn, { say, step })
     } finally {
       this.turns.end(turn.id)
-      this.store.endOverseerTurn({
+      this.reduction.endOverseerTurn({
         key, turn: turn.id, ok: out?.ok ?? false, crossings: turn.crossings, why: out?.why ?? null,
       })
     }
@@ -258,7 +258,7 @@ export class OverseerClient {
   // the failure goes to the operator. ADR-0015 gives a killed turn a replay
   // instead, and it is the same test — a turn that crossed the seam zero times.
   async #hop(key, prompt, turn, { say, step }) {
-    const resume = this.store.overseerSession(key)
+    const resume = this.reduction.overseerSession(key)
     this.log(`[overseer] turn key=${key} resume=${resume ?? 'fresh'} model=${this.model} → ${this.base}${TURN_PATH}`)
     let sessionId = null
     let toolCalls = 0
@@ -287,7 +287,7 @@ export class OverseerClient {
           // write wins. It is the only handle on the conversation, and #332
           // reads it to find the transcript the Chat screen draws.
           sessionId = ev.id
-          this.store.bindOverseerSession(key, ev.id)
+          this.reduction.bindOverseerSession(key, ev.id)
         } else if (ev.event === TURN_EVENTS.note && ev.text) {
           await step(ev.text)
         } else if (ev.event === TURN_EVENTS.verb) {

@@ -69,10 +69,10 @@ export function helperRunArgs({ repoRoot, dataDir, home, uid, gid }) {
 }
 
 export class SelfDeploy {
-  constructor({ repoRoot, dataDir, store, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? '/home/alp', dockerSocket = '/var/run/docker.sock' }) {
+  constructor({ repoRoot, dataDir, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? '/home/alp', dockerSocket = '/var/run/docker.sock' }) {
     this.repoRoot = repoRoot
     this.dataDir = dataDir
-    this.store = store
+    this.reduction = reduction
     this.log = log
     this.exec = exec
     this.port = port
@@ -146,7 +146,7 @@ export class SelfDeploy {
     fs.writeFileSync(this.markerPath, JSON.stringify({
       state: 'handed-off', prev, next, by, ts: new Date().toISOString(),
     }, null, 2))
-    this.store.logEvent('deploy_requested', { by, prev, next })
+    this.reduction.journal('deploy_requested', { by, prev, next })
     const args = [
       ...helperRunArgs({
         repoRoot: this.repoRoot, dataDir: this.dataDir, home: this.home,
@@ -184,18 +184,18 @@ export class SelfDeploy {
     const { state, prev, next } = marker
     let text
     if (state === 'landed') {
-      this.store.logEvent('deploy_landed', { prev, next })
+      this.reduction.journal('deploy_landed', { prev, next })
       text = `🚀 deploy landed: ${short(prev)} → ${short(next)} — the health check passed`
     } else if (state === 'rolled-back') {
-      this.store.logEvent('deploy_rolled_back', { prev, next, reason: marker.reason ?? null })
+      this.reduction.journal('deploy_rolled_back', { prev, next, reason: marker.reason ?? null })
       text = `⚠️ deploy ROLLED BACK: ${short(next)} failed its health check — running ${short(prev)} again. See daemon/data/deploy.log.`
     } else if (state === 'lockout') {
       // A daemon that can say this survived, so the word is one notch too
       // dark — but the sibling gave up, and that deserves the loud spelling.
-      this.store.logEvent('deploy_rolled_back', { prev, next, reason: 'lockout: the rollback health check failed too' })
+      this.reduction.journal('deploy_rolled_back', { prev, next, reason: 'lockout: the rollback health check failed too' })
       text = `🛑 deploy failed AND the rollback health check failed (${short(prev)} → ${short(next)}) — the box needs eyes. See daemon/data/deploy.log.`
     } else {
-      this.store.logEvent('deploy_unresolved', { prev, next, state })
+      this.reduction.journal('deploy_unresolved', { prev, next, state })
       text = `⚠️ deploy outcome unknown: the sibling never wrote a result (last state **${state}**, ${short(prev)} → ${short(next)}). See daemon/data/deploy.log.`
     }
     fs.rmSync(this.markerPath, { force: true })

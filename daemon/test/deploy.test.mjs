@@ -23,7 +23,7 @@ const NEXT = 'b'.repeat(40)
 
 function fakeStore() {
   const events = []
-  return { events, logEvent: (type, data) => events.push({ type, ...data }) }
+  return { events, journal: (type, data) => events.push({ type, ...data }) }
 }
 
 // A git/docker double: answers rev-parse from `shas`, throws where the
@@ -59,13 +59,13 @@ function build(opts = {}) {
   // any stat-able file works as the socket double — only its gid is read
   const sock = path.join(dataDir, 'docker.sock')
   fs.writeFileSync(sock, '')
-  const store = fakeStore()
+  const reduction = fakeStore()
   const { exec, docker, git } = fakeExec(opts)
   const deploy = new SelfDeploy({
-    repoRoot: '/home/alp/curia', dataDir, store, exec,
+    repoRoot: '/home/alp/curia', dataDir, reduction, exec,
     log: () => {}, port: 4271, home: '/home/alp', dockerSocket: sock,
   })
-  return { deploy, store, docker, git, dataDir }
+  return { deploy, reduction, docker, git, dataDir }
 }
 
 describe('parse and expansion', () => {
@@ -82,11 +82,11 @@ describe('parse and expansion', () => {
 
 describe('the daemon half: preflight and hand-off', () => {
   test('an up-to-date checkout deploys nothing', async () => {
-    const { deploy, store, docker } = build({ head: PREV, origin: PREV })
+    const { deploy, reduction, docker } = build({ head: PREV, origin: PREV })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /already at a{7}/)
     assert.equal(docker.length, 0)
-    assert.equal(store.events.length, 0)
+    assert.equal(reduction.events.length, 0)
     assert.equal(deploy.readMarker(), null)
   })
 
@@ -94,14 +94,14 @@ describe('the daemon half: preflight and hand-off', () => {
   // used to reach the sibling's `git merge --ff-only`, which refuses it — and
   // the sibling reads that as a failed deploy and rolls back over the edit.
   test('a dirty tracked file is refused by name, before anything is ordered', async () => {
-    const { deploy, store, docker } = build({ dirty: ' M config/curia.yaml\n M daemon/src/index.mjs\n' })
+    const { deploy, reduction, docker } = build({ dirty: ' M config/curia.yaml\n M daemon/src/index.mjs\n' })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /uncommitted changes to config\/curia\.yaml, daemon\/src\/index\.mjs/)
     // and it says where a settings save actually goes, so the operator does not
     // read this refusal as the dashboard's doing
     assert.match(reply, /config\/\*\.local\.yaml/)
     assert.equal(docker.length, 0)
-    assert.equal(store.events.length, 0)
+    assert.equal(reduction.events.length, 0)
     assert.equal(deploy.readMarker(), null)
   })
 
@@ -131,14 +131,14 @@ describe('the daemon half: preflight and hand-off', () => {
   })
 
   test('the hand-off writes the marker, journals, and starts the sibling', async () => {
-    const { deploy, store, docker } = build()
+    const { deploy, reduction, docker } = build()
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /deploy handed off: a{7} → b{7}/)
     const marker = deploy.readMarker()
     assert.equal(marker.state, 'handed-off')
     assert.equal(marker.prev, PREV)
     assert.equal(marker.next, NEXT)
-    assert.deepEqual(store.events, [{ type: 'deploy_requested', by: 'u1', prev: PREV, next: NEXT }])
+    assert.deepEqual(reduction.events, [{ type: 'deploy_requested', by: 'u1', prev: PREV, next: NEXT }])
     assert.equal(docker.length, 1)
     const args = docker[0]
     // detached, auto-removed, and named — the name is the concurrency guard
@@ -190,17 +190,17 @@ describe('the surviving daemon half: resolution', () => {
   })
 
   test('landed: journalled, announced, marker cleared', async () => {
-    const { deploy, store } = build()
+    const { deploy, reduction } = build()
     writeMarker(deploy, 'landed')
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'landed')
-    assert.deepEqual(store.events, [{ type: 'deploy_landed', prev: PREV, next: NEXT }])
+    assert.deepEqual(reduction.events, [{ type: 'deploy_landed', prev: PREV, next: NEXT }])
     assert.match(said[0], /deploy landed/)
     assert.equal(deploy.readMarker(), null)
   })
 
   test('the poll waits out a sibling still working', async () => {
-    const { deploy, store } = build()
+    const { deploy, reduction } = build()
     writeMarker(deploy, 'rolling-back')
     let polls = 0
     const { said, p } = resolve(deploy, {
@@ -209,17 +209,17 @@ describe('the surviving daemon half: resolution', () => {
       },
     })
     assert.equal(await p, 'rolled-back')
-    assert.equal(store.events[0].type, 'deploy_rolled_back')
-    assert.equal(store.events[0].reason, 'health check failed')
+    assert.equal(reduction.events[0].type, 'deploy_rolled_back')
+    assert.equal(reduction.events[0].reason, 'health check failed')
     assert.match(said[0], /ROLLED BACK/)
   })
 
   test('a sibling that never answers resolves as unknown', async () => {
-    const { deploy, store } = build()
+    const { deploy, reduction } = build()
     writeMarker(deploy, 'handed-off')
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'handed-off')
-    assert.equal(store.events[0].type, 'deploy_unresolved')
+    assert.equal(reduction.events[0].type, 'deploy_unresolved')
     assert.match(said[0], /outcome unknown/)
     assert.equal(deploy.readMarker(), null)
   })

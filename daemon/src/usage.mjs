@@ -861,7 +861,7 @@ export function ctxOnWire(read) {
 // without it would leave the operator picking blind.
 //
 // `sessionIdFor(key)` is the journalled binding — the daemon passes
-// `store.overseerSession`. Every conversation shares one config dir, so only
+// `reduction.overseerSession`. Every conversation shares one config dir, so only
 // that id names a conversation's own file.
 export function consoleConversationsOnWire({
   conversations, sessionIdFor, harness, cfgDir, model, routing, account, models,

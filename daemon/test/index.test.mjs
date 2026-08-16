@@ -25,6 +25,7 @@ import { PROBE_MARK, PROBE_PATH } from '../src/sandbox.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
+import { journalEvents, journalText } from './fixtures/journal.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -284,8 +285,7 @@ describe('an answer with no live resolver queues for the resumed agent (#139, re
     assert.equal(JSON.parse(res.body).ok, true, 'the answer is recorded, not rejected')
 
     // the hand-off: question + answer sit on the agent-note queue, journalled
-    const events = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
-      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const events = journalEvents(path.join(tmp, 'data'))
     const note = events.find((e) => e.type === 'agent_note' && e.agent === 'curia-7')
     assert.ok(note, 'an agent note is queued for the resumed agent')
     assert.match(note.text, /pick A or B/)
@@ -586,7 +586,7 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       body: JSON.stringify({ hook_event_name: 'Stop', session_id: 'fixture' }),
     })
     assert.equal(res.status, 200)
-    const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+    const journal = journalText(path.join(tmp, 'data'))
     assert.ok(journal.includes('"type":"agent_token_refused"'), 'a refusal is journalled, or nobody ever learns it happened')
     assert.ok(journal.includes('"type":"agent_done"'), 'and the accepted call reached the route')
   })
@@ -662,7 +662,7 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
     // It says nothing else, and it leaves no trace: a wider route here would be
     // a wider container surface than #159 left.
     assert.deepEqual(Object.keys(JSON.parse(res.body)).sort(), ['curia', 'port'])
-    const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+    const journal = journalText(path.join(tmp, 'data'))
     assert.ok(!journal.includes(PROBE_PATH), 'the probe journals nothing')
   })
 
@@ -770,8 +770,7 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
     assert.notEqual(code, 0, 'a clean exit stays down; `restart: on-failure` respawns on a failure')
 
     // And the journal carries it, so the feed can say a restart happened at all.
-    const events = fs.readFileSync(path.join(dataDir, 'events.jsonl'), 'utf8')
-      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const events = journalEvents(dataDir)
     const logged = events.filter((e) => e.type === 'restart_requested')
     assert.equal(logged.length, 1)
     assert.equal(logged[0].by, 'dashboard')
@@ -798,8 +797,7 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
   let dataDir
   let watch
 
-  const journal = () => fs.readFileSync(path.join(dataDir, 'events.jsonl'), 'utf8')
-    .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+  const journal = () => journalEvents(dataDir)
   const post = (route, body) => request(port, 'POST', route, {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -923,7 +921,7 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
   //
   // Live, on the real daemon, because the rule that matters is durable: a
   // number is spent the moment it is minted, and the journal is what keeps it
-  // spent. A unit test over the store proves the reduction; this proves the
+  // spent. A unit test over the reduction proves the reduction; this proves the
   // route the Chat screen actually calls.
 
   test('the list starts empty — the cutover copies no history and nothing mints on a read', async () => {

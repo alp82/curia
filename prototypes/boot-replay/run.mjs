@@ -5,7 +5,7 @@
 // It builds the same synthetic journal #321 used, at the same four sizes, then
 // boots the daemon's OWN reducer three ways over it:
 //
-//   1. from the file, exactly as `EscalationStore._replay` does today
+//   1. from the file, exactly as the boot pass did before #407
 //   2. from the journal, `select body from events order by id`
 //   3. narrowed: scan only the computed half, query the verbatim three
 //
@@ -37,7 +37,7 @@ function timed(fn, iterations) {
   return Number(Number(now() - t0) / 1e6 / iterations).toFixed(2) * 1
 }
 
-const typeCheck = checkTypeList(fs.readFileSync(path.join(here, '../../daemon/src/store.mjs'), 'utf8'))
+const typeCheck = checkTypeList(fs.readFileSync(path.join(here, '../../daemon/src/reduction.mjs'), 'utf8'))
 if (typeCheck.missing.length) {
   console.error(`the reducer switch has moved on: ${typeCheck.missing.join(', ')} is not in COMPUTED_TYPES`)
   process.exit(1)
