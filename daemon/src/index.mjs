@@ -352,8 +352,8 @@ async function renderEscalation(record, files = []) {
 
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
-function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files }) {
-  const { record, superseded_all } = store.open({ agent, ticket, kind, prompt, options, preview_url, recommended })
+function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files, diff, diff_error }) {
+  const { record, superseded_all } = store.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error })
   log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
   // Every corpse this agent left, not just the newest (#336): a card left
   // rendered keeps asking a question nothing can receive an answer for.
@@ -612,8 +612,14 @@ function lapseEscalation(id, reason) {
 // than a string in a prompt. Unlike overseerConfirm there is NO ttl: #11's
 // indefinite block is the whole promise, and a review that expired under a human
 // who was merely asleep would drop the work on the floor.
-function askReview(agent, ticket, promptText) {
-  const { record, answered } = openEscalation({ agent, ticket, kind: REVIEW_KIND, prompt: promptText })
+// The digest (#355) rides in as data on the record, not as words in the prompt.
+// The prompt already carries its one Discord line; what the record carries is
+// the whole per-file list, which is what lets `GET /overview` hand the console
+// a gate card that costs no extra read.
+function askReview(agent, ticket, promptText, { diff = null, diffError = null } = {}) {
+  const { record, answered } = openEscalation({
+    agent, ticket, kind: REVIEW_KIND, prompt: promptText, diff, diff_error: diffError,
+  })
   // The final status separates an approval-or-rejection from a cancel — a
   // gate whose agent was torn down (#200) settles the same promise with an
   // "aborted" text, and the status is what tells the two apart.
@@ -1546,6 +1552,11 @@ async function overview() {
     review_gate: open.filter((r) => r.kind === REVIEW_KIND).map((r) => ({
       ...wireEscalation(r),
       pull_request: dispatcher.pullRequestUrlFor(r.agent),
+      // The digest counted when this gate opened (#355). It rides the record,
+      // so the card costs no extra read and every poll states the same numbers
+      // — including one taken after the agent and its worktree are gone.
+      diff: r.diff ?? null,
+      diff_error: r.diff_error ?? null,
     })),
     // The overseer container (#327). ADR-0015 gives compose its liveness, so
     // this asserts nothing and spawns nothing: it dials the published loopback
@@ -1709,6 +1720,48 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // so the container-facing listener refuses it before it reaches here.
   if (url.pathname === '/overview' && req.method === 'GET') {
     return json(200, await overview())
+  }
+
+  // ---- the diff, on demand (#355) --------------------------------------------
+  //
+  // ONE route, and the browser addresses it by NAMING A THING curia already
+  // knows: an escalation id (a review gate) or an agent name (a live row). It
+  // never names a path, a repo, a branch or a command — the daemon resolves the
+  // worktree itself, which is the #266 seam this inherits.
+  //
+  // A file is addressed by its INDEX into the digest's own ranked list, so the
+  // only files reachable through here are the ones curia measured. Without
+  // `file` the route answers the digest alone, which is how a live agent row
+  // gets its numbers: a gate's digest is stored and needs no read at all.
+  //
+  // Loopback only, and absent from AGENT_ROUTES: an agent has its own worktree
+  // and no business reading another's.
+  if (url.pathname === '/diff' && req.method === 'GET') {
+    const escId = url.searchParams.get('esc')
+    const agentName = url.searchParams.get('agent')
+    const fileParam = url.searchParams.get('file')
+    if (!escId && !agentName) return json(400, { error: 'name an escalation id or an agent' })
+
+    // A gate reads its STORED digest: it was counted when the gate opened, and
+    // re-counting now would answer a different question — the worktree has
+    // moved on, or is gone.
+    const record = escId ? store.get(escId) : null
+    if (escId && !record) return json(404, { error: `there is no escalation ${escId}` })
+    if (record && record.kind !== REVIEW_KIND) return json(400, { error: `${escId} is not a review gate, so it carries no diff` })
+    const agent = record?.agent ?? agentName
+    const uncommitted = !record // a live row shows committed and uncommitted work together
+
+    const { digest, error } = record
+      ? { digest: record.diff ?? null, error: record.diff_error ?? null }
+      : await dispatcher.agentDiff(agent)
+    if (fileParam === null) return json(200, { agent, uncommitted, digest, error })
+
+    if (!digest) return json(200, { agent, uncommitted, digest: null, error, hunks: null })
+    const i = Number(fileParam)
+    const file = Number.isInteger(i) && i >= 0 ? digest.list[i] : undefined
+    if (!file) return json(404, { error: `this digest has no file ${fileParam}` })
+    const hunks = await dispatcher.agentHunks(agent, file, { uncommitted })
+    return json(200, { agent, uncommitted, file, hunks })
   }
 
   // ---- the browser conversations (#333) --------------------------------------

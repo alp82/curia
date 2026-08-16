@@ -386,7 +386,7 @@ export function stopReason(items, { attempt, budget }) {
 // NOT the map's. Approving research findings never says the map is done, so the
 // heading says what is being approved — the map stays open either way, and a
 // heading that implied otherwise would be the one thing #160 forbids.
-export function reviewGateText({ repo, ticket, title, summary, charting, links, mapDispatch = false }) {
+export function reviewGateText({ repo, ticket, title, summary, charting, links, mapDispatch = false, digestLine = null }) {
   const parts = [
     mapDispatch
       ? `**Approve the research findings charted on ${repo}#${ticket}?** — ${title}`
@@ -400,6 +400,11 @@ export function reviewGateText({ repo, ticket, title, summary, charting, links, 
     '',
     '**Look at**',
     ...links.map((l) => `- ${l}`),
+    // The digest (#355). ONE line, under the links, and never the hunks: a
+    // phone-sized message cannot hold them, so the console keeps the read. It
+    // is a fact curia measured rather than a second account of the work, which
+    // is the whole rule #343 settled about what may join this card.
+    ...(digestLine ? ['', digestLine] : []),
   ]
   // No length cap (#108 item 16 follow-through): the pre-#119 self-truncation
   // cut exactly the charting the gate exists to judge. The bridge chunks long

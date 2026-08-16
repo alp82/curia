@@ -173,11 +173,26 @@ export class EscalationStore {
     return rec
   }
 
+  // What an event looks like in the FEED, which rides every `/overview` poll.
+  //
+  // One event is trimmed: `review_requested` carries the whole diff digest
+  // (#355), up to two hundred file rows, and the journal keeps that whole
+  // because it is the durable record. The feed keeps only the totals — the ring
+  // holds a hundred events and a phone re-reads it every five seconds, so a
+  // per-file list riding it would be the poll cost #289 just removed, back
+  // under a different name. The console reads the list off the review-gate
+  // record, which carries it in full.
+  #feedShape(ev) {
+    if (!ev.diff?.list) return ev
+    const { list, ...totals } = ev.diff
+    return { ...ev, diff: { ...totals, list_on_the_record: list.length } }
+  }
+
   _apply(ev, { replay }) {
     // The feed's tail (#262). Every event passes here exactly once, on replay
     // and on append alike, so the ring is right the instant the boot replay
     // ends and stays right for the rest of the run.
-    this.recent.push(ev)
+    this.recent.push(this.#feedShape(ev))
     if (this.recent.length > RECENT_EVENTS) this.recent.shift()
 
     // The last thing the journal says about an agent (#236): the direct answer
@@ -232,6 +247,12 @@ export class EscalationStore {
           id: ev.id, agent: ev.agent, ticket: ev.ticket, kind: ev.kind,
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
           recommended: ev.recommended ?? false,
+          // The diff digest (#355). Counted once when the review gate opened
+          // and stored HERE, so Discord and the console state the same numbers,
+          // no poll re-counts anything, and the digest survives the agent dying
+          // with its worktree. Null on every other kind, and null with a reason
+          // on a gate curia could not count.
+          diff: ev.diff ?? null, diff_error: ev.diff_error ?? null,
           payload_hash: ev.payload_hash, status: 'open', opened_at: ev.ts,
           action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
           discord: null, successor: null, agent_died: false,
@@ -432,7 +453,7 @@ export class EscalationStore {
   // whatever its wording, so at most one set of live buttons ever points at a
   // given agent. The two keys never cross: a confirm is an operator's record
   // and belongs to no agent's call.
-  open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id }) {
+  open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id, diff, diff_error }) {
     const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
@@ -452,7 +473,7 @@ export class EscalationStore {
     // a superseded record held the same question its successor asks. Nothing
     // decides on it, so a round re-asked with `recommended` flipped (#285)
     // supersedes its own record either way.
-    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload_hash, action, origin_thread_id })
+    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload_hash, action, origin_thread_id, diff, diff_error })
     for (const r of superseded_all) this._append({ type: 'esc_supersede', id: r.id, successor: id })
     return { record: this.escalations.get(id), superseded: superseded_all[0] ?? null, superseded_all }
   }

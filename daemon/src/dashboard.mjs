@@ -61,7 +61,10 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // `/api/console` and it POSTs the two console routes, none of which a proto-3
 // sidecar serves — so an old server must refuse this page rather than draw a
 // picker whose every row and button answers 404.
-export const DASHBOARD_PROTO = 4
+// Bumped to 5 by #355: the gate card and the agent row both read `/api/diff`,
+// which a proto-4 sidecar does not serve — so an old server must refuse this
+// page rather than draw a digest whose every file answers 404.
+export const DASHBOARD_PROTO = 5
 export const STAMP_NAME = 'curia-dashboard'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -182,6 +185,12 @@ export const ASSERT_MS = 60_000
 // are the answer, and they need this to return.
 export const POLL_TIMEOUT_MS = 10_000
 
+// The one read that may leave the box (#355). Hunks come from the worktree in
+// milliseconds, and from `gh pr diff` over the network when the worktree is
+// gone — so this waits longer than the poll does, on a card the operator opened
+// and is watching.
+export const DIFF_TIMEOUT_MS = 30_000
+
 // The biggest settings patch this surface will read. The screen writes a watch
 // list and a handful of numbers, so anything near this is not a settings save.
 export const MAX_BODY = 256 * 1024
@@ -201,6 +210,10 @@ const VERB_ESC_RE = /^[\w.-]+$/
 // the reason every field above is: this surface composes the call, so it names
 // the shape it will send rather than passing a browser's word through.
 const CONSOLE_KEY_RE = /^console-\d+$/
+// A file's place in the digest's own ranked list (#355). An index rather than a
+// path, so the set of files this surface can ask about is exactly the set curia
+// measured — the browser cannot name a file, only pick one.
+const VERB_FILE_RE = /^\d{1,4}$/
 export const MAX_WORDS = 4000
 
 // Why an answer did not land (#266). The store refuses in ONE WORD — `unknown`,
@@ -398,7 +411,10 @@ export class DashboardSurface {
   // answer route needs it: a question that is no longer open comes back 409
   // with the REASON in the body, and that reason is the whole point — it is
   // what first-valid-wins looks like from the console.
-  #daemon({ method = 'GET', path: route, body = null, accept = [200] }) {
+  // `timeout` is widened by the one read that may leave the box (#355): the
+  // hunks fall back to `gh pr diff` when the worktree is gone, and a network
+  // round trip does not fit the poll's ceiling.
+  #daemon({ method = 'GET', path: route, body = null, accept = [200], timeout = POLL_TIMEOUT_MS }) {
     return new Promise((resolve, reject) => {
       const payload = body === null ? null : Buffer.from(JSON.stringify(body))
       const req = http.request({
@@ -420,7 +436,7 @@ export class DashboardSurface {
           }
         })
       })
-      req.setTimeout(POLL_TIMEOUT_MS, () => req.destroy(new Error(`the daemon did not answer ${route} within ${POLL_TIMEOUT_MS / 1000}s`)))
+      req.setTimeout(timeout, () => req.destroy(new Error(`the daemon did not answer ${route} within ${timeout / 1000}s`)))
       req.on('error', reject)
       if (payload) req.write(payload)
       req.end()
@@ -771,6 +787,34 @@ export class DashboardSurface {
       return this.payload().then(
         (p) => this.#json(res, 200, p),
         (e) => this.#json(res, 500, { error: e.message }),
+      )
+    }
+    // The diff, on demand (#355). Never from the poll snapshot and never on the
+    // poll at all: a gate's digest already rides `/overview`, and everything
+    // this route answers costs a git call the operator asked for by opening a
+    // card.
+    //
+    // Three fields, and this side names the shape of every one. The daemon
+    // resolves the worktree; the browser names an escalation id or an agent,
+    // and a file only by its index into the digest curia itself produced — so
+    // no path, no repo, no branch and no command crosses this wire.
+    if (url.pathname === '/api/diff') {
+      let q
+      try {
+        q = new URLSearchParams()
+        if (url.searchParams.has('esc')) q.set('esc', field(url.searchParams.get('esc'), VERB_ESC_RE, 'an escalation id'))
+        if (url.searchParams.has('agent')) q.set('agent', field(url.searchParams.get('agent'), VERB_SESSION_RE, 'a curia session name'))
+        if (url.searchParams.has('file')) q.set('file', field(url.searchParams.get('file'), VERB_FILE_RE, 'a file index'))
+        if (!q.has('esc') && !q.has('agent')) throw refuse('name a review gate or an agent to read a diff for')
+      } catch (e) {
+        return this.#json(res, 400, { error: e.message })
+      }
+      return this.#daemon({ path: `/diff?${q}`, accept: [200, 400, 404], timeout: DIFF_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        // A daemon that cannot be reached says so as data, the way the fleet
+        // does: the card then states that curia could not be asked, rather
+        // than drawing a file list with nothing in it.
+        (e) => this.#json(res, 200, { digest: null, hunks: null, error: e.message }),
       )
     }
     // The browser conversations (#333). Read only while the Chat screen is

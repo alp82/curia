@@ -21,6 +21,11 @@
      daemon call from the fields the page sends, so this page names a ticket, an
      escalation id or an agent — never a command line.
 
+     THE DIFF DIGEST (#355) follows that same seam and is the one read off the
+     poll: `GET /api/diff` names an escalation id or an agent, and a file only
+     by its place in the digest curia itself measured. Hunks are fetched per
+     file, once, when a card is opened.
+
      TWO RULES RUN THROUGH EVERY SCREEN HERE.
 
      1. Color marks attention, and nothing else. Warn and bad are spent on an
@@ -29,7 +34,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=4">
+<meta name="curia-dashboard" content="proto=5">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia</title>
 <style>
@@ -41,6 +46,9 @@
     --warn: #e0a83c; --bad: #d95f57; --ok: #4cc2a0; --idle: #8a94a6;
     --chip-warn-bg: #2b2114; --chip-bad-bg: #2b1715; --chip-ok-bg: #12241f;
     --shadow: 0 6px 24px rgba(0,0,0,.45);
+    /* The diff's own two colors (#355) — a patch's vocabulary, not the
+       attention marking. Deliberately not --ok/--bad. */
+    --diff-add: #6fbf73; --diff-del: #d98b84;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -50,6 +58,7 @@
       --warn: #9a6a10; --bad: #b03a32; --ok: #157a5f; --idle: #5b6570;
       --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
       --shadow: 0 6px 24px rgba(30,40,35,.12);
+      --diff-add: #1f7a34; --diff-del: #a3352c;
     }
   }
   * { box-sizing: border-box; }
@@ -295,6 +304,40 @@
   .said a { word-break: break-all; }
   .copy { width: 100%; font: 12px ui-monospace, Menlo, monospace; }
 
+  /* ---------- the diff digest (#355, on #343's Diff-then-ship) ----------
+     Green and red here are NOT the attention marking. They are the diff's own
+     two-hundred-year-old vocabulary, and a reader who has ever seen a patch
+     reads them without a legend — so they stay off the warn/bad tokens that
+     mean "this wants you", and take their own dimmer pair. */
+  .diff { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-inset); overflow: hidden; }
+  .diff-sum { padding: 8px 11px; font-size: 13px; border-bottom: 1px solid var(--line); }
+  .diff-rule { padding: 6px 11px; font-size: 11.5px; color: var(--ink-faint); border-bottom: 1px solid var(--line); }
+  .diff-file { border-bottom: 1px solid var(--line); }
+  .diff-file:last-child { border-bottom: 0; }
+  .diff-row {
+    display: flex; width: 100%; gap: 10px; align-items: baseline; justify-content: space-between;
+    background: none; border: 0; padding: 7px 11px 2px; color: var(--ink);
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .diff-row:hover { background: var(--bg-raise); }
+  .diff-row .path { font-size: 12.5px; word-break: break-all; }
+  .diff-row .nums { white-space: nowrap; font-size: 12px; }
+  .diff .cap { padding: 0 11px 7px; font-size: 11.5px; color: var(--ink-faint); }
+  .diff .say { padding: 0 11px 9px; font-size: 12px; color: var(--ink-dim); }
+  .diff .say a { word-break: break-all; }
+  .add { color: var(--diff-add); }
+  .del { color: var(--diff-del); }
+  pre.hunks {
+    margin: 0; padding: 8px 11px; overflow-x: auto; background: var(--bg);
+    border-top: 1px solid var(--line); font-size: 11.5px; line-height: 1.4;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  pre.hunks .hl { display: block; white-space: pre; }
+  pre.hunks .hl.add { color: var(--diff-add); }
+  pre.hunks .hl.del { color: var(--diff-del); }
+  pre.hunks .hl.at { color: var(--accent); }
+  pre.hunks .hl.meta { color: var(--ink-faint); }
+
   /* ---------- the chat (#267) ----------
      A door, not a room: the chat itself is the timeline page, served under this
      surface's own address. Nothing here draws a message. */
@@ -362,7 +405,7 @@ var UI = {
      the control it came from; `said` is what curia answered, shown at that same
      control. `note` and `tele` name the agent whose box is open, and `mode` is
      the delivery ADR-0013 defaults to. */
-  act: { busy: null, said: null, note: null, mode: "queue", tele: null },
+  act: { busy: null, said: null, note: null, mode: "queue", tele: null, diff: null },
 };
 var payload = null;   /* the sidecar's last answer */
 var reachable = true; /* is the SIDECAR itself answering — a different fact from daemon_up */
@@ -756,6 +799,190 @@ function escCard(r) {
     ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
 }
 
+/* ---- the diff digest (#355) ------------------------------------------------
+
+   The card answers "how big is this, and what did it touch" without carrying
+   the whole diff. Every number on it is a fact curia MEASURED — the agent's
+   gate summary stays the only account of the work (#343).
+
+   TWO SOURCES, one card. A review gate's digest was counted when the gate
+   opened and rides `/overview`, so drawing it costs no read at all. A live
+   agent row is counted on demand, committed and uncommitted work together,
+   when the operator presses the button.
+
+   THE HUNKS NEVER RIDE THE POLL. They are fetched per file, once, and cached
+   here — a card the operator never opened costs nothing, and a card left open
+   is not re-fetched every five seconds. */
+
+/* key -> the card's own state. `open` starts with the top file expanded, which
+   is the one thing the rank rule decides. */
+var diffs = {};
+/* Hunk reads the next render will start. A renderer must not fetch, so it
+   records what it needs and `render()` drains this after the page is written. */
+var diffQueue = [];
+
+function diffState(key) {
+  if (!diffs[key]) diffs[key] = { open: { 0: true }, hunks: {}, digest: null, error: null, read: false, loading: false };
+  return diffs[key];
+}
+
+/* The digest for a LIVE agent row. A gate never comes through here: its numbers
+   are already on the payload. */
+async function loadDigest(key, query) {
+  const d = diffState(key);
+  if (d.loading) return;
+  d.loading = true;
+  render();
+  try {
+    const res = await fetch(query, { headers: { accept: "application/json" }, cache: "no-store" });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    d.digest = b.digest ?? null;
+    d.error = b.error ?? null;
+  } catch (e) {
+    d.digest = null;
+    d.error = e.message;
+  }
+  d.read = true;
+  d.loading = false;
+  render();
+}
+
+async function loadHunks(key, i, query) {
+  const d = diffState(key);
+  try {
+    const res = await fetch(query + "&file=" + i, { headers: { accept: "application/json" }, cache: "no-store" });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    d.hunks[i] = b.hunks ?? { text: null, error: b.error ?? "curia said nothing about this file" };
+  } catch (e) {
+    d.hunks[i] = { text: null, error: e.message };
+  }
+  render();
+}
+
+function drainDiffQueue() {
+  const q = diffQueue;
+  diffQueue = [];
+  for (const j of q) loadHunks(j.key, j.i, j.query);
+}
+
+function toggleDiffFile(key, i, query) {
+  const d = diffState(key);
+  d.open[i] = !d.open[i];
+  render();
+}
+
+/* The agent row's button (#355). It presses once and the read is a snapshot of
+   that moment, so `re-read` is beside it: the work moves while you look. */
+function openDiff(session) {
+  UI.act.diff = UI.act.diff === session ? null : session;
+  render();
+  if (!UI.act.diff) return;
+  const key = "agent:" + session;
+  if (!diffState(key).read) loadDigest(key, agentDiffQuery(session));
+}
+function rereadDiff(key, query) {
+  delete diffs[key];
+  loadDigest(key, query);
+}
+const agentDiffQuery = (session) => "/api/diff?agent=" + encodeURIComponent(session);
+const gateDiffQuery = (id) => "/api/diff?esc=" + encodeURIComponent(id);
+
+/* The caption under a path: facts, in words, so a state is never told by color
+   alone. `hunks` is absent on a change too big to have been counted, and the
+   caption then says nothing rather than saying zero. */
+function fileCaption(f) {
+  const w = [];
+  if (f.untracked) w.push("new, not committed yet");
+  else if (f.status === "A") w.push("new");
+  else if (f.status === "D") w.push("deleted");
+  else if (f.status === "R") w.push(f.from ? "renamed from " + f.from : "renamed");
+  else if (f.status === "C") w.push(f.from ? "copied from " + f.from : "copied");
+  else if (f.status === "T") w.push("type changed");
+  if (f.binary) w.push("binary");
+  else if (f.hunks != null) w.push(f.hunks + " hunk" + (f.hunks === 1 ? "" : "s"));
+  return w.join(" · ");
+}
+
+const num = (n) => (n == null ? "?" : n);
+
+/* A patch, colored by its own vocabulary. No highlighting beyond the four line
+   kinds: this is a read, not an editor. */
+function hunkHtml(text) {
+  return String(text ?? "").split("\n").map((l) => {
+    let c = "";
+    if (/^(@@)/.test(l)) c = "at";
+    else if (/^(\+\+\+|---|diff |index |new file|deleted file|similarity |rename |old mode|new mode|Binary files)/.test(l)) c = "meta";
+    else if (l.startsWith("+")) c = "add";
+    else if (l.startsWith("-")) c = "del";
+    return `<span class="hl ${c}">${esc(l)}</span>`;
+  }).join("\n");
+}
+
+/* A file that is open. The read is asked for HERE — the first render that wants
+   it queues it, and the marker it leaves behind is what stops the second render
+   asking again. */
+function hunkBody(key, f, i, query, prUrl) {
+  const d = diffState(key);
+  const h = d.hunks[i];
+  const files = prUrl ? ` <a href="${esc(prUrl)}/files">Read it on GitHub</a>` : "";
+  if (h === undefined) {
+    d.hunks[i] = "loading";
+    diffQueue.push({ key, i, query });
+    return `<div class="say">reading the hunks…</div>`;
+  }
+  if (h === "loading") return `<div class="say">reading the hunks…</div>`;
+  if (h.text == null || h.text === "") {
+    return `<div class="say">curia could not read this file's hunks${h.error ? " — " + esc(h.error) : ""}.${files}</div>`;
+  }
+  const said = h.source === "pull-request"
+    ? `<div class="say">the worktree is gone — this comes from the pull request's own diff</div>` : "";
+  const missed = h.lines_total - h.lines_shown;
+  const tail = h.truncated
+    ? `<div class="say">the card stopped at ${h.lines_shown} lines and did not show ${missed} more.${
+      prUrl ? files : " There is no pull request to read the rest on."}</div>`
+    : "";
+  return `${said}<pre class="hunks">${hunkHtml(h.text)}</pre>${tail}`;
+}
+
+function diffFileRow(key, f, i, query, prUrl) {
+  const open = Boolean(diffState(key).open[i]);
+  const cap = fileCaption(f);
+  return `<div class="diff-file">
+    <button class="diff-row" onclick="toggleDiffFile('${js(key)}',${i},'${js(query)}')">
+      <span class="mono path">${open ? "▾" : "▸"} ${esc(f.path)}</span>
+      <span class="nums"><span class="add">+${num(f.added)}</span> <span class="del">−${num(f.deleted)}</span></span>
+    </button>
+    ${cap ? `<div class="cap">${esc(cap)}</div>` : ""}
+    ${open ? hunkBody(key, f, i, query, prUrl) : ""}
+  </div>`;
+}
+
+/* Null is not empty, here as everywhere: a digest curia could not take says so
+   with its reason, and a branch that really changed nothing says that instead.
+   The two must never render the same. */
+function diffCard(key, digest, error, query, prUrl) {
+  if (!digest) {
+    return `<div class="unread">curia could not count this diff${error ? " — " + esc(error) : ""}.${
+      prUrl ? ` <a href="${esc(prUrl)}/files">GitHub still has it</a>` : ""}</div>`;
+  }
+  if (!digest.files) return `<div class="empty">No file changed against the default branch.</div>`;
+  const shown = digest.list ?? [];
+  return `<div class="diff">
+    <div class="diff-sum"><b>${digest.files} file${digest.files === 1 ? "" : "s"}</b>
+      <span class="add">+${digest.added}</span> <span class="del">−${digest.deleted}</span>${
+  digest.uncommitted ? ` <span class="dim">— committed and uncommitted work together</span>` : ""}</div>
+    <div class="diff-rule">ranked ${esc(digest.rank_rule ?? RANK_RULE)}${
+  digest.capped ? ` · the list stops at ${shown.length} of ${digest.files} files` : ""}</div>
+    ${shown.map((f, i) => diffFileRow(key, f, i, query, prUrl)).join("")}
+  </div>`;
+}
+
+/* The same words the daemon prints on the Discord card (diffdigest.mjs
+   RANK_RULE), for a digest journalled before the rule rode the record. */
+const RANK_RULE = "source first, then tests, then docs, generated and lock files last — largest first inside each class";
+
 /* The gate's three answers (#165, ADR-0010). Approve merges and resolves;
    cross-check answers NOTHING and puts a reviewer on the other provider onto
    the diff, with the builder parked where it stands; a rejection carries the
@@ -767,6 +994,7 @@ function gateCard(r) {
     <div class="dim">${esc(snip(r.prompt, 220))}</div>
     ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview</a></div>` : ""}
+    ${diffCard("esc:" + r.id, r.diff ?? null, r.diff_error ?? null, gateDiffQuery(r.id), r.pull_request)}
     <div class="act-row">
       <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
       <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
@@ -961,6 +1189,7 @@ function agentVerbs(a) {
   const s = `'${js(a.session)}'`;
   return `<div class="links">
     ${b("note", `noteBox(${s})`)}
+    ${b("diff", `openDiff(${s})`)}
     ${b("teleport", `teleport(${s},'${js(a.ticket ?? "")}')`)}
     ${b("cancel", `cancelAgent(${s},'${js(a.repo ?? "")}','${js(a.ticket ?? "")}')`, "bad")}
   </div>${busy(key) ? `<div class="dim-note">working…</div>` : ""}`;
@@ -972,6 +1201,7 @@ function agentBoxes(a) {
   const key = "agent:" + a.session;
   const parts = [
     UI.act.note === a.session ? noteBoxHtml(a) : "",
+    UI.act.diff === a.session ? diffBoxHtml(a) : "",
     UI.act.tele === a.session ? teleportHtml(a) : "",
     said(key),
   ].filter(Boolean);
@@ -995,6 +1225,21 @@ function noteBoxHtml(a) {
       <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="sendNote('${js(a.session)}','${js(id)}')">Send</button>
     </div>
   </div>`;
+}
+
+/* The digest before the gate (#355). The same card the gate carries, on a live
+   row, reading the same worktree — committed and uncommitted work together,
+   because that is what the work so far means. You see the shape of the change
+   while a note can still steer it. */
+function diffBoxHtml(a) {
+  const key = "agent:" + a.session;
+  const q = agentDiffQuery(a.session);
+  const d = diffState(key);
+  if (!d.read) return `<div class="act-box"><div class="say">counting the work so far…</div></div>`;
+  return `<div class="act-box">
+    <div class="act-row"><button class="btn sm" ${d.loading ? "disabled" : ""} onclick="rereadDiff('${js(key)}','${js(q)}')">re-read</button>
+      <span class="dim">a snapshot of the worktree, taken when you pressed</span></div>
+    ${diffCard(key, d.digest, d.error, q, null)}</div>`;
 }
 
 function teleportHtml(a) {
@@ -1623,6 +1868,10 @@ function render() {
   </div>`;
   document.title = (n ? `(${n}) ` : "") + "curia";
   restoreField(field);
+  /* The hunks a card just asked for (#355). Started AFTER the page is written,
+     so a renderer stays a renderer — and once each, because the marker the
+     request left behind is what the next render reads. */
+  drainDiffQueue();
 }
 
 /* The poll re-renders the whole page every few seconds, and the settings screen

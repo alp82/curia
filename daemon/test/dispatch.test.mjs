@@ -3126,6 +3126,164 @@ describe('request_review: the one gate (#54 item 2)', () => {
   })
 })
 
+// The diff digest at the gate (#355, building #343).
+//
+// The COUNT itself is diffdigest.test.mjs's, against real git. What is pinned
+// here is the WIRING: that the gate counts once, in the agent's own worktree,
+// at the instant it opens; that the numbers reach the Discord card, the journal
+// event and the escalation record together, so no second reader ever re-counts;
+// and that a worktree already gone is null with a reason rather than an empty
+// change.
+describe('the diff digest at the gate (#355)', () => {
+  const DIGEST = {
+    uncommitted: false, files: 14, added: 812, deleted: 233, capped: false,
+    rank_rule: 'source first, then tests, then docs, generated and lock files last — largest first inside each class',
+    list: [
+      { path: 'daemon/src/dashboard.mjs', added: 120, deleted: 4, status: 'M', binary: false, untracked: false, hunks: 9, from: null },
+      { path: 'daemon/test/x.test.mjs', added: 40, deleted: 0, status: 'A', binary: false, untracked: false, hunks: 1, from: null },
+    ],
+  }
+  const counting = (out, seen = []) => ({
+    readDiffDigest: async (wtPath, opts) => { seen.push({ wtPath, opts }); return out },
+  })
+
+  test('the count happens once, in the agent\'s own worktree, when the gate opens', async () => {
+    const seen = []
+    const d = makeDispatcher(counting({ digest: DIGEST, error: null }, seen),
+      { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    const w = liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(seen.length, 1, 'the gate counted more than once')
+    assert.equal(seen[0].wtPath, w.wtPath, 'the count must read the agent\'s own worktree')
+  })
+
+  test('the Discord card gains one line under the links, and never the hunks', async () => {
+    let asked = null
+    const d = makeDispatcher(counting({ digest: DIGEST, error: null }),
+      { askReview: async (a, t, text) => { asked = text; return { text: 'approve', status: 'answered' } } })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.match(asked, /14 files · \+812 −233 · biggest: daemon\/src\/dashboard\.mjs \+120 −4/)
+    assert.ok(asked.indexOf('14 files') > asked.indexOf('**Look at**'), 'the line belongs under the links')
+    assert.ok(!/^@@|^\+\+\+ |^--- /m.test(asked), 'a hunk reached a phone-sized message')
+  })
+
+  test('the digest lands on the journal event AND on the escalation record', async () => {
+    let opened = null
+    const d = makeDispatcher(counting({ digest: DIGEST, error: null }), {
+      askReview: async (a, t, text, opts) => { opened = opts; return { text: 'approve', status: 'answered' } },
+    })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    const ev = events.find((e) => e.type === 'review_requested')
+    assert.equal(ev.diff.files, 14)
+    assert.equal(ev.diff.added, 812)
+    assert.equal(ev.diff.list.length, 2)
+    assert.equal(ev.diff_error, null)
+    // The record is what `GET /overview` reads, so the console and Discord
+    // state one measurement rather than two.
+    assert.equal(opened.diff.files, 14)
+    assert.equal(opened.diffError, null)
+  })
+
+  // NULL, NEVER EMPTY. An orphan gate — one whose agent died and whose
+  // workspace was swept — must say curia could not count this, because "no
+  // files changed" is a different fact and a dangerous one at a merge gate.
+  test('a worktree that is gone makes the digest null with its reason, on the card and on the record', async () => {
+    let asked = null
+    const d = makeDispatcher(counting({ digest: null, error: 'the agent worktree is gone' }), {
+      askReview: async (a, t, text) => { asked = text; return { text: 'approve', status: 'answered' } },
+    })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.match(asked, /curia could not count this diff — the agent worktree is gone/)
+    const ev = events.find((e) => e.type === 'review_requested')
+    assert.equal(ev.diff, null)
+    assert.equal(ev.diff_error, 'the agent worktree is gone')
+  })
+
+  test('a count that throws does not cost the gate — the card opens and says so', async () => {
+    let asked = null
+    const d = makeDispatcher({
+      readDiffDigest: async () => ({ digest: null, error: 'fatal: not a git repository' }),
+    }, { askReview: async (a, t, text) => { asked = text; return { text: 'approve', status: 'answered' } } })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, true, 'an uncountable diff must never hold the gate shut')
+    assert.match(asked, /could not count this diff/)
+  })
+})
+
+// The hunks, on demand (#355). The browser names an escalation id or an agent,
+// and these are what resolve that name to a worktree — the #266 seam.
+describe('the hunks the console asks for (#355)', () => {
+  const FILE = { path: 'src/app.mjs', added: 2, deleted: 0, status: 'M', binary: false, untracked: false, hunks: 1, from: null }
+
+  test('the live agent row reads committed and uncommitted work together', async () => {
+    const seen = []
+    const d = makeDispatcher({
+      readDiffDigest: async (wtPath, opts) => { seen.push(opts); return { digest: { files: 1, list: [FILE] }, error: null } },
+    })
+    liveAgent(d)
+
+    const out = await d.agentDiff('curia-42')
+
+    assert.equal(out.digest.files, 1)
+    assert.equal(seen[0].uncommitted, true)
+  })
+
+  test('the hunks come from the worktree while it is there', async () => {
+    const d = makeDispatcher({
+      readFileHunks: async () => ({ text: 'diff --git a/src/app.mjs b/src/app.mjs', lines_shown: 1, lines_total: 1, truncated: false, error: null }),
+    })
+    liveAgent(d)
+
+    const out = await d.agentHunks('curia-42', FILE)
+
+    assert.equal(out.source, 'worktree')
+    assert.equal(out.path, 'src/app.mjs')
+    assert.match(out.text, /^diff --git/)
+  })
+
+  // A gate outlives its agent. When the workspace is swept the pull request is
+  // the only copy left, and the card says which source it is reading.
+  test('a worktree that is gone falls back to the pull request, and says so', async () => {
+    const patch = ['diff --git a/src/app.mjs b/src/app.mjs', '@@ -1 +1 @@', '-x', '+y', ''].join('\n')
+    const d = makeDispatcher({ pullRequestDiff: async () => patch })
+    const w = liveAgent(d)
+    w.prUrl = 'https://github.com/o/r/pull/7'
+    fs.rmSync(w.wtPath, { recursive: true, force: true })
+
+    const out = await d.agentHunks('curia-42', FILE)
+
+    assert.equal(out.source, 'pull-request')
+    assert.match(out.text, /^\+y$/m)
+    assert.equal(out.error, null)
+  })
+
+  test('no worktree and no pull request says there is nowhere left to read it from', async () => {
+    const d = makeDispatcher()
+    const w = liveAgent(d)
+    fs.rmSync(w.wtPath, { recursive: true, force: true })
+
+    const out = await d.agentHunks('curia-42', FILE)
+
+    assert.equal(out.text, null)
+    assert.match(out.error, /nowhere left to read this diff from/)
+    assert.ok(!out.error.includes(w.wtPath), 'a daemon path reached the console')
+  })
+})
+
 describe('the Stop hook enforces the ending (#54 item 4)', () => {
   test('#47 stays first: a turn that ends on an open escalation is a block, never a stop-block', async () => {
     const d = makeDispatcher({ hasSession: async () => true })

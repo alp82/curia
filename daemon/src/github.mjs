@@ -124,6 +124,15 @@ export async function findPullRequest(repo, head) {
   return list.find((p) => p.state === 'OPEN') ?? list[0] ?? null
 }
 
+// The pull request's own unified diff (#355). The FALLBACK for the hunks the
+// console asks for: the worktree is the source while it exists, and a gate
+// whose agent has died and had its workspace swept still has a diff to show as
+// long as the pull request is known. It is a network read, so nothing on the
+// poll path may call it — only a card the operator opened.
+export function pullRequestDiff(repo, n) {
+  return gh(['pr', 'diff', String(n), '--repo', repo, '--patch'])
+}
+
 // Prints the PR URL on success.
 export async function createPullRequest(repo, { head, base, title, body }) {
   const out = await withBodyFile(body, (f) => gh([

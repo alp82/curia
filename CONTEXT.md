@@ -465,6 +465,16 @@ A dashboard screen whose facts all come from the overview: home, agents, frontie
 **Answer surface**:
 The Needs-you list on the home screen. It is the one place a question or the review gate is answered from the console. The agents table states what an agent waits on and answers none of it, so no operator has to remember which of two surfaces they are looking at.
 
+**Diff digest**:
+What curia measured about a change: the file total, the added total, the deleted total, and a per-file list of path, added lines, deleted lines, status letter and hunk count. It is a measurement and never prose, so it never becomes a second account of the work beside the agent's own gate summary. The review gate counts it ONCE, in the agent's own worktree, at the instant the gate opens, and stores it on the escalation record and on the `review_requested` event. Discord gets one line from it. The console draws the whole list from the stored copy, so no poll re-counts anything and the digest survives the agent dying. A live agent row counts its own on demand, committed and uncommitted work together. Null is not empty: a worktree that is gone makes the digest null with its reason, and the card says curia could not count this diff. See [#355](https://github.com/alp82/curia/issues/355).
+_Avoid_: diff (the digest is the numbers, not the patch).
+
+**Rank rule**:
+The order the digest lists files in: source first, then tests, then docs, and generated or lock files last, largest first inside each class. It decides which file opens expanded and nothing else. Every changed file is on the card with its own numbers, so the rank hides nothing. The card states the rule in these words, because a rank the operator cannot read is a rank they cannot check.
+
+**Hunks**:
+The patch text of one file, fetched on demand and never on the poll. The browser names a review gate or an agent, and a file only by its place in the digest curia measured. The daemon resolves the worktree itself. A worktree that is gone falls back to the pull request's own diff and says so. A long file stops at a cap, states how many lines it did not show, and puts the GitHub link beside it.
+
 **Operator verb**:
 An act the console carries: start, answer, the review gate, note, cancel, teleport. Each one is a POST to the sidecar, which composes the daemon call from the fields the page sends. A browser never hands over a command line. Start, cancel and teleport go through the command seam the slash verbs use, so a press from the console journals the same event a typed command does.
 
