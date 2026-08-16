@@ -58,6 +58,7 @@ import {
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
 } from './attach.mjs'
 import { probeOverseer } from './overseerservice.mjs'
+import { replayKilledTurns, replayLine } from './overseerreplay.mjs'
 import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } from './settings.mjs'
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
@@ -485,7 +486,12 @@ const gate = {
     // #18 seam unchanged: the bridge only macro-expands; the far side is now
     // the deterministic command router (stated deviation — the overseer agent
     // session is a later ticket).
-    store.logEvent('command', { canonical, by: userId })
+    // `overseer_key` rides the command event when the overseer's own seam
+    // wrapper issued it (#388). It is what lets a boot count the seam crossings
+    // of a turn whose in-memory tally died with the process that held it.
+    store.logEvent('command', {
+      canonical, by: userId, ...(ctx.overseerKey ? { overseer_key: ctx.overseerKey } : {}),
+    })
     log(`command: "${canonical}"`)
     return router.handle(canonical, userId, ctx)
   },
@@ -987,6 +993,13 @@ const overseerContainer = new OverseerClient({
   turns: overseerTurns,
   log,
 })
+
+// The turns the restart killed (#388, ADR-0015). Read HERE, before the listener
+// binds and before the bridge starts, because after that a pending turn is one
+// that is merely running. `bootAt` is the same instant: a conversation whose
+// turn started after it is one the operator spoke to themselves.
+const killedTurns = store.pendingOverseerTurns()
+const bootAt = Date.now()
 
 // ---- agent-facing MCP surface (#29 shape) ---------------------------------
 
@@ -1647,6 +1660,7 @@ function consoleOnWire() {
   return consoleConversationsOnWire({
     conversations: store.consoleConversationList(),
     sessionIdFor: (key) => store.overseerSession(key),
+    droppedFor: (key) => store.droppedOverseerTurn(key),
     harness: detectHarness(cfgDir),
     cfgDir,
     model: overseerContainer.model,
@@ -2140,6 +2154,30 @@ for (const r of store.openEscalations()) {
 // lands and the announce falls back to the log.
 selfDeploy.resolvePending({ announce: (text) => (bridge ? bridge.announce(text) : Promise.resolve()) })
   .catch((e) => log(`deploy resolution failed: ${e.message}`))
+
+// #388, ADR-0015: the turn the restart killed is sent again, never retyped. The
+// pass waits for the overseer container to answer its health check and, for a
+// Discord conversation, for the bridge to come back — the two things a deploy
+// takes down beside this process. It runs off the boot rather than inside it:
+// nothing else waits for it, and a conversation with nothing pending costs one
+// journal read.
+replayKilledTurns({
+  killed: killedTurns,
+  store,
+  bootAt,
+  probe: () => probeOverseer({ port: curiaConfig.overseer.port }),
+  // A turn already in flight on this key means the operator got here first.
+  live: (key) => overseerContainer.busy.has(key),
+  discord: {
+    ready: () => Boolean(bridge),
+    // Optional on purpose: the wedge watchdog throws the bridge away and builds
+    // a new one, so a bridge that was up when the wait ended can be gone here.
+    say: (threadId, text) => bridge?.sayInThread(threadId, text) ?? false,
+    replay: (threadId, prompt) => bridge?.replayOverseerTurn(threadId, prompt, replayLine()) ?? false,
+  },
+  browser: { replay: (key, prompt) => overseerContainer.browserTurn(key, prompt, { replay: true }) },
+  log,
+}).catch((e) => log(`the killed-turn replay failed: ${e.message}`))
 
 // #56 bridge health. The outage clock lives HERE rather than on the bridge
 // object, because a wedge recovery throws the bridge away and builds a new one —

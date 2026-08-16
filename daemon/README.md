@@ -150,7 +150,15 @@ The transport for the verbs is MCP rather than a route that takes canonical text
 
 What each side owns: the daemon keeps the conversation (`store.overseerSession`), the one-turn-at-a-time rule, the operator notes and every effect. The container keeps the model, the shell, the checkouts and its own two directories under `<workspace_root>/cfg/curia-overseer`. The container holds no conversation, so a deploy that recreates it loses none.
 
-The model there is `claude-sonnet-5` and there is no fallback: Sonnet IS the model, where the in-daemon host tried Haiku first. A turn the container never answers is a failure the operator reads, and ADR-0015's replay rule is not built yet.
+The model there is `claude-sonnet-5` and there is no fallback: Sonnet IS the model, where the in-daemon host tried Haiku first. A turn the container never answers is a failure the operator reads.
+
+### The turn a restart killed (#388)
+
+The routine deploy recreates the daemon and the overseer together, so both halves of a turn in flight die at once. ADR-0015 says that turn is sent again, never retyped, and `overseerreplay.mjs` is that pass.
+
+The message lives in the journal: `overseer_turn_started` carries it and `overseer_turn_ended` closes it, so whatever is open at a boot is what the restart killed. The seam crossings ride the `command` event the daemon already writes, which now carries the conversation key — the in-memory tally dies with the process holding it. The pass reads that list once, before the listener binds, and waits for the container health check.
+
+It sends the message again only for a turn that crossed the seam zero times. Three more things hold it: a message curia already sent again once, a conversation that has spoken since the boot, and a message over fifteen minutes old. Every held message leaves one line naming what that turn ran. A Discord conversation reads it in its thread. A browser conversation has no thread, so it reads it on its row in the Chat picker until it takes its next turn.
 
 **Nothing routes to it yet.** #315 is the cutover, and it is one swap at two doors: the bridge's `overseerTurn` and the Chat screen's `driverFor`. Until then `POST /overseer/turn` is how the container is soaked.
 

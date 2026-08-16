@@ -82,7 +82,11 @@ export class OverseerTurns {
       try {
         await narrate(text)
       } catch { /* the status line is not the effect */ }
-      return command(text, { threadId: routeThreadId, interpreted: true })
+      // `overseerKey` is what makes the command event countable after this
+      // process dies (#388): the daemon journals every crossing as a `command`
+      // already, and the key is what ties one to the conversation it crossed
+      // for. The boot counts the crossings of a killed turn off those lines.
+      return command(text, { threadId: routeThreadId, interpreted: true, overseerKey: key })
     }
     const turn = { id, token, key, routeThreadId, crossed, crossings: 0, command: seam }
     this.#turns.set(id, turn)
@@ -172,7 +176,7 @@ export class OverseerClient {
   // Discord thread: the answer is not posted, because the timeline surface
   // tails the transcript, and the verb tools run with NO origin thread, so a
   // confirm lands in the channel and in the console's needs-you list.
-  async browserTurn(key, text) {
+  async browserTurn(key, text, { replay = false } = {}) {
     if (!this.store.hasConsoleConversation?.(key)) {
       throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
     }
@@ -181,6 +185,7 @@ export class OverseerClient {
       say: (t) => { said.push(t) },
       status: () => {},
       routeThreadId: null,
+      replay,
     })
     if (out.busy) throw new Error('curia is still on your last message — one turn at a time')
     if (!out.ok) throw new Error(said.join('\n') || `the turn ended without an answer (${out.why})`)
@@ -190,7 +195,11 @@ export class OverseerClient {
   // One operator message → one turn, and one turn posts exactly two messages
   // (#95, per #89): status(text) upserts the single small-print status line,
   // and say(text) posts the answer. Failures land in the answer slot.
-  async runTurn(key, prompt, { say, status, routeThreadId = key }) {
+  //
+  // `replay` marks a turn the boot is sending again (#388). It changes nothing
+  // about how the turn runs — it rides the journal so a SECOND restart can tell
+  // a replay from an operator's own message, and never replay a replay.
+  async runTurn(key, prompt, { say, status, routeThreadId = key, replay = false }) {
     if (this.busy.has(key)) {
       await say(smallPrint(`${SIGNALS.warn} still on your last message — one turn at a time per thread`))
       return { ok: false, busy: true }
@@ -208,7 +217,11 @@ export class OverseerClient {
       const fullPrompt = notes.length
         ? `${notes.map((t) => `[curia: ${t}]`).join('\n')}\n\n${prompt}`
         : prompt
-      const out = await this.#turn(key, fullPrompt, { say, step, routeThreadId })
+      // The journal keeps THIS text, notes and all (#388). The drain already
+      // happened, so a turn a restart kills has taken those notes off the queue
+      // without ever showing them to the model — and the replay is the one thing
+      // that can still deliver them.
+      const out = await this.#turn(key, fullPrompt, { say, step, routeThreadId, replay })
       if (!out.ok) await say(`${SIGNALS.warn} ${out.said}`)
       return out
     } finally {
@@ -216,18 +229,36 @@ export class OverseerClient {
     }
   }
 
-  // THE HOP. One POST, one NDJSON stream back, one registered turn for as long
-  // as it runs. There is no second model attempt: the in-daemon host retried a
-  // failed Haiku turn on Sonnet, and Sonnet IS the model here (ADR-0014), so
-  // the failure goes to the operator. ADR-0015 gives a killed turn a replay
-  // instead, and it is the same test — a turn that crossed the seam zero times.
-  async #turn(key, prompt, { say, step, routeThreadId }) {
-    const resume = this.store.overseerSession(key)
+  // THE REGISTERED TURN, and the two journal lines that bracket it (#388).
+  // Everything between them is one turn in flight, so a turn still open when
+  // this process dies is the turn the restart killed — and the boot finds it by
+  // reading the journal rather than a map this process took with it.
+  async #turn(key, prompt, { say, step, routeThreadId, replay = false }) {
     // The status line states the text the SEAM carried and nothing else (#275),
     // in code because it is a command line and not prose.
     const turn = this.turns.begin({
       key, routeThreadId, command: this.command, narrate: (text) => step(`\`${text}\``),
     })
+    this.store.beginOverseerTurn({ key, turn: turn.id, prompt, threadId: routeThreadId, replay })
+    let out
+    try {
+      out = await this.#hop(key, prompt, turn, { say, step })
+    } finally {
+      this.turns.end(turn.id)
+      this.store.endOverseerTurn({
+        key, turn: turn.id, ok: out?.ok ?? false, crossings: turn.crossings, why: out?.why ?? null,
+      })
+    }
+    return out
+  }
+
+  // THE HOP. One POST, one NDJSON stream back, one registered turn for as long
+  // as it runs. There is no second model attempt: the in-daemon host retried a
+  // failed Haiku turn on Sonnet, and Sonnet IS the model here (ADR-0014), so
+  // the failure goes to the operator. ADR-0015 gives a killed turn a replay
+  // instead, and it is the same test — a turn that crossed the seam zero times.
+  async #hop(key, prompt, turn, { say, step }) {
+    const resume = this.store.overseerSession(key)
     this.log(`[overseer] turn key=${key} resume=${resume ?? 'fresh'} model=${this.model} → ${this.base}${TURN_PATH}`)
     let sessionId = null
     let toolCalls = 0
@@ -288,8 +319,6 @@ export class OverseerClient {
         crossings: turn.crossings,
         sessionId,
       }
-    } finally {
-      this.turns.end(turn.id)
     }
     if (!end) {
       return {

@@ -357,6 +357,9 @@
   table.chats tr:last-child td { border-bottom: 0; }
   table.chats a { display: block; }
   table.chats .over { color: var(--warn); }
+  /* The turn a restart killed on this conversation (#388). A browser
+     conversation has no thread, so its row is where that line goes. */
+  table.chats .killed { display: block; margin: 3px 0 0; font-size: 12px; color: var(--warn); }
 
   /* ---------- the screens that land later ---------- */
   .later {
@@ -1089,6 +1092,12 @@ const EVENTS = {
      because that is the half of it nobody can undo. */
   console_conversation_opened: ["chat", "", (e) => `${esc(e.key)} opened — a new browser conversation`],
   console_conversation_deleted: ["chat", "", (e) => `${esc(e.key)} deleted — its number is spent, and the next one counts past it`],
+  /* The replay (#388, ADR-0015). The turn's own start and end are not in the
+     feed — they are bookkeeping, one pair per message. This is the news. */
+  overseer_turn_dropped: ["chat", "warn", (e) => e.replayed
+    ? `a restart killed the turn on ${esc(e.key)} — curia sent the message again`
+    : `a restart killed the turn on ${esc(e.key)} — not sent again${
+      e.commands?.length ? `, it had run ${esc(e.commands.join(", "))}` : ""}${e.why ? ` (${esc(e.why)})` : ""}`],
   map_adopted: ["charting", "", (e) => `${who(e)} adopted map ${esc(e.map)} — ${esc(snip(e.title, 80))}`],
   charting_finished: ["charting", "", (e) => `${who(e)} finished charting ${tkt(e)} — ${esc(e.status)}`],
 };
@@ -1752,9 +1761,17 @@ function chatRow(c) {
     ? `<b>${esc(c.label)}</b>`
     : `<span class="dim-note">no turn yet</span>`;
   const answer = said(k);
+  /* A browser conversation has no thread, so the line ADR-0015 gives a killed
+     turn lands here — on the row the operator picks it from. It clears itself:
+     the next turn on this conversation ends the drop. */
+  const dropped = c.dropped && !c.dropped.replayed
+    ? `<span class="killed">⚠️ A restart killed a turn here${
+      c.dropped.commands?.length ? `, and it had run ${esc(c.dropped.commands.join(", "))}` : ""
+    }. curia did not send your message again${c.dropped.why ? ` — ${esc(c.dropped.why)}` : ""}.</span>`
+    : "";
   return `<tr>
     <td><a href="${esc(chatHref(c.session))}">${label}</a>
-      <span class="dim-note mono" style="display:block;margin:2px 0 0">${esc(c.key)} · ${esc(ago(c.last_turn_at))}</span></td>
+      <span class="dim-note mono" style="display:block;margin:2px 0 0">${esc(c.key)} · ${esc(ago(c.last_turn_at))}</span>${dropped}</td>
     <td class="num">${ctxCell(c)}</td>
     <td><button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
       ${busy(k) ? "…" : "delete"}</button></td>

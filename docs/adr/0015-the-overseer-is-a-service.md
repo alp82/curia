@@ -1,6 +1,6 @@
 # ADR-0015: The overseer is a service, not an agent-shaped pane
 
-**Status**: accepted (2026-08). Not built. The build is charted on [the container map (#309)](https://github.com/alp82/curia/issues/309).
+**Status**: accepted (2026-08). Built. The service and its image are [#327](https://github.com/alp82/curia/issues/327), and the replay below is [#388](https://github.com/alp82/curia/issues/388) — the last decision here that nothing had built.
 **Provenance**: [The chat and the overseer become one thing, in a container (#301)](https://github.com/alp82/curia/issues/301), [The hosting shape: a service, a pane, or one container per thread (#310)](https://github.com/alp82/curia/issues/310)
 
 ## Context
@@ -26,6 +26,8 @@ The overseer also has no screen to hold. A turn is a call. The model starts, ans
 - **Its config dir is `<workspace_root>/cfg/curia-overseer`**, mounted at that same path inside the container. The name was the session name the timeline served when this was written. [ADR-0016](0016-the-conversation-key.md) then gave the browser many conversations, so the timeline serves `curia-console-<n>` and this one directory holds every conversation's transcript. The directory name is a name now, and nothing reads it as a session. It sits beside the agent config dirs, so the daemon's `data/` stays out of a second container. The Chat screen reads the transcript from that directory, so the path must be identical on both sides.
 - **A deploy recreates it.** The routine deploy becomes `docker compose up -d --build --no-deps daemon dashboard overseer`. The rule at the head of `deploy/compose.yaml` guards `tmux`, because recreating `tmux` kills every live agent. Recreating the overseer kills none.
 - **A turn killed by a restart is replayed, never retyped.** The daemon keeps the message and sends it again once the overseer answers. It replays only a turn that crossed `/command` zero times, which is the test the fallback retry already uses. A turn that ran a verb is not replayed. The thread gets one line naming what that turn did, and the operator decides from there.
+
+  Built on [#388](https://github.com/alp82/curia/issues/388), which settled the four things this line left open. The message lives in the journal, as one event when a turn starts and one when it ends, so the boot reads whatever is open between them. The crossings are counted off the `command` event the seam already writes, which now carries the conversation key — the in-memory tally dies with the process that held it, and a second event stating the same fact would break [ADR-0013](0013-one-voice-per-fact.md). The boot pass sends the message once the container answers its health check. Three more things hold it beside a crossing: a message the operator has already sent again, a message over fifteen minutes old, and a replay a second restart killed. Every held message gets the same line. A browser conversation has no thread to put that line in, so it reads it on its row in the Chat picker, until it takes its next turn.
 
 ## Considered options
 

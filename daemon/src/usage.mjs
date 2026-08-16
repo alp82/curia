@@ -864,7 +864,8 @@ export function ctxOnWire(read) {
 // `store.overseerSession`. Every conversation shares one config dir, so only
 // that id names a conversation's own file.
 export function consoleConversationsOnWire({
-  conversations, sessionIdFor, harness, cfgDir, model, routing, account, models, now = Date.now(),
+  conversations, sessionIdFor, harness, cfgDir, model, routing, account, models,
+  droppedFor = () => null, now = Date.now(),
 }) {
   return conversations.map((c) => {
     const file = harness ? transcriptForSession(harness, cfgDir, sessionIdFor(c.key) ?? null) : null
@@ -883,6 +884,10 @@ export function consoleConversationsOnWire({
       // The row's label: what the operator opened this conversation with. Null
       // for one with no turn yet, and the page falls back to the key.
       label: file ? firstPrompt(harness, file) : null,
+      // The turn a restart killed on THIS conversation (#388). A Discord
+      // conversation gets that line in its thread; a browser one has no thread,
+      // so the row it is picked from carries it until it takes its next turn.
+      dropped: droppedFor(c.key),
       // A conversation with no turn yet has no file, and `agentMeters` then
       // reads NOTHING rather than falling back to whoever answered last
       // (#332). The percent is null, which the page prints as "—", never 0%.

@@ -1578,7 +1578,7 @@ export class DiscordBridge {
   // revives that thread's session with full memory. The bridge owns only the
   // transport (thread, typing, the 2000-char cap, and #95's one edited status
   // message); everything said comes from the host through `say`/`status`.
-  async #overseerTurn(thread, prompt) {
+  async #overseerTurn(thread, prompt, opts = {}) {
     const typing = setInterval(() => thread.sendTyping().catch(() => {}), 8000)
     thread.sendTyping().catch(() => {})
     // #95: one status message per turn — sent on the first status(), edited in
@@ -1586,7 +1586,8 @@ export class DiscordBridge {
     // message is exactly what the discipline forbids.
     let statusMsg = null
     try {
-      await this.handlers.overseerTurn(thread.id, prompt, {
+      return await this.handlers.overseerTurn(thread.id, prompt, {
+        ...opts,
         say: (text) => this.#sayChunked(thread, text),
         status: async (text) => {
           if (statusMsg) return statusMsg.edit(text.slice(0, 1900)).catch(() => {})
@@ -1596,6 +1597,28 @@ export class DiscordBridge {
     } finally {
       clearInterval(typing)
     }
+  }
+
+  // The boot's two calls into a conversation thread (#388, ADR-0015). A killed
+  // turn either comes back as the same message or as one line saying why it did
+  // not, and both land in the thread that turn died in.
+  //
+  // The replay takes the SAME path an operator message takes — the small-print
+  // notice first, then `#overseerTurn` — so the status line, the chunking and
+  // the one-turn-at-a-time rule are the ones the surface already has.
+  async sayInThread(threadId, text) {
+    const thread = await this.client.channels.fetch(threadId).catch(() => null)
+    if (!thread) return false
+    await this.#sendChunked(thread, { content: text })
+    return true
+  }
+
+  async replayOverseerTurn(threadId, prompt, notice) {
+    const thread = await this.client.channels.fetch(threadId).catch(() => null)
+    if (!thread) return false
+    if (notice) await this.#sendChunked(thread, { content: notice }).catch(() => {})
+    await this.#overseerTurn(thread, prompt, { replay: true })
+    return true
   }
 
   // Discord caps a message at 2000 chars; the split respects paragraphs (#119).
