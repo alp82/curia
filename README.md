@@ -104,8 +104,9 @@ CURIA_AGENT_GH_TOKEN_<OWNER>=<a fine-grained GitHub PAT>
 
 Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271).
 
-The overseer's model is not an env var. It is `claude-sonnet-5` in the overseer
-container's own code, with no fallback (#314).
+The overseer takes no model variable. It runs in its own container since the
+cutover (#315), on `claude-sonnet-5` with no fallback, and the model is
+`OVERSEER_CONTAINER_MODEL` in `daemon/src/overseerturn.mjs`.
 
 Run one daemon per bot token.
 
