@@ -406,6 +406,35 @@ export class Dispatcher {
     this.frontierAt = null
     this.autoTimer = null
     this.wakeTimer = null
+    // Last, and HERE rather than in reconcile (#377). The #346 resume waits for
+    // the boot pass because it must not fire on a ticket adoption has just
+    // brought back. A cooling waits for nothing, and every millisecond it waits
+    // is a millisecond in which a `start` typed two seconds after a deploy
+    // spawns a container into a cap curia already measured.
+    this.#seedCooling()
+  }
+
+  // The caps a previous process measured (#377). Cooling holds for hours and a
+  // deploy takes minutes, so most holds outlive the daemon that wrote them.
+  //
+  // An entry whose reset already passed is skipped rather than armed: `Cooling`
+  // would expire it on the first read anyway, and skipping keeps the boot log
+  // about the holds that still bind. A model or a provider that routing.yaml no
+  // longer names is armed all the same — nothing ever asks `isCool` about it,
+  // and dropping it here would make this seed depend on a config read.
+  #seedCooling() {
+    if (typeof this.store?.armedCoolings !== 'function') return
+    const { models, providers } = this.store.armedCoolings()
+    const live = []
+    const arm = (key, iso, cool) => {
+      const at = new Date(iso)
+      if (!Number.isFinite(at.getTime()) || at.getTime() <= Date.now()) return
+      cool(key, at)
+      live.push(`${key} until ${at.toISOString()}`)
+    }
+    for (const { model, at } of models) arm(model, at, (m, d) => this.cooling.coolModel(m, d))
+    for (const { provider, at } of providers) arm(provider, at, (p, d) => this.cooling.coolProvider(p, d))
+    if (live.length) this.log(`boot: cooling still holds — ${live.join(', ')}`)
   }
 
   // ---- frontier --------------------------------------------------------------

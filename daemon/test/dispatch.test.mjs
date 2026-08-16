@@ -98,6 +98,9 @@ function makeDispatcher(deps = {}, {
   skills = null, stopNudgeBudget = 3,
   askReview = async () => ({ text: 'approve', status: 'answered' }),
   identityProxy = { listening: true },
+  // Discarded by default. A test that asserts on a boot line passes a collector,
+  // because the lines it wants are written inside the constructor (#377).
+  log = () => {},
 } = {}) {
   const root = path.join(tmp, 'work')
   const config = {
@@ -131,6 +134,9 @@ function makeDispatcher(deps = {}, {
     pullRequestFor: (agent) => journal.pullRequestFor(agent),
     // #346: the arm outlives the process, so the reduction is the real one.
     armedLimitResumes: () => journal.armedLimitResumes(),
+    // #377, for the same reason: the cooling the dispatcher seeds itself from
+    // at construction is the real reduction over the real journal file.
+    armedCoolings: () => journal.armedCoolings(),
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     cancel: () => ({ ok: true }),
     // #208, the real EscalationStore predicate: a note stamped with an
@@ -218,7 +224,7 @@ function makeDispatcher(deps = {}, {
     overseerNote: (threadId, text) => overseerNotes.push({ threadId, text }),
     askReview,
     cancelEscalation: (id, opts) => { cancelled.push({ id, ...opts }); return { ok: true } },
-    log: () => {},
+    log,
     dataDir: path.join(tmp, 'data'),
     daemonPort: 4271,
     deps: { ...base, ...deps },
@@ -1609,6 +1615,90 @@ describe('the limit resume: the window rolls and curia puts the agent back (#346
     await d.reconcile({ boot: true })
 
     assert.equal(d.limitResumes.size, 0)
+  })
+
+  // #377, the other half of the same restart. #346 kept the ARM across a deploy
+  // and left the cooling in memory, so a daemon that came back inside the window
+  // believed every lane was warm and spent a container proving otherwise.
+  describe('the cooling outlives the daemon too (#377)', () => {
+    test('a landed provider cap binds at CONSTRUCTION, before the daemon takes a command', () => {
+      writeJournal([
+        { type: 'provider_cooling', provider: 'anthropic', reset_at: new Date(Date.now() + 3600_000).toISOString(), reset_source: 'pane', ts: iso('2026-08-15T09:00:00Z') },
+      ])
+
+      // No reconcile, no start: the seed rides the constructor, because a
+      // `start` typed two seconds after a deploy must not beat it.
+      const lines = []
+      const d = makeDispatcher({}, { log: (m) => lines.push(m) })
+
+      assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true)
+      assert.ok(lines.some((l) => /boot: cooling still holds — anthropic until/.test(l)),
+        'the boot log names the hold, so an operator reading a quiet box knows why')
+    })
+
+    test('a model cap binds that model and leaves its provider warm', () => {
+      writeJournal([
+        { type: 'model_cooling', model: 'sonnet', reset_at: new Date(Date.now() + 3600_000).toISOString(), reset_source: 'transcript', ts: iso('2026-08-15T09:00:00Z') },
+      ])
+
+      const d = makeDispatcher()
+
+      assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true)
+      assert.equal(d.cooling.isCool('other', 'anthropic'), false, 'a model cap is not a provider cap')
+    })
+
+    test('the one-hour floor binds too — forgetting a guess is the restart-into-the-cap this fixes', () => {
+      writeJournal([
+        { type: 'provider_cooling', provider: 'anthropic', reset_at: new Date(Date.now() + 1800_000).toISOString(), reset_source: 'floor', ts: iso('2026-08-15T09:00:00Z') },
+      ])
+
+      const d = makeDispatcher()
+
+      assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true)
+    })
+
+    test('a window that rolled while the daemon was down binds nothing', () => {
+      writeJournal([
+        { type: 'provider_cooling', provider: 'anthropic', reset_at: iso('2026-08-15T10:00:00Z'), reset_source: 'pane', ts: iso('2026-08-15T09:00:00Z') },
+      ])
+
+      const lines = []
+      const d = makeDispatcher({}, { log: (m) => lines.push(m) })
+
+      assert.equal(d.cooling.isCool('sonnet', 'anthropic'), false)
+      assert.ok(!lines.some((l) => /cooling still holds/.test(l)),
+        'a dead hold is skipped rather than armed, so the boot log states only what still binds')
+    })
+
+    test('the last cap on a key wins, so a re-cool after a resume states the fresh reset', () => {
+      const later = new Date(Date.now() + 7200_000)
+      writeJournal([
+        { type: 'provider_cooling', provider: 'anthropic', reset_at: iso('2026-08-15T10:00:00Z'), reset_source: 'pane', ts: iso('2026-08-15T09:00:00Z') },
+        { type: 'provider_cooling', provider: 'anthropic', reset_at: later.toISOString(), reset_source: 'pane', ts: iso('2026-08-15T11:00:00Z') },
+      ])
+
+      const d = makeDispatcher()
+
+      assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true)
+      assert.equal(d.cooling.earliestReset().getTime(), later.getTime())
+    })
+
+    test('the whole point: the first start after the deploy spends no container', async () => {
+      let clones = 0
+      writeJournal([
+        { type: 'provider_cooling', provider: 'anthropic', reset_at: new Date(Date.now() + 3600_000).toISOString(), reset_source: 'pane', ts: iso('2026-08-15T09:00:00Z') },
+      ])
+      const d = makeDispatcher({
+        createPrivateClone: async (r, repo, n) => { clones += 1; return fakePrivateClone(r, repo, n) },
+      })
+
+      await d.start('42', { repo: 'o/r', by: 'test' })
+
+      assert.equal(clones, 0, 'the cap was already measured — nothing is spawned into it')
+      assert.ok(events.some((e) => e.type === 'dispatch_exhausted'))
+      assert.ok(notifies.some((n) => /every routing lane is cooling/.test(n.message)),
+        'the operator is told why, in the thread, instead of watching a container die')
+    })
   })
 
   test('auto-dispatch steps over a ticket curia owes a resume, because start would delete its worktree', async () => {
