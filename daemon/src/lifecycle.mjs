@@ -391,11 +391,17 @@ export function stopReason(items, { attempt, budget }) {
 // NOT the map's. Approving research findings never says the map is done, so the
 // heading says what is being approved — the map stays open either way, and a
 // heading that implied otherwise would be the one thing #160 forbids.
-export function reviewGateText({ repo, ticket, title, summary, charting, links, mapDispatch = false, digestLine = null }) {
+// #418, ADR-0019: the gate takes the typed fields too. `body` is what
+// `composeReviewBody` made of them — the agent's headline, its optional visual
+// and its optional spoiler — and it sits under curia's own heading, above the
+// summary. The heading is still curia's, because what the operator is being
+// asked stays curia's to state (#297). The headline is what the agent did.
+export function reviewGateText({ repo, ticket, title, summary, charting, links, mapDispatch = false, digestLine = null, body = '' }) {
   const parts = [
     mapDispatch
       ? `**Approve the research findings charted on ${repo}#${ticket}?** — ${title}`
       : `**Is ${repo}#${ticket} done?** — ${title}`,
+    ...(body.trim() ? ['', body.trim()] : []),
     '',
     '**What the agent did**',
     summary.trim() || '(nothing said)',

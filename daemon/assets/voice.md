@@ -45,3 +45,11 @@ Write in ASD-STE100 Simplified Technical English.
 6. The same thing named two ways? Pick one name.
 
 Write only the requested text. No preamble, no summary, no closing remarks.
+
+## What curia checks by machine
+
+Curia lints the words you send a human, and it refuses the call when a rule breaks (#418, ADR-0019). It checks the rules a machine can decide alone. These are the character caps, the one-line rule, markdown structure, links, sentence length, semicolons, em-dashes, contractions and the marketing adjectives above.
+
+The rest of this file is yours to hold. Passive voice, nominalizations and "-ing" main verbs are author guidance, because a machine must guess at them and a wrong guess costs you an attempt.
+
+A cap is a ceiling, not a target. Curia refuses text over a cap, and it never cuts it. So shortening is your act, and it must never drop an option or a constraint from a decision.

@@ -163,6 +163,14 @@ function makeDispatcher(deps = {}, {
       if (stale.length) reduction.onNotesExpired?.({ agent, notes: stale, liveInstance: live, why })
       return stale
     },
+    // #418: the lint gate's ledger is the real reduction's, for the same reason
+    // the exchange is — the Stop hook's second-block rule counts daemon-side.
+    journalLintStopBlock: (agent, kind) => {
+      const rec = journal.journalLintStopBlock(agent, kind)
+      events.push(rec)
+      return rec
+    },
+    clearLintRejections: (agent, kind) => journal.clearLintRejections(agent, kind),
     // #252: the note-by-id half the interrupt button reads.
     noteById: (id) => [...agentNotes.values()].flat().find((n) => n.id === id) ?? null,
     interruptAgentNote: (id) => {
@@ -3738,6 +3746,73 @@ describe('the hunks the console asks for (#355)', () => {
 })
 
 describe('the Stop hook enforces the ending (#54 item 4)', () => {
+  // The lint gate's catch (#418, ADR-0005 as #438 amended it). On codex a
+  // rejection is the `exec` script's return value and it never throws, so an
+  // agent can believe its question went out and come here to end its turn. The
+  // hook is the one lever it cannot discard.
+  const rejected = (over = {}) => ({
+    agent: 'curia-42', kind: 'free-text', count: 1, stop_blocks: 0,
+    faults: ['headline: a semicolon. Write two sentences.'],
+    prompt: '**a card**', payload: { headline: 'a card' }, ...over,
+  })
+
+  test('a rejection the agent never read holds the stop and hands the faults back', async () => {
+    const held = rejected()
+    const d = makeDispatcher({ lintRejection: () => held })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /curia REFUSED your last `ask_human` call/)
+    assert.match(decision.reason, /headline: a semicolon/)
+    assert.match(decision.reason, /Keep every option and every constraint/)
+    assert.ok(events.some((e) => e.type === 'lint_stop_blocked'))
+  })
+
+  test('#47 still wins: an agent blocked on a human is not held for its rejection', async () => {
+    const d = makeDispatcher({ hasSession: async () => true, lintRejection: () => rejected() })
+    liveAgent(d)
+    escalations.push({ id: 'esc-1', agent: 'curia-42', ticket: '42', kind: 'choice', status: 'open' })
+
+    assert.deepEqual(await d.onStopHook('curia-42', {}), { allow: true, terminal: false })
+    assert.ok(!typesOf().includes('lint_stop_blocked'), 'a parked agent is not spinning on anything')
+  })
+
+  test('at the SECOND block curia sends the text itself, flagged, and lets the agent stop', async () => {
+    const sent = []
+    const d = makeDispatcher({
+      lintRejection: () => rejected({ stop_blocks: 1, count: 2 }),
+      sendFlagged: (agent, h) => { sent.push({ agent, h }); return { id: 'esc-9' } },
+    })
+    liveAgent(d)
+
+    assert.deepEqual(await d.onStopHook('curia-42', {}), { allow: true, terminal: false })
+    assert.equal(sent.length, 1, 'the question reaches the operator on a path the model cannot lose')
+    assert.equal(sent[0].h.prompt, '**a card**')
+    assert.ok(events.some((e) => e.type === 'lint_flagged_send' && e.id === 'esc-9'))
+    assert.ok(notifies.some((n) => /sent the text as it stands/.test(n.message)), 'the thread says the send happened')
+  })
+
+  test('a rejected GATE falls through to the ending, which already nudges for one', async () => {
+    // The review gate is a step of the ending. Sending a half-composed gate
+    // would put a card with no links in front of the operator.
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', agent: 'curia-42' }])
+    const sent = []
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      lintRejection: () => rejected({ kind: 'review-gate', stop_blocks: 1 }),
+      sendFlagged: (agent, h) => { sent.push(h); return { id: 'esc-9' } },
+    })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(sent.length, 0, 'no gate is composed by the hook')
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /request_review/, 'the ordinary checklist asks for the gate instead')
+  })
+
   test('#47 stays first: a turn that ends on an open escalation is a block, never a stop-block', async () => {
     const d = makeDispatcher({ hasSession: async () => true })
     liveAgent(d)

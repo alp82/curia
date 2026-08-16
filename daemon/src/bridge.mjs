@@ -1202,9 +1202,27 @@ export class DiscordBridge {
       ].join('\n')
     }
     // No blockquote (#95's markdown standard) — the prompt stands on its own line.
-    const head = `**[${record.id}]** \`${record.agent}\` asks (*${record.kind}*):\n${record.prompt}`
+    //
+    // A TYPED card (#418) puts a blank line under the head instead, because its
+    // prompt is the composed card-4 body: a bold headline, the options with
+    // their consequences, an optional visual and an optional spoiler. The
+    // daemon composed that text with card.mjs and stored it on the record, so
+    // this prints it as it stands. The bridge renders and never interprets
+    // (ADR-0002), and the parts below are the ANSWER surface, not the question.
+    const typed = Boolean(record.payload)
+    const head = typed
+      ? `**[${record.id}]** \`${record.agent}\` asks (*${record.kind}*):\n\n${record.prompt}`
+      : `**[${record.id}]** \`${record.agent}\` asks (*${record.kind}*):\n${record.prompt}`
     const parts = [head]
-    if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {
+    if (record.kind === 'choice' && typed) {
+      // The typed body already carries every option with its cost, so the
+      // numbered list would say the whole card twice. Only the instruction is
+      // owed, and which one depends on what component the list earns (#431).
+      const labels = record.options ?? []
+      if (!selectFits(labels) && labels.length > MAX_BUTTON_OPTIONS) parts.push('_Reply in this thread with a letter or a number._')
+      else if (selectFits(labels) && selectClips(labels)) parts.push('_Pick from the menu below, or reply with a letter._')
+      else if (selectFits(labels)) parts.push('_Pick from the menu below._')
+    } else if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {
       // The numbered list is now the FALLBACK, not the surface (#431). It is
       // printed in the two cases the menu cannot serve: a list past the menu's
       // reach, and a list whose options are too long for the menu to show
@@ -1227,6 +1245,13 @@ export class DiscordBridge {
         : '_Reply in this thread to answer._')
     } else if (record.kind === 'preview-review') {
       parts.push(`Preview: ${record.preview_url}`, '_Approve/Reject, or reply in this thread with comments._')
+    }
+    // A flagged send (#416, ADR-0005): the agent used up its three rejections
+    // and curia sent the text as it stands. The operator sees which rule it
+    // broke, beside the text that broke it — a flagged question still reaches
+    // them, so this is a mark on the card and never a failure to ask.
+    if (record.lint_flags?.length) {
+      parts.push(smallPrint([`⚠️ curia sent this after ${record.lint_flags.length} lint fault(s) the agent did not fix:`, ...record.lint_flags].join('\n')))
     }
     return parts.join('\n')
   }
@@ -1759,6 +1784,14 @@ export class DiscordBridge {
     // numbered reply against a degraded long choice list
     if (open.kind === 'choice' && /^\d+$/.test(answer)) {
       const picked = open.options?.[Number(answer) - 1]
+      if (picked) answer = picked
+    }
+    // A typed card marks its options with letters (#418), which is the shape
+    // #415 judged, so a one-letter reply resolves the same way a number does.
+    // Typed records only: an untyped card still prints numbers, and a stray "A"
+    // against one of those is prose the agent should read as prose.
+    if (open.kind === 'choice' && open.payload && /^[a-z]$/i.test(answer)) {
+      const picked = open.options?.[answer.toUpperCase().charCodeAt(0) - 65]
       if (picked) answer = picked
     }
     const attachments = m.attachments.size

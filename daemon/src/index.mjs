@@ -65,6 +65,11 @@ import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
+import {
+  TYPED_FLOOR, isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
+} from './lint.mjs'
+import { composeCard, composeReviewBody, optionLabels, derivedRecommended } from './card.mjs'
+import { LintGate } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
 import { AccountUsage, ModelWindows, agentMeters, ctxOnWire, consoleConversationsOnWire } from './usage.mjs'
@@ -423,8 +428,8 @@ async function renderEscalation(record, files = []) {
 
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
-function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files, diff, diff_error }) {
-  const { record, superseded_all } = reduction.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error })
+function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files, diff, diff_error, payload, lint_flags, awaited = true }) {
+  const { record, superseded_all } = reduction.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error, payload, lint_flags })
   log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
   // Every corpse this agent left, not just the newest (#336): a card left
   // rendered keeps asking a question nothing can receive an answer for.
@@ -435,6 +440,12 @@ function openEscalation({ agent, ticket, kind, prompt, options, preview_url, rec
   }
   armRenderRetries(record)
   renderEscalation(record, files)
+  // `awaited: false` is the flagged send (#418). No call is holding this
+  // record — the agent's own call already returned the rejection it never read
+  // — so no resolver is registered, and the answer takes the #139 hand-off:
+  // recorded, queued as an agent note, and handed over on the agent's next tool
+  // result. A resolver registered here would swallow the answer instead.
+  if (awaited === false) return { record, answered: null }
   const answered = new Promise((resolve) => pending.set(record.id, resolve))
   return { record, answered }
 }
@@ -480,6 +491,65 @@ function recordedAnswerLine(record) {
   const by = record.answered_by ? ` by ${record.answered_by}` : ''
   return `[recorded answer — a human answered this exact question${by} at ${record.closed_at}, on ${record.id},`
     + ' while no call of yours was live. Curia opened no second card and asked nobody again.]'
+}
+
+// ---- the typed payload gate (#418, ADR-0019) ---------------------------------
+//
+// One pass over an `ask_human` call: decide whether it is typed, lint the named
+// fields, judge the result against the three-attempt cap, and compose what the
+// record carries. Returns `{ stop }` when nothing opens — the rejection the
+// agent rewrites from, or the dead end it cannot — and otherwise the fields
+// `openEscalation` takes, plus any lint faults a flagged send carries.
+//
+// THE COMPOSED PROMPT IS THE RECORD'S PROMPT. `card.mjs` builds it, the bridge
+// prints that same text, and everything downstream keeps reading one readable
+// question: the timeline, the console, the inherited exchange (#374), the
+// supersession hash (#336) and the recorded-answer match (#369). Two renderings
+// of one payload would make the record a second account of what Discord showed
+// rather than the thing itself.
+const lintGate = new LintGate({ reduction, log })
+
+function askHumanGate(agentName, kind, raw) {
+  const typed = isTyped(raw)
+  // An untyped call is not linted. Until the flip (#422) it renders as it does
+  // today, and the lint reads NAMED fields — a blob has no name to point at, so
+  // the only rejection it could write is "this prompt is wrong somewhere". #416
+  // measured that a named and quoted fault is fixed in one attempt, and a vague
+  // one is the expensive kind.
+  // A call carrying NO prose at all is refused whatever the flip says. `prompt`
+  // was required by the schema before this ticket, and moving that check off
+  // zod (#438) must not turn a blank call into a blank card in a human's
+  // thread. There is no question in it to trap.
+  const empty = !hasText(raw)
+  const floor = empty || (typed && TYPED_FLOOR) ? floorFaults(kind, raw) : []
+  const faults = typed || empty ? [...floor, ...lintAskHuman(kind, raw)] : []
+  const prompt = typed ? composeCard(kind, raw) : raw.prompt ?? ''
+  const verdict = lintGate.judge({
+    agent: agentName, kind, faults, schema: floor.length > 0, hasText: hasText(raw), prompt,
+    payload: typed ? raw : null,
+  })
+  if (verdict.reject || verdict.refuse) return { stop: verdict.reject ?? verdict.refuse }
+  const open = typed
+    ? {
+      kind,
+      prompt,
+      options: optionLabels(raw),
+      preview_url: raw.preview_url,
+      // The ✅ All as recommended button is DERIVED now (ADR-0019), and the
+      // `recommended` boolean is no longer read on a typed call.
+      recommended: derivedRecommended(kind, raw),
+      payload: {
+        headline: raw.headline,
+        questions: raw.questions,
+        options: raw.options,
+        detail: raw.detail,
+        visual: raw.visual,
+        timeline: raw.timeline,
+        preview_url: raw.preview_url,
+      },
+    }
+    : { kind, prompt, options: raw.options, preview_url: raw.preview_url, recommended: raw.recommended }
+  return { open, flags: verdict.flags ?? null, note: verdict.note ?? null }
 }
 
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
@@ -777,6 +847,26 @@ const dispatcher = new Dispatcher({
   overseerNote: (threadId, text) => reduction.addOverseerNote(threadId, text),
   askReview,
   threads,
+  // The lint gate's two seams into the Stop hook (#418, #438). The hook is the
+  // one lever that a codex agent cannot discard, so it is where a rejection the
+  // agent never read becomes a question the operator still gets.
+  lintRejection: (agentName) => lintGate.pending(agentName),
+  sendFlagged: (agentName, held) => {
+    const w = dispatcher.agents.get(agentName)
+    const { record } = openEscalation({
+      agent: agentName,
+      ticket: w?.ticket ?? null,
+      kind: held.kind,
+      prompt: held.prompt ?? '',
+      options: optionLabels(held.payload ?? {}),
+      preview_url: held.payload?.preview_url,
+      recommended: derivedRecommended(held.kind, held.payload ?? {}),
+      payload: held.payload ?? null,
+      lint_flags: held.faults,
+      awaited: false,
+    })
+    return record
+  },
   // gate.cancel, not reduction.cancel: voiding a boot-orphaned confirm must also
   // settle it — release any pending resolver (a confirm opened via
   // POST /command inside the listen→boot-reconcile window has a live one) and
@@ -1250,46 +1340,97 @@ function buildMcpServer(agent, ticket) {
     'request_review',
     'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again.',
     {
-      summary: z.string().describe('What you did — under ten SHORT lines, plain words. The human reads this on a phone and judges the diff itself through the links, so say what changed and stop: no methodology, no justifications, no restating the ticket. Do not paste links: curia composes every one of them — pull request, preview, ticket — from its own records, and a link you write is not evidence.'),
-      charting: z.string().describe('CONCRETE map changes you propose, as a numbered list — one line per change: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. Name each change; put full ticket bodies and long Decisions-so-far lines in the work you do AFTER approval, not here. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
+      // #418, ADR-0019: `summary` and `charting` are Grade B block prose, and
+      // the operator reads both on every ticket. Optional to zod for the same
+      // reason `ask_human` is — a schema rejection must never trap a gate.
+      summary: z.string().optional().describe('What you did — under ten SHORT lines, plain words, at most 600 characters. The human reads this on a phone and judges the diff itself through the links, so say what changed and stop: no methodology, no justifications, no restating the ticket. Do not paste links: curia composes every one of them — pull request, preview, ticket — from its own records, and a link you write is not evidence.'),
+      charting: z.string().optional().describe('CONCRETE map changes you propose, as a numbered list — one line per change: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. At most 600 characters. Name each change; put full ticket bodies and long Decisions-so-far lines in the work you do AFTER approval, not here. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
+      headline: z.string().optional().describe('The whole change in one line, at most 150 characters. It sits under the gate heading, so the operator reads it first.'),
+      detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
+      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
     },
-    async ({ summary, charting }, extra) => {
+    async (raw, extra) => {
+      // The same gate as `ask_human`, keyed on the same agent-and-kind pair the
+      // supersession key uses (#336), so a rejected gate and a rejected question
+      // count apart.
+      const floor = reviewFloorFaults(raw)
+      const verdict = lintGate.judge({
+        agent, kind: REVIEW_KIND, faults: [...floor, ...lintRequestReview(raw)],
+        schema: floor.length > 0, hasText: hasText(raw), prompt: raw.summary ?? null, payload: raw,
+      })
+      if (verdict.reject || verdict.refuse) {
+        return { content: [{ type: 'text', text: verdict.reject ?? verdict.refuse }] }
+      }
       const stopKeepAlive = startKeepAlive(extra, `${agent}/review`)
       try {
-        const r = await dispatcher.requestReview(agent, { summary, charting })
-        return { content: [{ type: 'text', text: r.text }, ...drainNotes()] }
+        const r = await dispatcher.requestReview(agent, {
+          summary: raw.summary ?? '', charting: raw.charting ?? '', body: composeReviewBody(raw),
+        })
+        const flagNote = verdict.note ? [{ type: 'text', text: verdict.note }] : []
+        return { content: [...flagNote, { type: 'text', text: r.text }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }
     },
   )
 
+  // The typed surface (#418, ADR-0019). One vocabulary of seven names, and this
+  // kind takes a subset of it. Every field is OPTIONAL to zod on purpose: a zod
+  // failure is JSON-RPC -32602, #416 measured that carriage dying in silence on
+  // codex, and ADR-0005's rule is that a schema rejection never traps a
+  // question. So curia checks the floor itself, counts the attempt, and sends
+  // what text the call did carry rather than letting the transport eat it.
   server.tool(
     'ask_human',
-    'Escalate a question to the human and BLOCK until an answer arrives. kind: free-text | choice | approve-reject | preview-review. A ROUND of questions is one free-text call: number them, give each your recommended answer, and set `recommended` so the card carries the ✅ All as recommended button.',
+    'Escalate a question to the human and BLOCK until an answer arrives. kind: free-text | choice | approve-reject | preview-review.'
+    + ' Write the PARTS, not a card: `headline` is the whole decision in one line, and curia lays out the rest.'
+    + ' free-text is a ROUND — put every question in `questions`, give each a `recommendation`, and curia adds the ✅ All as recommended button when every one of them has it.'
+    + ' choice takes `options`, each with a `label` and the `consequence` of picking it.'
+    + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule, and the refusal names the rule and quotes the text. Rewrite the named field and call again. You get three attempts, and the fourth text goes out flagged.',
     {
-      prompt: z.string(),
-      kind: z.enum(['free-text', 'choice', 'approve-reject', 'preview-review']),
-      options: z.array(z.string()).optional(),
-      preview_url: z.string().optional(),
-      // #285, ADR-0005: the round's one-tap path. Set it only when EVERY
-      // question in the prompt carries a recommended answer — the button says
-      // "all", and it is a lie about any question that had no recommendation.
-      // free-text only: the other three kinds already answer with a button.
+      // The untyped fields, kept until the flip (#422). An untyped call is
+      // accepted and renders as it does today.
+      prompt: z.string().optional(),
+      kind: z.enum(['free-text', 'choice', 'approve-reject', 'preview-review']).optional(),
       recommended: z.boolean().optional(),
+      // The typed fields.
+      headline: z.string().optional().describe('The whole decision in one line. One line, no markdown, no link, 150 characters.'),
+      questions: z.array(z.object({
+        text: z.string().optional().describe('One question of the round. One line, 250 characters.'),
+        recommendation: z.string().optional().describe('Your recommended answer to THIS question. One line, 300 characters.'),
+      })).optional().describe('free-text only: the round, one entry per question. Curia numbers them.'),
+      options: z.union([
+        z.array(z.string()),
+        z.array(z.object({
+          label: z.string().optional().describe('The choice, by its name. One line, 80 characters, which is what a select menu carries whole.'),
+          consequence: z.string().optional().describe('What picking this option costs. One line, 300 characters. Mandatory on a choice.'),
+          example: z.string().optional().describe('One concrete case for this option. Block prose, 300 characters. Write one only where it earns its line.'),
+          recommended: z.boolean().optional(),
+        })),
+      ]).optional(),
+      detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters. Reasoning belongs on the timeline, not here.'),
+      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      timeline: z.boolean().optional().describe('Point the operator at the timeline for the reasoning. Curia composes the link.'),
+      preview_url: z.string().optional(),
       images: z.array(z.string()).optional().describe(FILES_HINT),
     },
-    async ({ images, ...payload }, extra) => {
+    async ({ images, ...raw }, extra) => {
       // #164: the reviewer asks nobody. ADR-0010 gives it one output — the
       // verdict — and a question in the ticket thread would put a second voice
       // in front of the operator on a ticket the reviewer is not building.
       const refused = dispatcher.toolRefusal(agent, 'ask_human')
       if (refused) return { content: [{ type: 'text', text: refused }] }
+      // The kind DEFAULTS rather than refuses, for the reason above: a call that
+      // forgot its kind still has a question in it, and -32602 would eat both.
+      const kind = raw.kind ?? 'free-text'
+      const gated = askHumanGate(agent, kind, raw)
+      if (gated.stop) return { content: [{ type: 'text', text: gated.stop }] }
+      const { open, flags, note } = gated
       // #165, ADR-0010: the FIRST question after a cross-check verdict is the
       // builder's judgement of it, and it lands as a second pull-request comment
       // under the verdict. Fire-and-forget on purpose — a gh round-trip must not
       // sit between the agent and the human it is asking.
-      dispatcher.noteJudgement(agent, payload.prompt)
+      dispatcher.noteJudgement(agent, open.prompt)
         .catch((e) => log(`judgement comment for ${agent} failed: ${e.message}`))
       // #369: the answer this agent is about to wait for may already be sitting
       // in its own note queue, unread. A daemon restart killed the call that
@@ -1301,7 +1442,7 @@ function buildMcpServer(agent, ticket) {
       // the record this answer belongs to is already closed, and a corpse of
       // this kind on this agent would have been closed by the call that earned
       // the answer in the first place.
-      const recorded = reduction.recordedAnswerFor({ agent, ...payload })
+      const recorded = reduction.recordedAnswerFor({ agent, ...open })
       if (recorded) {
         reduction.takeRecordedAnswer(recorded.record, recorded.note)
         log(`escalation ${recorded.record.id} replayed to ${agent} — the same question, answered already, note ${recorded.note.id} taken`)
@@ -1318,15 +1459,19 @@ function buildMcpServer(agent, ticket) {
         }
       }
       const { files, refusals } = outboundFiles(agent, images)
-      const { record, answered } = openEscalation({ agent, ticket, ...payload, files })
-      const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(payload.prompt))
+      const { record, answered } = openEscalation({ agent, ticket, ...open, lint_flags: flags, files })
+      const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(open.prompt))
       // Images the human replies with come back as real content blocks, so the
       // picture lands in this agent's context without a Read round-trip (#34).
       const { text, attachments } = await answered.finally(stopKeepAlive)
       const refusalNote = refusals.length ? [{ type: 'text', text: `(curia refused ${refusals.length} outbound file(s): ${refusals.join('; ')})` }] : []
+      // The flagged-send line rides the ANSWER (#416). The agent is told its
+      // text went out with the faults on it, in the one result it was already
+      // waiting for, so nothing about the send is silent.
+      const flagNote = note ? [{ type: 'text', text: note }] : []
       // drainNotes runs AFTER the answer resolves: a note typed right behind a
       // button press rides the answer itself — the grace window's best case.
-      return { content: [...refusalNote, { type: 'text', text }, ...inboundContent(attachments), ...drainNotes()] }
+      return { content: [...flagNote, ...refusalNote, { type: 'text', text }, ...inboundContent(attachments), ...drainNotes()] }
     },
   )
 

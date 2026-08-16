@@ -1,0 +1,277 @@
+// The typed-payload lint (#418), against the contract ADR-0019 locks.
+//
+// Agent prose reaches the operator on five surfaces. Every one of them took a
+// free string until this module. A free string carries no floor, so a card can
+// drop the cost of an option and still send, and it carries no names, so the
+// daemon cannot point at the part that failed.
+//
+// One vocabulary of seven names, and every surface takes a subset:
+//
+//   headline     the whole decision in one line          grade A
+//   question     one question of a round                 grade A
+//   option       one choice, by its label                grade A
+//   consequence  what one option costs                   grade A
+//   example      one concrete case for an option         grade B
+//   visual       a code-block table or an ASCII diagram   geometry
+//   detail       short facts, rendered as a spoiler      grade A
+//
+// `daemon/assets/voice.md` stays the one authority on words. The GRADE decides
+// which of its rules a field is held to. Grade A is inline decision text, so it
+// is capped and structureless. Grade B is block prose, so it keeps its
+// sentences and loses its decoration. A `visual` is not prose, so no grade
+// reads it: curia checks its width, its height and its fence.
+//
+// THE LINT CHECKS DETERMINISTIC RULES ONLY. Passive voice, nominalizations and
+// "-ing" main verbs stay in `voice.md` as author guidance. A rule a machine
+// must guess at produces a false rejection, and a false rejection costs the
+// agent one attempt out of the three ADR-0005 gives it.
+//
+// A cap REFUSES, it never truncates. Truncation loses information in silence,
+// and losing no information is the requirement the whole #413 map serves.
+
+import { fenceParts, lintReply } from './messaging.mjs'
+
+// The caps ADR-0019 sets. A cap is a ceiling, not a target: a card that says
+// the whole decision in 40 characters is a better card, and no rule here
+// pushes an agent toward the limit.
+export const CAPS = {
+  headline: 150,
+  question: 250,
+  option: 80,
+  consequence: 300,
+  example: 300,
+  detail: 500,
+  // `summary`, `charting`, the notify `message` and a verdict finding all share
+  // one block cap.
+  block: 600,
+}
+
+// The `visual` geometry (#414 measured both numbers on a phone). 42 by 20 is
+// under 900 characters, so a visual sits under CODE_BLOCK_LIMIT and never
+// reaches the 1600-character chunk limit either.
+export const VISUAL_COLUMNS = 42
+export const VISUAL_LINES = 20
+
+// ---- the word rules both grades share ---------------------------------------
+
+// A fixed list, not a pattern. `agent's` is a possessive and `it's` is a
+// contraction, and no machine tells them apart from the apostrophe alone — so
+// the rule names the words that ARE contractions and flags nothing else. A
+// pattern over every `\w+'s` would reject "the agent's own worktree", which is
+// the false rejection this lint exists to avoid.
+const CONTRACTION_RE = /\b(?:do|does|did|is|are|was|were|has|have|had|wo|would|ca|could|should|must|ai)n['’]t\b|\b(?:it|that|there|here|what|who|let|he|she|we|you|they|i)['’](?:s|re|ve|ll|d|m)\b/gi
+
+// voice.md's list, whole. Nothing is added here: the authority is that file.
+const MARKETING_RE = /\b(?:seamless(?:ly)?|robust|powerful|cutting-edge|effortless(?:ly)?|world-class|next-generation|revolutionary)\b/gi
+
+// U+2014 em dash and U+2015 horizontal bar. A normal hyphen is allowed, because
+// voice.md offers it as the replacement.
+const EM_DASH_RE = /[—―]/
+
+function wordFaults(field, text) {
+  const faults = []
+  if (text.includes(';')) faults.push(`${field}: a semicolon. Write two sentences.`)
+  if (EM_DASH_RE.test(text)) faults.push(`${field}: an em-dash. Write two sentences, or use a normal dash.`)
+  for (const m of text.match(CONTRACTION_RE) ?? []) faults.push(`${field}: the contraction "${m}". Expand it.`)
+  for (const m of text.match(MARKETING_RE) ?? []) faults.push(`${field}: the marketing adjective "${m}".`)
+  return faults
+}
+
+// ---- grade A: inline decision text -------------------------------------------
+//
+// The text the operator reads BEFORE deciding. It is one line, it carries no
+// structure, and it carries no link, because curia composes every link it
+// renders (ADR-0013).
+
+const HEADING_RE = /^\s{0,3}#{1,6}\s/
+const TABLE_RE = /^\s*\|.*\|/
+const QUOTE_RE = /^\s*>/
+const FENCE_RE = /^\s{0,3}(?:`{3,}|~{3,})/
+const LIST_RE = /^\s*(?:[-*+]\s|\d+[.)]\s)/
+const LINK_RE = /https?:\/\/|\bwww\.\S|\[[^\]]*\]\([^)]*\)/i
+
+export function gradeA(field, value, cap) {
+  const text = String(value ?? '')
+  const faults = []
+  if (text.length > cap) faults.push(`${field}: ${text.length} characters over the ${cap} cap. Shorten it. Curia refuses it, it never cuts it.`)
+  if (/\n/.test(text)) faults.push(`${field}: a newline. This field is one line.`)
+  if (HEADING_RE.test(text)) faults.push(`${field}: a heading marker.`)
+  if (TABLE_RE.test(text)) faults.push(`${field}: a markdown table row. Discord does not render one.`)
+  if (QUOTE_RE.test(text)) faults.push(`${field}: a blockquote marker.`)
+  if (FENCE_RE.test(text)) faults.push(`${field}: a code fence. Put a table or a diagram in the visual field.`)
+  if (LIST_RE.test(text)) faults.push(`${field}: a list marker.`)
+  if (LINK_RE.test(text)) faults.push(`${field}: a link. Curia composes every link it shows, so drop it.`)
+  return [...faults, ...wordFaults(field, text)]
+}
+
+// ---- grade B: block prose ----------------------------------------------------
+//
+// This text explains, so it keeps its sentences. Rules 2 and 5 already ship as
+// `lintReply()`: no heading, no table row, no blockquote, no emoji outside the
+// signal set, no code block over the cap. That function reads PROSE only
+// (#432), so a table inside a fence passes, and the code-block table is the one
+// table form Discord renders.
+
+export const SENTENCE_WORDS = 25
+
+// A sentence ends at a period, a question mark or an exclamation mark followed
+// by whitespace or the end of the text.
+const sentences = (text) => text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean)
+const wordCount = (s) => s.split(/\s+/).filter(Boolean).length
+
+export function gradeB(field, value, cap = CAPS.block) {
+  const text = String(value ?? '')
+  const faults = []
+  if (text.length > cap) faults.push(`${field}: ${text.length} characters over the ${cap} cap. Shorten it. Curia refuses it, it never cuts it.`)
+  for (const problem of lintReply(text)) faults.push(`${field}: ${problem}`)
+  // The sentence rule reads prose only. A fenced block is not a sentence, and
+  // counting its words would refuse a table for being a table.
+  for (const part of fenceParts(text)) {
+    if (part.code) continue
+    for (const s of sentences(part.text)) {
+      const n = wordCount(s)
+      if (n > SENTENCE_WORDS) faults.push(`${field}: a sentence of ${n} words over the ${SENTENCE_WORDS} cap: "${s.slice(0, 60)}…". Split it.`)
+    }
+  }
+  return [...faults, ...wordFaults(field, text)]
+}
+
+// ---- the visual: geometry, never words ---------------------------------------
+//
+// The agent writes the rows. Curia writes the fence, so a visual can never
+// arrive with a broken one — and an agent that fenced it anyway loses the
+// fence here rather than a rejection, because the fence is curia's to place.
+
+export function unfence(value) {
+  const text = String(value ?? '').replace(/\n+$/, '')
+  const parts = fenceParts(text)
+  if (parts.length !== 1 || !parts[0].code) return text
+  const lines = text.split('\n')
+  return lines.slice(1, parts[0].close ? -1 : undefined).join('\n')
+}
+
+export function lintVisual(value) {
+  const body = unfence(value)
+  const faults = []
+  const lines = body.split('\n')
+  if (lines.length > VISUAL_LINES) faults.push(`visual: ${lines.length} lines over the ${VISUAL_LINES} cap. A phone scrolls past a taller one.`)
+  const widest = lines.reduce((w, l) => Math.max(w, l.length), 0)
+  if (widest > VISUAL_COLUMNS) faults.push(`visual: ${widest} columns over the ${VISUAL_COLUMNS} cap. A phone wraps a wider one and the columns lose their alignment.`)
+  // A fence marker INSIDE the rows would close the fence curia puts around
+  // them, and the rest of the visual would render as prose.
+  if (lines.some((l) => FENCE_RE.test(l))) faults.push('visual: a code fence inside the rows. Curia fences the visual itself, so write the rows alone.')
+  return faults
+}
+
+// ---- the shape per surface ---------------------------------------------------
+//
+// Every `ask_human` kind takes `headline` (required), and `detail`, `visual`,
+// `timeline` and `images` (optional). The rest is per kind, and the table is
+// ADR-0019's.
+
+const present = (v) => v !== undefined && v !== null && String(v).trim() !== ''
+
+// THE FLIP (#422). Until the deploy that ends the #413 map, an untyped call is
+// accepted and renders as it does today, and a typed call that omits a required
+// field is accepted too. After it, a call that omits a required field is
+// rejected. One constant decides it, and #422 turns it on.
+export const TYPED_FLOOR = false
+
+// Whether a call carries any typed field at all. Until the flip (#422) an
+// untyped call is accepted and renders as it does today, so this is what tells
+// the two apart. `images` is not prose and does not type a call by itself.
+export function isTyped(payload = {}) {
+  return present(payload.headline)
+    || (payload.questions ?? []).length > 0
+    || (payload.options ?? []).some((o) => o && typeof o === 'object')
+    || present(payload.detail) || present(payload.visual)
+}
+
+// The mandatory floor, checked apart from the words. A missing field is a
+// SCHEMA fault and takes the schema path of ADR-0005, where a lint fault takes
+// the lint path. The two are counted together and the difference is what the
+// agent is told.
+export function floorFaults(kind, payload = {}) {
+  const faults = []
+  if (!present(payload.headline)) faults.push('headline: missing. Every card needs the whole decision in one line.')
+  if (kind === 'free-text') {
+    const qs = payload.questions ?? []
+    if (!qs.length) faults.push('questions: missing. A round is an array of questions, one entry each.')
+    qs.forEach((q, i) => { if (!present(q?.text)) faults.push(`questions[${i}].text: missing.`) })
+  }
+  if (kind === 'choice') {
+    const opts = payload.options ?? []
+    if (opts.length < 2) faults.push('options: a choice needs two options or more, each with its consequence.')
+    opts.forEach((o, i) => {
+      if (!present(o?.label)) faults.push(`options[${i}].label: missing.`)
+      if (!present(o?.consequence)) faults.push(`options[${i}].consequence: missing. An option with no cost stated is the fault this floor exists to stop.`)
+    })
+  }
+  if (kind === 'approve-reject' || kind === 'preview-review') {
+    const opts = payload.options ?? []
+    if (opts.length && opts.length !== 2) faults.push(`options: ${opts.length} given. Approve and reject are exactly two, and curia keeps its own button words.`)
+    opts.forEach((o, i) => {
+      if (!present(o?.consequence)) faults.push(`options[${i}].consequence: missing.`)
+    })
+  }
+  if (kind === 'preview-review' && !present(payload.preview_url)) {
+    faults.push('preview_url: missing. A preview review points at the page to look at.')
+  }
+  return faults
+}
+
+// The words, field by field. The floor is checked separately, so this reads
+// only what the call actually carries.
+export function lintAskHuman(kind, payload = {}) {
+  const faults = []
+  if (present(payload.headline)) faults.push(...gradeA('headline', payload.headline, CAPS.headline))
+  if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
+  if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
+  ;(payload.questions ?? []).forEach((q, i) => {
+    if (present(q?.text)) faults.push(...gradeA(`questions[${i}].text`, q.text, CAPS.question))
+    if (present(q?.recommendation)) faults.push(...gradeA(`questions[${i}].recommendation`, q.recommendation, CAPS.consequence))
+  })
+  ;(payload.options ?? []).forEach((o, i) => {
+    if (typeof o !== 'object' || o === null) return
+    if (present(o.label)) faults.push(...gradeA(`options[${i}].label`, o.label, CAPS.option))
+    if (present(o.consequence)) faults.push(...gradeA(`options[${i}].consequence`, o.consequence, CAPS.consequence))
+    if (present(o.example)) faults.push(...gradeB(`options[${i}].example`, o.example, CAPS.example))
+  })
+  return faults
+}
+
+// The review gate (#417 put it on this ticket). Its `summary` and `charting`
+// are the block prose the operator reads on every ticket.
+export function lintRequestReview(payload = {}) {
+  const faults = []
+  if (present(payload.headline)) faults.push(...gradeA('headline', payload.headline, CAPS.headline))
+  if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
+  if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
+  if (present(payload.summary)) faults.push(...gradeB('summary', payload.summary))
+  if (present(payload.charting)) faults.push(...gradeB('charting', payload.charting))
+  return faults
+}
+
+// Whether a call carries prose a human could read at all. It is what separates
+// a schema fault curia can still send from one it cannot: a headline with no
+// options still asks something, and an empty call asks nothing.
+export function hasText(payload = {}) {
+  return present(payload.headline) || present(payload.prompt) || present(payload.summary)
+    || (payload.questions ?? []).some((q) => present(q?.text))
+    || (payload.options ?? []).some((o) => present(typeof o === 'object' ? o?.label : o))
+}
+
+// The gate's floor, in two halves.
+//
+// `summary` and `charting` were REQUIRED by the schema before this ticket, so
+// they are required now, flip or no flip. Making them optional to zod is about
+// which layer refuses the call (#438: a zod refusal dies in silence on codex),
+// never about letting a silent gate open. Only the `headline` waits for #422,
+// because it is the field this ticket adds.
+export function reviewFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {}) {
+  const faults = []
+  if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say the whole change in one line.')
+  if (!present(payload.summary)) faults.push('summary: missing. Say what you did.')
+  if (!present(payload.charting)) faults.push('charting: missing. Write "none" when there is nothing to chart.')
+  return faults
+}

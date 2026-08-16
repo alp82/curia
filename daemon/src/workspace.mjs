@@ -1807,11 +1807,22 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     // frontier of independent questions, asked together. The dependency rule is
     // what keeps this honest: batching a question whose answer hangs on another
     // open question is guessing, and guessing is the thing this bound forbids.
+    // #418, ADR-0019: the round is TYPED now. `questions[]` replaces the numbers
+    // an agent used to write inside one prose prompt, and the ✅ button is
+    // derived from the array rather than claimed by a flag. So the bound says
+    // where each question goes, not how to number it: curia does the numbering.
     '- **A HITL ticket is many `ask_human` calls, one ROUND at a time.** A round is every question whose',
-    '  answer does not depend on another question you have open. Number them, give each your recommended',
-    '  answer, and send them as ONE `free-text` call with `recommended: true` — the human gets a ✅ All as',
-    '  recommended button, and one reply names the exceptions. A question whose answer depends on another',
-    '  one still open belongs to the NEXT round. One question is a round of one.',
+    '  answer does not depend on another question you have open. Put every one of them in `questions`, and',
+    '  give each its own `recommendation`. curia numbers them and adds the ✅ All as recommended button when',
+    '  every question carries one, so one reply names the exceptions. A question whose answer depends on',
+    '  another one still open belongs to the NEXT round. One question is a round of one.',
+    // #415, ADR-0019: the agent writes the parts and the bridge lays out the
+    // card. The example and the visual stay judgment fields, because a field
+    // required on every option produces filler rather than evidence.
+    '- **Write the PARTS of a card, never the card itself.** `headline` says the whole decision in one line.',
+    '  Every option of a `choice` carries the `consequence` of picking it. curia lays them out, adds the',
+    '  buttons and writes every link. An `example` or a `visual` is your judgment: add one where it removes',
+    '  prose, and leave it out where it would only say the line above it again in longer words.',
     '- **Never answer for the human.** A question they did not answer comes back in the next round. Only',
     '  the ✅ button takes your recommendations, and only for the questions in the round it sits on.',
     // #56: a daemon crash took an in-flight ask_human down with it, and the agent
@@ -1845,6 +1856,16 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  are normal. A slow, backgrounded or quiet call is still open: keep waiting. Never let a story about',
     '  why nobody replied — the daemon must be dead, they must be asleep — stand in for the reply. This',
     '  holds hardest on small questions, because a wrong answer to a small one is the one nobody checks.',
+    // #418, and the memory-file line #438 left to the build ticket. On codex a
+    // rejection is the `exec` script's RETURN VALUE and it never throws, so a
+    // model that ignores the value reads `Script completed` and moves on. This
+    // line and the tool description are the two prose levers. Neither is a
+    // guarantee, and the Stop hook is the catch that is.
+    '- **Read what a `curia` tool call gives back.** curia lints the words you send a human, and it REFUSES',
+    '  a call whose words break a rule. The refusal names the rule and quotes your own text. Rewrite that',
+    '  field and make the call again. You get three attempts, and the fourth text goes out flagged, with',
+    '  its faults printed on the card. A refused call asked nobody anything, so a call you treat as sent',
+    '  leaves your question unasked and the human waiting for nothing.',
     // #287: the vendored `prototype` skill tells this agent to capture the
     // prototype on a throwaway branch out of main. Three of its four capture
     // clauses already hold here — `curia/<n>` IS cut from main and deleted at
