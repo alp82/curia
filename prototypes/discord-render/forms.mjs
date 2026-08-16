@@ -98,9 +98,9 @@ then lines, then a hard slice. It never sees the fence.
 
   chunk 1 -> opens \`\`\` and never closes it
   chunk 2 -> raw rows, then a stray closing \`\`\``,
-    why: 'The screenshot shows the whole failure. Both fences render as literal backticks, the font falls back to proportional, and the columns lose the alignment that made it a table. The seam between the two messages sits between esc-130 and esc-131. Cap the block and link the rest instead of leaning on the chunker.',
+    why: 'The screenshot shows the whole failure. Both fences render as literal backticks, the font falls back to proportional, and the columns lose the alignment that made it a table. The seam between the two messages sits between esc-130 and esc-131. Cap the block and link the rest instead of leaning on the chunker. #432 built that cap at 1000 chars per block, and it also taught the chunker to close a fence at a split and reopen it, so a block that still slips through renders as two code blocks rather than raw backticks.',
     how: 'live',
-    code: 'daemon/src/messaging.mjs — chunkMessage(), CHUNK_LIMIT = 1600; both daemon/src/bridge.mjs send paths use it',
+    code: 'daemon/src/messaging.mjs — chunkMessage(), CHUNK_LIMIT = 1600, CODE_BLOCK_LIMIT = 1000; both daemon/src/bridge.mjs send paths use it',
   },
   {
     group: 'Attachments',
