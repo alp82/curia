@@ -20,7 +20,7 @@ The daemon expects these on the box before the first boot:
 `.env.daemon` (never committed). One env file per container that holds secrets, and the pair reads as a pair: this one and `.env.overseer` (#313):
 
 - `DISCORD_BOT_TOKEN` — CuriaBot token. Omit to run REST-only (escalations stay answerable via `POST /answer`).
-- `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty.
+- `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty. It is also the watcher list: every id on it is silently added as a member of each thread the daemon opens, so new tickets appear in the operator's thread list without a ping.
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` — the FALLBACK GitHub token an agent gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. An agent mints its own token from the GitHub App since #389, and this key is what an owner the app is not installed on still gets. See [the agent's GitHub authority](#the-agents-github-authority-155-cut-over-by-389) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
 - The overseer's own tokens are **not** in this file, and since #392 they are in no env file at all. The daemon mints them and writes one file per owner under `<workspace_root>/overseer/tokens/`. `.env.overseer` beside this file keeps the model credential, and the overseer service loads that file and never this one. See [the overseer's GitHub authority](#the-overseers-github-authority-313-cut-over-by-392) below.

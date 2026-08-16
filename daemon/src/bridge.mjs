@@ -817,6 +817,7 @@ export class DiscordBridge {
         return winner
       }
     }
+    await this.#addWatchers(thread)
     return thread
   }
 
@@ -829,6 +830,27 @@ export class DiscordBridge {
   // because two repos can answer for one number.
   #repoOf(ticket) {
     return this.bindings?.repoOf?.(ticket) ?? ''
+  }
+
+  // Every allowed operator joins a thread the moment the daemon opens it. A
+  // thread the bot creates has the bot as its one member, so it never appears
+  // in an operator's thread list until they join it by hand. `members.add` is
+  // the silent form: the thread lands in the list and follows the operator's
+  // own notification settings, with no ping. The auth gate's list is the
+  // watcher list on purpose — the people who may drive curia are the people
+  // who must see its threads, and a second list would be a second answer to
+  // that question. A failed add is logged and swallowed: a stale id in
+  // DISCORD_ALLOWED_USERS must not cost a dispatch its thread. Revived
+  // threads are not re-added — membership survives archive.
+  async #addWatchers(thread) {
+    if (!thread.members?.add) return
+    for (const id of this.allowedUsers) {
+      try {
+        await thread.members.add(id)
+      } catch (e) {
+        this.log(`thread ${thread.id}: could not add watcher ${id}: ${e.message}`)
+      }
+    }
   }
 
   async #namedThread(name) {
@@ -847,6 +869,7 @@ export class DiscordBridge {
     }
     if (!thread) {
       thread = await this.channel.threads.create({ name, autoArchiveDuration: 10080 })
+      await this.#addWatchers(thread)
     }
     this.threadByName.set(name, thread.id)
     return thread
@@ -951,6 +974,7 @@ export class DiscordBridge {
           return { ok: true, threadId: winner.id }
         }
       }
+      await this.#addWatchers(thread)
     }
     if (r.ok && originThreadId) {
       const origin = await this.client.channels.fetch(originThreadId).catch(() => null)
@@ -1760,6 +1784,7 @@ export class DiscordBridge {
     if (m.channel.id === this.channel.id) {
       if (!this.handlers.overseerTurn) return
       const thread = await m.startThread({ name: m.content.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
+      await this.#addWatchers(thread)
       return this.#overseerTurn(thread, m.content)
     }
     if (!m.channel.isThread() || m.channel.parentId !== this.channel.id) return
