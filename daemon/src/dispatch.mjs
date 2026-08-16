@@ -57,7 +57,7 @@ import {
   verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
-import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, RESULT_KIND, dutyLines } from './lifecycle.mjs'
+import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, RESULT_KIND, NOTIFY_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, CROSS_CHECK_LABEL, VERDICT_LABEL } from './reduction.mjs'
 import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
@@ -90,7 +90,7 @@ export const reviewSessionFor = (n) => `curia-review-${n}`
 // Which tool a lint rejection came from (#418, #419). The gate keeps its own
 // kind and so does the ending report, and every other kind is an `ask_human`.
 // The Stop hook names the tool, because the model has to make the call again.
-const TOOL_FOR_KIND = { [REVIEW_KIND]: 'request_review', [RESULT_KIND]: 'report_result' }
+const TOOL_FOR_KIND = { [REVIEW_KIND]: 'request_review', [RESULT_KIND]: 'report_result', [NOTIFY_KIND]: 'notify' }
 
 // The label a CHARTING dispatch needs (#160): `map curia#<n>` on a map's own
 // issue spawns an agent that updates the map, not one that resolves a ticket
@@ -3526,6 +3526,22 @@ export class Dispatcher {
   //
   // Returns a Stop-hook answer, or null to fall through to the ending checks.
   async #holdForRejection(agentName, held) {
+    // A refused STATUS LINE never holds a turn (#420). Nothing waits on one, so
+    // the block a question earns would cost the agent a turn to deliver a line
+    // the operator did not ask for. curia posts the held text itself, flagged,
+    // and the ledger clears — which keeps #438's rule (a rejection the agent
+    // never read still reaches the human) without spending the agent's turn on
+    // it. A `look` line matters most here: the file it points at is already
+    // attached, and losing the line loses the pointer to it.
+    if (held.kind === NOTIFY_KIND) {
+      const posted = await this.deps.sendFlaggedNotify?.(agentName, held)
+      this.reduction.journal('lint_flagged_send', {
+        agent: agentName, kind: held.kind, id: null, faults: held.faults, posted: Boolean(posted),
+      })
+      this.log(`stop hook ${agentName}: posting a rejected status line flagged with ${held.faults.length} fault(s), not holding the turn`)
+      this.reduction.clearLintRejections(agentName, held.kind)
+      return null
+    }
     if ((held.stop_blocks ?? 0) < 1) {
       this.reduction.journalLintStopBlock(agentName, held.kind)
       this.log(`stop hook ${agentName}: holding on a rejected ${held.kind} call — ${held.faults.length} lint fault(s)`)
@@ -3596,10 +3612,19 @@ export class Dispatcher {
     //
     // It sits UNDER #47. An agent already blocked on a human is not spinning on
     // anything, and its rejection waits for the turn after the answer.
-    const held = this.deps.lintRejection?.(agentName)
-    if (held) {
+    // A LOOP since #420, because a held call that clears without a decision can
+    // hide an older one. The ledger holds one entry per kind and this reads the
+    // newest, so an agent that got its status line refused after its question
+    // would have ended the turn with the question still unsent. Every pass
+    // either returns a decision or clears that kind, and the guard on the kind
+    // stops a dep that clears nothing from spinning here.
+    let held = this.deps.lintRejection?.(agentName)
+    const settled = new Set()
+    while (held && !settled.has(held.kind)) {
+      settled.add(held.kind)
       const decision = await this.#holdForRejection(agentName, held)
       if (decision) return decision
+      held = this.deps.lintRejection?.(agentName)
     }
 
     const state = await this.#endingState(agentName)

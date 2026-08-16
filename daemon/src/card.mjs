@@ -18,6 +18,7 @@
 // than the question.
 
 import { unfence, isTypedResult } from './lint.mjs'
+import { SIGNALS, smallPrint } from './messaging.mjs'
 
 // A. B. C. up to Z, then the number. 26 options or more is the numbered-list
 // band anyway (#414), where the letters have stopped helping.
@@ -122,6 +123,49 @@ export function composeResultReport(status, payload = {}) {
   const body = composeResultBody(payload)
   if (!body) return head
   return isTypedResult(payload) ? `${head}\n\n${body}` : `${head}: ${body}`
+}
+
+// The status line (#420, ADR-0019). It asks nothing, so it carries no options
+// and no buttons: the message, the visual under it, and the facts in a spoiler.
+//
+// THE KIND SET IS WHAT THE OPERATOR MUST DO, never how the agent rates its own
+// news. `progress` needs nothing from them, `look` needs their eyes now, and
+// `ask` wants a reply whenever they get to it. A set built on the agent's own
+// weighting — routine against notable — is a claim the payload cannot check,
+// and ADR-0019 retired the `recommended` boolean for being exactly that.
+//
+// Three kinds and no fourth. A finding is `progress`, because the operator acts
+// on it later. A prototype that is ready is `look`. An ending is neither: it is
+// the report `report_result` already sends (#419).
+export const NOTIFY_KINDS = ['progress', 'look', 'ask']
+const DEFAULT_NOTIFY_KIND = 'progress'
+
+// One prefix per kind, from the signal set `voice.md` fixes. `ask` is the entry
+// #420 added to it: the other six said what curia had done, and none of them
+// said that a reply is wanted.
+const NOTIFY_SIGNAL = {
+  progress: SIGNALS.work,
+  look: SIGNALS.link,
+  ask: SIGNALS.ask,
+}
+
+// An `ask` is a question nothing waits on, so the operator is told where the
+// answer goes. Small print, one line (#414), and true of every thread message:
+// a note reaches its agent on the next tool result the agent reads.
+const ASK_LINE = 'Reply in this thread when you can. It reaches the agent on its next tool call.'
+
+// The prefix rides here rather than at the call site, because this composer
+// owns the whole post — the same rule the ending report follows. An untyped
+// notify is a `progress` one, so it keeps the exact line the thread has read
+// since the first one.
+export function composeNotify(payload = {}) {
+  const kind = NOTIFY_KINDS.includes(payload.kind) ? payload.kind : DEFAULT_NOTIFY_KIND
+  const parts = []
+  if (has(payload.message)) parts.push(`${NOTIFY_SIGNAL[kind]} ${String(payload.message).trim()}`)
+  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
+  if (kind === 'ask' && parts.length) parts.push(smallPrint(ASK_LINE))
+  return parts.join('\n\n')
 }
 
 // The ✅ All as recommended button, DERIVED (ADR-0019). It renders when every

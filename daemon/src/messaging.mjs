@@ -8,7 +8,11 @@
 // message):
 //   ⚙️ work in motion        ✅ done / confirmed     ❌ refused / declined
 //   ⚠️ warning / failure     🎫 ticket               ⚰️ dead — an agent torn
-//   🔗 link                                            down, a lapsed confirm
+//   🔗 link                  ❓ a reply is wanted        down, a lapsed confirm
+//
+// ❓ is #420's entry. The other six say what curia or an agent DID, and a
+// notify of kind `ask` says something none of them can: a reply is wanted and
+// nothing is blocked on it.
 //
 // Button LABELS are UI chrome, not messages: the ✅/❌ confirm pair is fixed
 // by #94. There is no cancel button any more (#200) — ending an agent is
@@ -22,6 +26,7 @@ export const SIGNALS = {
   ticket: '🎫',
   dead: '⚰️',
   link: '🔗',
+  ask: '❓',
 }
 
 // Discord renders `-# ` as small print — the meta register (#89). Applied per

@@ -8,6 +8,7 @@ import {
   gradeA, gradeB, lintVisual, unfence, isTyped, floorFaults, lintAskHuman,
   lintRequestReview, reviewFloorFaults, hasText,
   isTypedResult, lintResult, resultFloorFaults,
+  lintNotify, notifyFloorFaults, notifyHasText,
 } from '../src/lint.mjs'
 
 const names = (faults) => faults.join(' | ')
@@ -337,5 +338,42 @@ describe('lintResult: the ending report (#419)', () => {
 
   test('a report carrying a summary has text, so the cap ends in a flagged send', () => {
     assert.equal(hasText({ status: 'resolved', summary: 'what changed' }), true)
+  })
+})
+
+describe('the status line (#420)', () => {
+  const LINE = { message: 'The tests are green. The pull request is open.' }
+
+  test('the message is grade B, so it keeps its sentences and loses its em-dash', () => {
+    assert.deepEqual(lintNotify(LINE), [])
+    assert.match(names(lintNotify({ message: 'the tests pass — and the branch is pushed' })), /message: an em-dash/)
+  })
+
+  test('the message shares the block cap, and it is refused rather than cut', () => {
+    const faults = lintNotify({ message: 'x'.repeat(CAPS.block + 1) })
+    assert.match(names(faults), new RegExp(`message: 601 characters over the ${CAPS.block} cap`))
+    assert.match(names(faults), /never cuts it/)
+  })
+
+  test('the detail is grade A, so it is one line and carries no link', () => {
+    assert.deepEqual(lintNotify({ ...LINE, detail: 'The module is daemon/src/lint.mjs.' }), [])
+    assert.match(names(lintNotify({ ...LINE, detail: 'one\ntwo' })), /detail: a newline/)
+    assert.match(names(lintNotify({ ...LINE, detail: 'see https://example.com' })), /detail: a link/)
+  })
+
+  test('the visual keeps its geometry check and no grade', () => {
+    assert.match(names(lintNotify({ ...LINE, visual: 'x'.repeat(VISUAL_COLUMNS + 1) })), /visual: 43 columns/)
+    assert.deepEqual(lintNotify({ ...LINE, visual: 'a; b — c' }), [], 'a diagram is not prose')
+  })
+
+  test('the floor is the message, because the schema required it before this ticket', () => {
+    assert.deepEqual(notifyFloorFaults(LINE), [])
+    assert.match(names(notifyFloorFaults({ detail: 'facts' })), /message: missing/)
+  })
+
+  test('a status line with words has text, so its cap ends in a flagged send', () => {
+    assert.equal(notifyHasText(LINE), true)
+    assert.equal(notifyHasText({ visual: 'a  b' }), true, 'a visual alone still says something')
+    assert.equal(notifyHasText({ images: ['a.png'] }), false, 'a file is not prose, so it is the dead end')
   })
 })

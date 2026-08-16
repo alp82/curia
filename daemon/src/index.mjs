@@ -39,7 +39,7 @@ import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mj
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
-import { REVIEW_KIND, RESULT_KIND } from './lifecycle.mjs'
+import { REVIEW_KIND, RESULT_KIND, NOTIFY_KIND } from './lifecycle.mjs'
 import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
@@ -70,11 +70,13 @@ import { promptTitle, elapsedLabel, speakerName, smallPrint } from './messaging.
 import {
   TYPED_FLOOR, isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
   lintResult, resultFloorFaults,
+  lintNotify, notifyFloorFaults, notifyHasText,
 } from './lint.mjs'
 import {
   composeCard, composeReviewBody, composeResultReport, optionLabels, derivedRecommended,
+  composeNotify, NOTIFY_KINDS,
 } from './card.mjs'
-import { LintGate, flaggedResultText } from './lintgate.mjs'
+import { LintGate, flaggedResultText, flaggedNotifyText } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
 import { AccountUsage, ModelWindows, agentMeters, ctxOnWire, consoleConversationsOnWire } from './usage.mjs'
@@ -926,6 +928,23 @@ const dispatcher = new Dispatcher({
     })
     return record
   },
+  // The third seam (#420). A status line opens no record and asks nobody
+  // anything, so a held one is POSTED rather than staged as a card. It carries
+  // its own files no longer — the paths were checked on the call curia refused,
+  // and re-reading them at the stop would read a worktree the agent has moved
+  // on in. The words are what is held, and the words are what goes out.
+  sendFlaggedNotify: async (agentName, held) => {
+    const w = dispatcher.agents.get(agentName)
+    const ticketFor = w?.ticket ?? null
+    const body = composeNotify(held.payload ?? { message: held.prompt ?? '' })
+    if (!bridge || ticketFor == null || !body) return false
+    await bridge.notify(ticketFor, body, { as: speakerName(agentName) }).catch(() => {})
+    await bridge.notify(ticketFor, smallPrint([
+      `⚠️ \`${agentName}\` ended a turn holding a status line curia refused ${held.count} time(s) on the lint. curia posted it as it stands:`,
+      ...held.faults,
+    ].join('\n'))).catch(() => {})
+    return true
+  },
   // gate.cancel, not reduction.cancel: voiding a boot-orphaned confirm must also
   // settle it — release any pending resolver (a confirm opened via
   // POST /command inside the listen→boot-reconcile window has a live one) and
@@ -1310,15 +1329,67 @@ function buildMcpServer(agent, ticket) {
     text: `[${n.label ?? 'operator note'}${n.after ? `, after ${n.after}` : ''}] ${n.text}`,
   }))
 
+  // The typed status line (#420, ADR-0019). The vocabulary is the card's, cut
+  // down to what a line that asks nothing needs: the `message` is Grade B prose
+  // and the `detail` is the Grade A spoiler.
+  //
+  // The KIND says what the operator must do, and nothing about how the agent
+  // rates its own news. That is what keeps it checkable: `look` means a file or
+  // a page is waiting for their eyes, `ask` means a reply is wanted, and
+  // `progress` means neither. A set built on the agent's own weighting would be
+  // a claim the payload cannot check, which is the fault ADR-0019 retired the
+  // `recommended` boolean over.
   server.tool(
     'notify',
-    'Fire-and-forget status update to the human. Returns immediately.',
-    { message: z.string(), images: z.array(z.string()).optional().describe(FILES_HINT) },
-    async ({ message, images }) => {
+    'Fire-and-forget status update to the human. Returns immediately.'
+    + ' `kind` says what the operator must DO: `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply they can send whenever they get to it.'
+    + ' An `ask` blocks nothing — use `ask_human` when you cannot go on without the answer.'
+    + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule. Rewrite the named field and call again. You get three attempts, and the fourth text goes out flagged.',
+    {
+      // Off zod for the reason the gate's `summary` is (#438): a -32602 dies in
+      // silence on codex, where a named fault the gate returns is readable and
+      // counted. The floor still requires it.
+      message: z.string().optional().describe('What happened, in plain words, at most 600 characters. The thread reads this.'),
+      kind: z.enum(NOTIFY_KINDS).optional().describe('What the operator must do: `progress` (nothing), `look` (open something now), `ask` (reply when they can). Defaults to `progress`.'),
+      detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
+      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      images: z.array(z.string()).optional().describe(FILES_HINT),
+    },
+    async ({ images, ...raw }) => {
+      // The same gate as the other surfaces, on its own key, so a rejected
+      // status line and a rejected question never spend each other's attempts.
+      const floor = notifyFloorFaults(raw)
+      const verdict = lintGate.judge({
+        agent, kind: NOTIFY_KIND, faults: [...floor, ...lintNotify(raw)],
+        schema: floor.length > 0, hasText: notifyHasText(raw), prompt: raw.message ?? null, payload: raw,
+      })
+      if (verdict.reject || verdict.refuse) {
+        return { content: [{ type: 'text', text: verdict.reject ?? verdict.refuse }] }
+      }
+      const flags = verdict.flags ?? null
       const { files, refusals } = outboundFiles(agent, images)
-      reduction.journal('notify', { agent, ticket, message, images: files.map((f) => f.attachment), refusals })
-      if (bridge) bridge.notify(ticket, `⚙️ ${message}`, { files, as: speaker }).catch(() => {})
-      return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} file(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
+      reduction.journal('notify', {
+        agent, ticket, ...raw, images: files.map((f) => f.attachment), refusals,
+        ...(flags ? { lint_flags: flags } : {}),
+      })
+      // The body is never empty here: a call with no words at all fails the
+      // floor, and one that reaches the cap with none is the dead end the gate
+      // refuses for good rather than posts.
+      if (bridge) {
+        bridge.notify(ticket, composeNotify(raw), { files, as: speaker }).catch(() => {})
+        // A flagged send is CURIA's fact about the agent's text, so curia says
+        // it in its own voice, under the line it is about (ADR-0013) — the same
+        // shape the ending report's flagged send takes (#419).
+        if (flags?.length) {
+          bridge.notify(ticket, smallPrint([
+            `⚠️ curia sent this status line after ${flags.length} lint fault(s) the agent did not fix:`,
+            ...flags,
+          ].join('\n'))).catch(() => {})
+        }
+      }
+      const said = refusals.length ? `ok (${refusals.length} file(s) refused)\n${refusals.join('\n')}` : 'ok'
+      const flagNote = verdict.note ? [{ type: 'text', text: flaggedNotifyText(flags) }] : []
+      return { content: [...flagNote, { type: 'text', text: said }, ...drainNotes()] }
     },
   )
 

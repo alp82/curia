@@ -4169,6 +4169,62 @@ describe('the Stop hook enforces the ending (#54 item 4)', () => {
     assert.match(decision.reason, /This ticket has reported nothing/)
   })
 
+  test('a rejected STATUS LINE is posted, and it never holds the turn (#420)', async () => {
+    // Nothing waits on a status line, so the block a question earns would cost
+    // the agent a turn to deliver a line the operator did not ask for.
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', agent: 'curia-42' }])
+    const posted = []
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      lintRejection: () => rejected({ kind: 'notify', payload: { message: 'the tests pass' } }),
+      sendFlaggedNotify: (agent, h) => { posted.push({ agent, h }); return true },
+      sendFlagged: () => { throw new Error('a status line is never staged as a card') },
+    })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(posted.length, 1, 'the words the agent lost still reach the thread')
+    assert.equal(posted[0].h.payload.message, 'the tests pass')
+    assert.ok(events.some((e) => e.type === 'lint_flagged_send' && e.kind === 'notify'))
+    assert.ok(!typesOf().includes('lint_stop_blocked'), 'no turn is spent on a line nobody waits for')
+    assert.equal(decision.decision, 'block', 'the ordinary ending checklist still runs')
+    assert.match(decision.reason, /request_review/)
+  })
+
+  test('a cleared status line does not hide the question behind it (#420)', async () => {
+    // The ledger holds one entry per kind and the hook reads the newest. Before
+    // the loop, a status line refused after a question ended the turn with the
+    // question still unsent.
+    const held = [
+      rejected({ kind: 'notify', payload: { message: 'the tests pass' } }),
+      rejected({ kind: 'free-text' }),
+    ]
+    const d = makeDispatcher({
+      lintRejection: () => held[0] ?? null,
+      sendFlaggedNotify: () => { held.shift(); return true },
+    })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /curia REFUSED your last `ask_human` call/)
+  })
+
+  test('a dep that clears nothing does not spin the hook (#420)', async () => {
+    const posted = []
+    const d = makeDispatcher({
+      lintRejection: () => rejected({ kind: 'notify', payload: { message: 'a line' } }),
+      sendFlaggedNotify: () => { posted.push(1); return true },
+    })
+    liveAgent(d)
+
+    await d.onStopHook('curia-42', {})
+
+    assert.equal(posted.length, 1, 'one pass per kind, whatever the ledger keeps saying')
+  })
+
   test('#47 stays first: a turn that ends on an open escalation is a block, never a stop-block', async () => {
     const d = makeDispatcher({ hasSession: async () => true })
     liveAgent(d)
