@@ -32,6 +32,12 @@ create table events (
   -- `"worker": "curia-170"` in `body` and `curia-170` here.
   agent  text,
 
+  -- The repo the event is about, or null. A column because the operator types
+  -- it, which is the rule that made `agent` one. It gets NO index of its own:
+  -- curia runs one or two repos, so `where repo='alp82/curia'` selects nearly
+  -- every row and SQLite scans whatever we build.
+  repo   text,
+
   -- The dispatch this row belongs to: the id of the `dispatch_claimed` or
   -- `agent_spawned` row that opened the ticket's latest epoch at the moment
   -- this row was written. An epoch-opening row carries its own id. 0 for a row

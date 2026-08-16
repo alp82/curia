@@ -1,21 +1,33 @@
 {
   "node": "v24.19.0",
   "sqlite": "3.53.3",
+  "stamps": {
+    "events": 2000,
+    "distinctStamps": 58,
+    "mostOnOneStamp": 53,
+    "boundary": {
+      "ticket": "901",
+      "ts": "2026-08-16T11:19:51.710Z",
+      "pairs": 1,
+      "byId": true,
+      "byTs": false
+    }
+  },
   "sizes": [
     {
       "size": 4282,
       "live": true,
       "tickets": 171,
-      "loadMs": 247.005,
-      "wholeReadMs": 29.58,
+      "loadMs": 297.643,
+      "wholeReadMs": 28.49,
       "sizes": {
         "journalFileBytes": 1187203,
-        "dbBytes": 2228224,
+        "dbBytes": 2289664,
         "plainDbBytes": 4096,
         "perIndex": [
           {
             "name": "events",
-            "bytes": 1564672
+            "bytes": 1626112
           },
           {
             "name": "events_agent_type",
@@ -54,9 +66,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0321,
-          "plainMs": 0.0362,
-          "scanMs": 0.4397,
+          "sqlMs": 0.0266,
+          "plainMs": 0.0349,
+          "scanMs": 0.4481,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -77,9 +89,9 @@
           "note": "Predicate-narrowed: only a review_answered whose `approved` is true counts.",
           "sql": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)) as answer",
-          "sqlMs": 0.0156,
-          "plainMs": 0.0229,
-          "scanMs": 0.327,
+          "sqlMs": 0.0159,
+          "plainMs": 0.0265,
+          "scanMs": 0.2941,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -100,9 +112,9 @@
           "note": null,
           "sql": "select count(*) as answer from events\n where id > (select coalesce(max(epoch), 0) from events where ticket = :t)\n   and type = 'stop_blocked'\n   and agent = :a",
           "plain": "select count(*) as answer from events\n where id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned'))\n   and type = 'stop_blocked'\n   and agent = :a",
-          "sqlMs": 0.0125,
-          "plainMs": 0.0156,
-          "scanMs": 0.3734,
+          "sqlMs": 0.0133,
+          "plainMs": 0.0181,
+          "scanMs": 0.4824,
           "plan": [
             "SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -117,9 +129,9 @@
           "note": null,
           "sql": "select coalesce(\n  (select max(id) from events where ticket = :t and type = 'ticket_resolved')\n  > (select max(id) from events where ticket = :t and type = 'reviewer_spawned'), 0) as answer",
           "plain": null,
-          "sqlMs": 0.0102,
-          "plainMs": 0.0091,
-          "scanMs": 0.2104,
+          "sqlMs": 0.012,
+          "plainMs": 0.0136,
+          "scanMs": 0.2702,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 1",
@@ -136,9 +148,9 @@
           "note": null,
           "sql": "select ts from events\n where ticket = :t and type = 'dispatch_claimed'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0111,
-          "plainMs": 0.0103,
-          "scanMs": 0.1333,
+          "sqlMs": 0.0116,
+          "plainMs": 0.0129,
+          "scanMs": 0.1199,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -149,11 +161,11 @@
           "where": "#epochRepo",
           "question": "Which repo was this ticket last dispatched against?",
           "note": "Predicate-narrowed: the last dispatch event that CARRIES a repo.",
-          "sql": "select json_extract(body, '$.repo') as repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and json_extract(body, '$.repo') <> ''\n order by id desc limit 1",
+          "sql": "select repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and repo <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0192,
-          "plainMs": 0.0229,
-          "scanMs": 0.1687,
+          "sqlMs": 0.0174,
+          "plainMs": 0.0269,
+          "scanMs": 0.2645,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)",
             "USE TEMP B-TREE FOR ORDER BY"
@@ -167,9 +179,9 @@
           "note": null,
           "sql": "select json_extract(body, '$.kind') = 'charting' as charting,\n       json_extract(body, '$.instruction') as instruction,\n       coalesce(json_extract(body, '$.newMap'), 0) as newMap\n  from events\n where ticket = :t and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0114,
-          "plainMs": 0.0145,
-          "scanMs": 0.1056,
+          "sqlMs": 0.0195,
+          "plainMs": 0.0184,
+          "scanMs": 0.1213,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -182,9 +194,9 @@
           "note": "The one query that reaches for a field #184 renamed. `body` is verbatim, so a pre-rename line says `backend`. The columns are normalized; a JSON field is not.",
           "sql": "select json_extract(body, '$.model') as model,\n       coalesce(json_extract(body, '$.harness'), json_extract(body, '$.backend')) as harness\n  from events\n where agent = :a and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0137,
-          "plainMs": 0.0147,
-          "scanMs": 0.1026,
+          "sqlMs": 0.0156,
+          "plainMs": 0.012,
+          "scanMs": 0.1449,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -197,9 +209,9 @@
           "note": "Keyed by agent, and reset at that session`s last spawn line.",
           "sql": "select json_extract(body, '$.map') as map from events\n where agent = :a and type = 'map_adopted'\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.map') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0092,
-          "plainMs": 0.0103,
-          "scanMs": 0.1842,
+          "sqlMs": 0.0125,
+          "plainMs": 0.0118,
+          "scanMs": 0.1949,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -214,9 +226,9 @@
           "note": "Predicate-narrowed: the last ending carrier that CARRIES a summary.",
           "sql": "select json_extract(body, '$.summary') as summary from events\n where agent = :a\n   and type in ('ticket_resolved', 'nonclean_noted', 'charting_finished')\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.summary') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0198,
-          "plainMs": 0.02,
-          "scanMs": 0.2233,
+          "sqlMs": 0.0286,
+          "plainMs": 0.0337,
+          "scanMs": 0.1699,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -230,11 +242,11 @@
           "where": "#captureVerdict",
           "question": "Which ticket and repo does this reviewer belong to?",
           "note": null,
-          "sql": "select ticket,\n       json_extract(body, '$.repo') as repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
+          "sql": "select ticket,\n       repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0109,
-          "plainMs": 0.0108,
-          "scanMs": 0.1434,
+          "sqlMs": 0.0084,
+          "plainMs": 0.0063,
+          "scanMs": 0.1992,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -245,11 +257,11 @@
           "where": "#reconcileContext",
           "question": "What is every ticket`s latest dispatch epoch?",
           "note": "The one question that is not keyed: it answers for every ticket at once, and reconcile runs it once a pass.",
-          "sql": "select e.ticket, e.id, json_extract(e.body, '$.repo') as repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
+          "sql": "select e.ticket, e.id, e.repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
           "plain": null,
-          "sqlMs": 1.4241,
-          "plainMs": 0.9991,
-          "scanMs": 0.4301,
+          "sqlMs": 1.0535,
+          "plainMs": 1.0534,
+          "scanMs": 0.4626,
           "plan": [
             "CO-ROUTINE latest",
             "SEARCH events USING INDEX events_type (type=?)",
@@ -267,9 +279,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0121,
-          "plainMs": 0.0152,
-          "scanMs": 0.2464,
+          "sqlMs": 0.0204,
+          "plainMs": 0.0259,
+          "scanMs": 0.3181,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -290,9 +302,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0141,
-          "plainMs": 0.0156,
-          "scanMs": 0.265,
+          "sqlMs": 0.0218,
+          "plainMs": 0.0281,
+          "scanMs": 0.2912,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -311,7 +323,7 @@
           "title": "what happened to one ticket",
           "sql": "select ts, type, ticket, agent from events where ticket=100 order by id",
           "note": "A bare number against a TEXT column. SQLite applies the column`s TEXT affinity to the integer literal, so `ticket=320` finds the rows stored as `320`.",
-          "ms": 0.217,
+          "ms": 0.266,
           "count": 37,
           "sample": [
             {
@@ -344,7 +356,7 @@
           "title": "the last thirty events",
           "sql": "select ts, type, ticket, agent from events order by id desc limit 30",
           "note": null,
-          "ms": 0.129,
+          "ms": 0.125,
           "count": 30,
           "sample": [
             {
@@ -377,7 +389,7 @@
           "title": "one whole line, exactly as curia wrote it",
           "sql": "select body from events where id=2141",
           "note": null,
-          "ms": 0.035,
+          "ms": 0.037,
           "count": 1,
           "sample": [
             {
@@ -389,7 +401,7 @@
           "title": "the census, by type",
           "sql": "select type, count(*) from events group by type order by 2 desc",
           "note": null,
-          "ms": 1.157,
+          "ms": 0.662,
           "count": 109,
           "sample": [
             {
@@ -414,7 +426,7 @@
           "title": "how one agent ended",
           "sql": "select ts, type, body from events where agent='curia-100' order by id desc limit 10",
           "note": "The #184 test: this agent was named `\"worker\"` on the lines it wrote, and the normalized column still finds them.",
-          "ms": 0.204,
+          "ms": 0.128,
           "count": 10,
           "sample": [
             {
@@ -475,24 +487,24 @@
         "bytesPerLine": 277
       },
       "write": {
-        "stamped": 1.185,
-        "plain": 1.005
+        "stamped": 1.152,
+        "plain": 0.874
       }
     },
     {
       "size": 30000,
       "live": false,
       "tickets": 1186,
-      "loadMs": 2823.361,
-      "wholeReadMs": 194.01,
+      "loadMs": 3677.919,
+      "wholeReadMs": 195.49,
       "sizes": {
         "journalFileBytes": 8346451,
-        "dbBytes": 15454208,
-        "plainDbBytes": 13991936,
+        "dbBytes": 15888384,
+        "plainDbBytes": 14430208,
         "perIndex": [
           {
             "name": "events",
-            "bytes": 11010048
+            "bytes": 11444224
           },
           {
             "name": "events_agent_type",
@@ -531,9 +543,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0174,
-          "plainMs": 0.023,
-          "scanMs": 6.0171,
+          "sqlMs": 0.0221,
+          "plainMs": 0.0296,
+          "scanMs": 6.2175,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -554,9 +566,9 @@
           "note": "Predicate-narrowed: only a review_answered whose `approved` is true counts.",
           "sql": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)) as answer",
-          "sqlMs": 0.0173,
-          "plainMs": 0.0204,
-          "scanMs": 5.6245,
+          "sqlMs": 0.0207,
+          "plainMs": 0.0251,
+          "scanMs": 6.9777,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -577,9 +589,9 @@
           "note": null,
           "sql": "select count(*) as answer from events\n where id > (select coalesce(max(epoch), 0) from events where ticket = :t)\n   and type = 'stop_blocked'\n   and agent = :a",
           "plain": "select count(*) as answer from events\n where id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned'))\n   and type = 'stop_blocked'\n   and agent = :a",
-          "sqlMs": 0.0092,
-          "plainMs": 0.0134,
-          "scanMs": 11.6228,
+          "sqlMs": 0.013,
+          "plainMs": 0.0154,
+          "scanMs": 8.7042,
           "plan": [
             "SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -594,9 +606,9 @@
           "note": null,
           "sql": "select coalesce(\n  (select max(id) from events where ticket = :t and type = 'ticket_resolved')\n  > (select max(id) from events where ticket = :t and type = 'reviewer_spawned'), 0) as answer",
           "plain": null,
-          "sqlMs": 0.0125,
-          "plainMs": 0.0098,
-          "scanMs": 1.839,
+          "sqlMs": 0.013,
+          "plainMs": 0.0125,
+          "scanMs": 1.5585,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 1",
@@ -613,9 +625,9 @@
           "note": null,
           "sql": "select ts from events\n where ticket = :t and type = 'dispatch_claimed'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0138,
-          "plainMs": 0.0148,
-          "scanMs": 4.3195,
+          "sqlMs": 0.0134,
+          "plainMs": 0.0123,
+          "scanMs": 3.5227,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -626,11 +638,11 @@
           "where": "#epochRepo",
           "question": "Which repo was this ticket last dispatched against?",
           "note": "Predicate-narrowed: the last dispatch event that CARRIES a repo.",
-          "sql": "select json_extract(body, '$.repo') as repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and json_extract(body, '$.repo') <> ''\n order by id desc limit 1",
+          "sql": "select repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and repo <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0277,
-          "plainMs": 0.0301,
-          "scanMs": 4.625,
+          "sqlMs": 0.0254,
+          "plainMs": 0.0222,
+          "scanMs": 4.4509,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)",
             "USE TEMP B-TREE FOR ORDER BY"
@@ -645,8 +657,8 @@
           "sql": "select json_extract(body, '$.kind') = 'charting' as charting,\n       json_extract(body, '$.instruction') as instruction,\n       coalesce(json_extract(body, '$.newMap'), 0) as newMap\n  from events\n where ticket = :t and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
           "sqlMs": 0.0172,
-          "plainMs": 0.0113,
-          "scanMs": 3.1268,
+          "plainMs": 0.017,
+          "scanMs": 3.2597,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -659,9 +671,9 @@
           "note": "The one query that reaches for a field #184 renamed. `body` is verbatim, so a pre-rename line says `backend`. The columns are normalized; a JSON field is not.",
           "sql": "select json_extract(body, '$.model') as model,\n       coalesce(json_extract(body, '$.harness'), json_extract(body, '$.backend')) as harness\n  from events\n where agent = :a and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0145,
-          "plainMs": 0.0106,
-          "scanMs": 2.9286,
+          "sqlMs": 0.02,
+          "plainMs": 0.0191,
+          "scanMs": 3.0842,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -674,9 +686,9 @@
           "note": "Keyed by agent, and reset at that session`s last spawn line.",
           "sql": "select json_extract(body, '$.map') as map from events\n where agent = :a and type = 'map_adopted'\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.map') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0141,
-          "plainMs": 0.0136,
-          "scanMs": 4.4622,
+          "sqlMs": 0.0139,
+          "plainMs": 0.0135,
+          "scanMs": 3.8834,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -691,9 +703,9 @@
           "note": "Predicate-narrowed: the last ending carrier that CARRIES a summary.",
           "sql": "select json_extract(body, '$.summary') as summary from events\n where agent = :a\n   and type in ('ticket_resolved', 'nonclean_noted', 'charting_finished')\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.summary') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0338,
-          "plainMs": 0.0389,
-          "scanMs": 3.8664,
+          "sqlMs": 0.0371,
+          "plainMs": 0.0311,
+          "scanMs": 2.9529,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -707,11 +719,11 @@
           "where": "#captureVerdict",
           "question": "Which ticket and repo does this reviewer belong to?",
           "note": null,
-          "sql": "select ticket,\n       json_extract(body, '$.repo') as repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
+          "sql": "select ticket,\n       repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0097,
-          "plainMs": 0.0091,
-          "scanMs": 2.8688,
+          "sqlMs": 0.0086,
+          "plainMs": 0.0111,
+          "scanMs": 2.983,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -722,11 +734,11 @@
           "where": "#reconcileContext",
           "question": "What is every ticket`s latest dispatch epoch?",
           "note": "The one question that is not keyed: it answers for every ticket at once, and reconcile runs it once a pass.",
-          "sql": "select e.ticket, e.id, json_extract(e.body, '$.repo') as repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
+          "sql": "select e.ticket, e.id, e.repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
           "plain": null,
-          "sqlMs": 23.563,
-          "plainMs": 23.2442,
-          "scanMs": 8.7506,
+          "sqlMs": 19.1553,
+          "plainMs": 23.9932,
+          "scanMs": 7.1658,
           "plan": [
             "CO-ROUTINE latest",
             "SEARCH events USING INDEX events_type (type=?)",
@@ -744,9 +756,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0205,
-          "plainMs": 0.0241,
-          "scanMs": 4.3737,
+          "sqlMs": 0.0223,
+          "plainMs": 0.0289,
+          "scanMs": 6.2146,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -767,9 +779,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0135,
-          "plainMs": 0.0188,
-          "scanMs": 6.357,
+          "sqlMs": 0.0232,
+          "plainMs": 0.0304,
+          "scanMs": 5.3812,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -788,16 +800,16 @@
       "size": 60000,
       "live": false,
       "tickets": 2393,
-      "loadMs": 6805.193,
-      "wholeReadMs": 384.97,
+      "loadMs": 7772.914,
+      "wholeReadMs": 421.98,
       "sizes": {
         "journalFileBytes": 16755914,
-        "dbBytes": 31301632,
-        "plainDbBytes": 28241920,
+        "dbBytes": 32149504,
+        "plainDbBytes": 29122560,
         "perIndex": [
           {
             "name": "events",
-            "bytes": 22167552
+            "bytes": 23015424
           },
           {
             "name": "events_agent_type",
@@ -836,9 +848,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.029,
-          "plainMs": 0.0258,
-          "scanMs": 14.0344,
+          "sqlMs": 0.0318,
+          "plainMs": 0.0353,
+          "scanMs": 16.6212,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -859,9 +871,9 @@
           "note": "Predicate-narrowed: only a review_answered whose `approved` is true counts.",
           "sql": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)) as answer",
-          "sqlMs": 0.0123,
-          "plainMs": 0.0165,
-          "scanMs": 13.8516,
+          "sqlMs": 0.0169,
+          "plainMs": 0.0226,
+          "scanMs": 14.7173,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -882,9 +894,9 @@
           "note": null,
           "sql": "select count(*) as answer from events\n where id > (select coalesce(max(epoch), 0) from events where ticket = :t)\n   and type = 'stop_blocked'\n   and agent = :a",
           "plain": "select count(*) as answer from events\n where id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned'))\n   and type = 'stop_blocked'\n   and agent = :a",
-          "sqlMs": 0.0157,
-          "plainMs": 0.0189,
-          "scanMs": 22.7631,
+          "sqlMs": 0.0129,
+          "plainMs": 0.0195,
+          "scanMs": 25.6194,
           "plan": [
             "SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -899,9 +911,9 @@
           "note": null,
           "sql": "select coalesce(\n  (select max(id) from events where ticket = :t and type = 'ticket_resolved')\n  > (select max(id) from events where ticket = :t and type = 'reviewer_spawned'), 0) as answer",
           "plain": null,
-          "sqlMs": 0.0125,
-          "plainMs": 0.0123,
-          "scanMs": 4.2695,
+          "sqlMs": 0.0124,
+          "plainMs": 0.0124,
+          "scanMs": 4.9805,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 1",
@@ -918,9 +930,9 @@
           "note": null,
           "sql": "select ts from events\n where ticket = :t and type = 'dispatch_claimed'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0133,
-          "plainMs": 0.0129,
-          "scanMs": 7.8271,
+          "sqlMs": 0.0136,
+          "plainMs": 0.0139,
+          "scanMs": 8.2656,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -931,11 +943,11 @@
           "where": "#epochRepo",
           "question": "Which repo was this ticket last dispatched against?",
           "note": "Predicate-narrowed: the last dispatch event that CARRIES a repo.",
-          "sql": "select json_extract(body, '$.repo') as repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and json_extract(body, '$.repo') <> ''\n order by id desc limit 1",
+          "sql": "select repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and repo <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.034,
-          "plainMs": 0.0252,
-          "scanMs": 10.4597,
+          "sqlMs": 0.0284,
+          "plainMs": 0.0265,
+          "scanMs": 16.1218,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)",
             "USE TEMP B-TREE FOR ORDER BY"
@@ -949,9 +961,9 @@
           "note": null,
           "sql": "select json_extract(body, '$.kind') = 'charting' as charting,\n       json_extract(body, '$.instruction') as instruction,\n       coalesce(json_extract(body, '$.newMap'), 0) as newMap\n  from events\n where ticket = :t and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0172,
-          "plainMs": 0.0165,
-          "scanMs": 7.2932,
+          "sqlMs": 0.0186,
+          "plainMs": 0.0186,
+          "scanMs": 11.4079,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -964,9 +976,9 @@
           "note": "The one query that reaches for a field #184 renamed. `body` is verbatim, so a pre-rename line says `backend`. The columns are normalized; a JSON field is not.",
           "sql": "select json_extract(body, '$.model') as model,\n       coalesce(json_extract(body, '$.harness'), json_extract(body, '$.backend')) as harness\n  from events\n where agent = :a and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0121,
-          "plainMs": 0.0186,
-          "scanMs": 6.8724,
+          "sqlMs": 0.0239,
+          "plainMs": 0.0207,
+          "scanMs": 8.7752,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -979,9 +991,9 @@
           "note": "Keyed by agent, and reset at that session`s last spawn line.",
           "sql": "select json_extract(body, '$.map') as map from events\n where agent = :a and type = 'map_adopted'\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.map') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0133,
-          "plainMs": 0.0127,
-          "scanMs": 6.6507,
+          "sqlMs": 0.016,
+          "plainMs": 0.0147,
+          "scanMs": 8.322,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -996,9 +1008,9 @@
           "note": "Predicate-narrowed: the last ending carrier that CARRIES a summary.",
           "sql": "select json_extract(body, '$.summary') as summary from events\n where agent = :a\n   and type in ('ticket_resolved', 'nonclean_noted', 'charting_finished')\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.summary') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.035,
-          "plainMs": 0.025,
-          "scanMs": 7.2847,
+          "sqlMs": 0.0352,
+          "plainMs": 0.0373,
+          "scanMs": 8.1975,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -1012,11 +1024,11 @@
           "where": "#captureVerdict",
           "question": "Which ticket and repo does this reviewer belong to?",
           "note": null,
-          "sql": "select ticket,\n       json_extract(body, '$.repo') as repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
+          "sql": "select ticket,\n       repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.01,
-          "plainMs": 0.007,
-          "scanMs": 6.6494,
+          "sqlMs": 0.0108,
+          "plainMs": 0.0109,
+          "scanMs": 8.199,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -1027,11 +1039,11 @@
           "where": "#reconcileContext",
           "question": "What is every ticket`s latest dispatch epoch?",
           "note": "The one question that is not keyed: it answers for every ticket at once, and reconcile runs it once a pass.",
-          "sql": "select e.ticket, e.id, json_extract(e.body, '$.repo') as repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
+          "sql": "select e.ticket, e.id, e.repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
           "plain": null,
-          "sqlMs": 50.4635,
-          "plainMs": 51.3098,
-          "scanMs": 13.5906,
+          "sqlMs": 54.3737,
+          "plainMs": 53.0124,
+          "scanMs": 15.8127,
           "plan": [
             "CO-ROUTINE latest",
             "SEARCH events USING INDEX events_type (type=?)",
@@ -1049,9 +1061,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0156,
-          "plainMs": 0.0306,
-          "scanMs": 10.2286,
+          "sqlMs": 0.0175,
+          "plainMs": 0.0253,
+          "scanMs": 11.9201,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -1072,9 +1084,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0137,
-          "plainMs": 0.0169,
-          "scanMs": 10.0148,
+          "sqlMs": 0.0163,
+          "plainMs": 0.0186,
+          "scanMs": 12.0416,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -1093,7 +1105,7 @@
           "title": "what happened to one ticket",
           "sql": "select ts, type, ticket, agent from events where ticket=100 order by id",
           "note": "A bare number against a TEXT column. SQLite applies the column`s TEXT affinity to the integer literal, so `ticket=320` finds the rows stored as `320`.",
-          "ms": 0.28,
+          "ms": 0.402,
           "count": 37,
           "sample": [
             {
@@ -1126,7 +1138,7 @@
           "title": "the last thirty events",
           "sql": "select ts, type, ticket, agent from events order by id desc limit 30",
           "note": null,
-          "ms": 0.138,
+          "ms": 0.19,
           "count": 30,
           "sample": [
             {
@@ -1159,7 +1171,7 @@
           "title": "one whole line, exactly as curia wrote it",
           "sql": "select body from events where id=30000",
           "note": null,
-          "ms": 0.038,
+          "ms": 0.047,
           "count": 1,
           "sample": [
             {
@@ -1171,7 +1183,7 @@
           "title": "the census, by type",
           "sql": "select type, count(*) from events group by type order by 2 desc",
           "note": null,
-          "ms": 10.158,
+          "ms": 11.218,
           "count": 109,
           "sample": [
             {
@@ -1196,7 +1208,7 @@
           "title": "how one agent ended",
           "sql": "select ts, type, body from events where agent='curia-100' order by id desc limit 10",
           "note": "The #184 test: this agent was named `\"worker\"` on the lines it wrote, and the normalized column still finds them.",
-          "ms": 0.242,
+          "ms": 0.345,
           "count": 10,
           "sample": [
             {
@@ -1257,24 +1269,24 @@
         "bytesPerLine": 279
       },
       "write": {
-        "stamped": 1.285,
-        "plain": 1.022
+        "stamped": 1.217,
+        "plain": 0.944
       }
     },
     {
       "size": 250000,
       "live": false,
       "tickets": 9997,
-      "loadMs": 30390.514,
-      "wholeReadMs": 2044.9,
+      "loadMs": 35332.283,
+      "wholeReadMs": 2473.92,
       "sizes": {
         "journalFileBytes": 69992760,
-        "dbBytes": 131833856,
-        "plainDbBytes": 118636544,
+        "dbBytes": 135520256,
+        "plainDbBytes": 122249216,
         "perIndex": [
           {
             "name": "events",
-            "bytes": 92827648
+            "bytes": 96514048
           },
           {
             "name": "events_agent_type",
@@ -1313,9 +1325,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0274,
-          "plainMs": 0.0327,
-          "scanMs": 43.2421,
+          "sqlMs": 0.05,
+          "plainMs": 0.0559,
+          "scanMs": 48.9107,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -1336,9 +1348,9 @@
           "note": "Predicate-narrowed: only a review_answered whose `approved` is true counts.",
           "sql": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)\n     or exists(select 1 from events where agent = :a and type = 'review_answered'\n                and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')) and json_extract(body, '$.approved') = 1)) as answer",
-          "sqlMs": 0.0222,
-          "plainMs": 0.0309,
-          "scanMs": 45.1881,
+          "sqlMs": 0.0299,
+          "plainMs": 0.0385,
+          "scanMs": 52.2065,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -1359,9 +1371,9 @@
           "note": null,
           "sql": "select count(*) as answer from events\n where id > (select coalesce(max(epoch), 0) from events where ticket = :t)\n   and type = 'stop_blocked'\n   and agent = :a",
           "plain": "select count(*) as answer from events\n where id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned'))\n   and type = 'stop_blocked'\n   and agent = :a",
-          "sqlMs": 0.0403,
-          "plainMs": 0.0548,
-          "scanMs": 74.399,
+          "sqlMs": 0.0183,
+          "plainMs": 0.0214,
+          "scanMs": 97.3437,
           "plan": [
             "SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -1376,9 +1388,9 @@
           "note": null,
           "sql": "select coalesce(\n  (select max(id) from events where ticket = :t and type = 'ticket_resolved')\n  > (select max(id) from events where ticket = :t and type = 'reviewer_spawned'), 0) as answer",
           "plain": null,
-          "sqlMs": 0.0144,
-          "plainMs": 0.0146,
-          "scanMs": 12.2307,
+          "sqlMs": 0.0128,
+          "plainMs": 0.0107,
+          "scanMs": 15.8863,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 1",
@@ -1395,9 +1407,9 @@
           "note": null,
           "sql": "select ts from events\n where ticket = :t and type = 'dispatch_claimed'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0118,
-          "plainMs": 0.0144,
-          "scanMs": 32.7485,
+          "sqlMs": 0.0185,
+          "plainMs": 0.0222,
+          "scanMs": 34.5823,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -1408,11 +1420,11 @@
           "where": "#epochRepo",
           "question": "Which repo was this ticket last dispatched against?",
           "note": "Predicate-narrowed: the last dispatch event that CARRIES a repo.",
-          "sql": "select json_extract(body, '$.repo') as repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and json_extract(body, '$.repo') <> ''\n order by id desc limit 1",
+          "sql": "select repo from events\n where ticket = :t\n   and type in ('dispatch_claimed', 'agent_spawned')\n   and repo <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0379,
-          "plainMs": 0.0376,
-          "scanMs": 35.8827,
+          "sqlMs": 0.032,
+          "plainMs": 0.0352,
+          "scanMs": 42.969,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)",
             "USE TEMP B-TREE FOR ORDER BY"
@@ -1426,9 +1438,9 @@
           "note": null,
           "sql": "select json_extract(body, '$.kind') = 'charting' as charting,\n       json_extract(body, '$.instruction') as instruction,\n       coalesce(json_extract(body, '$.newMap'), 0) as newMap\n  from events\n where ticket = :t and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0158,
-          "plainMs": 0.0118,
-          "scanMs": 27.8271,
+          "sqlMs": 0.0218,
+          "plainMs": 0.0206,
+          "scanMs": 36.6813,
           "plan": [
             "SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)"
           ]
@@ -1441,9 +1453,9 @@
           "note": "The one query that reaches for a field #184 renamed. `body` is verbatim, so a pre-rename line says `backend`. The columns are normalized; a JSON field is not.",
           "sql": "select json_extract(body, '$.model') as model,\n       coalesce(json_extract(body, '$.harness'), json_extract(body, '$.backend')) as harness\n  from events\n where agent = :a and type = 'agent_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0224,
-          "plainMs": 0.0192,
-          "scanMs": 25.8342,
+          "sqlMs": 0.0222,
+          "plainMs": 0.0207,
+          "scanMs": 29.2846,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -1456,9 +1468,9 @@
           "note": "Keyed by agent, and reset at that session`s last spawn line.",
           "sql": "select json_extract(body, '$.map') as map from events\n where agent = :a and type = 'map_adopted'\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.map') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0098,
-          "plainMs": 0.0087,
-          "scanMs": 25.3705,
+          "sqlMs": 0.0112,
+          "plainMs": 0.0092,
+          "scanMs": 29.6367,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -1473,9 +1485,9 @@
           "note": "Predicate-narrowed: the last ending carrier that CARRIES a summary.",
           "sql": "select json_extract(body, '$.summary') as summary from events\n where agent = :a\n   and type in ('ticket_resolved', 'nonclean_noted', 'charting_finished')\n   and id > coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)\n   and json_extract(body, '$.summary') <> ''\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0355,
-          "plainMs": 0.0228,
-          "scanMs": 23.2186,
+          "sqlMs": 0.0441,
+          "plainMs": 0.0448,
+          "scanMs": 27.8249,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id>?)",
             "SCALAR SUBQUERY 1",
@@ -1489,11 +1501,11 @@
           "where": "#captureVerdict",
           "question": "Which ticket and repo does this reviewer belong to?",
           "note": null,
-          "sql": "select ticket,\n       json_extract(body, '$.repo') as repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
+          "sql": "select ticket,\n       repo,\n       json_extract(body, '$.model') as model,\n       json_extract(body, '$.builder_model') as builder_model,\n       json_extract(body, '$.same_provider') as same_provider,\n       json_extract(body, '$.sha') as sha\n  from events\n where agent = :a and type = 'reviewer_spawned'\n order by id desc limit 1",
           "plain": null,
-          "sqlMs": 0.0073,
-          "plainMs": 0.0102,
-          "scanMs": 23.5,
+          "sqlMs": 0.0122,
+          "plainMs": 0.0103,
+          "scanMs": 29.4852,
           "plan": [
             "SEARCH events USING INDEX events_agent_type (agent=? AND type=?)"
           ]
@@ -1504,11 +1516,11 @@
           "where": "#reconcileContext",
           "question": "What is every ticket`s latest dispatch epoch?",
           "note": "The one question that is not keyed: it answers for every ticket at once, and reconcile runs it once a pass.",
-          "sql": "select e.ticket, e.id, json_extract(e.body, '$.repo') as repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
+          "sql": "select e.ticket, e.id, e.repo\n  from events e\n  join (select ticket, max(id) as id from events\n         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null\n         group by ticket) latest on latest.id = e.id\n order by e.ticket",
           "plain": null,
-          "sqlMs": 186.5719,
-          "plainMs": 183.0662,
-          "scanMs": 58.9981,
+          "sqlMs": 233.8908,
+          "plainMs": 178.2148,
+          "scanMs": 58.4841,
           "plan": [
             "CO-ROUTINE latest",
             "SEARCH events USING INDEX events_type (type=?)",
@@ -1526,9 +1538,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0237,
-          "plainMs": 0.0227,
-          "scanMs": 38.9094,
+          "sqlMs": 0.0308,
+          "plainMs": 0.0378,
+          "scanMs": 37.5813,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",
@@ -1549,9 +1561,9 @@
           "note": null,
           "sql": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer",
           "plain": "select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))\n     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id > (select coalesce(max(id), 0) from events where ticket = :t and type in ('dispatch_claimed', 'agent_spawned')))) as answer",
-          "sqlMs": 0.0158,
-          "plainMs": 0.0167,
-          "scanMs": 49.379,
+          "sqlMs": 0.0239,
+          "plainMs": 0.0299,
+          "scanMs": 38.7071,
           "plan": [
             "SCAN CONSTANT ROW",
             "SCALAR SUBQUERY 2",

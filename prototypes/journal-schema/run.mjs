@@ -13,7 +13,7 @@ import os from 'node:os'
 import assert from 'node:assert'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
-import { normalizeEvent } from '../../daemon/src/store.mjs'
+import { normalizeEvent, EscalationStore } from '../../daemon/src/store.mjs'
 import { synthesize } from './synth.mjs'
 import { oracle } from './oracle.mjs'
 import { QUERIES, OPERATOR_QUERIES } from './queries.mjs'
@@ -241,8 +241,8 @@ function fidelity(fixture, journal) {
   // extraction stringifies for exactly this reason.
   const numbers = (() => {
     const probe = (value) => {
-      db.prepare('insert into events (ts, type, ticket, agent, body) values (?, ?, ?, ?, ?)')
-        .run('2026-08-16T00:00:00.000Z', 'probe', value, null, '{"probe":true}')
+      db.prepare('insert into events (ts, type, ticket, agent, repo, body) values (?, ?, ?, ?, ?, ?)')
+        .run('2026-08-16T00:00:00.000Z', 'probe', value, null, null, '{"probe":true}')
       const row = db.prepare("select ticket, typeof(ticket) as t from events where type='probe'").get()
       db.exec("delete from events where type='probe'")
       return { stored: row.ticket, typeof: row.t }
@@ -253,7 +253,7 @@ function fidelity(fixture, journal) {
   // STRICT is the point of #320's ruling that the shell comes out of the image.
   const strict = (() => {
     try {
-      db.exec("insert into events (ts, type, ticket, agent, body) values (x'00', 'probe', null, null, '{}')")
+      db.exec("insert into events (ts, type, ticket, agent, repo, body) values (x'00', 'probe', null, null, null, '{}')")
       db.exec("delete from events where type='probe'")
       return { blobIntoText: 'accepted' }
     } catch (e) {
@@ -275,9 +275,72 @@ function fidelity(fixture, journal) {
   }
 }
 
+// ------------------------------------------------- why the cut is an id, not a ts
+//
+// The operator asked what `epoch` buys over `ts`. This measures it against the
+// daemon's OWN writer rather than the synthetic journal, whose stamps are
+// spaced by construction.
+//
+// `_append` stamps `new Date().toISOString()`, which is milliseconds, and
+// nothing makes it unique. Two events in one millisecond tie, and a `ts >`
+// comparison at the epoch boundary then answers the wrong question: `>` drops
+// every row that shares the opener's stamp, and `>=` takes rows written before
+// it. The ten scans this schema replaces compare POSITION in the file, so an
+// id reproduces their rule exactly and a stamp does not.
+function stampEvidence() {
+  const dir = fs.mkdtempSync(path.join(tmp, 'stamps-'))
+  const store = new EscalationStore(dir)
+  for (let i = 0; i < 2000; i++) store.logEvent('probe', { ticket: 900, agent: 'curia-900', i })
+  const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n')
+  const stamps = lines.map((l) => JSON.parse(l).ts)
+  const counts = new Map()
+  for (const s of stamps) counts.set(s, (counts.get(s) ?? 0) + 1)
+
+  // The boundary itself. A dispatch is claimed and the pull request lands in
+  // the SAME millisecond, which is what happens whenever two `logEvent` calls
+  // sit in one tick. Pairs are written until one ties, and the count says how
+  // hard that was to provoke through the daemon's own writer.
+  const dir2 = fs.mkdtempSync(path.join(tmp, 'boundary-'))
+  const store2 = new EscalationStore(dir2)
+  let pairs = 0
+  let tie = null
+  while (!tie && pairs < 500) {
+    const ticket = 901 + pairs
+    pairs++
+    const a = store2.logEvent('dispatch_claimed', { repo: 'alp82/curia', ticket, agent: `curia-${ticket}`, by: 'auto' })
+    const b = store2.logEvent('pr_opened', { repo: 'alp82/curia', ticket, agent: `curia-${ticket}`, url: 'https://example.invalid/1' })
+    if (a.ts === b.ts) tie = { ticket: String(ticket), ts: a.ts }
+  }
+
+  const probe = openJournal(path.join(tmp, 'boundary.db'), { epochColumn: true })
+  probe.appendAll(fs.readFileSync(path.join(dir2, 'events.jsonl'), 'utf8').trim().split('\n'))
+  const ask = (sql) => Boolean(probe.db.prepare(sql).get({ t: tie?.ticket ?? '0' }).answer)
+  // "Did this dispatch push a pull request?", cut by the id and cut by the stamp.
+  const byId = ask(`
+    select exists(select 1 from events where ticket = :t and type = 'pr_opened'
+      and id > (select coalesce(max(epoch), 0) from events where ticket = :t)) as answer`)
+  const byTs = ask(`
+    select exists(select 1 from events where ticket = :t and type = 'pr_opened'
+      and ts > (select ts from events where ticket = :t and type = 'dispatch_claimed'
+                 order by id desc limit 1)) as answer`)
+  probe.close()
+
+  return {
+    events: stamps.length,
+    distinctStamps: counts.size,
+    mostOnOneStamp: Math.max(...counts.values()),
+    boundary: tie ? { ...tie, pairs, byId, byTs } : { tied: false, pairs },
+  }
+}
+
 // ----------------------------------------------------------------------- main
 
-const results = { node: process.version, sqlite: new DatabaseSync(':memory:').prepare('select sqlite_version() as v').get().v, sizes: [] }
+const results = {
+  node: process.version,
+  sqlite: new DatabaseSync(':memory:').prepare('select sqlite_version() as v').get().v,
+  stamps: stampEvidence(),
+  sizes: [],
+}
 
 for (const size of SIZES) {
   process.stdout.write(`building ${size}…`)
@@ -331,4 +394,7 @@ for (const s of results.sizes) {
   for (const m of s.equivalence.mismatches) console.log(`    q${m.n} ${m.key}: ${m.why}`)
   if (s.write) console.log(`  one committed insert: ${s.write.stamped} ms stamped, ${s.write.plain} ms without the epoch column`)
 }
+const st = results.stamps
+console.log(`\nthe stamp: ${st.events} events through the daemon's own writer carried ${st.distinctStamps} distinct stamps, up to ${st.mostOnOneStamp} on one`)
+console.log(`  a claim and its pull request tied on one stamp after ${st.boundary.pairs} pair(s): by id ${st.boundary.byId}, by ts ${st.boundary.byTs}`)
 console.log(`\nresults.json written. Temp fixtures in ${tmp}`)

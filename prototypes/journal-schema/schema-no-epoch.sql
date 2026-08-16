@@ -10,6 +10,7 @@ create table events (
   type   text    not null,
   ticket text,
   agent  text,
+  repo   text,
   body   text    not null
 ) strict;
 

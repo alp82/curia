@@ -20,8 +20,12 @@ export function columnsFor(line) {
   return {
     ts: String(ev.ts ?? ''),
     type: String(ev.type ?? ''),
+    // Stringified, always. `node:sqlite` binds a JavaScript number as a REAL,
+    // so a ticket handed over as a number lands in the TEXT column as "321.0"
+    // and every `where ticket=321` misses it.
     ticket: ev.ticket == null ? null : String(ev.ticket),
     agent: ev.agent == null ? null : String(ev.agent),
+    repo: ev.repo == null ? null : String(ev.repo),
     body: line,
   }
 }
@@ -37,13 +41,13 @@ export function openJournal(file, { epochColumn = true, wal = true } = {}) {
   }
   const schema = epochColumn ? 'schema.sql' : 'schema-no-epoch.sql'
   db.exec(fs.readFileSync(path.join(here, schema), 'utf8'))
-  const insert = db.prepare('insert into events (ts, type, ticket, agent, body) values (?, ?, ?, ?, ?)')
+  const insert = db.prepare('insert into events (ts, type, ticket, agent, repo, body) values (?, ?, ?, ?, ?, ?)')
   return {
     db,
     epochColumn,
     append(line) {
       const c = columnsFor(line)
-      insert.run(c.ts, c.type, c.ticket, c.agent, c.body)
+      insert.run(c.ts, c.type, c.ticket, c.agent, c.repo, c.body)
     },
     // One transaction for a migration or a synthetic fill. The daemon commits
     // per event, and `bench.mjs` measures that separately.

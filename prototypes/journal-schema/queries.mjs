@@ -118,10 +118,10 @@ select ts from events
     question: 'Which repo was this ticket last dispatched against?',
     note: 'Predicate-narrowed: the last dispatch event that CARRIES a repo.',
     sql: `
-select json_extract(body, '$.repo') as repo from events
+select repo from events
  where ticket = :t
    and type in ('dispatch_claimed', 'agent_spawned')
-   and json_extract(body, '$.repo') <> ''
+   and repo <> ''
  order by id desc limit 1`.trim(),
     args: ({ ticket }) => ({ t: String(ticket) }),
     read: (rows) => rows[0]?.repo ?? null,
@@ -201,7 +201,7 @@ select json_extract(body, '$.summary') as summary from events
     question: 'Which ticket and repo does this reviewer belong to?',
     sql: `
 select ticket,
-       json_extract(body, '$.repo') as repo,
+       repo,
        json_extract(body, '$.model') as model,
        json_extract(body, '$.builder_model') as builder_model,
        json_extract(body, '$.same_provider') as same_provider,
@@ -229,7 +229,7 @@ select ticket,
     question: 'What is every ticket`s latest dispatch epoch?',
     note: 'The one question that is not keyed: it answers for every ticket at once, and reconcile runs it once a pass.',
     sql: `
-select e.ticket, e.id, json_extract(e.body, '$.repo') as repo
+select e.ticket, e.id, e.repo
   from events e
   join (select ticket, max(id) as id from events
          where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null

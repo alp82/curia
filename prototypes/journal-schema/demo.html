@@ -47,18 +47,18 @@
   fourteen questions exactly as the daemon's loop answers them: <b>17,307 checks</b>
   over four journal sizes, <b>0 mismatches</b>.</p>
   <ul>
-    <li><b>The thirteen keyed questions cost 0.192 ms together</b>, and the number does not
-    move with history: 0.284 ms at 250,000 events. Today one of them costs a
-    29.58 ms whole read.</li>
+    <li><b>The thirteen keyed questions cost 0.224 ms together</b>, and the number does not
+    move with history: 0.328 ms at 250,000 events. Today one of them costs a
+    28.49 ms whole read.</li>
     <li><b>The Stop hook is the win.</b> It pays one whole read per turn of every agent today. It pays
     three indexed seeks after this.</li>
     <li><b>One question stays proportional to history.</b> Question 12 asks about every ticket at once, and
-    reconcile runs it once a pass: 1.4241 ms today, 186.5719 ms at 250,000 — against the
-    2044.9 ms read it replaces.</li>
-    <li><b>A committed write costs 1.185 ms</b> with WAL and <code>synchronous=full</code>, against
-    1.005 ms without the epoch trigger. At 404 events a day that difference is a tenth of a second a day.</li>
+    reconcile runs it once a pass: 1.0535 ms today, 233.8908 ms at 250,000 — against the
+    2473.92 ms read it replaces.</li>
+    <li><b>A committed write costs 1.152 ms</b> with WAL and <code>synchronous=full</code>, against
+    0.874 ms without the epoch trigger. At 404 events a day that difference is a tenth of a second a day.</li>
     <li><b>The journal costs about 1.9× the text file</b>:
-    2.23 MB against 1.19 MB today. The verbatim <code>body</code> is the record,
+    2.29 MB against 1.19 MB today. The verbatim <code>body</code> is the record,
     and the columns and indexes are what make it answer.</li>
     <li><b>The five queries in the daemon README all run</b>, on a journal whose oldest fifth carries the
     pre-#184 spelling.</li>
@@ -73,34 +73,34 @@
   <tr>
     <td>4,282 <span class="tag">today</span></td>
     <td>1.19 MB</td>
-    <td>2.23 MB</td>
-    <td>29.58 ms</td>
-    <td>0.192 ms</td>
-    <td>1.4241 ms</td>
+    <td>2.29 MB</td>
+    <td>28.49 ms</td>
+    <td>0.224 ms</td>
+    <td>1.0535 ms</td>
   </tr>
   <tr>
     <td>30,000</td>
     <td>8.35 MB</td>
-    <td>15.45 MB</td>
-    <td>194.01 ms</td>
-    <td>0.221 ms</td>
-    <td>23.563 ms</td>
+    <td>15.89 MB</td>
+    <td>195.49 ms</td>
+    <td>0.250 ms</td>
+    <td>19.1553 ms</td>
   </tr>
   <tr>
     <td>60,000</td>
     <td>16.76 MB</td>
-    <td>31.30 MB</td>
-    <td>384.97 ms</td>
-    <td>0.234 ms</td>
-    <td>50.4635 ms</td>
+    <td>32.15 MB</td>
+    <td>421.98 ms</td>
+    <td>0.254 ms</td>
+    <td>54.3737 ms</td>
   </tr>
   <tr>
     <td>250,000</td>
     <td>69.99 MB</td>
-    <td>131.83 MB</td>
-    <td>2044.9 ms</td>
-    <td>0.284 ms</td>
-    <td>186.5719 ms</td>
+    <td>135.52 MB</td>
+    <td>2473.92 ms</td>
+    <td>0.328 ms</td>
+    <td>233.8908 ms</td>
   </tr>
 </table>
 </div>
@@ -143,6 +143,12 @@ create table events (
   -- The agent session, in today's spelling. A pre-#184 line carries
   -- `"worker": "curia-170"` in `body` and `curia-170` here.
   agent  text,
+
+  -- The repo the event is about, or null. A column because the operator types
+  -- it, which is the rule that made `agent` one. It gets NO index of its own:
+  -- curia runs one or two repos, so `where repo='alp82/curia'` selects nearly
+  -- every row and SQLite scans whatever we build.
+  repo   text,
 
   -- The dispatch this row belongs to: the id of the `dispatch_claimed` or
   -- `agent_spawned` row that opened the ticket's latest epoch at the moment
@@ -195,7 +201,7 @@ end;
 <div class="scroll">
 <table>
   <tr><th>on disk today (4,282 events)</th><th></th></tr>
-  <tr><td>events</td><td>1.56 MB</td></tr><tr><td>events_agent_type</td><td>0.18 MB</td></tr><tr><td>events_ticket_type</td><td>0.15 MB</td></tr><tr><td>events_epoch_type</td><td>0.13 MB</td></tr><tr><td>events_type</td><td>0.13 MB</td></tr><tr><td>events_ticket_epoch</td><td>0.07 MB</td></tr>
+  <tr><td>events</td><td>1.63 MB</td></tr><tr><td>events_agent_type</td><td>0.18 MB</td></tr><tr><td>events_ticket_type</td><td>0.15 MB</td></tr><tr><td>events_epoch_type</td><td>0.13 MB</td></tr><tr><td>events_type</td><td>0.13 MB</td></tr><tr><td>events_ticket_epoch</td><td>0.07 MB</td></tr>
 </table>
 </div>
 
@@ -206,7 +212,7 @@ is surprising.</p>
 
   <article class="q">
     <h3><span class="n">1</span> Did this dispatch push a pull request?</h3>
-    <p class="meta">shape B · #epochScan · <b>0.0321 ms</b> today, <b>0.0274 ms</b> at 250,000 · the loop it replaces: 0.4397 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape B · #epochScan · <b>0.0266 ms</b> today, <b>0.05 ms</b> at 250,000 · the loop it replaces: 0.4481 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))
      or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer</pre>
@@ -222,7 +228,7 @@ SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details
   </article>
   <article class="q">
     <h3><span class="n">2</span> Did a human approve this dispatch at the gate?</h3>
-    <p class="meta">shape B · #epochScan · <b>0.0156 ms</b> today, <b>0.0222 ms</b> at 250,000 · the loop it replaces: 0.327 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape B · #epochScan · <b>0.0159 ms</b> today, <b>0.0299 ms</b> at 250,000 · the loop it replaces: 0.2941 ms <i>plus</i> a 28.49 ms read</p>
     <p class="note">Predicate-narrowed: only a review_answered whose `approved` is true counts.</p>
     <pre>select (exists(select 1 from events where ticket = :t and type = 'review_answered'
                 and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)
@@ -240,7 +246,7 @@ SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details
   </article>
   <article class="q">
     <h3><span class="n">3</span> How many times has the Stop hook held this agent?</h3>
-    <p class="meta">shape C · #epochScan · <b>0.0125 ms</b> today, <b>0.0403 ms</b> at 250,000 · the loop it replaces: 0.3734 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape C · #epochScan · <b>0.0133 ms</b> today, <b>0.0183 ms</b> at 250,000 · the loop it replaces: 0.4824 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select count(*) as answer from events
  where id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t)
@@ -252,7 +258,7 @@ SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details
   </article>
   <article class="q">
     <h3><span class="n">4</span> Did the merge outrun the reviewer?</h3>
-    <p class="meta">shape A · #verdictIsLate · <b>0.0102 ms</b> today, <b>0.0144 ms</b> at 250,000 · the loop it replaces: 0.2104 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #verdictIsLate · <b>0.012 ms</b> today, <b>0.0128 ms</b> at 250,000 · the loop it replaces: 0.2702 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select coalesce(
   (select max(id) from events where ticket = :t and type = 'ticket_resolved')
@@ -265,7 +271,7 @@ SEARCH events USING COVERING INDEX events_ticket_type (ticket=? AND type=?)</pre
   </article>
   <article class="q">
     <h3><span class="n">5</span> When was this ticket last claimed?</h3>
-    <p class="meta">shape A · #liveUnjudgedVerdict · <b>0.0111 ms</b> today, <b>0.0118 ms</b> at 250,000 · the loop it replaces: 0.1333 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #liveUnjudgedVerdict · <b>0.0116 ms</b> today, <b>0.0185 ms</b> at 250,000 · the loop it replaces: 0.1199 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select ts from events
  where ticket = :t and type = 'dispatch_claimed'
@@ -274,19 +280,19 @@ SEARCH events USING COVERING INDEX events_ticket_type (ticket=? AND type=?)</pre
   </article>
   <article class="q">
     <h3><span class="n">6</span> Which repo was this ticket last dispatched against?</h3>
-    <p class="meta">shape A · #epochRepo · <b>0.0192 ms</b> today, <b>0.0379 ms</b> at 250,000 · the loop it replaces: 0.1687 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #epochRepo · <b>0.0174 ms</b> today, <b>0.032 ms</b> at 250,000 · the loop it replaces: 0.2645 ms <i>plus</i> a 28.49 ms read</p>
     <p class="note">Predicate-narrowed: the last dispatch event that CARRIES a repo.</p>
-    <pre>select json_extract(body, '$.repo') as repo from events
+    <pre>select repo from events
  where ticket = :t
    and type in ('dispatch_claimed', 'agent_spawned')
-   and json_extract(body, '$.repo') &lt;&gt; ''
+   and repo &lt;&gt; ''
  order by id desc limit 1</pre>
     <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)
 USE TEMP B-TREE FOR ORDER BY</pre></details>
   </article>
   <article class="q">
     <h3><span class="n">7</span> Was the last dispatch a charting one, and what rode it?</h3>
-    <p class="meta">shape A · #epochCharting · <b>0.0114 ms</b> today, <b>0.0158 ms</b> at 250,000 · the loop it replaces: 0.1056 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #epochCharting · <b>0.0195 ms</b> today, <b>0.0218 ms</b> at 250,000 · the loop it replaces: 0.1213 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select json_extract(body, '$.kind') = 'charting' as charting,
        json_extract(body, '$.instruction') as instruction,
@@ -298,7 +304,7 @@ USE TEMP B-TREE FOR ORDER BY</pre></details>
   </article>
   <article class="q">
     <h3><span class="n">8</span> Which model and harness was this session last spawned on?</h3>
-    <p class="meta">shape A · #epochSpawn · <b>0.0137 ms</b> today, <b>0.0224 ms</b> at 250,000 · the loop it replaces: 0.1026 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #epochSpawn · <b>0.0156 ms</b> today, <b>0.0222 ms</b> at 250,000 · the loop it replaces: 0.1449 ms <i>plus</i> a 28.49 ms read</p>
     <p class="note">The one query that reaches for a field #184 renamed. `body` is verbatim, so a pre-rename line says `backend`. The columns are normalized; a JSON field is not.</p>
     <pre>select json_extract(body, '$.model') as model,
        coalesce(json_extract(body, '$.harness'), json_extract(body, '$.backend')) as harness
@@ -309,7 +315,7 @@ USE TEMP B-TREE FOR ORDER BY</pre></details>
   </article>
   <article class="q">
     <h3><span class="n">9</span> Which map did this session report?</h3>
-    <p class="meta">shape A · #epochAdoptedMap · <b>0.0092 ms</b> today, <b>0.0098 ms</b> at 250,000 · the loop it replaces: 0.1842 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #epochAdoptedMap · <b>0.0125 ms</b> today, <b>0.0112 ms</b> at 250,000 · the loop it replaces: 0.1949 ms <i>plus</i> a 28.49 ms read</p>
     <p class="note">Keyed by agent, and reset at that session`s last spawn line.</p>
     <pre>select json_extract(body, '$.map') as map from events
  where agent = :a and type = 'map_adopted'
@@ -322,7 +328,7 @@ SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=?)</pre><
   </article>
   <article class="q">
     <h3><span class="n">10</span> What did the ending say?</h3>
-    <p class="meta">shape A · #endingClause · <b>0.0198 ms</b> today, <b>0.0355 ms</b> at 250,000 · the loop it replaces: 0.2233 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #endingClause · <b>0.0286 ms</b> today, <b>0.0441 ms</b> at 250,000 · the loop it replaces: 0.1699 ms <i>plus</i> a 28.49 ms read</p>
     <p class="note">Predicate-narrowed: the last ending carrier that CARRIES a summary.</p>
     <pre>select json_extract(body, '$.summary') as summary from events
  where agent = :a
@@ -337,10 +343,10 @@ USE TEMP B-TREE FOR ORDER BY</pre></details>
   </article>
   <article class="q">
     <h3><span class="n">11</span> Which ticket and repo does this reviewer belong to?</h3>
-    <p class="meta">shape A · #captureVerdict · <b>0.0109 ms</b> today, <b>0.0073 ms</b> at 250,000 · the loop it replaces: 0.1434 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #captureVerdict · <b>0.0084 ms</b> today, <b>0.0122 ms</b> at 250,000 · the loop it replaces: 0.1992 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select ticket,
-       json_extract(body, '$.repo') as repo,
+       repo,
        json_extract(body, '$.model') as model,
        json_extract(body, '$.builder_model') as builder_model,
        json_extract(body, '$.same_provider') as same_provider,
@@ -352,9 +358,9 @@ USE TEMP B-TREE FOR ORDER BY</pre></details>
   </article>
   <article class="q">
     <h3><span class="n">12</span> What is every ticket`s latest dispatch epoch?</h3>
-    <p class="meta">shape A · #reconcileContext · <b>1.4241 ms</b> today, <b>186.5719 ms</b> at 250,000 · the loop it replaces: 0.4301 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape A · #reconcileContext · <b>1.0535 ms</b> today, <b>233.8908 ms</b> at 250,000 · the loop it replaces: 0.4626 ms <i>plus</i> a 28.49 ms read</p>
     <p class="note">The one question that is not keyed: it answers for every ticket at once, and reconcile runs it once a pass.</p>
-    <pre>select e.ticket, e.id, json_extract(e.body, '$.repo') as repo
+    <pre>select e.ticket, e.id, e.repo
   from events e
   join (select ticket, max(id) as id from events
          where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null
@@ -369,7 +375,7 @@ USE TEMP B-TREE FOR ORDER BY</pre></details>
   </article>
   <article class="q">
     <h3><span class="n">13</span> Did this session report a result after its dispatch?</h3>
-    <p class="meta">shape B · reconcile, the orphan guard · <b>0.0121 ms</b> today, <b>0.0237 ms</b> at 250,000 · the loop it replaces: 0.2464 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape B · reconcile, the orphan guard · <b>0.0204 ms</b> today, <b>0.0308 ms</b> at 250,000 · the loop it replaces: 0.3181 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))
      or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer</pre>
@@ -385,7 +391,7 @@ SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details
   </article>
   <article class="q">
     <h3><span class="n">14</span> Did anything close this epoch?</h3>
-    <p class="meta">shape B · reconcile, the dead-claim guard · <b>0.0141 ms</b> today, <b>0.0158 ms</b> at 250,000 · the loop it replaces: 0.265 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="meta">shape B · reconcile, the dead-claim guard · <b>0.0218 ms</b> today, <b>0.0239 ms</b> at 250,000 · the loop it replaces: 0.2912 ms <i>plus</i> a 28.49 ms read</p>
     
     <pre>select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))
      or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer</pre>
@@ -408,7 +414,7 @@ say <code>"worker"</code> and the column still finds them.</p>
   <article class="q">
     <h3>what happened to one ticket</h3>
     <pre>select ts, type, ticket, agent from events where ticket=100 order by id</pre>
-    <p class="meta">37 rows in 0.217 ms</p>
+    <p class="meta">37 rows in 0.266 ms</p>
     <p class="note">A bare number against a TEXT column. SQLite applies the column`s TEXT affinity to the integer literal, so `ticket=320` finds the rows stored as `320`.</p>
     <pre class="out">{
  "ts": "2026-05-01T08:00:00.000Z",
@@ -420,7 +426,7 @@ say <code>"worker"</code> and the column still finds them.</p>
   <article class="q">
     <h3>the last thirty events</h3>
     <pre>select ts, type, ticket, agent from events order by id desc limit 30</pre>
-    <p class="meta">30 rows in 0.129 ms</p>
+    <p class="meta">30 rows in 0.125 ms</p>
     
     <pre class="out">{
  "ts": "2026-05-02T08:58:21.000Z",
@@ -432,7 +438,7 @@ say <code>"worker"</code> and the column still finds them.</p>
   <article class="q">
     <h3>one whole line, exactly as curia wrote it</h3>
     <pre>select body from events where id=2141</pre>
-    <p class="meta">1 row in 0.035 ms</p>
+    <p class="meta">1 row in 0.037 ms</p>
     
     <pre class="out">{
  "body": "{\"ts\":\"2026-05-01T20:29:00.000Z\",\"type\":\"lifecycle_closed\",\"repo\":\"alp82/curia-site\",\"ticket\":184,\"agent\":\"curia-184\",\"reason\":\"result\"}"
@@ -441,7 +447,7 @@ say <code>"worker"</code> and the column still finds them.</p>
   <article class="q">
     <h3>the census, by type</h3>
     <pre>select type, count(*) from events group by type order by 2 desc</pre>
-    <p class="meta">109 rows in 1.157 ms</p>
+    <p class="meta">109 rows in 0.662 ms</p>
     
     <pre class="out">{
  "type": "stop_blocked",
@@ -451,7 +457,7 @@ say <code>"worker"</code> and the column still finds them.</p>
   <article class="q">
     <h3>how one agent ended</h3>
     <pre>select ts, type, body from events where agent='curia-100' order by id desc limit 10</pre>
-    <p class="meta">10 rows in 0.204 ms</p>
+    <p class="meta">10 rows in 0.128 ms</p>
     <p class="note">The #184 test: this agent was named `"worker"` on the lines it wrote, and the normalized column still finds them.</p>
     <pre class="out">{
  "ts": "2026-05-01T08:23:06.000Z",
@@ -493,17 +499,43 @@ say <code>"worker"</code> and the column still finds them.</p>
   wrong in <code>dispatch.mjs</code>, and it is not this ticket's to change.</p>
 </article>
 
-<h2>What the operator is asked</h2>
+<article class="q">
+  <h3>5 · The cut is an id, and it cannot be a stamp</h3>
+  <p>The operator asked what <code>epoch</code> buys over <code>ts</code>. Two things, and the second one
+  is not a preference.</p>
+  <p><b>It says WHICH dispatch, not "later than".</b> <code>where epoch=X</code> reads one dispatch whole.
+  A stamp can only give a range, and the upper end of that range is the next dispatch, which is a second
+  lookup.</p>
+  <p><b>Stamps tie, and the answer then flips.</b> <code>_append</code> writes
+  <code>new Date().toISOString()</code>, which is milliseconds, and nothing makes it unique.
+  2,000 events through the daemon's own writer carried
+  <b>58 distinct stamps</b>, up to 53 events on one. A claim
+  and the pull request it earns landed on one stamp
+  on the first try. Asked
+  "did this dispatch push a pull request", the id cut answers
+  <b>true</b> and the stamp cut answers
+  <b>false</b>. The stamp cut is wrong. The ten scans this schema replaces
+  compare POSITION in the file, so an id reproduces their rule and a stamp does not.</p>
+  <p>A clock is the third reason. NTP can step <code>ts</code> backwards. It cannot step a rowid.</p>
+</article>
+
+<h2>What the operator ruled</h2>
 <ol class="ask">
-  <li><b>The <code>epoch</code> column: keep it?</b> #320 asked for it, and this prototype reads it as the
-  dispatch epoch rather than a unix stamp. It buys the operator
-  <code>select * from events where epoch=(select max(epoch) from events where ticket=321)</code> — one
-  dispatch, whole. It does not buy speed: a query that probes the epoch itself runs the same. It costs
-  0.180 ms a write and one index.
-  <i>Recommended: keep it.</i></li>
-  <li><b>A sixth column, <code>repo</code>?</b> Three of the fourteen read it out of the body, and it is a
-  plausible thing to type by hand. It costs about twelve bytes a row and nothing at write time.
-  <i>Recommended: add it.</i></li>
+  <li><b><code>repo</code> is a column.</b> Three of the fourteen read it, and the operator types it by
+  hand. It carries no index of its own: curia runs one or two repos, so
+  <code>where repo='alp82/curia'</code> selects nearly every row and SQLite scans whatever we build.</li>
+</ol>
+
+<h2>What is still open</h2>
+<ol class="ask">
+  <li><b>The <code>epoch</code> column: keep it?</b> Finding 5 is the answer to "why not <code>ts</code>",
+  and it settles the CUT: the cut is an id either way. What is left is whether the id is stored on the row
+  or probed by each query. Stored, it costs
+  0.278 ms a write and one index — about a tenth of a second
+  a day at 404 events a day — and it gives the operator
+  <code>where epoch=(select max(epoch) from events where ticket=321)</code>. Probed, it costs nothing and
+  runs at the same speed, and every "since the epoch" query carries the subquery instead. The prototype
+  runs both, in <code>schema.sql</code> and <code>schema-no-epoch.sql</code>.</li>
 </ol>
 
 <h2>Run it</h2>

@@ -187,17 +187,43 @@ ${operatorCards}
   wrong in <code>dispatch.mjs</code>, and it is not this ticket's to change.</p>
 </article>
 
-<h2>What the operator is asked</h2>
+<article class="q">
+  <h3>5 · The cut is an id, and it cannot be a stamp</h3>
+  <p>The operator asked what <code>epoch</code> buys over <code>ts</code>. Two things, and the second one
+  is not a preference.</p>
+  <p><b>It says WHICH dispatch, not "later than".</b> <code>where epoch=X</code> reads one dispatch whole.
+  A stamp can only give a range, and the upper end of that range is the next dispatch, which is a second
+  lookup.</p>
+  <p><b>Stamps tie, and the answer then flips.</b> <code>_append</code> writes
+  <code>new Date().toISOString()</code>, which is milliseconds, and nothing makes it unique.
+  ${r.stamps.events.toLocaleString('en-US')} events through the daemon's own writer carried
+  <b>${r.stamps.distinctStamps} distinct stamps</b>, up to ${r.stamps.mostOnOneStamp} events on one. A claim
+  and the pull request it earns landed on one stamp
+  ${r.stamps.boundary.pairs === 1 ? 'on the first try' : `after ${r.stamps.boundary.pairs} tries`}. Asked
+  "did this dispatch push a pull request", the id cut answers
+  <b>${String(r.stamps.boundary.byId)}</b> and the stamp cut answers
+  <b>${String(r.stamps.boundary.byTs)}</b>. The stamp cut is wrong. The ten scans this schema replaces
+  compare POSITION in the file, so an id reproduces their rule and a stamp does not.</p>
+  <p>A clock is the third reason. NTP can step <code>ts</code> backwards. It cannot step a rowid.</p>
+</article>
+
+<h2>What the operator ruled</h2>
 <ol class="ask">
-  <li><b>The <code>epoch</code> column: keep it?</b> #320 asked for it, and this prototype reads it as the
-  dispatch epoch rather than a unix stamp. It buys the operator
-  <code>select * from events where epoch=(select max(epoch) from events where ticket=321)</code> — one
-  dispatch, whole. It does not buy speed: a query that probes the epoch itself runs the same. It costs
-  ${(live.write.stamped - live.write.plain).toFixed(3)} ms a write and one index.
-  <i>Recommended: keep it.</i></li>
-  <li><b>A sixth column, <code>repo</code>?</b> Three of the fourteen read it out of the body, and it is a
-  plausible thing to type by hand. It costs about twelve bytes a row and nothing at write time.
-  <i>Recommended: add it.</i></li>
+  <li><b><code>repo</code> is a column.</b> Three of the fourteen read it, and the operator types it by
+  hand. It carries no index of its own: curia runs one or two repos, so
+  <code>where repo='alp82/curia'</code> selects nearly every row and SQLite scans whatever we build.</li>
+</ol>
+
+<h2>What is still open</h2>
+<ol class="ask">
+  <li><b>The <code>epoch</code> column: keep it?</b> Finding 5 is the answer to "why not <code>ts</code>",
+  and it settles the CUT: the cut is an id either way. What is left is whether the id is stored on the row
+  or probed by each query. Stored, it costs
+  ${(live.write.stamped - live.write.plain).toFixed(3)} ms a write and one index — about a tenth of a second
+  a day at 404 events a day — and it gives the operator
+  <code>where epoch=(select max(epoch) from events where ticket=321)</code>. Probed, it costs nothing and
+  runs at the same speed, and every "since the epoch" query carries the subquery instead. The prototype
+  runs both, in <code>schema.sql</code> and <code>schema-no-epoch.sql</code>.</li>
 </ol>
 
 <h2>Run it</h2>
