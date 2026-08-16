@@ -982,6 +982,10 @@ const dispatcher = new Dispatcher({
   routing: routingConfig,
   reduction,
   notify: notifyThread,
+  // #485: the plain channel line for the stranded-map alarm. `bridge` is read
+  // per call for the reason the backup's announce reads it per call — it is
+  // null at boot and the wedge watchdog replaces it whole.
+  announce: (text) => (bridge ? bridge.announce(text).then(() => true) : false),
   openConfirm,
   lapseEscalation,
   // a confirm outcome lands next to its own buttons, whatever thread they are in

@@ -297,6 +297,27 @@ export function selectLane(maps, mode = 'auto') {
   return { lane: 'map', maps: active.map((m) => m.number) }
 }
 
+// The stranded map (#485): open, not deferred, with at least one child and
+// every child closed. No dispatch ever fires on it again — no open child
+// remains — so without a watch nobody would ever say so (#316 sat that way
+// for days). At least one child, because a new-map session creates the map
+// moments before its first tickets, and that window must not alarm.
+export function strandedMaps(maps = [], mapItems = {}) {
+  return maps
+    .filter((m) => m.state === 'open' && !(m.labels ?? []).some((l) => l.name === 'wayfinder:deferred'))
+    .filter((m) => {
+      const children = mapItems[m.number] ?? []
+      return children.length > 0 && children.every((c) => c.state === 'closed')
+    })
+    .map((m) => ({ number: m.number, title: m.title ?? '' }))
+}
+
+// CuriaBot's line for one stranded map. It names the acts that end it, the way
+// the backup lines do (#436): close the map, or graduate what the fog holds.
+export function strandedMapLine(repo, { number, title }) {
+  return `⚠️ map ${repo}#${number} “${title}” has no open ticket left, but it is still open. Close it with a verdict comment, or graduate what stands under Not yet specified.`
+}
+
 // The HITL-free chain count (#81's tickets view): how many open tickets an
 // agent could work through with no human in the loop — takeable now, or
 // unblocked purely by chains of other HITL-free tickets. `research` and `task`

@@ -145,6 +145,7 @@ export class Reduction {
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
     this.lintRejects = new Map() // `<agent>|<kind>` -> the rejections the lint gate still holds (#418)
     this.backupAlarm = null // the journal-backup failure that still stands, or null (#436)
+    this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
     this.seq = 0
     this.noteSeq = 0
     this.rebuild()
@@ -312,6 +313,14 @@ export class Reduction {
     // it. A dump that lands clears it, because the fact it stated is gone.
     if (ev.type === 'journal_backup_failed') this.backupAlarm = { ...ev, at: ev.ts ?? null }
     if (ev.type === 'journal_backup') this.backupAlarm = null
+
+    // The stranded-map alarm (#485). A reduction for the reason the backup's is
+    // one: it must not be re-said at every boot or every frontier pass. The
+    // clearing event is explicit, because the fact that ends it — the map
+    // closed, deferred, or gained an open child — lives on GitHub, and the
+    // frontier read is what observes it.
+    if (ev.type === 'map_stranded') this.mapAlarms.set(`${ev.repo}#${ev.map}`, { ...ev, at: ev.ts ?? null })
+    if (ev.type === 'map_stranded_cleared') this.mapAlarms.delete(`${ev.repo}#${ev.map}`)
 
     if (ev.type === 'token_warned' || ev.type === 'token_cleared') {
       const key = ev.fault === 'expiring'
@@ -1211,6 +1220,19 @@ export class Reduction {
   // reads this to decide whether a failure is news, and a boot inherits it.
   standingBackupAlarm() {
     return this.backupAlarm ? { ...this.backupAlarm } : null
+  }
+
+  // Every stranded-map alarm that still stands (#485). The frontier read
+  // clears the ones whose fact is gone, and a boot inherits the rest.
+  standingStrandedMaps() {
+    return [...this.mapAlarms.values()].map((a) => ({ ...a }))
+  }
+
+  // The stranded-map alarm standing for one map, or null (#485). The frontier
+  // read consults this to decide whether a reading is news.
+  strandedMap(repo, map) {
+    const a = this.mapAlarms.get(`${repo}#${map}`)
+    return a ? { ...a } : null
   }
 
   // The pull request an agent's CURRENT dispatch pushed, or null (#289). This
