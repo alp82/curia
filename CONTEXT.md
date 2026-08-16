@@ -308,8 +308,20 @@ The durable record of one question from an agent to a human. It survives daemon 
 The blocking tool an agent calls to ask a question. Kinds: free-text, choice, approve-reject, preview-review. The call blocks until an answer arrives, hours included.
 
 **Round**:
-The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#285). It holds every question whose answer does not depend on another question still open. The agent numbers them and gives each a recommended answer, and the `recommended` flag puts a ✅ All as recommended button on the card. One question is a round of one. A question the operator leaves unanswered returns in the next round, and it is never taken as recommended.
+The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#285). It holds every question whose answer does not depend on another question still open. The agent numbers them and gives each a recommended answer, and the `recommended` flag puts a ✅ All as recommended button on the card. One question is a round of one. A question the operator leaves unanswered returns in the next round, and it is never taken as recommended. [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md) retires that flag: a typed round carries `questions[]`, and curia renders the button when every question carries a recommendation.
 _Avoid_: batch.
+
+**Typed payload**:
+The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `visual`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
+_Avoid_: structured payload, card schema.
+
+**Lint grade**:
+Which rules of `voice.md` a typed field is held to. Grade A is inline decision text: a hard character cap, one line, no markdown structure and no link. Grade B is block prose: a cap, at most 25 words per sentence, and no heading, table or blockquote. The `visual` field takes neither, because it is not prose. curia checks its width, its height and its fence.
+_Avoid_: strict lint, soft lint.
+
+**Visual**:
+The optional code-block table or ASCII diagram on a card. At most 42 columns by 20 lines, which is the phone limit from #414 and keeps a typed card under the 1600-character chunk limit. curia writes the fence, never the agent. A visual earns its space by removing prose (#415).
+_Avoid_: diagram, figure.
 
 **Lint gate**:
 The voice check on agent prose that reaches a human, and the rejection that enforces it (#416, #438). The daemon lints against `daemon/assets/voice.md` and refuses the call with the lint message. The agent rewrites its own text and calls again. The daemon never rewrites it. Three rejections is the cap, and the daemon counts them, because an agent miscounts its own. See [ADR-0005](docs/adr/0005-escalation-contract.md).
