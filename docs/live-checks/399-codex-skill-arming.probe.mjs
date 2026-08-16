@@ -108,10 +108,14 @@ function readBody(req) {
 }
 
 // Three server-sent events are the whole Responses wire protocol codex needs:
-// `response.created`, `response.output_item.done` and `response.completed`. The
-// model says one word, because what is under test is the input list codex builds
-// and never the answer it gets back.
-function serveModel(dir, requests) {
+// `response.created`, `response.output_item.done` and `response.completed`.
+//
+// `reads` is what the scripted model does with its turn: by default it says one
+// word, because what is under test is the input list codex builds and never the
+// answer it gets back. The `reread` case passes a list of files instead, so the
+// model does what codex's own protocol tells it to do with a skill — read the
+// `SKILL.md` completely before acting. A turn is over once its reads are done.
+function serveModel(dir, requests, reads = []) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
     if (req.method !== 'POST' || !url.pathname.endsWith('/responses')) { res.writeHead(404).end('{}'); return }
@@ -123,21 +127,53 @@ function serveModel(dir, requests) {
     const n = requests.length
     const response = { id: `resp_${n}`, object: 'response', status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
     send('response.created', { response: { ...response, status: 'in_progress' } })
-    send('response.output_item.done', {
-      output_index: 0,
-      item: { type: 'message', id: `msg_${n}`, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] },
-    })
+    // How many files THIS TURN has already read. Counted after the last user
+    // message rather than over the whole input, because the point of the case
+    // is a read that repeats on every turn — a session-wide count would read
+    // once and then think it was done.
+    const items = body.input ?? []
+    const lastUser = items.map((i) => i?.role).lastIndexOf('user')
+    const done = items.slice(lastUser + 1).filter((i) => i?.type === 'custom_tool_call' && i?.name === 'exec').length
+    const next = reads[done]
+    if (next) {
+      // `exec` takes raw JavaScript, not a shell line: it evaluates in a V8
+      // isolate with no filesystem, and the shell is a nested tool reached as
+      // `tools.exec_command`. A shell string here comes back as
+      // "SyntaxError: Unexpected token ':'" — which is what the first run of
+      // this case got, and it is why the reading is a script.
+      send('response.output_item.done', {
+        output_index: 0,
+        item: {
+          type: 'custom_tool_call', id: `ct_${n}`, call_id: `call_${n}`, name: 'exec',
+          input: `const r = await tools.exec_command({ cmd: ${JSON.stringify(`cat ${next}`)} });\ntext(r)\n`,
+          status: 'completed',
+        },
+      })
+    } else {
+      send('response.output_item.done', {
+        output_index: 0,
+        item: { type: 'message', id: `msg_${n}`, status: 'completed', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] },
+      })
+    }
     send('response.completed', { response })
     res.end()
   })
   return new Promise((r) => server.listen(PORT, '127.0.0.1', () => r(server)))
 }
 
-// `</dev/null` matters: the CLI waits on stdin and never returns without it.
+// `stdio: ignore` on stdin matters: the CLI waits on it and never returns.
+//
+// The two `--dangerously-*` flags are curia's own, copied from the codex
+// `template` in `config/routing.yaml`. They are fidelity rather than
+// convenience, and the `reread` case cannot run without them: codex sandboxes a
+// nested `exec_command` with bwrap, an agent container has no unprivileged user
+// namespaces, and every read comes back as a bwrap error instead of a file.
 function codex(args, { cfg, ws }) {
   return new Promise((resolve) => {
     const p = spawn('codex', [
       'exec', '--skip-git-repo-check',
+      '--dangerously-bypass-approvals-and-sandbox',
+      '--dangerously-bypass-hook-trust',
       '-c', 'model_providers.fake.name=fake',
       '-c', `model_providers.fake.base_url=http://127.0.0.1:${PORT}/v1`,
       '-c', 'model_providers.fake.wire_api=responses',
@@ -163,6 +199,12 @@ function readings(body) {
   const parts = items.flatMap((m) => (m.content ?? []).map((c) => ({ role: m.role, text: c.text ?? '' })))
   const catalog = parts.find((p) => p.text.startsWith('<skills_instructions>'))?.text ?? ''
   const line = catalog.split('\n').find((l) => l.startsWith('- wayfinder:') || l.startsWith('- curia-wayfinder:')) ?? ''
+  // A tool result is the OTHER way a skill body reaches the input, and it is the
+  // one a mention cannot cause: the model reads the file itself. Counted apart
+  // from `<skill>` blocks, because the two arrive by different doors and only
+  // one of them is curia's to stop.
+  const outputs = items.filter((i) => i?.type === 'custom_tool_call_output')
+  const readChars = outputs.reduce((a, o) => a + JSON.stringify(o.output ?? '').length, 0)
   return {
     items: items.length,
     users: items.filter((m) => m.role === 'user').length,
@@ -170,29 +212,37 @@ function readings(body) {
     body: parts.filter((p) => p.text.startsWith('<skill>')).reduce((a, p) => a + p.text.length, 0),
     catalog: catalog.length,
     entry: line.length,
-    chars: parts.reduce((a, p) => a + p.text.length, 0),
+    reads: outputs.length,
+    readChars,
+    chars: parts.reduce((a, p) => a + p.text.length, 0) + readChars,
   }
 }
 
-function table(name, requests) {
+function table(name, requests, { turnOf = null } = {}) {
   console.log(`\n### ${name}`)
-  console.log('\n| turn | input items | user msgs | `<skill>` blocks | body chars | catalog chars | wayfinder entry | input chars |')
-  console.log('|---|---|---|---|---|---|---|---|')
+  console.log('\n| turn | input items | `<skill>` blocks | body chars | catalog chars | entry | file reads | read chars | input chars |')
+  console.log('|---|---|---|---|---|---|---|---|---|')
   requests.forEach((b, i) => {
     const r = readings(b)
-    console.log(`| ${i + 1} | ${r.items} | ${r.users} | ${r.blocks} | ${r.body} | ${r.catalog} | ${r.entry || '—'} | ${r.chars} |`)
+    const label = turnOf ? turnOf[i] : i + 1
+    console.log(`| ${label} | ${r.items} | ${r.blocks} | ${r.body} | ${r.catalog} | ${r.entry || '—'} | ${r.reads} | ${r.readChars} | ${r.chars} |`)
   })
 }
 
-async function turns(name, dir, seeded, prompts) {
+async function turns(name, dir, seeded, prompts, { reads = [] } = {}) {
   const requests = []
-  const server = await serveModel(dir, requests)
+  const turnOf = []
+  const server = await serveModel(dir, requests, reads)
   for (const [i, prompt] of prompts.entries()) {
+    const before = requests.length
     const { code, out } = await codex(i === 0 ? [prompt] : ['resume', '--last', prompt], seeded)
     if (code !== 0) console.error(`turn ${i + 1} exited ${code}\n${out.slice(-1200)}`)
+    // One turn can cost several requests once the model reads files, so the
+    // table labels a row by the TURN it belongs to rather than by its position.
+    for (let k = before; k < requests.length; k += 1) turnOf.push(`${i + 1}`)
   }
   await new Promise((r) => server.close(r))
-  table(`${name} — prompts: ${prompts.map((p) => JSON.stringify(p)).join(', ')}`, requests)
+  table(`${name} — prompts: ${prompts.map((p) => JSON.stringify(p)).join(', ')}`, requests, { turnOf })
   return requests
 }
 
@@ -237,6 +287,34 @@ const CASES = {
     const seeded = seed(dir)
     writePointer(seeded.cfg)
     await turns('pointer', dir, seeded, ['$wayfinder hello', 'turn two, no mention'])
+  },
+
+  // What curia SHIPS after #399: pointers written by `seedConfigDir`, and a
+  // spawn prompt that types no sigil. Nothing is hand-built here, so a
+  // regression in the daemon shows up as a number in this table.
+  async shipped() {
+    const dir = path.join(ROOT, 'shipped')
+    const seeded = seed(dir)
+    const listed = fs.readdirSync(path.join(seeded.cfg, 'skills')).filter((d) => d.startsWith('curia-'))
+    console.log(`\npointers curia wrote: ${listed.join(', ') || '(none)'}`)
+    console.log(`prompt.md first line: ${JSON.stringify(fs.readFileSync(path.join(seeded.cfg, 'prompt.md'), 'utf8').split('\n')[0])}`)
+    await turns('shipped', dir, seeded, ['resolve the ticket in prompt.md', 'turn two', 'turn three'])
+  },
+
+  // The worst case, and the one the stub cannot settle by watching: codex tells
+  // the model to read a skill's `SKILL.md` completely every time it uses the
+  // skill, and it also tells it not to carry a skill across turns. A model that
+  // obeys both literally re-reads on every turn. This scripts exactly that, so
+  // the cost is measured rather than guessed — with the pointer, and then with
+  // the whole wayfinder skill for comparison.
+  async reread() {
+    for (const [label, file] of [['pointer', 'curia-wayfinder'], ['full skill', 'wayfinder']]) {
+      const dir = path.join(ROOT, `reread-${file}`)
+      const seeded = seed(dir)
+      const target = path.join(seeded.cfg, 'skills', file, 'SKILL.md')
+      await turns(`reread every turn — ${label} (${fs.statSync(target).size} bytes)`, dir, seeded,
+        ['turn one', 'turn two', 'turn three'], { reads: [target] })
+    }
   },
 
   // Is there a supported lever in `config.toml` today? The control is what makes

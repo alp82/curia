@@ -29,9 +29,14 @@ removes a listed skill. `enabled = true` does not add an unlisted one.
 no `agents/openai.yaml` is listed by default. Curia already writes files into the agent
 config dir at seed time, so it can write that directory too.
 
+**So curia ships a pointer, and stops typing a mention.** `seedConfigDir` writes
+`<cfgDir>/skills/curia-<name>/SKILL.md` for each skill codex hides, and the codex spawn prompt
+types no `$wayfinder`. Turn one falls from 46,682 characters to 34,825, and the arm is durable
+instead of spent (section 5).
+
 One half stays out of reach here, and it is a MODEL behavior rather than a CLI one. Codex
-tells the model to read a skill's `SKILL.md` completely each time it decides to use it. How
-often a real model re-reads is section 5.
+tells the model to read a skill's `SKILL.md` completely each time it decides to use it. Its
+cost is measured both ways in section 6, and the frequency is what still needs a real model.
 
 ## The instrument
 
@@ -146,13 +151,40 @@ The entry survives curia's own bounds. `codexSkillDenyList` denies names the HOS
 carries that the seed did not install, and a generated name is in neither, so nothing denies
 it.
 
-## 5. What a credential would still answer
+## 5. What curia ships, measured on curia's own seed
 
-The CLI half is settled: no catalog mechanism pastes a body. The model half is not, and it is
-a different question from the one the ticket asked.
+The `shipped` case builds nothing by hand. It calls `seedConfigDir`,
+`writeConnectionSettings` and `writePrompt`, so a regression in the daemon shows up as a
+number here.
 
-Codex states the protocol in `base_instructions`, which is world state and reaches the model
-on every turn:
+```
+pointers curia wrote: curia-implement, curia-wayfinder
+prompt.md first line: "# alp82/curia#399: x"
+```
+
+| turn | `<skill>` blocks | catalog chars | wayfinder entry | input chars |
+|---|---|---|---|---|
+| 1 | 0 | 3,246 | 381 | 34,825 |
+| 2 | 0 | 3,246 | 381 | 34,835 |
+| 3 | 0 | 3,246 | 381 | 34,847 |
+
+Both hidden skills are back on the catalog, for 623 characters per turn (381 for
+`curia-wayfinder`, 242 for `curia-implement`). No body reaches the input on any turn. The
+prompt types no sigil, so turn one is 34,825 characters against 46,682 for the same dispatch
+before this ticket.
+
+One bug was caught here and only here, and it is the reason the probe is committed.
+`implement` writes its description as a QUOTED YAML scalar. Splicing a sentence onto the
+captured text produced `description: "..." Read ...`, which is invalid YAML, and **codex
+answers invalid frontmatter by dropping the skill from its catalog in silence**. The pointer
+existed on disk, parsed nowhere, and reached no model. The daemon now parses the frontmatter
+with a YAML parser and re-emits both values as quoted scalars.
+
+## 6. The worst case, measured rather than guessed
+
+The ticket asked whether the chosen mechanism pastes the skill body on every turn. Section 2
+answers that for the CLI: it does not. What remains is the MODEL, and codex points it both
+ways at once. From `base_instructions`, which is world state and reaches the model every turn:
 
 > Trigger rules: If the user names an available skill (with `$SkillName` or plain text) OR the
 > task clearly matches an available skill's description, you must use that skill for that turn.
@@ -161,18 +193,48 @@ on every turn:
 > After deciding to use a skill, the main agent must read its `SKILL.md` completely before
 > taking task actions.
 
-Read together, those two put the re-arm and the cost in the same place. A listed skill
-re-triggers on every turn the task matches, because its description never goes stale. And
-each trigger tells the model to read the file completely. A model that obeys both literally
-puts 11,867 characters into a tool result every turn, which is #360's duplication under
-another name.
+A listed skill re-triggers on every turn the task matches, because its description never goes
+stale. That is the re-arm. And each trigger tells the model to read the file completely. A
+model that obeys both literally re-reads every turn.
 
-A pointer is what bounds that. The model re-reads the file the catalog names, so a short
-pointer costs a short read, and the full skill is read when the model reaches for it rather
-than on every turn.
+That behavior needs a real model. Its COST does not, so it is measured. The `reread` case
+scripts a model that re-reads on every turn and counts what lands in the input:
 
-How often a real model actually re-reads needs a credential and a long session. The stub
-cannot answer it, because there is no model behind it to obey anything.
+| what the model re-reads every turn | per read | after 3 turns | input chars, turn 1 → 3 |
+|---|---|---|---|
+| the pointer (736 bytes) | 999 | 2,997 | 34,907 → 37,926 |
+| the whole wayfinder skill (11,887 bytes) | 12,299 | 36,897 | 34,865 → 71,784 |
+
+The read lands in a tool result, so it STACKS exactly as a repeated mention did. Re-reading
+the whole skill every turn costs 12,299 characters per turn, which is worse than the
+11,867-character mention this replaced. Re-reading the pointer costs 999.
+
+Three things follow, and the third is the change this ticket makes.
+
+1. **The mechanism itself is sound.** Curia's unconditional cost fell from 11,867 characters
+   on turn one to 623 per turn, and the arm is now durable instead of spent.
+2. **The body is no longer curia's to pay.** It used to be pasted on every codex dispatch
+   whether the skill was needed or not. Now the model reads it when a task matches.
+3. **The worst case is worth a rule, and curia owns the file to put it in.** The pointer says
+   to read the target ONCE in a session. Curia cannot edit codex's instruction, and this is
+   the one file in the path that upstream does not own.
+
+How often a real model re-reads is still unmeasured, and it needs a credential. What changed
+is that the number it would produce is now bounded on both sides and written down.
+
+## 7. What is still not measured here
+
+Two things, and both need a real model rather than a credential-free rig.
+
+**How often a model re-reads.** Section 6 bounds the cost at both ends and says what curia
+wrote to hold it down. The frequency itself is a model behavior, and the stub has no model
+behind it to obey or disobey anything.
+
+**Whether the catalog survives a compaction.** The catalog is a developer message and codex
+restates it, which is the whole claim this mechanism rests on. #360 could observe that at rest
+over three turns and not under load, and the same holds here. That question already sits on
+the map, and this ticket sharpens it: it is now the catalog that must survive, not
+`AGENTS.md` alone.
 
 ## How to re-run it
 
@@ -180,9 +242,11 @@ cannot answer it, because there is no model behind it to obey anything.
 node docs/live-checks/399-codex-skill-arming.probe.mjs all
 ```
 
-Cases: `mention`, `flip`, `pointer`, `lever`. Each writes its request bodies under
-`/tmp/curia-399-arm/<case>/`, so a number in this file can be read back off the wire.
+Cases: `mention`, `flip`, `pointer`, `shipped`, `reread`, `lever`. Each writes its request
+bodies under `/tmp/curia-399-arm/<case>/`, so every number in this file can be read back off
+the wire.
 
-A codex version bump owes a re-run. Section 3 depends on the config schema and section 5
+A codex version bump owes a re-run. Section 3 depends on the config schema and section 6
 quotes `base_instructions`, and both live in the CLI. A skill-tree bump owes one too: the
-manifest that decides section 2 lives in the tree.
+manifest that decides section 2 lives in the tree, and section 5's `implement` trap lives in
+a description upstream writes.
