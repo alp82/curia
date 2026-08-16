@@ -300,6 +300,44 @@ export function lintResult(payload = {}) {
   return faults
 }
 
+// ---- the status line (#420) ---------------------------------------------------
+//
+// `notify` asks nothing and blocks nobody, and it is still prose that reaches a
+// human. ADR-0019 gives it the same vocabulary as the surfaces that do ask:
+// `message` is the Grade B prose the thread reads, `detail` is the Grade A
+// spoiler, and `visual` keeps its geometry check.
+
+// A status line needs no `isTyped` twin of its own. The report has one because
+// its untyped shape is a DIFFERENT post (#419), and a notify's is not: the
+// message is the line either way, and a detail or a visual only adds to it.
+// After the flip (#422) the floor is the same field the schema always required.
+
+// The status line's floor. `message` was required by the schema before this
+// ticket, so it is required now, flip or no flip — the same rule the gate's
+// `summary` and the report's follow (#438: moving a check off zod decides which
+// layer refuses the call, never whether a silent send lands).
+export function notifyFloorFaults(payload = {}) {
+  const faults = []
+  if (!present(payload.message)) faults.push('message: missing. A status line says what happened, in plain words.')
+  return faults
+}
+
+// Whether a status line carries anything a human could read. It is what tells a
+// schema fault curia can still send from one it cannot (ADR-0019), on the
+// surface where a `message` is the field that goes missing. A visual or a
+// spoiler alone still says something, and an empty call says nothing.
+export function notifyHasText(payload = {}) {
+  return present(payload.message) || present(payload.detail) || present(payload.visual)
+}
+
+export function lintNotify(payload = {}) {
+  const faults = []
+  if (present(payload.message)) faults.push(...gradeB('message', payload.message))
+  if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
+  if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
+  return faults
+}
+
 // The gate's floor, in two halves.
 //
 // `summary` and `charting` were REQUIRED by the schema before this ticket, so

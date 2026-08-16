@@ -352,6 +352,10 @@ _Avoid_: diagram, figure.
 What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a verdict instead, and #421 types that surface.
 _Avoid_: final summary, result message.
 
+**Status line**:
+What `notify` puts in the thread, in the agent's own voice, while the work goes on (#420). It is typed: `message` says what happened, and a `visual` and a `detail` are the agent's judgment. Its `kind` says what the operator must DO, never how the agent rates its own news. `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply nothing is blocked on. A status line asks for no decision, so an agent that cannot go on without the answer calls `ask_human` instead.
+_Avoid_: status update, progress ping.
+
 **Lint gate**:
 The voice check on agent prose that reaches a human, and the rejection that enforces it (#416, #438). The daemon lints against `daemon/assets/voice.md` and refuses the call with the lint message. The agent rewrites its own text and calls again. The daemon never rewrites it. Three rejections is the cap, and the daemon counts them, because an agent miscounts its own. See [ADR-0005](docs/adr/0005-escalation-contract.md).
 _Avoid_: voice gate, prose check.
@@ -361,7 +365,7 @@ What the lint gate does at the cap (#416). curia takes the fourth text as it sta
 _Avoid_: fallback, degraded send.
 
 **Stop-hook catch**:
-The lever that makes a rejection unmissable on codex (#438). On codex 0.146.0 a tool call sits inside the `exec` script, so a rejection is only a return value and it never throws. An agent that threw the value away believes its question went out and moves to end its turn. The Stop hook fires there, refuses the stop with `{decision:"block", reason}`, and hands back the lint message. At the second stop block curia sends the flagged text itself, so an agent that never calls again still delivers its question. The tool description and the memory-file line reach the model earlier, and both are prose that can be ignored. This one is the guarantee.
+The lever that makes a rejection unmissable on codex (#438). On codex 0.146.0 a tool call sits inside the `exec` script, so a rejection is only a return value and it never throws. An agent that threw the value away believes its question went out and moves to end its turn. The Stop hook fires there, refuses the stop with `{decision:"block", reason}`, and hands back the lint message. At the second stop block curia sends the flagged text itself, so an agent that never calls again still delivers its question. The tool description and the memory-file line reach the model earlier, and both are prose that can be ignored. This one is the guarantee. A refused status line is the one call this never holds a turn for (#420): nobody waits on one, so curia posts the held text itself, flagged, and lets the turn end.
 _Avoid_: hook fallback.
 
 **Review gate**:

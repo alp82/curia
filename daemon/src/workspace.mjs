@@ -1950,7 +1950,9 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   const tools = charting ? [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes. This is how you reach the operator who dispatched you.',
-    '- `notify` — a status line for the human. Returns at once.',
+    '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
+    '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
+    '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
     ...(newMap ? [
       '- `map_created` — tell curia the number of the map you created, the moment it exists. curia checks',
       '  the issue is really an open `wayfinder:map` in this repo, then takes it as this session\'s map:',
@@ -1974,7 +1976,9 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   ] : [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes.',
-    '- `notify` — a status line for the human. Returns at once.',
+    '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
+    '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
+    '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
     ...(portLines.length ? [
       '- `publish_preview` — publish a dev server you have started as an HTTPS link. Start the server FIRST,',
       `  bound to \`0.0.0.0\` on one of your three ports (${ports.join(', ')}), then call this with that port`,
@@ -2179,6 +2183,8 @@ export function writeReviewPrompt(cfgDir, issue, {
     '## Your tools (the `curia` MCP server)',
     '',
     '- `notify` — a status line for the human. Returns at once. Use it to say what you are reading.',
+    '  `kind` says what they must DO: `progress` (nothing), `look` (open a file or a page now),',
+    '  `ask` (reply when they can). A reviewer reads, so its lines are `progress`.',
     '- `report_result` — exactly once, at the very end. Its summary is the verdict.',
     '- Every other curia tool is refused for you, by name, with the reason.',
     '',
