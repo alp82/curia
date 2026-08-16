@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
-import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
 import { journalEvents } from './fixtures/journal.mjs'
@@ -70,7 +70,7 @@ describe('notify carries the typed fields and the lint gate (#420, real boot)', 
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',

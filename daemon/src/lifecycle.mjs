@@ -307,11 +307,11 @@ export const REVIEW_ENDING = [
   {
     key: 'verdict',
     prose: ({ ticket }) => [
-      `Call \`report_result\` exactly once, with the verdict as its \`summary\` and \`${ticket}\` as its`,
-      'ticket — the bare number, not a qualified one. That text IS your output: curia captures it and',
-      'holds it. Nothing else you do reaches anyone.',
+      `Call \`report_result\` exactly once, with \`${ticket}\` as its ticket — the bare number, not a`,
+      'qualified one. Its `headline`, its `summary` and its `findings` ARE your output (#421): curia',
+      'lints them, lays them out and holds them. Nothing else you do reaches anyone.',
     ],
-    todo: (s) => (s.hasResult ? null : 'call `report_result` once, with your verdict as the summary'),
+    todo: (s) => (s.hasResult ? null : 'call `report_result` once, with your verdict in its headline, its summary and its findings'),
   },
 ]
 
@@ -367,7 +367,7 @@ export function outstanding(state) {
   // reviewer still reads is one whose park a restart severed, and
   // `request_review` is what re-parks it.
   if (state.unjudgedVerdict) {
-    items.unshift('judge the cross-check verdict finding by finding, then put one summary with a recommendation to the operator with `ask_human` — the verdict is on the pull request if you no longer hold it')
+    items.unshift('judge the cross-check verdict finding by finding, then put one question per finding to the operator in one `ask_human` round, each with your recommendation — the verdict is on the pull request if you no longer hold it')
   } else if (state.crossCheckInFlight) {
     // #258: `report_result` parks now too, and a builder that has already
     // merged and resolved must not be sent back to a gate it has passed.
@@ -486,8 +486,13 @@ export const CROSS_CHECK_DUTY = [
     'read the diff cold can be wrong, and saying so is your job — not deferring to it.',
   ],
   [
-    'Write one summary with a recommendation, and send it with `ask_human`. A plain question, never a',
-    'gate: the operator decides what happens to a finding, and you get the first word, not the last.',
+    'Put the findings back as ONE `ask_human` round, one question per finding, each with your own',
+    'recommendation (#421). A round where every question carries one earns the ✅ All as recommended',
+    'button, so one reply can take your reading and name the exceptions to it.',
+  ],
+  [
+    'A plain question, never a gate: the operator decides what happens to a finding, and you get the',
+    'first word, not the last.',
   ],
   [
     'Act only on the answer they give you. Then call `request_review` again, and that gate is a pure',

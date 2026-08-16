@@ -239,7 +239,7 @@ export function judgementComment(agent, prompt) {
     '',
     '---',
     '',
-    `_\`${agent}\` judged the verdict above and put this to the operator as a plain question. The operator decides, and the review gate that follows is a pure approve-or-reject._`,
+    `_\`${agent}\` judged the verdict above finding by finding and put this to the operator as a plain question, never a gate. curia composed the card from the parts the builder typed (#421). The operator decides, and the review gate that follows is a pure approve-or-reject._`,
   ].join('\n')
 }
 
