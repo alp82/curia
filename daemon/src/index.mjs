@@ -29,6 +29,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import { Reduction, CONFIRM_KIND, noteDisposition } from './reduction.mjs'
+import { JOURNAL } from './journal.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
 import { readable } from './logline.mjs'
@@ -54,6 +55,7 @@ import {
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
 import { TokenWatch, TOKEN_EXPIRY_WARN_DAYS } from './tokenwatch.mjs'
+import { JournalBackup } from './backup.mjs'
 import {
   probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
@@ -288,6 +290,18 @@ if (!appMinter) {
 // so the conversion line reaches journalctl even from here.
 const reduction = new Reduction(DATA, { log })
 
+// The boot line (#436). The journal is `node:sqlite`, which Node marks Stability
+// 1.2, so a patch update can change the API, the defaults and the bundled SQLite
+// engine (#357). Written into the journal itself, so the record states which
+// engine wrote its rows and a post-mortem never has to guess.
+//
+// The event names no path. The journal file never crosses to the dashboard and
+// only its tail does, and this event rides that tail (#262).
+reduction.journal('journal_opened', {
+  node: process.version, sqlite: process.versions.sqlite ?? null,
+})
+log(`[journal] ${JOURNAL} open on Node ${process.version}, SQLite ${process.versions.sqlite ?? 'unknown'}`)
+
 // Per-agent status line (#108 item 8): one Discord message per agent
 // thread, edited in place through the journal's own lifecycle events. With
 // the bridge down, post returns null and the next transition retries.
@@ -363,6 +377,28 @@ const tokenWatch = new TokenWatch({
 })
 tokenWatch.start()
 checkWatchedCredentials()
+
+// The journal backup (#436, from #357 and ADR-0017). It sits beside the
+// credential watch because it needs the same two things: the reduction, which
+// remembers the alarm that still stands, and the bridge, which is where the
+// operator reads. `bridge` is read per call for the reason the watch above reads
+// it per call — it is null at boot and the wedge watchdog replaces it whole.
+//
+// The check is armed rather than the dump: a deploy restarts this process and
+// rearms the timer, so a plain 24-hour timer would never fire on a box that
+// deploys daily.
+const journalBackup = new JournalBackup({
+  dataDir: DATA,
+  dbFile: path.join(DATA, JOURNAL),
+  journal: (type, detail) => reduction.journal(type, detail),
+  announce: (text) => (bridge ? bridge.announce(text).then(() => true) : false),
+  standing: () => reduction.standingBackupAlarm(),
+  log: (line) => log(line),
+})
+journalBackup.start()
+// Detached, like the credential probe above: a dump is a child process, and a
+// slow one must never hold up a boot whose other duties do not need it.
+journalBackup.pass().catch((e) => log(`the journal backup check failed (${e.message})`))
 
 // #190: one control character anywhere in a message makes journalctl print
 // `[NNNB blob data]` and drop the words, so the streamed `docker build` output
