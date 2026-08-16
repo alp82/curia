@@ -84,10 +84,14 @@ export function refuseReplay(killed, { nowMs, bootAt, lastTurnAt = null, live = 
 
 const sleepFor = (ms) => new Promise((r) => setTimeout(r, ms).unref?.())
 
-// Poll `ready()` until it answers true or the deadline passes.
+// Poll `ready()` until it answers true or the deadline passes. A check that
+// throws reads as not ready: the health check is a fact about the container, and
+// a failure to take it must not throw away every killed turn behind it.
 async function waitUntil(ready, { deadline, pollMs, nowMs, sleep }) {
   for (;;) {
-    if (await ready()) return true
+    let ok = false
+    try { ok = await ready() } catch { ok = false }
+    if (ok) return true
     if (nowMs() >= deadline) return false
     await sleep(pollMs)
   }

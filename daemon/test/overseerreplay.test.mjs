@@ -255,6 +255,27 @@ describe('the boot pass (#388)', () => {
     assert.match(h.said[0][1], /did not come back/)
   })
 
+  test('a health check that throws reads as a container that is down, never as a lost turn', async () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    let clock = Date.now()
+    const out = await replayKilledTurns({
+      killed: [killedTurn()],
+      store,
+      bootAt: clock,
+      nowMs: () => clock,
+      probe: async () => { throw new Error('the socket is gone') },
+      sleep: async (ms) => { clock += ms },
+      waitMs: 30,
+      pollMs: 10,
+      discord: { ready: () => true, say: async () => {}, replay: async () => {} },
+      log: quiet,
+    })
+    assert.equal(out[0].why, 'the overseer container did not come back')
+    // And the turn is closed, not left pending for a boot an hour from now.
+    assert.deepEqual(new EscalationStore(dir).pendingOverseerTurns(), [])
+  })
+
   test('a bridge that never comes back holds the Discord replay', async () => {
     const h = harness({ killed: [killedTurn()], bridge: false })
     const out = await h.run()
