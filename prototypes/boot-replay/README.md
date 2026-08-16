@@ -11,7 +11,12 @@ It writes `results.json` beside itself. Every number in the ticket comes out of 
 
 ## The question
 
-`EscalationStore._replay` reads `daemon/data/events.jsonl` whole, once per process, and folds every
+**The build shipped.** [#407](https://github.com/alp82/curia/issues/407) moved the rebuild onto the
+journal, and `EscalationStore._replay` is now `Reduction#rebuild`. This directory keeps the measurement
+that settled #322, and it is not the shipped code. The file baseline it times no longer exists in
+`daemon/src`. `results.json` holds the numbers the ADR cites.
+
+Before that build, `EscalationStore._replay` read `daemon/data/events.jsonl` whole, once per process, and folded every
 line through `_apply`. That one pass fills all 24 in-memory reductions. It is the one cost
 proportional to the whole history that [the schema ticket (#321)](https://github.com/alp82/curia/issues/321)
 did not remove.

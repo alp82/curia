@@ -12,7 +12,7 @@
 // starting a fresh unbounded clock.
 //
 // After the last one the daemon stops trying. Nothing is lost: the record stays
-// open and REST-answerable, and the dashboard reads the store rather than
+// open and REST-answerable, and the dashboard reads the reduction rather than
 // Discord, so it shows the question either way.
 export const RENDER_RETRY_MS = [60_000, 5 * 60_000, 15 * 60_000]
 

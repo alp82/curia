@@ -3,7 +3,7 @@
 // Owns: gateway connection, Alp-user-ID auth gate, ticket-thread rendering,
 // button/reply capture, image passthrough both directions, the static
 // slash-command manifest. Owns NO state: escalation truth and the
-// ticket→thread bindings (#93) live in the daemon's EscalationStore, reached
+// ticket→thread bindings (#93) live in the daemon's Reduction, reached
 // through the injected `bindings` seam — the thread rename is display only.
 //
 // The one-channel discipline (#89, built by #93): #curia holds everything.
@@ -12,7 +12,7 @@
 // A reply in a thread feeds an open escalation first, otherwise the session.
 //
 // The daemon hands in a `handlers` object and calls back into the bridge to
-// render; answers flow bridge → handlers.answer → store (first-valid-wins).
+// render; answers flow bridge → handlers.answer → reduction (first-valid-wins).
 
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
@@ -26,7 +26,7 @@ import {
 import { isChatHandle } from './attach.mjs'
 import { safeLeaf } from './attachments.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
-import { CONFIRM_KIND } from './store.mjs'
+import { CONFIRM_KIND } from './reduction.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
 
@@ -425,7 +425,7 @@ export class DiscordBridge {
   // onHealth({state, previous, down_ms, reason, error}) — the daemon journals it
   // and decides whether to say it out loud (#56).
   // bindings: { get(ticket), bind(ticket, threadId), release(ticket, reason) }
-  // — the store's journalled ticket↔thread map (#93). Absent (tests), threads
+  // — the reduction's journalled ticket↔thread map (#93). Absent (tests), threads
   // fall back to the name-based lookup only.
   // `clearDelayMs` / `timers` are the seam for #277's held clear — production
   // never overrides them, and 0 means clear in the same call.
@@ -778,7 +778,7 @@ export class DiscordBridge {
 
   // The repo behind a ticket number, for the label's repo field (#235). From
   // curia's own record — the journal's dispatch/spawn lines, indexed by the
-  // store — never from a string an agent typed (#202's rule). The lazy paths
+  // reduction — never from a string an agent typed (#202's rule). The lazy paths
   // (ensureThread, a revive after a restart) have no dispatch in hand, so this
   // read is what carries the field there. A ticket with no record answers ''
   // and the label keeps the two-field form — never a guess off the watch list,
@@ -818,7 +818,7 @@ export class DiscordBridge {
   // thread — "start binds the thread it runs in" — and the rename replaces the
   // conversation's own name. Without one, a fresh thread is
   // opened and bound (the autonomous-dispatch leg). A refused bind is returned
-  // as the store said it, holder included, and renames nothing — EXCEPT the
+  // as the reduction said it, holder included, and renames nothing — EXCEPT the
   // issuing thread already carrying another ticket (#108 item 10): thread-per-
   // ticket then moves the work elsewhere, so a fresh thread is opened and
   // breadcrumbs link both ways — the origin learns where the work went, the
@@ -868,7 +868,7 @@ export class DiscordBridge {
   // line of the running session addresses: moving it here left the session
   // speaking for a thread it no longer held, and the next line it said opened
   // another one. The map takes the thread through the journal instead — the
-  // dispatcher's `map_adopted` line, which the store reads back as the map's
+  // dispatcher's `map_adopted` line, which the reduction reads back as the map's
   // last thread — so the hand-over happens when the session releases the
   // handle and not a moment before.
   adoptMapThread(handle, mapNumber, opts = {}) {

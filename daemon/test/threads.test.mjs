@@ -1,5 +1,5 @@
 // Tests for the thread lifecycle and label binding (#93, per the #89
-// discipline): the journalled ticket↔thread map in the store, the bridge's
+// discipline): the journalled ticket↔thread map in the reduction, the bridge's
 // display-only label helpers, the thread context through the command seam,
 // and the dispatcher's bind-at-claim / release-on-terminal-state calls.
 
@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EscalationStore } from '../src/store.mjs'
+import { Reduction } from '../src/reduction.mjs'
 import { DiscordBridge } from '../src/bridge.mjs'
 import { CommandRouter } from '../src/commands.mjs'
 import { Dispatcher } from '../src/dispatch.mjs'
@@ -16,61 +16,61 @@ import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from 
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-threads-test-'))
 
-// ---- the journalled binding (store.mjs) -------------------------------------
+// ---- the journalled binding (reduction.mjs) -------------------------------------
 
-describe('EscalationStore ticket-thread bindings', () => {
+describe('Reduction ticket-thread bindings', () => {
   test('bind journals, both lookups answer, and boundTickets lists the ticket', () => {
-    const store = new EscalationStore(tmp())
-    const r = store.bindTicketThread('85', 't-1')
+    const reduction = new Reduction(tmp())
+    const r = reduction.bindTicketThread('85', 't-1')
     assert.equal(r.ok, true)
-    assert.equal(store.threadForTicket('85'), 't-1')
-    assert.equal(store.threadForTicket(85), 't-1', 'numeric and string tickets are the same key')
-    assert.equal(store.ticketForThread('t-1'), '85')
-    assert.deepEqual(store.boundTickets(), ['85'])
+    assert.equal(reduction.threadForTicket('85'), 't-1')
+    assert.equal(reduction.threadForTicket(85), 't-1', 'numeric and string tickets are the same key')
+    assert.equal(reduction.ticketForThread('t-1'), '85')
+    assert.deepEqual(reduction.boundTickets(), ['85'])
   })
 
   test('rebinding the same pair is an ok no-op with no second journal line', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('85', 't-1')
-    assert.equal(store.bindTicketThread('85', 't-1').ok, true)
-    const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('85', 't-1')
+    assert.equal(reduction.bindTicketThread('85', 't-1').ok, true)
+    const lines = reduction.journalEvents()
     assert.equal(lines.filter((l) => l.type === 'thread_bound').length, 1)
   })
 
   test('a double-bind refuses and names the holder, both directions', () => {
-    const store = new EscalationStore(tmp())
-    store.bindTicketThread('85', 't-1')
+    const reduction = new Reduction(tmp())
+    reduction.bindTicketThread('85', 't-1')
     // the ticket already lives on a thread
-    const byTicket = store.bindTicketThread('85', 't-2')
+    const byTicket = reduction.bindTicketThread('85', 't-2')
     assert.deepEqual(byTicket, { ok: false, reason: 'ticket-bound', threadId: 't-1' })
     // the thread already carries a label
-    const byThread = store.bindTicketThread('86', 't-1')
+    const byThread = reduction.bindTicketThread('86', 't-1')
     assert.deepEqual(byThread, { ok: false, reason: 'thread-bound', ticket: '85' })
-    assert.equal(store.threadForTicket('85'), 't-1', 'the refused bind changed nothing')
+    assert.equal(reduction.threadForTicket('85'), 't-1', 'the refused bind changed nothing')
   })
 
   test('release journals once, clears both lookups, and is idempotent', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('85', 't-1')
-    assert.equal(store.releaseTicketThread('85', 'finished'), 't-1')
-    assert.equal(store.threadForTicket('85'), undefined)
-    assert.equal(store.ticketForThread('t-1'), undefined)
-    assert.equal(store.releaseTicketThread('85', 'finished'), null, 'nothing bound ⇒ no event')
-    const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('85', 't-1')
+    assert.equal(reduction.releaseTicketThread('85', 'finished'), 't-1')
+    assert.equal(reduction.threadForTicket('85'), undefined)
+    assert.equal(reduction.ticketForThread('t-1'), undefined)
+    assert.equal(reduction.releaseTicketThread('85', 'finished'), null, 'nothing bound ⇒ no event')
+    const lines = reduction.journalEvents()
     assert.equal(lines.filter((l) => l.type === 'thread_released').length, 1)
     // a released thread is bindable again
-    assert.equal(store.bindTicketThread('86', 't-1').ok, true)
+    assert.equal(reduction.bindTicketThread('86', 't-1').ok, true)
   })
 
   test('the journal is the truth: a restart replays live bindings and released ones stay off', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('85', 't-1')
-    store.bindTicketThread('86', 't-2')
-    store.releaseTicketThread('85', 'cancelled')
-    const reborn = new EscalationStore(dir)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('85', 't-1')
+    reduction.bindTicketThread('86', 't-2')
+    reduction.releaseTicketThread('85', 'cancelled')
+    const reborn = new Reduction(dir)
     assert.equal(reborn.threadForTicket('85'), undefined)
     assert.equal(reborn.threadForTicket('86'), 't-2')
     assert.deepEqual(reborn.boundTickets(), ['86'])
@@ -78,17 +78,17 @@ describe('EscalationStore ticket-thread bindings', () => {
 
   test('lastThreadForTicket survives a release and a restart (#140)', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('85', 't-1')
-    store.releaseTicketThread('85', 'reconcile')
-    assert.equal(store.threadForTicket('85'), undefined)
-    assert.equal(store.lastThreadForTicket('85'), 't-1', 'the release does not erase the journal history')
-    const reborn = new EscalationStore(dir)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('85', 't-1')
+    reduction.releaseTicketThread('85', 'reconcile')
+    assert.equal(reduction.threadForTicket('85'), undefined)
+    assert.equal(reduction.lastThreadForTicket('85'), 't-1', 'the release does not erase the journal history')
+    const reborn = new Reduction(dir)
     assert.equal(reborn.lastThreadForTicket('85'), 't-1')
     assert.equal(reborn.lastThreadForTicket(85), 't-1', 'numeric and string tickets are the same key')
     // a later rebind moves the pointer
-    store.bindTicketThread('85', 't-9')
-    assert.equal(store.lastThreadForTicket('85'), 't-9')
+    reduction.bindTicketThread('85', 't-9')
+    assert.equal(reduction.lastThreadForTicket('85'), 't-9')
   })
 
   // #326. A new-map session is named by a chat handle (#241), and that handle
@@ -97,36 +97,36 @@ describe('EscalationStore ticket-thread bindings', () => {
   // session lets go.
   test('a map inherits the last thread of the chat handle that charted it', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('chat-1', 't-conv')
-    store.logEvent('map_adopted', { repo: 'o/r', ticket: 'chat-1', map: '250', agent: 'curia-chat-1' })
-    assert.equal(store.threadForTicket('250'), undefined, 'the live binding stays with the running session')
-    assert.equal(store.lastThreadForTicket('250'), 't-conv', 'and the map already knows where it lives')
-    store.releaseTicketThread('chat-1', 'finished')
-    assert.equal(store.lastThreadForTicket('250'), 't-conv', 'the session let go; the thread is the map\'s')
-    const reborn = new EscalationStore(dir)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('chat-1', 't-conv')
+    reduction.journal('map_adopted', { repo: 'o/r', ticket: 'chat-1', map: '250', agent: 'curia-chat-1' })
+    assert.equal(reduction.threadForTicket('250'), undefined, 'the live binding stays with the running session')
+    assert.equal(reduction.lastThreadForTicket('250'), 't-conv', 'and the map already knows where it lives')
+    reduction.releaseTicketThread('chat-1', 'finished')
+    assert.equal(reduction.lastThreadForTicket('250'), 't-conv', 'the session let go; the thread is the map\'s')
+    const reborn = new Reduction(dir)
     assert.equal(reborn.lastThreadForTicket('250'), 't-conv', 'the journal is the truth across a restart')
   })
 
   test('a map that has been dispatched on its own number keeps its own thread', () => {
-    const store = new EscalationStore(tmp())
-    store.bindTicketThread('chat-1', 't-conv')
-    store.logEvent('map_adopted', { repo: 'o/r', ticket: 'chat-1', map: '250', agent: 'curia-chat-1' })
-    store.releaseTicketThread('chat-1', 'finished')
-    store.bindTicketThread('250', 't-own') // a later `map 250`, typed somewhere else
-    store.releaseTicketThread('250', 'finished')
-    assert.equal(store.lastThreadForTicket('250'), 't-own', 'the map\'s own record wins over the fallback')
+    const reduction = new Reduction(tmp())
+    reduction.bindTicketThread('chat-1', 't-conv')
+    reduction.journal('map_adopted', { repo: 'o/r', ticket: 'chat-1', map: '250', agent: 'curia-chat-1' })
+    reduction.releaseTicketThread('chat-1', 'finished')
+    reduction.bindTicketThread('250', 't-own') // a later `map 250`, typed somewhere else
+    reduction.releaseTicketThread('250', 'finished')
+    assert.equal(reduction.lastThreadForTicket('250'), 't-own', 'the map\'s own record wins over the fallback')
   })
 
   test('lastTicketForThread answers the same way round, released or not (#257)', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('147', 't-1')
-    assert.equal(store.lastTicketForThread('t-1'), '147')
-    store.releaseTicketThread('147', 'finished')
-    assert.equal(store.ticketForThread('t-1'), undefined, 'the live binding is gone')
-    assert.equal(store.lastTicketForThread('t-1'), '147', 'the thread is still curia\'s to settle')
-    const reborn = new EscalationStore(dir)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('147', 't-1')
+    assert.equal(reduction.lastTicketForThread('t-1'), '147')
+    reduction.releaseTicketThread('147', 'finished')
+    assert.equal(reduction.ticketForThread('t-1'), undefined, 'the live binding is gone')
+    assert.equal(reduction.lastTicketForThread('t-1'), '147', 'the thread is still curia\'s to settle')
+    const reborn = new Reduction(dir)
     assert.equal(reborn.lastTicketForThread('t-1'), '147')
     assert.equal(reborn.lastTicketForThread('t-never'), undefined, 'a thread curia never labeled')
   })
@@ -137,44 +137,44 @@ describe('EscalationStore ticket-thread bindings', () => {
   // reporting into a thread nobody had open.
   test('a rebind moves a live binding and names the thread it left', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('169', 't-old')
-    const r = store.rebindTicketThread('169', 't-new', 'dispatched-from-another-thread')
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('169', 't-old')
+    const r = reduction.rebindTicketThread('169', 't-new', 'dispatched-from-another-thread')
     assert.deepEqual(r, { ok: true, threadId: 't-new', moved: true, from: 't-old' })
-    assert.equal(store.threadForTicket('169'), 't-new')
-    assert.equal(store.ticketForThread('t-old'), undefined, 'the old thread is free again')
-    assert.equal(store.ticketForThread('t-new'), '169')
+    assert.equal(reduction.threadForTicket('169'), 't-new')
+    assert.equal(reduction.ticketForThread('t-old'), undefined, 'the old thread is free again')
+    assert.equal(reduction.ticketForThread('t-new'), '169')
   })
 
   test('a rebind to the thread already bound is a no-op, not a pair of events', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('169', 't-1')
-    const before = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').length
-    assert.deepEqual(store.rebindTicketThread('169', 't-1'), { ok: true, threadId: 't-1', moved: false })
-    assert.equal(fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').length, before)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('169', 't-1')
+    const before = reduction.journalEvents().length
+    assert.deepEqual(reduction.rebindTicketThread('169', 't-1'), { ok: true, threadId: 't-1', moved: false })
+    assert.equal(reduction.journalEvents().length, before)
   })
 
   test('a rebind refuses a thread that already carries another ticket (#93 holds)', () => {
-    const store = new EscalationStore(tmp())
-    store.bindTicketThread('169', 't-1')
-    store.bindTicketThread('117', 't-2')
-    assert.deepEqual(store.rebindTicketThread('169', 't-2'), { ok: false, reason: 'thread-bound', ticket: '117' })
-    assert.equal(store.threadForTicket('169'), 't-1', 'the refused move changes nothing')
+    const reduction = new Reduction(tmp())
+    reduction.bindTicketThread('169', 't-1')
+    reduction.bindTicketThread('117', 't-2')
+    assert.deepEqual(reduction.rebindTicketThread('169', 't-2'), { ok: false, reason: 'thread-bound', ticket: '117' })
+    assert.equal(reduction.threadForTicket('169'), 't-1', 'the refused move changes nothing')
   })
 
   test('an unbound ticket rebinds cleanly, with nothing to leave', () => {
-    const store = new EscalationStore(tmp())
-    const r = store.rebindTicketThread('169', 't-new')
+    const reduction = new Reduction(tmp())
+    const r = reduction.rebindTicketThread('169', 't-new')
     assert.deepEqual(r, { ok: true, threadId: 't-new', moved: true, from: null })
   })
 
   test('a rebind replays across a restart, and the old thread stays the history', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.bindTicketThread('169', 't-old')
-    store.rebindTicketThread('169', 't-new')
-    const reborn = new EscalationStore(dir)
+    const reduction = new Reduction(dir)
+    reduction.bindTicketThread('169', 't-old')
+    reduction.rebindTicketThread('169', 't-new')
+    const reborn = new Reduction(dir)
     assert.equal(reborn.threadForTicket('169'), 't-new')
     assert.equal(reborn.ticketForThread('t-old'), undefined)
     assert.equal(reborn.lastThreadForTicket('169'), 't-new', '#140 backstop follows the move')
@@ -184,18 +184,18 @@ describe('EscalationStore ticket-thread bindings', () => {
   // lazy path outlives the dispatcher's in-memory record.
   test('repoForTicket reads the journal dispatch lines, last wins, and survives a restart', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    assert.equal(store.repoForTicket('85'), undefined, 'never dispatched ⇒ no repo')
-    store.logEvent('dispatch_claimed', { repo: 'alp82/curia', ticket: '85', agent: 'curia-85' })
-    assert.equal(store.repoForTicket('85'), 'alp82/curia')
-    assert.equal(store.repoForTicket(85), 'alp82/curia', 'numeric and string tickets are the same key')
+    const reduction = new Reduction(dir)
+    assert.equal(reduction.repoForTicket('85'), undefined, 'never dispatched ⇒ no repo')
+    reduction.journal('dispatch_claimed', { repo: 'alp82/curia', ticket: '85', agent: 'curia-85' })
+    assert.equal(reduction.repoForTicket('85'), 'alp82/curia')
+    assert.equal(reduction.repoForTicket(85), 'alp82/curia', 'numeric and string tickets are the same key')
     // agent_spawned indexes too — a map dispatch never writes dispatch_claimed (#221)
-    store.logEvent('agent_spawned', { repo: 'alp82/aistack', ticket: '90', agent: 'curia-90' })
-    assert.equal(store.repoForTicket('90'), 'alp82/aistack')
+    reduction.journal('agent_spawned', { repo: 'alp82/aistack', ticket: '90', agent: 'curia-90' })
+    assert.equal(reduction.repoForTicket('90'), 'alp82/aistack')
     // the same number dispatched from another repo moves the pointer
-    store.logEvent('dispatch_claimed', { repo: 'getalfredo/landing-page', ticket: '85', agent: 'curia-85' })
-    assert.equal(store.repoForTicket('85'), 'getalfredo/landing-page')
-    const reborn = new EscalationStore(dir)
+    reduction.journal('dispatch_claimed', { repo: 'getalfredo/landing-page', ticket: '85', agent: 'curia-85' })
+    assert.equal(reduction.repoForTicket('85'), 'getalfredo/landing-page')
+    const reborn = new Reduction(dir)
     assert.equal(reborn.repoForTicket('85'), 'getalfredo/landing-page')
     assert.equal(reborn.repoForTicket('90'), 'alp82/aistack')
   })
@@ -248,7 +248,7 @@ describe('DiscordBridge label helpers', () => {
 // ---- cross-thread breadcrumbs (#108 item 10) --------------------------------
 
 describe('DiscordBridge cross-thread breadcrumbs', () => {
-  let store, bridge, created, sentTo
+  let reduction, bridge, created, sentTo
 
   const makeThread = (id, name) => ({
     id, name, sent: [],
@@ -269,7 +269,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   }
 
   beforeEach(() => {
-    store = new EscalationStore(tmp())
+    reduction = new Reduction(tmp())
     created = []
     sentTo = []
     deleted = []
@@ -283,12 +283,12 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
         clear: (h) => { if (h) h.live = false },
       },
       bindings: {
-        get: (t) => store.threadForTicket(t),
-        bind: (t, id) => store.bindTicketThread(t, id),
-        release: (t, r) => store.releaseTicketThread(t, r),
-        last: (t) => store.lastThreadForTicket(t),
-        ticketOf: (id) => store.ticketForThread(id),
-        lastTicketOf: (id) => store.lastTicketForThread(id),
+        get: (t) => reduction.threadForTicket(t),
+        bind: (t, id) => reduction.bindTicketThread(t, id),
+        release: (t, r) => reduction.releaseTicketThread(t, r),
+        last: (t) => reduction.lastThreadForTicket(t),
+        ticketOf: (id) => reduction.ticketForThread(id),
+        lastTicketOf: (id) => reduction.lastTicketForThread(id),
       },
     })
     bridge.guild = { id: 'G' }
@@ -311,12 +311,12 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   test('a dispatch from an already-bound thread opens a fresh thread and breadcrumbs both ways', async () => {
     const origin = makeThread('t-origin', '🎫 106 · charting')
     bridge.registerThread(origin)
-    store.bindTicketThread('106', 't-origin')
+    reduction.bindTicketThread('106', 't-origin')
 
     const r = await bridge.bindTicket('107', { threadId: 't-origin', type: 'research' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 1)
-    assert.equal(store.threadForTicket('107'), created[0].id)
+    assert.equal(reduction.threadForTicket('107'), created[0].id)
     assert.equal(created[0].name, '🎫 107 · research', 'the type names the fresh thread')
     // the new thread opens by naming the thread that sent it
     const inFresh = sentTo.find((s) => s.id === created[0].id)
@@ -361,7 +361,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     bridge.bindings.repoOf = () => 'alp82/curia'
     const t = await bridge.ensureThread('130')
     assert.equal(t.name, '🎫 130 · curia')
-    assert.equal(store.threadForTicket('130'), t.id)
+    assert.equal(reduction.threadForTicket('130'), t.id)
   })
 
   test('ensureThread for a ticket with no record keeps the bare-number name', async () => {
@@ -378,12 +378,12 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(r.ok, true)
     assert.equal(created.length, 0)
     assert.equal(sentTo.length, 0)
-    assert.equal(store.threadForTicket('109'), 't-conv')
+    assert.equal(reduction.threadForTicket('109'), 't-conv')
     assert.deepEqual(renames, ['🎫 109 · task'], 'the old conversation name is replaced, not kept')
   })
 
   test('a ticket already bound elsewhere refuses as before — no thread churn', async () => {
-    store.bindTicketThread('110', 't-elsewhere')
+    reduction.bindTicketThread('110', 't-elsewhere')
     const r = await bridge.bindTicket('110', { threadId: 't-other', type: 'task' })
     assert.equal(r.ok, false)
     assert.equal(r.reason, 'ticket-bound')
@@ -395,8 +395,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   test('an unbound ticket goes back to the journal-last thread when it still exists', async () => {
     const old = makeThread('t-old', 'Run the map')
     bridge.registerThread(old)
-    store.bindTicketThread('111', 't-old')
-    store.releaseTicketThread('111', 'reconcile') // the pre-#140 sweep struck
+    reduction.bindTicketThread('111', 't-old')
+    reduction.releaseTicketThread('111', 'reconcile') // the pre-#140 sweep struck
     const renames = []
     old.setName = async (n) => { renames.push(n) }
 
@@ -404,7 +404,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(r.ok, true)
     assert.equal(r.threadId, 't-old', 'the old thread is rebound, not replaced')
     assert.equal(created.length, 0, 'no fresh thread')
-    assert.equal(store.threadForTicket('111'), 't-old')
+    assert.equal(reduction.threadForTicket('111'), 't-old')
     assert.deepEqual(renames, ['🎫 111 · research'], 'the label goes back on')
   })
 
@@ -413,8 +413,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     old.setName = async (n) => { renames.push(n) }
     bridge.registerThread(old)
-    store.bindTicketThread('116', 't-done')
-    store.releaseTicketThread('116', 'finished')
+    reduction.bindTicketThread('116', 't-done')
+    reduction.releaseTicketThread('116', 'finished')
 
     const r = await bridge.bindTicket('116', { type: 'task' })
     assert.equal(r.ok, true)
@@ -428,8 +428,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const unarchived = []
     old.setArchived = async (v) => { unarchived.push(v) }
     bridge.registerThread(old)
-    store.bindTicketThread('112', 't-old')
-    store.releaseTicketThread('112', 'reconcile')
+    reduction.bindTicketThread('112', 't-old')
+    reduction.releaseTicketThread('112', 'reconcile')
 
     const r = await bridge.bindTicket('112', { type: 'grilling' })
     assert.equal(r.ok, true)
@@ -437,26 +437,26 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   })
 
   test('a journal-last thread gone from Discord falls back to a fresh one', async () => {
-    store.bindTicketThread('113', 't-deleted') // never registered ⇒ fetch misses
-    store.releaseTicketThread('113', 'reconcile')
+    reduction.bindTicketThread('113', 't-deleted') // never registered ⇒ fetch misses
+    reduction.releaseTicketThread('113', 'reconcile')
     const r = await bridge.bindTicket('113', { type: 'task' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 1)
-    assert.equal(store.threadForTicket('113'), created[0].id)
+    assert.equal(reduction.threadForTicket('113'), created[0].id)
   })
 
   test('a journal-last thread re-bound to another ticket is not taken back', async () => {
     const old = makeThread('t-taken', '🎫 200 · new owner')
     bridge.registerThread(old)
-    store.bindTicketThread('114', 't-taken')
-    store.releaseTicketThread('114', 'reconcile')
-    store.bindTicketThread('200', 't-taken') // another ticket moved in
+    reduction.bindTicketThread('114', 't-taken')
+    reduction.releaseTicketThread('114', 'reconcile')
+    reduction.bindTicketThread('200', 't-taken') // another ticket moved in
 
     const r = await bridge.bindTicket('114', { type: 'task' })
     assert.equal(r.ok, true)
     assert.equal(created.length, 1, 'a fresh thread instead')
-    assert.equal(store.threadForTicket('114'), created[0].id)
-    assert.equal(store.threadForTicket('200'), 't-taken', 'the squatter keeps its thread')
+    assert.equal(reduction.threadForTicket('114'), created[0].id)
+    assert.equal(reduction.threadForTicket('200'), 't-taken', 'the squatter keeps its thread')
   })
 
   // ---- release keeps the name and changes the signal --------------------------
@@ -466,11 +466,11 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n) }
     bridge.registerThread(t)
-    store.bindTicketThread('117', 't-fin')
+    reduction.bindTicketThread('117', 't-fin')
 
     await bridge.releaseTicket('117', 'finished')
     assert.deepEqual(renames, ['✅ 117 · grilling'])
-    assert.equal(store.threadForTicket('117'), undefined, 'the journal releases either way')
+    assert.equal(reduction.threadForTicket('117'), undefined, 'the journal releases either way')
   })
 
   test('release leaves an unlabeled thread alone and survives a deleted one', async () => {
@@ -478,13 +478,13 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n) }
     bridge.registerThread(t)
-    store.bindTicketThread('118', 't-plain')
+    reduction.bindTicketThread('118', 't-plain')
     await bridge.releaseTicket('118', 'finished')
     assert.deepEqual(renames, [])
 
-    store.bindTicketThread('119', 't-gone') // never registered ⇒ fetch misses
+    reduction.bindTicketThread('119', 't-gone') // never registered ⇒ fetch misses
     await bridge.releaseTicket('119', 'finished')
-    assert.equal(store.threadForTicket('119'), undefined)
+    assert.equal(reduction.threadForTicket('119'), undefined)
   })
 
   test('release clears a waiting glyph too — never a stale ⏳ on a finished ticket (#199)', async () => {
@@ -492,7 +492,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n) }
     bridge.registerThread(t)
-    store.bindTicketThread('120', 't-wait')
+    reduction.bindTicketThread('120', 't-wait')
     await bridge.releaseTicket('120', 'finished')
     assert.deepEqual(renames, ['✅ 120 · task'])
   })
@@ -504,7 +504,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('121', 't-flag')
+    reduction.bindTicketThread('121', 't-flag')
 
     await bridge.flagTicket('121', 'waiting')
     assert.deepEqual(renames, ['⏳ 121 · task'], 'the ON direction never waits')
@@ -519,7 +519,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('122', 't-rev')
+    reduction.bindTicketThread('122', 't-rev')
     await bridge.flagTicket('122', 'awaiting-review')
     assert.deepEqual(renames, ['🔎 122 · task'])
   })
@@ -532,8 +532,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     plain.setName = async (n) => { renames.push(n) }
     bridge.registerThread(done)
     bridge.registerThread(plain)
-    store.bindTicketThread('123', 't-done2')
-    store.bindTicketThread('124', 't-plain2')
+    reduction.bindTicketThread('123', 't-done2')
+    reduction.bindTicketThread('124', 't-plain2')
 
     await bridge.flagTicket('123', 'waiting')
     await bridge.flagTicket('124', 'waiting')
@@ -553,7 +553,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('140', 't-grill')
+    reduction.bindTicketThread('140', 't-grill')
 
     await bridge.flagTicket('140', 'waiting') // question 1
     await bridge.flagTicket('140', 'working') // answered — held, not sent
@@ -571,7 +571,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('141', 't-hold')
+    reduction.bindTicketThread('141', 't-hold')
 
     await bridge.flagTicket('141', 'waiting')
     await bridge.flagTicket('141', 'working')
@@ -587,7 +587,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('142', 't-gate')
+    reduction.bindTicketThread('142', 't-gate')
 
     await bridge.flagTicket('142', 'awaiting-review')
     await bridge.flagTicket('142', 'working') // rejected, back to work — held
@@ -601,7 +601,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('143', 't-end')
+    reduction.bindTicketThread('143', 't-end')
 
     await bridge.flagTicket('143', 'waiting')
     await bridge.flagTicket('143', 'working') // held
@@ -615,14 +615,14 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('144', 't-dead')
+    reduction.bindTicketThread('144', 't-dead')
 
     await bridge.flagTicket('144', 'waiting')
     await bridge.flagTicket('144', 'working') // held
     await bridge.cancelTicket('144')
     await fireHeld()
     assert.deepEqual(renames, ['⏳ 144 · task', '⚰️ 144 · task'])
-    assert.equal(store.threadForTicket('144'), 't-dead', 'a cancel keeps the binding (#140)')
+    assert.equal(reduction.threadForTicket('144'), 't-dead', 'a cancel keeps the binding (#140)')
   })
 
   test('stop() drops every held clear', async () => {
@@ -630,7 +630,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('145', 't-stop')
+    reduction.bindTicketThread('145', 't-stop')
     bridge.client.destroy = async () => {}
 
     await bridge.flagTicket('145', 'waiting')
@@ -653,7 +653,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('132', 't-late')
+    reduction.bindTicketThread('132', 't-late')
     await bridge.flagTicket('132', 'waiting') // spend 1 — reserve keeps the second slot
     await bridge.flagTicket('132', 'working')
     await fireHeld() // spend 2 — the budget is out
@@ -694,13 +694,13 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   test('the lazy path goes back to the ticket\'s last thread instead of opening a second', async () => {
     const old = makeThread('t-147', '✅ 147 · curia · task')
     bridge.registerThread(old)
-    store.bindTicketThread('147', 't-147')
-    store.releaseTicketThread('147', 'finished')
+    reduction.bindTicketThread('147', 't-147')
+    reduction.releaseTicketThread('147', 'finished')
 
     const t = await bridge.ensureThread('147')
     assert.equal(t.id, 't-147', 'the ticket speaks where its history is')
     assert.equal(created.length, 0, 'no second thread')
-    assert.equal(store.threadForTicket('147'), 't-147', 'and it is bound again')
+    assert.equal(reduction.threadForTicket('147'), 't-147', 'and it is bound again')
   })
 
   test('the lazy revive leaves the name alone — a late line adds no glyph back', async () => {
@@ -708,8 +708,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     old.setName = async (n) => { renames.push(n) }
     bridge.registerThread(old)
-    store.bindTicketThread('148', 't-148')
-    store.releaseTicketThread('148', 'finished')
+    reduction.bindTicketThread('148', 't-148')
+    reduction.releaseTicketThread('148', 'finished')
 
     await bridge.ensureThread('148')
     assert.deepEqual(renames, [], 'the ending stands, and the type field is not dropped')
@@ -720,8 +720,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     old.setName = async (n) => { renames.push(n) }
     bridge.registerThread(old)
-    store.bindTicketThread('149', 't-149')
-    store.releaseTicketThread('149', 'finished')
+    reduction.bindTicketThread('149', 't-149')
+    reduction.releaseTicketThread('149', 'finished')
 
     await bridge.ensureThread('149')
     const r = await bridge.bindTicket('149', { type: 'task' })
@@ -736,7 +736,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(created.length, 1, 'one create, not three')
     assert.equal(a.id, b.id)
     assert.equal(b.id, c.id)
-    assert.equal(store.threadForTicket('173'), a.id)
+    assert.equal(reduction.threadForTicket('173'), a.id)
   })
 
   test('a dispatch and a lazy open racing one ticket share the thread too', async () => {
@@ -754,7 +754,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     let first = true
     const realBind = bridge.bindings.bind
     bridge.bindings.bind = (ticket, id) => {
-      if (first) { first = false; store.bindTicketThread('175', 't-winner') }
+      if (first) { first = false; reduction.bindTicketThread('175', 't-winner') }
       return realBind(ticket, id)
     }
     const t = await bridge.ensureThread('175')
@@ -785,7 +785,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   test('the lazy path answers a chat handle from the binding, like any other ticket', async () => {
     const conv = makeThread('t-conv', '🎫 chat-1 · curia · map')
     bridge.registerThread(conv)
-    store.bindTicketThread('chat-1', 't-conv')
+    reduction.bindTicketThread('chat-1', 't-conv')
 
     const t = await bridge.ensureThread('chat-1')
     assert.equal(t.id, 't-conv', 'every notify lands where the operator typed')
@@ -797,13 +797,13 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     conv.setName = async (n) => { renames.push(n); conv.name = n }
     bridge.registerThread(conv)
-    store.bindTicketThread('chat-1', 't-conv')
-    store.logEvent('map_adopted', { repo: 'alp82/curia', ticket: 'chat-1', map: '250' })
+    reduction.bindTicketThread('chat-1', 't-conv')
+    reduction.journal('map_adopted', { repo: 'alp82/curia', ticket: 'chat-1', map: '250' })
 
     const r = await bridge.adoptMapThread('chat-1', '250', { repo: 'alp82/curia' })
     assert.equal(r.ok, true)
     assert.deepEqual(renames, ['🎫 250 · curia · map'], 'the thread list reads as the map')
-    assert.equal(store.threadForTicket('chat-1'), 't-conv', 'the session still holds its own thread')
+    assert.equal(reduction.threadForTicket('chat-1'), 't-conv', 'the session still holds its own thread')
     assert.equal(await bridge.ensureThread('chat-1').then((t) => t.id), 't-conv')
     assert.equal(created.length, 0, 'the rest of the session says nothing anywhere else')
   })
@@ -813,8 +813,8 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     conv.setName = async (n) => { renames.push(n); conv.name = n }
     bridge.registerThread(conv)
-    store.bindTicketThread('chat-1', 't-conv')
-    store.logEvent('map_adopted', { repo: 'alp82/curia', ticket: 'chat-1', map: '250' })
+    reduction.bindTicketThread('chat-1', 't-conv')
+    reduction.journal('map_adopted', { repo: 'alp82/curia', ticket: 'chat-1', map: '250' })
     await bridge.adoptMapThread('chat-1', '250', { repo: 'alp82/curia' })
     await bridge.releaseTicket('chat-1', 'finished')
     assert.equal(renames.at(-1), '✅ 250 · curia · map', 'the ending reads as the map')
@@ -827,7 +827,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
   test('the legal exception stands: a conversation already carrying a ticket sends the map elsewhere', async () => {
     const busy = makeThread('t-busy', '🎫 106 · curia · task')
     bridge.registerThread(busy)
-    store.bindTicketThread('106', 't-busy')
+    reduction.bindTicketThread('106', 't-busy')
 
     const r = await bridge.bindTicket('chat-1', { threadId: 't-busy', type: 'map', repo: 'alp82/curia' })
     assert.equal(r.ok, true)
@@ -851,7 +851,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n); t.name = n }
     bridge.registerThread(t)
-    store.bindTicketThread('81', 't-81')
+    reduction.bindTicketThread('81', 't-81')
     // the first release drops the binding without renaming — a thread fetch
     // that failed, or a rename the budget deferred and the process then lost
     const realFetch = bridge.client.channels.fetch
@@ -869,9 +869,9 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const renames = []
     t.setName = async (n) => { renames.push(n) }
     bridge.registerThread(t)
-    store.bindTicketThread('299', 't-shared')
-    store.releaseTicketThread('299', 'finished')
-    store.bindTicketThread('300', 't-shared') // the thread moved on
+    reduction.bindTicketThread('299', 't-shared')
+    reduction.releaseTicketThread('299', 'finished')
+    reduction.bindTicketThread('300', 't-shared') // the thread moved on
 
     await bridge.releaseTicket('299', 'finished')
     assert.deepEqual(renames, [], 'the name is 300\'s business now')
@@ -886,11 +886,11 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
       bridge.registerThread(t)
       t.setName = async (n) => { t.renamed = n }
     }
-    store.bindTicketThread('81', 't-stuck')
-    store.releaseTicketThread('81', 'finished') // ended, rename lost with the process
-    store.bindTicketThread('82', 't-live') // still running
-    store.bindTicketThread('83', 't-done3')
-    store.releaseTicketThread('83', 'finished')
+    reduction.bindTicketThread('81', 't-stuck')
+    reduction.releaseTicketThread('81', 'finished') // ended, rename lost with the process
+    reduction.bindTicketThread('82', 't-live') // still running
+    reduction.bindTicketThread('83', 't-done3')
+    reduction.releaseTicketThread('83', 'finished')
 
     assert.equal(await bridge.settleEndedThreads(), 1)
     assert.equal(stuck.renamed, '✅ 81 · curia · task', 'the ending finally reads as one')
@@ -903,7 +903,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const cancelled = makeThread('t-dead', '⚰️ 84 · task')
     bridge.registerThread(cancelled)
     cancelled.setName = async (n) => { cancelled.renamed = n }
-    store.bindTicketThread('84', 't-dead')
+    reduction.bindTicketThread('84', 't-dead')
 
     assert.equal(await bridge.settleEndedThreads(), 0)
     assert.equal(cancelled.renamed, undefined)
@@ -993,8 +993,11 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       fallbacks: {},
       harnesses: { claude: { template: 'claude "$(cat {prompt_file})"', readyRe: /⏵⏵/ } },
     },
-    store: {
-      logEvent: (type, data) => ({ type, ...data }),
+    reduction: {
+      journal: (type, data) => ({ type, ...data }),
+      // Nothing here reads the journal back, so the dispatcher's epoch
+      // questions see an empty one — the same answer the absent file gave.
+      journalEvents: () => [],
       openEscalations: () => escalations,
       // #374: no test here records an answered escalation, so the prompt
       // inherits an empty exchange and says nothing about one.

@@ -29,6 +29,7 @@ import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
+import { journalEvents, journalText } from './fixtures/journal.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -387,7 +388,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     // a real binding, but no dispatch epoch and no readable gh ⇒ no repo
     assert.match(await call('curia-77', 77), /could not tell which repo #77 belongs to/)
 
-    const journal = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
+    const journal = journalText(path.join(tmp, 'data'))
     assert.ok(journal.includes('"type":"result"'), 'the result is journalled either way')
     assert.equal(journal.match(/"type":"resolve_skipped"/g).length, 2)
     assert.ok(fs.existsSync(path.join(tmp, 'data', 'results', 'curia-77.json')), 'and the results file still gates the lifecycle')
@@ -408,8 +409,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     )
     await client.close()
 
-    const line = fs.readFileSync(path.join(tmp, 'data', 'events.jsonl'), 'utf8')
-      .split('\n').filter(Boolean).map((l) => JSON.parse(l))
+    const line = journalEvents(path.join(tmp, 'data'))
       .findLast((ev) => ev.type === 'result' && ev.agent === 'curia-88')
     assert.equal(line.ticket, '88', 'the bound ticket is the event\'s ticket')
     assert.equal(line.reported_ticket, 'alp82/curia#164', 'the disagreement is journalled beside it')

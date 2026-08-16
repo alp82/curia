@@ -23,7 +23,7 @@
 // refresh is shared.
 //
 // The other half is #289, on the daemon's side of the wire: `GET /overview`
-// reads no journal file at all now, so what one refresh costs no longer rises
+// reads no journal at all now, so what one refresh costs no longer rises
 // with everything curia ever wrote.
 
 import fs from 'node:fs'
@@ -216,7 +216,7 @@ const CONSOLE_KEY_RE = /^console-\d+$/
 const VERB_FILE_RE = /^\d{1,4}$/
 export const MAX_WORDS = 4000
 
-// Why an answer did not land (#266). The store refuses in ONE WORD — `unknown`,
+// Why an answer did not land (#266). The reduction refuses in ONE WORD — `unknown`,
 // or whatever status the record holds instead of open — because that word is
 // for a caller. The operator gets the sentence it stands for, since every one
 // of these is first-valid-wins or supersede doing exactly its job.
@@ -798,7 +798,7 @@ export class DashboardSurface {
 
       // An answer, for an escalation or for the review gate — one route,
       // because they are one act. First-valid-wins and supersede are the
-      // store's, so an answer that arrives second comes back 409 with the
+      // reduction's, so an answer that arrives second comes back 409 with the
       // reason, and the page says which.
       if (url.pathname === '/api/answer') {
         return this.#verb(res, async () => {

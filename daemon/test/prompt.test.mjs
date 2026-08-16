@@ -412,7 +412,7 @@ describe('the two files (#340)', () => {
 // dispatch. The seven rules the operator settled are pinned one test each.
 describe('the inherited exchange (#374)', () => {
   const ANSWERED = [
-    { id: 'esc-1', kind: 'free-text', prompt: 'which store holds the record?', answer: 'the journal', attachments: 0 },
+    { id: 'esc-1', kind: 'free-text', prompt: 'which reduction holds the record?', answer: 'the journal', attachments: 0 },
     { id: 'esc-4', kind: 'review-gate', prompt: 'is this done?', answer: 'no — the cap is missing', attachments: 0 },
   ]
 
@@ -429,7 +429,7 @@ describe('the inherited exchange (#374)', () => {
     // without what was asked. Quoted, because the operator's own words can
     // carry headings and lists that would otherwise read as this prompt's.
     const p = write({ mapNumber: 1, exchange: ANSWERED })
-    assert.match(p, /> which store holds the record\?/)
+    assert.match(p, /> which reduction holds the record\?/)
     assert.match(p, /> the journal/)
     assert.match(p, /\*\*1\. curia asked\*\* \(`esc-1`, free-text\):/)
   })
@@ -439,8 +439,8 @@ describe('the inherited exchange (#374)', () => {
     // every spawn, and the orders hold for the whole ticket.
     const { prompt, standing } = writeParts({ mapNumber: 1, exchange: ANSWERED })
     assert.match(prompt, /## What curia already did \(parameters, not procedure\)/)
-    assert.ok(prompt.includes('which store holds the record?'))
-    assert.ok(!standing.includes('which store holds the record?'))
+    assert.ok(prompt.includes('which reduction holds the record?'))
+    assert.ok(!standing.includes('which reduction holds the record?'))
   })
 
   test('the agent is told the answers are recorded, and what that costs it', () => {
@@ -463,7 +463,7 @@ describe('the inherited exchange (#374)', () => {
 
   test('the oldest question is written first, whatever the caller hands over', () => {
     const p = write({ mapNumber: 1, exchange: ANSWERED })
-    assert.ok(p.indexOf('which store holds the record?') < p.indexOf('is this done?'))
+    assert.ok(p.indexOf('which reduction holds the record?') < p.indexOf('is this done?'))
   })
 
   test('an answer that carried images says so, and carries no path', () => {
@@ -520,6 +520,6 @@ describe('the inherited exchange (#374)', () => {
   test('a charting agent inherits its map exchange too', () => {
     // A map session is `curia-<map>`, and it holds a conversation of its own.
     const p = write({ mapNumber: 42, charting: true, exchange: ANSWERED })
-    assert.match(p, /> which store holds the record\?/)
+    assert.match(p, /> which reduction holds the record\?/)
   })
 })

@@ -13,7 +13,8 @@ import os from 'node:os'
 import assert from 'node:assert'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
-import { normalizeEvent, EscalationStore } from '../../daemon/src/store.mjs'
+import { normalizeEvent } from '../../daemon/src/journal.mjs'
+import { Reduction } from '../../daemon/src/reduction.mjs'
 import { synthesize } from './synth.mjs'
 import { oracle } from './oracle.mjs'
 import { QUERIES, OPERATOR_QUERIES } from './queries.mjs'
@@ -289,31 +290,30 @@ function fidelity(fixture, journal) {
 // id reproduces their rule exactly and a stamp does not.
 function stampEvidence() {
   const dir = fs.mkdtempSync(path.join(tmp, 'stamps-'))
-  const store = new EscalationStore(dir)
-  for (let i = 0; i < 2000; i++) store.logEvent('probe', { ticket: 900, agent: 'curia-900', i })
-  const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n')
-  const stamps = lines.map((l) => JSON.parse(l).ts)
+  const reduction = new Reduction(dir)
+  for (let i = 0; i < 2000; i++) reduction.journal('probe', { ticket: 900, agent: 'curia-900', i })
+  const stamps = reduction.journalEvents().map((e) => e.ts)
   const counts = new Map()
   for (const s of stamps) counts.set(s, (counts.get(s) ?? 0) + 1)
 
   // The boundary itself. A dispatch is claimed and the pull request lands in
-  // the SAME millisecond, which is what happens whenever two `logEvent` calls
+  // the SAME millisecond, which is what happens whenever two `journal` calls
   // sit in one tick. Pairs are written until one ties, and the count says how
   // hard that was to provoke through the daemon's own writer.
   const dir2 = fs.mkdtempSync(path.join(tmp, 'boundary-'))
-  const store2 = new EscalationStore(dir2)
+  const reduction2 = new Reduction(dir2)
   let pairs = 0
   let tie = null
   while (!tie && pairs < 500) {
     const ticket = 901 + pairs
     pairs++
-    const a = store2.logEvent('dispatch_claimed', { repo: 'alp82/curia', ticket, agent: `curia-${ticket}`, by: 'auto' })
-    const b = store2.logEvent('pr_opened', { repo: 'alp82/curia', ticket, agent: `curia-${ticket}`, url: 'https://example.invalid/1' })
+    const a = reduction2.journal('dispatch_claimed', { repo: 'alp82/curia', ticket, agent: `curia-${ticket}`, by: 'auto' })
+    const b = reduction2.journal('pr_opened', { repo: 'alp82/curia', ticket, agent: `curia-${ticket}`, url: 'https://example.invalid/1' })
     if (a.ts === b.ts) tie = { ticket: String(ticket), ts: a.ts }
   }
 
   const probe = openJournal(path.join(tmp, 'boundary.db'), { epochColumn: true })
-  probe.appendAll(fs.readFileSync(path.join(dir2, 'events.jsonl'), 'utf8').trim().split('\n'))
+  probe.appendAll(reduction2.journalEvents().map((e) => JSON.stringify(e)))
   const ask = (sql) => Boolean(probe.db.prepare(sql).get({ t: tie?.ticket ?? '0' }).answer)
   // "Did this dispatch push a pull request?", cut by the id and cut by the stamp.
   const byId = ask(`

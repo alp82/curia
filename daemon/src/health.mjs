@@ -110,6 +110,11 @@ function describe(err) {
 // Install the guard. `onTransient` is called with the detail so the caller can
 // say it out loud (a silently-down bridge is the failure this ticket names);
 // `onFault` runs before the exit and must not throw.
+//
+// `journal` must be SYNCHRONOUS (ADR-0017). This guard journals and then exits,
+// so a write that only started before `exit(1)` is a record curia loses at the
+// one moment it needs one. The journal's insert is synchronous, which is what
+// makes that ordering hold.
 export function installCrashGuard({ log = console.log, journal, onTransient, onFault, exit = (c) => process.exit(c) } = {}) {
   const handle = (err, origin) => {
     const { transient, why } = classifyFault(err)

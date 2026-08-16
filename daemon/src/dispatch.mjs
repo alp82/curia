@@ -51,7 +51,7 @@ import {
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
-import { CONFIRM_KIND, CROSS_CHECK_LABEL, VERDICT_LABEL, normalizeEvent } from './store.mjs'
+import { CONFIRM_KIND, CROSS_CHECK_LABEL, VERDICT_LABEL } from './reduction.mjs'
 import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
@@ -305,13 +305,13 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, attachLinks, channelName, deps }) {
+  constructor({ config, routing, reduction, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, attachLinks, channelName, deps }) {
     this.config = config
     this.routing = routing
-    this.store = store
+    this.reduction = reduction
     this.notify = notify
     this.openConfirm = openConfirm ?? (() => null)
-    this.lapseEscalation = lapseEscalation ?? ((id, reason) => this.store.lapse?.(id, reason))
+    this.lapseEscalation = lapseEscalation ?? ((id, reason) => this.reduction.lapse?.(id, reason))
     this.confirmNote = confirmNote ?? (() => {})
     this.overseerNote = overseerNote ?? (() => {})
     // askReview(agent, ticket, promptText) → { text, status } — the review gate
@@ -323,8 +323,8 @@ export class Dispatcher {
     // index.mjs injects gate.cancel so voiding a confirm SETTLES it: the
     // pending resolver (if the confirm was opened after listen, mid-boot-
     // reconcile) is released and the Discord buttons get marked — a bare
-    // store.cancel would leave the resolver hanging in `pending` forever.
-    this.cancelEscalation = cancelEscalation ?? ((id, opts) => this.store.cancel(id, opts))
+    // reduction.cancel would leave the resolver hanging in `pending` forever.
+    this.cancelEscalation = cancelEscalation ?? ((id, opts) => this.reduction.cancel(id, opts))
     // Ticket-thread bindings (#93), injected by index.mjs over the bridge and
     // the journal. bind(ticket, {threadId, title}) puts the label on (an
     // explicit thread, or a fresh one); release(ticket, reason) takes it off —
@@ -423,8 +423,8 @@ export class Dispatcher {
   // longer names is armed all the same — nothing ever asks `isCool` about it,
   // and dropping it here would make this seed depend on a config read.
   #seedCooling() {
-    if (typeof this.store?.armedCoolings !== 'function') return
-    const { models, providers } = this.store.armedCoolings()
+    if (typeof this.reduction?.armedCoolings !== 'function') return
+    const { models, providers } = this.reduction.armedCoolings()
     const live = []
     const arm = (key, iso, cool) => {
       const at = new Date(iso)
@@ -990,7 +990,7 @@ export class Dispatcher {
     // every epoch reader takes either event.
     if (!charting) {
       await this.deps.claim(repo, n, login)
-      this.store.logEvent('dispatch_claimed', { repo, ticket: n, agent: session, by: by ?? 'unknown', kind: 'ticket' })
+      this.reduction.journal('dispatch_claimed', { repo, ticket: n, agent: session, by: by ?? 'unknown', kind: 'ticket' })
     }
 
     // The ticket label goes on at the claim (#93): `start` binds the thread it
@@ -1040,7 +1040,7 @@ export class Dispatcher {
         // The session name is the key and it does not change across dispatches,
         // so a resumed agent reads the exchange its predecessor paid for. On a
         // first dispatch this is empty and the prompt says nothing about it.
-        exchange: this.store.answeredExchangeFor(session),
+        exchange: this.reduction.answeredExchangeFor(session),
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
@@ -1055,7 +1055,7 @@ export class Dispatcher {
       // DISPATCH, not per ticket, so a confirm can never outlive the agent
       // the operator read about and hit its successor.
       const instance = `${session}@${Date.now()}`
-      this.store.logEvent('agent_spawned', {
+      this.reduction.journal('agent_spawned', {
         repo, ticket: n, agent: session, instance, model: useModel, harness: harnessName,
         kind: spawnKind({ charting }), instruction: charting ? instruction : null,
         // #241: which of the two charting shapes this is. A restarted daemon
@@ -1127,9 +1127,9 @@ export class Dispatcher {
         try {
           await this.deps.unclaim(repo, n, login)
           released = true
-          this.store.logEvent('dispatch_unclaimed', { repo, ticket: n, agent: session, reason: e.message })
+          this.reduction.journal('dispatch_unclaimed', { repo, ticket: n, agent: session, reason: e.message })
         } catch (unclaimErr) {
-          this.store.logEvent('unclaim_failed', { repo, ticket: n, agent: session, reason: e.message, error: unclaimErr.message })
+          this.reduction.journal('unclaim_failed', { repo, ticket: n, agent: session, reason: e.message, error: unclaimErr.message })
         }
       }
       // The binding stays (#140): a failed dispatch is a claim release, not a
@@ -1210,7 +1210,7 @@ export class Dispatcher {
       },
     })
     if (image.built) {
-      this.store.logEvent('agent_image_built', { agent: session, ticket, image: image.ref })
+      this.reduction.journal('agent_image_built', { agent: session, ticket, image: image.ref })
       this.log(`built the agent image ${image.ref} for ${session}`)
     }
     // The pin and the prune (#350). Both are the image module's own work; what
@@ -1220,11 +1220,11 @@ export class Dispatcher {
     if (image.pin?.error) {
       this.log(`WARNING: could not pin the agent image ${image.ref}: ${image.pin.error} — the box's nightly docker cleanup deletes every image no container references`)
     } else if (image.pin?.created) {
-      this.store.logEvent('agent_image_pinned', { agent: session, ticket, image: image.ref })
+      this.reduction.journal('agent_image_pinned', { agent: session, ticket, image: image.ref })
       this.log(`pinned the agent image ${image.ref}`)
     }
     if (image.pruned?.length) {
-      this.store.logEvent('agent_image_pruned', { agent: session, ticket, tags: image.pruned })
+      this.reduction.journal('agent_image_pruned', { agent: session, ticket, tags: image.pruned })
       this.log(`removed ${image.pruned.length} superseded agent image tag(s): ${image.pruned.join(', ')}`)
     }
     // The side channel, before the agent rather than after it (#188). This is
@@ -1239,7 +1239,7 @@ export class Dispatcher {
     // ticket through #dispatch's own catch, so the refusal costs nothing.
     try {
       const gateway = await this.deps.assertSideChannel(image.ref)
-      this.store.logEvent('side_channel_ready', { agent: session, ticket, gateway })
+      this.reduction.journal('side_channel_ready', { agent: session, ticket, gateway })
     } catch (e) {
       throw new Error(`refusing to start a sandboxed agent for #${ticket}: ${e.message}. An agent in a container with no side channel cannot reach ask_human, the Stop hook, or any curia tool`)
     }
@@ -1280,7 +1280,7 @@ export class Dispatcher {
         : 'an agent charting a new map'
       throw new Error(`${repo} has no ${TRACKER_DOC}, so ${what} would fall back to the local-markdown tracker and write .scratch/ files instead of resolving on GitHub — run \`/setup-matt-pocock-skills\` in ${repo} first`)
     }
-    this.store.logEvent('tracker_doc_missing', { repo, ticket: n, agent: session })
+    this.reduction.journal('tracker_doc_missing', { repo, ticket: n, agent: session })
   }
 
   // Refuse before the config dir is seeded, so the ordinary prepare-failure path
@@ -1357,7 +1357,7 @@ export class Dispatcher {
   #exhausted(ticket, repo, { armFor = null } = {}) {
     const reset = this.cooling.earliestReset()
     const when = reset ? reset.toISOString() : 'unknown'
-    this.store.logEvent('dispatch_exhausted', { repo, ticket, earliest_reset: when })
+    this.reduction.journal('dispatch_exhausted', { repo, ticket, earliest_reset: when })
     const resumeAt = armFor ? this.#armLimitResume(armFor.ticket, armFor.repo) : null
     this.#armWake(reset ?? new Date(Date.now() + 3600_000))
     if (this.exhaustionNotified) return this.#exhaustedReply(resumeAt)
@@ -1406,7 +1406,7 @@ export class Dispatcher {
     if (!reset) return null
     const at = new Date(reset.getTime() + this.resumeGraceMs)
     this.limitResumes.set(String(ticket), { repo: repo ?? null, at })
-    this.store.logEvent('limit_resume_armed', {
+    this.reduction.journal('limit_resume_armed', {
       repo, ticket, resume_at: at.toISOString(), cooling_until: reset.toISOString(),
     })
     return at
@@ -1457,11 +1457,11 @@ export class Dispatcher {
     try {
       reply = await this.resume(ticket, { repo: entry.repo ?? undefined, by: 'limit-reset' })
     } catch (e) {
-      this.store.logEvent('limit_resume', { repo: entry.repo, ticket, outcome: 'failed', error: e.message })
+      this.reduction.journal('limit_resume', { repo: entry.repo, ticket, outcome: 'failed', error: e.message })
       this.notify(ticket, `⚠️ the usage limit reset and curia could not resume this ticket: ${e.message}. \`resume ${ticket}\` starts a fresh agent on the surviving worktree`)
       return
     }
-    this.store.logEvent('limit_resume', { repo: entry.repo, ticket, outcome: 'ran' })
+    this.reduction.journal('limit_resume', { repo: entry.repo, ticket, outcome: 'ran' })
     // A lane that is STILL cooling re-armed this ticket inside the dispatch —
     // and #exhausted has already stated the new instant in this thread. Adding
     // the reply on top would say the same window twice.
@@ -1474,8 +1474,8 @@ export class Dispatcher {
   // wrote them. An arm whose instant already passed is due at once, which is
   // exactly the daemon that was down through the whole window.
   #reArmLimitResumes() {
-    if (typeof this.store.armedLimitResumes !== 'function') return
-    for (const { ticket, repo, at } of this.store.armedLimitResumes()) {
+    if (typeof this.reduction.armedLimitResumes !== 'function') return
+    for (const { ticket, repo, at } of this.reduction.armedLimitResumes()) {
       const when = new Date(at)
       if (!Number.isFinite(when.getTime())) continue
       const session = `curia-${ticket}`
@@ -1625,7 +1625,7 @@ export class Dispatcher {
       // `reviewer_spawned` carries everything a restarted daemon needs to adopt
       // this session and still capture its verdict — the journal is the state
       // home for exactly what tmux cannot re-derive (#reconcileReviewers).
-      this.store.logEvent('reviewer_spawned', {
+      this.reduction.journal('reviewer_spawned', {
         repo, ticket, agent: session, builder: `curia-${ticket}`, model, harness: harnessName,
         builder_model: builderModel, same_provider: sameProvider, sha: checkout.sha,
         checkout: checkout.path, base_branch: checkout.baseBranch, by: by ?? 'unknown',
@@ -1635,7 +1635,7 @@ export class Dispatcher {
       // every surface that draws an agent read that event. A reviewer with its
       // own status line in the ticket thread is what ADR-0010 asks for, and this
       // is the one event that gives it one.
-      this.store.logEvent('agent_spawned', {
+      this.reduction.journal('agent_spawned', {
         repo, ticket, agent: session, model, harness: harnessName, kind: spawnKind({ reviewer: true }),
       })
 
@@ -1664,7 +1664,7 @@ export class Dispatcher {
       this.deps.removeConfigDir(cfgDir)
       this.deps.forgetAgentToken(this.dataDir, session)
       if (checkout) await this.#removeReviewCheckout(repo, ticket, checkout.path)
-      this.store.logEvent('reviewer_spawn_failed', { repo, ticket, agent: session, error: e.message })
+      this.reduction.journal('reviewer_spawn_failed', { repo, ticket, agent: session, error: e.message })
       return `⚠️ the cross-check of ${repo}#${ticket} could not start: ${e.message} — the builder is untouched`
     }
   }
@@ -1689,10 +1689,10 @@ export class Dispatcher {
     // No builder, no reader. The verdict's own carrier (#252) is the net for
     // that case, and it states the whole verdict rather than a warning about one.
     if (!w) {
-      this.store.logEvent('cross_check_unannounced', { ticket, agent: builder, reason: 'no builder is running' })
+      this.reduction.journal('cross_check_unannounced', { ticket, agent: builder, reason: 'no builder is running' })
       return false
     }
-    this.store.queueAgentNote?.(builder, [
+    this.reduction.queueAgentNote?.(builder, [
       `\`${reviewer}\` is reading your diff on #${ticket} right now. The operator started a cross-check.`,
       'Its verdict comes to you as a message on a later tool result, and judging it is your duty.',
       '',
@@ -1701,7 +1701,7 @@ export class Dispatcher {
       'call is a way past this. The resolve and the merge are `gh` commands in your own shell, and you',
       'are the only one who can hold those.',
     ].join('\n'), { instance: w.instance ?? null, label: CROSS_CHECK_LABEL })
-    this.store.logEvent('cross_check_announced', { ticket, agent: builder, reviewer })
+    this.reduction.journal('cross_check_announced', { ticket, agent: builder, reviewer })
     return true
   }
 
@@ -1722,7 +1722,7 @@ export class Dispatcher {
     const w = this.agents.get(agentName)
     const ticket = w?.ticket ?? String(agentName).match(REVIEW_SESSION_RE)?.[1] ?? '?'
     const where = w?.repo ? `${w.repo}#${ticket}` : `#${ticket}`
-    this.store.logEvent('reviewer_tool_refused', { repo: w?.repo, ticket, agent: agentName, tool })
+    this.reduction.journal('reviewer_tool_refused', { repo: w?.repo, ticket, agent: agentName, tool })
     return `❌ \`${agentName}\` is the CROSS-CHECK REVIEWER on ${where}, and \`${tool}\` is not yours. A reviewer writes nothing: no tracker write, no push, no merge, no gate, no preview, no question. Read the diff, the ticket and the checkout, run the tests, then call report_result with your verdict — a doubt you cannot settle belongs IN the verdict.`
   }
 
@@ -1768,7 +1768,7 @@ export class Dispatcher {
     const ticket = String(w?.ticket ?? spawn?.ticket ?? String(agentName).match(REVIEW_SESSION_RE)?.[1] ?? '')
     const repo = w?.repo ?? spawn?.repo ?? null
     if (!ticket) {
-      this.store.logEvent('verdict_skipped', { agent: agentName, reason: 'no ticket is bound to this reviewer' })
+      this.reduction.journal('verdict_skipped', { agent: agentName, reason: 'no ticket is bound to this reviewer' })
       return 'result recorded — curia could not tell which ticket this reviewer was reading, so no verdict was captured'
     }
     const sameProvider = w?.sameProvider ?? Boolean(spawn?.same_provider)
@@ -1797,7 +1797,7 @@ export class Dispatcher {
       this.log(`could not write the verdict for ${repo}#${ticket}: ${e.message}`)
     }
     this.verdicts.set(ticket, verdict)
-    this.store.logEvent('verdict_captured', {
+    this.reduction.journal('verdict_captured', {
       repo, ticket, agent: agentName, model: verdict.model, status: result.status,
       same_provider: sameProvider, chars: verdict.verdict.length, on_disk: held,
     })
@@ -1809,7 +1809,7 @@ export class Dispatcher {
     // no word that the verdict gated nothing.
     const late = this.#verdictIsLate(ticket)
     if (late) {
-      this.store.logEvent('verdict_late', { repo, ticket, agent: agentName })
+      this.reduction.journal('verdict_late', { repo, ticket, agent: agentName })
       this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — ⚠️ it arrived TOO LATE to gate anything: the ticket was resolved before the verdict landed. The verdict goes on the pull request; reopening is the operator's call.`)
     } else {
       this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
@@ -1821,7 +1821,7 @@ export class Dispatcher {
     try {
       await this.#deliverVerdict(verdict)
     } catch (e) {
-      this.store.logEvent('verdict_delivery_failed', { repo, ticket, agent: agentName, error: e.message })
+      this.reduction.journal('verdict_delivery_failed', { repo, ticket, agent: agentName, error: e.message })
       this.#failureNotify(ticket, 'verdict-return', `⚠️ the verdict on #${ticket} is captured, but curia's return path failed — ${failureProse(e.message)}. The builder may still be waiting at the gate.`)
     }
     return `verdict captured${held ? '' : ' in memory only — writing the artifact FAILED'}. curia has posted it on the pull request and handed it to the builder, which judges it and puts it to a human. You push nothing, resolve nothing and answer nothing further — your work here is done, so stop.`
@@ -1866,7 +1866,7 @@ export class Dispatcher {
         // hit to a human instead
         if (!agent.limitAmbiguityLogged) {
           agent.limitAmbiguityLogged = true
-          this.store.logEvent('usage_limit_ignored_ambiguous', {
+          this.reduction.journal('usage_limit_ignored_ambiguous', {
             repo: agent.repo, ticket: agent.ticket, agent: agent.session, scope: limit.scope,
           })
           this.log(`watchdog ${agent.session}: usage-limit text ignored — the ticket body carries the same phrase`)
@@ -1897,7 +1897,7 @@ export class Dispatcher {
         agent.state = 'ready'
         // The anchor the tool-channel grace window is measured from (#194).
         agent.readyAt = Date.now()
-        this.store.logEvent('agent_ready', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, model: agent.model })
+        this.reduction.journal('agent_ready', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, model: agent.model })
         // #118 item 7 / #108 item 22: both links land with readiness as
         // buttons — /attach stays as the retrieve-later verb. Fail-soft: a
         // link that cannot compose right now (surface still asserting) falls
@@ -1931,7 +1931,7 @@ export class Dispatcher {
   // note cannot go missing on one path (see below).
   #watchdogGaveUp(agent, { event, data, headline, excerpt = '' }) {
     agent.state = 'failed'
-    this.store.logEvent(event, { repo: agent.repo, ticket: agent.ticket, agent: agent.session, ...data })
+    this.reduction.journal(event, { repo: agent.repo, ticket: agent.ticket, agent: agent.session, ...data })
     // If an ambiguous usage-limit signal was refused above, the operator must
     // hear about it HERE — this notify is the human surface the refusal leans
     // on, and the failure headline alone gives no reason to suspect a cap hit.
@@ -1972,7 +1972,7 @@ export class Dispatcher {
     w.mcpLastAt = Date.now()
     if (w.mcpSeenAt) return
     w.mcpSeenAt = w.mcpLastAt
-    this.store.logEvent('agent_mcp_first', {
+    this.reduction.journal('agent_mcp_first', {
       repo: w.repo, ticket: w.ticket, agent: agentName, harness: w.harness, model: w.model,
       // The two numbers the grace window is tuned against. An agent that has not
       // reached its composer yet states null for the second, and that null is
@@ -2031,7 +2031,7 @@ export class Dispatcher {
   async #muteAgent(agent, { graceS, found }) {
     const attempt = (agent.muteRespawns ?? 0) + 1
     const model = agent.model
-    this.store.logEvent('agent_mute', {
+    this.reduction.journal('agent_mute', {
       repo: agent.repo, ticket: agent.ticket, agent: agent.session,
       harness: agent.harness, model, grace_s: graceS ?? null, found, attempt,
     })
@@ -2106,15 +2106,15 @@ export class Dispatcher {
   async #handleLimit(agent, limit) {
     const { at: resetAt, source } = this.#resetFor(agent, limit)
     if (source === 'floor') {
-      this.store.logEvent('reset_unparseable', { agent: agent.session, scope: limit.scope, applied_cooldown_h: 1 })
+      this.reduction.journal('reset_unparseable', { agent: agent.session, scope: limit.scope, applied_cooldown_h: 1 })
     }
     if (limit.scope === 'model') {
       // Fable's own weekly sub-cap: cool only the model, provider stays warm.
       this.cooling.coolModel(agent.model, resetAt)
-      this.store.logEvent('model_cooling', { model: agent.model, reset_at: resetAt.toISOString(), reset_source: source })
+      this.reduction.journal('model_cooling', { model: agent.model, reset_at: resetAt.toISOString(), reset_source: source })
     } else {
       this.cooling.coolProvider(agent.provider, resetAt)
-      this.store.logEvent('provider_cooling', { provider: agent.provider, reset_at: resetAt.toISOString(), reset_source: source })
+      this.reduction.journal('provider_cooling', { provider: agent.provider, reset_at: resetAt.toISOString(), reset_source: source })
     }
     await this.deps.killSession(agent.session).catch(() => {})
 
@@ -2254,7 +2254,7 @@ export class Dispatcher {
     // reconcile reads a container's ports back from docker itself. They are
     // restated anyway, because the spawn line is their stated state home and a
     // fact that lives here must not be erased by a respawn.
-    this.store.logEvent('agent_spawned', {
+    this.reduction.journal('agent_spawned', {
       repo: agent.repo, ticket: agent.ticket, agent: agent.session,
       instance: agent.instance ?? null,
       model: next, harness: nextHarness,
@@ -2313,7 +2313,7 @@ export class Dispatcher {
       // #374: a fallback respawn rewrites the prompt, so it rewrites the
       // exchange with it. Without this the agent that crossed harnesses would
       // be the one agent on the ticket with no memory of the answers.
-      exchange: this.store.answeredExchangeFor(agent.session),
+      exchange: this.reduction.answeredExchangeFor(agent.session),
     })
     agent.promptHarness = nextHarness
   }
@@ -2342,7 +2342,7 @@ export class Dispatcher {
     if (agent.reviewer) {
       if (!keepCredentials) this.deps.removeCredentials(agent.cfgDir ?? cfgDirFor(this.root, agent.session))
       await this.#removeReviewCheckout(agent.repo, agent.ticket, agent.wtPath)
-      this.store.logEvent('reviewer_ended', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason })
+      this.reduction.journal('reviewer_ended', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason })
       // #165: this is the choke point for every bad ending, and a builder parked
       // at the gate is waiting on THIS agent. Ending it without settling the
       // wait would park the builder forever on a second agent that is gone.
@@ -2355,7 +2355,7 @@ export class Dispatcher {
     // would quietly undo them. Same choke point, same guard, one line apart.
     if (agent.charting) {
       if (!keepCredentials) this.deps.removeCredentials(agent.cfgDir ?? cfgDirFor(this.root, agent.session))
-      this.store.logEvent('charting_ended', { repo: agent.repo, map: agent.ticket, ticket: agent.ticket, agent: agent.session, reason })
+      this.reduction.journal('charting_ended', { repo: agent.repo, map: agent.ticket, ticket: agent.ticket, agent: agent.session, reason })
       return true
     }
     let released = false
@@ -2374,9 +2374,9 @@ export class Dispatcher {
     // the config dir (prompt.md) stays for post-mortem
     if (agent.cfgDir && !keepCredentials) this.deps.removeCredentials(agent.cfgDir)
     if (released) {
-      this.store.logEvent('dispatch_unclaimed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason })
+      this.reduction.journal('dispatch_unclaimed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason })
     } else {
-      this.store.logEvent('unclaim_failed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason, error: failure ?? 'no viewer login' })
+      this.reduction.journal('unclaim_failed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason, error: failure ?? 'no viewer login' })
     }
     return released
   }
@@ -2464,7 +2464,7 @@ export class Dispatcher {
       const files = await this.deps.changedFilesOnBranch(wtPath, await this.deps.defaultBranchOf(wtPath))
       return files.filter((f) => !f.startsWith(CHARTING_WRITE_PREFIX))
     } catch (e) {
-      this.store.logEvent('charting_paths_unread', { wtPath, error: e.message })
+      this.reduction.journal('charting_paths_unread', { wtPath, error: e.message })
       this.log(`charting path check on ${wtPath} failed (${e.message}) — not refusing the push`)
       return []
     }
@@ -2552,7 +2552,7 @@ export class Dispatcher {
     if (mapDispatch) {
       const stray = await this.#strayChartingPaths(wtPath)
       if (stray.length) {
-        this.store.logEvent('charting_push_refused', {
+        this.reduction.journal('charting_push_refused', {
           repo, ticket, agent: agentName, tool: 'open_pull_request', paths: stray,
         })
         return [
@@ -2577,10 +2577,10 @@ export class Dispatcher {
       out = await landBranch({
         repo, ticket, onIssue, title, summary, agent: agentName, model: w?.model ?? null,
         wtPath, branch, deps: this.deps,
-        journal: (type, data) => this.store.logEvent(type, data),
+        journal: (type, data) => this.reduction.journal(type, data),
       })
     } catch (e) {
-      this.store.logEvent('land_failed', { repo, ticket, agent: agentName, branch, error: e.message })
+      this.reduction.journal('land_failed', { repo, ticket, agent: agentName, branch, error: e.message })
       this.#failureNotify(ticket, 'land', `⚠️ \`${agentName}\`: opening the pull request FAILED — ${failureProse(e.message)}`)
       return `❌ curia could not land \`${branch}\`: ${e.message}. Your commits are safe in the worktree; fix what you can and call this again.`
     }
@@ -2625,7 +2625,7 @@ export class Dispatcher {
     // was still reading. So the call re-parks instead, and returns exactly what
     // the press would have returned.
     if (this.#crossCheckInFlight(ticket)) {
-      this.store.logEvent('cross_check_rejoined', { repo, ticket, agent: agentName })
+      this.reduction.journal('cross_check_rejoined', { repo, ticket, agent: agentName })
       this.notify(ticket, `⏸️ \`${agentName}\` asked for the review gate while \`${reviewSessionFor(ticket)}\` is still reading its diff — re-parked until the verdict lands, no gate opened`)
       if (w) w.state = 'cross-checking'
       return await this.#parkForVerdict(agentName, { repo, ticket, w })
@@ -2638,8 +2638,8 @@ export class Dispatcher {
     // queue so the refusal and the findings land in one tool result.
     const unjudged = this.#liveUnjudgedVerdict(ticket)
     if (unjudged) {
-      this.store.logEvent('review_refused', { repo, ticket, agent: agentName, reason: 'unjudged cross-check verdict' })
-      this.store.queueAgentNote?.(agentName, verdictNote(unjudged), {
+      this.reduction.journal('review_refused', { repo, ticket, agent: agentName, reason: 'unjudged cross-check verdict' })
+      this.reduction.queueAgentNote?.(agentName, verdictNote(unjudged), {
         instance: w?.instance ?? null, label: VERDICT_LABEL,
       })
       return {
@@ -2692,7 +2692,7 @@ export class Dispatcher {
       repo, ticket: map ?? ticket, title, summary, charting, links, mapDispatch,
       digestLine: digestLine(digest, digestError),
     })
-    this.store.logEvent('review_requested', {
+    this.reduction.journal('review_requested', {
       repo, ticket, agent: agentName, pr: pr?.url ?? w?.prUrl ?? null,
       preview: preview?.url ?? null, ...(mapDispatch ? { kind: 'charting' } : {}),
       // Null, never empty (#355). A worktree that is already gone records the
@@ -2711,11 +2711,11 @@ export class Dispatcher {
     const said = (body) => (recorded && typeof body === 'string' ? `${recorded}\n\n${body}` : body)
 
     if (status !== 'answered') {
-      this.store.logEvent('review_answered', { repo, ticket, agent: agentName, approved: false, status })
+      this.reduction.journal('review_answered', { repo, ticket, agent: agentName, approved: false, status })
       return { ok: true, aborted: true, text: `${answer}\n\n(the review gate was ${status}, not answered — do not merge and do not resolve anything)` }
     }
     const { approved, crossCheck, feedback } = classifyReviewAnswer(answer)
-    this.store.logEvent('review_answered', {
+    this.reduction.journal('review_answered', {
       repo, ticket, agent: agentName, approved, via: 'gate',
       ...(crossCheck ? { outcome: 'cross-check' } : {}),
       ...(recorded ? { recorded: true } : {}),
@@ -2771,7 +2771,7 @@ export class Dispatcher {
   // no tool calls. So the note rides this one.
   async #runCrossCheck(agentName, { repo, ticket, w }) {
     if (w) w.state = 'cross-checking'
-    this.store.logEvent('cross_check_requested', { repo, ticket, agent: agentName })
+    this.reduction.journal('cross_check_requested', { repo, ticket, agent: agentName })
     // `crossCheck` never throws — every failure comes back as a line and leaves
     // the builder untouched. What decides here is the RECORD, not that line: a
     // reviewer in the agents map is the thing that can produce a verdict, and
@@ -2782,7 +2782,7 @@ export class Dispatcher {
     const spawned = await this.crossCheck(ticket, { repo, by: 'review gate', tellBuilder: false })
     if (!this.agents.has(reviewSessionFor(ticket))) {
       if (w) w.state = 'ready'
-      this.store.logEvent('cross_check_returned', { repo, ticket, agent: agentName, ok: false, why: 'not spawned' })
+      this.reduction.journal('cross_check_returned', { repo, ticket, agent: agentName, ok: false, why: 'not spawned' })
       return {
         ok: true,
         approved: false,
@@ -2810,7 +2810,7 @@ export class Dispatcher {
   async #parkForVerdict(agentName, { repo, ticket, w }) {
     const out = await this.#awaitVerdict(ticket, agentName)
     if (w) w.state = 'ready'
-    this.store.logEvent('cross_check_returned', { repo, ticket, agent: agentName, ok: out.ok, why: out.why ?? null })
+    this.reduction.journal('cross_check_returned', { repo, ticket, agent: agentName, ok: out.ok, why: out.why ?? null })
     if (!out.ok) {
       return {
         ok: true,
@@ -2946,11 +2946,11 @@ export class Dispatcher {
     const w = this.agents.get(agentName)
     const wasState = w?.state ?? null
     if (w) w.state = 'cross-checking'
-    this.store.logEvent('result_parked', { repo: w?.repo, ticket, agent: agentName, reason: 'cross-check in flight' })
+    this.reduction.journal('result_parked', { repo: w?.repo, ticket, agent: agentName, reason: 'cross-check in flight' })
     this.notify(ticket, `⏸️ \`${agentName}\` tried to end #${ticket} while \`${reviewSessionFor(ticket)}\` is still reading its diff — parked until the verdict lands, and nothing was recorded`)
     const out = await this.#awaitVerdict(ticket, agentName, 'ending')
     if (w) w.state = wasState ?? 'ready'
-    this.store.logEvent('cross_check_returned', {
+    this.reduction.journal('cross_check_returned', {
       repo: w?.repo, ticket, agent: agentName, ok: out.ok, why: out.why ?? null, on: 'report_result',
     })
     if (!out.ok) return null
@@ -2985,7 +2985,7 @@ export class Dispatcher {
     // #297: the charting exemption goes here too, and for the same reason —
     // a gate a charting agent can open is a cross-check it can earn.
     if (this.#crossCheckInFlight(ticket)) {
-      this.store.logEvent('result_refused', { ticket, agent: agentName, reason: 'cross-check in flight' })
+      this.reduction.journal('result_refused', { ticket, agent: agentName, reason: 'cross-check in flight' })
       return [
         `❌ report_result refused — \`${reviewSessionFor(ticket)}\` is still reading your diff, and a ticket`,
         'cannot end around its own cross-check. Call `report_result` again, or `request_review`: both park',
@@ -2994,7 +2994,7 @@ export class Dispatcher {
       ].join('\n')
     }
     if (this.#liveUnjudgedVerdict(ticket)) {
-      this.store.logEvent('result_refused', { ticket, agent: agentName, reason: 'unjudged cross-check verdict' })
+      this.reduction.journal('result_refused', { ticket, agent: agentName, reason: 'unjudged cross-check verdict' })
       return [
         `❌ report_result refused — a cross-check verdict on #${ticket} sits UNJUDGED, and the ask must be`,
         'answered before any merge or report_result. The verdict is on the pull request. Then:',
@@ -3020,7 +3020,7 @@ export class Dispatcher {
     const ticket = String(verdict.ticket)
     const builder = `curia-${ticket}`
     const posted = await this.#commentOnPullRequest(verdict.repo, ticket, verdictComment(verdict))
-    this.store.logEvent('verdict_commented', {
+    this.reduction.journal('verdict_commented', {
       repo: verdict.repo, ticket, agent: verdict.agent, ok: posted.ok, why: posted.why ?? null,
     })
     // The comment url rides on the held artifact, because the carrier below —
@@ -3046,7 +3046,7 @@ export class Dispatcher {
       // The old line said only that it had nowhere to go, which on #223 was the
       // whole record of a four-finding fail verdict. The thread is the verdict's
       // last reader, so the thread gets the verdict.
-      this.store.logEvent('verdict_undelivered', { repo: verdict.repo, ticket, agent: builder, reason: 'no builder is running' })
+      this.reduction.journal('verdict_undelivered', { repo: verdict.repo, ticket, agent: builder, reason: 'no builder is running' })
       this.notify(ticket, verdictCarrier({
         agent: verdict.agent,
         model: verdict.model,
@@ -3060,7 +3060,7 @@ export class Dispatcher {
     // #208's rule, and the caller is what marks the note: these words are for
     // THIS builder. A successor must not read a verdict about a diff it did not
     // write.
-    this.store.queueAgentNote?.(builder, verdictNote(verdict), {
+    this.reduction.queueAgentNote?.(builder, verdictNote(verdict), {
       instance: w.instance ?? null, label: VERDICT_LABEL,
     })
     this.#settleReviewWait(ticket, { ok: true, verdict })
@@ -3094,7 +3094,7 @@ export class Dispatcher {
       this.log(`could not mark the verdict for #${ticket} judged: ${e.message}`)
     }
     const posted = await this.#commentOnPullRequest(verdict.repo, ticket, judgementComment(agentName, prompt))
-    this.store.logEvent('judgement_commented', {
+    this.reduction.journal('judgement_commented', {
       repo: verdict.repo, ticket, agent: agentName, ok: posted.ok, why: posted.why ?? null,
     })
     if (!posted.ok) {
@@ -3247,7 +3247,7 @@ export class Dispatcher {
     // does not have. Allow the stop, and say why on the surfaces.
     if (this.#muteAtStop(agentName)) {
       const w = this.agents.get(agentName)
-      this.store.logEvent('agent_mute', {
+      this.reduction.journal('agent_mute', {
         repo: w.repo, ticket: w.ticket, agent: agentName, harness: w.harness,
         model: w.model, grace_s: null, found: 'stop hook', attempt: (w.muteRespawns ?? 0) + 1,
       })
@@ -3273,13 +3273,13 @@ export class Dispatcher {
       // lifecycle closes on the evidence it actually has: report_result present
       // ⇒ verify and repair; absent ⇒ the abnormal-exit branch, which keeps the
       // pane and says so.
-      this.store.logEvent('stop_budget_exhausted', {
+      this.reduction.journal('stop_budget_exhausted', {
         agent: agentName, ticket: state.ticket, repo: state.repo, blocks: state.blocks, outstanding: items,
       })
       this.notify(state.ticket, `⚠️ \`${agentName}\` stopped with ${items.length} step(s) of the ending outstanding after ${state.blocks} nudge(s) — curia is no longer holding it:\n${items.map((t) => `• ${t}`).join('\n')}`)
       return { allow: true, terminal: true }
     }
-    this.store.logEvent('stop_blocked', {
+    this.reduction.journal('stop_blocked', {
       agent: agentName, ticket: state.ticket, repo: state.repo, attempt, outstanding: items, stop_hook_active: stopHookActive,
     })
     this.log(`stop hook ${agentName}: blocking stop ${attempt}/${budget} — ${items.join('; ')}`)
@@ -3314,7 +3314,7 @@ export class Dispatcher {
       try {
         return await this.#captureVerdict(agentName, result, w)
       } catch (e) {
-        this.store.logEvent('verdict_failed', { agent: agentName, error: e.message })
+        this.reduction.journal('verdict_failed', { agent: agentName, error: e.message })
         return `result recorded — but curia could not capture the verdict: ${e.message}`
       }
     }
@@ -3327,7 +3327,7 @@ export class Dispatcher {
     const m = agentName.match(SESSION_RE)
     const ticket = String(w?.ticket ?? (m ? m[1] : ''))
     if (!ticket) {
-      this.store.logEvent('resolve_skipped', { agent: agentName, reason: 'no ticket is bound to this agent' })
+      this.reduction.journal('resolve_skipped', { agent: agentName, reason: 'no ticket is bound to this agent' })
       return 'result recorded — no curia ticket is bound to this agent, so nothing on the tracker was touched'
     }
     if (result.ticket != null) {
@@ -3336,13 +3336,13 @@ export class Dispatcher {
       const sameTicket = ref.number === ticket
         && (!ref.repo || !boundRepo || ref.repo.toLowerCase() === boundRepo.toLowerCase())
       if (!sameTicket) {
-        this.store.logEvent('result_ticket_mismatch', { agent: agentName, bound: ticket, reported: String(result.ticket) })
+        this.reduction.journal('result_ticket_mismatch', { agent: agentName, bound: ticket, reported: String(result.ticket) })
         this.log(`WARNING: ${agentName} reported ticket ${result.ticket} but is bound to ${ticket} — acting on ${ticket}`)
       }
     }
     const repo = w?.repo ?? this.#epochRepo(ticket)
     if (!repo) {
-      this.store.logEvent('resolve_skipped', { agent: agentName, ticket, reason: 'no repo could be determined' })
+      this.reduction.journal('resolve_skipped', { agent: agentName, ticket, reason: 'no repo could be determined' })
       return `result recorded — curia could not tell which repo #${ticket} belongs to, so the ticket was left untouched`
     }
 
@@ -3361,7 +3361,7 @@ export class Dispatcher {
       // translates the raw error and says one failure once. The ending receipt
       // below still speaks for the ending, so neither event borrows the other's
       // message.
-      this.store.logEvent('resolve_failed', { repo, ticket, agent: agentName, status: result.status, error: e.message })
+      this.reduction.journal('resolve_failed', { repo, ticket, agent: agentName, status: result.status, error: e.message })
       this.#failureNotify(ticket, 'resolve', `⚠️ ${repo}#${ticket}: the result was recorded but curia's resolve step failed — ${failureProse(e.message)}`)
       return `result recorded — but curia's resolve step failed: ${e.message}`
     }
@@ -3387,7 +3387,7 @@ export class Dispatcher {
   #closeQuestionsAtResult(agentName) {
     for (const r of this.#openEscalationsFor(agentName)) {
       this.cancelEscalation(r.id, { by: 'result' })
-      this.store.logEvent('escalation_stale_at_result', { id: r.id, agent: agentName, ticket: r.ticket })
+      this.reduction.journal('escalation_stale_at_result', { id: r.id, agent: agentName, ticket: r.ticket })
       this.log(`${agentName} reported a result with ${r.id} still open — the question is stale, so it is closed`)
     }
   }
@@ -3469,7 +3469,7 @@ export class Dispatcher {
       epochTs: w?.spawnedAt ? new Date(w.spawnedAt).toISOString() : null,
       model: w?.model ?? null,
       deps: this.deps,
-      journal: (type, data) => this.store.logEvent(type, data),
+      journal: (type, data) => this.reduction.journal(type, data),
       withMapLock: (key, fn) => this.#withMapLock(key, fn),
       log: this.log,
     })
@@ -3480,7 +3480,7 @@ export class Dispatcher {
     // this is the record a human reads afterwards. Sibling of the unmerged
     // warning in resolve.mjs, for the same reason: say it, do not hide it.
     if (!this.#epochScan(ticket, agentName).reviewApproved) {
-      this.store.logEvent('resolved_unreviewed', { repo, ticket, agent: agentName })
+      this.reduction.journal('resolved_unreviewed', { repo, ticket, agent: agentName })
       out.warnings.push('NO approved review gate for this dispatch — this ticket was resolved without anyone approving it')
     }
     const text = summariseOutcome(out)
@@ -3488,7 +3488,7 @@ export class Dispatcher {
     // rides the journal rather than the agent record because report_result and
     // the Stop hook are two calls, and a restart between them must not silence
     // the ending — see #endingClause.
-    this.store.logEvent('ticket_resolved', {
+    this.reduction.journal('ticket_resolved', {
       repo, ticket, agent: agentName,
       comment: out.comment, close: out.close, map: out.map.state, land: out.land.state,
       pr: out.land.url ?? null, repaired: out.repaired,
@@ -3534,7 +3534,7 @@ export class Dispatcher {
     const map = this.#chartedMap(agentName, ticket, w)
     const landing = await this.#chartingLanding(agentName, repo, ticket)
     if (landing.unreviewed) {
-      this.store.logEvent('charting_unreviewed', { repo, map: map ?? null, ticket, agent: agentName })
+      this.reduction.journal('charting_unreviewed', { repo, map: map ?? null, ticket, agent: agentName })
     }
     let noted = false
     if (map) {
@@ -3558,7 +3558,7 @@ export class Dispatcher {
       landing.line,
     ]
     const what = map ? `${repo}#${map}` : `the new map in ${repo}`
-    this.store.logEvent('charting_finished', {
+    this.reduction.journal('charting_finished', {
       repo, map: map ?? null, ticket, agent: agentName, status: result.status, commented: noted,
       pr: landing.url ?? null, pr_state: landing.state ?? null,
       summary: `${clean ? '🗺️' : '↩️'} ${what} charted (**${result.status}**) — ${bits.join('; ')}. Nobody reviewed these map edits: read them.`,
@@ -3652,7 +3652,7 @@ export class Dispatcher {
     if (w.mapNumber) return `already taken — ${w.repo}#${raw} is this session's map`
     w.mapNumber = raw
     w.title = issue.title
-    this.store.logEvent('map_adopted', {
+    this.reduction.journal('map_adopted', {
       repo: w.repo, ticket: w.ticket, map: raw, agent: agentName, title: issue.title,
     })
     // The thread follows the map (#241). Never fatal: a rename that does not
@@ -3718,7 +3718,7 @@ export class Dispatcher {
       ? 'claim released, ticket back on the frontier'
       : 'claim release FAILED — the ticket is still assigned; reconcile will retry'
     const said = `${tail}${noted ? ', reason noted on the ticket' : ', and the note could not be posted'}`
-    this.store.logEvent('nonclean_noted', {
+    this.reduction.journal('nonclean_noted', {
       repo, ticket, agent: agentName, status: result.status, released, noted,
       summary: `↩️ ${repo}#${ticket} NOT resolved (**${result.status}**) — ${said}`,
     })
@@ -3754,7 +3754,7 @@ export class Dispatcher {
   // confirm is a question to a human about the agent, not a call the agent
   // is sitting in.
   #openEscalationsFor(agentName) {
-    return this.store.openEscalations().filter((r) => r.agent === agentName)
+    return this.reduction.openEscalations().filter((r) => r.agent === agentName)
   }
 
   // #47's evidence, in one place because two callers need it: the Stop hook's
@@ -3797,7 +3797,7 @@ export class Dispatcher {
     const reviewing = open.some((r) => r.kind === REVIEW_KIND)
     if (w) w.state = crossCheck ? 'cross-checking' : (reviewing ? 'awaiting-review' : 'blocked')
     const ticket = w?.ticket ?? agentName.match(SESSION_RE)?.[1] ?? agentName
-    this.store.logEvent('agent_blocked_on_human', {
+    this.reduction.journal('agent_blocked_on_human', {
       agent: agentName, ticket, repo: w?.repo,
       escalations: open.map((r) => r.id), awaiting_review: reviewing, cross_check: crossCheck,
     })
@@ -3810,12 +3810,12 @@ export class Dispatcher {
 
   // The pull request this session pushed, for the ONE place the link is
   // allowed to unfurl (#253): the agent's own report. The in-memory record
-  // wins. The store answers for a session this process never held, off the
+  // wins. The reduction answers for a session this process never held, off the
   // reduction its replay filled — this read sits on the `/overview` poll, once
-  // per open review gate, so it must not touch the journal file (#289).
+  // per open review gate, so it must not read the journal (#289).
   pullRequestUrlFor(agentName) {
     const live = this.agents.get(agentName)?.prUrl
-    return live || this.store.pullRequestFor(agentName)
+    return live || this.reduction.pullRequestFor(agentName)
   }
 
   // The whole ending, in one CuriaBot message (#253, ADR-0013).
@@ -3908,7 +3908,7 @@ export class Dispatcher {
       // agent gets a ✅ for an answer nothing will ever read.
       for (const r of open) {
         this.cancelEscalation(r.id, { by: 'agent-death' })
-        this.store.logEvent('escalation_orphaned', { id: r.id, agent: agentName, ticket })
+        this.reduction.journal('escalation_orphaned', { id: r.id, agent: agentName, ticket })
       }
       this.notify(ticket, `⚠️ \`${agentName}\` is gone while ${open.length} escalation(s) were still open — ${open.map((r) => `**${r.id}**`).join(', ')} cancelled: nothing is waiting for an answer any more`)
     }
@@ -3918,7 +3918,7 @@ export class Dispatcher {
     // thing publish() refuses to create in the first place.
     await this.#withdrawPreview(ticket, hasResult ? 'agent finished' : 'agent exited without a result')
     if (hasResult) {
-      this.store.logEvent('lifecycle_closed', { agent: agentName, ticket, repo: w?.repo })
+      this.reduction.journal('lifecycle_closed', { agent: agentName, ticket, repo: w?.repo })
       await this.deps.killSession(agentName).catch(() => {})
       this.agents.delete(agentName)
       // the OAuth credential copy never survives (a pre-#53 leftover collector)
@@ -3935,7 +3935,7 @@ export class Dispatcher {
     } else {
       // result-less exit: the pane is the post-mortem evidence — keep it
       if (w) w.state = 'failed'
-      this.store.logEvent('agent_abnormal_exit', { agent: agentName, ticket, repo: w?.repo })
+      this.reduction.journal('agent_abnormal_exit', { agent: agentName, ticket, repo: w?.repo })
       this.notify(ticket, `⚠️ \`${agentName}\` stopped WITHOUT reporting a result — session kept for post-mortem (\`/attach ${ticket}\`)`)
       // the agent the confirm described has exited, whatever the pane holds (#94)
       this.lapseConfirmsFor(agentName, `\`${agentName}\` stopped without a result`)
@@ -3961,7 +3961,7 @@ export class Dispatcher {
       || fs.existsSync(path.join(this.dataDir, 'results', `${agentName}.json`))
     if (!hasResult) {
       if (w) w.state = 'failed'
-      this.store.logEvent('reviewer_abnormal_exit', { repo: w?.repo, ticket, agent: agentName })
+      this.reduction.journal('reviewer_abnormal_exit', { repo: w?.repo, ticket, agent: agentName })
       // #165: the builder may be parked at the gate on this reviewer. It is
       // released with the truth — no verdict — rather than left waiting on a
       // pane that is being kept only as evidence.
@@ -3969,7 +3969,7 @@ export class Dispatcher {
       this.notify(ticket, `⚠️ \`${agentName}\` stopped WITHOUT a verdict — session and checkout kept for post-mortem (\`/attach ${ticket}\` names both). The builder is untouched: nothing about #${ticket} changed.`)
       return
     }
-    this.store.logEvent('lifecycle_closed', { repo: w?.repo, ticket, agent: agentName, kind: 'reviewer' })
+    this.reduction.journal('lifecycle_closed', { repo: w?.repo, ticket, agent: agentName, kind: 'reviewer' })
     await this.deps.killSession(agentName).catch(() => {})
     this.agents.delete(agentName)
     this.deps.removeCredentials(w?.cfgDir ?? cfgDirFor(this.root, agentName))
@@ -4013,12 +4013,12 @@ export class Dispatcher {
     try {
       pr = await this.deps.findPullRequest(repo, branch)
     } catch (e) {
-      this.store.logEvent('lease_kept', { repo, ticket, agent: agentName, branch, reason: `pull-request state unreadable: ${e.message}` })
+      this.reduction.journal('lease_kept', { repo, ticket, agent: agentName, branch, reason: `pull-request state unreadable: ${e.message}` })
       return `worktree and branch kept — curia could not read the pull-request state (${e.message})`
     }
 
     if (pr && pr.state !== 'MERGED') {
-      this.store.logEvent('lease_kept', { repo, ticket, agent: agentName, branch, reason: `pull request is ${pr.state}` })
+      this.reduction.journal('lease_kept', { repo, ticket, agent: agentName, branch, reason: `pull request is ${pr.state}` })
       // <> around the url: this sentence rides the ending receipt, and the
       // receipt carries no bare link (#253).
       return `⚠️ worktree and branch KEPT — <${pr.url}> is **${pr.state}**, not merged`
@@ -4032,7 +4032,7 @@ export class Dispatcher {
         commits = await this.deps.commitsOnBranch(wtPath, await this.deps.defaultBranchOf(wtPath))
       } catch { /* indeterminate ⇒ keep */ }
       if (commits === null || commits.length) {
-        this.store.logEvent('lease_kept', { repo, ticket, agent: agentName, branch, reason: 'no pull request, and the branch may hold commits' })
+        this.reduction.journal('lease_kept', { repo, ticket, agent: agentName, branch, reason: 'no pull request, and the branch may hold commits' })
         return '⚠️ worktree and branch KEPT — there is no pull request and curia cannot rule out unlanded commits'
       }
     }
@@ -4053,7 +4053,7 @@ export class Dispatcher {
         branchNote = `, remote \`${branch}\` still there (${e.message})`
       }
     }
-    this.store.logEvent('lease_released', { repo, ticket, agent: agentName, branch, merged: Boolean(pr), worktree_removed: removed })
+    this.reduction.journal('lease_released', { repo, ticket, agent: agentName, branch, merged: Boolean(pr), worktree_removed: removed })
     return `${pr ? `${pr.url} is merged` : 'no code was produced'} — ${removed ? 'worktree removed' : 'worktree removal FAILED'}${branchNote}`
   }
 
@@ -4122,7 +4122,7 @@ export class Dispatcher {
   // The interpreted cancel (#94): open the confirm, execute nothing. The
   // confirm is INSTANCE-bound and lapses when its agent exits; no expiry
   // clock. A newer confirm on the same instance supersedes the older
-  // (store.open).
+  // (reduction.open).
   async requestCancel(n, { threadId = null } = {}) {
     const ticket = String(n)
     const session = `curia-${ticket}`
@@ -4218,11 +4218,11 @@ export class Dispatcher {
   // agent. Session-name match suffices — an open confirm can only describe
   // the current instance, because the previous exit lapsed the previous one.
   lapseConfirmsFor(session, why) {
-    for (const r of this.store.openEscalations()) {
+    for (const r of this.reduction.openEscalations()) {
       if (r.kind !== CONFIRM_KIND) continue
       if (!(r.action?.targets ?? []).some((t) => t.session === session)) continue
       this.lapseEscalation(r.id, why)
-      this.store.logEvent('confirm_lapsed', { id: r.id, session, reason: why })
+      this.reduction.journal('confirm_lapsed', { id: r.id, session, reason: why })
       this.#noteOrigin(r, `confirm ${r.id} lapsed — ${why}; nothing was executed`)
     }
   }
@@ -4242,13 +4242,13 @@ export class Dispatcher {
   // same rule that lapses a pre-restart confirm.
   //
   // #252 leaves this as the caller that knows WHY, and nothing else. The
-  // announcing moved into the store, which every expiry passes through, so a
+  // announcing moved into the reduction, which every expiry passes through, so a
   // path that forgets to call this one still cannot lose a note in silence.
   expireNotesFor(session, ticket, why, liveInstance = null) {
-    this.store.expireAgentNotes(session, liveInstance, why)
+    this.reduction.expireAgentNotes(session, liveInstance, why)
   }
 
-  // Expiry always announces (#252, ADR-0013). Wired to the store's expiry hook,
+  // Expiry always announces (#252, ADR-0013). Wired to the reduction's expiry hook,
   // so it runs once per expiry whichever path caused it — an ordered teardown,
   // an adoption after a restart, or the drain's belt-and-braces sweep.
   //
@@ -4279,7 +4279,7 @@ export class Dispatcher {
     }
     const held = verdicts.length ? this.verdictFor(ticket) : null
     for (const note of verdicts) {
-      this.store.logEvent('verdict_carried', { ticket, agent, reason: why })
+      this.reduction.journal('verdict_carried', { ticket, agent, reason: why })
       this.notify(ticket, verdictCarrier({
         agent: held?.agent ?? null,
         model: held?.model ?? null,
@@ -4326,7 +4326,7 @@ export class Dispatcher {
   // run after it. The button surface must not sit on a Discord interaction for
   // seconds, and the injection reports its own failure on the thread.
   async interruptNote(id, { by = null } = {}) {
-    const note = this.store.noteById(id)
+    const note = this.reduction.noteById(id)
     if (!note) return { ok: false, why: 'curia has no record of that note, so there is nothing to ask' }
     const session = note.agent
     const ticket = this.agents.get(session)?.ticket ?? String(session).match(SESSION_RE)?.[1] ?? String(session)
@@ -4345,8 +4345,8 @@ export class Dispatcher {
     const wasPending = note.pending
     // Out of the queue first: a note the interrupt carries must never also ride
     // a tool result. One fact, one delivery, whichever mode carries it.
-    this.store.interruptAgentNote(id, { by })
-    this.store.logEvent('note_interrupt', {
+    this.reduction.interruptAgentNote(id, { by })
+    this.reduction.journal('note_interrupt', {
       id, agent: session, ticket, by, grace_ms: this.interruptGraceMs, was_queued: wasPending,
     })
     this.#injectNote(session, ticket, note).catch((e) => this.log(`note interrupt for ${session} failed: ${e.message}`))
@@ -4366,7 +4366,7 @@ export class Dispatcher {
     await sleep(this.interruptGraceMs)
     const w = this.agents.get(session)
     if (!w) {
-      this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: 'the agent exited during the grace' })
+      this.reduction.journal('note_interrupt_failed', { agent: session, ticket, reason: 'the agent exited during the grace' })
       this.notify(ticket, `📭 \`${session}\` exited during the grace, so these words reached nobody: ${note.text}`)
       return
     }
@@ -4380,14 +4380,14 @@ export class Dispatcher {
       await this.deps.sendKey(session, 'Escape')
       await this.deps.sendText(session, text)
     } catch (e) {
-      this.store.logEvent('note_interrupt_failed', { agent: session, ticket, reason: e.message })
+      this.reduction.journal('note_interrupt_failed', { agent: session, ticket, reason: e.message })
       // Prose, but NOT deduped: this line answers words the operator just
       // typed, and an answer to an act is owed once per act. Silence here would
       // read as delivery (#256).
       this.notify(ticket, `⚠️ curia could not put those words to \`${session}\` — ${failureProse(e.message)}. The words are NOT with the agent: say them again.`)
       return
     }
-    this.store.logEvent('note_interrupt_delivered', { agent: session, ticket })
+    this.reduction.journal('note_interrupt_delivered', { agent: session, ticket })
   }
 
   // The teardown a confirmed cancel runs — shared verbatim by cancel and
@@ -4407,7 +4407,7 @@ export class Dispatcher {
     // them here, where the death is certain.
     for (const r of this.#openEscalationsFor(session)) {
       this.cancelEscalation(r.id, { by: 'cancel' })
-      this.store.logEvent('escalation_orphaned', { id: r.id, agent: session, ticket })
+      this.reduction.journal('escalation_orphaned', { id: r.id, agent: session, ticket })
     }
     // The journal records what HAPPENED, not what was attempted (the W1
     // rule): dispatch_unclaimed only after the unclaim returned; a failed or
@@ -4445,14 +4445,14 @@ export class Dispatcher {
     this.agents.delete(session)
     if (w && !charting) {
       if (released) {
-        this.store.logEvent('dispatch_unclaimed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown' })
+        this.reduction.journal('dispatch_unclaimed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown' })
       } else {
-        this.store.logEvent('unclaim_failed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown', error: failure ?? 'no viewer login' })
+        this.reduction.journal('unclaim_failed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown', error: failure ?? 'no viewer login' })
       }
     }
     // status's recent-cancelled view reads this event; the unclaim events
     // above cannot carry it because an untracked cancel writes none.
-    this.store.logEvent('agent_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
+    this.reduction.journal('agent_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
     const chartTail = isChatHandle(ticket)
       ? (chartedMap
         ? `, checkout removed — nothing was claimed, and the map it created (${w?.repo ? `${w.repo}#` : '#'}${chartedMap}) STANDS`
@@ -4490,13 +4490,13 @@ export class Dispatcher {
     await this.deps.killSession(session).catch(() => {})
     for (const r of this.#openEscalationsFor(session)) {
       this.cancelEscalation(r.id, { by: 'cancel' })
-      this.store.logEvent('escalation_orphaned', { id: r.id, agent: session, ticket })
+      this.reduction.journal('escalation_orphaned', { id: r.id, agent: session, ticket })
     }
     this.agents.delete(session)
     const removed = await this.#removeReviewCheckout(w?.repo ?? this.#epochRepo(ticket), ticket, w?.wtPath)
     this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
     this.deps.forgetAgentToken(this.dataDir, session)
-    this.store.logEvent('reviewer_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
+    this.reduction.journal('reviewer_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
     // #165: a cancel of the reviewer alone releases the builder back to the
     // gate. A cancel of both settles the same wait, and the builder's own MCP
@@ -4626,7 +4626,7 @@ export class Dispatcher {
     // #54 item 9: *awaiting review* is read off the open escalation record, not
     // off the agent record, so it is also right for an agent this process
     // adopted at reconcile and whose in-memory state is a guess.
-    const open = this.store.openEscalations()
+    const open = this.reduction.openEscalations()
     const reviewing = new Set(open
       .filter((r) => r.kind === REVIEW_KIND)
       .map((r) => r.agent))
@@ -4655,11 +4655,11 @@ export class Dispatcher {
       waiting_on: open.filter((r) => r.agent === w.session).map((r) => ({ id: r.id, kind: r.kind })),
     }))
     const untracked = live.filter((s) => !this.agents.has(s))
-    // The recent cancelled, finished and died (#81's grown status). The store
+    // The recent cancelled, finished and died (#81's grown status). The reduction
     // reduces them as the journal is written (#289), so this read costs
     // nothing on disk — `/overview` asks for it every 5 seconds, and it used
     // to parse the whole journal to answer.
-    return { agents, untracked, recent: this.store.recentOutcomes() }
+    return { agents, untracked, recent: this.reduction.recentOutcomes() }
   }
 
   // ---- liveness sweep (#138) -------------------------------------------------------
@@ -4704,7 +4704,7 @@ export class Dispatcher {
     // reviewer over this checkout.
     if (w.reviewer) {
       this.agents.delete(session)
-      this.store.logEvent('agent_died', { repo, ticket, agent: session, kind: 'reviewer' })
+      this.reduction.journal('agent_died', { repo, ticket, agent: session, kind: 'reviewer' })
       this.lapseConfirmsFor(session, `\`${session}\` died`)
       this.deps.removeCredentials(w.cfgDir ?? cfgDirFor(this.root, session))
       this.log(`liveness sweep: reviewer ${session} is gone with no teardown order`)
@@ -4712,7 +4712,7 @@ export class Dispatcher {
       return
     }
     this.agents.delete(session)
-    this.store.logEvent('agent_died', { repo, ticket, agent: session })
+    this.reduction.journal('agent_died', { repo, ticket, agent: session })
     this.log(`liveness sweep: ${session} is gone with no teardown order`)
 
     // The surface half of item 19: the agent's open questions STAY open and
@@ -4722,7 +4722,7 @@ export class Dispatcher {
     // line per record is the durable fact that hand-off will read.
     const open = this.#openEscalationsFor(session)
     for (const r of open) {
-      this.store.logEvent('escalation_agent_died', { id: r.id, agent: session, ticket })
+      this.reduction.journal('escalation_agent_died', { id: r.id, agent: session, ticket })
     }
     // a dead agent's dev server died with it — never publish a dead port
     await this.#withdrawPreview(ticket, 'agent died')
@@ -4769,7 +4769,7 @@ export class Dispatcher {
   // and unclaims happen only on positive evidence from a successful gh call;
   // any gh failure skips that repo's reconciliation this pass.
   async reconcile({ boot = false } = {}) {
-    this.store.logEvent('reconcile', { boot })
+    this.reduction.journal('reconcile', { boot })
     const ctx = await this.#reconcileContext()
 
     if (ctx.login && ctx.sessions) {
@@ -4782,7 +4782,7 @@ export class Dispatcher {
       // orphan sweep would kill its session AND `git worktree remove --force`
       // its uncommitted output — on nothing worse than a transient
       // `gh api user` failure. A failed identity read is a failed pass.
-      this.store.logEvent('reconcile_identity_unknown', { boot })
+      this.reduction.journal('reconcile_identity_unknown', { boot })
       this.log('reconcile: no gh viewer identity this pass — skipping session adoption, orphan sweep and dead-claim release')
     } else {
       // Same rule for the tmux read: an indeterminate session list (wedged
@@ -4790,7 +4790,7 @@ export class Dispatcher {
       // sessions". Treating it as empty would make every open claim look dead
       // — unclaiming live agents and re-frontiering their tickets — and let
       // a re-dispatch force-remove a live agent's worktree. Skip both passes.
-      this.store.logEvent('reconcile_sessions_indeterminate', { boot, error: ctx.sessionsError })
+      this.reduction.journal('reconcile_sessions_indeterminate', { boot, error: ctx.sessionsError })
       this.log(`reconcile: tmux session list indeterminate this pass (${ctx.sessionsError}) — skipping session adoption, orphan sweep and dead-claim release`)
     }
 
@@ -4832,9 +4832,9 @@ export class Dispatcher {
     // on the ticket keeps the label — a human is still being asked there
     // (awaiting review across a reboot), and its traffic must keep landing in
     // the labeled thread.
-    if (ctx.sessions && typeof this.store.boundTickets === 'function') {
-      const asked = new Set(this.store.openEscalations().map((r) => String(r.ticket)))
-      for (const ticket of this.store.boundTickets()) {
+    if (ctx.sessions && typeof this.reduction.boundTickets === 'function') {
+      const asked = new Set(this.reduction.openEscalations().map((r) => String(r.ticket)))
+      for (const ticket of this.reduction.boundTickets()) {
         const session = `curia-${ticket}`
         if (ctx.sessions.includes(session) || this.agents.has(session) || this.inFlight.has(session)) continue
         if (asked.has(String(ticket))) continue
@@ -4954,7 +4954,7 @@ export class Dispatcher {
     ctx.skipRepo = (repo, e) => {
       if (!failedRepos.has(repo)) {
         failedRepos.add(repo)
-        this.store.logEvent('reconcile_repo_skipped', { repo, error: e.message })
+        this.reduction.journal('reconcile_repo_skipped', { repo, error: e.message })
         this.log(`reconcile: skipping ${repo} this pass (${e.message})`)
       }
     }
@@ -5061,14 +5061,14 @@ export class Dispatcher {
         && (ev.type === 'result' || ev.type === 'ticket_resolved')
         && (ev.agent === session || String(ev.ticket ?? '') === n))
       if (reported) {
-        this.store.logEvent('orphan_sweep_skipped', { agent: session, ticket: n, reason: 'reported a result after its dispatch' })
+        this.reduction.journal('orphan_sweep_skipped', { agent: session, ticket: n, reason: 'reported a result after its dispatch' })
         this.log(`reconcile: not sweeping ${session} — it reported a result after its dispatch`)
         continue
       }
 
       // positive evidence from every candidate repo: closed / unassigned /
       // absent everywhere ⇒ orphan
-      this.store.logEvent('orphan_swept', { agent: session, ticket: n })
+      this.reduction.journal('orphan_swept', { agent: session, ticket: n })
       await this.deps.killSession(session).catch(() => {})
       if (sweepRepo) await this.#sweepWorktree(sweepRepo, n, session)
       // Fail-soft like its two siblings above (found live on #74): the rm can
@@ -5111,7 +5111,7 @@ export class Dispatcher {
     const spawn = this.#epochSpawn(journal, session)
     const repo = epoch?.repo ?? null
     if (!charting || !repo) {
-      this.store.logEvent('orphan_swept', { agent: session, ticket: handle, reason: 'no curia dispatch explains this chat handle' })
+      this.reduction.journal('orphan_swept', { agent: session, ticket: handle, reason: 'no curia dispatch explains this chat handle' })
       await this.deps.killSession(session).catch(() => {})
       try {
         this.deps.removeConfigDir(cfgDirFor(this.root, session))
@@ -5135,7 +5135,7 @@ export class Dispatcher {
         return
       }
       if (issue && issue.state !== 'open') {
-        this.store.logEvent('orphan_swept', { agent: session, ticket: handle, reason: `${repo}#${mapNumber} is ${issue.state}` })
+        this.reduction.journal('orphan_swept', { agent: session, ticket: handle, reason: `${repo}#${mapNumber} is ${issue.state}` })
         await this.deps.killSession(session).catch(() => {})
         await this.#sweepWorktree(repo, handle, session)
         try {
@@ -5202,7 +5202,7 @@ export class Dispatcher {
         // A reviewer curia cannot describe cannot be resumed, cannot report and
         // cannot be attributed to a ticket. Sweeping is the honest answer: the
         // cross-check is one press away from starting again.
-        this.store.logEvent('orphan_reviewer_swept', { agent: session })
+        this.reduction.journal('orphan_reviewer_swept', { agent: session })
         await this.deps.killSession(session).catch(() => {})
         try {
           this.deps.removeConfigDir(cfgDirFor(this.root, session))
@@ -5262,7 +5262,7 @@ export class Dispatcher {
       why = `curia could not tell whether it holds unlanded commits (${e.message})`
     }
     if (unpushed) {
-      this.store.logEvent('orphan_worktree_kept', { agent: session, ticket: n, repo, path: wt, reason: why })
+      this.reduction.journal('orphan_worktree_kept', { agent: session, ticket: n, repo, path: wt, reason: why })
       this.log(`reconcile: kept orphan worktree ${wt} — ${why}`)
       return
     }
@@ -5312,12 +5312,12 @@ export class Dispatcher {
     }
     const pr = await this.deps.findPullRequest(repo, branchFor(ticket))
     if (pr && pr.state === 'OPEN') {
-      this.store.logEvent('dead_claim_kept_awaiting_review', { repo, ticket, agent: session, pr: pr.url })
+      this.reduction.journal('dead_claim_kept_awaiting_review', { repo, ticket, agent: session, pr: pr.url })
       this.log(`keeping the claim on ${repo}#${ticket} — ${pr.url} is open and awaiting review`)
       return 'kept'
     }
     await this.deps.unclaim(repo, ticket, viewer)
-    this.store.logEvent('dead_claim_released', { repo, ticket, agent: session })
+    this.reduction.journal('dead_claim_released', { repo, ticket, agent: session })
     this.log(`released dead claim ${repo}#${ticket}`)
     return 'released'
   }
@@ -5351,7 +5351,7 @@ export class Dispatcher {
       const cfgDir = cfgDirFor(this.root, dir)
       if (!fs.existsSync(path.join(cfgDir, '.credentials.json'))) continue
       this.deps.removeCredentials(cfgDir)
-      this.store.logEvent('credentials_swept', { agent: dir })
+      this.reduction.journal('credentials_swept', { agent: dir })
       this.log(`reconcile: swept the OAuth credential copy of dead ${dir} (workspace kept)`)
     }
   }
@@ -5377,7 +5377,7 @@ export class Dispatcher {
       if (sessions.includes(name) || this.agents.has(name) || this.inFlight.has(name)) continue
       try {
         await this.deps.stopContainer(name)
-        this.store.logEvent('orphan_container_swept', { agent: name })
+        this.reduction.journal('orphan_container_swept', { agent: name })
         this.log(`reconcile: swept orphan container ${name} — no pane holds it`)
       } catch (e) {
         this.log(`reconcile: could not remove orphan container ${name} (${e.message})`)
@@ -5411,14 +5411,14 @@ export class Dispatcher {
       else if (ev.type === 'agent_blocked_on_human' && results.has(ev.agent)) deferred.add(ev.agent)
     }
     const toEnd = new Set()
-    for (const r of this.store.openEscalations()) {
+    for (const r of this.reduction.openEscalations()) {
       const reportedAt = Date.parse(results.get(r.agent) ?? '')
       const openedAt = Date.parse(r.opened_at ?? '')
       // An unreadable stamp on either side is not evidence, and the safe
       // direction for a question is to leave it asking.
       if (Number.isNaN(reportedAt) || Number.isNaN(openedAt) || openedAt >= reportedAt) continue
       this.cancelEscalation(r.id, { by: 'result' })
-      this.store.logEvent('escalation_stale_at_result', { id: r.id, agent: r.agent, ticket: r.ticket, by: 'reconcile' })
+      this.reduction.journal('escalation_stale_at_result', { id: r.id, agent: r.agent, ticket: r.ticket, by: 'reconcile' })
       this.log(`reconcile: ${r.id} was still open on ${r.agent}, which reported a result — the question is stale, so it is closed`)
       if (deferred.has(r.agent) && sessions?.includes(r.agent)) toEnd.add(r.agent)
     }
@@ -5435,16 +5435,16 @@ export class Dispatcher {
   // the old process and are voided as before. An on-demand POST /reconcile
   // must NOT touch confirms — their instances are still matchable live.
   #voidBootConfirms() {
-    for (const r of this.store.openEscalations()) {
+    for (const r of this.reduction.openEscalations()) {
       if (r.kind === CONFIRM_KIND) {
         this.lapseEscalation(r.id, 'the daemon restarted, and agent instances do not match across a restart')
-        this.store.logEvent('confirm_lapsed', { id: r.id, reason: 'boot' })
+        this.reduction.journal('confirm_lapsed', { id: r.id, reason: 'boot' })
         this.#noteOrigin(r, `confirm ${r.id} lapsed — the daemon restarted; re-issue the command if you still want it`)
         continue
       }
       if (r.agent !== 'overseer') continue
       this.cancelEscalation(r.id, { by: 'reconcile' })
-      this.store.logEvent('confirm_voided', { id: r.id, ticket: r.ticket })
+      this.reduction.journal('confirm_voided', { id: r.id, ticket: r.ticket })
       this.notify(r.ticket, `⚠️ confirm **${r.id}** was voided by a daemon restart — please re-issue the command`)
     }
   }
@@ -5489,30 +5489,23 @@ export class Dispatcher {
     }
   }
 
+  // Every event the journal holds, oldest first and in today's spelling (#184).
+  //
+  // The journal is a `node:sqlite` database since #407, and the daemon owns the
+  // only write connection — so this reads through the reduction rather than
+  // opening a second one. The question is the same one the file read asked, and
+  // [the scans become queries] is what narrows it.
   #readJournal() {
-    const file = path.join(this.dataDir, 'events.jsonl')
-    let raw
     try {
-      raw = fs.readFileSync(file, 'utf8')
+      return this.reduction.journalEvents()
     } catch (e) {
-      // Same classification rule as the tmux/gh reads: [] only on positive
-      // absence (no journal was ever written — the normal first boot). Any
-      // other failure is an INDETERMINATE journal, and the epoch map built
-      // from it steers reconcile — so fail the pass, don't fabricate "no
-      // events". (reconcile's caller already treats a throw as a failed pass.)
-      if (e.code === 'ENOENT') return []
+      // An UNREADABLE journal is not an empty one. The epoch map built from it
+      // steers reconcile, so a read that fails fails the pass rather than
+      // fabricating "no events". (reconcile's caller already treats a throw as
+      // a failed pass.) A journal nothing has written yet answers with an empty
+      // array, which is the normal first boot.
       throw new Error(`events journal is unreadable: ${e.message}`)
     }
-    const events = []
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue
-      try {
-        // #184: lines written before the rename say `worker`/`backend`. The
-        // file is never rewritten, so every reader normalizes at its edge.
-        events.push(normalizeEvent(JSON.parse(line)))
-      } catch { /* torn tail line — ignore */ }
-    }
-    return events
   }
 
   // ---- auto loop -----------------------------------------------------------------
@@ -5586,7 +5579,7 @@ export class Dispatcher {
       // armed limit resume is stepped over above.
       if (fs.existsSync(worktreePathFor(this.root, repo, num))) {
         const reply = await this.resume(num, { repo, by: 'auto' })
-        this.store.logEvent('auto_resume', { repo, ticket: String(num) })
+        this.reduction.journal('auto_resume', { repo, ticket: String(num) })
         // The death notify promised `resume <n>` in this thread. Saying that
         // curia made that resume itself is what closes the promise — without
         // it the operator reads an ordinary dispatch line and cannot tell

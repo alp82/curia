@@ -23,7 +23,7 @@ import {
 } from '../src/overseerturn.mjs'
 import { unroutedNote } from '../src/overseercreds.mjs'
 import { OverseerClient, OverseerTurns, buildVerbMcpServer, serveVerbMcp } from '../src/overseerclient.mjs'
-import { EscalationStore } from '../src/store.mjs'
+import { Reduction } from '../src/reduction.mjs'
 import { overseerHandler } from '../src/overseerservice.mjs'
 import { VERB_TOOLS, VERB_SPECS, canonicalFor } from '../src/overseerverbs.mjs'
 import { TOKEN_HEADER } from '../src/agenttoken.mjs'
@@ -93,7 +93,7 @@ async function startDaemonSeam(turns, { log = quiet } = {}) {
   return { server, port: server.address().port, stop: () => new Promise((r) => server.close(r)) }
 }
 
-// A store double: the conversation state the daemon keeps (ADR-0015).
+// A reduction double: the conversation state the daemon keeps (ADR-0015).
 function storeDouble({ sessions = {}, notes = [], conversations = ['console-1'] } = {}) {
   return {
     bound: [],
@@ -431,9 +431,9 @@ describe('the daemon half: OverseerClient (#314)', () => {
       cfg: cfgFor(root), sync: okSync(['alp82/curia']),
       queryFn: sayingModel('two tickets are takeable', { sessionId: 'sess-42' }),
     })
-    const store = storeDouble()
+    const reduction = storeDouble()
     const client = new OverseerClient({
-      store, command: async () => 'unused', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+      reduction, command: async () => 'unused', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
     })
     const said = []
     const status = []
@@ -442,7 +442,7 @@ describe('the daemon half: OverseerClient (#314)', () => {
     })
     assert.equal(out.ok, true)
     assert.deepEqual(said, ['two tickets are takeable'])
-    assert.deepEqual(store.bound, [['console-1', 'sess-42']])
+    assert.deepEqual(reduction.bound, [['console-1', 'sess-42']])
     assert.equal(out.sessionId, 'sess-42')
     assert.ok(status.some((s) => /checkouts: 1\/1 fetched/.test(s)), 'the checkout pass reaches the status line while the turn runs')
     // ADR-0015: the container holds no conversation, so the daemon sends the
@@ -450,11 +450,11 @@ describe('the daemon half: OverseerClient (#314)', () => {
     assert.equal(client.configDir, overseerConfigDirFor(root))
     // #388: the turn is bracketed in the journal, message and all, so a restart
     // between these two lines can find it and send the message again.
-    assert.deepEqual(store.turns.map((t) => t.type), ['started', 'ended'])
-    assert.equal(store.turns[0].prompt, 'what is takeable?')
-    assert.equal(store.turns[0].replay, false)
+    assert.deepEqual(reduction.turns.map((t) => t.type), ['started', 'ended'])
+    assert.equal(reduction.turns[0].prompt, 'what is takeable?')
+    assert.equal(reduction.turns[0].replay, false)
     assert.deepEqual(
-      { ok: store.turns[1].ok, crossings: store.turns[1].crossings },
+      { ok: reduction.turns[1].ok, crossings: reduction.turns[1].crossings },
       { ok: true, crossings: 0 },
     )
     await c.stop()
@@ -474,7 +474,7 @@ describe('the daemon half: OverseerClient (#314)', () => {
       },
     })
     const client = new OverseerClient({
-      store: storeDouble(), command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+      reduction: storeDouble(), command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
     })
     const first = client.runTurn('console-1', 'one', { say: () => {}, status: () => {} })
     const said = []
@@ -489,7 +489,7 @@ describe('the daemon half: OverseerClient (#314)', () => {
   test('a container that is not there is a failure the operator reads', async () => {
     const root = tmpRoot('client-down')
     const client = new OverseerClient({
-      store: storeDouble(), command: async () => '', workspaceRoot: root,
+      reduction: storeDouble(), command: async () => '', workspaceRoot: root,
       // Nothing listens here: the container is down, or the deploy is mid-flight.
       port: 1, daemonPort: 4271, log: quiet,
     })
@@ -503,7 +503,7 @@ describe('the daemon half: OverseerClient (#314)', () => {
   test('a browser turn on a deleted conversation mints nothing', async () => {
     const root = tmpRoot('client-deleted')
     const client = new OverseerClient({
-      store: storeDouble({ conversations: [] }), command: async () => '', workspaceRoot: root, port: 1, daemonPort: 4271, log: quiet,
+      reduction: storeDouble({ conversations: [] }), command: async () => '', workspaceRoot: root, port: 1, daemonPort: 4271, log: quiet,
     })
     await assert.rejects(() => client.browserTurn('console-7', 'hi'), /its number is spent/)
   })
@@ -523,7 +523,7 @@ describe('the daemon half: OverseerClient (#314)', () => {
       },
     })
     const client = new OverseerClient({
-      store: storeDouble(), command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+      reduction: storeDouble(), command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
     })
     const status = []
     const out = await client.runTurn('console-1', 'start it', { say: () => {}, status: (t) => status.push(t) })
@@ -535,13 +535,13 @@ describe('the daemon half: OverseerClient (#314)', () => {
 })
 
 describe('the whole crossing: a verb reaches /command from inside the container (#314)', () => {
-  let daemon, container, turns, posted, client, store
+  let daemon, container, turns, posted, client, reduction
 
   before(async () => {
     turns = new OverseerTurns()
     daemon = await startDaemonSeam(turns)
     posted = []
-    store = storeDouble()
+    reduction = storeDouble()
     const root = tmpRoot('crossing')
 
     // The fake model IS an MCP client: it takes the url and the header the
@@ -562,7 +562,7 @@ describe('the whole crossing: a verb reaches /command from inside the container 
 
     container = await startContainer({ cfg: cfgFor(root), sync: okSync([]), queryFn })
     client = new OverseerClient({
-      store,
+      reduction,
       command: async (text, ctx) => { posted.push([text, ctx]); return '✅/❌ posted in #curia' },
       workspaceRoot: root,
       port: container.port,
@@ -628,9 +628,9 @@ describe('the cutover: the client keeps the host\'s conversation behavior (#315)
         yield { type: 'result', subtype: 'success', result: 'noted', num_turns: 1 }
       },
     })
-    const store = storeDouble({ notes: ['confirm esc-1 approved'] })
+    const reduction = storeDouble({ notes: ['confirm esc-1 approved'] })
     const client = new OverseerClient({
-      store, command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+      reduction, command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
     })
     const io = { say: () => {}, status: () => {} }
     await client.runTurn('console-1', 'first message', io)
@@ -655,7 +655,7 @@ describe('the cutover: the client keeps the host\'s conversation behavior (#315)
       },
     })
     const client = new OverseerClient({
-      store: storeDouble({ conversations: ['console-1', 'console-2'] }),
+      reduction: storeDouble({ conversations: ['console-1', 'console-2'] }),
       command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
     })
     const slow = client.browserTurn('console-1', 'slow one')
@@ -669,22 +669,22 @@ describe('the cutover: the client keeps the host\'s conversation behavior (#315)
 
 // ---- the conversation state the daemon keeps (moved here by #315) -----------
 //
-// These drove the REAL store from overseer.test.mjs until the cutover deleted
+// These drove the REAL reduction from overseer.test.mjs until the cutover deleted
 // that file with the host. The state outlived the host — ADR-0015 keeps every
 // conversation in the daemon — so its tests live with the boundary suite now.
 
-describe('EscalationStore overseer sessions', () => {
+describe('Reduction overseer sessions', () => {
   test('bindOverseerSession appends a journal line and reduces last-write-wins', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
-    const store = new EscalationStore(dir)
-    store.bindOverseerSession('thread-1', 'sess-1')
-    store.bindOverseerSession('thread-1', 'sess-2')
-    store.bindOverseerSession('thread-9', 'sess-9')
-    assert.equal(store.overseerSession('thread-1'), 'sess-2')
-    assert.equal(store.overseerSession('thread-9'), 'sess-9')
-    const replayed = new EscalationStore(dir)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
+    const reduction = new Reduction(dir)
+    reduction.bindOverseerSession('thread-1', 'sess-1')
+    reduction.bindOverseerSession('thread-1', 'sess-2')
+    reduction.bindOverseerSession('thread-9', 'sess-9')
+    assert.equal(reduction.overseerSession('thread-1'), 'sess-2')
+    assert.equal(reduction.overseerSession('thread-9'), 'sess-9')
+    const replayed = new Reduction(dir)
     assert.equal(replayed.overseerSession('thread-1'), 'sess-2')
-    const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
+    const lines = reduction.journalEvents()
     assert.equal(lines.filter((l) => l.type === 'overseer_session').length, 3)
   })
 })
@@ -693,51 +693,51 @@ describe('EscalationStore overseer sessions', () => {
 // the reason the resume handle above is: a restart must not forget which
 // conversations the operator has. It carries one fact the resume handle does
 // not — which numbers are SPENT — and that fact has to outlive a delete.
-describe('EscalationStore browser conversations (#333)', () => {
+describe('Reduction browser conversations (#333)', () => {
   test('a mint is journalled, and the list comes back after a restart', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
-    const store = new EscalationStore(dir)
-    assert.equal(store.openConsoleConversation(), 'console-1')
-    assert.equal(store.openConsoleConversation(), 'console-2')
-    assert.deepEqual(store.consoleConversationList().map((c) => c.key), ['console-2', 'console-1'], 'newest first — the order the picker draws')
-    const replayed = new EscalationStore(dir)
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
+    const reduction = new Reduction(dir)
+    assert.equal(reduction.openConsoleConversation(), 'console-1')
+    assert.equal(reduction.openConsoleConversation(), 'console-2')
+    assert.deepEqual(reduction.consoleConversationList().map((c) => c.key), ['console-2', 'console-1'], 'newest first — the order the picker draws')
+    const replayed = new Reduction(dir)
     assert.deepEqual(replayed.consoleConversationList().map((c) => c.key), ['console-2', 'console-1'])
     assert.ok(replayed.hasConsoleConversation('console-1'))
   })
 
   test('a deleted number stays spent across a restart — the whole point of counting up', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
-    const store = new EscalationStore(dir)
-    store.openConsoleConversation()
-    store.openConsoleConversation()
-    assert.equal(store.deleteConsoleConversation('console-2'), true)
-    assert.equal(store.openConsoleConversation(), 'console-3', 'not console-2 again')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
+    const reduction = new Reduction(dir)
+    reduction.openConsoleConversation()
+    reduction.openConsoleConversation()
+    assert.equal(reduction.deleteConsoleConversation('console-2'), true)
+    assert.equal(reduction.openConsoleConversation(), 'console-3', 'not console-2 again')
     // And the same after a boot replay: the spent set is a reduction over the
     // journal, so it cannot be lost with the process that minted it.
-    const replayed = new EscalationStore(dir)
+    const replayed = new Reduction(dir)
     assert.equal(replayed.hasConsoleConversation('console-2'), false)
     assert.equal(replayed.openConsoleConversation(), 'console-4')
   })
 
   test('the delete takes the resume handle and the waiting notes with it', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
-    const store = new EscalationStore(dir)
-    const key = store.openConsoleConversation()
-    store.bindOverseerSession(key, 'sess-c1')
-    store.addOverseerNote(key, 'confirm esc-1 approved')
-    store.deleteConsoleConversation(key)
-    assert.equal(store.overseerSession(key), undefined)
-    assert.deepEqual(store.takeOverseerNotes(key), [])
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
+    const reduction = new Reduction(dir)
+    const key = reduction.openConsoleConversation()
+    reduction.bindOverseerSession(key, 'sess-c1')
+    reduction.addOverseerNote(key, 'confirm esc-1 approved')
+    reduction.deleteConsoleConversation(key)
+    assert.equal(reduction.overseerSession(key), undefined)
+    assert.deepEqual(reduction.takeOverseerNotes(key), [])
     // The replay must reach the same state, not the state the bind wrote: the
     // delete event comes after it, so the reduction has to undo it in order.
-    const replayed = new EscalationStore(dir)
+    const replayed = new Reduction(dir)
     assert.equal(replayed.overseerSession(key), undefined)
   })
 
   test('deleting what is not there is refused rather than journalled', () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
-    const store = new EscalationStore(dir)
-    assert.equal(store.deleteConsoleConversation('console-9'), false)
-    assert.equal(fs.existsSync(path.join(dir, 'events.jsonl')), false, 'nothing was written')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
+    const reduction = new Reduction(dir)
+    assert.equal(reduction.deleteConsoleConversation('console-9'), false)
+    assert.deepEqual(reduction.journalEvents(), [], 'nothing was written')
   })
 })

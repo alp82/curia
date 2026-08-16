@@ -106,16 +106,17 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     // #195: every dispatch prepares a container, so every Dispatcher needs pins
     sandbox: TEST_PINS,
   }
-  // The journal is a real file here: #epochCharting reads it back, which is the
+  // The array IS the journal here: #epochCharting reads it back, which is the
   // whole point of journalling the kind — a restarted daemon must still know
-  // which ending it is holding an agent to.
-  const store = {
-    logEvent: (type, data) => {
+  // which ending it is holding an agent to. The dispatcher asks the reduction
+  // for that journal since #407.
+  const reduction = {
+    journal: (type, data) => {
       const rec = { type, ...data }
       events.push(rec)
-      fs.appendFileSync(path.join(dataDir, 'events.jsonl'), JSON.stringify(rec) + '\n')
       return rec
     },
+    journalEvents: () => events,
     openEscalations: () => [],
     // #374: no test here records an answered escalation, so the resumed prompt
     // inherits an empty exchange and says nothing about one.
@@ -164,7 +165,7 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
   const d = new Dispatcher({
     config,
     routing,
-    store,
+    reduction,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     log: () => {},
     dataDir,
@@ -1305,8 +1306,11 @@ describe('reconcile and a live chat session (#241)', () => {
     number: 250, title: 'The next feature', state: 'open', assignees: [],
     labels: [{ name: 'wayfinder:map' }],
   }
+  // Seed the journal the double hands the dispatcher, which is what a restarted
+  // daemon reads back out of `events.db`.
   const writeJournal = (lines) => {
-    fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n')
+    events.length = 0
+    events.push(...lines)
   }
 
   test('a spawn line in the journal is the positive evidence — it is adopted, not swept', async () => {

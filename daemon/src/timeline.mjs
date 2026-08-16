@@ -13,7 +13,7 @@
 // its transcript while an ask_human blocks (the tool_use line is flushed only
 // with the result), so a timeline that reads the transcript alone is silent
 // through every escalation — precisely when a human most needs to see one.
-// Open escalations for the session are therefore overlaid from the store on
+// Open escalations for the session are therefore overlaid from the reduction on
 // both harnesses (the codex harness shows the call natively; the overlay adds the
 // answer-surface state either way).
 //
@@ -160,7 +160,7 @@ export class TimelineSurface {
       // composerFor(harness): the per-harness ready regex (#39) — the veto in
       // detectDialog. Null skips the veto, never the marker match.
       composerFor: () => null,
-      // journal(type, detail): the store's logEvent, injected by index.mjs.
+      // journal(type, detail): `Reduction#journal`, injected by index.mjs.
       journal: () => {},
       // harnessFor(session): the dispatcher's word, with detectHarness as the
       // on-disk fallback for re-adopted and lab sessions.

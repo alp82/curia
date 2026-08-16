@@ -1,9 +1,13 @@
-// Durable escalation record (#31).
+// The reduction (#31, renamed at #358): the daemon's in-memory state.
 //
-// Append-only events.jsonl is the source of truth; in-memory state is a pure
+// The journal is the source of truth (`./journal.mjs`), and this state is a pure
 // reduction over it, rebuilt on every boot — so the record survives daemon
 // restarts and bridge post-failures (#22/#28). Discord message ids are part of
 // the record so a rebooted daemon can still edit/close the rendered UI.
+//
+// "Store" names nothing in curia (#358). The durable record is the **journal**,
+// whatever medium holds it. The class this file exports carried the old word
+// until #407 renamed it, and the method that journals an event did too.
 //
 // Semantics owned here:
 //   - first-valid-wins: answer/cancel close atomically; later attempts are rejected
@@ -14,10 +18,9 @@
 //     the answer #139 parked for it, while that note is still unread — so the
 //     operator waits once for one question
 
-import fs from 'node:fs'
-import path from 'node:path'
 import crypto from 'node:crypto'
 import { nextConsoleKey } from './attach.mjs'
+import { openJournal, normalizeEvent } from './journal.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -26,11 +29,11 @@ import { nextConsoleKey } from './attach.mjs'
 export const CONFIRM_KIND = 'confirm'
 
 // How much of the journal the feed keeps in memory (#262). The dashboard reads
-// the daemon's last events over `GET /overview`, and the journal FILE stays
-// daemon-private — so the tail is held here, filled by replay at boot and by
-// every append after it. A ring rather than a re-read: the file grows without
-// bound and the dashboard polls, so parsing it once per poll would make the
-// cost of watching curia rise with its history.
+// the daemon's last events over `GET /overview`, and the journal stays
+// daemon-private — so the tail is held here, filled by the rebuild at boot and
+// by every append after it. A ring rather than a re-read: the journal grows
+// without bound and the dashboard polls, so reading it once per poll would make
+// the cost of watching curia rise with its history.
 export const RECENT_EVENTS = 100
 
 // How many outcomes of each kind the status reads keep (#289). `/status` in
@@ -51,40 +54,6 @@ const OUTCOME_KINDS = {
 // is the second dispatch of a ticket whose pull request is already open, and
 // `land_repaired` is the resolve step opening the one the agent never did.
 const PR_EVENTS = new Set(['pr_opened', 'pr_reused', 'land_repaired'])
-
-// The journal in the old spelling (#184).
-//
-// Until #184 the process curia spawns was a "worker" and the program it ran
-// under was its "backend", so every line written before the rename says
-// `worker_spawned`, `"worker": "curia-170"`, `"backend": "claude"`. The journal
-// is APPEND-ONLY and it is the daemon's only durable artifact — a record you
-// rewrite to match today's vocabulary is no longer a record. So the file is
-// never touched, and the old spellings are translated HERE instead.
-//
-// One edge, crossed by both readers: `EscalationStore._replay` and the
-// dispatcher's `#readJournal`. Everything downstream of them — the reducer,
-// reconcile's epoch scan, the harness a re-adopted agent gets back — sees one
-// name for one thing, which is the whole point of the rename.
-//
-// A new-spelling key always wins over a legacy one, so a line carrying both
-// (which nothing writes) can never resurrect the old value.
-const LEGACY_FIELDS = { worker: 'agent', backend: 'harness' }
-
-export function normalizeEvent(ev) {
-  if (!ev || typeof ev !== 'object') return ev
-  let out = ev
-  // Covers every legacy type in one rule, `escalation_worker_died` included:
-  // there is no event whose name says "worker" and means something else.
-  if (typeof ev.type === 'string' && ev.type.includes('worker')) {
-    out = { ...out, type: ev.type.replaceAll('worker', 'agent') }
-  }
-  for (const [legacy, current] of Object.entries(LEGACY_FIELDS)) {
-    if (!(legacy in out) || current in out) continue
-    out = { ...out, [current]: out[legacy] }
-    delete out[legacy]
-  }
-  return out
-}
 
 // #208, the caller's half of the rule — pure, so it can be checked without a
 // live gateway, for the reason queuedNoteReply is pure (#170). What operator
@@ -136,11 +105,14 @@ export const VERDICT_LABEL = 'cross-check verdict'
 // note would answer them instead of obeying them (ADR-0013).
 export const CROSS_CHECK_LABEL = 'cross-check started'
 
-export class EscalationStore {
-  constructor(dataDir) {
+export class Reduction {
+  constructor(dataDir, { log = () => {} } = {}) {
     this.dir = dataDir
-    this.log = path.join(dataDir, 'events.jsonl')
-    fs.mkdirSync(dataDir, { recursive: true })
+    // The journal itself (`./journal.mjs`), on the daemon's one write connection
+    // (ADR-0017). Opening it converts the journal file when this is the first
+    // boot on the database (#323). The field is `db` and not `journal`, because
+    // `journal()` is the verb this class exposes for writing one event.
+    this.db = openJournal(dataDir, { log })
     this.escalations = new Map() // id -> record
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
@@ -166,20 +138,39 @@ export class EscalationStore {
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
     this.seq = 0
     this.noteSeq = 0
-    this._replay()
+    this.rebuild()
   }
 
-  _replay() {
-    if (!fs.existsSync(this.log)) return
-    for (const line of fs.readFileSync(this.log, 'utf8').split('\n')) {
-      if (!line.trim()) continue
-      this._apply(normalizeEvent(JSON.parse(line)), { replay: true })
+  // The boot pass (#322). It reads the journal page by page, in write order, and
+  // fills every reduction from that one pass. The act is a **rebuild**, never a
+  // replay: replay names sending a killed turn's message again (#388).
+  //
+  // It reads `body`, which is verbatim, so it is the last reader that runs the
+  // #184 translation.
+  rebuild() {
+    for (const body of this.db.bodies()) {
+      this._apply(normalizeEvent(JSON.parse(body)), { replay: true })
     }
+  }
+
+  // Every event the journal holds, oldest first and in today's spelling. The
+  // dispatcher's epoch questions read it, and they read it through the daemon's
+  // one write connection rather than opening a second one.
+  journalEvents() {
+    return this.db.events()
+  }
+
+  // Close the write connection. The daemon never calls this: WAL with
+  // `synchronous=full` means every append is already on disk, so a process that
+  // dies loses nothing. A test that builds many reductions calls it.
+  close() {
+    this.db.close()
   }
 
   _append(event) {
     const rec = { ts: new Date().toISOString(), ...event }
-    fs.appendFileSync(this.log, JSON.stringify(rec) + '\n')
+    // Synchronous, which is what lets the crash guard journal and then exit.
+    this.db.append(JSON.stringify(rec))
     this._apply(rec, { replay: false })
     // Live-event tap (#108 item 8): the status line watches the journal
     // instead of threading callbacks through the dispatcher. Never on replay —
@@ -574,7 +565,7 @@ export class EscalationStore {
   // given agent. The two keys never cross: a confirm is an operator's record
   // and belongs to no agent's call.
   open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id, diff, diff_error }) {
-    const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
+    const payload_hash = Reduction.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
       .some((t) => (action?.targets ?? []).some((u) => u.instance === t.instance))
@@ -662,7 +653,7 @@ export class EscalationStore {
   // A builder session is `curia-<n>` for every dispatch on that ticket, so this
   // one key already spans the whole history — the dead agent, the one before it,
   // and the resumed one about to read them. That is why the push needs no new
-  // event and no epoch boundary: the store holds the answers already, and
+  // event and no epoch boundary: the reduction holds the answers already, and
   // `resume` was simply never asking.
   //
   // ANSWERED only. A cancelled, lapsed or superseded record holds no answer, so
@@ -899,7 +890,7 @@ export class EscalationStore {
   // Only an ANSWERED record replays. A cancelled or lapsed one holds no answer,
   // and a superseded one has a live successor to wait on.
   recordedAnswerFor({ agent, kind, prompt, options, preview_url }) {
-    const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
+    const payload_hash = Reduction.payloadHash({ kind, prompt, options, preview_url })
     const matches = [...this.escalations.values()]
       .filter((r) => r.agent === agent && r.kind === kind && r.status === 'answered' && r.payload_hash === payload_hash)
       .sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)))
@@ -1051,7 +1042,7 @@ export class EscalationStore {
   }
 
   // Generic operational events (notify, result, agent_done…) share the journal.
-  logEvent(type, data) {
+  journal(type, data) {
     return this._append({ type, ...data })
   }
 

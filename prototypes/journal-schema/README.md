@@ -37,6 +37,13 @@ is surprising.
 ## What it does not do
 
 It does not touch `daemon/src`, and it is not the build. The migration
-([#323](https://github.com/alp82/curia/issues/323)), the boot replay
-([#322](https://github.com/alp82/curia/issues/322)) and the write path behind 129 `logEvent` call sites
-are their own tickets.
+([#323](https://github.com/alp82/curia/issues/323)), the boot rebuild
+([#322](https://github.com/alp82/curia/issues/322)) and the write path behind the `logEvent` call sites
+were their own tickets.
+
+## The build shipped
+
+[#407](https://github.com/alp82/curia/issues/407) built the schema, the writer and the migration in
+`daemon/src/journal.mjs`. This directory keeps the measurement that settled #321, and it is not the
+shipped code. It reads `normalizeEvent` out of `daemon/src`, so its imports moved with the rename.
+`results.json` holds the numbers the ADR cites, and nobody needs to run this again to read them.

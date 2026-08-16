@@ -1249,7 +1249,7 @@ function quoteLines(text) {
 // forced (2026-08-16, esc round on #374):
 //
 //   1. It reaches EVERY dispatch this ticket has had, not just the dead agent.
-//      The store keys escalations by session, and a builder session is
+//      The reduction keys escalations by session, and a builder session is
 //      `curia-<n>` for the ticket's whole life, so the history is free.
 //   2. It carries QUESTION AND ANSWER, both verbatim. An answer alone is
 //      unreadable: "yes, option 2" says nothing without what was asked.
@@ -1260,7 +1260,7 @@ function quoteLines(text) {
 //   5. The agent is TOLD these are recorded. A recorded answer read as a fresh
 //      one is worse than no answer at all: the agent would take a stale ruling
 //      as this session's, and nobody would see it happen.
-//   6. Every kind rides along, the review gate included (see `store.mjs`).
+//   6. Every kind rides along, the review gate included (see `reduction.mjs`).
 //   7. It runs on EVERY dispatch, not only `resume`. A first dispatch has no
 //      records and gets no block, so one rule covers both.
 //

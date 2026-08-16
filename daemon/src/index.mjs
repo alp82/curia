@@ -28,7 +28,7 @@ import { fileURLToPath } from 'node:url'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
-import { EscalationStore, CONFIRM_KIND, noteDisposition } from './store.mjs'
+import { Reduction, CONFIRM_KIND, noteDisposition } from './reduction.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
 import { readable } from './logline.mjs'
@@ -249,7 +249,10 @@ if (!appMinter) {
   }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — no holder mints yet, so nothing is broken by it`))
 }
 
-const store = new EscalationStore(DATA)
+// Opening this opens the journal, and on the first boot after #407 it converts
+// the journal file into the database. `log` is a hoisted function declaration,
+// so the conversion line reaches journalctl even from here.
+const reduction = new Reduction(DATA, { log })
 
 // Per-agent status line (#108 item 8): one Discord message per agent
 // thread, edited in place through the journal's own lifecycle events. With
@@ -297,12 +300,12 @@ const statusLine = new StatusLine({
   // the bridge renders it. With the bridge down the flag is dropped — the
   // next transition retries, and the name is display only.
   flag: (ticket, state) => (bridge ? bridge.flagTicket(ticket, state) : null),
-  get: (id) => store.get(id),
+  get: (id) => reduction.get(id),
   log,
   meters: metersFor,
 })
 statusLine.start()
-store.onEvent = (ev) => statusLine.onEvent(ev)
+reduction.onEvent = (ev) => statusLine.onEvent(ev)
 const pending = new Map() // escalation id -> resolve(answerText) — ephemeral, dies with the process
 const renderRetries = new Map() // escalation id -> timeout handles — ephemeral, rebuilt on boot
 
@@ -323,7 +326,7 @@ function log(...args) {
 // the difference from today is one journal line before it does.
 installCrashGuard({
   log,
-  journal: (type, detail) => store.logEvent(type, detail),
+  journal: (type, detail) => reduction.journal(type, detail),
 })
 
 // ---- escalation lifecycle -------------------------------------------------
@@ -342,7 +345,7 @@ function armRenderRetries(record) {
     const t = setTimeout(() => {
       timers.delete(t)
       if (!timers.size) renderRetries.delete(record.id)
-      const r = store.get(record.id)
+      const r = reduction.get(record.id)
       // rendered, answered or superseded in the meantime — nothing to retry
       if (!r || r.status !== 'open' || r.discord) return clearRenderRetries(record.id)
       renderEscalation(r)
@@ -361,11 +364,11 @@ async function renderEscalation(record, files = []) {
   if (!bridge) return
   try {
     const discord = await bridge.renderEscalation(record, { files })
-    store.attachRender(record.id, discord)
+    reduction.attachRender(record.id, discord)
     clearRenderRetries(record.id)
   } catch (e) {
     // record stays open + REST-answerable; the armed retries try again (#261)
-    store.logEvent('bridge_render_failed', { id: record.id, error: e.message })
+    reduction.journal('bridge_render_failed', { id: record.id, error: e.message })
     log(`render failed for ${record.id}: ${e.message}`)
   }
 }
@@ -373,14 +376,14 @@ async function renderEscalation(record, files = []) {
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
 function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files, diff, diff_error }) {
-  const { record, superseded_all } = store.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error })
+  const { record, superseded_all } = reduction.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error })
   log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
   // Every corpse this agent left, not just the newest (#336): a card left
   // rendered keeps asking a question nothing can receive an answer for.
   for (const dead of superseded_all) {
     pending.delete(dead.id) // the agent aborted that call; nobody is waiting on it
     clearRenderRetries(dead.id)
-    if (bridge) bridge.markSuperseded(store.get(dead.id)).catch(() => {})
+    if (bridge) bridge.markSuperseded(reduction.get(dead.id)).catch(() => {})
   }
   armRenderRetries(record)
   renderEscalation(record, files)
@@ -410,7 +413,7 @@ function handOffAnswer(record) {
   // it drains the queue on its first tool result, exactly as a numbered one
   // does. Only synthetic and lab callers are excluded here.
   if (!/^curia-(\d+|chat-\d+)$/.test(record.agent)) return
-  store.queueRecordedAnswer(record)
+  reduction.queueRecordedAnswer(record)
   const live = dispatcher.agents.has(record.agent)
   notifyThread(record.ticket, live
     ? `✅ recorded — \`${record.agent}\` gets this answer with its next tool result`
@@ -433,18 +436,18 @@ function recordedAnswerLine(record) {
 
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
 const gate = {
-  get: (id) => store.get(id),
+  get: (id) => reduction.get(id),
   // `review-gate` is here because a rejection IS feedback (#48): the human's own
   // words have to reach the agent, and a button cannot carry them. Approval
   // still comes from the ✅ button — see classifyReviewAnswer, where anything
   // else counts as a rejection.
   findOpenForThread: (threadId) =>
-    store.openEscalations()
+    reduction.openEscalations()
       .filter((r) => r.discord?.threadId === threadId)
       .filter((r) => ['free-text', 'choice', 'preview-review', REVIEW_KIND].includes(r.kind))
       .at(-1) ?? null,
   answer(id, { answer, attachments = [], by, via }) {
-    const result = store.answer(id, { answer, attachments, by, via })
+    const result = reduction.answer(id, { answer, attachments, by, via })
     if (result.ok) {
       log(`escalation ${result.record.id} answered via ${via}${attachments.length ? ` (+${attachments.length} attachment${attachments.length > 1 ? 's' : ''})` : ''}${result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''}`)
       const delivered = settle(result.record, answer, attachments)
@@ -472,7 +475,7 @@ const gate = {
   // the agent read "stop this line of work", and asked the same question
   // again a minute later.
   cancel(id, { by }) {
-    const result = store.cancel(id, { by })
+    const result = reduction.cancel(id, { by })
     if (result.ok) {
       log(`escalation ${result.record.id} cancelled`)
       settle(result.record, `aborted: this question was cancelled — nobody is waiting for an answer to it`)
@@ -489,7 +492,7 @@ const gate = {
     // `overseer_key` rides the command event when the overseer's own seam
     // wrapper issued it (#388). It is what lets a boot count the seam crossings
     // of a turn whose in-memory tally died with the process that held it.
-    store.logEvent('command', {
+    reduction.journal('command', {
       canonical, by: userId, ...(ctx.overseerKey ? { overseer_key: ctx.overseerKey } : {}),
     })
     log(`command: "${canonical}"`)
@@ -508,7 +511,7 @@ const gate = {
       // note — it has no `ask_human` and drains no queue past its one verdict.
       // The thread belongs to the builder, which is still working in it.
       if (w.reviewer) continue
-      if (w.ticket != null && store.threadForTicket(w.ticket) === threadId) return w.session
+      if (w.ticket != null && reduction.threadForTicket(w.ticket) === threadId) return w.session
     }
     return null
   },
@@ -526,7 +529,7 @@ const gate = {
     if (!agent || !text?.trim()) return null
     // the ticket rides along so the bridge can spell out `cancel <n>` when the
     // note is command-shaped (#108 item 23, #170)
-    const ticket = store.ticketForThread(threadId) ?? null
+    const ticket = reduction.ticketForThread(threadId) ?? null
     const queued = gate.queueNoteFor(agent, text, { by, ticket })
     if (!queued.reads) return { agent, after: null, reads: false, ticket }
     const { id, after } = queued
@@ -544,7 +547,7 @@ const gate = {
       state,
       spawned_at: live?.spawnedAt ? new Date(live.spawnedAt).toISOString() : null,
       esc: sl?.detail?.esc ?? null,
-      last: store.lastAgentEvent(agent),
+      last: reduction.lastAgentEvent(agent),
     } : null
     // `id` is what the interrupt button under this receipt points at (#252):
     // queued is the default mode, and the button is how the operator picks the
@@ -562,10 +565,10 @@ const gate = {
     const { reads, instance } = noteDisposition(dispatcher.agents.get(agent))
     if (!reads) {
       log(`agent note refused for ${agent} — that agent is not running, so nothing was queued`)
-      store.logEvent('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
+      reduction.journal('agent_note_refused', { agent, ticket, by, reason: 'agent not running' })
       return { agent, ticket, reads: false, id: null, after: null }
     }
-    const { id, after } = store.queueAgentNote(agent, String(text).trim(), { by, instance })
+    const { id, after } = reduction.queueAgentNote(agent, String(text).trim(), { by, instance })
     log(`agent note queued for ${agent}${after ? ` (after ${after})` : ''}`)
     return { agent, ticket, reads: true, id, after }
   },
@@ -618,13 +621,13 @@ function notifyThread(ticket, message, opts = {}) {
 // button → gate.answer → dispatcher.onConfirmAnswered, and the record lapses
 // the moment its agent exits.
 function openConfirm({ ticket, prompt, action, originThreadId }) {
-  const { record, superseded_all } = store.open({
+  const { record, superseded_all } = reduction.open({
     agent: 'overseer', ticket, kind: CONFIRM_KIND, prompt, action, origin_thread_id: originThreadId ?? null,
   })
   log(`confirm ${record.id} open (${action.verb}) ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
   for (const dead of superseded_all) {
     clearRenderRetries(dead.id)
-    if (bridge) bridge.markSuperseded(store.get(dead.id)).catch(() => {})
+    if (bridge) bridge.markSuperseded(reduction.get(dead.id)).catch(() => {})
   }
   // A confirm has no reminder and no expiry, but it still has to be SEEN: a
   // confirm that never rendered carries buttons nobody can press, so it takes
@@ -635,11 +638,11 @@ function openConfirm({ ticket, prompt, action, originThreadId }) {
 }
 
 function lapseEscalation(id, reason) {
-  const r = store.lapse(id, reason)
+  const r = reduction.lapse(id, reason)
   if (r.ok) {
     clearRenderRetries(id)
     log(`confirm ${id} lapsed (${reason})`)
-    if (bridge) bridge.markLapsed(store.get(id)).catch(() => {})
+    if (bridge) bridge.markLapsed(reduction.get(id)).catch(() => {})
   }
   return r
 }
@@ -661,9 +664,9 @@ function askReview(agent, ticket, promptText, { diff = null, diffError = null } 
   // digest is already measured for this very call (#355), so the check is a
   // comparison rather than a second read — and an unmeasured gate never
   // replays, because `sameDigest` refuses two nulls.
-  const recorded = store.recordedAnswerFor({ agent, kind: REVIEW_KIND, prompt: promptText })
+  const recorded = reduction.recordedAnswerFor({ agent, kind: REVIEW_KIND, prompt: promptText })
   if (recorded && sameDigest(recorded.record.diff, diff)) {
-    store.takeRecordedAnswer(recorded.record, recorded.note)
+    reduction.takeRecordedAnswer(recorded.record, recorded.note)
     log(`review gate ${recorded.record.id} replayed to ${agent} — the same summary over the same diff, answered already`)
     return Promise.resolve({ text: recorded.record.answer, status: 'answered', recorded: recordedAnswerLine(recorded.record) })
   }
@@ -673,10 +676,10 @@ function askReview(agent, ticket, promptText, { diff = null, diffError = null } 
   // The final status separates an approval-or-rejection from a cancel — a
   // gate whose agent was torn down (#200) settles the same promise with an
   // "aborted" text, and the status is what tells the two apart.
-  return answered.then(({ text }) => ({ text, status: store.get(record.id)?.status ?? 'answered' }))
+  return answered.then(({ text }) => ({ text, status: reduction.get(record.id)?.status ?? 'answered' }))
 }
 
-// Ticket-thread bindings (#93): the store journals the truth, the bridge does
+// Ticket-thread bindings (#93): the reduction journals the truth, the bridge does
 // the display (thread creation, the 🎫 rename, the ✅ swap on release). With
 // the bridge down, bind journals nothing — the first notify after it returns
 // binds lazily — and release still journals, so a terminal state is never
@@ -688,7 +691,7 @@ const threads = {
   },
   async release(ticket, reason) {
     if (bridge) return bridge.releaseTicket(ticket, reason)
-    store.releaseTicketThread(ticket, reason)
+    reduction.releaseTicketThread(ticket, reason)
   },
   // A cancel renames and keeps the binding (#200, #140). With the bridge down
   // there is nothing to do: no journal line carries a thread NAME, and the
@@ -704,7 +707,7 @@ const threads = {
   // only the rename is lost.
   async adoptMap(handle, mapNumber, opts) {
     if (bridge) return bridge.adoptMapThread(handle, mapNumber, opts)
-    const threadId = store.threadForTicket(handle)
+    const threadId = reduction.threadForTicket(handle)
     return threadId ? { ok: true, threadId } : { ok: false, reason: 'unbound' }
   },
 }
@@ -712,7 +715,7 @@ const threads = {
 const dispatcher = new Dispatcher({
   config: curiaConfig,
   routing: routingConfig,
-  store,
+  reduction,
   notify: notifyThread,
   openConfirm,
   lapseEscalation,
@@ -723,10 +726,10 @@ const dispatcher = new Dispatcher({
   },
   // the synthetic line for the issuing thread's session (#94) — journalled,
   // drained into the next prompt by the overseer client
-  overseerNote: (threadId, text) => store.addOverseerNote(threadId, text),
+  overseerNote: (threadId, text) => reduction.addOverseerNote(threadId, text),
   askReview,
   threads,
-  // gate.cancel, not store.cancel: voiding a boot-orphaned confirm must also
+  // gate.cancel, not reduction.cancel: voiding a boot-orphaned confirm must also
   // settle it — release any pending resolver (a confirm opened via
   // POST /command inside the listen→boot-reconcile window has a live one) and
   // mark the Discord buttons.
@@ -757,7 +760,7 @@ const dispatcher = new Dispatcher({
 // one call every expiry path runs through — an exit, an adoption, the drain's
 // own sweep — so no future path can lose a note in silence the way #223 lost a
 // whole cross-check verdict.
-store.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
+reduction.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
 
 // ---- the identity check (#151) ----------------------------------------------
 //
@@ -809,7 +812,7 @@ const identityProxy = new IdentityProxy({
   allow: identityAllow,
   hosts: attachHosts,
   log,
-  journal: (type, detail) => store.logEvent(type, detail),
+  journal: (type, detail) => reduction.journal(type, detail),
 })
 
 // /attach continuation: daemon-side whitelist refusal + liveness check, then
@@ -905,7 +908,7 @@ const previews = new PreviewRegistry({
   // block is derived from this base, and the registry does its own arithmetic.
   allow: identityAllow,
   proxyFrom: curiaConfig.identity.preview_proxy_from,
-  journal: (type, detail) => store.logEvent(type, detail),
+  journal: (type, detail) => reduction.journal(type, detail),
 })
 dispatcher.previews = previews // constructed after the dispatcher; teardown + sweep read it here
 
@@ -913,7 +916,7 @@ dispatcher.previews = previews // constructed after the dispatcher; teardown + s
 // the two things only the daemon has: which harness a session runs, and the
 // durable escalation record — the claude harness's transcript is SILENT while an
 // ask_human blocks (measured on #74), so open escalations are overlaid from
-// the store or the surface shows a working agent as idle at the exact moment
+// the reduction or the surface shows a working agent as idle at the exact moment
 // a human is needed.
 const timeline = new TimelineSurface({
   port: curiaConfig.timeline.port,
@@ -922,15 +925,15 @@ const timeline = new TimelineSurface({
   workspaceRoot: curiaConfig.dispatch.workspace_root,
   log,
   deps: {
-    journal: (type, detail) => store.logEvent(type, detail),
+    journal: (type, detail) => reduction.journal(type, detail),
     harnessFor: (session) => dispatcher.agents.get(session)?.harness
       ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
     // The dialog guard's composer veto (#75): a visible ready marker (#39)
     // says the pane is at its composer, so a dialog-footer phrase in the tail
     // is scrollback, not a dialog.
     composerFor: (harness) => routingConfig.harnesses[harness]?.readyRe ?? null,
-    escalationsFor: (session) => store.openEscalations().filter((r) => r.agent === session),
-    escalationHistoryFor: (session) => store.escalationsForAgent(session),
+    escalationsFor: (session) => reduction.openEscalations().filter((r) => r.agent === session),
+    escalationHistoryFor: (session) => reduction.escalationsForAgent(session),
     // The #151 identity check. The timeline is the daemon's own server, so it
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,
@@ -958,7 +961,7 @@ const timeline = new TimelineSurface({
       if (!key) return null
       return {
         cfgDir: overseerContainer.configDir,
-        sessionId: store.overseerSession(key) ?? null,
+        sessionId: reduction.overseerSession(key) ?? null,
         send: (text) => overseerContainer.browserTurn(key, text),
       }
     },
@@ -969,7 +972,7 @@ dispatcher.identityProxy = identityProxy // #151: reconcile publishes the proxy,
 
 // The self-deploy seam (#270): the verb orders, a sibling container executes,
 // resolvePending() below announces whichever outcome the sibling wrote.
-const selfDeploy = new SelfDeploy({ repoRoot: path.dirname(ROOT), dataDir: DATA, store, log, port: PORT })
+const selfDeploy = new SelfDeploy({ repoRoot: path.dirname(ROOT), dataDir: DATA, reduction, log, port: PORT })
 
 const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDeploy, log })
 
@@ -984,7 +987,7 @@ const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDe
 // in-process host lived behind.
 const overseerTurns = new OverseerTurns()
 const overseerContainer = new OverseerClient({
-  store,
+  reduction,
   command: (text, ctx) => gate.command(text, 'overseer', ctx),
   workspaceRoot: curiaConfig.dispatch.workspace_root,
   port: curiaConfig.overseer.port,
@@ -998,7 +1001,7 @@ const overseerContainer = new OverseerClient({
 // binds and before the bridge starts, because after that a pending turn is one
 // that is merely running. `bootAt` is the same instant: a conversation whose
 // turn started after it is one the operator spoke to themselves.
-const killedTurns = store.pendingOverseerTurns()
+const killedTurns = reduction.pendingOverseerTurns()
 const bootAt = Date.now()
 
 // ---- agent-facing MCP surface (#29 shape) ---------------------------------
@@ -1094,7 +1097,7 @@ function buildMcpServer(agent, ticket) {
   // is an operator note; the cross-check verdict rides the same queue under its
   // own name, because a verdict read as the operator's word would be obeyed
   // instead of judged.
-  const drainNotes = () => store.takeAgentNotes(agent, dispatcher.agents.get(agent)?.instance ?? null).map((n) => ({
+  const drainNotes = () => reduction.takeAgentNotes(agent, dispatcher.agents.get(agent)?.instance ?? null).map((n) => ({
     type: 'text',
     text: `[${n.label ?? 'operator note'}${n.after ? `, after ${n.after}` : ''}] ${n.text}`,
   }))
@@ -1105,7 +1108,7 @@ function buildMcpServer(agent, ticket) {
     { message: z.string(), images: z.array(z.string()).optional().describe(FILES_HINT) },
     async ({ message, images }) => {
       const { files, refusals } = outboundFiles(agent, images)
-      store.logEvent('notify', { agent, ticket, message, images: files.map((f) => f.attachment), refusals })
+      reduction.journal('notify', { agent, ticket, message, images: files.map((f) => f.attachment), refusals })
       if (bridge) bridge.notify(ticket, `⚙️ ${message}`, { files, as: speaker }).catch(() => {})
       return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} file(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
     },
@@ -1143,7 +1146,7 @@ function buildMcpServer(agent, ticket) {
       // that path.
       const published = dispatcher.agents.get(agent)?.ports ?? null
       const r = await previews.publish(ticket, dev_port, { base, path, published })
-      store.logEvent('preview', {
+      reduction.journal('preview', {
         agent, ticket, dev_port, path: r.path ?? path ?? null,
         ok: r.ok, url: r.url ?? null, reason: r.reason ?? null,
       })
@@ -1246,9 +1249,9 @@ function buildMcpServer(agent, ticket) {
       // the record this answer belongs to is already closed, and a corpse of
       // this kind on this agent would have been closed by the call that earned
       // the answer in the first place.
-      const recorded = store.recordedAnswerFor({ agent, ...payload })
+      const recorded = reduction.recordedAnswerFor({ agent, ...payload })
       if (recorded) {
-        store.takeRecordedAnswer(recorded.record, recorded.note)
+        reduction.takeRecordedAnswer(recorded.record, recorded.note)
         log(`escalation ${recorded.record.id} replayed to ${agent} — the same question, answered already, note ${recorded.note.id} taken`)
         const lines = [recordedAnswerLine(recorded.record)]
         // The card is what shows a file, and no card opened. Said rather than
@@ -1335,7 +1338,7 @@ function buildMcpServer(agent, ticket) {
       const reported = result.ticket == null ? null : String(result.ticket)
       const bound = ticket || reported
       const disagrees = reported !== null && reported !== bound
-      const rec = store.logEvent('result', {
+      const rec = reduction.journal('result', {
         agent, ...result, ticket: bound, ...(disagrees ? { reported_ticket: reported } : {}),
       })
       fs.writeFileSync(path.join(DATA, 'results', `${agent}.json`), JSON.stringify(rec, null, 2))
@@ -1592,10 +1595,10 @@ async function watchableRepos() {
 // on the credentials that pass already holds, and the stamp beside it says how
 // old the reading is (see Dispatcher#frontierSnapshot).
 //
-// This route reads no journal file (#289). The recent outcomes and the gate's
-// pull request are both reductions the store fills as events are written, so
+// This route reads no journal (#289). The recent outcomes and the gate's
+// pull request are both reductions the reduction fills as events are written, so
 // what one poll costs no longer rises with the history. The journal is still
-// read whole ONCE per process, by the store's boot replay, which is what fills
+// read whole ONCE per process, by the reduction's boot replay, which is what fills
 // them. Every other section is memory or a stamped snapshot, except the
 // context meter, which reads one transcript tail per live agent (#264).
 async function overview() {
@@ -1614,7 +1617,7 @@ async function overview() {
     log(`overview: the fleet read failed (${e.message}) — serving every other section`)
   }
   const health = bridge ? bridge.status() : null
-  const open = store.openEscalations()
+  const open = reduction.openEscalations()
   return {
     at: new Date().toISOString(),
     daemon: {
@@ -1663,20 +1666,20 @@ async function overview() {
     bridge: health?.state ?? 'down',
     bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
     usage: providerUsage(),
-    events: store.recentEvents(),
+    events: reduction.recentEvents(),
     frontier: dispatcher.frontierSnapshot(),
   }
 }
 
 // The browser conversations, on the wire (#333). Everything about the shape
 // lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
-// store this daemon holds and the overseer container's config dir and model.
+// reduction this daemon holds and the overseer container's config dir and model.
 function consoleOnWire() {
   const cfgDir = overseerContainer.configDir
   return consoleConversationsOnWire({
-    conversations: store.consoleConversationList(),
-    sessionIdFor: (key) => store.overseerSession(key),
-    droppedFor: (key) => store.droppedOverseerTurn(key),
+    conversations: reduction.consoleConversationList(),
+    sessionIdFor: (key) => reduction.overseerSession(key),
+    droppedFor: (key) => reduction.droppedOverseerTurn(key),
     harness: detectHarness(cfgDir),
     cfgDir,
     model: overseerContainer.model,
@@ -1724,7 +1727,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // one route (#314), and nothing more. A refusal, not a 404: the route exists,
   // this caller may not have it.
   if (fromContainer && !AGENT_ROUTES.has(url.pathname) && url.pathname !== OVERSEER_MCP_PATH) {
-    store.logEvent('container_route_refused', { path: url.pathname, method: req.method })
+    reduction.journal('container_route_refused', { path: url.pathname, method: req.method })
     return json(403, { error: `${url.pathname} is not reachable from a curia container — this address carries the MCP side channels and the Stop hook only` })
   }
 
@@ -1743,7 +1746,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       presented: req.headers[TOKEN_HEADER],
       log,
       refuse: (error) => {
-        store.logEvent('overseer_turn_refused', {
+        reduction.journal('overseer_turn_refused', {
           turn: id, from: fromContainer ? 'container' : 'loopback', presented: Boolean(req.headers[TOKEN_HEADER]),
         })
         return json(403, { error })
@@ -1769,7 +1772,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (AGENT_ROUTES.has(url.pathname)) {
     const claimed = url.searchParams.get('agent') ?? 'unknown'
     if (!agentTokenMatches(DATA, claimed, req.headers[TOKEN_HEADER])) {
-      store.logEvent('agent_token_refused', {
+      reduction.journal('agent_token_refused', {
         agent: claimed,
         path: url.pathname,
         from: fromContainer ? 'container' : 'loopback',
@@ -1807,7 +1810,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, {
       bridge: health?.state ?? 'down',
       bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
-      open_escalations: store.openEscalations(),
+      open_escalations: reduction.openEscalations(),
     })
   }
 
@@ -1840,7 +1843,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     // A gate reads its STORED digest: it was counted when the gate opened, and
     // re-counting now would answer a different question — the worktree has
     // moved on, or is gone.
-    const record = escId ? store.get(escId) : null
+    const record = escId ? reduction.get(escId) : null
     if (escId && !record) return json(404, { error: `there is no escalation ${escId}` })
     if (record && record.kind !== REVIEW_KIND) return json(400, { error: `${escId} is not a review gate, so it carries no diff` })
     const agent = record?.agent ?? agentName
@@ -1874,19 +1877,19 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // being looked at would spend a number every time the operator glanced at the
   // screen, and numbers only go up.
   if (url.pathname === '/console/new' && req.method === 'POST') {
-    const key = store.openConsoleConversation()
+    const key = reduction.openConsoleConversation()
     log(`console: opened browser conversation ${key}`)
     return json(200, { key, session: sessionForConsoleKey(key) })
   }
 
   // The delete. The number stays spent and the transcript stays on disk — see
-  // store.deleteConsoleConversation. A key that is not a live conversation is a
+  // reduction.deleteConsoleConversation. A key that is not a live conversation is a
   // 409 rather than a silent success, because the page may be showing a list
   // another device has already changed.
   if (url.pathname === '/console/delete' && req.method === 'POST') {
     const key = String((await readBody(req)).key ?? '')
     if (!isConsoleKey(key)) return json(400, { error: `\`${key}\` is not a browser conversation key` })
-    if (!store.deleteConsoleConversation(key)) {
+    if (!reduction.deleteConsoleConversation(key)) {
       return json(409, { ok: false, error: `there is no conversation \`${key}\` — it may already be deleted` })
     }
     log(`console: deleted browser conversation ${key} — its number is spent`)
@@ -1962,7 +1965,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req)
     const agent = url.searchParams.get('agent') ?? 'unknown'
     const stopHookActive = Boolean(body.stop_hook_active)
-    store.logEvent('agent_done', {
+    reduction.journal('agent_done', {
       agent,
       hook_event: body.hook_event_name,
       session_id: body.session_id,
@@ -2042,7 +2045,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req).catch(() => ({}))
     const by = named(body?.by)
     const decline = (reason, detail) => {
-      store.logEvent('config_reload_declined', { by, reason, ...detail })
+      reduction.journal('config_reload_declined', { by, reason, ...detail })
       log(`reload declined for ${by}: ${detail.error ?? detail.key}`)
       return json(200, { ok: false, reason, ...detail })
     }
@@ -2091,7 +2094,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     // start dispatching against a fleet nobody has reconciled yet.
     if (applied.includes('dispatch.poll_interval_s') && dispatcher.autoTimer) dispatcher.startAutoLoop()
 
-    store.logEvent('config_reloaded', { by, keys: applied })
+    reduction.journal('config_reloaded', { by, keys: applied })
     log(applied.length
       ? `config reloaded by ${by}: ${applied.join(', ')}`
       : `config reloaded by ${by} — the file says what this daemon was already running`)
@@ -2111,7 +2114,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/restart' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = typeof body?.by === 'string' ? body.by : 'loopback'
-    store.logEvent('restart_requested', { by, exit_code: RESTART_EXIT_CODE })
+    reduction.journal('restart_requested', { by, exit_code: RESTART_EXIT_CODE })
     log(`restart requested by ${by} — exiting ${RESTART_EXIT_CODE} so the supervisor respawns this process`)
     res.writeHead(200, { 'content-type': 'application/json' })
     return res.end(JSON.stringify({ ok: true, by, exit_code: RESTART_EXIT_CODE }), () => {
@@ -2159,7 +2162,7 @@ httpServer.listen(PORT, '127.0.0.1', () => {
 // restart recovery: an open escalation that never rendered re-arms the retries
 // it has not used yet — measured from esc_open, so a restart re-arms the rest
 // of the window rather than starting a fresh one (#261)
-for (const r of store.openEscalations()) {
+for (const r of reduction.openEscalations()) {
   log(`recovered open escalation ${r.id} (${r.kind}) agent=${r.agent} ticket=${r.ticket}`)
   if (!r.discord) armRenderRetries(r)
 }
@@ -2179,7 +2182,7 @@ selfDeploy.resolvePending({ announce: (text) => (bridge ? bridge.announce(text) 
 // journal read.
 replayKilledTurns({
   killed: killedTurns,
-  store,
+  reduction,
   bootAt,
   probe: () => probeOverseer({ port: curiaConfig.overseer.port }),
   // A turn already in flight on this key means the operator got here first.
@@ -2219,7 +2222,7 @@ const COMMIT = (() => {
 function announceStart(b) {
   if (startAnnounced) return
   startAnnounced = true
-  const open = store.openEscalations().length
+  const open = reduction.openEscalations().length
   const line = `-# curia started · ${COMMIT} · ${open} open escalation${open === 1 ? '' : 's'} recovered`
   b.announce(line).catch((e) => log(`startup announcement failed: ${e.message}`))
 }
@@ -2229,7 +2232,7 @@ function announceStart(b) {
 // the phone. So the honest contract is: journal + /state while it is down, one
 // line in the channel once it works again.
 function onBridgeHealth(ev) {
-  store.logEvent('bridge_health', {
+  reduction.journal('bridge_health', {
     state: ev.state, previous: ev.previous, reason: ev.reason, error: ev.error ?? null,
   })
   if (ev.state === ev.previous) return // an error report, not a transition
@@ -2240,12 +2243,12 @@ function onBridgeHealth(ev) {
   const downMs = bridgeDownSince ? Date.now() - bridgeDownSince : 0
   bridgeDownSince = null
   if (downMs < BRIDGE_NOTICE_MS) return // routine gateway resume; the journal has it
-  const open = store.openEscalations()
+  const open = reduction.openEscalations()
   const held = open.length
     ? `${open.length} open question${open.length > 1 ? 's' : ''} stayed answerable throughout (${open.map((r) => r.id).join(', ')}).`
     : 'No question was open at the time.'
   const text = `⚠️ Discord bridge was down for ${Math.round(downMs / 1000)}s and is back. ${held}`
-  store.logEvent('bridge_recovered', { down_ms: downMs, open: open.map((r) => r.id) })
+  reduction.journal('bridge_recovered', { down_ms: downMs, open: open.map((r) => r.id) })
   bridge?.announce(text).catch((e) => log(`bridge recovery notice failed: ${e.message}`))
 }
 
@@ -2271,21 +2274,21 @@ if (process.env.DISCORD_BOT_TOKEN) {
         handlers: gate,
         // the journalled ticket↔thread map (#93) — the bridge holds no state
         bindings: {
-          get: (ticket) => store.threadForTicket(ticket),
-          bind: (ticket, threadId) => store.bindTicketThread(ticket, threadId),
+          get: (ticket) => reduction.threadForTicket(ticket),
+          bind: (ticket, threadId) => reduction.bindTicketThread(ticket, threadId),
           // #197: an explicit dispatch typed in another thread moves the ticket
-          rebind: (ticket, threadId, reason) => store.rebindTicketThread(ticket, threadId, reason),
-          release: (ticket, reason) => store.releaseTicketThread(ticket, reason),
+          rebind: (ticket, threadId, reason) => reduction.rebindTicketThread(ticket, threadId, reason),
+          release: (ticket, reason) => reduction.releaseTicketThread(ticket, reason),
           // the dispatch backstop (#140): the last binding, released or not
-          last: (ticket) => store.lastThreadForTicket(ticket),
+          last: (ticket) => reduction.lastThreadForTicket(ticket),
           // the same two, thread first (#257): who holds this thread now, and
           // who held it last. The boot pass that settles an ending's name asks
           // both — the second says the thread is curia's, the first says it is
           // free to settle.
-          ticketOf: (threadId) => store.ticketForThread(threadId),
-          lastTicketOf: (threadId) => store.lastTicketForThread(threadId),
+          ticketOf: (threadId) => reduction.ticketForThread(threadId),
+          lastTicketOf: (threadId) => reduction.lastTicketForThread(threadId),
           // the label's repo field (#235), read lazily off the journal
-          repoOf: (ticket) => store.repoForTicket(ticket),
+          repoOf: (ticket) => reduction.repoForTicket(ticket),
         },
         log,
         onHealth: onBridgeHealth,
@@ -2295,7 +2298,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
         bridgeLaunching = false
         // re-render any recovered escalation that has no message yet, and confirm
         // recovered ones that do are still answerable (message ids in the record)
-        for (const r of store.openEscalations()) {
+        for (const r of reduction.openEscalations()) {
           if (!r.discord) renderEscalation(r)
         }
         announceStart(b)
@@ -2320,7 +2323,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
       if (!bridgeDownSince || bridgeLaunching) return
       const downMs = Date.now() - bridgeDownSince
       if (downMs < BRIDGE_WEDGE_MS) return
-      store.logEvent('bridge_wedged', { down_ms: downMs })
+      reduction.journal('bridge_wedged', { down_ms: downMs })
       log(`[bridge] down for ${Math.round(downMs / 1000)}s with no recovery — rebuilding the bridge`)
       const dead = bridge
       bridge = null
