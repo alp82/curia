@@ -220,8 +220,10 @@ export const SHELL_TOOLS = ['Bash', 'Read', 'Glob', 'Grep']
 
 // ToolSearch is in here for the #83 gap, not for containment: with it
 // available, Haiku spent its whole first turn searching for the curia tool
-// schemas before the first real call. Disallowing it makes the harness present
-// every schema eagerly.
+// schemas before the first real call. Disallowing it no longer presents the
+// schemas eagerly on its own — SDK 0.3.220 defers them behind ToolSearch by
+// default, so the ban must ride with `ENABLE_TOOL_SEARCH=0` in the turn's
+// environment (overseerturn.mjs), or the model holds no verb at all.
 //
 // `Write`, `Edit` and `NotebookEdit` stay refused in BOTH postures. Beside an
 // allowed `Bash` that is manners, not a control — and it buys what `no_push`

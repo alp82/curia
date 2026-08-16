@@ -224,7 +224,16 @@ function runOneTurn({
           // credential store is the first thing this boundary denies, and the
           // model credential arrives as an environment variable from
           // `daemon/.env.overseer` instead (ADR-0014, #313).
-          env: { ...process.env, ...agentEnv(configDir, 'claude', { sandboxed: true }) },
+          //
+          // ENABLE_TOOL_SEARCH=0, or the model holds no verb at all. SDK
+          // 0.3.220 defers every MCP tool schema behind its ToolSearch tool by
+          // default, and this turn DISALLOWS ToolSearch (overseerprompt.mjs,
+          // the #83 gap) — so the deferral leaves the verbs both unloadable
+          // and unnamed, and the model truthfully reports it holds no `start`.
+          // Measured live on 2026-08-16: with this flag the init message
+          // states the server `connected` and lists the verbs; without it the
+          // server stays `pending` and the tool list is empty.
+          env: { ...process.env, ENABLE_TOOL_SEARCH: '0', ...agentEnv(configDir, 'claude', { sandboxed: true }) },
           model: body.model || OVERSEER_CONTAINER_MODEL,
           resume: body.resume || undefined,
           systemPrompt,

@@ -252,6 +252,9 @@ describe('the container half: POST /turn (#314)', () => {
     assert.equal(options.env.CLAUDE_CONFIG_DIR, overseerConfigDirFor(root))
     // The host credential store is the first thing the boundary denies.
     assert.equal(options.env.CLAUDE_SECURESTORAGE_CONFIG_DIR, undefined)
+    // SDK 0.3.220 defers MCP schemas behind ToolSearch, which this turn
+    // disallows — without this flag the model holds no verb at all (2026-08-16).
+    assert.equal(options.env.ENABLE_TOOL_SEARCH, '0')
 
     // #328's one call for the text, #328's one call for the list.
     assert.match(options.systemPrompt, /You hold a shell, and it reads/)
