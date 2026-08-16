@@ -617,9 +617,10 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
     )
   })
 
-  test('the container-facing listener carries the agent surface and nothing else', async () => {
+  test('the container-facing listener carries the two side channels and nothing else', async () => {
     // The whole operator surface: dispatching an agent, answering the operator's
-    // own questions, forcing a reconcile. A container reaches none of it.
+    // own questions, forcing a reconcile, driving an overseer turn by hand. A
+    // container reaches none of it.
     for (const [method, route, body] of [
       ['POST', '/command', JSON.stringify({ text: 'status' })],
       ['POST', '/answer', JSON.stringify({ id: 'e1', answer: 'approve' })],
@@ -627,16 +628,28 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       ['POST', '/escalate', JSON.stringify({ prompt: 'from a container' })],
       ['POST', '/reconcile', '{}'],
       ['GET', '/state', null],
+      ['POST', '/overseer/turn', JSON.stringify({ key: 'console-1', prompt: 'from a container' })],
     ]) {
       const res = await requestOn(GATEWAY, port, method, route, {
         headers: { 'content-type': 'application/json' },
         body,
       })
       assert.equal(res.status, 403, `${route} must not be reachable from a container`)
-      assert.match(res.body, /not reachable from an agent container/)
+      assert.match(res.body, /not reachable from a curia container/)
     }
     // …and the same routes still answer the operator on loopback.
     assert.equal((await request(port, 'GET', '/state')).status, 200)
+  })
+
+  // #314: the overseer container's verbs ARE reachable from the bridge, and a
+  // caller with no live turn secret gets nothing from them.
+  test('the overseer verb channel is reachable from a container, and closed without a turn secret', async () => {
+    const res = await requestOn(GATEWAY, port, 'POST', '/overseer/mcp?turn=nosuchturn', {
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+    })
+    assert.equal(res.status, 403)
+    assert.match(res.body, /no live curia overseer turn/)
   })
 
   // #188: the one container-reachable route that needs no agent token, because

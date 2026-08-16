@@ -227,8 +227,13 @@ services:
       # and the daemon-private journal into a container that must hold neither.
       - /home/alp/curia/daemon/src:/home/alp/curia/daemon/src:ro
       - /home/alp/curia/daemon/bin:/home/alp/curia/daemon/bin:ro
+      # The seed a turn writes into the config dir reads `voice.md` from here
+      # (#314). It is the same agent seed the in-daemon host runs, so the
+      # operator's communication rules cross the boundary with the model.
+      - /home/alp/curia/daemon/assets:/home/alp/curia/daemon/assets:ro
       # The watch list, read-only: the overseer reads which repos to check out
-      # and never rewrites the config the settings screens own.
+      # and never rewrites the config the settings screens own. It is re-read
+      # per turn, because the settings screen rewrites it.
       - /home/alp/curia/config:/home/alp/curia/config:ro
       # ONE MOUNT LINE COVERS EVERY WATCHED REPO (#312). A named volume per repo
       # cannot be written here, because the watch list changes and this file is

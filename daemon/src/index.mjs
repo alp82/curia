@@ -35,13 +35,15 @@ import { readable } from './logline.mjs'
 import { resolveOutboundImages, inboundContent } from './images.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mjs'
-import { PROBE_MARK, PROBE_PATH, dockerGateway, probeSideChannel } from './sandbox.mjs'
+import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
 import { OverseerHost } from './overseer.mjs'
+import { OverseerClient, OverseerTurns, serveVerbMcp } from './overseerclient.mjs'
+import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
 import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
 import {
@@ -897,6 +899,28 @@ const overseer = new OverseerHost({
   log,
 })
 
+// The overseer CONTAINER's turn (#314). The same shape, one boundary further
+// out: the daemon posts the message to the container and serves the verbs back
+// to it over `/overseer/mcp`, so every effect crosses the same `gate.command`
+// seam the host above uses.
+//
+// It is built and reachable, and NO surface routes to it yet. #315 is the
+// cutover, and it is one swap at two doors — the bridge's `overseerTurn` and
+// the Chat screen's `driverFor`. Until then a turn is driven by hand through
+// `POST /overseer/turn`, which is how the container is soaked before the
+// operator's own chat depends on it.
+const overseerTurns = new OverseerTurns()
+const overseerContainer = new OverseerClient({
+  store,
+  command: (text, ctx) => gate.command(text, 'overseer', ctx),
+  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  port: curiaConfig.overseer.port,
+  daemonPort: PORT,
+  daemonHost: GUEST_DAEMON_HOST,
+  turns: overseerTurns,
+  log,
+})
+
 // ---- agent-facing MCP surface (#29 shape) ---------------------------------
 
 // Outbound images (#34): an agent may publish files from its OWN worktree and
@@ -1563,11 +1587,41 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, { curia: PROBE_MARK, port: PORT })
   }
 
-  // The container-facing listener is the agent surface and nothing more. A
-  // refusal, not a 404: the route exists, this caller may not have it.
-  if (fromContainer && !AGENT_ROUTES.has(url.pathname)) {
+  // The container-facing listener is the agent surface plus the overseer's own
+  // one route (#314), and nothing more. A refusal, not a 404: the route exists,
+  // this caller may not have it.
+  if (fromContainer && !AGENT_ROUTES.has(url.pathname) && url.pathname !== OVERSEER_MCP_PATH) {
     store.logEvent('container_route_refused', { path: url.pathname, method: req.method })
-    return json(403, { error: `${url.pathname} is not reachable from an agent container — this address carries the MCP side channel and the Stop hook only` })
+    return json(403, { error: `${url.pathname} is not reachable from a curia container — this address carries the MCP side channels and the Stop hook only` })
+  }
+
+  // The overseer container's verb tools (#314). Its proof is NOT an agent
+  // token: the secret is minted per TURN and lives in memory for the length of
+  // one, because a turn survives no restart and there is nothing to adopt. The
+  // turn id in the query names which conversation the verbs route to, and the
+  // secret in the header is what makes that name a claim rather than a wish.
+  if (url.pathname === OVERSEER_MCP_PATH) {
+    if (req.method !== 'POST') return json(405, { error: 'stateless server: POST only' })
+    const id = url.searchParams.get('turn') ?? ''
+    const body = await readBody(req)
+    return serveVerbMcp({
+      turns: overseerTurns,
+      id,
+      presented: req.headers[TOKEN_HEADER],
+      log,
+      refuse: (error) => {
+        store.logEvent('overseer_turn_refused', {
+          turn: id, from: fromContainer ? 'container' : 'loopback', presented: Boolean(req.headers[TOKEN_HEADER]),
+        })
+        return json(403, { error })
+      },
+      serve: async (mcp) => {
+        const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+        res.on('close', () => { transport.close() })
+        await mcp.connect(transport)
+        await transport.handleRequest(req, res, body)
+      },
+    })
   }
 
   // Who a request says it is, and its proof (#159). The name in `?agent=` used
@@ -1662,6 +1716,47 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     }
     log(`console: deleted browser conversation ${key} — its number is spent`)
     return json(200, { ok: true, key })
+  }
+
+  // ---- the container's turn, driven by hand (#314) ---------------------------
+  //
+  // The one door onto the overseer CONTAINER until #315 moves the operator's
+  // own two. It exists because a boundary nothing crosses is a boundary nobody
+  // has tested: this is how the container is soaked — real conversations, real
+  // verbs, real checkouts — while Discord and the Chat screen stay on the
+  // in-daemon host.
+  //
+  // Loopback only, and absent from the container-facing listener, like every
+  // other route the operator owns. It is not a verb: the operator catalogue has
+  // no word for "run a turn", because a turn is what a message already is.
+  if (url.pathname === '/overseer/turn' && req.method === 'POST') {
+    const body = await readBody(req)
+    const key = String(body.key ?? '')
+    const prompt = String(body.prompt ?? '')
+    if (!key || !prompt) return json(400, { error: '`key` names the conversation and `prompt` is the message — both are required' })
+    const said = []
+    let statusLine = null
+    const out = await overseerContainer.runTurn(key, prompt, {
+      say: (t) => { said.push(t) },
+      status: (t) => { statusLine = t },
+      // A console key is not a thread the bridge can post buttons into, so its
+      // verbs route with no origin thread — the same split the two live doors
+      // make (#267).
+      routeThreadId: isConsoleKey(key) ? null : key,
+    })
+    store.logEvent('overseer_container_turn', {
+      key, ok: Boolean(out.ok), tool_calls: out.toolCalls ?? 0, secs: out.secs ?? null, why: out.why ?? null,
+    })
+    return json(out.ok ? 200 : 502, {
+      ok: Boolean(out.ok),
+      key,
+      answer: said.join('\n') || null,
+      status: statusLine,
+      session_id: out.sessionId ?? store.overseerSession(key) ?? null,
+      tool_calls: out.toolCalls ?? 0,
+      secs: out.secs ?? null,
+      why: out.why ?? null,
+    })
   }
 
   if (url.pathname === '/escalate' && req.method === 'POST') {

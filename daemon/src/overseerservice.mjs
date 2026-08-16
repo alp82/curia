@@ -15,10 +15,12 @@
 // and the tailscaled socket. On the compose bridge it reaches none of them. It
 // still reaches the daemon, at `host.docker.internal:<daemon port>`, which is
 // the path every agent container already takes (#156/#188), and the daemon
-// reaches it at `127.0.0.1:<this port>`, which is what compose publishes. So
-// whichever direction #314 gives the turn, it has a path.
+// reaches it at `127.0.0.1:<this port>`, which is what compose publishes. #314
+// took BOTH: the daemon posts the turn inward, and the model's verb tools reach
+// the seam outward over the MCP side channel.
 
 import net from 'node:net'
+import { TURN_PATH } from './overseerturn.mjs'
 
 // Beside the daemon (4271), the timeline (4272) and the dashboard (4273). It
 // joins the collision check and the preview reserved list for the reason #263
@@ -82,11 +84,16 @@ export async function probeOverseer({ port, fetchImpl = fetch, timeoutMs = 2_000
 // The container's own request handler, here rather than in `bin/` so the suite
 // can drive it without a container.
 //
-// It answers ONE route today. The turn is #314's, and this file must not invent
-// its shape: a route guessed here would be a second answer to a question that
-// ticket owns. So everything else is a 501 that names the ticket, which is what
-// a deploy landing before #314 should say out loud.
-export function overseerHandler({ log = console.log } = {}) {
+// TWO ROUTES, and no third. `GET /ping` is the health check the daemon reads.
+// `POST /turn` is the turn #314 carried across the boundary, and its whole
+// shape lives in `overseerturn.mjs` — this file routes to it and knows nothing
+// about it. Everything else is a 404: this container serves the daemon, and a
+// route it does not have is a caller error rather than a promise for later.
+//
+// `turn` is injected. A handler built without one still answers the health
+// check, which is what the suite drives and what a container with a broken
+// config can still say for itself.
+export function overseerHandler({ log = console.log, turn = null } = {}) {
   return (req, res) => {
     const url = new URL(req.url, 'http://overseer.invalid')
     if (req.method === 'GET' && url.pathname === PING_PATH) {
@@ -94,10 +101,13 @@ export function overseerHandler({ log = console.log } = {}) {
       res.end(`${PING_MARK}\n`)
       return
     }
-    log(`refused ${req.method} ${url.pathname}: this container answers no turn yet (#314)`)
-    res.writeHead(501, { 'content-type': 'application/json' })
+    if (req.method === 'POST' && url.pathname === TURN_PATH && turn) {
+      return turn(req, res)
+    }
+    log(`refused ${req.method} ${url.pathname}: the overseer container serves ${PING_PATH} and ${TURN_PATH}`)
+    res.writeHead(404, { 'content-type': 'application/json' })
     res.end(JSON.stringify({
-      error: 'the overseer container is up and holds no turn route yet — the turn crosses the boundary in #314',
+      error: `no route ${req.method} ${url.pathname} — the overseer container serves ${PING_PATH} and ${TURN_PATH}`,
     }))
   }
 }
