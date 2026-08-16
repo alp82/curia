@@ -243,8 +243,10 @@ export class Journal {
 // health check fails, and the box resets to a ref whose daemon still finds a
 // whole journal file.
 //
-// The journal file is not renamed and not deleted. It is the floor the automatic
-// rollback lands on, and the daemon never writes it again.
+// The journal file is not renamed and not deleted, so the ref a failed
+// conversion resets to finds it whole. The daemon never writes it again. The
+// box's own file was the floor the automatic rollback landed on until #427
+// deleted it, and a rollback regenerates one now (see the README).
 function migrate(linesFile, dbFile) {
   const staging = path.join(path.dirname(dbFile), MIGRATING)
   for (const leftover of [staging, `${staging}-wal`, `${staging}-shm`]) {

@@ -92,27 +92,27 @@ git log --reverse --format=%ad --date=short | head -1     # first commit, for th
 grep -c 'repo:' config/curia.yaml                          # repos watched
 ```
 
-**From the journal — only ever "since 1 Aug 2026".** `daemon/data/events.jsonl` reaches back to
-**2026-08-01T13:41:50Z** and no further; everything before that is gone. Threads, sessions,
+**From the journal — only ever "since 1 Aug 2026".** The journal reaches back to
+**2026-08-01T13:41:50Z** and no further. Everything before that is gone. Threads, sessions,
 escalations answered and agents spawned come from here, and the line on the page must carry the
 since-date rather than read as a lifetime total.
 
 **An agent cannot count the journal.** It lives on the operator's box, outside the worktree, so the
 journal half of the line is an `ask_human` call, not a command
 ([Polish the live page](https://github.com/alp82/curia/issues/137), 2026-08-05). Ask for the output
-of these two, run from the daemon data directory:
+of these two, run in [the read-only shell](../../daemon/README.md#reading-the-journal):
 
-```sh
-jq -r .type events.jsonl | sort | uniq -c
-jq -r 'select(.type=="esc_open")|.kind' events.jsonl | sort | uniq -c
+```sql
+select type,count(*) from events group by type order by 2 desc;
+select json_extract(body,'$.kind') as kind,count(*) from events where type='esc_open' group by kind;
 ```
 
 Then read the three numbers off them:
 
-- **Agents spawned** — `agent_spawned` **plus** `worker_spawned`. The journal is append-only and
-  every line written before the #184 rename says `worker_spawned`, so `normalizeEvent` in
-  `daemon/src/journal.mjs` rewrites the type on read. They are one event under two spellings, and a
-  count that takes only the new one is short by every agent before the rename.
+- **Agents spawned** — `agent_spawned`. The journal is append-only and every line written before the
+  #184 rename says `worker_spawned`. `normalizeEvent` in `daemon/src/journal.mjs` rewrites the type
+  on the way in, so the `type` column carries one spelling and already counts both. A count off
+  `body` instead is short by every agent before the rename.
 - **Questions asked** — `esc_open` minus the `review-gate` kind, because the gate is the third
   number and one thing gets counted once.
 - **Review gates answered** — `review_answered`.

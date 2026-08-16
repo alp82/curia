@@ -388,9 +388,9 @@ Two facts make this work.
 
 **The daemon converts at first boot.** It finds `events.db` absent, reads the journal file whole, and inserts every line in one transaction. It builds `events.db.migrating`, checks that the row count matches the line count, and renames the file into place. It accepts exactly what the old boot pass accepted: a blank line is skipped, and anything else that is not one JSON object stops the boot. The measured cost is 298 ms for the 4,282 events the box held on 2026-08-13 ([#321](https://github.com/alp82/curia/issues/321), `prototypes/journal-schema/results.json`).
 
-A conversion that fails needs no hand. The daemon crash-loops, the self-deploy health check fails, and the box resets to the previous ref. That daemon still finds a whole journal file.
+A conversion that fails needs no hand. The daemon crash-loops, the self-deploy health check fails, and the box resets to the previous ref. That daemon finds the journal file the conversion read, whole, because a conversion never touches it.
 
-**The journal file stays where it is.** The migration does not rename it and does not delete it. `git reset --hard` never touches it, because `daemon/data/` is git-ignored. So the automatic rollback finds the exact path the previous daemon looks for, and a rename would hand that daemon an empty reduction. The daemon never writes the file again. [#427](https://github.com/alp82/curia/issues/427) deletes it once the journal is checked on the box.
+**The journal file is gone.** The migration left it where it was, unrenamed and unwritten, so the automatic rollback found the exact path the previous daemon looked for. [#427](https://github.com/alp82/curia/issues/427) deleted it from the box, after the row count was checked against the line count. Nothing lands on a file any more, and step 2 of the deliberate rollback below is the only way one comes back.
 
 **Take the migration deploy at zero live agents, with auto-dispatch off.** No agent is then mid-turn while the write path changes under it, and the window below carries only the daemon's own boot lines.
 
@@ -398,9 +398,11 @@ A conversion that fails needs no hand. The daemon crash-loops, the self-deploy h
 
 Two rollbacks, and they differ.
 
-**The automatic one.** The self-deploy health check fails inside about 190 seconds and resets the checkout. Nothing to do by hand. The old daemon reads the journal file and comes up. `events.db` stays on disk and nothing reads it. The loss is what the new daemon journaled inside that window, which went to the database alone. The box wrote about 404 events per day on 2026-08-13, so that window holds under one ordinary event.
+**The automatic one.** The self-deploy health check fails inside about 190 seconds and resets the checkout. Nothing to do by hand. The ref it resets to also reads `events.db`, so the daemon comes up on the same journal and the rollback costs no events.
 
-**The deliberate one**, hours or days later. Regenerate the file first. `body` holds the line curia wrote, byte for byte, so one query reproduces the file exactly. The #321 prototype checked that at 4,282 lines and at 60,000.
+A reset that lands on a ref older than [#407](https://github.com/alp82/curia/issues/407) is the one case that needs a hand. That daemon looks for the journal file, and the file is gone, so it comes up on an empty reduction. Stop it, run step 2 below to regenerate the file, and start it again.
+
+**The deliberate one**, back to a daemon older than [#407](https://github.com/alp82/curia/issues/407). Regenerate the file first. `body` holds the line curia wrote, byte for byte, so one query reproduces the file exactly. The #321 prototype checked that at 4,282 lines and at 60,000.
 
 1. Stop the daemon. A live writer makes the regenerated file stale as it is written.
 
