@@ -39,6 +39,7 @@ import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, dockerGateway, probeSideChan
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND } from './lifecycle.mjs'
+import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
 import { OverseerHost } from './overseer.mjs'
@@ -417,6 +418,19 @@ function handOffAnswer(record) {
   log(`escalation ${record.id} answered with no live receiver — hand-off note queued for ${record.agent}`)
 }
 
+// #369: the one line that tells an agent its answer is a recorded one.
+//
+// The agent has to know. It re-asked because its own call died, and without
+// this line it reads the answer as a fresh reply to the exact wording it sent
+// this time — including the "(Re-sent: the last call timed out…)" note the
+// standing orders make it add. So the line names the record, the person and the
+// moment, which are the three facts that make it evidence rather than a claim.
+function recordedAnswerLine(record) {
+  const by = record.answered_by ? ` by ${record.answered_by}` : ''
+  return `[recorded answer — a human answered this exact question${by} at ${record.closed_at}, on ${record.id},`
+    + ' while no call of yours was live. Curia opened no second card and asked nobody again.]'
+}
+
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
 const gate = {
   get: (id) => store.get(id),
@@ -636,6 +650,17 @@ function lapseEscalation(id, reason) {
 // the whole per-file list, which is what lets `GET /overview` hand the console
 // a gate card that costs no extra read.
 function askReview(agent, ticket, promptText, { diff = null, diffError = null } = {}) {
+  // #369 at the gate, where the wait costs most. The same rule as `ask_human`
+  // plus one guard: the code has to be the code the operator approved. The
+  // digest is already measured for this very call (#355), so the check is a
+  // comparison rather than a second read — and an unmeasured gate never
+  // replays, because `sameDigest` refuses two nulls.
+  const recorded = store.recordedAnswerFor({ agent, kind: REVIEW_KIND, prompt: promptText })
+  if (recorded && sameDigest(recorded.record.diff, diff)) {
+    store.takeRecordedAnswer(recorded.record, recorded.note)
+    log(`review gate ${recorded.record.id} replayed to ${agent} — the same summary over the same diff, answered already`)
+    return Promise.resolve({ text: recorded.record.answer, status: 'answered', recorded: recordedAnswerLine(recorded.record) })
+  }
   const { record, answered } = openEscalation({
     agent, ticket, kind: REVIEW_KIND, prompt: promptText, diff, diff_error: diffError,
   })
@@ -1192,6 +1217,32 @@ function buildMcpServer(agent, ticket) {
       // sit between the agent and the human it is asking.
       dispatcher.noteJudgement(agent, payload.prompt)
         .catch((e) => log(`judgement comment for ${agent} failed: ${e.message}`))
+      // #369: the answer this agent is about to wait for may already be sitting
+      // in its own note queue, unread. A daemon restart killed the call that
+      // asked, the operator answered the card anyway, and #139 parked the
+      // answer. Hand it back now rather than opening a second card and making
+      // the operator wait a second time for one question.
+      //
+      // This opens no record, so it supersedes nothing (#336). That is right:
+      // the record this answer belongs to is already closed, and a corpse of
+      // this kind on this agent would have been closed by the call that earned
+      // the answer in the first place.
+      const recorded = store.recordedAnswerFor({ agent, ...payload })
+      if (recorded) {
+        store.takeRecordedAnswer(recorded.record, recorded.note)
+        log(`escalation ${recorded.record.id} replayed to ${agent} — the same question, answered already, note ${recorded.note.id} taken`)
+        const lines = [recordedAnswerLine(recorded.record)]
+        // The card is what shows a picture, and no card opened. Said rather
+        // than swallowed: an agent that thinks the operator saw a screenshot
+        // reads the answer as being about it.
+        if (images?.length) lines.push(`(curia opened no card, so the ${images.length} image(s) you sent with this call were not shown.)`)
+        return {
+          content: [
+            { type: 'text', text: `${lines.join('\n')}\n\n${recorded.record.answer}` },
+            ...inboundContent(recorded.record.attachments ?? []),
+          ],
+        }
+      }
       const { files, refusals } = outboundImages(agent, images)
       const { record, answered } = openEscalation({ agent, ticket, ...payload, files })
       const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(payload.prompt))

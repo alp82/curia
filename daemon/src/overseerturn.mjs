@@ -42,6 +42,7 @@ import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk'
 import { seedConfigDir, agentEnv } from './workspace.mjs'
 import { buildSystemPrompt, toolsFor, checkoutReport } from './overseerprompt.mjs'
 import { syncCheckouts, checkoutsRootFor } from './checkouts.mjs'
+import { installCredentialConfig, unroutedOwners, unroutedNote } from './overseercreds.mjs'
 import { SIGNALS } from './messaging.mjs'
 
 // The route the daemon POSTs a turn to, on the container.
@@ -130,6 +131,35 @@ export function checkoutNote({ repos = [], removed = [] } = {}) {
   return parts.join(' · ')
 }
 
+// The per-owner git routing, re-run at the start of every turn (#361).
+//
+// THE WATCH LIST IS READ PER TURN AND THE ROUTING WAS NOT. #314 made the config
+// live for the checkout pass below. The credential lines stayed on the list the
+// container booted on, so a repo added under an owner that had no line was
+// cloned with no token until somebody recreated the container. This closes that
+// half. What it cannot close is a token that is not in the container at all:
+// compose hands `daemon/.env.overseer` over at container CREATE, so a brand new
+// owner needs that file edited and the service recreated whatever runs here.
+//
+// IT NEVER REFUSES THE TURN, for the reason a failed fetch does not: a chat that
+// will not answer is no way to fix a broken config. A throw leaves the lines the
+// last good pass wrote — `--replace-all` removes nothing it does not rewrite —
+// and says so in a note.
+//
+// It returns notes rather than emitting them, so the caller owns the stream and
+// the suite can read the sentences without one.
+export async function credentialPass(repos, {
+  env = process.env, install = installCredentialConfig, unrouted = unroutedOwners,
+} = {}) {
+  try {
+    await install(repos, { env })
+  } catch (e) {
+    const why = String(e.message ?? e).split('\n')[0]
+    return [`${SIGNALS.warn} the git credentials did not reload (${why}). This turn runs on the routing of the last good pass`]
+  }
+  return unrouted(repos, env).map((o) => `${SIGNALS.warn} ${unroutedNote(o)}`)
+}
+
 // THE TURN, inside the container.
 //
 // `cfg` is the loaded curia.yaml: the workspace root is where the checkouts and
@@ -141,7 +171,7 @@ export function checkoutNote({ repos = [], removed = [] } = {}) {
 // container, no model and no network.
 function runOneTurn({
   cfg, body, emit, log = console.log,
-  queryFn = sdkQuery, sync = syncCheckouts, now = () => new Date(),
+  queryFn = sdkQuery, sync = syncCheckouts, creds = credentialPass, now = () => new Date(),
 }) {
   const root = cfg.dispatch.workspace_root
   const repos = cfg.watch.map((w) => w.repo)
@@ -160,6 +190,15 @@ function runOneTurn({
       // otherwise stay unseeded until the container was restarted again.
       fs.mkdirSync(home, { recursive: true })
       seedConfigDir(configDir, home)
+
+      // The git routing, before the fetch that needs it (#361). Every note it
+      // returns names an owner the watch list added and this container holds no
+      // token for, which is the cause of the clone failure the verdict below
+      // would otherwise report without a reason.
+      for (const text of await creds(repos)) {
+        log(text)
+        emit(TURN_EVENTS.note, { text })
+      }
 
       // ADR-0014's one fetch per turn, before the model runs, in parallel. It
       // never refuses the turn: a repo it could not reach comes back as a
@@ -266,7 +305,15 @@ export function refuseTurn(body) {
 // fetch the repos that are watched NOW. A reload that fails falls back to the
 // last good config and says so in the status line — the operator cannot fix a
 // broken config through a chat that refuses to answer.
-export function turnRoute({ loadCfg, log = console.log, queryFn = sdkQuery, sync = syncCheckouts, now = () => new Date() }) {
+//
+// EVERYTHING THE CONFIG FEEDS IS READ PER TURN WITH IT (#361). That is the
+// checkout pass and, since this ticket, the per-owner git routing. A rule read
+// per turn beside one held from boot is the shape that made a watch-list change
+// half arrive.
+export function turnRoute({
+  loadCfg, log = console.log, queryFn = sdkQuery,
+  sync = syncCheckouts, creds = credentialPass, now = () => new Date(),
+}) {
   let lastGood = null
   return async (req, res) => {
     let body
@@ -308,7 +355,7 @@ export function turnRoute({ loadCfg, log = console.log, queryFn = sdkQuery, sync
     log(`turn key=${body.key} resume=${body.resume ?? 'fresh'} model=${body.model || OVERSEER_CONTAINER_MODEL}`)
     if (cfgNote) emit(TURN_EVENTS.note, { text: cfgNote })
     try {
-      await runOneTurn({ cfg, body, emit, log, queryFn, sync, now })
+      await runOneTurn({ cfg, body, emit, log, queryFn, sync, creds, now })
     } catch (e) {
       // runOneTurn catches its own model failures; this is the seed, the checkout
       // root or the config itself failing, which is not a turn failure the

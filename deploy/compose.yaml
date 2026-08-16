@@ -219,6 +219,12 @@ services:
     # carries the model credential, which is the one host secret ADR-0014 lets
     # in. #352 (the GitHub App) is what merges the two files: it mints
     # short-lived tokens per holder, and the file stops being the boundary.
+    #
+    # COMPOSE READS THIS FILE AT CONTAINER CREATE, and that is the one thing a
+    # turn cannot re-read (#361). Watching a repo of an owner this container
+    # holds no token for needs a token in this file AND a recreate of this
+    # service. `docker restart` is not enough, and the routing above re-reads
+    # the watch list either way.
     env_file:
       - ../daemon/.env.overseer
     volumes:
@@ -233,7 +239,9 @@ services:
       - /home/alp/curia/daemon/assets:/home/alp/curia/daemon/assets:ro
       # The watch list, read-only: the overseer reads which repos to check out
       # and never rewrites the config the settings screens own. It is re-read
-      # per turn, because the settings screen rewrites it.
+      # per turn, because the settings screen rewrites it. BOTH things it feeds
+      # run per turn (#361): the checkout pass and the per-owner git routing.
+      # Nothing in this container is held from its own boot.
       - /home/alp/curia/config:/home/alp/curia/config:ro
       # ONE MOUNT LINE COVERS EVERY WATCHED REPO (#312). A named volume per repo
       # cannot be written here, because the watch list changes and this file is

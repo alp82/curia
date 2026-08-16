@@ -85,10 +85,19 @@ export function credentialConfig(repos, env) {
   return out
 }
 
+// The one sentence both callers say about an owner with no token: the container
+// at start, and every turn since #361. ONE COMPOSER, so the boot log and the
+// chat note cannot drift apart, and it names the FILE as well as the key —
+// which is the whole fix the reader has to make.
+export function unroutedNote({ owner, key }) {
+  return `no ${key} in daemon/${OVERSEER_ENV_FILE}, so every read of ${owner}/* runs with no credential and reaches public repositories only`
+}
+
 // Owners the watch list names and this container holds no token for. Said out
 // loud at start, because the failure it predicts — a clone that cannot
 // authenticate — happens inside a turn, hours later, where nothing names the
-// missing key.
+// missing key. Said again at the start of every turn (#361), because the watch
+// list the operator changes between turns is what adds an owner to this list.
 export function unroutedOwners(repos, env) {
   const routed = new Set(credentialConfig(repos, env).map((c) => c.owner))
   return ownersOf(repos)
@@ -98,10 +107,19 @@ export function unroutedOwners(repos, env) {
 
 // Write the lines into the container's own global git config.
 //
-// `--replace-all` rather than `--add`: this runs on every container start, and
-// the config file may survive a restart. Adding would leave two helpers for one
-// owner, and git would consult both — harmless today, and one more place for a
-// stale variable name to hide tomorrow.
+// `--replace-all` rather than `--add`: this runs on every container start AND at
+// the start of every turn (#361), so it repeats constantly. Adding would leave a
+// helper per run for one owner, and git would consult all of them.
+//
+// REPEATING IS THE POINT. #313 ran this once, from the watch list the container
+// booted on, while the checkout pass beside it re-read that list per turn (#314)
+// — so a repo added under a NEW owner was fetched with no credential until
+// somebody recreated the container. One local process per owner, naming a
+// variable rather than a token, is cheap enough to pay every turn.
+//
+// AN OWNER DROPPED FROM THE WATCH LIST KEEPS ITS LINE, because removing it buys
+// nothing: the line holds a variable NAME, the shell in this container can read
+// that variable directly, and the checkout pass fetches watched repos only.
 export async function installCredentialConfig(repos, { env = process.env, exec = execFileP, gitEnv = {} } = {}) {
   const entries = credentialConfig(repos, env)
   for (const { name, value } of entries) {
