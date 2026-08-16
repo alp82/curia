@@ -5969,12 +5969,15 @@ export class Dispatcher {
       if (!SESSION_RE.test(dir) && !REVIEW_SESSION_RE.test(dir)) continue
       if (sessions.includes(dir) || this.agents.has(dir) || this.inFlight.has(dir)) continue
       const cfgDir = cfgDirFor(this.root, dir)
-      // #389 widened the test, and it had to. Two terminal states KEEP the whole
-      // config dir for a post-mortem, so a minted GitHub token can outlive its
-      // agent exactly as an OAuth copy does — and a codex agent, which holds no
-      // `.credentials.json` at all, would have been stepped over here with a
-      // live push credential still on disk.
-      const holds = ['.credentials.json', GH_DIR]
+      // One name per harness, plus the one the daemon mints itself. Two terminal
+      // states KEEP the whole config dir for a post-mortem, so every credential
+      // in it outlives its agent: the claude harness's `.credentials.json`, the
+      // codex harness's `auth.json`, and the minted GitHub token under `gh`
+      // (#389 widened the test for that one). `auth.json` is a real COPY of the
+      // host credential in a container (#158, and every dispatch is one), so a
+      // codex agent on a box still holding #155's PAT has no `gh` dir either —
+      // it was stepped over here with a live host token on disk (#467).
+      const holds = ['.credentials.json', 'auth.json', GH_DIR]
         .some((name) => fs.existsSync(path.join(cfgDir, name)))
       if (!holds) continue
       this.deps.removeCredentials(cfgDir)
