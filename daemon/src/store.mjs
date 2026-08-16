@@ -160,6 +160,7 @@ export class EscalationStore {
     this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
+    this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
     this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
@@ -254,6 +255,29 @@ export class EscalationStore {
     }
     if (ev.ticket != null && (ev.type === 'limit_resume' || ev.type === 'agent_spawned')) {
       this.limitResumes.delete(String(ev.ticket))
+    }
+
+    // The cooling curia has already MEASURED (#377). A reduction for the reason
+    // the limit resume above is one: a 5-hour window outlives a deploy, so a
+    // hold kept only in the dispatcher dies with the process that measured it,
+    // and the next `start` spawns a container straight into the same cap.
+    //
+    // Nothing new is written for this: `#handleLimit` has journalled both events
+    // with their `reset_at` since #175. This reads them back.
+    //
+    // The LANDED cap only, by event name. #384's pre-emptive hold is a guess
+    // re-made from a fresh reading every ten minutes and cleared below 85%, so a
+    // guess taken from the journal would hold the frontier on a reading curia no
+    // longer has. It writes its own event type, and this reduction never sees it.
+    //
+    // Nothing clears an entry: a cooling ends by its own reset instant, and the
+    // last event per key is the whole truth. A later cap on the same key
+    // overwrites the earlier one, which is what a re-cool after a resume is.
+    if (ev.type === 'model_cooling' && ev.model && ev.reset_at) {
+      this.coolings.models.set(ev.model, ev.reset_at)
+    }
+    if (ev.type === 'provider_cooling' && ev.provider && ev.reset_at) {
+      this.coolings.providers.set(ev.provider, ev.reset_at)
     }
 
     switch (ev.type) {
@@ -1031,5 +1055,15 @@ export class EscalationStore {
   // daemon was down is due the moment this is read.
   armedLimitResumes() {
     return [...this.limitResumes.entries()].map(([ticket, v]) => ({ ticket, repo: v.repo, at: v.at }))
+  }
+
+  // Every landed cap the journal states, as `{ models, providers }` of
+  // `{ key, at }` (#377). The dispatcher seeds its own `Cooling` from this at
+  // construction. `at` is the reset instant the cap was journalled with, so an
+  // entry whose window rolled while the daemon was down carries a past instant
+  // and cools nothing — `Cooling` expires it on the first read.
+  armedCoolings() {
+    const rows = (map, key) => [...map.entries()].map(([k, at]) => ({ [key]: k, at }))
+    return { models: rows(this.coolings.models, 'model'), providers: rows(this.coolings.providers, 'provider') }
   }
 }

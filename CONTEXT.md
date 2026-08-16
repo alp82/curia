@@ -120,7 +120,7 @@ The program an agent runs under: claude or codex. It is a function of the model:
 _Avoid_: backend, lane.
 
 **Cooling**:
-A temporary hold on a model or provider after a usage-limit signal, until the stated reset.
+A temporary hold on a model or provider after a usage-limit signal, until the stated reset. It survives a restart: the daemon journals every landed cap with its reset instant, and it seeds the hold back from the journal as it starts, before it takes a command. A hold whose reset passed while the daemon was down binds nothing. Only time ends a cooling. No command clears one by hand, so a wrong hold stands until its reset, which is the stated instant or one hour for a guess.
 
 **Stated reset**:
 The instant a cooling ends. Two surfaces state it, and curia reads both: the anthropic pane text carries an epoch beside the reached-text, and the codex transcript carries `resets_at` beside the rate-limit window that is spent. A cap is account-level, so any live agent on that provider states it for the harness. With neither surface stating one, cooling holds for one hour.
