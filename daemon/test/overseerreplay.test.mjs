@@ -19,6 +19,7 @@ import { Reduction } from '../src/reduction.mjs'
 import {
   replayKilledTurns, refuseReplay, droppedLine, replayLine, REPLAY_FRESH_MS,
 } from '../src/overseerreplay.mjs'
+import { journalEvents } from './fixtures/journal.mjs'
 
 const quiet = () => {}
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-replay-'))
@@ -310,7 +311,7 @@ describe('the boot pass (#388)', () => {
   test('every verdict is on the record before one word is sent', async () => {
     const dir = tmp()
     const reduction = new Reduction(dir)
-    const drops = () => reduction.journalEvents().filter((e) => e.type === 'overseer_turn_dropped').length
+    const drops = () => journalEvents(dir).filter((e) => e.type === 'overseer_turn_dropped').length
     let atFirstSend = null
     await replayKilledTurns({
       killed: [killedTurn(), killedTurn({ key: '222', thread_id: '222' })],

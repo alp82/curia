@@ -27,6 +27,7 @@ import { Reduction } from '../src/reduction.mjs'
 import { overseerHandler } from '../src/overseerservice.mjs'
 import { VERB_TOOLS, VERB_SPECS, canonicalFor } from '../src/overseerverbs.mjs'
 import { TOKEN_HEADER } from '../src/agenttoken.mjs'
+import { journalEvents } from './fixtures/journal.mjs'
 
 const quiet = () => {}
 
@@ -684,7 +685,7 @@ describe('Reduction overseer sessions', () => {
     assert.equal(reduction.overseerSession('thread-9'), 'sess-9')
     const replayed = new Reduction(dir)
     assert.equal(replayed.overseerSession('thread-1'), 'sess-2')
-    const lines = reduction.journalEvents()
+    const lines = journalEvents(dir)
     assert.equal(lines.filter((l) => l.type === 'overseer_session').length, 3)
   })
 })
@@ -738,6 +739,6 @@ describe('Reduction browser conversations (#333)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
     const reduction = new Reduction(dir)
     assert.equal(reduction.deleteConsoleConversation('console-9'), false)
-    assert.deepEqual(reduction.journalEvents(), [], 'nothing was written')
+    assert.deepEqual(journalEvents(dir), [], 'nothing was written')
   })
 })

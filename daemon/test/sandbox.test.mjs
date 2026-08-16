@@ -22,6 +22,7 @@ import {
   probeSideChannel, sourceAddressFor, stopContainer, writeEnvFile,
 } from '../src/sandbox.mjs'
 import { installSkills, seedConfigDir, agentEnv, writePrompt as realWritePrompt } from '../src/workspace.mjs'
+import { journalDouble } from './fixtures/journal.mjs'
 
 const PINS = {
   image: 'curia-agent',
@@ -462,6 +463,7 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
   const spawns = []
   const notifies = []
   const events = []
+  const double = journalDouble(path.join(tmp, 'data'))
   const base = {
     viewerLogin: async () => 'me',
     fetchIssue: async () => ({ ...ISSUE }),
@@ -511,7 +513,9 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     },
     routing,
     // expireAgentNotes (#208): no test here queues a note, so nothing expires
-    reduction: { journal: (type, data) => { events.push({ type, ...data }); return { type } }, journalEvents: () => events, openEscalations: () => [], answeredExchangeFor: () => [], cancel: () => ({ ok: true }), expireAgentNotes: () => 0 },
+    // A REAL journal behind the double (#408): the dispatcher's questions about
+    // its own past are keyed queries, so the double's writes reach real rows.
+    reduction: { journal: (type, data) => { events.push({ type, ...data }); return double.journal(type, data) }, questions: double.questions, openEscalations: () => [], answeredExchangeFor: () => [], cancel: () => ({ ok: true }), expireAgentNotes: () => 0 },
     notify: (ticket, message) => notifies.push({ ticket, message }),
     log: (...a) => log.push(a.join(' ')),
     dataDir: path.join(tmp, 'data'),

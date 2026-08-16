@@ -226,15 +226,10 @@ export class Journal {
     }
   }
 
-  // Every event the journal holds, oldest first and in today's spelling — the
-  // array the epoch questions read. A torn line cannot reach here, because both
-  // the writer and the migration parsed it before the row existed.
-  events() {
-    const out = []
-    for (const body of this.bodies()) out.push(normalizeEvent(JSON.parse(body)))
-    return out
-  }
-
+  // Nothing hands out the whole journal any more (#408). `bodies()` above is
+  // the one read that walks it, and only the boot rebuild calls it: every
+  // question the daemon asks about the past is an indexed query
+  // (`./questions.mjs`).
   close() {
     this.db.close()
   }

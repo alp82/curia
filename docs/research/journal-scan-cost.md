@@ -34,6 +34,8 @@ Every line below is one question a caller asks about the past. `#epochScan` answ
 | 13 | Did this session report a result after its dispatch? | reconcile, `:4565` | ticket or agent |
 | 14 | Did anything close this epoch? | reconcile, `:4786` | ticket or agent |
 
+A fifteenth question arrived after this file was measured. `#reconcileStaleQuestions` ([#336](https://github.com/alp82/curia/issues/336)) asks, per agent, when a session last reported a result and whether a Stop hook then deferred its ending to an open question. It reads the same whole journal `#reconcileContext` already read, so it added a consumer and not a call site. [#408](https://github.com/alp82/curia/issues/408) made it the fifteenth query. The fourteen above stay as measured at `fbbcf02`.
+
 The ten call sites do not bound the cost, because the methods above are called from more than thirty places. `#epochCharting` alone has eleven callers. Most of them short-circuit on an in-memory agent record and never reach the file. An agent this process never held misses every short circuit. That is a restart mid-flight, or a reconcile adoption.
 
 ## The three shapes

@@ -8,6 +8,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Reduction, CONFIRM_KIND } from '../src/reduction.mjs'
+import { journalEvents } from './fixtures/journal.mjs'
 
 let dir
 beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-confirm-test-')) })
@@ -104,6 +105,6 @@ describe('overseer notes (#94)', () => {
   test('an empty take writes no drain event', () => {
     const reduction = new Reduction(dir)
     assert.deepEqual(reduction.takeOverseerNotes('thread-9'), [])
-    assert.deepEqual(reduction.journalEvents(), [], 'no notes ⇒ no journal traffic')
+    assert.deepEqual(journalEvents(dir), [], 'no notes ⇒ no journal traffic')
   })
 })

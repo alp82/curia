@@ -13,6 +13,7 @@ import { DiscordBridge } from '../src/bridge.mjs'
 import { CommandRouter } from '../src/commands.mjs'
 import { Dispatcher } from '../src/dispatch.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
+import { emptyQuestions, journalEvents } from './fixtures/journal.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-threads-test-'))
 
@@ -34,7 +35,7 @@ describe('Reduction ticket-thread bindings', () => {
     const reduction = new Reduction(dir)
     reduction.bindTicketThread('85', 't-1')
     assert.equal(reduction.bindTicketThread('85', 't-1').ok, true)
-    const lines = reduction.journalEvents()
+    const lines = journalEvents(dir)
     assert.equal(lines.filter((l) => l.type === 'thread_bound').length, 1)
   })
 
@@ -58,7 +59,7 @@ describe('Reduction ticket-thread bindings', () => {
     assert.equal(reduction.threadForTicket('85'), undefined)
     assert.equal(reduction.ticketForThread('t-1'), undefined)
     assert.equal(reduction.releaseTicketThread('85', 'finished'), null, 'nothing bound ⇒ no event')
-    const lines = reduction.journalEvents()
+    const lines = journalEvents(dir)
     assert.equal(lines.filter((l) => l.type === 'thread_released').length, 1)
     // a released thread is bindable again
     assert.equal(reduction.bindTicketThread('86', 't-1').ok, true)
@@ -150,9 +151,9 @@ describe('Reduction ticket-thread bindings', () => {
     const dir = tmp()
     const reduction = new Reduction(dir)
     reduction.bindTicketThread('169', 't-1')
-    const before = reduction.journalEvents().length
+    const before = journalEvents(dir).length
     assert.deepEqual(reduction.rebindTicketThread('169', 't-1'), { ok: true, threadId: 't-1', moved: false })
-    assert.equal(reduction.journalEvents().length, before)
+    assert.equal(journalEvents(dir).length, before)
   })
 
   test('a rebind refuses a thread that already carries another ticket (#93 holds)', () => {
@@ -995,9 +996,9 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
     },
     reduction: {
       journal: (type, data) => ({ type, ...data }),
-      // Nothing here reads the journal back, so the dispatcher's epoch
-      // questions see an empty one — the same answer the absent file gave.
-      journalEvents: () => [],
+      // Nothing here reads the journal back, so the dispatcher's questions see
+      // an empty one — the same answer the absent file gave (#408).
+      questions: emptyQuestions(),
       openEscalations: () => escalations,
       // #374: no test here records an answered escalation, so the prompt
       // inherits an empty exchange and says nothing about one.

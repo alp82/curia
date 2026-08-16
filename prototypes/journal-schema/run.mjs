@@ -292,7 +292,7 @@ function stampEvidence() {
   const dir = fs.mkdtempSync(path.join(tmp, 'stamps-'))
   const reduction = new Reduction(dir)
   for (let i = 0; i < 2000; i++) reduction.journal('probe', { ticket: 900, agent: 'curia-900', i })
-  const stamps = reduction.journalEvents().map((e) => e.ts)
+  const stamps = [...reduction.db.bodies()].map((b) => JSON.parse(b).ts)
   const counts = new Map()
   for (const s of stamps) counts.set(s, (counts.get(s) ?? 0) + 1)
 
@@ -313,7 +313,7 @@ function stampEvidence() {
   }
 
   const probe = openJournal(path.join(tmp, 'boundary.db'), { epochColumn: true })
-  probe.appendAll(reduction2.journalEvents().map((e) => JSON.stringify(e)))
+  probe.appendAll([...reduction2.db.bodies()])
   const ask = (sql) => Boolean(probe.db.prepare(sql).get({ t: tie?.ticket ?? '0' }).answer)
   // "Did this dispatch push a pull request?", cut by the id and cut by the stamp.
   const byId = ask(`

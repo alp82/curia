@@ -21,6 +21,7 @@
 import crypto from 'node:crypto'
 import { nextConsoleKey } from './attach.mjs'
 import { openJournal, normalizeEvent } from './journal.mjs'
+import { Questions } from './questions.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -113,6 +114,10 @@ export class Reduction {
     // boot on the database (#323). The field is `db` and not `journal`, because
     // `journal()` is the verb this class exposes for writing one event.
     this.db = openJournal(dataDir, { log })
+    // What the dispatcher asks the journal about the past (#408). Fifteen
+    // indexed queries on the daemon's one connection, where a whole read used
+    // to answer. `./questions.mjs` holds the SQL and the rules it runs under.
+    this.questions = new Questions(this.db.db)
     this.escalations = new Map() // id -> record
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
@@ -152,13 +157,6 @@ export class Reduction {
     for (const body of this.db.bodies()) {
       this._apply(normalizeEvent(JSON.parse(body)), { replay: true })
     }
-  }
-
-  // Every event the journal holds, oldest first and in today's spelling. The
-  // dispatcher's epoch questions read it, and they read it through the daemon's
-  // one write connection rather than opening a second one.
-  journalEvents() {
-    return this.db.events()
   }
 
   // Close the write connection. The daemon never calls this: WAL with
