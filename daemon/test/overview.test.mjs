@@ -236,6 +236,14 @@ describe('GET /overview (index.mjs, real boot)', () => {
     assert.ok(gate, 'the gate is its own list')
     assert.equal(gate.kind, REVIEW_KIND)
     assert.ok('pull_request' in gate, 'the gate card carries the pull request nothing else carries')
+    // The digest (#355) is the second thing only the gate carries. This gate
+    // was opened straight through `POST /escalate`, so nothing counted a diff
+    // for it — and the field is present and NULL rather than absent, because
+    // the card has to tell "curia could not count this" from "nothing changed".
+    assert.ok('diff' in gate, 'the gate card carries the digest counted when it opened')
+    assert.equal(gate.diff, null)
+    assert.ok('diff_error' in gate)
+    assert.equal('diff' in ask, false, 'only the gate carries a diff')
 
     // And an answered escalation leaves both lists at once.
     const answered = await request(port, 'POST', '/answer', {
@@ -251,6 +259,71 @@ describe('GET /overview (index.mjs, real boot)', () => {
     const cross = await request(port, 'GET', '/overview', { headers: { origin: 'http://evil.com' } })
     assert.equal(cross.status, 403, 'the CSRF gate covers the whole surface, this route included')
     assert.equal(AGENT_ROUTES.has('/overview'), false, 'an agent container cannot reach the operator\'s own read')
+  })
+
+  // ---- GET /diff (#355) ------------------------------------------------------
+  //
+  // The one route the console reads OFF the poll. It is addressed by naming a
+  // thing curia already knows — an escalation id or an agent — and the daemon
+  // resolves the worktree itself. Nothing here can be pointed at a path.
+  describe('GET /diff, the digest and the hunks on demand', () => {
+    const diff = async (q) => {
+      const res = await request(port, 'GET', `/diff${q}`)
+      return { status: res.status, body: JSON.parse(res.body) }
+    }
+
+    test('it refuses a call that names neither a gate nor an agent', async () => {
+      const r = await diff('')
+      assert.equal(r.status, 400)
+      assert.match(r.body.error, /escalation id or an agent/)
+    })
+
+    test('an escalation that is not the review gate carries no diff, and says so', async () => {
+      const res = await request(port, 'POST', '/escalate', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agent: 'curia-1', ticket: '1', kind: 'free-text', prompt: 'which way?' }),
+      })
+      const id = JSON.parse(res.body).id
+      const r = await diff(`?esc=${id}`)
+      assert.equal(r.status, 400)
+      assert.match(r.body.error, /not a review gate/)
+    })
+
+    test('a gate curia could not count answers null with its reason, never an empty file list', async () => {
+      const res = await request(port, 'POST', '/escalate', {
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agent: 'curia-1', ticket: '1', kind: REVIEW_KIND, prompt: 'is this done?' }),
+      })
+      const id = JSON.parse(res.body).id
+      const r = await diff(`?esc=${id}`)
+      assert.equal(r.status, 200)
+      assert.equal(r.body.digest, null)
+      assert.equal(r.body.uncommitted, false, 'a gate states what it counted, and it counted commits')
+
+      // A file index against a digest that does not exist is not a file.
+      const f = await diff(`?esc=${id}&file=0`)
+      assert.equal(f.status, 200)
+      assert.equal(f.body.hunks, null)
+    })
+
+    test('an escalation curia has no record of is a 404, not a silent null', async () => {
+      const r = await diff('?esc=esc-99999')
+      assert.equal(r.status, 404)
+    })
+
+    test('the live row read says it holds uncommitted work, and names its own failure', async () => {
+      const r = await diff('?agent=curia-4242')
+      assert.equal(r.status, 200)
+      assert.equal(r.body.uncommitted, true, 'a live row shows committed and uncommitted work together')
+      assert.equal(r.body.digest, null)
+      assert.ok(r.body.error, 'an unresolvable agent says why rather than answering an empty change')
+    })
+
+    test('it is loopback tooling too — no browser, no container', async () => {
+      const cross = await request(port, 'GET', '/diff?agent=curia-1', { headers: { origin: 'http://evil.com' } })
+      assert.equal(cross.status, 403)
+      assert.equal(AGENT_ROUTES.has('/diff'), false, 'an agent has its own worktree and no business reading another\'s')
+    })
   })
 })
 
@@ -295,6 +368,27 @@ describe('the journal tail the feed reads (#262)', () => {
     // A second store over the same journal replays the file, so the tail is
     // right the instant the boot replay ends — no first-append warm-up.
     assert.deepEqual(store().recentEvents().map((e) => e.n), tail.map((e) => e.n))
+  })
+
+  // The digest (#355) is up to two hundred file rows, and the feed rides every
+  // five-second poll. The journal keeps the list whole because it is the
+  // durable record; the feed keeps the totals, so the cost #289 took off this
+  // route does not come back under a new name. The console reads the list off
+  // the review-gate record instead, in full.
+  test('the feed keeps a diff digest\'s totals and drops its per-file list', () => {
+    const a = store()
+    const list = Array.from({ length: 200 }, (_, i) => ({ path: `src/f${i}.mjs`, added: 1, deleted: 0, status: 'M' }))
+    a.logEvent('review_requested', { repo: 'o/r', ticket: '9', agent: 'curia-9', diff: { files: 200, added: 200, deleted: 0, list } })
+
+    const ev = a.recentEvents().at(-1)
+    assert.equal(ev.diff.files, 200)
+    assert.equal(ev.diff.added, 200)
+    assert.equal(ev.diff.list, undefined, 'two hundred file rows must not ride the poll')
+    assert.equal(ev.diff.list_on_the_record, 200, 'the feed says the list exists rather than hiding it')
+
+    // The journal itself is untouched: the durable record carries the list.
+    const line = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').at(-1)
+    assert.equal(JSON.parse(line).diff.list.length, 200)
   })
 })
 

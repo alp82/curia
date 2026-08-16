@@ -748,6 +748,57 @@ describe('the operator verbs (#266)', () => {
     assert.deepEqual(calls, [], 'not one of them reached the daemon')
   })
 
+  // ---- the diff, on demand (#355) --------------------------------------------
+  //
+  // The one READ this surface makes that is not the poll. It follows the same
+  // seam every verb above does: the browser names an escalation id or an agent,
+  // and a file only by its place in the digest curia itself measured — never a
+  // path, a repo, a branch or a command.
+
+  const read = (p) => req(surface.port, p, { headers: served() })
+
+  test('a gate asks by escalation id, and the sidecar passes exactly that', async () => {
+    reply['/diff?esc=esc-9'] = [200, { agent: 'curia-9', digest: { files: 2, added: 5, deleted: 1, list: [] }, error: null }]
+    const res = await read('/api/diff?esc=esc-9')
+    assert.equal(res.status, 200)
+    assert.equal(JSON.parse(res.text).digest.files, 2)
+    assert.equal(sent('/diff?esc=esc-9').method, 'GET')
+  })
+
+  test('a live row asks by agent, and a file by its index — nothing else crosses', async () => {
+    reply['/diff?agent=curia-355&file=3'] = [200, { hunks: { text: '+one', source: 'worktree' } }]
+    const res = await read('/api/diff?agent=curia-355&file=3&repo=o/r&path=/etc/passwd')
+    assert.equal(res.status, 200)
+    assert.ok(sent('/diff?agent=curia-355&file=3'), 'the sidecar composed the query itself')
+    assert.ok(!calls.some((c) => c.url.includes('passwd')), 'a field this surface does not name must not travel')
+  })
+
+  test('a field the daemon would read as something else is refused here, before the wire', async () => {
+    for (const [q, why] of [
+      ['/api/diff', /a review gate or an agent/],
+      ['/api/diff?agent=' + encodeURIComponent('rm -rf /'), /curia session name/],
+      ['/api/diff?esc=' + encodeURIComponent('esc 9; ls'), /escalation id/],
+      ['/api/diff?agent=curia-9&file=' + encodeURIComponent('../../etc/passwd'), /file index/],
+      ['/api/diff?agent=curia-9&file=99999', /file index/],
+    ]) {
+      const res = await read(q)
+      assert.equal(res.status, 400, q)
+      assert.match(JSON.parse(res.text).error, why)
+    }
+    assert.deepEqual(calls, [], 'not one of them reached the daemon')
+  })
+
+  // The rule the fleet follows: an unreachable daemon is not an unchanged
+  // branch, so the card says curia could not be asked.
+  test('a daemon that cannot be asked answers null with its reason, never an empty digest', async () => {
+    daemon.close()
+    const res = await read('/api/diff?esc=esc-9')
+    assert.equal(res.status, 200)
+    const b = JSON.parse(res.text)
+    assert.equal(b.digest, null)
+    assert.ok(b.error)
+  })
+
   // ---- the browser conversations (#333) --------------------------------------
   //
   // The Chat screen's three calls. They are not verbs: the operator catalogue

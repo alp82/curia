@@ -21,7 +21,7 @@ import {
   viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
-  deleteRemoteBranch,
+  deleteRemoteBranch, pullRequestDiff,
 } from './github.mjs'
 import {
   resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
@@ -37,6 +37,7 @@ import {
   untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
 import { ensureAgentImage } from './image.mjs'
+import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset } from './usage.mjs'
 import { mintAgentToken, forgetAgentToken, sweepAgentTokens } from './agenttoken.mjs'
 import {
@@ -207,8 +208,10 @@ const DEFAULT_DEPS = {
   mintAgentToken, forgetAgentToken, sweepAgentTokens,
   // resolve + land (#41), merge-gated (#54)
   commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
-  setPullRequestBody, deleteRemoteBranch,
+  setPullRequestBody, deleteRemoteBranch, pullRequestDiff,
   defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles, pushBranch, hasUnpushedWork,
+  // the diff digest (#355) — the numbers at the gate, the hunks on demand
+  readDiffDigest, readFileHunks,
 }
 
 // The one directory a charting session may write (#297, ADR-0008). Its research
@@ -2413,6 +2416,55 @@ export class Dispatcher {
     }
   }
 
+  // ---- the diff digest, read on demand (#355) ------------------------------
+  //
+  // The BROWSER names an escalation id or an agent name and nothing else — no
+  // path, no repo, no branch, no command. These two resolve the worktree
+  // themselves, off the same binding every other agent-facing call reads. That
+  // is the #266 seam: the console asks about a THING curia already knows about,
+  // and curia decides what reading that means.
+
+  // The live digest behind an agent row, committed and uncommitted work
+  // together. Read on demand and never on the poll: it costs three local git
+  // calls, and the 5s refresh would pay them for a card nobody opened.
+  async agentDiff(agentName) {
+    const b = this.#bindingFor(agentName)
+    if (b.error) return { digest: null, error: b.error }
+    return await this.deps.readDiffDigest(b.wtPath, { uncommitted: true })
+  }
+
+  // One file's hunks. `file` is an entry the digest itself produced, so the
+  // path this reads is one curia measured rather than one a browser chose.
+  //
+  // A worktree that is gone falls back to the pull request's own diff, and the
+  // answer says which source it came from. With no pull request either, it says
+  // that too — an unreadable file and a file with no changes must not render
+  // the same, the rule the digest's own null case follows.
+  async agentHunks(agentName, file, { uncommitted = false } = {}) {
+    const b = this.#bindingFor(agentName)
+    if (b.error) return { text: null, error: b.error }
+    if (fs.existsSync(b.wtPath)) {
+      const out = await this.deps.readFileHunks(b.wtPath, file, { uncommitted })
+      return { ...out, source: 'worktree', path: file.path }
+    }
+    const url = this.pullRequestUrlFor(agentName)
+    const n = /\/pull\/(\d+)/.exec(url ?? '')?.[1]
+    if (!n) {
+      return {
+        text: null, path: file.path, source: null,
+        error: `the agent worktree is gone and curia knows no pull request for \`${agentName}\`, so there is nowhere left to read this diff from`,
+      }
+    }
+    try {
+      const patch = await this.deps.pullRequestDiff(b.repo, n)
+      const slice = sliceFromPatch(patch, file.path)
+      if (!slice) return { text: null, path: file.path, source: 'pull-request', error: `${file.path} is not in the pull request's own diff` }
+      return { ...capText(slice), error: null, source: 'pull-request', path: file.path }
+    } catch (e) {
+      return { text: null, path: file.path, source: 'pull-request', error: e.message }
+    }
+  }
+
   // `open_pull_request` (#54 item 1). Landing left report_result because the
   // pull request is now what a human reviews BEFORE anything is resolved — so it
   // has to be openable in the middle of a ticket, and re-openable after every
@@ -2503,7 +2555,7 @@ export class Dispatcher {
     if (refused) return { ok: false, text: refused }
     const b = this.#bindingFor(agentName)
     if (b.error) return { ok: false, text: `❌ ${b.error} — no review was requested` }
-    const { w, ticket, repo, branch } = b
+    const { w, ticket, repo, branch, wtPath } = b
     // #297, ADR-0008: the gate is open to a charting agent now. #160 refused it
     // because a charting agent had no diff — that stopped being true when #286
     // gave the session research subagents that write files. The map edits are
@@ -2573,13 +2625,29 @@ export class Dispatcher {
     const preview = this.previews?.get(ticket)
     if (preview?.url) links.push(`Preview: ${preview.url}`)
 
-    const { text } = reviewGateText({ repo, ticket: map ?? ticket, title, summary, charting, links, mapDispatch })
+    // The count, ONCE, at the instant the gate opens (#355, #343). The worktree
+    // is guaranteed to exist here, because the agent is parked inside this very
+    // call — so this is the one moment the numbers can be measured for free,
+    // locally, with no network and no second reader. Everything downstream
+    // (Discord, the console, a poll five seconds later, a card the operator
+    // opens after the agent has died) reads this one stored answer.
+    const { digest, error: digestError } = await this.deps.readDiffDigest(wtPath)
+    if (!digest) this.log(`review gate for ${repo}#${ticket}: the diff could not be counted (${digestError})`)
+
+    const { text } = reviewGateText({
+      repo, ticket: map ?? ticket, title, summary, charting, links, mapDispatch,
+      digestLine: digestLine(digest, digestError),
+    })
     this.store.logEvent('review_requested', {
       repo, ticket, agent: agentName, pr: pr?.url ?? w?.prUrl ?? null,
       preview: preview?.url ?? null, ...(mapDispatch ? { kind: 'charting' } : {}),
+      // Null, never empty (#355). A worktree that is already gone records the
+      // reason, so the card can say curia could not count this diff instead of
+      // drawing a change with no files in it.
+      diff: digest, diff_error: digestError,
     })
     if (w) w.state = 'awaiting-review'
-    const { text: answer, status } = await this.askReview(agentName, ticket, text)
+    const { text: answer, status } = await this.askReview(agentName, ticket, text, { diff: digest, diffError: digestError })
     if (w && w.state === 'awaiting-review') w.state = 'ready'
 
     if (status !== 'answered') {

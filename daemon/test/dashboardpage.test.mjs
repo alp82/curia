@@ -78,6 +78,20 @@ const OVERVIEW = () => ({
     id: 'esc-9', agent: 'curia-261', ticket: '261', kind: 'review-gate', prompt: 'is this done?',
     options: null, preview_url: null, opened_at: at(300), agent_died: false, rendered: true,
     thread_id: '98', pull_request: 'https://github.com/alp82/curia/pull/262',
+    // The digest counted when the gate opened (#355). It rides the record, so
+    // the card costs no read — and the page must draw it from here, never
+    // re-count it on the poll.
+    diff: {
+      uncommitted: false, files: 4, added: 812, deleted: 233, capped: false,
+      rank_rule: 'source first, then tests, then docs, generated and lock files last — largest first inside each class',
+      list: [
+        { path: 'daemon/src/dashboard.mjs', added: 120, deleted: 4, status: 'M', binary: false, untracked: false, hunks: 9, from: null },
+        { path: 'daemon/test/page.test.mjs', added: 40, deleted: 2, status: 'A', binary: false, untracked: false, hunks: 3, from: null },
+        { path: 'docs/adr/0019-x.md', added: 30, deleted: 0, status: 'A', binary: false, untracked: false, hunks: 1, from: null },
+        { path: 'daemon/package-lock.json', added: 622, deleted: 227, status: 'M', binary: false, untracked: false, hunks: 11, from: null },
+      ],
+    },
+    diff_error: null,
   }],
   bridge: 'up',
   bridge_health: { state: 'up', since: at(9000), unhealthy_for_s: 0, last_error: null },
@@ -708,6 +722,168 @@ describe('the operator verbs (#266)', () => {
 
     test('the pull request stays the one thing this card carries that no other does', () => {
       assert.match(text(page.screenHome(payload())), /pull\/262/)
+    })
+  })
+
+  // ---- the diff digest (#355) ----------------------------------------------
+  //
+  // The card answers "how big is this, and what did it touch" before the
+  // approve press. What is pinned here is what it SAYS: that the numbers come
+  // off the stored digest rather than a read, that nothing is hidden, that the
+  // rank rule is stated where the operator can read it, and that an uncounted
+  // diff never renders as an unchanged one.
+
+  describe('the diff digest on the gate card', () => {
+    // What THIS card asked to read, by the key the gate addresses it under.
+    const gateQueue = () => page.diffQueue.filter((j) => j.key === 'esc:esc-9').map((j) => j.i)
+    beforeEach(() => {
+      // The card caches its hunk reads, and each test starts from a card
+      // nobody has opened.
+      for (const k of Object.keys(page.diffs)) delete page.diffs[k]
+      page.diffQueue.length = 0
+    })
+
+    test('the totals sit on the card, from the stored digest and no extra read', () => {
+      const t = text(page.screenHome(payload()))
+      assert.match(t, /4 files \+812 −233/)
+    })
+
+    test('every changed file is listed with its own numbers — nothing is hidden', () => {
+      const t = text(page.screenHome(payload()))
+      for (const p of ['daemon/src/dashboard.mjs', 'daemon/test/page.test.mjs', 'docs/adr/0019-x.md', 'daemon/package-lock.json']) {
+        assert.ok(t.includes(p), `${p} is missing from the card`)
+      }
+      assert.match(t, /\+120 −4/)
+      assert.match(t, /\+622 −227/)
+    })
+
+    test('the rank rule is stated on the card, so the order hides nothing', () => {
+      assert.match(text(page.screenHome(payload())),
+        /ranked source first, then tests, then docs, generated and lock files last — largest first inside each class/)
+    })
+
+    test('the caption says the facts in words: new, renamed, deleted, how many hunks', () => {
+      const t = text(page.screenHome(payload()))
+      assert.match(t, /new · 3 hunks/)
+      assert.match(t, /9 hunks/)
+    })
+
+    test('the top file opens expanded and the rest open on a tap', () => {
+      const html = page.screenHome(payload())
+      assert.match(html, /toggleDiffFile\('esc:esc-9',0,'\/api\/diff\?esc=esc-9'\)/)
+      assert.match(html, /toggleDiffFile\('esc:esc-9',3,'\/api\/diff\?esc=esc-9'\)/)
+      // Only the top one asked for its hunks; the other three cost nothing.
+      assert.deepEqual(plain(gateQueue()), [0])
+    })
+
+    // The hunks are fetched per file, once. A card left open on a desk must not
+    // re-read four files every five seconds.
+    test('a second render of the same card asks for nothing again', () => {
+      page.screenHome(payload())
+      page.diffQueue.length = 0
+      page.screenHome(payload())
+      assert.deepEqual(plain(gateQueue()), [])
+    })
+
+    test('a fetched file draws its patch, colored by the patch\'s own vocabulary', () => {
+      page.screenHome(payload())
+      page.diffs['esc:esc-9'].hunks[0] = {
+        text: '@@ -1,2 +1,3 @@\n keep\n-gone\n+added', lines_shown: 4, lines_total: 4, truncated: false, error: null,
+      }
+      const html = page.screenHome(payload())
+      assert.match(html, /<span class="hl at">@@ -1,2 \+1,3 @@<\/span>/)
+      assert.match(html, /<span class="hl add">\+added<\/span>/)
+      assert.match(html, /<span class="hl del">-gone<\/span>/)
+    })
+
+    // The second cap. A long file stops, says how much it did not show, and
+    // puts the link to the whole thing beside it.
+    test('a capped file says how many lines it did not show, with GitHub beside it', () => {
+      page.screenHome(payload())
+      page.diffs['esc:esc-9'].hunks[0] = {
+        text: '+one', lines_shown: 400, lines_total: 963, truncated: true, error: null,
+      }
+      const html = page.screenHome(payload())
+      assert.match(text(html), /the card stopped at 400 lines and did not show 563 more/)
+      assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/262\/files"/)
+    })
+
+    test('a file read from the pull request says the worktree is gone', () => {
+      page.screenHome(payload())
+      page.diffs['esc:esc-9'].hunks[0] = {
+        text: '+one', lines_shown: 1, lines_total: 1, truncated: false, error: null, source: 'pull-request',
+      }
+      assert.match(text(page.screenHome(payload())), /the worktree is gone — this comes from the pull request's own diff/)
+    })
+
+    // The first cap. A list that silently stopped would read as the whole
+    // change, which is the one thing a merge gate must not do.
+    test('a capped file list says the cap on the card', () => {
+      const gate = OVERVIEW().review_gate[0]
+      const t = text(page.screenHome(payload({
+        review_gate: [{ ...gate, diff: { ...gate.diff, files: 412, capped: true } }],
+      })))
+      assert.match(t, /the list stops at 4 of 412 files/)
+    })
+
+    // NULL IS NOT EMPTY, the rule every screen on this page runs under.
+    test('a digest curia could not take says so, and never reads as an unchanged branch', () => {
+      const t = text(page.screenHome(payload({
+        review_gate: [{ ...OVERVIEW().review_gate[0], diff: null, diff_error: 'the agent worktree is gone' }],
+      })))
+      assert.match(t, /curia could not count this diff — the agent worktree is gone/)
+      assert.ok(!/No file changed/.test(t))
+    })
+
+    test('a branch that really changed nothing says that instead', () => {
+      const t = text(page.screenHome(payload({
+        review_gate: [{ ...OVERVIEW().review_gate[0], diff: { files: 0, added: 0, deleted: 0, capped: false, list: [] }, diff_error: null }],
+      })))
+      assert.match(t, /No file changed against the default branch/)
+      assert.ok(!/could not count/.test(t))
+    })
+  })
+
+  // ---- the same card, before the gate (#355) --------------------------------
+
+  describe('the diff digest on a live agent row', () => {
+    beforeEach(() => {
+      for (const k of Object.keys(page.diffs)) delete page.diffs[k]
+      page.diffQueue.length = 0
+      page.UI.act.diff = null
+    })
+
+    test('every live row carries the button, beside teleport', () => {
+      const html = page.screenAgents(payload())
+      assert.match(html, /openDiff\('curia-263'\)/)
+    })
+
+    test('a row nobody pressed reads nothing at all', () => {
+      page.screenAgents(payload())
+      assert.deepEqual(plain(page.diffQueue.filter((j) => j.key.startsWith('agent:'))), [])
+      assert.deepEqual(plain(Object.keys(page.diffs).filter((k) => k.startsWith('agent:'))), [])
+    })
+
+    test('an open row waits on the count rather than drawing an empty change', () => {
+      page.UI.act.diff = 'curia-263'
+      assert.match(text(page.screenAgents(payload())), /counting the work so far/)
+    })
+
+    test('the read says it holds committed and uncommitted work together', () => {
+      page.UI.act.diff = 'curia-263'
+      const d = page.diffState('agent:curia-263')
+      d.read = true
+      d.digest = {
+        uncommitted: true, files: 2, added: 9, deleted: 1, capped: false,
+        list: [
+          { path: 'src/app.mjs', added: 7, deleted: 1, status: 'M', binary: false, untracked: false, hunks: 2, from: null },
+          { path: 'src/scratch.mjs', added: 2, deleted: 0, status: 'A', binary: false, untracked: true, hunks: null, from: null },
+        ],
+      }
+      const t = text(page.screenAgents(payload()))
+      assert.match(t, /2 files \+9 −1 — committed and uncommitted work together/)
+      assert.match(t, /new, not committed yet/)
+      assert.match(page.screenAgents(payload()), /toggleDiffFile\('agent:curia-263',1,'\/api\/diff\?agent=curia-263'\)/)
     })
   })
 
