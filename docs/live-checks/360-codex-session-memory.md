@@ -6,7 +6,8 @@ Ticket: [alp82/curia#360](https://github.com/alp82/curia/issues/360), on the map
 `config/curia.yaml` pins. No codex credential was available.
 
 This check continues [#340](https://github.com/alp82/curia/issues/340), which left three
-questions open. It answers two of them and states why the third stays open.
+questions open. It answers two of them. The operator ruled the third out of scope, because the
+first two settle the decision it was meant to inform.
 
 ## Summary
 
@@ -18,8 +19,13 @@ A mention resolves in one channel only: a fresh user message. A mention inside a
 does not resolve. A mention inside `AGENTS.md` does not resolve either. So the pane send is
 the only channel curia owns, exactly as the ticket predicted.
 
-Obedience decay over twenty turns stays unmeasured. It needs a codex credential and a real
-dispatch, and this container has neither.
+Together those two close re-injection as an option. The operator rejected it on 2026-08-16 and
+named the direction instead: fix the embedding and the invocation, so the skill stops being
+conversation. Section 4 prices the durable channel and states why the one-flag route is not
+that fix.
+
+Obedience decay over twenty turns stays unmeasured, and the operator ruled the number
+unnecessary. See section 3.
 
 ## The instrument: a stub Responses API
 
@@ -116,7 +122,7 @@ not user input, and neither is a global-memory file. A queued operator note ride
 result, so it cannot re-arm a skill. The timeline pane send is the only channel curia owns
 that can.
 
-## 3. Obedience decay stays open
+## 3. Obedience decay is not measured, and the operator ruled it unnecessary
 
 Not measured. It needs a codex credential and a session of about twenty turns on a real
 ticket. An agent container has no credential: `seedConfigDir` copies the host's
@@ -129,7 +135,50 @@ body. 92 pull requests carry seven that name `gpt`, and only
 [#353](https://github.com/alp82/curia/pull/353) ran after the skill tree changed on
 2026-08-10. That is the same population of one that #340 found. It did not grow.
 
-## 4. What this check did not settle about the #340 counter
+**The operator ruled the measurement unnecessary (2026-08-16).** The decay number existed to
+decide whether re-injection was worth its price. Section 1 settles that on its own, because a
+re-mention duplicates the skill and pollutes the context. The operator rejected that outright,
+so the number would decide nothing. The question is out of scope, not open.
+
+## 4. The catalog lever exists, and it is not a stable fix
+
+Section 2 leaves the pane send as curia's only channel, and section 1 prices a re-mention out
+of reach. So the remaining direction is to stop the skill from being conversation at all. The
+operator named it on 2026-08-16: fix the embedding and the invocation.
+
+Codex lists the skills it can see in a **developer** message. That message is world state. The
+model reads it on every turn, and no compaction rule calls it stale. `wayfinder` is absent from
+that list because the vendored tree carries this:
+
+```yaml
+# skills/wayfinder/agents/openai.yaml
+policy:
+  allow_implicit_invocation: false
+```
+
+Flipping the flag to `true` puts `wayfinder` in the list. Measured against the stub with a
+patched copy of the tree:
+
+| | Cost | Channel | Restated each turn |
+|---|---|---|---|
+| `$wayfinder` mention | 11,867 chars, stacking | user message | no |
+| Catalog entry | 257 chars | developer message | yes |
+
+The catalog entry carries the name, the description and the file path. No `<skill>` block
+reaches the input, so listing a skill does not inject its body.
+
+**The operator rejected the flip (2026-08-16).** Patching a vendored manifest, either in the
+tree or in curia's per-agent copy, is a monkey patch. It is brittle, and a skill-tree update
+breaks it silently. The measurement stands as evidence of what the durable channel costs. It
+is not the fix.
+
+Two facts bound whatever the stable fix turns out to be. `allow_implicit_invocation: false` is
+upstream's deliberate pair to `disable-model-invocation: true`, so any fix disagrees with
+upstream on purpose or asks upstream for a lever. And listing a skill only re-arms the trigger.
+Whether codex then pastes the whole body on every turn it triggers is untested here, and it
+needs a credential. If it does, the duplication returns by another door.
+
+## 5. What this check did not settle about the #340 counter
 
 #340 moved the standing orders into `AGENTS.md` because codex holds that file as world state.
 This check confirms the first half and leaves the second half open.
@@ -146,7 +195,7 @@ untestable here for the same reason as section 3. A compaction needs a real mode
 So the counter rests on a behavior this check could observe at rest and not under load. That
 belongs with the decay question, not with this one.
 
-## How to re-run it
+## 6. How to re-run it
 
 Seed the fixture as #340 documents, then start the stub and point codex at it:
 
