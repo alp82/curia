@@ -1,6 +1,16 @@
 // The turn crosses the boundary (#314) — the DAEMON half. The container half,
 // and the protocol both halves speak, is `overseerturn.mjs`.
 //
+// THE BOUNDARY (ADR-0014, cut over on #315): the overseer model runs in its
+// own container, and this file is the daemon's whole reach into it. The
+// container holds a shell, so the containment is no longer a tool list in this
+// process — it is the container itself, the read-only GitHub token, and the
+// one way back in: every verb call lands on the daemon's own MCP side channel
+// below, which composes the canonical text HERE and posts it to the same
+// `/command` seam the slash verbs and REST use. The daemon executes every
+// effect, and the ✅/❌ confirm on a destructive verb survives, because the
+// container never touches the router — it only ever asks.
+//
 // Three things live here, and they are one job:
 //
 //   1. `OverseerTurns` — the per-turn registry. It mints the secret the
@@ -9,9 +19,9 @@
 //   2. `buildVerbMcpServer` — the eight verbs as an HTTP MCP server, which is
 //      the daemon's own side channel. The handlers are the catalogue's, so a
 //      call composes canonical text HERE and posts it to `/command`.
-//   3. `OverseerClient` — what the bridge and the Chat screen call. Its shape
-//      is `OverseerHost`'s, deliberately: #315 swaps the two and nothing else
-//      at either door has to change.
+//   3. `OverseerClient` — what the bridge and the Chat screen call. It kept
+//      the in-daemon `OverseerHost`'s shape on purpose: the cutover (#315)
+//      swapped the two and nothing else at either door had to change.
 //
 // THE SECRET IS PER TURN, and it lives in memory for the length of one. An
 // agent's token is a file, because a restarted daemon adopts agents its
@@ -67,7 +77,7 @@ export class OverseerTurns {
       crossed.set(verb, (crossed.get(verb) ?? 0) + 1)
       // The total, which nothing decrements. ADR-0015 replays a turn a restart
       // killed, and ONLY one that crossed this seam zero times — a turn that
-      // already dispatched or cancelled must never be replayed. #315 reads it.
+      // already dispatched or cancelled must never be replayed. #395 reads it.
       turn.crossings += 1
       try {
         await narrate(text)

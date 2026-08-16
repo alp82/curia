@@ -1607,18 +1607,20 @@ const CHAT_PAGE = "/chat";
 const chatHref = (session) => CHAT_PAGE + "?session=" + encodeURIComponent(session);
 
 function screenChat(p) {
-  /* The overseer runs INSIDE the daemon, so a daemon that is not answering is a
-     chat that is not there. The bar above says why; this says what it means. */
+  /* The overseer runs in its own container (#315), but every message reaches it
+     THROUGH the daemon, so a daemon that is not answering is still a chat that
+     is not there. The bar above says why; this says what it means. */
   const down = p && !p.daemon_up;
   const lead = `<p class="lead">This is the overseer — the same curia that answers your prose in
       Discord. It sees every watched repo, and it holds the verbs: ask it what to start, then say
       <code>start 256</code> and it dispatches.</p>
-    ${down ? `<p class="unread">The chat is down while the daemon restarts. The overseer runs inside it.</p>` : ""}`;
+    ${down ? `<p class="unread">The chat is down while the daemon restarts. Your message reaches the overseer through it.</p>` : ""}`;
   const count = conversations?.conversations?.length ?? null;
   return `${head(p, "Chat", count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`)}
     <div class="door">${lead}${chatList()}
-      <p class="cannot">It has no shell and no checkout, so it cannot read a file or a diff. It tells
-        you what curia knows, and it acts. A destructive verb still posts its ✅/❌ card, and that
+      <p class="cannot">It holds a reading shell over a checkout of every watched repo, so it can
+        read a file or a diff — but it cannot write one: its GitHub token is read-only, and every
+        effect still crosses the daemon. A destructive verb still posts its ✅/❌ card, and that
         card lands on Home.</p>
     </div>`;
 }

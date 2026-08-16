@@ -59,15 +59,14 @@ export const OVERSEER_MCP_PATH = '/overseer/mcp'
 // tools at all — the same one-constant rule workspace.mjs states for an agent.
 export const MCP_SERVER_NAME = 'curia'
 
-// Sonnet 5, as ADR-0014 decides. Haiku answered a mapping from prose to eight
-// verbs, and this posture reads code and diffs. It is a separate constant from
-// the in-daemon host's `OVERSEER_MODEL`, which stays Haiku until #315 deletes
-// that host — two models, two names, for as long as there are two hosts.
+// Sonnet 5, as ADR-0014 decides. Haiku answered the in-daemon host's mapping
+// from prose to eight verbs, and this posture reads code and diffs.
 export const OVERSEER_CONTAINER_MODEL = 'claude-sonnet-5'
 
-// The in-daemon host caps a turn at 12 assistant turns, and that was sized for
-// a model whose every turn was one verb call. A shell reads: list a directory,
-// grep it, open two files, then answer. 12 would cut that answer off mid-read.
+// The in-daemon host capped a turn at 12 assistant turns, and that was sized
+// for a model whose every turn was one verb call. A shell reads: list a
+// directory, grep it, open two files, then answer. 12 would cut that answer
+// off mid-read.
 export const CONTAINER_MAX_TURNS = 40
 
 // ---- where the container keeps its own two directories ---------------------

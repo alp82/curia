@@ -23,9 +23,9 @@ import {
 } from '../src/overseerturn.mjs'
 import { unroutedNote } from '../src/overseercreds.mjs'
 import { OverseerClient, OverseerTurns, buildVerbMcpServer, serveVerbMcp } from '../src/overseerclient.mjs'
+import { EscalationStore } from '../src/store.mjs'
 import { overseerHandler } from '../src/overseerservice.mjs'
 import { VERB_TOOLS, VERB_SPECS, canonicalFor } from '../src/overseerverbs.mjs'
-import { canonicalFor as reExported } from '../src/overseer.mjs'
 import { TOKEN_HEADER } from '../src/agenttoken.mjs'
 
 const quiet = () => {}
@@ -113,8 +113,7 @@ describe('the verb catalogue serves both transports (#314)', () => {
     }
   })
 
-  test('the old home re-exports the contract, so #315 deletes a file and not a rule', () => {
-    assert.equal(reExported, canonicalFor)
+  test('the contract survived the cutover: #315 deleted a file and not a rule', () => {
     assert.equal(canonicalFor('start', { ticket: '314', repo: 'curia' }), 'start curia#314')
   })
 
@@ -589,5 +588,139 @@ describe('the whole crossing: a verb reaches /command from inside the container 
     assert.equal(res.status, 403)
     assert.match((await res.json()).error, /no live curia overseer turn/)
     turns.end(turn.id)
+  })
+})
+
+// ---- the cutover (#315) -----------------------------------------------------
+//
+// The in-daemon host is gone, and the client above answers BOTH surfaces. What
+// moved here with the cutover is the conversation behavior the host's suite
+// pinned and the client must keep: the confirm notes that drain into the next
+// prompt exactly once, and a one-turn lock that is per conversation rather
+// than global.
+
+describe('the cutover: the client keeps the host\'s conversation behavior (#315)', () => {
+  test('pending confirm notes prefix the next prompt and drain exactly once (#94)', async () => {
+    const root = tmpRoot('client-notes')
+    const prompts = []
+    const c = await startContainer({
+      cfg: cfgFor(root), sync: okSync([]),
+      queryFn: async function* ({ prompt }) {
+        prompts.push(prompt)
+        yield { type: 'system', subtype: 'init', session_id: 's' }
+        yield { type: 'result', subtype: 'success', result: 'noted', num_turns: 1 }
+      },
+    })
+    const store = storeDouble({ notes: ['confirm esc-1 approved'] })
+    const client = new OverseerClient({
+      store, command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+    })
+    const io = { say: () => {}, status: () => {} }
+    await client.runTurn('console-1', 'first message', io)
+    assert.equal(prompts[0], '[curia: confirm esc-1 approved]\n\nfirst message')
+    await client.runTurn('console-1', 'second message', io)
+    assert.equal(prompts[1], 'second message', 'the note was drained by the first turn')
+    await c.stop()
+  })
+
+  test('the one-turn lock is per conversation: a second conversation answers while the first runs', async () => {
+    const root = tmpRoot('client-two-convos')
+    let release
+    const held = new Promise((r) => { release = r })
+    let n = 0
+    const c = await startContainer({
+      cfg: cfgFor(root), sync: okSync([]),
+      queryFn: async function* () {
+        const mine = ++n
+        yield { type: 'system', subtype: 'init', session_id: `sess-c${mine}` }
+        if (mine === 1) await held
+        yield { type: 'result', subtype: 'success', result: 'done', num_turns: 1 }
+      },
+    })
+    const client = new OverseerClient({
+      store: storeDouble({ conversations: ['console-1', 'console-2'] }),
+      command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+    })
+    const slow = client.browserTurn('console-1', 'slow one')
+    const out = await client.browserTurn('console-2', 'the other conversation')
+    assert.equal(out.ok, true, 'the second conversation did not wait on the first')
+    release()
+    assert.equal((await slow).ok, true)
+    await c.stop()
+  })
+})
+
+// ---- the conversation state the daemon keeps (moved here by #315) -----------
+//
+// These drove the REAL store from overseer.test.mjs until the cutover deleted
+// that file with the host. The state outlived the host — ADR-0015 keeps every
+// conversation in the daemon — so its tests live with the boundary suite now.
+
+describe('EscalationStore overseer sessions', () => {
+  test('bindOverseerSession appends a journal line and reduces last-write-wins', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
+    const store = new EscalationStore(dir)
+    store.bindOverseerSession('thread-1', 'sess-1')
+    store.bindOverseerSession('thread-1', 'sess-2')
+    store.bindOverseerSession('thread-9', 'sess-9')
+    assert.equal(store.overseerSession('thread-1'), 'sess-2')
+    assert.equal(store.overseerSession('thread-9'), 'sess-9')
+    const replayed = new EscalationStore(dir)
+    assert.equal(replayed.overseerSession('thread-1'), 'sess-2')
+    const lines = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map(JSON.parse)
+    assert.equal(lines.filter((l) => l.type === 'overseer_session').length, 3)
+  })
+})
+
+// The register of browser conversations (#333, ADR-0016). It is journalled for
+// the reason the resume handle above is: a restart must not forget which
+// conversations the operator has. It carries one fact the resume handle does
+// not — which numbers are SPENT — and that fact has to outlive a delete.
+describe('EscalationStore browser conversations (#333)', () => {
+  test('a mint is journalled, and the list comes back after a restart', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
+    const store = new EscalationStore(dir)
+    assert.equal(store.openConsoleConversation(), 'console-1')
+    assert.equal(store.openConsoleConversation(), 'console-2')
+    assert.deepEqual(store.consoleConversationList().map((c) => c.key), ['console-2', 'console-1'], 'newest first — the order the picker draws')
+    const replayed = new EscalationStore(dir)
+    assert.deepEqual(replayed.consoleConversationList().map((c) => c.key), ['console-2', 'console-1'])
+    assert.ok(replayed.hasConsoleConversation('console-1'))
+  })
+
+  test('a deleted number stays spent across a restart — the whole point of counting up', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
+    const store = new EscalationStore(dir)
+    store.openConsoleConversation()
+    store.openConsoleConversation()
+    assert.equal(store.deleteConsoleConversation('console-2'), true)
+    assert.equal(store.openConsoleConversation(), 'console-3', 'not console-2 again')
+    // And the same after a boot replay: the spent set is a reduction over the
+    // journal, so it cannot be lost with the process that minted it.
+    const replayed = new EscalationStore(dir)
+    assert.equal(replayed.hasConsoleConversation('console-2'), false)
+    assert.equal(replayed.openConsoleConversation(), 'console-4')
+  })
+
+  test('the delete takes the resume handle and the waiting notes with it', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
+    const store = new EscalationStore(dir)
+    const key = store.openConsoleConversation()
+    store.bindOverseerSession(key, 'sess-c1')
+    store.addOverseerNote(key, 'confirm esc-1 approved')
+    store.deleteConsoleConversation(key)
+    assert.equal(store.overseerSession(key), undefined)
+    assert.deepEqual(store.takeOverseerNotes(key), [])
+    // The replay must reach the same state, not the state the bind wrote: the
+    // delete event comes after it, so the reduction has to undo it in order.
+    const replayed = new EscalationStore(dir)
+    assert.equal(replayed.overseerSession(key), undefined)
+  })
+
+  test('deleting what is not there is refused rather than journalled', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-store-'))
+    const store = new EscalationStore(dir)
+    assert.equal(store.deleteConsoleConversation('console-9'), false)
+    assert.equal(fs.existsSync(path.join(dir, 'events.jsonl')), false, 'nothing was written')
   })
 })

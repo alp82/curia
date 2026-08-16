@@ -619,8 +619,7 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
 
   test('the container-facing listener carries the two side channels and nothing else', async () => {
     // The whole operator surface: dispatching an agent, answering the operator's
-    // own questions, forcing a reconcile, driving an overseer turn by hand. A
-    // container reaches none of it.
+    // own questions, forcing a reconcile. A container reaches none of it.
     for (const [method, route, body] of [
       ['POST', '/command', JSON.stringify({ text: 'status' })],
       ['POST', '/answer', JSON.stringify({ id: 'e1', answer: 'approve' })],
@@ -628,7 +627,6 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       ['POST', '/escalate', JSON.stringify({ prompt: 'from a container' })],
       ['POST', '/reconcile', '{}'],
       ['GET', '/state', null],
-      ['POST', '/overseer/turn', JSON.stringify({ key: 'console-1', prompt: 'from a container' })],
     ]) {
       const res = await requestOn(GATEWAY, port, method, route, {
         headers: { 'content-type': 'application/json' },
