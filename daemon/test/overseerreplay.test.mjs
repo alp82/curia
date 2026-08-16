@@ -339,10 +339,14 @@ describe('the lines the operator reads (#388)', () => {
     assert.match(text, /`start 256`, `status`/)
     assert.match(text, /Say it again if you still want it\./)
     assert.equal(text.includes('\n'), false)
+    // The commands are the reason, so the reason is not said a second time.
+    assert.equal(text.includes('it already crossed the seam'), false)
   })
 
-  test('a drop with no command names no command', () => {
-    assert.equal(droppedLine({ commands: [], why: 'you were already talking here' }).includes('had already run'), false)
+  test('a drop with no command names the reason instead', () => {
+    const text = droppedLine({ commands: [], why: 'you were already talking here' })
+    assert.equal(text.includes('had already run'), false)
+    assert.match(text, /did not send the message again — you were already talking here\./)
   })
 
   test('the replay notice is small print, because it is curia talking about curia', () => {

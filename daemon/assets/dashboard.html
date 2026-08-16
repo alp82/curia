@@ -1767,7 +1767,9 @@ function chatRow(c) {
   const dropped = c.dropped && !c.dropped.replayed
     ? `<span class="killed">⚠️ A restart killed a turn here${
       c.dropped.commands?.length ? `, and it had run ${esc(c.dropped.commands.join(", "))}` : ""
-    }. curia did not send your message again${c.dropped.why ? ` — ${esc(c.dropped.why)}` : ""}.</span>`
+    }. curia did not send your message again${
+      /* The commands are the reason when there are any: not said twice. */
+      !c.dropped.commands?.length && c.dropped.why ? ` — ${esc(c.dropped.why)}` : ""}.</span>`
     : "";
   return `<tr>
     <td><a href="${esc(chatHref(c.session))}">${label}</a>

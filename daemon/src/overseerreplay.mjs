@@ -51,8 +51,12 @@ export const REPLAY_FRESH_MS = 15 * 60_000
 // operator decides from.
 export function droppedLine({ commands = [], why = null }) {
   const parts = [`${SIGNALS.warn} a restart killed the turn on your last message here.`]
+  // The commands ARE the reason when there are any, so the reason is not said
+  // twice: "it had already run `start 256`" and "it already crossed the seam"
+  // are one fact in two sentences.
   if (commands.length) parts.push(`It had already run ${commands.map((c) => `\`${c}\``).join(', ')}.`)
-  parts.push(`curia did not send the message again${why ? ` — ${why}` : ''}. Say it again if you still want it.`)
+  const reason = commands.length ? '' : `${why ? ` — ${why}` : ''}`
+  parts.push(`curia did not send the message again${reason}. Say it again if you still want it.`)
   return parts.join(' ')
 }
 
