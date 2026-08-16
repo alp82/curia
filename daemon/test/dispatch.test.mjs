@@ -3098,6 +3098,45 @@ describe('request_review: the one gate (#54 item 2)', () => {
     assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === false))
   })
 
+  // #369: the gate handed back an answer the operator had already given, so no
+  // second card opened. The agent has to be told, and the answer has to keep
+  // its meaning — the line rides in front of the ORDER, never in front of the
+  // word `approve`, which is classified by a narrow set.
+  test('a recorded approval says so, and still orders the merge', async () => {
+    const d = makeDispatcher({}, {
+      askReview: async () => ({ text: 'approve', status: 'answered', recorded: '[recorded answer — a human answered this exact question by alp at T, on esc-12, while no call of yours was live.]' }),
+    })
+    liveAgent(d)
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, true)
+    assert.match(r.text, /recorded answer .* on esc-12/)
+    assert.match(r.text, /APPROVED by the human/)
+    assert.match(r.text, /gh pr merge/)
+    assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === true && e.recorded === true))
+  })
+
+  test('a recorded rejection carries the same line in front of the human words', async () => {
+    const d = makeDispatcher({}, {
+      askReview: async () => ({ text: 'rename the flag', status: 'answered', recorded: '[recorded answer — on esc-12]' }),
+    })
+    liveAgent(d)
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, false)
+    assert.match(r.text, /recorded answer/)
+    assert.match(r.text, /NOT approved/)
+    assert.match(r.text, /rename the flag/)
+  })
+
+  test('an ordinary gate carries no such line', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.doesNotMatch(r.text, /recorded answer/)
+    assert.ok(events.some((e) => e.type === 'review_answered' && e.recorded === undefined))
+  })
+
   test('a cancelled gate is not a rejection: nothing is merged and nothing resolved', async () => {
     const d = makeDispatcher({}, { askReview: async () => ({ text: 'aborted: a human cancelled this escalation', status: 'cancelled' }) })
     liveAgent(d)

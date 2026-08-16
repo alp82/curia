@@ -323,7 +323,11 @@ The message curia queues at the builder the moment a reviewer spawns. It names t
 The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal.
 
 **Supersede**:
-A re-asked question closes the older record and routes late answers to the live one. The key is the agent and the kind, never the wording (#336). A re-send that explains itself in its own words is the same call, so it closes the original at birth. A confirm keys on the target instance instead.
+A re-asked question closes the older record and routes late answers to the live one. The key is the agent and the kind, never the wording (#336). A re-send that explains itself in its own words is the same call, so it closes the original at birth. A confirm keys on the target instance instead. It reaches OPEN records only, so a question that is already answered is handled by the recorded answer (#369).
+
+**Recorded answer**:
+An answer a human gave to a question no live call could receive. `settle` finds no resolver, so the daemon parks question and answer on the agent's note queue (#139). A question re-asked word for word takes that answer back at once, while the note is still unread, and no second card opens (#369). The note leaves with the answer, so one fact is said once. The tool result names the record, the person and the moment, so the agent knows the answer is a recorded one. At the review gate the same rule needs the diff digest to match, or a fresh gate opens.
+_Avoid_: replay, cached answer.
 
 **Stale question**:
 An escalation still open when its own agent reports a result (#336). The result closes it, because nothing can read an answer to it any more. Reconcile runs the same rule over the journal, and it runs the ending a Stop hook deferred to such a record. Silence closes nothing: only the agent's own result or its next call does.

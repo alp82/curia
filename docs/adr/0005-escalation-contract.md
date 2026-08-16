@@ -1,7 +1,7 @@
 # ADR-0005: The escalation contract
 
 **Status**: accepted (2026-07)
-**Provenance**: [Define the escalation contract (#11)](https://github.com/alp82/curia/issues/11), [Build the Discord bridge + durable escalation record (#31)](https://github.com/alp82/curia/issues/31), [Escalation live-checks (#34)](https://github.com/alp82/curia/issues/34), [A blocked agent must not read as a crashed one (#47)](https://github.com/alp82/curia/issues/47), [A cancelled question ends nothing, and the agent asks it again (#200)](https://github.com/alp82/curia/issues/200), [A cancel confirm lands in the ticket thread, not where the operator typed it (#218)](https://github.com/alp82/curia/issues/218), [The nudge dies; the render-retry stands alone (#261)](https://github.com/alp82/curia/issues/261), [The escalation contract meets round-by-round grilling (#285)](https://github.com/alp82/curia/issues/285), [A re-sent escalation leaves its original open forever (#336)](https://github.com/alp82/curia/issues/336)
+**Provenance**: [Define the escalation contract (#11)](https://github.com/alp82/curia/issues/11), [Build the Discord bridge + durable escalation record (#31)](https://github.com/alp82/curia/issues/31), [Escalation live-checks (#34)](https://github.com/alp82/curia/issues/34), [A blocked agent must not read as a crashed one (#47)](https://github.com/alp82/curia/issues/47), [A cancelled question ends nothing, and the agent asks it again (#200)](https://github.com/alp82/curia/issues/200), [A cancel confirm lands in the ticket thread, not where the operator typed it (#218)](https://github.com/alp82/curia/issues/218), [The nudge dies; the render-retry stands alone (#261)](https://github.com/alp82/curia/issues/261), [The escalation contract meets round-by-round grilling (#285)](https://github.com/alp82/curia/issues/285), [A re-sent escalation leaves its original open forever (#336)](https://github.com/alp82/curia/issues/336), [A re-asked question is answered from the record (#369)](https://github.com/alp82/curia/issues/369)
 
 ## Context
 
@@ -36,6 +36,18 @@ Agents need human answers from any device, with waits measured in hours, and the
 
   Silence still resolves nothing. Every close here needs a positive act by the agent: its next call, or its result. The typed answer stays the operator's escape hatch. It is no longer the only thing that can close these records.
 
+- **Amended by [#369](https://github.com/alp82/curia/issues/369)**: a question re-asked word for word takes back the answer that is already recorded for it, and no second card opens.
+
+  Supersession cannot reach this case. It only closes OPEN records, and this one is answered. A daemon restart kills the call that is asking. The card stays live and the operator answers it. Nothing is waiting, so [#139](https://github.com/alp82/curia/issues/139) records the answer and parks question and answer as an agent note. The agent then re-asks. A second card carries the same question, the operator answers twice, and the first answer only arrives behind the second, because the note queue drains after the answer resolves. The operator pays the wait twice for one question.
+
+  So `ask_human` looks for a recorded answer before it opens anything. Two conditions must both hold, and both are narrow. The payload must match word for word, which is the exact opposite of the #336 supersession key and for the opposite reason: supersession asks whether this is the same call, and this asks whether it is the same question. An agent that asks something new of the same kind must reach a human. The parked note must still be unread, which is the whole window. A delivered answer parks no note, so this can only ever serve an answer nothing has read, and the moment the agent drains that note the answer has arrived. There is no clock, because a clock would only guess at what the queue already states.
+
+  The call takes the note with the answer. One fact, one delivery, per [ADR-0013](0013-one-voice-per-fact.md): the answer comes back as the answer, so a note that also said it would state the same fact twice on one tool result.
+
+  The agent is told. One line above the answer names the record, the person and the moment. Without it the agent reads a recorded answer as a fresh reply to the exact wording it just sent, which includes the re-send note the standing orders make it add.
+
+  The review gate takes the same rule plus one guard. The code must still be the code the operator approved, so the diff digest measured for this call must equal the digest on the recorded gate ([#355](https://github.com/alp82/curia/issues/355)). A digest curia could not count never matches, not even another uncounted one. A changed digest opens a fresh gate.
+
 ## Consequences
 
 - The bridge renders and captures, and it never interprets. All routing keys on the escalation id, not on who or where.
@@ -45,3 +57,4 @@ Agents need human answers from any device, with waits measured in hours, and the
 - A round is one escalation record, so it holds one answer, one timestamp and one supersession key (#285). That key is the agent and the kind (#336), and the question itself is no part of it. An agent that re-asks the same round supersedes its own record, whatever it changed in the words or in the `recommended` flag.
 - A round with no size limit can outrun one Discord message (#285). The existing paragraph-aware split (#119) carries it, and the buttons ride the last chunk, so the ✅ sits below every question it answers. The cost is real: a long round is a scroll before it is answerable, and the agent trades against that itself.
 - The review gate of [ADR-0008](0008-resolved-means-merged.md) is one more escalation kind and inherits all of this behavior. It is an agent escalation, so it stays in the ticket thread. The confirm is the one kind that moves.
+- An `ask_human` call can now return without asking anybody (#369). It returns only an answer a human really gave to that same question, and it says so in the tool result. Every other call still blocks until a human answers it.

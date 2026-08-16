@@ -299,6 +299,31 @@ export function biggestOf(digest) {
   return top
 }
 
+// Two digests of one change (#369). The review gate may hand back a recorded
+// approval only when the code is still the code the operator approved, and this
+// is that check.
+//
+// NULL NEVER MATCHES ITSELF. A gate curia could not count is not evidence of
+// anything, so two uncounted gates are not the same gate — they are two gates
+// nobody measured, and an approval must never ride on that.
+//
+// The totals alone would be weak evidence: two different changes can touch the
+// same file count and the same line counts. So the per-file list is compared
+// too, path by path, which is the same list the console draws.
+export function sameDigest(a, b) {
+  if (!a || !b) return false
+  for (const k of ['uncommitted', 'files', 'added', 'deleted', 'capped']) {
+    if (a[k] !== b[k]) return false
+  }
+  const one = a.list ?? []
+  const two = b.list ?? []
+  if (one.length !== two.length) return false
+  return one.every((f, i) => {
+    const g = two[i]
+    return f.path === g.path && f.status === g.status && f.added === g.added && f.deleted === g.deleted
+  })
+}
+
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 // The one line the Discord gate card gains under its links (#355).
