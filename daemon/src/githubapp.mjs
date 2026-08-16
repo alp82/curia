@@ -274,6 +274,8 @@ export const REFRESH_MARGIN_MS = 10 * 60 * 1000
 export class TokenMinter {
   #installations = null
 
+  #bot = null
+
   constructor({
     appId, key, keyFile = null, fetchImpl = globalThis.fetch, now = Date.now, log = () => {},
   } = {}) {
@@ -331,11 +333,43 @@ export class TokenMinter {
     return minted.token
   }
 
+  // The app's own user, as GIT has to name it (#389).
+  //
+  // A commit is attributed by its author email, and GitHub links one to an
+  // account only through the `<id>+<login>@users.noreply.github.com` form. So
+  // "curia-sh[bot]" alone is not enough, and the id is nowhere in the app's own
+  // description — it takes two reads. `/app` states the SLUG, which is what
+  // GitHub builds the bot login from, and the bot user then states its id.
+  //
+  // Neither fact ever changes for an installed app, so this is read once and
+  // kept for the life of the process.
+  //
+  // It takes a TOKEN rather than minting its own, and that is not a saving: an
+  // app JWT authenticates the `/app*` routes and nothing else, so the second
+  // read has to run on an installation token, and the caller already holds one.
+  //
+  // NOT HARD-CODED, though this box's answer is `curia-sh[bot]` and 317489578.
+  // The app is per-operator (ADR-0018) and its name has to be free across the
+  // whole of GitHub, so another operator's daemon has another bot entirely.
+  async botIdentity(token) {
+    if (this.#bot) return this.#bot
+    const app = await api('/app', { jwt: this.jwt(), fetchImpl: this.fetchImpl })
+    const slug = String(app?.slug ?? '').trim()
+    if (!slug) throw new Error('GitHub described curia\'s app without a slug, so its bot login cannot be built')
+    const login = `${slug}[bot]`
+    const user = await api(`/users/${encodeURIComponent(login)}`, { jwt: token, fetchImpl: this.fetchImpl })
+    if (!user?.id) throw new Error(`GitHub states no id for ${login}, so a commit authored as it would link to no account`)
+    this.#bot = { name: login, email: `${user.id}+${login}@users.noreply.github.com` }
+    this.log(`curia commits as ${this.#bot.name} <${this.#bot.email}>`)
+    return this.#bot
+  }
+
   // Drop every cached token. Called when a holder has to be re-armed from
   // scratch — a rotated key, or an install the operator has just repaired.
   forget() {
     this.cache.clear()
     this.#installations = null
+    this.#bot = null
   }
 }
 

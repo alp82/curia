@@ -73,7 +73,7 @@ afterEach(() => {
   restoreCredential()
 })
 
-function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
+function makeDispatcher(deps = {}, { routing = ROUTING, minter = null } = {}) {
   const root = path.join(tmp, 'work')
   const config = {
     watch: [{ repo: 'o/r', mode: 'auto' }],
@@ -161,6 +161,7 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
     log: () => {},
     dataDir,
     daemonPort: 4271,
+    minter,
     deps: { ...base, ...deps },
   })
   dispatchers.push(d)
@@ -372,6 +373,26 @@ describe('Dispatcher.crossCheck (#164)', () => {
     const drawn = events.find((e) => e.type === 'agent_spawned' && e.agent === 'curia-review-42')
     assert.equal(drawn.kind, 'reviewer')
     assert.equal(drawn.ticket, '42')
+  })
+
+  test('a reviewer mints the READ set, where its builder mints write (#389)', async () => {
+    // ADR-0010 gives the reviewer a detached checkout, no branch and no tracker
+    // write, and curia posts its verdict for it. One key and two sets is what
+    // the GitHub App bought (ADR-0018), so a reviewer holding push rights it
+    // never uses is exactly the reach the app exists to end.
+    const calls = []
+    const minter = { tokenFor: async (owner, role) => { calls.push({ owner, role }); return 'ghs_minted' } }
+    const d = makeDispatcher({}, { minter })
+    withBuilder(d)
+
+    await d.crossCheck('42', { by: 'test' })
+
+    assert.deepEqual(calls, [{ owner: 'o', role: 'read' }])
+    // and the refresh keeps reading it that way for the rest of the reviewer's
+    // life — an adopted reviewer must not be re-armed with write
+    calls.length = 0
+    await d.refreshGhCredentials()
+    assert.deepEqual(calls, [{ owner: 'o', role: 'read' }])
   })
 
   test('`model=` overrides the table, and a second press is refused while one reads', async () => {
