@@ -112,7 +112,7 @@ then lines, then a hard slice. It never sees the fence.
     source: `notify({ message: "...", images: ["prototypes/discord-render/image-probe.png"] })`,
     why: 'Discord shows an attached image inline, so a diagram reaches the reader without a tap. The operator read scale 2 and no smaller, which sets the floor: a glyph must be at least 10 pixels tall in an 800-pixel-wide image. Anything under that does not survive the phone.',
     how: 'live',
-    code: 'daemon/src/images.mjs — resolveOutboundImages(); daemon/src/index.mjs — outboundImages()',
+    code: 'daemon/src/attachments.mjs — resolveOutboundFiles(); daemon/src/index.mjs — outboundFiles()',
   },
   {
     group: 'Attachments',
@@ -127,13 +127,13 @@ images: ["prototypes/discord-render/image-probe.png"]
   -> ok`,
     why: 'The daemon resolved the path against its own host view of the worktree. A containerized agent calls that same directory `/workspace`, so its absolute path matched nothing and the file was dropped. The tool text said "local file paths inside your workspace", which pointed the agent straight at the failing form. FIXED IN #429: the daemon now maps an absolute `/workspace` path to its host root before it checks containment, so both forms work. This entry keeps the observation that found it. The live re-check belongs to the next rehearsal.',
     how: 'live',
-    code: 'daemon/src/images.mjs — containedIn(), fromGuest(); daemon/src/index.mjs — outboundImages() supplies the guestRoot',
+    code: 'daemon/src/attachments.mjs — containedIn(), fromGuest(); daemon/src/index.mjs — outboundFiles() supplies the guestRoot',
   },
   {
     group: 'Attachments',
     name: '.patch and .md attachments',
     verdict: 'hold',
-    label: 'NEEDS CODE — allowlist',
+    label: 'BUILT IN #430 — needs a live re-check',
     what: 'A diff or a note attached to a message, with the inline preview Discord gives a text file.',
     source: `images: ["prototypes/discord-render/sample.patch", "CONTEXT.md"]
 
@@ -141,9 +141,9 @@ images: ["prototypes/discord-render/image-probe.png"]
     (allowed: .png, .jpg, .jpeg, .gif, .webp)
   CONTEXT.md:   refused - not an image
     (allowed: .png, .jpg, .jpeg, .gif, .webp)`,
-    why: 'A live call refused both files. The refusal names the extension, so the allowlist is the only blocker and containment is not involved. The form is worth having: a diff in the thread is the one artifact a review gate cannot fit in prose. It needs the allowlist widened first, and Discord gives a text file an inline preview once it arrives.',
+    why: 'A live call refused both files. The refusal names the extension, so the allowlist is the only blocker and containment is not involved. The form is worth having: a diff in the thread is the one artifact a review gate cannot fit in prose. It needs the allowlist widened first, and Discord gives a text file an inline preview once it arrives. BUILT IN #430: the allowlist now carries `.patch`, `.diff`, `.md`, `.txt` and `.log` beside the five image types, under a 1 MB cap. This entry keeps the observation that found it. The live re-check belongs to the next rehearsal, and it is the one that proves Discord previews a `.patch` by name.',
     how: 'live — the refusal is the result',
-    code: 'daemon/src/images.mjs — MIME_BY_EXT, mimeFor()',
+    code: 'daemon/src/attachments.mjs — TEXT_MIME_BY_EXT, attachmentMimeFor(), MAX_TEXT_BYTES',
   },
   {
     group: 'Interactive components',

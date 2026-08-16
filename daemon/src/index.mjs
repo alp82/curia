@@ -32,7 +32,7 @@ import { EscalationStore, CONFIRM_KIND, noteDisposition } from './store.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
 import { readable } from './logline.mjs'
-import { resolveOutboundImages, inboundContent } from './images.mjs'
+import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
@@ -1003,24 +1003,24 @@ const bootAt = Date.now()
 
 // ---- agent-facing MCP surface (#29 shape) ---------------------------------
 
-// Outbound images (#34): an agent may publish files from its OWN worktree and
-// the daemon's data dir, nothing else — the daemon holds a Discord token and a
-// tailnet position, so an unbounded path here would turn `notify` into an
-// exfiltration primitive for anything the box can read. An agent the dispatcher
-// does not know (synthetic/lab callers, whose MCP URL the daemon did not write)
-// falls back to the workspace root.
+// Outbound attachments (#34, widened past images by #430): an agent may publish
+// files from its OWN worktree and the daemon's data dir, nothing else — the
+// daemon holds a Discord token and a tailnet position, so an unbounded path
+// here would turn `notify` into an exfiltration primitive for anything the box
+// can read. An agent the dispatcher does not know (synthetic/lab callers, whose
+// MCP URL the daemon did not write) falls back to the workspace root.
 //
 // #429: the roots are HOST paths, and every agent runs in a container that
 // calls that same worktree `/workspace`. So the daemon states the mapping and
-// images.mjs translates an absolute guest path before it checks containment.
-// A caller with no known worktree — /escalate, /answer — gets no mapping,
-// because it hands over host paths already.
-function outboundImages(agent, images) {
-  if (!images?.length) return { files: [], refusals: [] }
+// attachments.mjs translates an absolute guest path before it checks
+// containment. A caller with no known worktree — /escalate, /answer — gets no
+// mapping, because it hands over host paths already.
+function outboundFiles(agent, paths) {
+  if (!paths?.length) return { files: [], refusals: [] }
   const known = dispatcher.agents.get(agent)
   const roots = [known?.wtPath ?? curiaConfig.dispatch.workspace_root, DATA]
   const guestRoot = known?.wtPath ? { guest: GUEST_WT, host: known.wtPath } : null
-  return resolveOutboundImages(images, { roots, cwd: known?.wtPath, guestRoot })
+  return resolveOutboundFiles(paths, { roots, cwd: known?.wtPath, guestRoot })
 }
 
 // Keep a blocked ask_human alive on the wire (#34).
@@ -1063,12 +1063,14 @@ function startKeepAlive(extra, id, label = null) {
   return () => clearInterval(timer)
 }
 
-// What the two tools that take images say about the paths they accept (#429).
+// What the two tools that take files say about what they accept (#429, #430).
 // One sentence, written once, because two wordings for one rule is two rules to
 // keep true. It names the absolute form as well as the relative one: an agent
 // reaches for its own absolute path first, and the old text — "local file paths
 // inside your workspace" — pointed it straight at the form that got dropped.
-const IMAGES_HINT = `Files inside your workspace to show the human (screenshots, renders). Give a path relative to your workspace, or an absolute path under ${GUEST_WT}/.`
+// It also names the allowed types, from the same list the check enforces: an
+// agent does not attach the diff it never learned it could send (#430).
+const FILES_HINT = `Files inside your workspace to show the human: a screenshot, a render, a diff, a note. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}. Give a path relative to your workspace, or an absolute path under ${GUEST_WT}/.`
 
 function buildMcpServer(agent, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
@@ -1100,12 +1102,12 @@ function buildMcpServer(agent, ticket) {
   server.tool(
     'notify',
     'Fire-and-forget status update to the human. Returns immediately.',
-    { message: z.string(), images: z.array(z.string()).optional().describe(IMAGES_HINT) },
+    { message: z.string(), images: z.array(z.string()).optional().describe(FILES_HINT) },
     async ({ message, images }) => {
-      const { files, refusals } = outboundImages(agent, images)
+      const { files, refusals } = outboundFiles(agent, images)
       store.logEvent('notify', { agent, ticket, message, images: files.map((f) => f.attachment), refusals })
       if (bridge) bridge.notify(ticket, `⚙️ ${message}`, { files, as: speaker }).catch(() => {})
-      return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} image(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
+      return { content: [{ type: 'text', text: refusals.length ? `ok (${refusals.length} file(s) refused)\n${refusals.join('\n')}` : 'ok' }, ...drainNotes()] }
     },
   )
 
@@ -1220,7 +1222,7 @@ function buildMcpServer(agent, ticket) {
       // "all", and it is a lie about any question that had no recommendation.
       // free-text only: the other three kinds already answer with a button.
       recommended: z.boolean().optional(),
-      images: z.array(z.string()).optional().describe(IMAGES_HINT),
+      images: z.array(z.string()).optional().describe(FILES_HINT),
     },
     async ({ images, ...payload }, extra) => {
       // #164: the reviewer asks nobody. ADR-0010 gives it one output — the
@@ -1249,10 +1251,10 @@ function buildMcpServer(agent, ticket) {
         store.takeRecordedAnswer(recorded.record, recorded.note)
         log(`escalation ${recorded.record.id} replayed to ${agent} — the same question, answered already, note ${recorded.note.id} taken`)
         const lines = [recordedAnswerLine(recorded.record)]
-        // The card is what shows a picture, and no card opened. Said rather
-        // than swallowed: an agent that thinks the operator saw a screenshot
-        // reads the answer as being about it.
-        if (images?.length) lines.push(`(curia opened no card, so the ${images.length} image(s) you sent with this call were not shown.)`)
+        // The card is what shows a file, and no card opened. Said rather than
+        // swallowed: an agent that thinks the operator saw a screenshot or a
+        // diff reads the answer as being about it.
+        if (images?.length) lines.push(`(curia opened no card, so the ${images.length} file(s) you sent with this call were not shown.)`)
         return {
           content: [
             { type: 'text', text: `${lines.join('\n')}\n\n${recorded.record.answer}` },
@@ -1260,13 +1262,13 @@ function buildMcpServer(agent, ticket) {
           ],
         }
       }
-      const { files, refusals } = outboundImages(agent, images)
+      const { files, refusals } = outboundFiles(agent, images)
       const { record, answered } = openEscalation({ agent, ticket, ...payload, files })
       const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(payload.prompt))
       // Images the human replies with come back as real content blocks, so the
       // picture lands in this agent's context without a Read round-trip (#34).
       const { text, attachments } = await answered.finally(stopKeepAlive)
-      const refusalNote = refusals.length ? [{ type: 'text', text: `(curia refused ${refusals.length} outbound image(s): ${refusals.join('; ')})` }] : []
+      const refusalNote = refusals.length ? [{ type: 'text', text: `(curia refused ${refusals.length} outbound file(s): ${refusals.join('; ')})` }] : []
       // drainNotes runs AFTER the answer resolves: a note typed right behind a
       // button press rides the answer itself — the grace window's best case.
       return { content: [...refusalNote, { type: 'text', text }, ...inboundContent(attachments), ...drainNotes()] }
@@ -1896,7 +1898,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const agent = body.agent ?? 'synthetic'
     // Same containment as the MCP path: /escalate is loopback-only, but it must
     // not be the softer way to hand the bridge an arbitrary file.
-    const { files } = outboundImages(agent, body.images ?? body.files)
+    const { files } = outboundFiles(agent, body.images ?? body.files)
     const { record, answered } = openEscalation({
       agent, ticket: body.ticket ?? 'unknown',
       kind: body.kind ?? 'approve-reject', prompt: body.prompt ?? '(no prompt)',
@@ -1912,9 +1914,9 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/answer' && req.method === 'POST') {
     const { id, answer, attachments, by, via } = await readBody(req)
     // Attachment paths get read and inlined into an agent's context, so they
-    // pass the same containment gate as outbound images rather than being
+    // pass the same containment gate as outbound attachments rather than being
     // trusted because the caller reached loopback.
-    const { files } = outboundImages('rest', attachments)
+    const { files } = outboundFiles('rest', attachments)
     // #266: the console names the operator who pressed and the surface they
     // pressed on, so the journal and the feed say `answered by <login> via
     // dashboard` rather than attributing every browser answer to `rest`. The
