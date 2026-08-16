@@ -212,18 +212,13 @@ ${operatorCards}
   <li><b><code>repo</code> is a column.</b> Three of the fourteen read it, and the operator types it by
   hand. It carries no index of its own: curia runs one or two repos, so
   <code>where repo='alp82/curia'</code> selects nearly every row and SQLite scans whatever we build.</li>
-</ol>
-
-<h2>What is still open</h2>
-<ol class="ask">
-  <li><b>The <code>epoch</code> column: keep it?</b> Finding 5 is the answer to "why not <code>ts</code>",
-  and it settles the CUT: the cut is an id either way. What is left is whether the id is stored on the row
-  or probed by each query. Stored, it costs
-  ${(live.write.stamped - live.write.plain).toFixed(3)} ms a write and one index — about a tenth of a second
-  a day at 404 events a day — and it gives the operator
-  <code>where epoch=(select max(epoch) from events where ticket=321)</code>. Probed, it costs nothing and
-  runs at the same speed, and every "since the epoch" query carries the subquery instead. The prototype
-  runs both, in <code>schema.sql</code> and <code>schema-no-epoch.sql</code>.</li>
+  <li><b>The <code>epoch</code> id is STORED on the row</b>, rather than probed by each query. Finding 5
+  settled the cut itself: it is an id either way. Storing it costs
+  ${(live.write.stamped - live.write.plain).toFixed(3)} ms a write and one index, which is about a tenth of a
+  second a day at 404 events a day, and it buys
+  <code>where epoch=(select max(epoch) from events where ticket=321)</code> — one dispatch, whole. A trigger
+  does the stamping, so the 129 <code>logEvent</code> call sites stay ignorant of it.
+  <code>schema-no-epoch.sql</code> stays in the prototype as the measured alternative.</li>
 </ol>
 
 <h2>Run it</h2>
