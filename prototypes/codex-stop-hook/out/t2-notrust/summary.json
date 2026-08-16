@@ -1,0 +1,15 @@
+{
+  "name": "t2-notrust",
+  "lane": "tui",
+  "codex_version": "codex-cli 0.146.0",
+  "hook_trust_flag": false,
+  "blocks_configured": 2,
+  "stops_seen": 0,
+  "turns_seen": 0,
+  "reason_reached_model_in_requests": [],
+  "reason_item_type": null,
+  "reason_item": null,
+  "stop_hook_active_by_stop": [],
+  "payload_keys": null,
+  "codex_log_tail": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/codex-stop-hook/t2-notrust/codex\"))\n\n  Hooks need review\n  1 hook is new or changed.\n  Hooks can run outside the sandbox after you trust them.\n\n› 1. Review hooks\n  2. Trust all and continue\n  3. Continue without trusting (hooks won't run)\n\n  Press enter to confirm or esc to go back\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+}

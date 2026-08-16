@@ -1,0 +1,51 @@
+{
+  "name": "t3-exec",
+  "lane": "exec",
+  "codex_version": "codex-cli 0.146.0",
+  "hook_trust_flag": true,
+  "blocks_configured": 2,
+  "stops_seen": 3,
+  "turns_seen": 3,
+  "reason_reached_model_in_requests": [
+    2,
+    3
+  ],
+  "reason_item_type": "message",
+  "reason_item": {
+    "type": "message",
+    "id": "msg_01a00b62-e48d-7822-916e-a8f806d133b5",
+    "role": "user",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "<hook_prompt hook_run_id=\"stop:0:/tmp/codex-stop-hook/t3-exec/codex/hooks.json\">CURIA-BLOCK-SENTINEL: the ending is not done. Call report_result before you stop. (stop 1)</hook_prompt>"
+      }
+    ]
+  },
+  "stop_hook_active_by_stop": [
+    {
+      "stop": 1,
+      "stop_hook_active": false
+    },
+    {
+      "stop": 2,
+      "stop_hook_active": true
+    },
+    {
+      "stop": 3,
+      "stop_hook_active": true
+    }
+  ],
+  "payload_keys": [
+    "cwd",
+    "hook_event_name",
+    "last_assistant_message",
+    "model",
+    "permission_mode",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path",
+    "turn_id"
+  ],
+  "codex_log_tail": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/codex-stop-hook/t3-exec/codex\"))\nReading additional input from stdin...\nOpenAI Codex v0.146.0\n--------\nworkdir: /tmp/codex-stop-hook/t3-exec/wt\nmodel: gpt-5.5\nprovider: fake\napproval: never\nsandbox: danger-full-access\nreasoning effort: none\nreasoning summaries: none\nsession id: 01a00b62-e38e-7ef3-8931-2e404ce5ba56\n--------\nuser\nSay the word done and stop. Do not use any tool.\nwarning: `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.\nwarning: `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.\ncodex\nstub turn 1: done\nhook: Stop\nhook: Stop Blocked\ncodex\nstub turn 2: done\nhook: Stop\nhook: Stop Blocked\ncodex\nstub turn 3: done\nhook: Stop\nhook: Stop Completed\ntokens used\n6\nstub turn 3: done\n"
+}

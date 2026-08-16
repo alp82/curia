@@ -361,6 +361,24 @@ export function removeCredentials(cfgDir) {
 // reaches an HTTP MCP server from `[mcp_servers]`, its Stop hook carries the
 // same payload keys and honours `{decision:"block", reason}`, and `stop_hook_active`
 // flips on the second stop exactly as Claude's does.
+//
+// RE-MEASURED on 0.146.0, the pinned version, for #447
+// (docs/live-checks/447-codex-stop-hook.md). The hook still blocks. The `reason`
+// reaches the model as a user message wrapped in a `<hook_prompt>` tag, and
+// `stop_hook_active` is false on the first stop and true on every stop after it.
+// It blocked five times in a row with no cap, in the TUI lane and the `exec`
+// lane alike — so the `exec` move between 0.145 and 0.146 did not touch this.
+//
+// #438 makes this hook the codex gate's whole guarantee, because a rejection
+// there is only a return value and can be thrown away (#416). A Stop-hook
+// refusal cannot: codex forces another turn whatever the model does. So the
+// worst case is a loop, not an escape.
+//
+// Two shapes that re-measure owes a look, both pinned by the same check: the
+// allow body must stay a BARE `{}` (see `/agent_done`), and
+// `--dangerously-bypass-hook-trust` is load-bearing rather than incidental —
+// without it the spawn stalls at a "Hooks need review" menu before the first
+// turn, and no hook runs at all.
 
 export const HARNESS_NAMES = ['claude', 'codex']
 

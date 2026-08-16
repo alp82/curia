@@ -1,0 +1,46 @@
+{
+  "name": "t5-extrakey",
+  "lane": "tui",
+  "codex_version": "codex-cli 0.146.0",
+  "hook_trust_flag": true,
+  "blocks_configured": 1,
+  "stops_seen": 2,
+  "turns_seen": 2,
+  "reason_reached_model_in_requests": [
+    2
+  ],
+  "reason_item_type": "message",
+  "reason_item": {
+    "type": "message",
+    "id": "msg_01a00b65-d485-7010-8f55-c1f64c2cdd58",
+    "role": "user",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "<hook_prompt hook_run_id=\"stop:0:/tmp/codex-stop-hook/t5-extrakey/codex/hooks.json\">CURIA-BLOCK-SENTINEL: the ending is not done. Call report_result before you stop. (stop 1)</hook_prompt>"
+      }
+    ]
+  },
+  "stop_hook_active_by_stop": [
+    {
+      "stop": 1,
+      "stop_hook_active": false
+    },
+    {
+      "stop": 2,
+      "stop_hook_active": true
+    }
+  ],
+  "payload_keys": [
+    "cwd",
+    "hook_event_name",
+    "last_assistant_message",
+    "model",
+    "permission_mode",
+    "session_id",
+    "stop_hook_active",
+    "transcript_path",
+    "turn_id"
+  ],
+  "codex_log_tail": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/codex-stop-hook/t5-extrakey/codex\"))\n⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.\n\n╭─────────────────────────────────────────╮\n│ >_ OpenAI Codex (v0.146.0)              │\n│                                         │\n│ model:       gpt-5.5   /model to change │\n│ directory:   ~/wt                       │\n│ permissions: YOLO mode                  │\n╰─────────────────────────────────────────╯\n\n  Tip: Our most capable model yet. GPT-5.6 Sol can tackle complex code changes, dig into research, produce polished documents, and take on your most ambitious work. Sol is highly capable at lower\n  reasoning efforts—try starting lower, then turn it up for harder jobs.\n\n\n› Say the word done and stop. Do not use any tool.\n\n\n⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.\n\n• stub turn 1: done\n\n• Stop hook (blocked)\n  feedback: CURIA-BLOCK-SENTINEL: the ending is not done. Call report_result before you stop. (stop 1)\n\n• stub turn 2: done\n\n• Stop hook (failed)\n  error: hook returned invalid stop hook JSON output\n\n\n› Improve documentation in @filename\n\n  gpt-5.5 default · ~/wt\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n"
+}

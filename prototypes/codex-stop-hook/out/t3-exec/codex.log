@@ -1,0 +1,32 @@
+WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir "/tmp" (codex_home: AbsolutePathBuf("/tmp/codex-stop-hook/t3-exec/codex"))
+Reading additional input from stdin...
+OpenAI Codex v0.146.0
+--------
+workdir: /tmp/codex-stop-hook/t3-exec/wt
+model: gpt-5.5
+provider: fake
+approval: never
+sandbox: danger-full-access
+reasoning effort: none
+reasoning summaries: none
+session id: 01a00b62-e38e-7ef3-8931-2e404ce5ba56
+--------
+user
+Say the word done and stop. Do not use any tool.
+warning: `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+warning: `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+codex
+stub turn 1: done
+hook: Stop
+hook: Stop Blocked
+codex
+stub turn 2: done
+hook: Stop
+hook: Stop Blocked
+codex
+stub turn 3: done
+hook: Stop
+hook: Stop Completed
+tokens used
+6
+stub turn 3: done

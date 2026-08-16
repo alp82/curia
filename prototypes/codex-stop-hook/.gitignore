@@ -1,0 +1,9 @@
+# The raw request bodies are large and they regenerate on a re-run. The counted
+# evidence is committed: summary.json carries the reason item read off the wire,
+# and stops.jsonl carries every hook payload.
+out/*/requests/
+
+# The pane IS the evidence here — `Stop hook (blocked)` and the `Hooks need
+# review` menu are both read straight off it, and each capture is a few KB. The
+# repo root ignores `*.log`, so it has to be named back in.
+!out/*/codex.log

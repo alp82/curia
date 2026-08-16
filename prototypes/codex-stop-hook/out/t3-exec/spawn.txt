@@ -1,0 +1,1 @@
+codex exec --skip-git-repo-check --model gpt-5.5 --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "Say the word done and stop. Do not use any tool."
