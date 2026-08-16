@@ -1,0 +1,514 @@
+<title>The schema and the fourteen queries — curia#321</title>
+<style>
+  :root { color-scheme: light dark; --fg: #16181d; --dim: #5c6470; --bg: #fbfbfa; --card: #fff; --line: #e3e2dd; --accent: #7a4a1e; --ok: #1f6b3a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e8e6e1; --dim: #9aa1ac; --bg: #16181c; --card: #1e2126; --line: #2e323a; --accent: #e0a166; --ok: #6fd39a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 1rem 1rem 5rem; background: var(--bg); color: var(--fg);
+         font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+         max-width: 52rem; margin-inline: auto; overflow-wrap: break-word; }
+  h1 { font-size: 1.45rem; line-height: 1.25; margin: .4rem 0 .2rem; }
+  h2 { font-size: 1.1rem; margin: 2.2rem 0 .6rem; padding-top: .8rem; border-top: 1px solid var(--line); }
+  h3 { font-size: 1rem; margin: 0 0 .3rem; font-weight: 620; }
+  .sub { color: var(--dim); margin: 0 0 1rem; font-size: .92rem; }
+  .verdict { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--ok);
+             border-radius: 8px; padding: .9rem 1rem; }
+  .verdict p:first-child { margin-top: 0; }
+  .verdict ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+  .verdict li { margin: .35rem 0; }
+  article.q { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+              padding: .8rem .9rem; margin: .7rem 0; }
+  .n { display: inline-block; min-width: 1.5rem; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .meta { color: var(--dim); font-size: .84rem; margin: .2rem 0 .5rem; }
+  .note { font-size: .88rem; margin: .3rem 0 .5rem; }
+  pre { background: color-mix(in srgb, var(--fg) 5%, transparent); border-radius: 6px;
+        padding: .6rem .7rem; overflow-x: auto; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        margin: .4rem 0; }
+  pre.plan, pre.out { font-size: 11.5px; color: var(--dim); }
+  details summary { cursor: pointer; color: var(--dim); font-size: .82rem; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; min-width: 34rem; }
+  th, td { text-align: left; padding: .4rem .55rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--dim); font-weight: 600; font-size: .8rem; }
+  .tag { background: var(--accent); color: var(--bg); border-radius: 4px; padding: 0 .3rem; font-size: .7rem; vertical-align: 2px; }
+  ol.ask { padding-left: 1.2rem; }
+  ol.ask li { margin: .6rem 0; }
+  code { font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background: color-mix(in srgb, var(--fg) 7%, transparent); border-radius: 4px; padding: .05rem .25rem; }
+  footer { color: var(--dim); font-size: .8rem; margin-top: 2.5rem; }
+</style>
+
+<h1>The schema and the fourteen queries</h1>
+<p class="sub">alp82/curia#321, on the store map #316 · prototype · Node v24.19.0, SQLite 3.53.3</p>
+
+<div class="verdict">
+  <p><b>The schema holds.</b> One table, seven columns, four indexes, one trigger. It answers all
+  fourteen questions exactly as the daemon's loop answers them: <b>17,307 checks</b>
+  over four journal sizes, <b>0 mismatches</b>.</p>
+  <ul>
+    <li><b>The thirteen keyed questions cost 0.192 ms together</b>, and the number does not
+    move with history: 0.284 ms at 250,000 events. Today one of them costs a
+    29.58 ms whole read.</li>
+    <li><b>The Stop hook is the win.</b> It pays one whole read per turn of every agent today. It pays
+    three indexed seeks after this.</li>
+    <li><b>One question stays proportional to history.</b> Question 12 asks about every ticket at once, and
+    reconcile runs it once a pass: 1.4241 ms today, 186.5719 ms at 250,000 — against the
+    2044.9 ms read it replaces.</li>
+    <li><b>A committed write costs 1.185 ms</b> with WAL and <code>synchronous=full</code>, against
+    1.005 ms without the epoch trigger. At 404 events a day that difference is a tenth of a second a day.</li>
+    <li><b>The journal costs about 1.9× the text file</b>:
+    2.23 MB against 1.19 MB today. The verbatim <code>body</code> is the record,
+    and the columns and indexes are what make it answer.</li>
+    <li><b>The five queries in the daemon README all run</b>, on a journal whose oldest fifth carries the
+    pre-#184 spelling.</li>
+  </ul>
+</div>
+
+<h2>What one journal costs</h2>
+<div class="scroll">
+<table>
+  <tr><th>events</th><th>text file</th><th>journal</th><th>one whole read (today)</th><th>the 13 keyed queries</th><th>question 12</th></tr>
+  
+  <tr>
+    <td>4,282 <span class="tag">today</span></td>
+    <td>1.19 MB</td>
+    <td>2.23 MB</td>
+    <td>29.58 ms</td>
+    <td>0.192 ms</td>
+    <td>1.4241 ms</td>
+  </tr>
+  <tr>
+    <td>30,000</td>
+    <td>8.35 MB</td>
+    <td>15.45 MB</td>
+    <td>194.01 ms</td>
+    <td>0.221 ms</td>
+    <td>23.563 ms</td>
+  </tr>
+  <tr>
+    <td>60,000</td>
+    <td>16.76 MB</td>
+    <td>31.30 MB</td>
+    <td>384.97 ms</td>
+    <td>0.234 ms</td>
+    <td>50.4635 ms</td>
+  </tr>
+  <tr>
+    <td>250,000</td>
+    <td>69.99 MB</td>
+    <td>131.83 MB</td>
+    <td>2044.9 ms</td>
+    <td>0.284 ms</td>
+    <td>186.5719 ms</td>
+  </tr>
+</table>
+</div>
+<p class="sub">The read column is what the daemon pays now, once per question that misses its in-memory
+short circuit. The two query columns are what it pays after. Every row is one synthetic journal of the
+measured shape: about 277 bytes a line, 109 distinct types,
+dispatches interleaved, the oldest fifth in the old spelling.</p>
+
+<h2>The schema</h2>
+<pre>-- The journal schema, prototyped for alp82/curia#321.
+--
+-- One table. 96 event types share it, because the boot replay reads every
+-- event in write order and the fourteen questions all key by ticket, by agent
+-- or by type. Ninety-six tables would make the operator's "last thirty events"
+-- a ninety-six-way union.
+--
+-- STRICT is permitted: #320 ruled the operator's sqlite3 comes out of the
+-- daemon image, which carries SQLite 3.53. The host's 3.31 does not read this
+-- file and does not constrain it.
+
+create table events (
+  -- The write order. `id` IS the position the ten scans used when they said
+  -- "after the epoch", so every ordering below is `order by id`, never by ts.
+  -- Two events inside one millisecond keep their order.
+  id     integer primary key,
+
+  -- ISO-8601 UTC, exactly as `_append` stamps it.
+  ts     text    not null,
+
+  -- The event type, in TODAY's spelling. A line written before #184 says
+  -- `worker_spawned` in `body` and `agent_spawned` here.
+  type   text    not null,
+
+  -- The ticket, as text. Null when the event names none (image builds, bridge
+  -- health, deploys). Text and not integer, so `where ticket='320'` works —
+  -- and `where ticket=320` works too, because SQLite applies the column's TEXT
+  -- affinity to a bare numeric literal.
+  ticket text,
+
+  -- The agent session, in today's spelling. A pre-#184 line carries
+  -- `"worker": "curia-170"` in `body` and `curia-170` here.
+  agent  text,
+
+  -- The dispatch this row belongs to: the id of the `dispatch_claimed` or
+  -- `agent_spawned` row that opened the ticket's latest epoch at the moment
+  -- this row was written. An epoch-opening row carries its own id. 0 for a row
+  -- with no ticket, or one written before its ticket was ever dispatched.
+  --
+  -- This is the "after the epoch" of the three shapes, precomputed. Four of the
+  -- fourteen questions become an equality on it, and the operator gets
+  -- `where epoch=(select max(epoch) from events where ticket=321)` — one
+  -- dispatch, whole, at 2 a.m.
+  epoch  integer not null default 0,
+
+  -- The line curia wrote, byte for byte, old spelling and all (ADR-0017).
+  -- `select body from events order by id` regenerates events.jsonl.
+  body   text    not null
+) strict;
+
+-- Shape A ("the last event of type T for key K") and the type-narrowed halves
+-- of B and C. Both directions, because six of the fourteen key by agent.
+create index events_ticket_type on events (ticket, type, id);
+create index events_agent_type  on events (agent, type, id);
+
+-- The current epoch of a ticket, as one index probe: the rightmost entry for
+-- the ticket. Without it, `max(epoch)` reads every row the ticket ever wrote.
+create index events_ticket_epoch on events (ticket, epoch);
+
+-- Shapes B and C ("since the epoch"), and the operator's "this dispatch, whole".
+create index events_epoch_type  on events (epoch, type);
+
+-- The census, `group by type`. Also the type-only reads the reduction does at
+-- boot for the recent-outcome rings.
+create index events_type on events (type, id);
+
+-- The epoch stamp is a property of the TABLE, not of the write path. 129
+-- `logEvent` call sites stay ignorant of it, and a migrated row gets the same
+-- stamp as a live one because both arrive through this trigger.
+create trigger events_stamp_epoch after insert on events
+when new.ticket is not null
+begin
+  update events set epoch = coalesce((
+    select e.id from events e
+     where e.ticket = new.ticket
+       and e.type in ('dispatch_claimed', 'agent_spawned')
+       and e.id &lt;= new.id
+     order by e.id desc limit 1
+  ), 0)
+  where id = new.id;
+end;
+</pre>
+<div class="scroll">
+<table>
+  <tr><th>on disk today (4,282 events)</th><th></th></tr>
+  <tr><td>events</td><td>1.56 MB</td></tr><tr><td>events_agent_type</td><td>0.18 MB</td></tr><tr><td>events_ticket_type</td><td>0.15 MB</td></tr><tr><td>events_epoch_type</td><td>0.13 MB</td></tr><tr><td>events_type</td><td>0.13 MB</td></tr><tr><td>events_ticket_epoch</td><td>0.07 MB</td></tr>
+</table>
+</div>
+
+<h2>The fourteen questions</h2>
+<p class="sub">Every one is checked against the daemon's own loop, ported line for line into
+<code>oracle.mjs</code>. Where the two disagree the query is wrong — including where the daemon's rule
+is surprising.</p>
+
+  <article class="q">
+    <h3><span class="n">1</span> Did this dispatch push a pull request?</h3>
+    <p class="meta">shape B · #epochScan · <b>0.0321 ms</b> today, <b>0.0274 ms</b> at 250,000 · the loop it replaces: 0.4397 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select (exists(select 1 from events where ticket = :t and type in ('pr_opened', 'pr_reused', 'land_repaired') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))
+     or exists(select 1 from events where agent = :a and type in ('pr_opened', 'pr_reused', 'land_repaired') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer</pre>
+    <details><summary>query plan</summary><pre class="plan">SCAN CONSTANT ROW
+SCALAR SUBQUERY 2
+SEARCH events USING COVERING INDEX events_ticket_type (ticket=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)
+SCALAR SUBQUERY 4
+SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 3
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">2</span> Did a human approve this dispatch at the gate?</h3>
+    <p class="meta">shape B · #epochScan · <b>0.0156 ms</b> today, <b>0.0222 ms</b> at 250,000 · the loop it replaces: 0.327 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="note">Predicate-narrowed: only a review_answered whose `approved` is true counts.</p>
+    <pre>select (exists(select 1 from events where ticket = :t and type = 'review_answered'
+                and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)
+     or exists(select 1 from events where agent = :a and type = 'review_answered'
+                and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t) and json_extract(body, '$.approved') = 1)) as answer</pre>
+    <details><summary>query plan</summary><pre class="plan">SCAN CONSTANT ROW
+SCALAR SUBQUERY 2
+SEARCH events USING INDEX events_ticket_type (ticket=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)
+SCALAR SUBQUERY 4
+SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 3
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">3</span> How many times has the Stop hook held this agent?</h3>
+    <p class="meta">shape C · #epochScan · <b>0.0125 ms</b> today, <b>0.0403 ms</b> at 250,000 · the loop it replaces: 0.3734 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select count(*) as answer from events
+ where id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t)
+   and type = 'stop_blocked'
+   and agent = :a</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">4</span> Did the merge outrun the reviewer?</h3>
+    <p class="meta">shape A · #verdictIsLate · <b>0.0102 ms</b> today, <b>0.0144 ms</b> at 250,000 · the loop it replaces: 0.2104 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select coalesce(
+  (select max(id) from events where ticket = :t and type = 'ticket_resolved')
+  &gt; (select max(id) from events where ticket = :t and type = 'reviewer_spawned'), 0) as answer</pre>
+    <details><summary>query plan</summary><pre class="plan">SCAN CONSTANT ROW
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_ticket_type (ticket=? AND type=?)
+SCALAR SUBQUERY 2
+SEARCH events USING COVERING INDEX events_ticket_type (ticket=? AND type=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">5</span> When was this ticket last claimed?</h3>
+    <p class="meta">shape A · #liveUnjudgedVerdict · <b>0.0111 ms</b> today, <b>0.0118 ms</b> at 250,000 · the loop it replaces: 0.1333 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select ts from events
+ where ticket = :t and type = 'dispatch_claimed'
+ order by id desc limit 1</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">6</span> Which repo was this ticket last dispatched against?</h3>
+    <p class="meta">shape A · #epochRepo · <b>0.0192 ms</b> today, <b>0.0379 ms</b> at 250,000 · the loop it replaces: 0.1687 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="note">Predicate-narrowed: the last dispatch event that CARRIES a repo.</p>
+    <pre>select json_extract(body, '$.repo') as repo from events
+ where ticket = :t
+   and type in ('dispatch_claimed', 'agent_spawned')
+   and json_extract(body, '$.repo') &lt;&gt; ''
+ order by id desc limit 1</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)
+USE TEMP B-TREE FOR ORDER BY</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">7</span> Was the last dispatch a charting one, and what rode it?</h3>
+    <p class="meta">shape A · #epochCharting · <b>0.0114 ms</b> today, <b>0.0158 ms</b> at 250,000 · the loop it replaces: 0.1056 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select json_extract(body, '$.kind') = 'charting' as charting,
+       json_extract(body, '$.instruction') as instruction,
+       coalesce(json_extract(body, '$.newMap'), 0) as newMap
+  from events
+ where ticket = :t and type = 'agent_spawned'
+ order by id desc limit 1</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_ticket_type (ticket=? AND type=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">8</span> Which model and harness was this session last spawned on?</h3>
+    <p class="meta">shape A · #epochSpawn · <b>0.0137 ms</b> today, <b>0.0224 ms</b> at 250,000 · the loop it replaces: 0.1026 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="note">The one query that reaches for a field #184 renamed. `body` is verbatim, so a pre-rename line says `backend`. The columns are normalized; a JSON field is not.</p>
+    <pre>select json_extract(body, '$.model') as model,
+       coalesce(json_extract(body, '$.harness'), json_extract(body, '$.backend')) as harness
+  from events
+ where agent = :a and type = 'agent_spawned'
+ order by id desc limit 1</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_agent_type (agent=? AND type=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">9</span> Which map did this session report?</h3>
+    <p class="meta">shape A · #epochAdoptedMap · <b>0.0092 ms</b> today, <b>0.0098 ms</b> at 250,000 · the loop it replaces: 0.1842 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="note">Keyed by agent, and reset at that session`s last spawn line.</p>
+    <pre>select json_extract(body, '$.map') as map from events
+ where agent = :a and type = 'map_adopted'
+   and id &gt; coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)
+   and json_extract(body, '$.map') &lt;&gt; ''
+ order by id desc limit 1</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">10</span> What did the ending say?</h3>
+    <p class="meta">shape A · #endingClause · <b>0.0198 ms</b> today, <b>0.0355 ms</b> at 250,000 · the loop it replaces: 0.2233 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="note">Predicate-narrowed: the last ending carrier that CARRIES a summary.</p>
+    <pre>select json_extract(body, '$.summary') as summary from events
+ where agent = :a
+   and type in ('ticket_resolved', 'nonclean_noted', 'charting_finished')
+   and id &gt; coalesce((select max(id) from events where agent = :a and type = 'agent_spawned'), 0)
+   and json_extract(body, '$.summary') &lt;&gt; ''
+ order by id desc limit 1</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_agent_type (agent=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=?)
+USE TEMP B-TREE FOR ORDER BY</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">11</span> Which ticket and repo does this reviewer belong to?</h3>
+    <p class="meta">shape A · #captureVerdict · <b>0.0109 ms</b> today, <b>0.0073 ms</b> at 250,000 · the loop it replaces: 0.1434 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select ticket,
+       json_extract(body, '$.repo') as repo,
+       json_extract(body, '$.model') as model,
+       json_extract(body, '$.builder_model') as builder_model,
+       json_extract(body, '$.same_provider') as same_provider,
+       json_extract(body, '$.sha') as sha
+  from events
+ where agent = :a and type = 'reviewer_spawned'
+ order by id desc limit 1</pre>
+    <details><summary>query plan</summary><pre class="plan">SEARCH events USING INDEX events_agent_type (agent=? AND type=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">12</span> What is every ticket`s latest dispatch epoch?</h3>
+    <p class="meta">shape A · #reconcileContext · <b>1.4241 ms</b> today, <b>186.5719 ms</b> at 250,000 · the loop it replaces: 0.4301 ms <i>plus</i> a 29.58 ms read</p>
+    <p class="note">The one question that is not keyed: it answers for every ticket at once, and reconcile runs it once a pass.</p>
+    <pre>select e.ticket, e.id, json_extract(e.body, '$.repo') as repo
+  from events e
+  join (select ticket, max(id) as id from events
+         where type in ('dispatch_claimed', 'agent_spawned') and ticket is not null
+         group by ticket) latest on latest.id = e.id
+ order by e.ticket</pre>
+    <details><summary>query plan</summary><pre class="plan">CO-ROUTINE latest
+SEARCH events USING INDEX events_type (type=?)
+USE TEMP B-TREE FOR GROUP BY
+SCAN latest
+SEARCH e USING INTEGER PRIMARY KEY (rowid=?)
+USE TEMP B-TREE FOR ORDER BY</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">13</span> Did this session report a result after its dispatch?</h3>
+    <p class="meta">shape B · reconcile, the orphan guard · <b>0.0121 ms</b> today, <b>0.0237 ms</b> at 250,000 · the loop it replaces: 0.2464 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select (exists(select 1 from events where ticket = :t and type in ('result', 'ticket_resolved') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))
+     or exists(select 1 from events where agent = :a and type in ('result', 'ticket_resolved') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer</pre>
+    <details><summary>query plan</summary><pre class="plan">SCAN CONSTANT ROW
+SCALAR SUBQUERY 2
+SEARCH events USING COVERING INDEX events_ticket_type (ticket=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)
+SCALAR SUBQUERY 4
+SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 3
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details>
+  </article>
+  <article class="q">
+    <h3><span class="n">14</span> Did anything close this epoch?</h3>
+    <p class="meta">shape B · reconcile, the dead-claim guard · <b>0.0141 ms</b> today, <b>0.0158 ms</b> at 250,000 · the loop it replaces: 0.265 ms <i>plus</i> a 29.58 ms read</p>
+    
+    <pre>select (exists(select 1 from events where ticket = :t and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))
+     or exists(select 1 from events where agent = :a and type in ('result', 'lifecycle_closed', 'dispatch_unclaimed') and id &gt; (select coalesce(max(epoch), 0) from events where ticket = :t))) as answer</pre>
+    <details><summary>query plan</summary><pre class="plan">SCAN CONSTANT ROW
+SCALAR SUBQUERY 2
+SEARCH events USING COVERING INDEX events_ticket_type (ticket=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 1
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)
+SCALAR SUBQUERY 4
+SEARCH events USING COVERING INDEX events_agent_type (agent=? AND type=? AND id&gt;?)
+SCALAR SUBQUERY 3
+SEARCH events USING COVERING INDEX events_ticket_epoch (ticket=?)</pre></details>
+  </article>
+
+<h2>The five the operator types</h2>
+<p class="sub">From <a href="https://github.com/alp82/curia/blob/main/daemon/README.md#reading-the-journal">the daemon README</a>,
+run as written against the synthetic journal. The ticket below was dispatched before #184, so its lines
+say <code>"worker"</code> and the column still finds them.</p>
+
+  <article class="q">
+    <h3>what happened to one ticket</h3>
+    <pre>select ts, type, ticket, agent from events where ticket=100 order by id</pre>
+    <p class="meta">37 rows in 0.217 ms</p>
+    <p class="note">A bare number against a TEXT column. SQLite applies the column`s TEXT affinity to the integer literal, so `ticket=320` finds the rows stored as `320`.</p>
+    <pre class="out">{
+ "ts": "2026-05-01T08:00:00.000Z",
+ "type": "dispatch_claimed",
+ "ticket": "100",
+ "agent": "curia-100"
+}</pre>
+  </article>
+  <article class="q">
+    <h3>the last thirty events</h3>
+    <pre>select ts, type, ticket, agent from events order by id desc limit 30</pre>
+    <p class="meta">30 rows in 0.129 ms</p>
+    
+    <pre class="out">{
+ "ts": "2026-05-02T08:58:21.000Z",
+ "type": "result",
+ "ticket": "269",
+ "agent": "curia-269"
+}</pre>
+  </article>
+  <article class="q">
+    <h3>one whole line, exactly as curia wrote it</h3>
+    <pre>select body from events where id=2141</pre>
+    <p class="meta">1 row in 0.035 ms</p>
+    
+    <pre class="out">{
+ "body": "{\"ts\":\"2026-05-01T20:29:00.000Z\",\"type\":\"lifecycle_closed\",\"repo\":\"alp82/curia-site\",\"ticket\":184,\"agent\":\"curia-184\",\"reason\":\"result\"}"
+}</pre>
+  </article>
+  <article class="q">
+    <h3>the census, by type</h3>
+    <pre>select type, count(*) from events group by type order by 2 desc</pre>
+    <p class="meta">109 rows in 1.157 ms</p>
+    
+    <pre class="out">{
+ "type": "stop_blocked",
+ "count(*)": 311
+}</pre>
+  </article>
+  <article class="q">
+    <h3>how one agent ended</h3>
+    <pre>select ts, type, body from events where agent='curia-100' order by id desc limit 10</pre>
+    <p class="meta">10 rows in 0.204 ms</p>
+    <p class="note">The #184 test: this agent was named `"worker"` on the lines it wrote, and the normalized column still finds them.</p>
+    <pre class="out">{
+ "ts": "2026-05-01T08:23:06.000Z",
+ "type": "lifecycle_closed",
+ "body": "{\"ts\":\"2026-05-01T08:23:06.000Z\",\"type\":\"lifecycle_closed\",\"repo\":\"alp82/curia\",\"ticket\":100,\"worker\":\"curia-100\",\"reason\":\"result\"}"
+}</pre>
+  </article>
+
+<h2>What the prototype found</h2>
+<article class="q">
+  <h3>1 · Split the disjunction, or lose the index</h3>
+  <p>The daemon's test is <code>ev.agent === agent || ticket matches</code>. Written as one
+  <code>where … and (ticket = :t or agent = :a)</code>, SQLite drops both keyed indexes and walks the type
+  index instead: <b>3.75 ms</b> at 60,000 events, against <b>0.02 ms</b> for two <code>exists</code> —
+  185 times the work for the same answer. Shapes B and C are written as two <code>exists</code> above.</p>
+</article>
+<article class="q">
+  <h3>2 · Stringify the ticket at the write edge</h3>
+  <p><code>node:sqlite</code> binds a JavaScript number as a REAL, so a ticket handed straight off the event
+  lands in the TEXT column as <code>"321.0"</code> — and every
+  <code>where ticket=321</code> then misses it. Stringified, it stores
+  <code>"321"</code> and a bare integer literal finds it:
+  <code>where ticket=100</code> and <code>where ticket='100'</code>
+  both return 37 rows.</p>
+</article>
+<article class="q">
+  <h3>3 · <code>body</code> is verbatim, so one JSON field still says <code>backend</code></h3>
+  <p>The columns carry today's spelling. <code>body</code> carries the line as written, which is what
+  ADR-0017 fixes. #184 renamed two fields, and one of them is not a column: a pre-rename line says
+  <code>"backend"</code> where today's says <code>"harness"</code>. Question 8 reads
+  <code>coalesce(json_extract(body,'$.harness'), json_extract(body,'$.backend'))</code> for it. That is the
+  only field with the problem — <code>worker</code> is the <code>agent</code> column.</p>
+</article>
+<article class="q">
+  <h3>4 · The epoch is keyed by ticket, and a reviewer moves it</h3>
+  <p>A cross-check writes <code>agent_spawned</code> under the BUILDER's ticket, so spawning a reviewer
+  opens a new epoch for the builder. The daemon does that today. The schema reproduces it rather than
+  fixing it, because the check is "does the query answer what the loop answers". If it is wrong it is
+  wrong in <code>dispatch.mjs</code>, and it is not this ticket's to change.</p>
+</article>
+
+<h2>What the operator is asked</h2>
+<ol class="ask">
+  <li><b>The <code>epoch</code> column: keep it?</b> #320 asked for it, and this prototype reads it as the
+  dispatch epoch rather than a unix stamp. It buys the operator
+  <code>select * from events where epoch=(select max(epoch) from events where ticket=321)</code> — one
+  dispatch, whole. It does not buy speed: a query that probes the epoch itself runs the same. It costs
+  0.180 ms a write and one index.
+  <i>Recommended: keep it.</i></li>
+  <li><b>A sixth column, <code>repo</code>?</b> Three of the fourteen read it out of the body, and it is a
+  plausible thing to type by hand. It costs about twelve bytes a row and nothing at write time.
+  <i>Recommended: add it.</i></li>
+</ol>
+
+<h2>Run it</h2>
+<pre>node prototypes/journal-schema/run.mjs   # builds, checks, measures, writes results.json
+node prototypes/journal-schema/demo.mjs  # writes this page</pre>
+
+<footer>Generated from results.json. Throwaway code under <code>prototypes/</code> (ADR-0008), kept on main
+because a merge is the only durable home curia has.</footer>
