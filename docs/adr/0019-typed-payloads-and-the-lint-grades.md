@@ -1,7 +1,7 @@
 # ADR-0019: Typed payloads and the lint grades
 
 **Status**: accepted (2026-08)
-**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438)
+**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438)
 
 ## Context
 
@@ -68,7 +68,7 @@ Four rules read this table.
 **Grade B is block prose**: `example`, `summary`, `charting`, the `notify` message, and a verdict finding. This text explains, so it keeps its sentences and loses its decoration.
 
 1. A character cap per field.
-2. No heading, no table row, no blockquote. This is the `lintReply()` rule that already ships in `daemon/src/messaging.mjs`.
+2. No heading, no table row, no blockquote. This is the `lintReply()` rule that already ships in `daemon/src/messaging.mjs`. It reads prose only (#432), so a table inside a fence passes. The code-block table is the one table form Discord renders.
 3. At most 25 words per sentence.
 4. No semicolon, no em-dash, no contraction, no marketing adjective.
 5. No emoji outside the signal set. This rule also already ships.
@@ -96,7 +96,9 @@ The 80 on an option label is the number a select menu can carry whole. [#431](ht
 
 The 500 on `detail` gives the spoiler room for several facts on one line. The rule that governs it is not the number. Facts belong in the spoiler, and reasoning belongs on the timeline. The spoiler [#415](https://github.com/alp82/curia/issues/415) judged was only 334 characters and it still read badly, because it held an argument.
 
-The `visual` cap does more than fit a phone. 42 columns by 20 lines is under 900 characters, so a typed visual can never reach the 1600-character chunk limit that breaks a code fence (#414). That closes the defect by construction for every payload this ADR describes. It closes nothing for bot prose, so [#434](https://github.com/alp82/curia/issues/434) still owns the chunker itself.
+The `visual` cap does more than fit a phone. 42 columns by 20 lines is under 900 characters, so it sits under `CODE_BLOCK_LIMIT`, which [#432](https://github.com/alp82/curia/issues/432) set at 1000 characters in `daemon/src/messaging.mjs`. A typed visual therefore passes the block cap the lint already ships, and it never reaches the 1600-character chunk limit.
+
+The fence defect itself is closed, and this cap is not what closed it. [#432](https://github.com/alp82/curia/issues/432) made `chunkMessage()` read a fence: a block that fits moves whole into one chunk, and a block that cannot fit closes its fence at the split and reopens it. That covers bot prose and a flagged send, which no lint cap can reach. The `visual` cap earns its place as the phone limit from [#414](https://github.com/alp82/curia/issues/414), not as a fence guard.
 
 ### What the render path may use
 
@@ -112,8 +114,8 @@ The `visual` cap does more than fit a phone. 42 columns by 20 lines is under 900
 | Select menu | 5 to 25 options. It carries the label, and the card body carries the consequence |
 | Numbered list | 26 options or more |
 | Attachment | `.png .jpg .jpeg .gif .webp` at 8 MB, `.patch .diff .md .txt .log` at 1 MB, four files per call |
-| Bare markdown table | refused, Grade A and Grade B both |
-| Code block past 1600 characters | unreachable, by the `visual` cap |
+| Bare markdown table | refused in prose, Grade A and Grade B both |
+| Code block | at most `CODE_BLOCK_LIMIT`, 1000 characters (#432) |
 
 A card with buttons speaks in the bot voice, because an interactive component needs an application-owned webhook. This is the one place ADR-0013's speaker rule bends, and it bends for the answer surface only.
 
@@ -136,4 +138,4 @@ The typed fields ship one surface per ticket, and one deploy lands them all ([#4
 - A cap refuses rather than truncates. Truncation loses information in silence, and losing no information is the requirement this whole map serves.
 - Two surfaces keep an open decision after this ADR: the `notify` kind set (#420) and the verdict finding shape (#421). Both build against this vocabulary.
 - The lint is weaker than `voice.md`. It checks the deterministic rules only, so prose that passes the gate can still read badly. The operator remains the last reader.
-- A typed visual cannot break a code fence. Bot prose still can, so #434 stays owed.
+- The `visual` field emits a fence on a common path, and the render path already carries it (#432). `fenceParts()` and `CODE_BLOCK_LIMIT` are exported from `daemon/src/messaging.mjs`, so [#418](https://github.com/alp82/curia/issues/418) reuses them rather than writing a second fence reader.
