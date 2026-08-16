@@ -19,6 +19,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseYaml } from 'yaml'
 import { execFileP } from './exec.mjs'
 import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
@@ -714,6 +715,11 @@ const HARNESS = {
   codex: {
     // See the claude row: this is the durable channel, and #340 measured it.
     memoryFile: 'AGENTS.md',
+    // Codex hides a skill whose manifest says so, and its catalog is the only
+    // channel that re-arms a skill without pasting it (#399). See
+    // writeSkillPointers. A new harness answers this row for itself: a CLI with
+    // no catalog of its own writes no pointers and needs none.
+    skillPointers: writeSkillPointers,
     // CODEX_HOME is the whole config dir: settings, skills, sessions, logs AND
     // the credential file, with no second variable to split them (Claude's
     // CLAUDE_SECURESTORAGE_CONFIG_DIR has no codex equivalent). Sharing the
@@ -1071,6 +1077,137 @@ export function installSkills(cfgDir, skills, { copy = false } = {}) {
   return names
 }
 
+// The skills codex HIDES from its own catalog, read off upstream's manifest
+// rather than decided here (#399). A skill whose `agents/openai.yaml` carries
+// `policy.allow_implicit_invocation: false` is absent from the
+// `<skills_instructions>` developer message, so the model never learns it
+// exists. Today that is `wayfinder` and `implement`.
+//
+// The manifest IS the question, so it is the thing read. If upstream lists a
+// skill in a later release, curia writes no pointer for it and the pointer
+// simply stops existing — no list here to fall out of date, and no patched byte
+// to break in silence.
+//
+// A skill with no manifest at all is listed: `allow_implicit_invocation`
+// defaults to true. That is why a pointer needs no manifest of its own.
+function hiddenSkillNames(cfgDir, names) {
+  return (names ?? []).filter((name) => {
+    const manifest = path.join(cfgDir, 'skills', name, 'agents', 'openai.yaml')
+    let doc
+    try {
+      doc = parseYaml(fs.readFileSync(manifest, 'utf8'))
+    } catch {
+      return false // no manifest, or one codex itself could not read: codex lists it
+    }
+    return doc?.policy?.allow_implicit_invocation === false
+  })
+}
+
+// The one line a `SKILL.md` contributes to the codex catalog. Read from the
+// installed file, never held as a copy here, so a skill-tree bump carries into
+// the pointer at the next seed with nothing to synchronise.
+//
+// PARSED as YAML rather than matched with a regex, and the reason is a real bug
+// this caught: `implement` writes its description as a QUOTED scalar, so the
+// obvious `description:[ \t]*(.+)` capture returns the quotes too. Appending a
+// sentence to that produced `description: "..." Read ...`, which is invalid
+// YAML — and codex answers invalid frontmatter by dropping the skill from its
+// catalog IN SILENCE. The pointer existed on disk and reached no model.
+function skillDescription(cfgDir, name) {
+  let text
+  try {
+    text = fs.readFileSync(path.join(cfgDir, 'skills', name, 'SKILL.md'), 'utf8')
+  } catch {
+    return null
+  }
+  if (!text.startsWith('---')) return null
+  const end = text.indexOf('\n---', 3)
+  if (end === -1) return null
+  let front
+  try {
+    front = parseYaml(text.slice(3, end))
+  } catch {
+    return null
+  }
+  const description = front?.description
+  return typeof description === 'string' && description.trim() ? description.trim() : null
+}
+
+// A pointer per hidden skill, so the codex catalog names it again (#399).
+//
+// #360 closed every cheap way to re-arm a skill on codex: a second `$wayfinder`
+// adds an 11,867-character copy and keeps the first, and neither a tool result
+// nor `AGENTS.md` resolves a mention at all. What survives is the catalog — a
+// developer message, world state, restated every turn and never stale. The
+// operator rejected the obvious way in (flip `allow_implicit_invocation` in the
+// vendored manifest) on 2026-08-16: a patched vendored byte is brittle, and a
+// skill-tree update breaks it without a word.
+//
+// So curia writes a file it OWNS instead, beside the `standing.md` it already
+// writes here, and patches nothing. Measured on the pinned codex
+// (docs/live-checks/399): a listed skill costs about 270 characters per turn and
+// NEVER pastes its body. The 11,867 characters arrive only from a `$name` typed
+// by a user, which is why the codex spawn prompt no longer types one.
+//
+// Three properties make this stable rather than clever:
+//
+//   - The description is READ from the installed skill, so the trigger fires on
+//     the same tasks the real skill claims, and an upstream reword carries
+//     through at the next seed.
+//   - Hidden-ness is read from upstream's manifest, so upstream stays the
+//     authority on which skills need a pointer at all.
+//   - The name is `curia-<name>` and not `<name>`. Codex keys a skill on the
+//     name in its frontmatter, so a pointer claiming `wayfinder` would put two
+//     skills under one name — the ambiguity #224 measured, created on purpose.
+//     The prefix also says whose file it is to anyone reading the config dir.
+//
+// It is GENERATED per agent rather than committed to the tree, for the same
+// reason `standing.md` is: it names an absolute path that only exists once the
+// config dir does. And it is written from `seedConfigDir`, AFTER
+// `installSkills` — that call wipes `<cfgDir>/skills` on every re-arm, and a
+// pointer written anywhere else would vanish on the respawn a usage limit
+// forces. That is #340's `standing.md` trap, one directory over.
+export function writeSkillPointers(cfgDir, names) {
+  const written = []
+  for (const name of hiddenSkillNames(cfgDir, names)) {
+    const description = skillDescription(cfgDir, name)
+    if (!description) continue // a skill with no description contributes no catalog line to match on
+    const target = path.join(cfgDir, 'skills', name, 'SKILL.md')
+    const pointer = path.join(cfgDir, 'skills', `curia-${name}`)
+    fs.mkdirSync(pointer, { recursive: true })
+    // Both values are emitted as JSON strings, which are valid YAML
+    // double-quoted scalars. The description is upstream's prose and carries
+    // whatever upstream put in it — quotes, colons, em-dashes — and a
+    // hand-spliced line is how the `implement` pointer broke in silence.
+    fs.writeFileSync(path.join(pointer, 'SKILL.md'), [
+      '---',
+      `name: ${JSON.stringify(`curia-${name}`)}`,
+      `description: ${JSON.stringify(`${description} Read ${target} in full before you act on this.`)}`,
+      '---',
+      '',
+      `This is the \`${name}\` skill. Read \`${target}\` completely, then follow it.`,
+      '',
+      'Curia installed that file and it is the whole skill. This pointer exists because codex does',
+      'not list `' + name + '` in its own skill catalog, and it restates none of the skill itself.',
+      '',
+      // The read-once rule, and it is the whole reason this file is worth
+      // owning (#399). Codex tells the model to read a skill completely every
+      // time it uses one, and not to carry a skill across turns. A model that
+      // obeys both re-reads on every turn: measured at 12,299 characters per
+      // turn for wayfinder, which STACKS, so it is worse than the 11,867-char
+      // mention this replaced. Curia cannot edit codex's rule and it can write
+      // its own, in the one file upstream does not own.
+      `Read \`${target}\` ONCE in a session. If you have already read it, you are still running it,`,
+      'and reading it again only repeats what you have. Say that you are using this skill, then act.',
+      '',
+      'The curia standing orders win wherever the two disagree.',
+      '',
+    ].join('\n'))
+    written.push(`curia-${name}`)
+  }
+  return written
+}
+
 // The second skill root the codex harness reads, and the reason #171 exists.
 // CODEX_HOME does not bound skills: the pinned codex (0.146) reads
 // `$HOME/.agents/skills` unconditionally, beside `$CODEX_HOME/skills`
@@ -1182,7 +1319,11 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
   // MCP connectors, no saved permission mode (#23/#29). Both CLIs read
   // `<config dir>/skills/<name>/SKILL.md`, so #57's install is harness-blind —
   // a curia skill loaded and ran under codex unchanged.
-  installSkills(cfgDir, skills, { copy: sandboxed })
+  const installed = installSkills(cfgDir, skills, { copy: sandboxed })
+  // AFTER the install, because that call wipes the directory these are written
+  // into (#399). Harness-specific, so it hangs off the table rather than off a
+  // name test here.
+  h.skillPointers?.(cfgDir, installed)
 }
 
 // The curia side channel: the MCP server the agent's tools come from, and the
@@ -1457,34 +1598,41 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   // body's shape and refer-by-name are all doctrine a charting agent needs and
   // curia does not restate.
   //
-  // One line, two spellings (#173, see the header above): `/wayfinder` is the
-  // claude slash command, `$wayfinder` is codex's own way of naming a skill.
-  // Everything after the sigil is identical, so a human reading two prompts
-  // side by side reads one document.
+  // ONE harness types a sigil now, and it is claude (#399). `/wayfinder` is a
+  // slash command: Claude Code expands the whole `SKILL.md` into the first user
+  // message, the session has no fade to cure, and this line is still what loads
+  // the skill at all.
   //
-  // The `$` is LOAD-BEARING, and #340 measured why. On the codex lane
-  // `wayfinder` is deliberately absent from the auto-listed skill catalog: the
-  // vendored tree carries `agents/openai.yaml` with
-  // `policy.allow_implicit_invocation: false`, which is upstream's pair to
-  // `disable-model-invocation` and means "reachable only by the human typing
-  // its name". Codex answers the explicit mention anyway and injects the whole
-  // `SKILL.md` inline, but the plain prose "use the wayfinder skill" injects
-  // NOTHING. Both measured from a real rollout
-  // (docs/live-checks/340-codex-skill-fade.md).
+  // The codex lane types NOTHING. It used to type `$wayfinder`, which injected
+  // the whole 11,867-character `SKILL.md` as a user message on turn one — and a
+  // user message is conversation, which codex tells the model to treat as stale
+  // after the turn that carried it (#340). #360 then closed every way to re-arm
+  // it: a second mention adds a second copy and keeps the first, and nothing
+  // curia owns except a pane send resolves a mention at all.
   //
-  // So a missing skill in `codex debug prompt-input` is not a fault to fix:
-  // that renderer never resolves a mention, and the vendored bytes are correct.
-  // Patching the tree here would break the design rather than repair it.
+  // So the skill reaches a codex agent the way every other skill does — through
+  // the catalog, which is a developer message and world state. Curia puts it
+  // back on that catalog with a pointer it owns (writeSkillPointers), and the
+  // model reads the file when a task matches. Measured: the catalog entry costs
+  // about 270 characters per turn and pastes no body, where the mention cost
+  // 11,867 once and re-armed nothing (docs/live-checks/399).
+  //
+  // Dropping the line rather than keeping both is the operator's call
+  // (2026-08-16): use all skills normally. Keeping it would pay the 11,867
+  // characters for a turn-one load the catalog already reaches, and pay it in
+  // the one channel that goes stale.
   //
   // A NEW-map dispatch (#241) names no map, because there is none: the bare
   // sigil is the skill's OTHER invocation, "chart the map", which starts from a
   // loose idea. The operator's sentence IS that idea, and it rides the params
   // below rather than the invocation line — the line is one line, and this one
   // is a paragraph the operator wrote.
-  const sigil = harness === 'codex' ? '$wayfinder' : '/wayfinder'
-  const invocation = newMap
-    ? [sigil, '']
-    : mapNumber ? [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, ''] : []
+  const sigil = harness === 'codex' ? null : '/wayfinder'
+  const invocation = !sigil || !(newMap || mapNumber)
+    ? []
+    : newMap
+      ? [sigil, '']
+      : [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, '']
 
   // The params of a NEW-map dispatch (#241). The difference from a map dispatch
   // is one fact with consequences everywhere: the map does not exist. So this
@@ -1492,7 +1640,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   // breadth-first, then create the map and the tickets it can already state —
   // and it owes curia the number the moment it has one.
   const newMapParams = [
-    '- **This is a NEW-MAP DISPATCH.** No map exists yet. Run the skill\'s "Chart the map" mode from the',
+    '- **This is a NEW-MAP DISPATCH.** No map exists yet. Run the wayfinder skill\'s "Chart the map" mode from the',
     '  top: name the destination with the operator, map the frontier breadth-first, then create the',
     `  \`wayfinder:map\` issue in ${repo} and the tickets you can already state. Its "work through the map"`,
     '  mode does not apply — there is nothing to work through until you have built it.',
@@ -1516,7 +1664,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
   const chartingParams = [
     `- **This is a MAP DISPATCH.** ${repo}#${n} is the map itself, not a ticket under it. Your job is to`,
     '  CHANGE THE MAP: its body sections, and its child tickets. Do not choose a frontier ticket, and do',
-    '  not resolve one. The skill\'s step "choose the ticket" does not apply to this session.',
+    '  not resolve one. The wayfinder skill\'s step "choose the ticket" does not apply to this session.',
     `- The map is ${repo}#${n} — ${ticketUrl}. curia has loaded it for you. It has NOT assigned the map`,
     '  to you, and no dispatch ever does (#221): a claim means "off the frontier", and a map is never on',
     '  one. What keeps a second charting agent off this body is the session name — curia refuses a second',
@@ -1544,7 +1692,10 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     `- The ticket is ${repo}#${n} — ${ticketUrl}. curia has already CLAIMED it in your name: you start at`,
     '  resolving it, not at choosing it.',
     ...(type
-      ? [`- Ticket type: \`${type}\`. The skill's Ticket Types section says what that means for how you work it.`]
+      // The skill is NAMED here rather than pointed at (#399). The codex lane
+      // types no sigil now, so "the skill" would name nothing on that harness —
+      // and naming it in plain text is also how codex triggers a listed skill.
+      ? [`- Ticket type: \`${type}\`. The wayfinder skill's Ticket Types section says what that means for how you work it.`]
       : ['- This ticket carries no `wayfinder:` type label.']),
   ]
 

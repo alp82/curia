@@ -69,21 +69,28 @@ describe('the wayfinder invocation', () => {
     assert.match(p, /belongs to no map/)
   })
 
-  // #173, gap 4 of the codex-lane inventory. `/wayfinder` is a claude
-  // mechanism: on codex the same line arrived as plain text and loaded
-  // nothing. `$wayfinder` is codex's own way of naming a skill, and codex
-  // answers it with "you must use that skill for that turn" plus "read its
-  // SKILL.md completely" (measured, docs/live-checks/173).
-  describe('the codex harness spells it its own way (#173)', () => {
-    test('a map ticket starts with the $wayfinder line', () => {
+  // #173 gave the codex lane its own spelling, `$wayfinder`, and #399 took the
+  // line away entirely. The mention was the ONLY thing that injected the
+  // 11,867-character skill body into a codex session, and it injected it as a
+  // user message — conversation, which codex tells the model is stale after the
+  // turn that carried it. #360 then closed every way to re-arm it.
+  //
+  // So the codex lane now reaches the skill the way it reaches every other
+  // skill: through the catalog, which is world state. `writeSkillPointers` puts
+  // it back on that catalog. Measured in docs/live-checks/399: zero `<skill>`
+  // blocks on every turn, against 11,867 characters for the mention.
+  describe('the codex harness types no sigil at all (#399)', () => {
+    test('a map ticket starts at the ticket heading, with no mention anywhere', () => {
       const p = write({ mapNumber: 1, harness: 'codex' })
-      assert.equal(p.split('\n')[0], '$wayfinder https://github.com/o/r/issues/1 ticket #42')
-      assert.ok(!p.includes('/wayfinder'), 'the claude slash command is gone, not doubled')
+      assert.equal(p.split('\n')[0], '# o/r#42: Close the loop')
+      assert.ok(!p.includes('$wayfinder'), 'the mention is what pasted the body — it is gone')
+      assert.ok(!p.includes('/wayfinder'), 'and the claude slash command never belonged here')
     })
 
-    test('a map dispatch names the map and no ticket, on this harness too', () => {
+    test('a map dispatch types no mention either', () => {
       const p = write({ mapNumber: 42, charting: true, harness: 'codex' })
-      assert.equal(p.split('\n')[0], '$wayfinder https://github.com/o/r/issues/42')
+      assert.equal(p.split('\n')[0], '# o/r#42: Close the loop')
+      assert.ok(!p.includes('$wayfinder'))
     })
 
     test('a mapless ticket invokes nothing, in either spelling', () => {
@@ -92,26 +99,44 @@ describe('the wayfinder invocation', () => {
       assert.equal(p.split('\n')[0], '# o/r#42: Close the loop')
     })
 
-    test('the sigil and the file it points at are the ONLY differences', () => {
+    // The skill is still NAMED in prose on both lanes, and that is deliberate.
+    // With no sigil, "the skill's Ticket Types section" would point at nothing
+    // a codex agent can resolve — and naming a listed skill in plain text is
+    // also how codex triggers one.
+    test('the prose names the skill, so no reference dangles on the lane with no sigil', () => {
+      for (const harness of ['codex', 'claude']) {
+        const p = write({ mapNumber: 1, type: 'wayfinder:grilling', harness })
+        assert.match(p, /The wayfinder skill's Ticket Types section/, `${harness} names the skill`)
+      }
+    })
+
+    test('the invocation line and the memory file are the ONLY differences', () => {
       // The bounds, the tools and the ending are harness-blind on purpose: a
       // human reading two agents' prompts side by side must read the same
       // text. A rule that belongs to one lane belongs in the harness table,
       // not here.
       //
-      // #340 added the second difference, and it is the same KIND as the
-      // sigil: each CLI's own name for its global-memory file. The orders
-      // themselves stay one document, which is what the standing check below
-      // pins.
+      // #340 added the memory-file difference, and it is the same KIND as the
+      // sigil was: each CLI's own name for its global-memory file. #399 turned
+      // the first difference from two spellings of one line into one lane
+      // having the line and the other not, so the comparison is by CONTENT and
+      // not by line number.
       const codex = writeParts({ mapNumber: 1, harness: 'codex' })
       const claude = writeParts({ mapNumber: 1, harness: 'claude' })
       assert.equal(codex.standing, claude.standing, 'the orders are one document on both lanes')
-      const differ = codex.prompt.split('\n')
-        .map((l, i) => [l, claude.prompt.split('\n')[i]])
+
+      const claudeLines = claude.prompt.split('\n')
+      const codexLines = codex.prompt.split('\n')
+      // The claude prompt is the codex one plus the invocation line and its
+      // blank, with one line reworded.
+      assert.deepEqual(claudeLines.slice(0, 2), ['/wayfinder https://github.com/o/r/issues/1 ticket #42', ''])
+      const rest = claudeLines.slice(2)
+      const differ = codexLines
+        .map((l, i) => [l, rest[i]])
         .filter(([a, b]) => a !== b)
-      assert.equal(differ.length, 2, `expected two differing lines, got ${differ.length}`)
-      assert.match(differ[0][0], /^\$wayfinder /)
-      assert.match(differ[1][0], /`AGENTS\.md`/)
-      assert.match(differ[1][1], /`CLAUDE\.md`/)
+      assert.equal(differ.length, 1, `expected one differing line, got ${differ.length}: ${JSON.stringify(differ)}`)
+      assert.match(differ[0][0], /`AGENTS\.md`/)
+      assert.match(differ[0][1], /`CLAUDE\.md`/)
     })
 
     test('an unknown harness is refused, never quietly spelled the claude way', () => {

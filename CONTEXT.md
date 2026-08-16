@@ -244,11 +244,15 @@ The MCP servers an agent can reach: curia's own, and nothing else. Two settings 
 **Skills**:
 The skill set curia symlinks into every agent's config dir, so an agent resolves in the same idiom as a hand session.
 
+**Skill pointer**:
+A small skill curia writes into the codex agent's config dir, one per skill codex hides from its own catalog (`wayfinder` and `implement` today). Codex lists a skill whose manifest sets `allow_implicit_invocation: false` nowhere, so the model never learns it exists. The pointer carries the real skill's own description, names the installed file, and restates none of it. Its point is the channel: the catalog is a developer message, so it is world state and it is restated every turn, where the old `$wayfinder` mention was one user message that went stale and could not be repeated without pasting the skill again (#360, #399). Curia patches no vendored byte, and it reads upstream's manifest to decide which skills need one, so a release that lists them stops the pointers by itself. The claude lane has none and needs none: `/wayfinder` is a slash command that expands the whole file into the first user message.
+_Avoid_: patched manifest, catalog flip.
+
 **Standing orders**:
 The bounds, the tools and the ending: what holds for every turn of a ticket, not procedure. Procedure lives in the installed skills. They ride the CLI's global-memory file in the agent's config dir, because both harnesses load that file as instructions and a user message goes stale (#340).
 
 **Spawn prompt**:
-The parameters of one dispatch: the ticket, the map, the worktree, the ports, the inherited exchange, and the line that invokes the skill. It states no bound and no procedure, and it points at the standing orders.
+The parameters of one dispatch: the ticket, the map, the worktree, the ports and the inherited exchange. It states no bound and no procedure, and it points at the standing orders. On the claude lane it also carries the `/wayfinder` line, which loads the skill. The codex lane carries no such line since #399: a mention there pasted the whole skill into the conversation, and the skill pointer reaches it through the catalog instead.
 
 **Bounds**:
 The hard limits in the standing orders. Read anything. Write only inside the worktree, the ticket, and the map subtree. No browser. Never answer for the human. A failed call is not an answer, and silence is not an answer.

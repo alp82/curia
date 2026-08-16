@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import { execFileSync } from 'node:child_process'
+import { parse as parseYaml } from 'yaml'
 import {
   seedConfigDir, agentEnv, agentGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
   writeConnectionSettings, removeCredentials, untrustedProjectConfig, plantedSkills, MCP_SERVER_NAME,
@@ -232,6 +233,167 @@ describe('the agent skill set (#57)', () => {
     // checklist to a phone through `ask_human`.
     assert.equal(DEFAULT_SKILLS.includes('wizard'), false, 'wizard is deliberately withheld (#348)')
     assert.equal(defaultSkillsRoot(), path.join(os.homedir(), '.claude', 'skills'))
+  })
+
+  // #399. Codex hides a skill whose manifest says `allow_implicit_invocation:
+  // false`, so the model is never told it exists. `$wayfinder` used to reach it
+  // and paste all 11,867 characters into the conversation, where they went
+  // stale. Curia writes a pointer instead: a skill it owns, listed by default,
+  // naming the real file. Nothing upstream is patched.
+  describe('the pointer that puts a hidden skill back on the codex catalog (#399)', () => {
+    let ptmp
+    let proot
+
+    // Four shapes, and each one decides a different branch.
+    before(() => {
+      ptmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-ptr-'))
+      proot = path.join(ptmp, 'skills')
+      const skill = (name, front, manifest) => {
+        fs.mkdirSync(path.join(proot, name), { recursive: true })
+        fs.writeFileSync(path.join(proot, name, 'SKILL.md'), `---\n${front}\n---\n\n# ${name}\n`)
+        if (manifest) {
+          fs.mkdirSync(path.join(proot, name, 'agents'), { recursive: true })
+          fs.writeFileSync(path.join(proot, name, 'agents', 'openai.yaml'), manifest)
+        }
+      }
+      // hidden, plain description
+      skill('wayfinder', 'name: wayfinder\ndescription: Chart a map of decision tickets.',
+        'policy:\n  allow_implicit_invocation: false\n')
+      // hidden, and its description is a QUOTED scalar — the `implement` shape
+      skill('implement', 'name: implement\ndescription: "Implement work: from a spec, or tickets."',
+        'policy:\n  allow_implicit_invocation: false\n')
+      // a manifest that ALLOWS it: codex lists this one itself
+      skill('grilling', 'name: grilling\ndescription: Grill the user.',
+        'policy:\n  allow_implicit_invocation: true\n')
+      // no manifest at all: listed by default
+      skill('tdd', 'name: tdd\ndescription: Test first.')
+    })
+    after(() => { fs.rmSync(ptmp, { recursive: true, force: true }) })
+
+    const seedCodex = (n, install) => {
+      const cfgDir = path.join(ptmp, 'cfg', `curia-${n}`)
+      seedConfigDir(cfgDir, path.join(ptmp, 'wt', String(n)), { root: proot, install }, 'codex')
+      return cfgDir
+    }
+
+    // Frontmatter is PARSED here rather than matched, because the bug this
+    // guards was invisible to a match: see the quoted-description test below.
+    const frontmatter = (file) => {
+      const text = fs.readFileSync(file, 'utf8')
+      assert.ok(text.startsWith('---'), `${file} has no frontmatter at all`)
+      const end = text.indexOf('\n---', 3)
+      assert.notEqual(end, -1, `${file} has an unterminated frontmatter block`)
+      return parseYaml(text.slice(3, end))
+    }
+
+    test('upstream decides which skills need one, and the manifest is what is read', () => {
+      const cfgDir = seedCodex(20, ['wayfinder', 'implement', 'grilling', 'tdd'])
+      assert.deepEqual(fs.readdirSync(path.join(cfgDir, 'skills')).sort(),
+        ['curia-implement', 'curia-wayfinder', 'grilling', 'implement', 'tdd', 'wayfinder'])
+      // A skill codex already lists gets no pointer, whether it says so in a
+      // manifest or carries none. If upstream lists `wayfinder` in a later
+      // release, the pointer stops being written with no edit here.
+      assert.equal(fs.existsSync(path.join(cfgDir, 'skills', 'curia-grilling')), false)
+      assert.equal(fs.existsSync(path.join(cfgDir, 'skills', 'curia-tdd')), false)
+    })
+
+    test('the pointer names the installed file and restates none of the skill', () => {
+      const cfgDir = seedCodex(21, ['wayfinder'])
+      const target = path.join(cfgDir, 'skills', 'wayfinder', 'SKILL.md')
+      const pointer = path.join(cfgDir, 'skills', 'curia-wayfinder', 'SKILL.md')
+      const front = frontmatter(pointer)
+
+      assert.equal(front.name, 'curia-wayfinder')
+      // The description is the real skill's own, so the codex trigger fires on
+      // the tasks the skill claims rather than on a sentence curia invented.
+      assert.match(front.description, /^Chart a map of decision tickets\./)
+      assert.match(front.description, new RegExp(`Read ${target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} in full`))
+      // The name is prefixed, never the skill's own: codex keys a skill on this
+      // name, so two skills claiming `wayfinder` would be #224's ambiguity made
+      // on purpose.
+      assert.notEqual(front.name, 'wayfinder')
+      // A copy would go stale in silence, which is the whole reason the patched
+      // manifest was refused. The body carries the path and nothing else.
+      const body = fs.readFileSync(pointer, 'utf8')
+      assert.ok(body.includes(target), 'the pointer must name the file it points at')
+      assert.ok(!body.includes('# wayfinder'), 'the pointer copies no skill text')
+    })
+
+    // The regression that shipped and had to be caught by a live render: the
+    // `implement` skill writes its description as a QUOTED scalar. Splicing a
+    // sentence onto the raw captured text produced `description: "..." Read
+    // ...`, which is invalid YAML — and codex answers invalid frontmatter by
+    // dropping the skill from its catalog WITHOUT A WORD. The pointer existed
+    // on disk and reached no model.
+    test('a quoted description still yields frontmatter that parses', () => {
+      const cfgDir = seedCodex(22, ['implement'])
+      const front = frontmatter(path.join(cfgDir, 'skills', 'curia-implement', 'SKILL.md'))
+      assert.equal(front.name, 'curia-implement')
+      assert.match(front.description, /^Implement work: from a spec, or tickets\. Read /,
+        'the quotes and the colon must survive as VALUE, not as syntax')
+    })
+
+    test('every pointer curia can write parses, whatever upstream put in the description', () => {
+      // The bound stated as a rule rather than as two examples: a description
+      // is upstream's prose, and it may carry anything.
+      const cfgDir = seedCodex(23, ['wayfinder', 'implement'])
+      for (const name of ['curia-wayfinder', 'curia-implement']) {
+        const front = frontmatter(path.join(cfgDir, 'skills', name, 'SKILL.md'))
+        assert.equal(front.name, name)
+        assert.equal(typeof front.description, 'string')
+        assert.ok(front.description.length > 0)
+      }
+    })
+
+    test('the read-once rule is in the file curia owns, because codex says the opposite', () => {
+      // Codex tells the model to read a skill completely every time it uses one
+      // AND not to carry a skill across turns. Obeyed literally that is 12,299
+      // characters per turn, stacking (docs/live-checks/399). Curia cannot edit
+      // codex's rule, so it writes its own where it can.
+      const cfgDir = seedCodex(24, ['wayfinder'])
+      const body = fs.readFileSync(path.join(cfgDir, 'skills', 'curia-wayfinder', 'SKILL.md'), 'utf8')
+      assert.match(body, /ONCE in a session/)
+    })
+
+    test('a re-seed rebuilds the pointer, because installSkills wipes the directory it lives in', () => {
+      // #340's `standing.md` trap, one directory over: `seedConfigDir` runs
+      // again on the respawn a usage limit forces, and a pointer written
+      // anywhere but after the install would be gone for the rest of the run.
+      const cfgDir = seedCodex(25, ['wayfinder'])
+      const pointer = path.join(cfgDir, 'skills', 'curia-wayfinder', 'SKILL.md')
+      assert.ok(fs.existsSync(pointer))
+      seedConfigDir(cfgDir, path.join(ptmp, 'wt', '25'), { root: proot, install: ['wayfinder'] }, 'codex')
+      assert.ok(fs.existsSync(pointer), 'the re-arm must not leave the agent with a hidden skill')
+    })
+
+    test('a pointer for a skill that has left the install list does not survive', () => {
+      const cfgDir = seedCodex(26, ['wayfinder', 'implement'])
+      assert.ok(fs.existsSync(path.join(cfgDir, 'skills', 'curia-implement')))
+      seedConfigDir(cfgDir, path.join(ptmp, 'wt', '26'), { root: proot, install: ['wayfinder'] }, 'codex')
+      assert.deepEqual(fs.readdirSync(path.join(cfgDir, 'skills')).sort(), ['curia-wayfinder', 'wayfinder'])
+    })
+
+    test('the claude harness gets none, because it has no catalog to be missing from', () => {
+      // `/wayfinder` is a slash command: Claude Code expands the whole SKILL.md
+      // into the first user message, so that lane never had the fade this
+      // cures. The row is the harness table's, not a name test in the seed.
+      const cfgDir = path.join(ptmp, 'cfg', 'curia-27')
+      seedConfigDir(cfgDir, path.join(ptmp, 'wt', '27'), { root: proot, install: ['wayfinder'] }, 'claude')
+      assert.deepEqual(fs.readdirSync(path.join(cfgDir, 'skills')), ['wayfinder'])
+    })
+
+    test('the vendored tree still hides exactly the two skills this exists for', () => {
+      // A tree bump that lists them upstream makes the pointers stop being
+      // written, and this is where that shows up as a decision rather than as
+      // silence.
+      const vendored = path.resolve(import.meta.dirname, '..', '..', 'skills')
+      const hidden = DEFAULT_SKILLS.filter((name) => {
+        const manifest = path.join(vendored, name, 'agents', 'openai.yaml')
+        if (!fs.existsSync(manifest)) return false
+        return parseYaml(fs.readFileSync(manifest, 'utf8'))?.policy?.allow_implicit_invocation === false
+      })
+      assert.deepEqual(hidden.sort(), ['implement', 'wayfinder'])
+    })
   })
 
   // The vendored tree carries every promoted skill, so a name in the list that
