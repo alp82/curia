@@ -31,7 +31,7 @@ import { Reduction } from '../src/reduction.mjs'
 import { sameDigest } from '../src/diffdigest.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
-import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
 import { journalEvents, journalText } from './fixtures/journal.mjs'
@@ -276,7 +276,7 @@ describe('the re-ask takes the recorded answer (#369, real boot pair + real MCP 
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',
