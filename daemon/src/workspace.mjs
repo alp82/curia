@@ -23,6 +23,7 @@ import { parse as parseYaml } from 'yaml'
 import { execFileP } from './exec.mjs'
 import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
+import { forgetGhCredentials, ghConfigDirFor } from './agentgh.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
 // operator's STE writing standard, seeded into every config dir as the CLI's
@@ -316,6 +317,24 @@ export async function hostGitIdentity() {
   }
 }
 
+// Who a commit in this workspace says it is (#389).
+//
+// `createPrivateClone` writes the BOX's identity, because a clone happens before
+// anything is minted and an agent with no identity fails its first commit with
+// "please tell me who you are". This overwrites it for an agent on the app, so
+// its commits read as `curia-sh[bot]` rather than as the operator — which is the
+// attribution half of ADR-0018, said in the commit as well as in the push.
+//
+// A separate call rather than an argument to the clone, because the answer is
+// not known that early: the token is minted with the container, and the identity
+// follows the token. An agent that fell back to the PAT keeps the box identity,
+// because a PAT push by the operator with a bot author on it would say two
+// different things about one commit.
+export async function setGitIdentity(gitDir, { name, email }) {
+  await git(gitDir, ['config', 'user.name', name])
+  await git(gitDir, ['config', 'user.email', email])
+}
+
 // Full removal where the worktree is destroyed anyway (cancel, orphan sweep);
 // credentials-only where the workspace is kept for review (lifecycle close) so
 // prompt.md survives the post-mortem. Since #53 an agent's config dir holds no
@@ -334,10 +353,18 @@ export function removeConfigDir(cfgDir) {
 // sandboxed codex harness that path holds a real COPY instead (#158), and sweeping
 // it is the point rather than a side effect: it is a live host credential, and
 // the copy outlives the container it was made for.
+//
+// The minted GitHub credential (#389) goes the same way and through this same
+// call, because it is the same fact: a live credential in a config dir whose
+// agent is finished. It is the one the daemon itself WROTE rather than one a
+// harness left, so it is also the one a re-arm must clear — `seedConfigDir`
+// runs this first, and `#prepareContainer` then writes the fresh token or
+// leaves the agent on the PAT with no stale file beside it.
 export function removeCredentials(cfgDir) {
   for (const name of ['.credentials.json', 'auth.json']) {
     fs.rmSync(path.join(cfgDir, name), { force: true })
   }
+  forgetGhCredentials(cfgDir)
 }
 
 // ---- the per-harness table ------------------------------------------------
@@ -483,8 +510,18 @@ export function assertGhTokens(env = process.env) {
 // the host credential store, because the host HOME is what the boundary denies.
 // `cfgDir` is then the path INSIDE the container, and the model credential
 // rides the env file instead (sandbox.mjs).
-export function agentEnv(cfgDir, harness = 'claude', { repo = null, env = process.env, sandboxed = false } = {}) {
+//
+// `minted` (#389) is the cutover, and the two arms are deliberately EXCLUSIVE.
+// A minted agent gets a PATH and no secret: `GH_CONFIG_DIR` names the directory
+// the daemon writes gh's own `hosts.yml` into and rewrites every tick, because
+// an installation token lives one hour and dies inside a long ticket. Everything
+// else keeps #155's `GH_TOKEN`, which is a PAT frozen for the agent's life. Both
+// at once would be a silent bug rather than a belt: `gh` prefers `GH_TOKEN` over
+// `hosts.yml`, so a leftover env value would beat the file the daemon refreshes
+// and the hour would come back.
+export function agentEnv(cfgDir, harness = 'claude', { repo = null, env = process.env, sandboxed = false, minted = false } = {}) {
   const base = harnessDef(harness).env(cfgDir, { sandboxed })
+  if (minted) return { ...base, GH_CONFIG_DIR: ghConfigDirFor(cfgDir) }
   const token = agentGhToken(repo, env)
   return token ? { ...base, GH_TOKEN: token } : base
 }

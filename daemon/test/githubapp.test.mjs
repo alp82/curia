@@ -292,6 +292,54 @@ describe('the minter (#352)', () => {
   })
 })
 
+// #389: git has to NAME the app, and a login alone does not link a commit to an
+// account. The `<id>+<login>@users.noreply.github.com` form does, and the id
+// takes a second read.
+describe('the app\'s own git identity (#389)', () => {
+  const app = { status: 200, body: { id: 4610603, slug: 'curia-sh' } }
+  const bot = { status: 200, body: { id: 317489578, login: 'curia-sh[bot]' } }
+
+  function minter(answers) {
+    const fetchImpl = fakeFetch(answers)
+    return { m: new TokenMinter({ appId: '7', key: keyPair.privateKey, fetchImpl }), fetchImpl }
+  }
+
+  test('the slug becomes the login, and the bot id becomes the email', async () => {
+    const { m, fetchImpl } = minter([app, bot])
+    assert.deepEqual(await m.botIdentity('ghs_x'), {
+      name: 'curia-sh[bot]',
+      email: '317489578+curia-sh[bot]@users.noreply.github.com',
+    })
+    assert.equal(fetchImpl.calls[0].url, 'https://api.github.com/app')
+    // the bracket is not URL-safe, and an unescaped one is a 404 on a route
+    // that would otherwise look right
+    assert.equal(fetchImpl.calls[1].url, 'https://api.github.com/users/curia-sh%5Bbot%5D')
+    // an app JWT authenticates the /app routes and NOTHING else, so the user
+    // read has to run on the installation token the caller already holds
+    assert.equal(fetchImpl.calls[1].opts.headers.authorization, 'Bearer ghs_x')
+  })
+
+  test('both facts are read once and kept — they never change for an installed app', async () => {
+    const { m, fetchImpl } = minter([app, bot])
+    await m.botIdentity('ghs_x')
+    await m.botIdentity('ghs_x')
+    assert.equal(fetchImpl.calls.length, 2)
+  })
+
+  test('a bot user with no id refuses, rather than composing an email that links to nothing', async () => {
+    const { m } = minter([app, { status: 200, body: { login: 'curia-sh[bot]' } }])
+    await assert.rejects(m.botIdentity('ghs_x'), /link to no account/)
+  })
+
+  test('forget re-reads the identity too', async () => {
+    const { m, fetchImpl } = minter([app, bot, app, bot])
+    await m.botIdentity('ghs_x')
+    m.forget()
+    await m.botIdentity('ghs_x')
+    assert.equal(fetchImpl.calls.length, 4)
+  })
+})
+
 describe('the minter this box gets (#352)', () => {
   test('no app configured is null, not a refusal', () => {
     assert.equal(minterFrom({ env: {}, daemonRoot: dir }), null)

@@ -33,9 +33,11 @@ import {
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles,
-  pushBranch, hasUnpushedWork, agentEnv,
+  pushBranch, hasUnpushedWork, agentEnv, ghTokenKeyFor, setGitIdentity,
   untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
+// the agent's minted GitHub credential (#389, ADR-0018)
+import { GH_DIR, forgetGhCredentials, readGhCredentials, writeGhCredentials } from './agentgh.mjs'
 import { ensureAgentImage } from './image.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
@@ -193,7 +195,7 @@ const DEFAULT_DEPS = {
   hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey,
   createPrivateClone, removeWorkspace, removeConfigDir, removeCredentials,
   createReviewCheckout, writeReviewPrompt,
-  seedConfigDir, writeConnectionSettings, writePrompt,
+  seedConfigDir, writeConnectionSettings, writePrompt, setGitIdentity,
   probeTtyd, assertServe, serveOff,
   // the agent sandbox (#156)
   ensureAgentImage, stopContainer, listContainers, allocatePorts, containerPorts,
@@ -305,7 +307,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, channelName, deps }) {
+  constructor({ config, routing, reduction, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, channelName, minter, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -354,6 +356,12 @@ export class Dispatcher {
     // The command channel's own name (#218). A confirm typed outside any thread
     // renders in that channel, and the reply has to name it.
     this.channelName = channelName ?? 'curia'
+    // The GitHub App's minter (#389, ADR-0018), injected by index.mjs. NULL is
+    // legal and stays legal: a box with no app keeps #155's PAT, which is what
+    // "no PAT comes out ahead of its replacement" means in code. Everything that
+    // reads it treats null and a mint that failed as the same answer — fall back
+    // — so there is one path to test rather than two.
+    this.minter = minter ?? null
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)
@@ -1255,13 +1263,92 @@ export class Dispatcher {
   // line and an EMPTY pane environment: the container carries its own through
   // `--env-file`, and a pane env would put every value of it in `ps` — the cost
   // #155 measured and asked #156 not to repeat.
-  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports }) {
+  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports, reviewer = false }) {
     const harnessCmd = buildSpawnCmd(this.routing, harness, model, path.join(GUEST_CFG, path.basename(promptFile)))
     const container = await this.#prepareContainer({
       session, ticket, repo, harness, wtPath, cfgDir, spawnCmd: harnessCmd,
-      sandbox: this.config.sandbox, ports,
+      sandbox: this.config.sandbox, ports, reviewer,
     })
     return { container, shellCmd: container.shellCmd, env: {} }
+  }
+
+  // ---- the agent's GitHub credential (#389, ADR-0018) -------------------------
+
+  // Which permission set a session's token carries. A cross-check reviewer
+  // writes NOTHING — ADR-0010 gives it a detached checkout and no branch, and
+  // curia posts its verdict for it — so it gets the READ set. One key and two
+  // sets is what the app bought, and a reviewer holding push rights it never
+  // uses is the reach the app exists to end. The cost is stated: a reviewer path
+  // that did write would fail with a 403 naming the permission.
+  #ghRoleFor(reviewer) {
+    return reviewer ? 'read' : 'write'
+  }
+
+  // One minted token, or null.
+  //
+  // NULL IS THE FALLBACK SIGNAL, never a refusal. A box with no app, an owner
+  // the app is not installed on, and a GitHub that could not be reached all read
+  // the same here, and the agent then gets #155's PAT as `GH_TOKEN`. Refusing
+  // the dispatch instead would take a working boundary out ahead of its
+  // replacement, which is the one thing ADR-0018 says not to do. It is LOUD
+  // rather than silent: the log names the owner and the key that carries it.
+  async #mintGhToken(repo, role, session) {
+    if (!this.minter) return null
+    const owner = String(repo ?? '').split('/')[0]
+    if (!owner) return null
+    try {
+      return await this.minter.tokenFor(owner, role)
+    } catch (e) {
+      this.log(`could not mint a ${role} GitHub token for ${owner} (${e.message}) — ${session} falls back to ${ghTokenKeyFor(repo) ?? 'the host gh login'}`)
+      return null
+    }
+  }
+
+  // Make this workspace's commits read as the app's own user.
+  //
+  // It never fails the dispatch. Two network reads stand behind the identity,
+  // and a GitHub that cannot answer them is no reason to refuse a ticket: the
+  // agent keeps the box identity its clone was given, which is exactly today's
+  // attribution, and the log says so.
+  async #authorAsBot(wtPath, token, session) {
+    try {
+      const who = await this.minter.botIdentity(token)
+      await this.deps.setGitIdentity(wtPath, who)
+    } catch (e) {
+      this.log(`could not read the GitHub App's own user (${e.message}) — ${session} commits under this box's git identity instead`)
+    }
+  }
+
+  // The refresh. An installation token lives one hour and a ticket outlives it,
+  // so the file is rewritten under every LIVE agent on the dispatch tick — 60 s
+  // against `REFRESH_MARGIN_MS`, which is ten minutes. The minter hands back its
+  // cached token until that margin, so this costs GitHub one call per owner
+  // every fifty minutes and costs the disk one small write per agent per tick.
+  //
+  // THE FILE IS THE EVIDENCE, which is what makes an adopted agent free. A
+  // restarted daemon rebuilds its agent records with every spawn-time fact
+  // missing, and it does not have to learn which of them minted: an agent on the
+  // PAT has no credential file, and one on the app has the file its own spawn
+  // wrote. So this refreshes exactly what is already minted, and never puts a
+  // live token on disk for an agent whose `gh` reads `GH_TOKEN` instead.
+  //
+  // It never throws. A pass that cannot mint leaves the last good file standing,
+  // which is the right direction: that token is good for up to another hour, and
+  // the next tick is 60 s away.
+  async refreshGhCredentials() {
+    if (!this.minter) return
+    for (const agent of this.agents.values()) {
+      if (!agent.repo || !agent.cfgDir) continue
+      if (!readGhCredentials(agent.cfgDir)) continue
+      const role = this.#ghRoleFor(agent.reviewer)
+      const token = await this.#mintGhToken(agent.repo, role, agent.session)
+      if (!token) continue
+      try {
+        writeGhCredentials(agent.cfgDir, token)
+      } catch (e) {
+        this.log(`could not refresh the GitHub credential of ${agent.session} (${e.message}) — the file it already holds stands until the next tick`)
+      }
+    }
   }
 
   // Ports already handed to LIVE agents, so two dispatches landing together
@@ -1277,7 +1364,7 @@ export class Dispatcher {
   // names them and is written first (#157). Every step here can fail, and all of
   // them run inside #dispatch's try — so a failure unclaims the ticket rather
   // than leaving it assigned to an agent that never ran.
-  async #prepareContainer({ session, ticket, repo, harness, wtPath, cfgDir, spawnCmd, sandbox, ports }) {
+  async #prepareContainer({ session, ticket, repo, harness, wtPath, cfgDir, spawnCmd, sandbox, ports, reviewer = false }) {
     // Built on demand rather than at boot: the tag is a content address, so a
     // pinned version bump or a Dockerfile edit names an image the box does not
     // have, and this is the first place that matters (#154).
@@ -1330,8 +1417,31 @@ export class Dispatcher {
     } catch (e) {
       throw new Error(`refusing to start a sandboxed agent for #${ticket}: ${e.message}. An agent in a container with no side channel cannot reach ask_human, the Stop hook, or any curia tool`)
     }
+    // The agent's GitHub authority (#389). The token is minted HERE rather than
+    // read out of the environment, and it goes to a file the container mounts
+    // instead of into the container's environment — an installation token lives
+    // one hour, so a value frozen at spawn dies inside a long ticket.
+    //
+    // The forget on the fallback arm is not a tidy-up. A config dir is reused
+    // across dispatches and across the cross-harness respawn, so an arm that
+    // falls back to the PAT could otherwise leave the last arm's `hosts.yml`
+    // beside a `GH_TOKEN` that now beats it — a credential on disk nothing
+    // reads, and a refresh that would keep it live.
+    const role = this.#ghRoleFor(reviewer)
+    const ghToken = await this.#mintGhToken(repo, role, session)
+    if (ghToken) {
+      writeGhCredentials(cfgDir, ghToken)
+      this.reduction.journal('agent_token_minted', { agent: session, ticket, repo, role })
+      this.log(`minted a ${role} GitHub token for ${session} on ${repo}`)
+      // And the commit says the same thing the push now does. A reviewer is
+      // skipped because it commits nothing at all: ADR-0010 gives it a detached
+      // head and no branch.
+      if (!reviewer) await this.#authorAsBot(wtPath, ghToken, session)
+    } else {
+      forgetGhCredentials(cfgDir)
+    }
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
-      ...agentEnv(GUEST_CFG, harness, { repo, sandboxed: true }),
+      ...agentEnv(GUEST_CFG, harness, { repo, sandboxed: true, minted: Boolean(ghToken) }),
       ...modelCredential(harness),
       // The container's own HOME. `--user <uid>` bypasses the image's USER, and
       // git and both CLIs write there; an unset HOME lands them in `/`, which
@@ -1709,7 +1819,7 @@ export class Dispatcher {
 
       const plan = await this.#spawnPlan({
         session, ticket, repo, harness: harnessName, model,
-        wtPath: checkout.path, cfgDir, promptFile, ports: [],
+        wtPath: checkout.path, cfgDir, promptFile, ports: [], reviewer: true,
       })
       const exitMarker = newExitMarker()
       await this.deps.newSession({ name: session, cwd: checkout.path, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
@@ -2307,7 +2417,7 @@ export class Dispatcher {
     const plan = await this.#spawnPlan({
       session: agent.session, ticket: agent.ticket, repo: agent.repo,
       harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
-      promptFile: agent.promptFile, ports,
+      promptFile: agent.promptFile, ports, reviewer: Boolean(agent.reviewer),
     })
     // A fresh marker per spawn: the old session is dead, and reusing its nonce
     // would let the previous life's exit line — still on screen for a moment —
@@ -4940,6 +5050,13 @@ export class Dispatcher {
       for (const agent of swept) this.log(`reconcile: forgot the loopback token of dead ${agent}`)
     }
 
+    // And a fresh GitHub credential for every agent this pass adopted (#389).
+    // The tick would reach them within 60 s, and 60 s is too long here: the
+    // daemon was DOWN, so the token standing in an adopted agent's file may
+    // already be past its hour, and the agent's next `gh` call is a 401 nobody
+    // can place. Adoption is exactly the moment to rewrite it.
+    await this.refreshGhCredentials().catch((e) => this.log(`reconcile: the GitHub credential refresh failed (${e.message})`))
+
     // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
     // a TICKET-terminal state — the issue is positively closed (or positively
     // absent from every candidate repo). A dead agent or a released claim is
@@ -5458,10 +5575,17 @@ export class Dispatcher {
       if (!SESSION_RE.test(dir) && !REVIEW_SESSION_RE.test(dir)) continue
       if (sessions.includes(dir) || this.agents.has(dir) || this.inFlight.has(dir)) continue
       const cfgDir = cfgDirFor(this.root, dir)
-      if (!fs.existsSync(path.join(cfgDir, '.credentials.json'))) continue
+      // #389 widened the test, and it had to. Two terminal states KEEP the whole
+      // config dir for a post-mortem, so a minted GitHub token can outlive its
+      // agent exactly as an OAuth copy does — and a codex agent, which holds no
+      // `.credentials.json` at all, would have been stepped over here with a
+      // live push credential still on disk.
+      const holds = ['.credentials.json', GH_DIR]
+        .some((name) => fs.existsSync(path.join(cfgDir, name)))
+      if (!holds) continue
       this.deps.removeCredentials(cfgDir)
       this.reduction.journal('credentials_swept', { agent: dir })
-      this.log(`reconcile: swept the OAuth credential copy of dead ${dir} (workspace kept)`)
+      this.log(`reconcile: swept the credentials of dead ${dir} (workspace kept)`)
     }
   }
 
@@ -5632,6 +5756,11 @@ export class Dispatcher {
     // dispatch, and the box holds the same way whether auto-dispatch is on or
     // off. So it runs ABOVE the gate below.
     this.judgeReadings()
+    // #389: and the credential refresh, for the same reason again. Every live
+    // agent's token dies in an hour whether or not this box dispatches anything
+    // new, so a refresh under the gate would strand every agent on a box with
+    // auto-dispatch off — which is how curia is shipped.
+    await this.refreshGhCredentials().catch((e) => this.log('the GitHub credential refresh failed:', e.message))
     if (!this.config.dispatch.auto_dispatch) return
     const max = this.config.dispatch.max_concurrent
     const liveCount = () => this.agents.size + this.inFlight.size

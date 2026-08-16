@@ -890,6 +890,10 @@ const dispatcher = new Dispatcher({
   dataDir: DATA,
   daemonPort: PORT,
   channelName: CHANNEL,
+  // #389: the agents are the first holder to cut over to minted tokens. Null
+  // here — no app on this box — keeps every agent on #155's PAT, which is what
+  // ADR-0018 means by "no PAT comes out ahead of its replacement".
+  minter: appMinter,
   deps: {
     // #188: the container-facing listener is this file's, so the check that a
     // sandboxed dispatch can rely on it is this file's too. It binds lazily,

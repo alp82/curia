@@ -19,6 +19,8 @@ import { Reduction } from '../src/reduction.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
 import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
+import { GH_DIR, readGhCredentials, writeGhCredentials } from '../src/agentgh.mjs'
+import { removeCredentials } from '../src/workspace.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet' },
@@ -101,6 +103,9 @@ function makeDispatcher(deps = {}, {
   readings = () => [],
   askReview = async () => ({ text: 'approve', status: 'answered' }),
   identityProxy = { listening: true },
+  // #389: the GitHub App's minter. None by default — a box with no app keeps
+  // #155's PAT, which is every test but the cutover's own.
+  minter = null,
   // Discarded by default. A test that asserts on a boot line passes a collector,
   // because the lines it wants are written inside the constructor (#377).
   log = () => {},
@@ -248,6 +253,7 @@ function makeDispatcher(deps = {}, {
     readings,
     dataDir: path.join(tmp, 'data'),
     daemonPort: 4271,
+    minter,
     deps: { ...base, ...deps },
   })
   // #151: index.mjs hangs the identity proxy on the dispatcher the way it hangs
@@ -1352,6 +1358,192 @@ describe('the usage-credits dialog gates the model (#126, #108 item 12)', () => 
     assert.ok(notifies.some((n) => /usage-credits dialog/.test(n.message) && /respawned on \*\*opus\*\*/.test(n.message)))
 
     d.agents.delete('curia-42') // retire the watchdog
+  })
+})
+
+// The agents are the first holder to move off a PAT and onto minted tokens
+// (ADR-0018). Everything here is about the SWAP: what reaches the container, what
+// does not, and what happens when the mint cannot be made.
+describe('the agent mints its GitHub token (#389)', () => {
+  const envFileOf = (session) => {
+    const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
+    return Object.fromEntries(fs.readFileSync(file, 'utf8').split('\n')
+      .filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
+  }
+  const cfgOf = (session) => path.join(tmp, 'work', 'cfg', session)
+  const hostsOf = (session) => path.join(cfgOf(session), GH_DIR, 'hosts.yml')
+
+  // A minter shaped like the real one and reaching no GitHub: a fresh token per
+  // call, so a refresh is visible as a CHANGED file rather than as a rewrite
+  // nothing can tell from the last one.
+  const fakeMinter = ({ fail = false } = {}) => {
+    const calls = []
+    let n = 0
+    return {
+      calls,
+      tokenFor: async (owner, role) => {
+        calls.push({ owner, role })
+        if (fail) throw new Error(`curia's GitHub App is not installed on ${owner}`)
+        n += 1
+        return `ghs_minted${n}`
+      },
+    }
+  }
+
+  // #155's key for owner `o`, set only where a test is about the fallback.
+  const withPat = (value = 'github_pat_11PAT') => {
+    const key = 'CURIA_AGENT_GH_TOKEN_O'
+    const had = Object.hasOwn(process.env, key)
+    const old = process.env[key]
+    process.env[key] = value
+    return () => {
+      if (had) process.env[key] = old
+      else delete process.env[key]
+    }
+  }
+
+  test('the container gets a PATH and no secret, and the token is in the file', async () => {
+    const minter = fakeMinter()
+    const d = makeDispatcher({}, { minter })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+
+    const env = envFileOf('curia-42')
+    assert.equal(env.GH_CONFIG_DIR, path.join(GUEST_CFG, GH_DIR))
+    assert.equal('GH_TOKEN' in env, false, 'a token in the env is frozen for the agent\'s life')
+    assert.equal(readGhCredentials(cfgOf('curia-42')), 'ghs_minted1')
+    assert.deepEqual(minter.calls, [{ owner: 'o', role: 'write' }])
+    assert.ok(events.some((e) => e.type === 'agent_token_minted' && e.agent === 'curia-42' && e.role === 'write'))
+
+    d.agents.delete('curia-42')
+  })
+
+  test('the commits read as the bot, not as the operator', async () => {
+    const identities = []
+    const minter = fakeMinter()
+    minter.botIdentity = async (token) => {
+      assert.equal(token, 'ghs_minted1', 'the identity is read on the token just minted')
+      return { name: 'curia-sh[bot]', email: '317489578+curia-sh[bot]@users.noreply.github.com' }
+    }
+    const d = makeDispatcher({
+      setGitIdentity: async (gitDir, who) => identities.push({ gitDir, who }),
+    }, { minter })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+
+    assert.equal(identities.length, 1)
+    assert.equal(identities[0].who.name, 'curia-sh[bot]')
+    assert.equal(identities[0].gitDir, path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42'))
+    d.agents.delete('curia-42')
+  })
+
+  test('an identity GitHub will not state costs the box its dispatch of nothing', async () => {
+    // Two network reads stand behind the bot identity. A GitHub that cannot
+    // answer them is no reason to refuse a ticket: the agent keeps the box
+    // identity its clone was given, which is exactly today's attribution.
+    const minter = fakeMinter()
+    minter.botIdentity = async () => { throw new Error('GitHub answered HTTP 502') }
+    const lines = []
+    let set = 0
+    const d = makeDispatcher({
+      setGitIdentity: async () => { set += 1 },
+    }, { minter, log: (...a) => lines.push(a.join(' ')) })
+
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+
+    assert.match(reply, /dispatched/)
+    assert.equal(set, 0, 'an identity nobody could read is never written')
+    assert.equal(readGhCredentials(cfgOf('curia-42')), 'ghs_minted1', 'the token still landed')
+    assert.ok(lines.some((l) => /HTTP 502.*commits under this box's git identity/.test(l)))
+    d.agents.delete('curia-42')
+  })
+
+  test('no app on the box leaves every agent on the PAT, untouched', async () => {
+    const restore = withPat()
+    try {
+      const d = makeDispatcher()
+      await d.start('42', { repo: 'o/r', by: 'test' })
+      const env = envFileOf('curia-42')
+      assert.equal(env.GH_TOKEN, 'github_pat_11PAT')
+      assert.equal('GH_CONFIG_DIR' in env, false)
+      assert.equal(fs.existsSync(hostsOf('curia-42')), false)
+      d.agents.delete('curia-42')
+    } finally {
+      restore()
+    }
+  })
+
+  test('a mint that fails falls back to the PAT, and leaves no stale credential behind', async () => {
+    const restore = withPat()
+    try {
+      // The re-arm case, which is the one that bites: a config dir is reused
+      // across dispatches, `gh` prefers GH_TOKEN over hosts.yml, and a left-over
+      // file would be a credential on disk that nothing reads and the refresh
+      // would keep alive.
+      fs.mkdirSync(cfgOf('curia-42'), { recursive: true })
+      writeGhCredentials(cfgOf('curia-42'), 'ghs_fromlasttime')
+      const d = makeDispatcher({}, { minter: fakeMinter({ fail: true }) })
+      await d.start('42', { repo: 'o/r', by: 'test' })
+
+      const env = envFileOf('curia-42')
+      assert.equal(env.GH_TOKEN, 'github_pat_11PAT')
+      assert.equal('GH_CONFIG_DIR' in env, false)
+      assert.equal(fs.existsSync(hostsOf('curia-42')), false)
+      d.agents.delete('curia-42')
+    } finally {
+      restore()
+    }
+  })
+
+  test('the refresh rewrites a live agent, and never arms one on the PAT', async () => {
+    const minter = fakeMinter()
+    const d = makeDispatcher({}, { minter })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.equal(readGhCredentials(cfgOf('curia-42')), 'ghs_minted1')
+
+    // An agent that fell back: a record with a config dir and no file. The
+    // file's ABSENCE is what says it reads GH_TOKEN, and a refresh that wrote
+    // one would put a live token where nothing looks.
+    fs.mkdirSync(cfgOf('curia-99'), { recursive: true })
+    d.agents.set('curia-99', {
+      session: 'curia-99', ticket: '99', repo: 'o/r', cfgDir: cfgOf('curia-99'), state: 'ready',
+    })
+
+    await d.refreshGhCredentials()
+
+    assert.equal(readGhCredentials(cfgOf('curia-42')), 'ghs_minted2')
+    assert.equal(fs.existsSync(hostsOf('curia-99')), false)
+    d.agents.delete('curia-42')
+    d.agents.delete('curia-99')
+  })
+
+  test('a refresh that cannot mint leaves the last good token standing', async () => {
+    const d = makeDispatcher({}, { minter: fakeMinter() })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.equal(readGhCredentials(cfgOf('curia-42')), 'ghs_minted1')
+
+    // GitHub is down, or the install was removed mid-ticket. That token is good
+    // for up to another hour and the next tick is 60 s away, so deleting it
+    // would break an agent this pass cannot fix.
+    d.minter = fakeMinter({ fail: true })
+    await d.refreshGhCredentials()
+
+    assert.equal(readGhCredentials(cfgOf('curia-42')), 'ghs_minted1')
+    d.agents.delete('curia-42')
+  })
+
+  test('the ending takes the credential with it, whatever the ending was', async () => {
+    const d = makeDispatcher({
+      // the real sweep, not the no-op double: this is the code under test
+      removeCredentials,
+    }, { minter: fakeMinter() })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.equal(fs.existsSync(hostsOf('curia-42')), true)
+
+    // The two terminal states that KEEP the config dir for a post-mortem sweep
+    // credentials rather than the directory, and this is the call they make.
+    removeCredentials(cfgOf('curia-42'))
+    assert.equal(fs.existsSync(hostsOf('curia-42')), false)
+    d.agents.delete('curia-42')
   })
 })
 

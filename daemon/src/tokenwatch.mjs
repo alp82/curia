@@ -47,6 +47,13 @@
 // after a cutover the probe finds no PAT to read. The REACH half survives for
 // every holder and for the installation itself — a repo watched but left off
 // the installation answers 404 exactly as a PAT missing it does.
+//
+// #389 cut the agents over and KEPT their key as the fallback, so the probe
+// still finds that PAT and still warns on it. That is correct rather than a
+// leftover: an owner the app is not installed on reaches GitHub with the PAT
+// alone, so the PAT dying still takes every dispatch to that owner with it. The
+// warning stops when the key retires, and it stops the same way — by there
+// being nothing to read.
 
 import { tokenExpiryDays } from './github.mjs'
 

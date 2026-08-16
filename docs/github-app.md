@@ -98,7 +98,9 @@ The key never travels through an agent. This step happens in a dev session on th
 
 **Branch protection stays off.** One required review on the watched repos is the gate cutover's own act, and it turns on in the same change that starts posting the approval. Turned on now it blocks every curia pull request behind an approval nobody posts.
 
-**No PAT comes out yet.** `CURIA_AGENT_GH_TOKEN_*` and `daemon/.env.overseer` keep working until each holder cuts over on its own ticket.
+**The agents have cut over.** [#389](https://github.com/alp82/curia/issues/389) moved them: an agent gets a per-agent `gh` config dir the daemon rewrites, and it commits, pushes and merges as `curia-sh[bot]`. `CURIA_AGENT_GH_TOKEN_*` stays as the fallback for an owner the app is not installed on, and retires once the box has run a dispatch on the minted path. See [the live check](live-checks/389-agent-minted-token.md).
+
+**The other two PATs stay.** `daemon/.env.overseer` and the daemon's own host `gh` login keep working until each cuts over on its own ticket.
 
 ## If something is wrong
 
