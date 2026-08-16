@@ -31,7 +31,7 @@ import { ctxOnWire } from '../src/usage.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml, TEST_PINS } from './fixtures/sandbox.mjs'
-import { journalEvents } from './fixtures/journal.mjs'
+import { journalEvents, emptyQuestions } from './fixtures/journal.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -487,9 +487,12 @@ describe('the recent past, answered without the file (#289)', () => {
     })
 
     // Nothing on this path may read the journal, so the strongest statement of
-    // that is to make a read fail. The medium moved to `node:sqlite` at #407,
-    // and deleting a file an open connection holds proves nothing on Linux.
-    s.journalEvents = () => { throw new Error('the poll must never read the journal') }
+    // that is to make every read fail. The medium moved to `node:sqlite` at
+    // #407, and deleting a file an open connection holds proves nothing on
+    // Linux. The reads are the questions since #408, so all of them throw.
+    s.questions = new Proxy({}, {
+      get: () => () => { throw new Error('the poll must never read the journal') },
+    })
 
     const { recent } = await d.status()
     assert.deepEqual(recent, [
@@ -684,7 +687,7 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
     const d = new Dispatcher({
       config,
       routing: { defaults: { untyped: 'sonnet' }, models: { sonnet: { provider: 'anthropic', harness: 'claude' } }, fallbacks: {}, harnesses: {} },
-      reduction: { journal: () => {}, journalEvents: () => [], openEscalations: () => [], answeredExchangeFor: () => [], boundTickets: () => [] },
+      reduction: { journal: () => {}, questions: emptyQuestions(), openEscalations: () => [], answeredExchangeFor: () => [], boundTickets: () => [] },
       notify: () => {},
       log: () => {},
       dataDir: path.join(tmp, 'data'),

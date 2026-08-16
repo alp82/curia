@@ -35,6 +35,7 @@ import { loadRoutingConfig } from '../src/config.mjs'
 import { expandCommand } from '../src/bridge.mjs'
 import { parseCommand } from '../src/commands.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
+import { journalDouble } from './fixtures/journal.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet', map: 'opus' },
@@ -63,6 +64,7 @@ const TICKET_ISSUE = {
 let tmp
 let notifies
 let events
+let double // the REAL journal behind the reduction double (#408)
 let calls // every gh-ish effect the dispatcher ordered, in order
 let restoreCredential // #195: the model credential the container env file needs
 
@@ -71,6 +73,7 @@ beforeEach(() => {
   fs.mkdirSync(path.join(tmp, 'data', 'results'), { recursive: true })
   notifies = []
   events = []
+  double = journalDouble(path.join(tmp, 'data'), { stamp: false })
   calls = []
   restoreCredential = withTestCredential()
 })
@@ -106,17 +109,18 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     // #195: every dispatch prepares a container, so every Dispatcher needs pins
     sandbox: TEST_PINS,
   }
-  // The array IS the journal here: #epochCharting reads it back, which is the
-  // whole point of journalling the kind — a restarted daemon must still know
-  // which ending it is holding an agent to. The dispatcher asks the reduction
-  // for that journal since #407.
+  // A REAL journal behind the double: #epochCharting reads the kind back, which
+  // is the whole point of journalling it — a restarted daemon must still know
+  // which ending it is holding an agent to. That read is a keyed query since
+  // #408, so the double's writes reach real rows. `events` is the array these
+  // tests assert on.
   const reduction = {
     journal: (type, data) => {
-      const rec = { type, ...data }
+      const rec = double.journal(type, data)
       events.push(rec)
       return rec
     },
-    journalEvents: () => events,
+    questions: double.questions,
     openEscalations: () => [],
     // #374: no test here records an answered escalation, so the resumed prompt
     // inherits an empty exchange and says nothing about one.
@@ -1306,11 +1310,12 @@ describe('reconcile and a live chat session (#241)', () => {
     number: 250, title: 'The next feature', state: 'open', assignees: [],
     labels: [{ name: 'wayfinder:map' }],
   }
-  // Seed the journal the double hands the dispatcher, which is what a restarted
-  // daemon reads back out of `events.db`.
+  // Seed the journal a restarted daemon reads back out of `events.db`. The
+  // lines go through the real journal behind the double (#408), because the
+  // dispatcher asks it keyed queries rather than reading an array.
   const writeJournal = (lines) => {
     events.length = 0
-    events.push(...lines)
+    for (const { type, ...data } of lines) events.push(double.journal(type, data))
   }
 
   test('a spawn line in the journal is the positive evidence — it is adopted, not swept', async () => {

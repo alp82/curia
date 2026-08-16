@@ -1616,7 +1616,7 @@ export class Dispatcher {
       // What the builder ran on decides which provider is the other one, so a
       // cross-check with no answer here is not a cross-check at all. The record
       // answers while the builder lives; the journal answers after a restart.
-      const builderModel = builder?.model ?? this.#epochSpawn(this.#readJournal(), builderSession)?.model ?? null
+      const builderModel = builder?.model ?? this.#epochSpawn(builderSession)?.model ?? null
       if (!builderModel) {
         return `❌ curia has no record of what #${ticket} was built on, so it cannot tell which provider is the other one — nothing was spawned`
       }
@@ -1852,11 +1852,7 @@ export class Dispatcher {
   // own record of what it spawned, and a reviewer's account of it would be one
   // more thing to trust.
   async #captureVerdict(agentName, result, w) {
-    const journal = this.#readJournal()
-    let spawn = null
-    for (const ev of journal) {
-      if (ev.type === 'reviewer_spawned' && ev.agent === agentName) spawn = ev
-    }
+    const spawn = this.reduction.questions.reviewerSpawn(agentName)
     const ticket = String(w?.ticket ?? spawn?.ticket ?? String(agentName).match(REVIEW_SESSION_RE)?.[1] ?? '')
     const repo = w?.repo ?? spawn?.repo ?? null
     if (!ticket) {
@@ -2991,10 +2987,7 @@ export class Dispatcher {
   #liveUnjudgedVerdict(ticket) {
     const v = this.verdictFor(ticket)
     if (!v || v.judged) return null
-    let claimed = null
-    for (const ev of this.#readJournal()) {
-      if (ev.type === 'dispatch_claimed' && String(ev.ticket ?? '') === String(ticket) && ev.ts) claimed = ev.ts
-    }
+    const claimed = this.reduction.questions.lastClaimAt(ticket)
     if (claimed && v.at && v.at < claimed) return null
     return v
   }
@@ -3005,14 +2998,7 @@ export class Dispatcher {
   // in-memory shortcut for the seconds before resolve journals anything.
   #verdictIsLate(ticket) {
     if (this.agents.get(`curia-${ticket}`)?.resultReceived) return true
-    let spawned = -1
-    let resolved = -1
-    this.#readJournal().forEach((ev, i) => {
-      if (String(ev.ticket ?? '') !== String(ticket)) return
-      if (ev.type === 'reviewer_spawned') spawned = i
-      if (ev.type === 'ticket_resolved') resolved = i
-    })
-    return spawned >= 0 && resolved > spawned
+    return this.reduction.questions.verdictIsLate(ticket)
   }
 
   // The PARK a builder's `report_result` earns while its cross-check is still
@@ -3226,19 +3212,11 @@ export class Dispatcher {
   // What the journal says has happened SINCE this ticket's latest dispatch. The
   // epoch scoping is the same rule reconcile runs on: a pull request or an
   // approval from an earlier dispatch of the same ticket is not this agent's.
+  //
+  // Three questions, three keyed queries (#408, `questions.mjs`). This ran at
+  // the end of every turn of every agent and paid a whole read for it.
   #epochScan(ticket, agentName) {
-    const journal = this.#readJournal()
-    let epochIdx = -1
-    journal.forEach((ev, i) => {
-      if ((ev.type === 'dispatch_claimed' || ev.type === 'agent_spawned') && String(ev.ticket ?? '') === ticket) epochIdx = i
-    })
-    const mine = (ev) => ev.agent === agentName || String(ev.ticket ?? '') === ticket
-    const since = (pred) => journal.some((ev, i) => i > epochIdx && pred(ev))
-    return {
-      prOpened: since((ev) => ['pr_opened', 'pr_reused', 'land_repaired'].includes(ev.type) && mine(ev)),
-      reviewApproved: since((ev) => ev.type === 'review_answered' && ev.approved === true && mine(ev)),
-      blocks: journal.filter((ev, i) => i > epochIdx && ev.type === 'stop_blocked' && ev.agent === agentName).length,
-    }
+    return this.reduction.questions.epochScan(ticket, agentName)
   }
 
   // Everything the Stop-hook checklist is judged against. Cheap on purpose: the
@@ -3271,6 +3249,9 @@ export class Dispatcher {
     const b = this.#bindingFor(agentName)
     if (b.error) return { error: b.error }
     const { w, ticket, repo, wtPath, branch } = b
+    // One question, both answers. It was asked twice below when a whole read
+    // answered it, and each ask is a query now (#408).
+    const dispatchKind = this.#epochCharting(ticket, agentName)
     const state = {
       ticket,
       repo,
@@ -3284,8 +3265,8 @@ export class Dispatcher {
       // #241 adds the third: a NEW-map dispatch owes one step more than a map
       // dispatch — the map has to exist, and curia has to be told its number,
       // or the session ends with its summary nowhere and its thread on a handle.
-      charting: this.#epochCharting(ticket, agentName).charting,
-      newMap: this.#epochCharting(ticket, agentName).newMap,
+      charting: dispatchKind.charting,
+      newMap: dispatchKind.newMap,
       mapAdopted: Boolean(this.#chartedMap(agentName, ticket, w)),
     }
     // #297 removed the charting shortcut that used to return here. A charting
@@ -3560,12 +3541,7 @@ export class Dispatcher {
   // The repo this ticket was last dispatched against, for an agent whose record
   // this process never held (reconcile-adopted, or a restart mid-flight).
   #epochRepo(ticket) {
-    let repo = null
-    for (const ev of this.#readJournal()) {
-      if ((ev.type === 'dispatch_claimed' || ev.type === 'agent_spawned')
-        && String(ev.ticket ?? '') === String(ticket) && ev.repo) repo = ev.repo
-    }
-    return repo
+    return this.reduction.questions.epochRepo(ticket)
   }
 
   // Was this ticket's latest dispatch a charting one, and what rode it (#160)?
@@ -3591,14 +3567,11 @@ export class Dispatcher {
         charting: Boolean(w.charting), instruction: w.instruction ?? null, newMap: Boolean(w.newMap),
       }
     }
-    let out = { charting: false, instruction: null, newMap: false }
-    for (const ev of this.#readJournal()) {
-      if (ev.type !== 'agent_spawned' || String(ev.ticket ?? '') !== String(ticket)) continue
-      // #241: which SHAPE of charting, restated by every respawn for the same
-      // reason the kind is (#219) — the last line has to describe the agent whole.
-      out = { charting: ev.kind === 'charting', instruction: ev.instruction ?? null, newMap: Boolean(ev.newMap) }
-    }
-    return out
+    // #241: which SHAPE of charting, restated by every respawn for the same
+    // reason the kind is (#219) — the last line has to describe the agent whole.
+    // So the query takes the LAST spawn line of the ticket and reads the shape
+    // off it.
+    return this.reduction.questions.epochCharting(ticket)
   }
 
   // What this session was last spawned ON (#187): the routing label and the
@@ -3613,13 +3586,8 @@ export class Dispatcher {
   // The journal is the only source for the label. The harness has on-disk
   // evidence too (detectHarness), but the label names a row in `routing.yaml`
   // that nothing on disk points back to.
-  #epochSpawn(journal, session) {
-    let out = null
-    for (const ev of journal) {
-      if (ev.type !== 'agent_spawned' || ev.agent !== session) continue
-      out = { model: ev.model ?? null, harness: ev.harness ?? null }
-    }
-    return out
+  #epochSpawn(session) {
+    return this.reduction.questions.epochSpawn(session)
   }
 
   async #resolveTicket(agentName, repo, ticket, result, w) {
@@ -3849,13 +3817,7 @@ export class Dispatcher {
   // a resumed handle does not inherit the map of the dispatch before it — that
   // map exists now, and `map <n>` is the verb for it.
   #epochAdoptedMap(agentName) {
-    let out = null
-    for (const ev of this.#readJournal()) {
-      if (ev.agent !== agentName) continue
-      if (ev.type === 'agent_spawned') out = null
-      else if (ev.type === 'map_adopted' && ev.map) out = String(ev.map)
-    }
-    return out
+    return this.reduction.questions.adoptedMap(agentName)
   }
 
   // A non-clean result resolves NOTHING — and the ticket has to actually come
@@ -4017,21 +3979,12 @@ export class Dispatcher {
   // (nothing bound, no repo) has nothing to say here, and the receipt falls
   // back to the session sentence alone.
   #endingClause(agentName) {
-    const carriers = new Set(['ticket_resolved', 'nonclean_noted', 'charting_finished'])
-    let out = null
-    let journal
     try {
-      journal = this.#readJournal()
+      return this.reduction.questions.endingClause(agentName)
     } catch (e) {
       this.log(`ending clause for ${agentName} is unreadable (${e.message}) — the receipt states the session only`)
       return null
     }
-    for (const ev of journal) {
-      if (ev.agent !== agentName) continue
-      if (ev.type === 'agent_spawned') out = null
-      else if (carriers.has(ev.type) && ev.summary) out = ev.summary
-    }
-    return out
   }
 
   async onAgentDone(agentName) {
@@ -4732,7 +4685,7 @@ export class Dispatcher {
   // spawn in the journal (the journal was rotated, or the agent predates this),
   // and a label `routing.yaml` no longer carries (a row renamed or removed).
   #inheritedModel(session) {
-    const last = this.#epochSpawn(this.#readJournal(), session)?.model ?? null
+    const last = this.#epochSpawn(session)?.model ?? null
     return last && this.routing.models?.[last] ? last : undefined
   }
 
@@ -5064,20 +5017,20 @@ export class Dispatcher {
     await this.#computeFrontier()
   }
 
-  // Everything the passes share: the journal, the latest dispatch epoch per
-  // ticket, the viewer identity, live curia sessions, and a per-pass issue
-  // cache whose failures are remembered so one bad repo is skipped, not retried.
+  // Everything the passes share: the latest dispatch epoch per ticket, the
+  // viewer identity, live curia sessions, and a per-pass issue cache whose
+  // failures are remembered so one bad repo is skipped, not retried.
+  //
+  // The journal itself is NOT here any more (#408). This context carried one
+  // whole read, and five passes reduced it. Each of those passes asks its own
+  // keyed query now, so a pass pays for the questions it asks.
   async #reconcileContext() {
-    const journal = this.#readJournal()
-
-    // latest dispatch epoch per ticket (solo-PoC debt, acknowledged: keyed by
-    // bare ticket number, so cross-repo number collisions share an epoch)
-    const epochs = new Map() // ticket -> { idx, repo }
-    journal.forEach((ev, idx) => {
-      if ((ev.type === 'dispatch_claimed' || ev.type === 'agent_spawned') && ev.ticket != null) {
-        epochs.set(String(ev.ticket), { idx, repo: ev.repo })
-      }
-    })
+    // The latest dispatch epoch per ticket, and the repo that dispatch named.
+    // The one question that is not keyed: it answers for every ticket at once,
+    // and this is the list the dead-claim pass walks. (Solo-PoC debt,
+    // acknowledged: keyed by bare ticket number, so cross-repo number
+    // collisions share an epoch.)
+    const epochs = this.reduction.questions.epochs() // ticket -> { repo }
 
     const login = await this.deps.viewerLogin().catch(() => null)
     // sessions: array on positive evidence (a real listing, or a confirmed
@@ -5101,7 +5054,7 @@ export class Dispatcher {
     const issueCache = new Map()
 
     const ctx = {
-      journal, epochs, login, sessions, reviewSessions, sessionsError, failedRepos,
+      epochs, login, sessions, reviewSessions, sessionsError, failedRepos,
       allSessions: sessions ? [...sessions, ...reviewSessions] : null,
     }
     ctx.getIssue = async (repo, n) => {
@@ -5128,7 +5081,7 @@ export class Dispatcher {
 
   // Live curia-<n> sessions: re-adopt the ones GitHub still says we own, sweep
   // the ones every candidate repo positively disowns.
-  async #reconcileSessions({ journal, epochs, login, sessions, failedRepos, getIssue, skipRepo }) {
+  async #reconcileSessions({ epochs, login, sessions, failedRepos, getIssue, skipRepo }) {
     for (const session of sessions) {
       if (this.agents.has(session) || this.inFlight.has(session)) continue
       const n = session.match(SESSION_RE)[1]
@@ -5146,7 +5099,7 @@ export class Dispatcher {
       // daemon, or its predecessor, spawned this handle as a new-map dispatch.
       // The same evidence #228 gave a map dispatch, for the same reason.
       if (isChatHandle(n)) {
-        await this.#reconcileChatSession(session, n, { journal, epochs, charting, instruction, newMap, getIssue, skipRepo, failedRepos })
+        await this.#reconcileChatSession(session, n, { epochs, charting, instruction, newMap, getIssue, skipRepo, failedRepos })
         continue
       }
       const epoch = epochs.get(n)
@@ -5186,7 +5139,7 @@ export class Dispatcher {
           // spec, and the account bars hang off that spec. The journal is the
           // state home for what a restart cannot re-derive, so it answers here
           // exactly as it does for the repo and the charting kind.
-          const spawn = this.#epochSpawn(journal, session)
+          const spawn = this.#epochSpawn(session)
           // a FRESH instance id: any confirm bound before the restart lapses
           // at boot rather than matching an adopted agent it never described
           const instance = `${session}@adopted-${Date.now()}`
@@ -5222,10 +5175,7 @@ export class Dispatcher {
       // (the agent resolved it) and its claim may already be released, so every
       // positive-evidence test above now reads "orphan" — on a session whose
       // worktree may still hold the only copy of the commits.
-      const reported = journal.some((ev, i) => i > (epoch?.idx ?? -1)
-        && (ev.type === 'result' || ev.type === 'ticket_resolved')
-        && (ev.agent === session || String(ev.ticket ?? '') === n))
-      if (reported) {
+      if (this.reduction.questions.reportedAfterEpoch(n, session)) {
         this.reduction.journal('orphan_sweep_skipped', { agent: session, ticket: n, reason: 'reported a result after its dispatch' })
         this.log(`reconcile: not sweeping ${session} — it reported a result after its dispatch`)
         continue
@@ -5271,9 +5221,9 @@ export class Dispatcher {
   // A `map_adopted` epoch whose map is open, or a chat with no map yet, is
   // adopted. Adoption is what keeps its ending: `report_result` needs a record
   // to post the charting summary against.
-  async #reconcileChatSession(session, handle, { journal, epochs, charting, instruction, newMap, getIssue, skipRepo, failedRepos }) {
+  async #reconcileChatSession(session, handle, { epochs, charting, instruction, newMap, getIssue, skipRepo, failedRepos }) {
     const epoch = epochs.get(handle)
-    const spawn = this.#epochSpawn(journal, session)
+    const spawn = this.#epochSpawn(session)
     const repo = epoch?.repo ?? null
     if (!charting || !repo) {
       this.reduction.journal('orphan_swept', { agent: session, ticket: handle, reason: 'no curia dispatch explains this chat handle' })
@@ -5356,13 +5306,10 @@ export class Dispatcher {
   // There is no GitHub read and no claim decision, because a reviewer holds
   // neither. The journal is the whole source, exactly as it is for the model and
   // harness of a re-adopted builder (#187).
-  async #reconcileReviewers({ journal, reviewSessions }) {
+  async #reconcileReviewers({ reviewSessions }) {
     for (const session of reviewSessions) {
       if (this.agents.has(session) || this.inFlight.has(session)) continue
-      let spawn = null
-      for (const ev of journal) {
-        if (ev.type === 'reviewer_spawned' && ev.agent === session) spawn = ev
-      }
+      const spawn = this.reduction.questions.reviewerSpawn(session)
       if (!spawn) {
         // A reviewer curia cannot describe cannot be resumed, cannot report and
         // cannot be attributed to a ticket. Sweeping is the honest answer: the
@@ -5438,15 +5385,12 @@ export class Dispatcher {
   // still assigned, no live session, and no result/lifecycle_closed after the
   // latest epoch — stale results from earlier dispatches of the same ticket
   // never mask a dead claim.
-  async #reconcileDeadClaims({ journal, epochs, login, sessions, failedRepos, getIssue, skipRepo }) {
-    for (const [ticket, { idx, repo }] of epochs) {
+  async #reconcileDeadClaims({ epochs, login, sessions, failedRepos, getIssue, skipRepo }) {
+    for (const [ticket, { repo }] of epochs) {
       if (!repo || failedRepos.has(repo)) continue
       const session = `curia-${ticket}`
       if (sessions.includes(session) || this.agents.has(session) || this.inFlight.has(session)) continue
-      const closedAfterEpoch = journal.some((ev, i) => i > idx
-        && (ev.type === 'result' || ev.type === 'lifecycle_closed' || ev.type === 'dispatch_unclaimed')
-        && (ev.agent === session || String(ev.ticket ?? '') === ticket))
-      if (closedAfterEpoch) continue
+      if (this.reduction.questions.closedAfterEpoch(ticket, session)) continue
       try {
         await this.#settleDeadClaim({ repo, ticket, session, login, getIssue })
       } catch (e) {
@@ -5566,18 +5510,14 @@ export class Dispatcher {
   // stay up on a ticket that merged days ago. An indeterminate session list
   // costs only that half: the record still closes, and the next pass with a
   // readable list ends the session.
-  async #reconcileStaleQuestions({ journal, sessions }) {
-    const results = new Map() // agent -> the ts of its last result
-    const deferred = new Set() // agents whose Stop hook then deferred to a question
-    for (const ev of journal) {
-      if (!ev.agent) continue
-      if (ev.type === 'agent_spawned') { results.delete(ev.agent); deferred.delete(ev.agent) }
-      else if (ev.type === 'result') { results.set(ev.agent, ev.ts); deferred.delete(ev.agent) }
-      else if (ev.type === 'agent_blocked_on_human' && results.has(ev.agent)) deferred.add(ev.agent)
-    }
+  async #reconcileStaleQuestions({ sessions }) {
     const toEnd = new Set()
+    // Asked per OPEN RECORD (#408), where a reduction over the whole journal
+    // used to answer for every agent that ever ran. The open records are what
+    // this pass judges, and there are a handful of them.
     for (const r of this.reduction.openEscalations()) {
-      const reportedAt = Date.parse(results.get(r.agent) ?? '')
+      const { at, deferred } = this.reduction.questions.lastResult(r.agent)
+      const reportedAt = Date.parse(at ?? '')
       const openedAt = Date.parse(r.opened_at ?? '')
       // An unreadable stamp on either side is not evidence, and the safe
       // direction for a question is to leave it asking.
@@ -5585,7 +5525,7 @@ export class Dispatcher {
       this.cancelEscalation(r.id, { by: 'result' })
       this.reduction.journal('escalation_stale_at_result', { id: r.id, agent: r.agent, ticket: r.ticket, by: 'reconcile' })
       this.log(`reconcile: ${r.id} was still open on ${r.agent}, which reported a result — the question is stale, so it is closed`)
-      if (deferred.has(r.agent) && sessions?.includes(r.agent)) toEnd.add(r.agent)
+      if (deferred && sessions?.includes(r.agent)) toEnd.add(r.agent)
     }
     for (const session of toEnd) {
       this.log(`reconcile: ${session} ended its turn on a stale question — running the ending that was deferred`)
@@ -5651,25 +5591,6 @@ export class Dispatcher {
       await this.deps.assertServe({ servePort, targetPort: proxyPort })
     } catch (e) {
       this.log(`reconcile: attach surface assertion failed (${e.message}) — /attach may be unavailable`)
-    }
-  }
-
-  // Every event the journal holds, oldest first and in today's spelling (#184).
-  //
-  // The journal is a `node:sqlite` database since #407, and the daemon owns the
-  // only write connection — so this reads through the reduction rather than
-  // opening a second one. The question is the same one the file read asked, and
-  // [the scans become queries] is what narrows it.
-  #readJournal() {
-    try {
-      return this.reduction.journalEvents()
-    } catch (e) {
-      // An UNREADABLE journal is not an empty one. The epoch map built from it
-      // steers reconcile, so a read that fails fails the pass rather than
-      // fabricating "no events". (reconcile's caller already treats a throw as
-      // a failed pass.) A journal nothing has written yet answers with an empty
-      // array, which is the normal first boot.
-      throw new Error(`events journal is unreadable: ${e.message}`)
     }
   }
 

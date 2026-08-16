@@ -21,6 +21,7 @@ import { outstanding, REVIEW_ENDING } from '../src/lifecycle.mjs'
 import { writeReviewPrompt } from '../src/workspace.mjs'
 import { parseCommand, CommandRouter } from '../src/commands.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
+import { journalDouble } from './fixtures/journal.mjs'
 
 // Two providers, two harnesses, and the shipped pairing — the shape
 // config/routing.yaml carries.
@@ -88,17 +89,18 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
     sandbox: TEST_PINS,
   }
   const dataDir = path.join(tmp, 'data')
+  // A REAL journal behind the double. The dispatcher asks its own journal about
+  // the past — #epochScan, #epochSpawn and the reviewer adoption pass all do —
+  // and those are keyed queries since #408, so what the double writes has to
+  // reach the rows the queries read. `events` is the array these tests assert on.
+  const double = journalDouble(dataDir)
   const reduction = {
-    // The array IS the journal here. The dispatcher reads its own journal back
-    // — #epochScan, #epochSpawn and the reviewer adoption pass all do — and it
-    // asks the reduction for it since #407, so the double answers with what it
-    // was given.
     journal: (type, data) => {
-      const rec = { type, ts: new Date().toISOString(), ...data }
+      const rec = double.journal(type, data)
       events.push(rec)
       return rec
     },
-    journalEvents: () => events,
+    questions: double.questions,
     openEscalations: () => [],
     // #374: no test here records an answered escalation, so the resumed prompt
     // inherits an empty exchange and says nothing about one.

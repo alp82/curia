@@ -134,9 +134,10 @@ function makeDispatcher(deps = {}, {
       events.push(rec)
       return rec
     },
-    // The dispatcher's epoch questions read the journal the real reduction
-    // wrote, which is what a test that seeds it before this line depends on.
-    journalEvents: () => journal.journalEvents(),
+    // The dispatcher's questions about the past run on the journal the real
+    // reduction wrote, which is what a test that seeds it before this line
+    // depends on (#408).
+    questions: journal.questions,
     recentOutcomes: () => journal.recentOutcomes(),
     pullRequestFor: (agent) => journal.pullRequestFor(agent),
     // #346: the arm outlives the process, so the reduction is the real one.

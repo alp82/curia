@@ -20,6 +20,7 @@ import path from 'node:path'
 import { Reduction, VERDICT_LABEL } from '../src/reduction.mjs'
 import { DiscordBridge, noteReceipt, noteInterruptId, interruptedReceipt } from '../src/bridge.mjs'
 import { verdictCarrier } from '../src/resolve.mjs'
+import { journalEvents } from './fixtures/journal.mjs'
 
 const dirs = []
 const tmpDir = () => {
@@ -82,7 +83,7 @@ describe('a note has an identity, so a button can name it (#252)', () => {
 
     assert.equal(reduction.interruptAgentNote(id).text, 'whats taking so long')
 
-    const journal = reduction.journalEvents()
+    const journal = journalEvents(dir)
     assert.equal(journal.filter((e) => e.type === 'agent_note_interrupted').length, 0,
       'nothing left the queue, so nothing is recorded as leaving it')
   })

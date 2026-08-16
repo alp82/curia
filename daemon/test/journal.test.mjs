@@ -312,15 +312,14 @@ describe('the migration to the database (#323)', () => {
 
     // A second daemon on the same directory: the file still holds one line and
     // the journal holds two, so a re-conversion would be visible at once.
-    const reborn = new Reduction(dir)
-    assert.equal(reborn.journalEvents().length, 2)
+    new Reduction(dir)
     assert.equal(rows(dir).length, 2)
   })
 
   test('a directory with no journal file at all boots on an empty journal', () => {
     const dir = tmpdir()
-    const reduction = new Reduction(dir)
-    assert.deepEqual(reduction.journalEvents(), [])
+    new Reduction(dir)
+    assert.deepEqual(rows(dir), [])
     assert.equal(fs.existsSync(path.join(dir, JOURNAL_FILE)), false, 'and none is created')
   })
 })
@@ -344,9 +343,13 @@ describe('the boot rebuild reads the journal page by page (#322)', () => {
   test('the rebuild reads body, so it is the last reader that runs the #184 translation', () => {
     const dir = tmpdir()
     seed(dir, [{ ts: '2026-08-01T10:00:00Z', type: 'worker_note', worker: 'curia-5', text: 'look at the tail' }])
-    const events = new Reduction(dir).journalEvents()
-    assert.equal(events[0].type, 'agent_note')
-    assert.equal(events[0].agent, 'curia-5')
+    // The reduction is the evidence, because nothing hands out the parsed
+    // journal any more (#408). This note reaches the agent's queue only if the
+    // rebuild translated both the type and the key: `worker_note` decides which
+    // case runs, and `worker` decides whose queue it lands on.
+    const queued = new Reduction(dir).takeAgentNotes('curia-5')
+    assert.equal(queued.length, 1)
+    assert.equal(queued[0].text, 'look at the tail')
   })
 })
 
