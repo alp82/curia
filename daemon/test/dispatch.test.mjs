@@ -152,6 +152,11 @@ function makeDispatcher(deps = {}, {
     pullRequestFor: (agent) => journal.pullRequestFor(agent),
     // #346: the arm outlives the process, so the reduction is the real one.
     armedLimitResumes: () => journal.armedLimitResumes(),
+    // #444: the failed-spawn count is the journal's too, and for the same
+    // reason — the auto loop reads it a tick after the failure wrote it, with a
+    // deploy allowed in between.
+    failedSpawns: (ticket) => journal.failedSpawns(ticket),
+    spawnFailureCounts: () => journal.spawnFailureCounts(),
     // #377, for the same reason: the cooling the dispatcher seeds itself from
     // at construction is the real reduction over the real journal.
     armedCoolings: () => journal.armedCoolings(),
@@ -2345,6 +2350,109 @@ describe('the limit resume: the window rolls and curia puts the agent back (#346
   })
 })
 
+// The failed-spawn step-over (#444). A dispatch that fails releases the claim,
+// so the ticket is back on the frontier and the next tick takes it again. #376
+// made the loop RESUME a surviving worktree, which keeps the files and stops no
+// repeat: a resume that dies the same way arms the same loop.
+describe('the auto loop stops taking a ticket that dies at every spawn (#444)', () => {
+  const MAP = [{ number: 1, state: 'open', labels: [{ name: 'wayfinder:map' }] }]
+  const child = (n) => ({
+    number: n, state: 'open', assignees: [], labels: [{ name: 'wayfinder:task' }],
+    issue_dependencies_summary: { blocked_by: 0 },
+  })
+
+  // The broken image pin of the ticket, in the seam a test owns: the clone is
+  // inside #dispatch's try, so it fails the same way and by the same path.
+  function brokenBox(extra = {}) {
+    const claims = []
+    const d = makeDispatcher({
+      repoMaps: async () => MAP,
+      mapFrontier: async () => [child(42)],
+      claim: async (repo, ticket) => { claims.push(`${repo}#${ticket}`) },
+      createPrivateClone: async () => { throw new Error('the image pin is broken') },
+      ...extra,
+    })
+    d.config.dispatch.auto_dispatch = true
+    d.config.dispatch.poll_interval_s = 0.05
+    return { d, claims }
+  }
+
+  test('two failed spawns, and the loop steps over it — every tick after costs nothing', async () => {
+    const { d, claims } = brokenBox()
+
+    d.startAutoLoop()
+    await waitFor(() => events.some((e) => e.type === 'dispatch_held'))
+    // Several more ticks at 50ms, which is what the loop had before this.
+    await new Promise((r) => setTimeout(r, 400))
+    d.stopAutoLoop()
+
+    assert.deepEqual(claims, ['o/r#42', 'o/r#42'], 'two containers and two claim round-trips, then nothing')
+    assert.equal(events.filter((e) => e.type === 'dispatch_failed').length, 2)
+    assert.equal(d.dispatchHolds().length, 1, 'and the surfaces can say which ticket the loop steps over')
+    assert.deepEqual(d.dispatchHolds(), [{ ticket: '42', repo: 'o/r', failures: 2 }])
+  })
+
+  test('the thread hears it once, at the instant the step-over arms', async () => {
+    const { d } = brokenBox()
+
+    d.startAutoLoop()
+    await waitFor(() => events.some((e) => e.type === 'dispatch_held'))
+    await new Promise((r) => setTimeout(r, 400))
+    d.stopAutoLoop()
+
+    const said = notifies.filter((n) => /steps over it/.test(n.message))
+    assert.equal(said.length, 1, 'a line per tick is the traffic this ticket exists to end')
+    assert.match(said[0].message, /start 42/, 'and it names the act that clears the count')
+    assert.equal(events.filter((e) => e.type === 'dispatch_held').length, 1)
+  })
+
+  test('a dispatch the operator types runs, and clears the count with it', async () => {
+    const { d, claims } = brokenBox()
+
+    d.startAutoLoop()
+    await waitFor(() => events.some((e) => e.type === 'dispatch_held'))
+    d.stopAutoLoop()
+
+    // The operator fixed the cause. The clone works now.
+    d.deps.createPrivateClone = async (r, repo, n) => fakePrivateClone(r, repo, n)
+    const reply = await d.start('42', { repo: 'o/r', by: 'alp82' })
+
+    assert.match(reply, /dispatched/, 'the step-over binds the auto loop, and never a press')
+    assert.deepEqual(claims, ['o/r#42', 'o/r#42', 'o/r#42'])
+    assert.equal(d.dispatchHolds().length, 0, 'the typed dispatch cleared the count')
+    d.agents.clear()
+  })
+
+  test('an agent that reached its curia tools clears the count, so a working ticket is never held', async () => {
+    const { d } = brokenBox({ createPrivateClone: async (r, repo, n) => fakePrivateClone(r, repo, n) })
+
+    // A spawn that came up and spoke, then died with nothing reported. #376
+    // resumes it, and this must never be read as a ticket dying at its spawn.
+    for (let i = 0; i < 3; i += 1) {
+      d.reduction.journal('dispatch_claimed', { repo: 'o/r', ticket: '42', agent: 'curia-42', by: 'auto' })
+      d.agents.set('curia-42', { session: 'curia-42', ticket: '42', repo: 'o/r', spawnedAt: Date.now() })
+      d.onMcpCall('curia-42')
+      d.agents.delete('curia-42')
+      d.reduction.journal('dispatch_failed', { repo: 'o/r', ticket: '42', reason: 'the agent died without reporting a result' })
+    }
+
+    assert.equal(d.reduction.failedSpawns('42'), 1, 'every death counts from zero again')
+    assert.deepEqual(d.dispatchHolds(), [])
+  })
+
+  test('exhaustion is not a failed spawn — the cooling is already its own throttle', async () => {
+    const at = Math.floor(Date.now() / 1000) + 3600
+    const d = makeDispatcher({ capturePane: async () => `Claude usage limit reached | ${at}` })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await waitFor(() => events.some((e) => e.type === 'limit_resume_armed'))
+
+    assert.equal(d.reduction.failedSpawns('42'), 0, 'every lane cooling is not this ticket dying at its spawn')
+    assert.deepEqual(d.dispatchHolds(), [])
+    d.agents.clear()
+  })
+})
+
 describe('an indeterminate hasSession answer never authorises a claim (W1)', () => {
   test('start(): hasSession throwing propagates BEFORE any claim — no claim, no worktree churn', async () => {
     let claims = 0
@@ -4349,6 +4457,62 @@ describe('the Stop hook enforces the ending (#54 item 4)', () => {
     assert.equal(decision.decision, 'block')
     assert.match(decision.reason, /curia REFUSED your last `report_result` call/)
     assert.match(decision.reason, /This ticket has reported nothing/)
+  })
+
+  test('a rejected STATUS LINE is posted, and it never holds the turn (#420)', async () => {
+    // Nothing waits on a status line, so the block a question earns would cost
+    // the agent a turn to deliver a line the operator did not ask for.
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', agent: 'curia-42' }])
+    const posted = []
+    const d = makeDispatcher({
+      commitsOnBranch: async () => [{ sha: 'a', subject: 's' }],
+      lintRejection: () => rejected({ kind: 'notify', payload: { message: 'the tests pass' } }),
+      sendFlaggedNotify: (agent, h) => { posted.push({ agent, h }); return true },
+      sendFlagged: () => { throw new Error('a status line is never staged as a card') },
+    })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(posted.length, 1, 'the words the agent lost still reach the thread')
+    assert.equal(posted[0].h.payload.message, 'the tests pass')
+    assert.ok(events.some((e) => e.type === 'lint_flagged_send' && e.kind === 'notify'))
+    assert.ok(!typesOf().includes('lint_stop_blocked'), 'no turn is spent on a line nobody waits for')
+    assert.equal(decision.decision, 'block', 'the ordinary ending checklist still runs')
+    assert.match(decision.reason, /request_review/)
+  })
+
+  test('a cleared status line does not hide the question behind it (#420)', async () => {
+    // The ledger holds one entry per kind and the hook reads the newest. Before
+    // the loop, a status line refused after a question ended the turn with the
+    // question still unsent.
+    const held = [
+      rejected({ kind: 'notify', payload: { message: 'the tests pass' } }),
+      rejected({ kind: 'free-text' }),
+    ]
+    const d = makeDispatcher({
+      lintRejection: () => held[0] ?? null,
+      sendFlaggedNotify: () => { held.shift(); return true },
+    })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /curia REFUSED your last `ask_human` call/)
+  })
+
+  test('a dep that clears nothing does not spin the hook (#420)', async () => {
+    const posted = []
+    const d = makeDispatcher({
+      lintRejection: () => rejected({ kind: 'notify', payload: { message: 'a line' } }),
+      sendFlaggedNotify: () => { posted.push(1); return true },
+    })
+    liveAgent(d)
+
+    await d.onStopHook('curia-42', {})
+
+    assert.equal(posted.length, 1, 'one pass per kind, whatever the ledger keeps saying')
   })
 
   test('#47 stays first: a turn that ends on an open escalation is a block, never a stop-block', async () => {

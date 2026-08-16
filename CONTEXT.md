@@ -104,6 +104,7 @@ The ordered act: claim, prepare, spawn. A failure before the spawn releases the 
 **Auto-dispatch**:
 The `dispatch.auto_dispatch` flag. The dispatch tick runs either way, because the liveness sweep rides it. While the flag is true, that same tick also starts takeable tickets, the map lane first, up to `max_concurrent`. It ships false, so the operator's press is the only door from a ticket to an agent.
 A takeable ticket whose worktree still stands is resumed, and never started: `start` recreates the worktree from origin and takes every uncommitted file with it. The path is the evidence, as it is for `resume` and `resume all`. The thread says curia resumed rather than started, and the journal records an `auto_resume`. See [#376](https://github.com/alp82/curia/issues/376).
+A ticket that died at its spawn twice in a row is stepped over. See the failed-spawn step-over below.
 It is also the only door a clock could use. curia refuses scheduled tickets for that reason: a schedule that files one is auto-dispatch with a calendar in front of it. The demand behind the idea is a watch, not a clock. A watch states one event at its own instant, where the operator reads it. See [#345](https://github.com/alp82/curia/issues/345).
 _Avoid_: scheduler, cron.
 
@@ -135,6 +136,13 @@ The state where every candidate model is cooling. The frontier stays the queue, 
 
 **Limit resume**:
 The dispatch curia owes a ticket its own cooling stopped. Exhaustion kills the agent and releases the claim, and the worktree stands, so the resume is `resume` and never `start`: `start` recreates the worktree from origin and takes every uncommitted file with it. It is not gated on `auto_dispatch`, because that setting decides whether curia takes NEW work off the frontier and this puts back work the operator already ordered. A reviewer gets none, because the builder has already been told the reviewer ended. One arm buys one attempt, and a resume that walks back into the cap arms again from the fresh reset. The arm is journalled, so a daemon restart inside the window does not lose it. The thread carries the promise with the exhaustion and the outcome at the reset, and it says so when the resume cannot be made.
+
+**Failed-spawn step-over**:
+The rule that stops the auto loop taking a ticket that dies at every spawn. A dispatch that fails releases the claim, so the ticket is back on the frontier for the next tick, and nothing counted the repeat. Two failed spawns in a row, and the loop steps over the ticket.
+A **failed spawn** is a dispatch that ended with the claim released and the agent silent on the tool channel. A broken image pin, a container that dies at once and an agent that died before it reported are each one. An agent that reached its curia tools clears the count, because that ticket does not die at its spawn, and [#376](https://github.com/alp82/curia/issues/376) resumes it with its files. Exhaustion never counts. Every lane cooling is not this ticket's fault, and the cooling is already its own throttle.
+It binds the AUTO LOOP only. A `start` or a `resume` the operator types dispatches a stepped-over ticket at once, and clears the count with it, which is [#346](https://github.com/alp82/curia/issues/346)'s rule again: curia holds no order the operator did not repeat. The count lives in the journal, so a deploy inside the window does not lose it.
+Three surfaces name it: the journal events `dispatch_failed` and `dispatch_held`, one line in the ticket thread at the instant the step-over arms, and a row on the dashboard Needs-you list beside a line in Discord `status`. It is COUNTED in Needs-you, where a cooling hold is not, because an operator act is the only thing that ends it. Two is the cap the operator settled on. One would park a ticket on a single GitHub blip, and the loop cannot tell a blip from a fault. See [#444](https://github.com/alp82/curia/issues/444).
+_Avoid_: backoff, retry cap.
 
 **Overseer**:
 The command brain of curia. The standing design is one brain with three skins (Discord, text, voice). The shipped daemon uses a deterministic router instead.
@@ -352,6 +360,10 @@ _Avoid_: diagram, figure.
 What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a verdict instead, and #421 types that surface.
 _Avoid_: final summary, result message.
 
+**Status line**:
+What `notify` puts in the thread, in the agent's own voice, while the work goes on (#420). It is typed: `message` says what happened, and a `visual` and a `detail` are the agent's judgment. Its `kind` says what the operator must DO, never how the agent rates its own news. `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply nothing is blocked on. A status line asks for no decision, so an agent that cannot go on without the answer calls `ask_human` instead.
+_Avoid_: status update, progress ping.
+
 **Lint gate**:
 The voice check on agent prose that reaches a human, and the rejection that enforces it (#416, #438). The daemon lints against `daemon/assets/voice.md` and refuses the call with the lint message. The agent rewrites its own text and calls again. The daemon never rewrites it. Three rejections is the cap, and the daemon counts them, because an agent miscounts its own. See [ADR-0005](docs/adr/0005-escalation-contract.md).
 _Avoid_: voice gate, prose check.
@@ -361,7 +373,7 @@ What the lint gate does at the cap (#416). curia takes the fourth text as it sta
 _Avoid_: fallback, degraded send.
 
 **Stop-hook catch**:
-The lever that makes a rejection unmissable on codex (#438). On codex 0.146.0 a tool call sits inside the `exec` script, so a rejection is only a return value and it never throws. An agent that threw the value away believes its question went out and moves to end its turn. The Stop hook fires there, refuses the stop with `{decision:"block", reason}`, and hands back the lint message. At the second stop block curia sends the flagged text itself, so an agent that never calls again still delivers its question. The tool description and the memory-file line reach the model earlier, and both are prose that can be ignored. This one is the guarantee.
+The lever that makes a rejection unmissable on codex (#438). On codex 0.146.0 a tool call sits inside the `exec` script, so a rejection is only a return value and it never throws. An agent that threw the value away believes its question went out and moves to end its turn. The Stop hook fires there, refuses the stop with `{decision:"block", reason}`, and hands back the lint message. At the second stop block curia sends the flagged text itself, so an agent that never calls again still delivers its question. The tool description and the memory-file line reach the model earlier, and both are prose that can be ignored. This one is the guarantee. A refused status line is the one call this never holds a turn for (#420): nobody waits on one, so curia posts the held text itself, flagged, and lets the turn end.
 _Avoid_: hook fallback.
 
 **Review gate**:

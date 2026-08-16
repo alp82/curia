@@ -486,6 +486,13 @@ export class CommandRouter {
     // ⚠️ and not a sign of its own: the signal set is closed (#95), and the
     // exhaustion message this one stands beside already speaks it.
     const holdLines = holds.map((h) => `• ⚠️ **${h.provider}** is held before the limit — its ${h.window} window is at ${h.pct}%. It lifts ${discordTime(new Date(h.reset_at))}`)
+    // The tickets the auto loop steps over (#444). Beside the holds above for
+    // the reason those are here: they say why a box with a frontier on it is
+    // dispatching nothing. ⚠️ and not a sign of its own, for the reason the line
+    // above takes one: the signal set is closed (#95).
+    for (const s of this.dispatcher.dispatchHolds?.() ?? []) {
+      holdLines.push(`• ⚠️ ${s.repo ? `${s.repo}#${s.ticket}` : `#${s.ticket}`} died at the spawn ${s.failures} times, so auto-dispatch steps over it. \`start ${s.ticket}\` dispatches it again and clears the count`)
+    }
     if (!agents.length && !untracked.length && !recent.length) {
       return holdLines.length ? `no live agents\n${holdLines.join('\n')}` : 'no live agents'
     }

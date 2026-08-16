@@ -4,7 +4,8 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  composeCard, composeReviewBody, composeResultBody, composeResultReport, visualBlock, optionLabels,
+  composeCard, composeReviewBody, composeResultBody, composeResultReport, composeNotify, NOTIFY_KINDS,
+  visualBlock, optionLabels,
 } from '../src/card.mjs'
 import { lintReply, CHUNK_LIMIT } from '../src/messaging.mjs'
 
@@ -185,5 +186,59 @@ describe('composeResultReport: the ending report (#419)', () => {
   test('curia writes the fence, so an agent that fenced its visual is not fenced twice', () => {
     const body = composeResultBody({ visual: '```\na\nb\n```' })
     assert.equal(body, '```\na\nb\n```')
+  })
+})
+
+describe('composeNotify: the status line (#420)', () => {
+  const LINE = {
+    message: 'The lint reads the notify fields now. The gate refuses a fault.',
+    detail: 'The composer is daemon/src/card.mjs.',
+    visual: 'message  600\ndetail   500',
+  }
+
+  test('the parts read top down: message, visual, spoiler', () => {
+    assert.equal(composeNotify(LINE), [
+      '⚙️ The lint reads the notify fields now. The gate refuses a fault.',
+      '```\nmessage  600\ndetail   500\n```',
+      'Details: ||The composer is daemon/src/card.mjs.||',
+    ].join('\n\n'))
+  })
+
+  test('an untyped notify keeps the one line the thread has always read', () => {
+    assert.equal(composeNotify({ message: 'reading the map' }), '⚙️ reading the map')
+    assert.equal(composeNotify({ kind: 'progress', message: 'reading the map' }), '⚙️ reading the map',
+      'progress IS the default, so naming it changes nothing')
+  })
+
+  test('the kind picks the prefix, and it says what the operator must do', () => {
+    assert.equal(composeNotify({ kind: 'look', message: 'the prototype is up' }), '🔗 the prototype is up')
+    assert.ok(composeNotify({ kind: 'ask', message: 'which port?' }).startsWith('❓ which port?'))
+  })
+
+  test('an ask says where the answer goes, in small print and one line', () => {
+    const post = composeNotify({ kind: 'ask', message: 'which port?' })
+    const last = post.split('\n\n').at(-1)
+    assert.match(last, /^-# Reply in this thread/)
+    assert.equal(last.split('\n').length, 1, '#414: small print is one line, never stacked')
+    assert.equal(composeNotify({ kind: 'ask' }), '', 'a line with no words gets no pointer either')
+  })
+
+  test('a kind curia does not know renders as progress rather than as nothing', () => {
+    assert.equal(composeNotify({ kind: 'finding', message: 'the deploy fast-forwards only' }),
+      '⚙️ the deploy fast-forwards only')
+  })
+
+  test('every notify prefix is in the signal set the reply lint reads', () => {
+    for (const kind of NOTIFY_KINDS) {
+      assert.deepEqual(lintReply(composeNotify({ kind, message: 'a line' })), [])
+    }
+  })
+
+  test('a notify with no message at all composes nothing', () => {
+    assert.equal(composeNotify({}), '')
+  })
+
+  test('curia writes the fence, so an agent that fenced its visual is not fenced twice', () => {
+    assert.equal(composeNotify({ message: 'a', visual: '```\nx\n```' }), '⚙️ a\n\n```\nx\n```')
   })
 })

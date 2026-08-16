@@ -63,6 +63,15 @@ export function flaggedResultText(faults) {
     + ' Do not call `report_result` again. The ticket has ended and this report is on the record.'
 }
 
+// The same cap, on a status line (#420). Nobody is waiting on this one either,
+// and the agent is mid-work rather than mid-ending, so the words say the one
+// thing it needs: the line is posted, and the next call starts fresh.
+export function flaggedNotifyText(faults = []) {
+  return `⚠️ curia posted your status line as it stands, flagged with ${faults.length} lint fault(s) you did not fix.`
+    + ' The operator sees the faults in the thread, under the line.'
+    + ' Do not send it again. Carry on with the work.'
+}
+
 // A schema fault at the cap with nothing to send. This is the one refusal that
 // is final, and it says what would have made it sendable.
 export function deadEndText(faults) {

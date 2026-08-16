@@ -1,7 +1,7 @@
 # ADR-0019: Typed payloads and the lint grades
 
 **Status**: accepted (2026-08)
-**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438)
+**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438), [Typed notify (#420)](https://github.com/alp82/curia/issues/420)
 
 ## Context
 
@@ -43,7 +43,7 @@ Every `ask_human` kind takes `headline` (required), and `detail`, `visual`, `tim
 | `ask_human` preview-review | `preview_url` | `options[]`, exactly two |
 | `request_review` | `headline`, `summary`, `charting` | `detail`, `visual` |
 | `report_result` | `ticket`, `status`, `headline`, `summary` | `detail`, `visual`, `details` |
-| `notify` | `message` | `detail`, `visual`, `images` |
+| `notify` | `message` | `kind`, `detail`, `visual`, `images` |
 | verdict | `headline`, `findings[]` of `{ text }` | `detail`, `visual` |
 
 Four rules read this table.
@@ -51,7 +51,29 @@ Four rules read this table.
 1. **A round is typed.** `questions[]` replaces the numbered questions an agent writes inside one prose prompt (#285). curia derives the **✅ All as recommended** button from the array: the button renders when every question carries a `recommendation`, and it renders on no other round. The `recommended` boolean retires. An agent could set that flag on a round where one question had no recommendation, and the button then lied about it. A derived button cannot lie.
 2. **approve-reject and preview-review keep curia's button words.** When the agent gives two options, curia takes the two consequences and keeps its own labels. The order is fixed: approve first.
 3. **`details` on `report_result` stays a free record.** It is machine-facing, no surface renders it, and no lint reads it.
-4. **The verdict floor is a headline and one finding.** Whether a finding also carries a severity is [#421](https://github.com/alp82/curia/issues/421)'s decision, not this one. The `notify` kind set is [#420](https://github.com/alp82/curia/issues/420)'s decision the same way.
+4. **The verdict floor is a headline and one finding.** Whether a finding also carries a severity is [#421](https://github.com/alp82/curia/issues/421)'s decision, not this one. The `notify` kind set was [#420](https://github.com/alp82/curia/issues/420)'s decision the same way, and the section below is what it settled.
+
+### The notify kind set (#420)
+
+Rule 4 above left this set open. [#420](https://github.com/alp82/curia/issues/420) settles it at three kinds, and the axis is **what the operator must do**.
+
+| Kind | The operator | Prefix |
+|---|---|---|
+| `progress` | does nothing | ⚙️ |
+| `look` | opens a file or a page now | 🔗 |
+| `ask` | replies whenever they get to it | ❓ |
+
+`progress` is the default, so an untyped call keeps the exact line the thread has always read.
+
+The axis is what makes the set checkable. A set built on the agent's own weighting — routine against notable, minor against important — is a claim the payload cannot check, and this ADR retired the `recommended` boolean over exactly that. A `look` states that a file or a page is waiting, which the call itself carries. An `ask` states that a reply is wanted, which the card under it repeats in small print.
+
+Three kinds and no fourth. A finding is `progress`, because the operator acts on it later. A prototype that is ready is `look`. An ending is neither, because `report_result` already sends the ending report (#419).
+
+An `ask` blocks nothing, and that is the whole difference between it and `ask_human`. A reply reaches its agent as an operator note on the next tool result the agent reads. An agent that cannot go on without the answer calls `ask_human`, which blocks. The escalation contract of [ADR-0005](0005-escalation-contract.md) is unchanged: a decision still blocks, and an `ask` is never a way around it.
+
+❓ joins the signal set of [ADR-0013](0013-one-voice-per-fact.md). The other six signals say what curia or an agent did, and none of them says that a reply is wanted.
+
+**A refused status line never holds a turn.** The gate is the same three-strike gate, on a key of its own, so a refused line and a refused question never spend each other's attempts. The Stop-hook catch differs, because nobody waits on a status line: curia posts the held text itself, flagged, and lets the turn end. Holding a turn to redeliver a line the operator did not ask for costs more than the line is worth. #438's rule still holds, because the words reach the human either way.
 
 ### Two grades, and one check that is not a grade
 
@@ -136,6 +158,6 @@ The typed fields ship one surface per ticket, and one deploy lands them all ([#4
 - The `recommended` boolean retires, and the ✅ button becomes a fact about the payload rather than a claim about it.
 - An agent loses the freedom to lay out its own card. It writes the parts, and the bridge lays them out. This is ADR-0002 read at the level of one message: the bridge renders, it never interprets.
 - A cap refuses rather than truncates. Truncation loses information in silence, and losing no information is the requirement this whole map serves.
-- Two surfaces keep an open decision after this ADR: the `notify` kind set (#420) and the verdict finding shape (#421). Both build against this vocabulary.
+- One surface keeps an open decision after this ADR: the verdict finding shape (#421). It builds against this vocabulary. The `notify` kind set is settled above (#420).
 - The lint is weaker than `voice.md`. It checks the deterministic rules only, so prose that passes the gate can still read badly. The operator remains the last reader.
 - The `visual` field emits a fence on a common path, and the render path already carries it (#432). `fenceParts()` and `CODE_BLOCK_LIMIT` are exported from `daemon/src/messaging.mjs`, so [#418](https://github.com/alp82/curia/issues/418) reuses them rather than writing a second fence reader.

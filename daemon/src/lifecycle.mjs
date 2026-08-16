@@ -37,6 +37,13 @@ export const REVIEW_KIND = 'review-gate'
 // attempts.
 export const RESULT_KIND = 'report-result'
 
+// The lint gate's key for `notify` (#420). One key for all three notify kinds,
+// because they are one call site: an agent that spends its three attempts on a
+// status line has spent them, whatever the line said. It is deliberately not
+// one of the kind NAMES a notify carries — `progress`, `look` and `ask` say
+// what the operator must do, and this says which ledger counts the rejections.
+export const NOTIFY_KIND = 'notify'
+
 export const ENDING = [
   {
     key: 'commit',

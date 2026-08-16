@@ -280,6 +280,16 @@ describe('the read screens (#264)', () => {
       assert.match(text(page.screenHome(one)), /3 needs you/)
     })
 
+    // The failed-spawn step-over (#444). It is on this list by the list's own
+    // test — an operator act is what ends it — and a spent window is not.
+    test('a ticket the auto loop steps over joins the attention list, and is counted', () => {
+      const one = payload({ dispatch_holds: [{ ticket: '444', repo: 'alp82/curia', failures: 2 }] })
+      const t = text(page.screenHome(one))
+      assert.match(t, /died at the spawn 2 times, so auto-dispatch steps over it/)
+      assert.match(t, /clears the count/, 'the act that ends it is the point of the line')
+      assert.equal(page.needsYou(one.overview), 3)
+    })
+
     test('the needs-you count is escalations plus the gate, and the tab title carries it', () => {
       assert.equal(page.needsYou(payload().overview), 2)
       assert.equal(page.needsYou(payload({ escalations: [], review_gate: [] }).overview), 0)
