@@ -17,9 +17,9 @@
 # and a recreated tmux service kills every live agent (wayfinder #132 in
 # compose clothes). deploy.test.mjs pins this file to the rule.
 #
-# argv: prev next repoRoot markerFile logFile port
+# argv: prev next repoRoot markerFile logFile port workRoot
 set -uo pipefail
-PREV=$1 NEXT=$2 REPO=$3 MARKER=$4 LOG=$5 PORT=$6
+PREV=$1 NEXT=$2 REPO=$3 MARKER=$4 LOG=$5 PORT=$6 WORK=${7:-}
 exec >>"$LOG" 2>&1
 
 say() { echo "[self-deploy $(date -u +%FT%TZ)] $*"; }
@@ -38,6 +38,13 @@ mark() {
 # nothing to do and leaves the OLD daemon running — a deploy that lands
 # without deploying (observed on the #270 drill).
 recreate() {
+  # The overseer's bind-mount sources must exist BEFORE compose creates the
+  # container: dockerd creates a missing source as root:root, and the overseer
+  # runs as 1000:1000, so its first turn then dies on EACCES (alp82/curia#474).
+  # This container runs as uid 1000 with the workspace mounted, so the
+  # directories it creates carry the right owner. $WORK can only be empty on a
+  # hand run that left the argument off — the daemon always passes it.
+  [ -n "$WORK" ] && mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos"
   docker compose -f "$REPO/deploy/compose.yaml" up -d --build --force-recreate --no-deps daemon dashboard overseer
 }
 

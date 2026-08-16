@@ -62,7 +62,7 @@ function build(opts = {}) {
   const reduction = fakeStore()
   const { exec, docker, git } = fakeExec(opts)
   const deploy = new SelfDeploy({
-    repoRoot: '/home/alp/curia', dataDir, reduction, exec,
+    repoRoot: '/home/alp/curia', dataDir, workRoot: '/home/alp/curia-work', reduction, exec,
     log: () => {}, port: 4271, home: '/home/alp', dockerSocket: sock,
   })
   return { deploy, reduction, docker, git, dataDir }
@@ -150,8 +150,8 @@ describe('the daemon half: preflight and hand-off', () => {
     // the script runs from a container-local copy: the sibling's own merge
     // rewrites the checkout copy mid-run
     assert.ok(args.some((a) => a.includes('cp /home/alp/curia/deploy/self-deploy.sh /tmp/')))
-    // script argv: prev next repoRoot markerFile logFile port
-    assert.deepEqual(args.slice(-6), [PREV, NEXT, '/home/alp/curia', deploy.markerPath, deploy.logPath, '4271'])
+    // script argv: prev next repoRoot markerFile logFile port workRoot
+    assert.deepEqual(args.slice(-7), [PREV, NEXT, '/home/alp/curia', deploy.markerPath, deploy.logPath, '4271', '/home/alp/curia-work'])
   })
 
   test('a second deploy while one is in flight is refused by the marker', async () => {
@@ -240,6 +240,17 @@ describe('the sibling script holds the deploy rule', () => {
     for (const l of ups) assert.match(l, /up -d --build --force-recreate --no-deps daemon dashboard overseer$/)
   })
 
+  // alp82/curia#474: dockerd creates a missing bind-mount source as root:root,
+  // and the overseer (uid 1000) then cannot write its own trees. The sibling
+  // creates both sources before every compose up — the rollback one included.
+  test('the overseer bind-mount sources are created before every compose up', () => {
+    const lines = code.split('\n')
+    const mkdir = lines.findIndex((l) => /mkdir -p "\$WORK\/cfg\/curia-overseer" "\$WORK\/overseer\/repos"/.test(l))
+    const up = lines.findIndex((l) => /compose .*up/.test(l))
+    assert.ok(mkdir !== -1, 'the pre-create line is missing')
+    assert.ok(mkdir < up, 'the pre-create must run before the compose up')
+  })
+
   test('the script never touches tmux or ttyd', () => {
     assert.doesNotMatch(code, /tmux|ttyd/)
   })
@@ -252,12 +263,13 @@ describe('the sibling script holds the deploy rule', () => {
 
 describe('helperRunArgs', () => {
   test('mounts what the sibling needs and nothing writable it does not', () => {
-    const args = helperRunArgs({ repoRoot: '/r', dataDir: '/r/daemon/data', home: '/h', uid: 1000, gid: 998 })
+    const args = helperRunArgs({ repoRoot: '/r', dataDir: '/r/daemon/data', home: '/h', uid: 1000, gid: 998, workRoot: '/w' })
     const mounts = args.filter((a, i) => args[i - 1] === '-v')
     assert.deepEqual(mounts, [
       '/var/run/docker.sock:/var/run/docker.sock',
       '/r:/r',
       '/r/daemon/data:/r/daemon/data',
+      '/w:/w',
       '/h/.config/gh:/h/.config/gh',
       '/h/.gitconfig:/h/.gitconfig:ro',
     ])
