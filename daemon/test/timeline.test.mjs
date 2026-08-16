@@ -11,7 +11,7 @@ import path from 'node:path'
 
 import http from 'node:http'
 
-import { detectHarness, findTranscript, transcriptForSession, parseLine } from '../src/transcript.mjs'
+import { detectHarness, findTranscript, transcriptForSession, firstPrompt, parseLine } from '../src/transcript.mjs'
 import { TimelineSurface, pageRefusal, detectDialog, DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO } from '../src/timeline.mjs'
 
 // Real pane shapes, captured live on the deployment host (#75): the trust
@@ -345,6 +345,58 @@ describe('transcriptForSession (#332)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// the label a conversation carries in the picker (#333)
+// ---------------------------------------------------------------------------
+//
+// ADR-0016 mints a conversation a number and nothing else, and #333 gave the
+// operator no field to type a name in. So the row's label is their own first
+// message, read off the head of the transcript.
+
+describe('firstPrompt (#333)', () => {
+  const line = (o) => JSON.stringify(o) + '\n'
+  const write = (name, body) => {
+    const proj = path.join(tmp, 'cfg', 'labels', 'projects', 'home')
+    fs.mkdirSync(proj, { recursive: true })
+    const f = path.join(proj, name)
+    fs.writeFileSync(f, body)
+    return f
+  }
+
+  test('the operator\'s first message is the label, whitespace collapsed', () => {
+    const f = write('a.jsonl',
+      line({ type: 'system', subtype: 'init' })
+      + line({ type: 'assistant', message: { content: [{ type: 'text', text: 'hello' }] } })
+      + line({ type: 'user', message: { content: 'what is\n  takeable?' } })
+      + line({ type: 'user', message: { content: 'and the second one' } }))
+    assert.equal(firstPrompt('claude', f), 'what is takeable?')
+  })
+
+  test('a long first message is clipped, so one row stays one row', () => {
+    const f = write('b.jsonl', line({ type: 'user', message: { content: 'x'.repeat(400) } }))
+    const label = firstPrompt('claude', f, { max: 20 })
+    assert.equal(label.length, 20)
+    assert.match(label, /…$/)
+  })
+
+  test('no prompt is null, and the row falls back to its key', () => {
+    assert.equal(firstPrompt('claude', write('c.jsonl', line({ type: 'system', subtype: 'init' }))), null)
+    assert.equal(firstPrompt('claude', null), null)
+    assert.equal(firstPrompt('claude', path.join(tmp, 'cfg', 'labels', 'gone.jsonl')), null)
+    assert.equal(firstPrompt(null, write('d.jsonl', line({ type: 'user', message: { content: 'hi' } }))), null)
+  })
+
+  // Only the head of the file is read, so the last line in the window is
+  // normally half a line. A label is not the timeline: it skips what it cannot
+  // parse rather than reporting a parse failure over it.
+  test('a half-written line at the edge of the bounded read is skipped, not reported', () => {
+    const f = write('e.jsonl', '{"type":"user","message":{"content"')
+    assert.equal(firstPrompt('claude', f, { bytes: 34 }), null)
+    const g = write('f.jsonl', line({ type: 'user', message: { content: 'first' } }) + '{"type":"user"')
+    assert.equal(firstPrompt('claude', g), 'first')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // the page stamp (#70's rule, one layer up)
 // ---------------------------------------------------------------------------
 
@@ -431,7 +483,8 @@ describe('TimelineSurface', () => {
   const workspaceRoot = () => path.join(tmp, 'work')
   // The driven session (#267): the console chat is the overseer, whose
   // transcript sits outside the workspace and whose composer is a turn.
-  const DRIVEN = 'curia-overseer'
+  // #333: a browser conversation, and the session name carries its key.
+  const DRIVEN = 'curia-console-2'
   const drivenCfg = () => path.join(tmp, 'overseer-config')
   const turns = [] // every text handed to the driver
   let turnFails = null // a message to throw from send()

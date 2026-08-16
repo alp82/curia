@@ -906,4 +906,59 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     assert.equal(res.status, 409)
     assert.equal(JSON.parse(res.body).reason, 'unknown')
   })
+
+  // ---- the browser conversations (#333, ADR-0016) ----------------------------
+  //
+  // Live, on the real daemon, because the rule that matters is durable: a
+  // number is spent the moment it is minted, and the journal is what keeps it
+  // spent. A unit test over the store proves the reduction; this proves the
+  // route the Chat screen actually calls.
+
+  test('the list starts empty — the cutover copies no history and nothing mints on a read', async () => {
+    const res = await request(port, 'GET', '/console')
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.body).conversations, [])
+    // The old single `console` key does not survive, and no boot invents one.
+    assert.equal(journal().filter((e) => e.type === 'console_conversation_opened').length, 0)
+  })
+
+  test('a mint journals the key and the list carries its session name', async () => {
+    const first = JSON.parse((await post('/console/new', {})).body)
+    assert.equal(first.key, 'console-1')
+    assert.equal(first.session, 'curia-console-1')
+    const second = JSON.parse((await post('/console/new', {})).body)
+    assert.equal(second.key, 'console-2')
+
+    const list = JSON.parse((await request(port, 'GET', '/console')).body).conversations
+    assert.deepEqual(list.map((c) => c.key), ['console-2', 'console-1'], 'newest first')
+    // Neither has taken a turn, so neither has a transcript. ADR-0016 case 8:
+    // the honest answer is no reading, never another conversation's percent.
+    assert.deepEqual(list.map((c) => c.ctx_pct), [null, null])
+    assert.deepEqual(list.map((c) => c.label), [null, null])
+    assert.equal(journal().filter((e) => e.type === 'console_conversation_opened').length, 2)
+  })
+
+  test('a deleted number is spent — the next conversation counts past it', async () => {
+    assert.equal((await post('/console/delete', { key: 'console-1' })).status, 200)
+    const list = JSON.parse((await request(port, 'GET', '/console')).body).conversations
+    assert.deepEqual(list.map((c) => c.key), ['console-2'])
+    const next = JSON.parse((await post('/console/new', {})).body)
+    assert.equal(next.key, 'console-3', 'never console-1 again — that would wake the deleted memory')
+  })
+
+  test('deleting one that is not there is a refusal in words, not a silent success', async () => {
+    const res = await post('/console/delete', { key: 'console-1' })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.body).error, /no conversation/)
+  })
+
+  test('a key this daemon would never mint is refused before anything is journalled', async () => {
+    const before = journal().length
+    for (const key of ['', 'console', 'chat-1', 'curia-console-1', 'console-1; rm -rf /']) {
+      const res = await post('/console/delete', { key })
+      assert.equal(res.status, 400, key)
+      assert.match(JSON.parse(res.body).error, /not a browser conversation key/)
+    }
+    assert.equal(journal().length, before, 'nothing was written')
+  })
 })

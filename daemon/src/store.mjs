@@ -14,6 +14,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { nextConsoleKey } from './attach.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -133,6 +134,8 @@ export class EscalationStore {
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
+    this.consoleConversations = new Map() // console key -> the live browser conversation (#333)
+    this.consoleSpent = new Set() // every console key ever minted, deleted ones included (#333)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
     this.threadTickets = new Map() // Discord thread id -> ticket (#93)
     this.lastTicketThreads = new Map() // ticket -> last thread ever bound, releases notwithstanding (#140)
@@ -376,6 +379,25 @@ export class EscalationStore {
         this.overseerSessions.set(ev.thread_id, ev.session_id)
         break
       }
+      // The browser conversations (#333, ADR-0016). Two reductions, because
+      // "which conversations exist" and "which numbers are spent" are different
+      // facts and only the second one survives a delete. The spent set never
+      // shrinks: it is what makes the numbers only go up, and it is the whole
+      // guard against a new conversation waking a deleted one's memory.
+      case 'console_conversation_opened': {
+        this.consoleSpent.add(ev.key)
+        this.consoleConversations.set(ev.key, { key: ev.key, opened_at: ev.ts ?? null })
+        break
+      }
+      case 'console_conversation_deleted': {
+        this.consoleConversations.delete(ev.key)
+        // The resume handle and the waiting notes go with it. Nothing can
+        // address this key again, so a binding left behind would only be a line
+        // the next boot replays for a conversation that is not there.
+        this.overseerSessions.delete(ev.key)
+        this.overseerNotes.delete(ev.key)
+        break
+      }
     }
   }
 
@@ -505,6 +527,46 @@ export class EscalationStore {
 
   overseerSession(threadId) {
     return this.overseerSessions.get(threadId)
+  }
+
+  // ---- the browser conversations (#333, ADR-0016) ---------------------------
+  //
+  // The daemon owns the key, so the daemon owns this list. It is journalled for
+  // the reason the resume handle is: a restart must not forget which
+  // conversations the operator has, and it must not hand a new one a number an
+  // old one spent.
+
+  // Mint one. The number is one higher than the highest ever minted, never the
+  // lowest free — see attach.nextConsoleKey for why a conversation differs from
+  // a chat handle here.
+  openConsoleConversation() {
+    const key = nextConsoleKey([...this.consoleSpent])
+    this._append({ type: 'console_conversation_opened', key })
+    return key
+  }
+
+  // Forget one. The transcript file is NOT touched: the number is spent, so
+  // nothing can ever read that file as this conversation again, and a delete
+  // the operator cannot undo is the wrong default for their own words.
+  // Answers false for a key that is not a live conversation, so the caller can
+  // refuse rather than journal a delete of nothing.
+  deleteConsoleConversation(key) {
+    if (!this.consoleConversations.has(key)) return false
+    this._append({ type: 'console_conversation_deleted', key })
+    return true
+  }
+
+  // The live ones, newest first — the order the picker draws. Sorted on the
+  // NUMBER rather than the timestamp: numbers only go up, so the number is the
+  // order, and two conversations opened in the same millisecond still come back
+  // in the order they were minted.
+  consoleConversationList() {
+    const n = (c) => Number(String(c.key).slice('console-'.length))
+    return [...this.consoleConversations.values()].sort((a, b) => n(b) - n(a))
+  }
+
+  hasConsoleConversation(key) {
+    return this.consoleConversations.has(key)
   }
 
   // Synthetic lines for a thread's overseer session (#94): a confirm resolves

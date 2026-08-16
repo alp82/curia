@@ -12,10 +12,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { EscalationStore } from '../src/store.mjs'
 import { parseCommand } from '../src/commands.mjs'
-import { validSessionName } from '../src/attach.mjs'
+import { validSessionName, consoleKeyForSession, sessionForConsoleKey, isConsoleKey } from '../src/attach.mjs'
 import {
   OverseerHost, canonicalFor, buildVerbTools, ALLOWED_TOOLS, DISALLOWED_TOOLS, SYSTEM_PROMPT,
-  CONSOLE_THREAD, CONSOLE_SESSION,
 } from '../src/overseer.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-test-'))
@@ -523,22 +522,112 @@ describe('EscalationStore overseer sessions', () => {
   })
 })
 
-// ---- the browser thread (#267) ----------------------------------------------
+// The register of browser conversations (#333, ADR-0016). It is journalled for
+// the reason the resume handle above is: a restart must not forget which
+// conversations the operator has. It carries one fact the resume handle does
+// not — which numbers are SPENT — and that fact has to outlive a delete.
+describe('EscalationStore browser conversations (#333)', () => {
+  test('a mint is journalled, and the list comes back after a restart', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    assert.equal(store.openConsoleConversation(), 'console-1')
+    assert.equal(store.openConsoleConversation(), 'console-2')
+    assert.deepEqual(store.consoleConversationList().map((c) => c.key), ['console-2', 'console-1'], 'newest first — the order the picker draws')
+    const replayed = new EscalationStore(dir)
+    assert.deepEqual(replayed.consoleConversationList().map((c) => c.key), ['console-2', 'console-1'])
+    assert.ok(replayed.hasConsoleConversation('console-1'))
+  })
+
+  test('a deleted number stays spent across a restart — the whole point of counting up', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    store.openConsoleConversation()
+    store.openConsoleConversation()
+    assert.equal(store.deleteConsoleConversation('console-2'), true)
+    assert.equal(store.openConsoleConversation(), 'console-3', 'not console-2 again')
+    // And the same after a boot replay: the spent set is a reduction over the
+    // journal, so it cannot be lost with the process that minted it.
+    const replayed = new EscalationStore(dir)
+    assert.equal(replayed.hasConsoleConversation('console-2'), false)
+    assert.equal(replayed.openConsoleConversation(), 'console-4')
+  })
+
+  test('the delete takes the resume handle and the waiting notes with it', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    const key = store.openConsoleConversation()
+    store.bindOverseerSession(key, 'sess-c1')
+    store.addOverseerNote(key, 'confirm esc-1 approved')
+    store.deleteConsoleConversation(key)
+    assert.equal(store.overseerSession(key), undefined)
+    assert.deepEqual(store.takeOverseerNotes(key), [])
+    // The replay must reach the same state, not the state the bind wrote: the
+    // delete event comes after it, so the reduction has to undo it in order.
+    const replayed = new EscalationStore(dir)
+    assert.equal(replayed.overseerSession(key), undefined)
+  })
+
+  test('deleting what is not there is refused rather than journalled', () => {
+    const dir = tmp()
+    const store = new EscalationStore(dir)
+    assert.equal(store.deleteConsoleConversation('console-9'), false)
+    assert.equal(fs.existsSync(path.join(dir, 'events.jsonl')), false, 'nothing was written')
+  })
+})
+
+// ---- a browser conversation (#267, many of them by #333) --------------------
 //
 // The console chat is this same overseer in a thread of its own. What these
 // pin is the two things that differ, and why each one has to: the answer is not
 // posted, because the transcript already carries it to the page, and the verbs
-// run with no origin thread, because `console` is not a thread the bridge can
-// put buttons in.
+// run with no origin thread, because a console key is not a thread the bridge
+// can put buttons in.
+//
+// #333 made the key `console-<n>` and made the store the register of which ones
+// exist. So every turn below opens its conversation first, exactly as the Chat
+// screen's button does.
 
-describe('the browser thread (#267)', () => {
+describe('a browser conversation (#267, #333)', () => {
+  // The mint the Chat screen presses. A turn on a key the store does not hold
+  // is refused, so this is not test scaffolding — it is the live precondition.
+  const opened = (store) => store.openConsoleConversation()
+
   test('it is one brain in a thread of its own: the conversation resumes on the console key', async () => {
     const queryFn = scriptedQuery([init('sess-c1'), success('#267 is first')], [init('sess-c2'), success('started')])
     const { host, store } = makeHost({ queryFn })
-    await host.browserTurn('what is next?')
-    assert.equal(store.overseerSession(CONSOLE_THREAD), 'sess-c1')
-    await host.browserTurn('start it')
+    const key = opened(store)
+    await host.browserTurn(key, 'what is next?')
+    assert.equal(store.overseerSession(key), 'sess-c1')
+    await host.browserTurn(key, 'start it')
     assert.equal(queryFn.calls[1].options.resume, 'sess-c1', 'the second turn continues the first')
+  })
+
+  // The whole point of many conversations: one does NOT resume the other, and
+  // neither can read the other's memory. This is the defect ADR-0016 named —
+  // one conversation that never ends rots its own context — measured as the
+  // reset it is replaced by.
+  test('a second conversation is a reset: its own key, its own resume, no memory of the first', async () => {
+    const queryFn = scriptedQuery([init('sess-c1'), success('one')], [init('sess-c2'), success('two')])
+    const { host, store } = makeHost({ queryFn })
+    const first = opened(store)
+    const second = opened(store)
+    assert.notEqual(first, second)
+    await host.browserTurn(first, 'remember this')
+    await host.browserTurn(second, 'fresh start')
+    assert.equal(queryFn.calls[1].options.resume, undefined, 'the new conversation resumes nothing')
+    assert.equal(store.overseerSession(first), 'sess-c1')
+    assert.equal(store.overseerSession(second), 'sess-c2')
+  })
+
+  // A page can sit on a conversation another device has deleted. A turn there
+  // would otherwise mint a fresh conversation under a number that is spent.
+  test('a turn on a deleted conversation is refused in words, not answered', async () => {
+    const queryFn = scriptedQuery([init('sess-c1'), success('hello')])
+    const { host, store } = makeHost({ queryFn })
+    const key = opened(store)
+    store.deleteConsoleConversation(key)
+    await assert.rejects(() => host.browserTurn(key, 'still there?'), /no conversation/)
+    assert.equal(queryFn.calls.length, 0, 'nothing reached the model')
   })
 
   test('the verbs run with NO origin thread — a confirm goes where a REST press sends it', async () => {
@@ -548,7 +637,8 @@ describe('the browser thread (#267)', () => {
       queryFn,
       command: async (text, ctx) => { seen.push({ text, ctx }); return 'ok' },
     })
-    await host.browserTurn('cancel 263')
+    const store = host.store
+    await host.browserTurn(opened(store), 'cancel 263')
     assert.equal(seen.at(-1).text, 'cancel 263')
     assert.equal(seen.at(-1).ctx.threadId, null, 'there is no console thread for the bridge to post into')
     assert.equal(seen.at(-1).ctx.interpreted, true, 'a model composed it, so the confirm still stands between it and the teardown')
@@ -556,8 +646,8 @@ describe('the browser thread (#267)', () => {
 
   test('the answer leaves by the transcript, not by this call — one fact, said once', async () => {
     const queryFn = scriptedQuery([init('sess-c1'), success('all quiet')])
-    const { host } = makeHost({ queryFn })
-    const out = await host.browserTurn('what runs?')
+    const { host, store } = makeHost({ queryFn })
+    const out = await host.browserTurn(opened(store), 'what runs?')
     assert.equal(out.ok, true)
     // Nothing carries the words back here. The SDK wrote them to the session
     // transcript, and the timeline tails that file (#74) — a second copy
@@ -565,15 +655,20 @@ describe('the browser thread (#267)', () => {
     assert.equal(JSON.stringify(out).includes('all quiet'), false)
   })
 
-  test('the console session is a name the timeline admits', () => {
-    assert.ok(validSessionName(CONSOLE_SESSION), 'the surface refuses anything else')
-    assert.notEqual(CONSOLE_SESSION, CONSOLE_THREAD, 'the session is what the page names, the thread is what the conversation keys on')
+  test('the console session is a name the timeline admits, and the key it carries comes back', () => {
+    const { store } = makeHost({ queryFn: scriptedQuery() })
+    const key = opened(store)
+    const session = sessionForConsoleKey(key)
+    assert.ok(isConsoleKey(key))
+    assert.ok(validSessionName(session), 'the surface refuses anything else')
+    assert.notEqual(session, key, 'the session is what the page names, the key is what the conversation keys on')
+    assert.equal(consoleKeyForSession(session), key, 'and the surface gets the key back out of it')
   })
 
   test('a turn that ends without an answer throws its words, so the page can say them', async () => {
     const queryFn = scriptedQuery([init('sess-c1'), failure('error_max_turns')], [init('sess-c1'), failure('error_max_turns')])
-    const { host } = makeHost({ queryFn })
-    await assert.rejects(() => host.browserTurn('loop forever'), /without an answer/)
+    const { host, store } = makeHost({ queryFn })
+    await assert.rejects(() => host.browserTurn(opened(store), 'loop forever'), /without an answer/)
   })
 
   test('one turn at a time: a second message while the first runs is refused in words', async () => {
@@ -584,10 +679,31 @@ describe('the browser thread (#267)', () => {
       await held
       yield success('done')
     })(options)
-    const { host } = makeHost({ queryFn })
-    const first = host.browserTurn('slow one')
-    await assert.rejects(() => host.browserTurn('impatient'), /one turn at a time/)
+    const { host, store } = makeHost({ queryFn })
+    const key = opened(store)
+    const first = host.browserTurn(key, 'slow one')
+    await assert.rejects(() => host.browserTurn(key, 'impatient'), /one turn at a time/)
     release()
     await first
+  })
+
+  // The lock is per conversation, which is what lets the operator hold two at
+  // once. One `busy` set over every key would have made the second chat wait on
+  // the first, and ADR-0016 case 7 says both answer at the same time.
+  test('the one-turn lock is per conversation: a second conversation answers while the first runs', async () => {
+    let release
+    const held = new Promise((done) => { release = done })
+    let n = 0
+    const queryFn = () => (async function* () {
+      const mine = ++n
+      yield init(`sess-c${mine}`)
+      if (mine === 1) await held
+      yield success('done')
+    })()
+    const { host, store } = makeHost({ queryFn })
+    const slow = host.browserTurn(opened(store), 'slow one')
+    await host.browserTurn(opened(store), 'the other conversation')
+    release()
+    await slow
   })
 })

@@ -16,7 +16,7 @@ import { test, describe, before, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
-import { DEFAULT_DASHBOARD_INDEX } from '../src/dashboard.mjs'
+import { DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO } from '../src/dashboard.mjs'
 
 // The page boots itself only when a real document holds `#app`, so this fake
 // one keeps the load inert: no render, no poll, no timer. `fetch` never settles
@@ -846,6 +846,13 @@ describe('the operator verbs (#266)', () => {
       assert.match(feed({ type: 'command', canonical: 'start alp82/curia#266', by: 'alp@example.com' }),
         /start alp82\/curia#266 — by alp@example.com/)
     })
+
+    // #333. The fallback would print "console conversation opened — —", which
+    // is the kind of legible-looking nothing this page's own header forbids.
+    test('opening and deleting a browser conversation each read as a sentence', () => {
+      assert.match(feed({ type: 'console_conversation_opened', key: 'console-4' }), /console-4 opened/)
+      assert.match(feed({ type: 'console_conversation_deleted', key: 'console-4' }), /console-4 deleted — its number is spent/)
+    })
   })
 })
 
@@ -858,17 +865,65 @@ describe('the operator verbs (#266)', () => {
 // behind it, where it goes, and that a daemon which is not answering is a chat
 // that is not there, because the overseer lives inside the daemon.
 
-describe('the chat screen (#267)', () => {
+describe('the chat screen (#267, the picker of #333)', () => {
   let page
   before(() => { page = loadPage() })
+  // The screen reads `/api/console` on arrival, so every case below states what
+  // that read answered. `null` is the read in flight, and it is NOT an empty
+  // list — the two draw differently on purpose.
+  const conv = (over) => ({
+    key: 'console-2', session: 'curia-console-2', opened_at: at(600),
+    last_turn_at: at(120), label: 'what is takeable on curia', ctx_pct: 31, ctx_over: false, ...over,
+  })
+  beforeEach(() => { page.conversations = { conversations: [conv()] } })
 
-  test('the door names the overseer and opens the timeline at /chat', () => {
+  test('a row opens ITS conversation at /chat, keyed on its own session', () => {
     const html = page.screenChat(payload())
-    assert.match(html, /href="\/chat\?session=curia-overseer"/)
+    assert.match(html, /href="\/chat\?session=curia-console-2"/)
     const t = text(html)
-    assert.match(t, /This is the overseer/)
-    assert.match(t, /every watched repo/)
-    assert.match(t, /curia-overseer/)
+    assert.match(t, /what is takeable on curia/, 'the label is the operator\'s own first message')
+    assert.match(t, /console-2/)
+  })
+
+  test('a row carries its own context percent — ADR-0016 makes that the one signal', () => {
+    page.conversations = { conversations: [conv({ ctx_pct: 88 }), conv({ key: 'console-1', session: 'curia-console-1', ctx_pct: null, label: null })] }
+    const t = text(page.screenChat(payload()))
+    assert.match(t, /88%/)
+    assert.match(t, /—/, 'a conversation with no turn reads as no reading, never as 0%')
+    assert.match(t, /no turn yet/)
+  })
+
+  test('an over-full conversation is marked rather than drawn flat', () => {
+    page.conversations = { conversations: [conv({ ctx_pct: 104, ctx_over: true })] }
+    assert.match(page.screenChat(payload()), /104%.*⚠/s)
+  })
+
+  test('no conversations is an empty list, and nothing is minted by looking', () => {
+    page.conversations = { conversations: [] }
+    const t = text(page.screenChat(payload()))
+    assert.match(t, /No conversations yet/)
+    assert.match(t, /New conversation/, 'the one button is the only way one starts')
+    assert.doesNotMatch(t, /console-\d/, 'a page read spends no number')
+  })
+
+  test('a list curia could not be asked for is not an empty one', () => {
+    page.conversations = { conversations: null, error: 'the daemon answered 500 on /console' }
+    const t = text(page.screenChat(payload()))
+    assert.match(t, /could not read your conversations/)
+    assert.match(t, /the daemon answered 500/)
+    assert.doesNotMatch(t, /No conversations yet/)
+  })
+
+  test('the read in flight says so, and claims nothing about the list', () => {
+    page.conversations = null
+    const t = text(page.screenChat(payload()))
+    assert.match(t, /Reading your conversations/)
+    assert.doesNotMatch(t, /No conversations yet/)
+  })
+
+  test('the delete says the number is spent, because that is the part nobody can undo', () => {
+    assert.match(page.screenChat(payload()), /onclick="doDeleteConversation\('console-2'\)"/)
+    assert.match(text(page.screenChat(payload())), /Deleting one spends its number for good/)
   })
 
   test('it states the one thing the overseer cannot do, rather than leaving it to be found', () => {
@@ -889,5 +944,24 @@ describe('the chat screen (#267)', () => {
     const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
     assert.match(src, /chat:\s*\["Chat",\s*screenChat\]/)
     assert.doesNotMatch(text(page.screenChat(payload())), /#267/, 'the placeholder is gone')
+  })
+
+  // The page and the sidecar are two halves of one protocol with no build step
+  // between them, and #333 added routes to both halves. A page that speaks the
+  // new one against an old sidecar draws a picker whose every button answers
+  // 404, which is what the stamp exists to refuse.
+  test('the page declares the proto its own routes need', () => {
+    const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(src, new RegExp(`<meta name="curia-dashboard" content="proto=${DASHBOARD_PROTO}">`))
+    assert.match(src, /"\/api\/console\/new"/)
+    assert.match(src, /"\/api\/console\/delete"/)
+  })
+
+  // Arriving is what takes the read. Settings holds its copy because a config
+  // file changes when somebody saves it; this list carries a context percent
+  // and a last-turn time, and both move with every turn from any device.
+  test('every arrival on the Chat screen re-reads the list', () => {
+    const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(src, /if \(k === "chat"\) loadConversations\(\)/)
   })
 })

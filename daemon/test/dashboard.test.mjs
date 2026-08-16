@@ -748,6 +748,58 @@ describe('the operator verbs (#266)', () => {
     assert.deepEqual(calls, [], 'not one of them reached the daemon')
   })
 
+  // ---- the browser conversations (#333) --------------------------------------
+  //
+  // The Chat screen's three calls. They are not verbs: the operator catalogue
+  // has no word for a browser conversation, so there is nothing for /command to
+  // carry and the sidecar composes each daemon call itself.
+
+  test('the list is read through, and an unreachable daemon answers null rather than empty', async () => {
+    reply['/console'] = [200, {
+      conversations: [{
+        key: 'console-2', session: 'curia-console-2', opened_at: null, last_turn_at: null,
+        label: 'what is takeable', ctx_pct: 31, ctx_over: false,
+      }],
+    }]
+    const res = await req(surface.port, '/api/console', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.equal(JSON.parse(res.text).conversations[0].key, 'console-2')
+
+    delete reply['/console']
+    const out = JSON.parse((await req(surface.port, '/api/console', { headers: served() })).text)
+    assert.equal(out.conversations, null, 'curia could not be asked — which is not "you have none"')
+    assert.match(out.error, /404/)
+  })
+
+  test('a new conversation is one press, and the daemon mints the number', async () => {
+    reply['/console/new'] = [200, { key: 'console-4', session: 'curia-console-4' }]
+    const res = await press('/api/console/new', {})
+    assert.equal(res.status, 200)
+    assert.equal(sent('/console/new').method, 'POST', 'never a GET — a page read must not spend a number')
+    assert.equal(JSON.parse(res.text).session, 'curia-console-4')
+  })
+
+  test('a delete names one key, and a key the daemon does not hold comes back in words', async () => {
+    reply['/console/delete'] = [200, { ok: true, key: 'console-2' }]
+    assert.equal((await press('/api/console/delete', { key: 'console-2' })).status, 200)
+    assert.deepEqual(sent('/console/delete').body, { key: 'console-2' })
+
+    calls = []
+    reply['/console/delete'] = [409, { ok: false, error: 'there is no conversation `console-2`' }]
+    const res = await press('/api/console/delete', { key: 'console-2' })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /no conversation/)
+  })
+
+  test('a key the sidecar does not name is refused here, before the wire', async () => {
+    for (const key of ['chat-2', 'console', 'console-2; rm -rf /', 'curia-console-2', '../2']) {
+      const res = await press('/api/console/delete', { key })
+      assert.equal(res.status, 409, key)
+      assert.match(JSON.parse(res.text).error, /browser conversation key/)
+    }
+    assert.deepEqual(calls, [], 'not one of them reached the daemon')
+  })
+
   test('`cancel all` cannot be reached from a browser — the console cancels one agent at a time', async () => {
     assert.equal((await press('/api/cancel', { ticket: 'all' })).status, 409)
     assert.deepEqual(calls, [])
@@ -888,7 +940,7 @@ describe('the chat (#267)', () => {
         }
         if (r.url.startsWith('/events')) {
           res.writeHead(200, { 'content-type': 'text/event-stream' })
-          return res.end('event: hello\ndata: {"session":"curia-overseer"}\n\n')
+          return res.end('event: hello\ndata: {"session":"curia-console-2"}\n\n')
         }
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ ok: true }))
@@ -904,20 +956,20 @@ describe('the chat (#267)', () => {
   })
 
   test('/chat serves the timeline\'s own page — the daemon stamp-checks it, this pipe does not', async () => {
-    const res = await req(surface.port, '/chat?session=curia-overseer', { headers: served() })
+    const res = await req(surface.port, '/chat?session=curia-console-2', { headers: served() })
     assert.equal(res.status, 200)
     assert.match(res.text, /name="curia-timeline"/)
     assert.equal(seen.at(-1).url, '/', 'the page is one page; the session rides the browser\'s own query')
   })
 
   test('the four routes the page speaks reach the timeline with their query intact', async () => {
-    await req(surface.port, '/events?session=curia-overseer&client=ab12', { headers: served() })
-    assert.equal(seen.at(-1).url, '/events?session=curia-overseer&client=ab12')
+    await req(surface.port, '/events?session=curia-console-2&client=ab12', { headers: served() })
+    assert.equal(seen.at(-1).url, '/events?session=curia-console-2&client=ab12')
     for (const route of ['/send', '/draft', '/key']) {
       await req(surface.port, route, {
         method: 'POST',
         headers: served({ origin: ORIGIN, 'content-type': 'application/json' }),
-        body: { session: 'curia-overseer', text: 'start 267' },
+        body: { session: 'curia-console-2', text: 'start 267' },
       })
       const last = seen.at(-1)
       assert.equal(last.url, route)
@@ -926,7 +978,7 @@ describe('the chat (#267)', () => {
   })
 
   test('NOTHING is rewritten: the timeline judges the Host and the login the browser sent', async () => {
-    await req(surface.port, '/events?session=curia-overseer', { headers: served() })
+    await req(surface.port, '/events?session=curia-console-2', { headers: served() })
     const h = seen.at(-1).headers
     assert.equal(h.host, 'box.tail1234.ts.net:8445')
     assert.equal(h[LOGIN_HEADER], 'alp@example.com')
@@ -942,7 +994,7 @@ describe('the chat (#267)', () => {
     const res = await req(surface.port, '/send', {
       method: 'POST',
       headers: served({ origin: 'https://evil.example', 'content-type': 'application/json' }),
-      body: { session: 'curia-overseer', text: 'x' },
+      body: { session: 'curia-console-2', text: 'x' },
     })
     assert.equal(res.status, 403)
     assert.equal(seen.length, 0)
