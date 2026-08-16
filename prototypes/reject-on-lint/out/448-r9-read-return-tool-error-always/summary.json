@@ -1,0 +1,108 @@
+{
+  "name": "448-r9-read-return-tool-error-always",
+  "lane": "real",
+  "carriage": "tool-error",
+  "policy": "always",
+  "tool_desc": "read-return",
+  "task": "neutral",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "exit_code": 0,
+  "tool_calls": 5,
+  "rejected": 5,
+  "accepted": 0,
+  "passed_on_attempt": null,
+  "scripts": [
+    {
+      "call_id": "call_3tqc5W7Qb5g1BZXamP0LEOTd",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 635
+    },
+    {
+      "call_id": "call_JLib4BEmyQuVwf3JaIqlzHRZ",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 386
+    },
+    {
+      "call_id": "call_iFpecDzt3nM6fv7xkwvN1Y3Q",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 215
+    },
+    {
+      "call_id": "call_oLEMgdNEdQdSbPMMCoyVdPDC",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 215
+    },
+    {
+      "call_id": "call_MS8odDPc5ZBjGfRiMf6KILNP",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 215
+    },
+    {
+      "call_id": "call_37gGqeny01zO59YKw2Jb4C8w",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 215
+    }
+  ],
+  "return_value_reached_model": true,
+  "scripts_full": [
+    {
+      "call_id": "call_3tqc5W7Qb5g1BZXamP0LEOTd",
+      "printed": "[{\"name\":\"mcp__lintcheck__ask_human\",\"description\":\"Ask the human a question and block until they answer. The prompt is the question they read. This tool can REFUSE your text, and it refuses by returning a message. It never throws. So read the return value and print it. If it starts with REJECTED, the human never saw the question. Rewrite your text and call again.\\n\\nexec tool declaration:\\n```ts\\ndeclare const tools: { mcp__lintcheck__ask_human(args: {\\n  // One line naming the decision.\\n  headline: string;\\n  // The question, with the options and their consequences.\\n  prompt: string;\\n}): Promise<CallToolResult>; };\\n```\"}]",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const hits = ALL_TOOLS.filter(x =>\n  /lintcheck|ask_human/i.test(x.name + \" \" + x.description)\n);\ntext(hits);\n"
+    },
+    {
+      "call_id": "call_JLib4BEmyQuVwf3JaIqlzHRZ",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In prompt: remove the em-dash. Write two sentences, or use a normal dash. Found 3.\n2. In prompt: split this sentence. It has 28 words and the cap is 20: \"When a ticket closes, should Curia withdraw the preview link—freeing the port and stopping\"\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the preview link lifecycle\",\n  prompt: \"When a ticket closes, should Curia withdraw the preview link—freeing the port and stopping a stale page—or keep it alive—letting the operator re-read the page after the merge?\"\n});\nfor (const item of (result?.content || [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_iFpecDzt3nM6fv7xkwvN1Y3Q",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In prompt: the wording is still not plain enough. Say it in shorter words.\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the preview link lifecycle\",\n  prompt: \"When a ticket closes, should Curia withdraw the preview link or keep it alive? Withdraw it to free the port and stop a stale page. Keep it alive so the operator can re-read the page after the merge.\"\n});\nfor (const item of (result?.content || [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_oLEMgdNEdQdSbPMMCoyVdPDC",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In prompt: the wording is still not plain enough. Say it in shorter words.\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"What should happen to preview links?\",\n  prompt: \"When a ticket closes, what should Curia do with the preview link? Remove it: this frees the port and stops an old page. Keep it: this lets the operator read the page again after the merge.\"\n});\nfor (const item of (result?.content || [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_MS8odDPc5ZBjGfRiMf6KILNP",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In prompt: the wording is still not plain enough. Say it in shorter words.\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Remove closed preview links?\",\n  prompt: \"When a ticket closes, should curia remove the preview link or leave it up?\\n\\nRemove it. This frees the port and stops an old page.\\n\\nLeave it up. This lets the operator read the page again after the merge.\"\n});\nfor (const item of (result?.content || [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_37gGqeny01zO59YKw2Jb4C8w",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In prompt: the wording is still not plain enough. Say it in shorter words.\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Keep the preview link?\",\n  prompt: \"After a ticket closes, should curia take down the preview link or keep it?\\n\\nTake it down. This frees the port and stops an old page.\\n\\nKeep it. The operator can look at the page again after the merge.\"\n});\nfor (const item of (result?.content || [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    }
+  ],
+  "final_message": "The tool did not show the question to the operator. It repeatedly returned:\n\n> REJECTED: the prompt fails the voice rules. The wording is still not plain enough. Say it in shorter words.\n\nSo no operator choice was received.",
+  "tokens": {
+    "input_tokens": 103546,
+    "cached_input_tokens": 89344,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 1408,
+    "reasoning_output_tokens": 559,
+    "total_tokens": 104954
+  },
+  "codex_log_tail": "eir practical consequence, then relay its response.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ncodex\nThe lintcheck tool rejected the first wording before showing it to the operator because of its voice rules. I’m rewriting the same single question in shorter sentences, as the tool requires.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ncodex\nIt rejected the revision as still too formal, again without displaying it. I’ll make the wording plainer while preserving both options and consequences.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ncodex\nThe checker wants even simpler language. I’m reducing the choice to “remove it” versus “leave it up,” with one short consequence for each.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ncodex\nThe tool still has not shown the question to the operator. I’m making one final plain-language revision with very short option text.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ncodex\nThe tool did not show the question to the operator. It repeatedly returned:\n\n> REJECTED: the prompt fails the voice rules. The wording is still not plain enough. Say it in shorter words.\n\nSo no operator choice was received.\ntokens used\n15,610\nThe tool did not show the question to the operator. It repeatedly returned:\n\n> REJECTED: the prompt fails the voice rules. The wording is still not plain enough. Say it in shorter words.\n\nSo no operator choice was received.\n"
+}

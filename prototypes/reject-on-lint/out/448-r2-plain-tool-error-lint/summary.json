@@ -1,0 +1,69 @@
+{
+  "name": "448-r2-plain-tool-error-lint",
+  "lane": "real",
+  "carriage": "tool-error",
+  "policy": "lint",
+  "tool_desc": "plain",
+  "task": "cap",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "passed_on_attempt": 2,
+  "scripts": [
+    {
+      "call_id": "call_ZvQEgVIgXQ13MDVR1ovKtbkT",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "printed_chars": 412
+    },
+    {
+      "call_id": "call_29HiwVhNkMMYVxJDzGuMh9gd",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 188
+    },
+    {
+      "call_id": "call_cHaWCydBgvpy2el2iWYWh1IS",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "printed_chars": 33
+    }
+  ],
+  "return_value_reached_model": true,
+  "scripts_full": [
+    {
+      "call_id": "call_ZvQEgVIgXQ13MDVR1ovKtbkT",
+      "printed": "[{\"name\":\"mcp__lintcheck__ask_human\",\"description\":\"Ask the human a question and block until they answer. The prompt is the question they read.\\n\\nexec tool declaration:\\n```ts\\ndeclare const tools: { mcp__lintcheck__ask_human(args: {\\n  // One line naming the decision.\\n  headline: string;\\n  // The question, with the options and their consequences.\\n  prompt: string;\\n}): Promise<CallToolResult>; };\\n```\"}]",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "script": "const hits = ALL_TOOLS.filter(x => /lintcheck|ask_human/i.test(x.name + \" \" + x.description));\ntext(hits);\n"
+    },
+    {
+      "call_id": "call_29HiwVhNkMMYVxJDzGuMh9gd",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In headline: expand every contraction: Curia’s.\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose Curia’s rewrite limit\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5?\\n\\n- 3: Ends a stuck loop sooner.\\n- 5: Gives the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content || [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_cHaWCydBgvpy2el2iWYWh1IS",
+      "printed": "ACCEPTED. The human reads it now.",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the Curia rewrite limit\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5?\\n\\n- 3: Ends a stuck loop sooner.\\n- 5: Gives the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content || [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    }
+  ],
+  "final_message": "The lintcheck tool responded: “ACCEPTED. The human reads it now.”\n\nThe first wording was rejected because “Curia’s” was flagged as a contraction, so I revised the headline and resubmitted it successfully.",
+  "tokens": {
+    "input_tokens": 57033,
+    "cached_input_tokens": 46080,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 558,
+    "reasoning_output_tokens": 151,
+    "total_tokens": 57591
+  },
+  "codex_log_tail": "int/448-r2-plain-tool-error-lint/cwd\nmodel: gpt-5.6-sol\nprovider: openai\napproval: never\nsandbox: danger-full-access\nreasoning effort: high\nreasoning summaries: none\nsession id: 01a00c29-c6f3-7ae3-a684-6da41baecd9f\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator one question. The question: curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5? Give the operator both options and one consequence for each. A cap of 3 ends a stuck loop sooner. A cap of 5 gives the agent more room to fix its own text. Write the headline and the prompt yourself. Report what the tool said back.\ncodex\nI’ll ask the operator exactly this choice through lintcheck, then report the response verbatim.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ncodex\nThe tool rejected the first wording because its voice lint treated “Curia’s” as a contraction. I’m rewriting the headline while preserving both choices and consequences, as instructed.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nThe lintcheck tool responded: “ACCEPTED. The human reads it now.”\n\nThe first wording was rejected because “Curia’s” was flagged as a contraction, so I revised the headline and resubmitted it successfully.\ntokens used\n11,511\nThe lintcheck tool responded: “ACCEPTED. The human reads it now.”\n\nThe first wording was rejected because “Curia’s” was flagged as a contraction, so I revised the headline and resubmitted it successfully.\n"
+}
