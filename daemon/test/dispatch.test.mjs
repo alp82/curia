@@ -2956,10 +2956,12 @@ describe('button confirms: the interpreted cancel path (#94)', () => {
 })
 
 describe('reconcile sweeps abandoned credential copies (W6)', () => {
-  function seedCfg(session) {
+  // `holds` is the credential file the dead agent left behind — the whole
+  // trigger. `prompt.md` is the rest of the post-mortem, which the sweep keeps.
+  function seedCfg(session, holds = '.credentials.json') {
     const dir = path.join(tmp, 'work', 'cfg', session)
     fs.mkdirSync(dir, { recursive: true })
-    fs.writeFileSync(path.join(dir, '.credentials.json'), '{}')
+    fs.writeFileSync(path.join(dir, holds), '{}')
     fs.writeFileSync(path.join(dir, 'prompt.md'), '# kept for post-mortem')
     return dir
   }
@@ -2976,6 +2978,24 @@ describe('reconcile sweeps abandoned credential copies (W6)', () => {
     await d.reconcile({ boot: false })
 
     assert.deepEqual(swept, ['curia-77'], 'only the dead agent is swept')
+    assert.ok(events.some((e) => e.type === 'credentials_swept' && e.agent === 'curia-77'))
+  })
+
+  // #467: a codex agent holds `auth.json` and no `.credentials.json` at all. In
+  // a container that file is a real COPY of the host credential (#158), so the
+  // dir the post-mortem keeps holds a live token. On a box still on #155's PAT
+  // there is no `gh` dir beside it either, so the trigger saw nothing.
+  test('a codex config dir holding only auth.json is swept too', async () => {
+    const swept = []
+    seedCfg('curia-77', 'auth.json')
+    const d = makeDispatcher({
+      listSessions: async () => [],
+      removeCredentials: (dir) => swept.push(path.basename(dir)),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(swept, ['curia-77'], 'the codex credential copy outlived its agent')
     assert.ok(events.some((e) => e.type === 'credentials_swept' && e.agent === 'curia-77'))
   })
 
