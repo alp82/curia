@@ -1,0 +1,132 @@
+{
+  "built": "prototypes/boot-replay/run.mjs",
+  "node": "v24.19.0",
+  "computedTypes": 32,
+  "switchTypes": 26,
+  "sizes": [
+    {
+      "size": 4282,
+      "actual": 4310,
+      "live": true,
+      "fileBytes": 1103888,
+      "scannedRows": 2059,
+      "scannedShare": 0.478,
+      "fileMs": 43.93,
+      "journalMs": 49.23,
+      "journalBatchedMs": 42.12,
+      "journalAllMs": 37.15,
+      "narrowedMs": 26.18,
+      "agents": 141,
+      "escalations": 248,
+      "notes": 72,
+      "openTurns": 2,
+      "threads": 37,
+      "conversations": 26,
+      "equivalence": {
+        "journal": [],
+        "batched": [],
+        "narrowed": []
+      },
+      "stages": {
+        "fileRead": 9.73,
+        "rowRead": 11.35,
+        "rowReadAll": 5.56,
+        "filePlusParse": 23.56,
+        "rowPlusParse": 26.82
+      }
+    },
+    {
+      "size": 30000,
+      "actual": 29877,
+      "live": false,
+      "fileBytes": 7673373,
+      "scannedRows": 14432,
+      "scannedShare": 0.483,
+      "fileMs": 261.87,
+      "journalMs": 312.66,
+      "journalBatchedMs": 256.42,
+      "journalAllMs": 253.48,
+      "narrowedMs": 236.15,
+      "agents": 927,
+      "escalations": 1702,
+      "notes": 532,
+      "openTurns": 19,
+      "threads": 237,
+      "conversations": 161,
+      "equivalence": {
+        "journal": [],
+        "batched": [],
+        "narrowed": []
+      },
+      "stages": {
+        "fileRead": 61.46,
+        "rowRead": 80.1,
+        "rowReadAll": 47.39,
+        "filePlusParse": 138.11,
+        "rowPlusParse": 185.02
+      }
+    },
+    {
+      "size": 60000,
+      "actual": 59952,
+      "live": false,
+      "fileBytes": 15448034,
+      "scannedRows": 29176,
+      "scannedShare": 0.487,
+      "fileMs": 519.73,
+      "journalMs": 632.19,
+      "journalBatchedMs": 559.94,
+      "journalAllMs": 551.91,
+      "narrowedMs": 582.49,
+      "agents": 1868,
+      "escalations": 3376,
+      "notes": 1084,
+      "openTurns": 32,
+      "threads": 486,
+      "conversations": 299,
+      "equivalence": {
+        "journal": [],
+        "batched": [],
+        "narrowed": []
+      },
+      "stages": {
+        "fileRead": 135.8,
+        "rowRead": 185.19,
+        "rowReadAll": 98.12,
+        "filePlusParse": 304.12,
+        "rowPlusParse": 366.53
+      }
+    },
+    {
+      "size": 250000,
+      "actual": 249966,
+      "live": false,
+      "fileBytes": 64800316,
+      "scannedRows": 121346,
+      "scannedShare": 0.485,
+      "fileMs": 2368.66,
+      "journalMs": 2975.27,
+      "journalBatchedMs": 2569.29,
+      "journalAllMs": 2838.17,
+      "narrowedMs": 2370.24,
+      "agents": 7784,
+      "escalations": 14074,
+      "notes": 4538,
+      "openTurns": 127,
+      "threads": 2084,
+      "conversations": 1201,
+      "equivalence": {
+        "journal": [],
+        "batched": [],
+        "narrowed": []
+      },
+      "stages": {
+        "fileRead": 722.1,
+        "rowRead": 773.69,
+        "rowReadAll": 563.25,
+        "filePlusParse": 1448.03,
+        "rowPlusParse": 1599.55
+      }
+    }
+  ]
+}
