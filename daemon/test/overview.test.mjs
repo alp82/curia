@@ -28,7 +28,7 @@ import { directUnblocks } from '../src/github.mjs'
 import { Reduction, RECENT_EVENTS, RECENT_OUTCOMES } from '../src/reduction.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
 import { ctxOnWire } from '../src/usage.mjs'
-import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml, TEST_PINS } from './fixtures/sandbox.mjs'
 import { journalEvents, emptyQuestions } from './fixtures/journal.mjs'
@@ -81,7 +81,7 @@ describe('GET /overview (index.mjs, real boot)', () => {
     // One test below rewrites this file to make the read indeterminate instead.
     tmuxShim = path.join(shim, 'tmux')
     setTmux('echo "no server running on /tmp/tmux-0/default" >&2\nexit 1')
-    const [daemonPort, ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort(), await freePort()]
+    const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
       'watch:',

@@ -17,7 +17,7 @@ import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { classifyFault, installCrashGuard } from '../src/health.mjs'
 import { Reduction } from '../src/reduction.mjs'
-import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
+import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
 import { journalEvents } from './fixtures/journal.mjs'
@@ -201,8 +201,10 @@ function bootFixture(tmp, extraEnv) {
   return { cfgDir, shim, extraEnv }
 }
 
+// Draws the daemon port in the same set as the three the config names, and
+// hands it back, so no surface here can land on another one's number.
 async function writeConfig(cfgDir, tmp) {
-  const [ttydPort, servePort, proxyPort] = [await freePort(), await freePort(), await freePort()]
+  const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
   fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
     'watch:',
     '  - repo: example/fixture',
@@ -239,6 +241,7 @@ async function writeConfig(cfgDir, tmp) {
     "    tool_channel_grace_s: 15",
     '',
   ].join('\n'))
+  return daemonPort
 }
 
 const waitForDaemon = (port, watch) => waitForBoot(watch, async () => {
@@ -254,8 +257,7 @@ describe('the daemon survives the gateway crash it died of (real boot, induced)'
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-health-test-'))
     dataDir = path.join(tmp, 'data')
     const { cfgDir, shim } = bootFixture(tmp)
-    await writeConfig(cfgDir, tmp)
-    port = await freePort()
+    port = await writeConfig(cfgDir, tmp)
     child = spawn(process.execPath, [DAEMON], {
       env: {
         ...process.env,
@@ -318,8 +320,7 @@ describe('a planted logic bug still kills the daemon (real boot, induced)', () =
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-health-fault-'))
     dataDir = path.join(tmp, 'data')
     const { cfgDir, shim } = bootFixture(tmp)
-    await writeConfig(cfgDir, tmp)
-    port = await freePort()
+    port = await writeConfig(cfgDir, tmp)
     child = spawn(process.execPath, [DAEMON], {
       env: {
         ...process.env,
