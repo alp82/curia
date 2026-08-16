@@ -1,4 +1,4 @@
-# ADR-0004: Label-only routing and reactive cooling
+# ADR-0004: Label-only routing and cooling
 
 **Status**: accepted (2026-07)
 **Provenance**: [Define the model-routing rule (#13)](https://github.com/alp82/curia/issues/13)
@@ -10,7 +10,7 @@ Every dispatch picks a model, and subscription plans expose no clean remaining-q
 ## Decision
 
 - The classification signal is labels only. A `model:<x>` label is an absolute override. Otherwise the `wayfinder:<type>` label indexes a default table: grilling and prototype get the top tier, research burns the OpenAI quota, task and untyped tickets get the mid tier.
-- Quota awareness is reactive, not proactive. A usage-limit error at spawn marks the provider account cooling until the error's stated reset. A model-specific cap cools only that model.
+- Quota awareness has two triggers, and both write one kind of entry. A usage-limit error at spawn marks the provider account cooling until the error's stated reset. A model-specific cap cools only that model. A hot account reading also cools the provider before any limit lands, and curia judges that entry again on every fresh reading. See [#339](https://github.com/alp82/curia/issues/339) and [#384](https://github.com/alp82/curia/issues/384).
 - Fallback chains are config data. A fallback never upgrades bulk AFK work onto the scarcest top-tier budget.
 - When every candidate model cools, the frontier is the queue. Tickets stay open and unassigned on GitHub. One in-memory wake timer fires at the earliest reset. Exactly one Discord notify reports the exhaustion event.
 - The table, the chains, and the provider grouping live in `config/routing.yaml`. Re-tuning is a git commit.

@@ -53,7 +53,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { Cooling, resolveModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
+import { Cooling, resolveModel, namedModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
 
 const routing = {
   defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
@@ -157,6 +157,61 @@ describe('Cooling', () => {
     c.coolModel('fable', new Date(Date.now() - 1_000)) // expired
     assert.equal(c.earliestReset() == null, true)
   })
+
+  // The second trigger (#384). One store, two kinds of provider entry, and the
+  // difference between them binds three rules.
+  describe('the predicted entry (#384)', () => {
+    const soon = () => new Date(Date.now() + 3600_000)
+
+    test('a prediction cools the provider exactly as a landed cap does', () => {
+      const c = new Cooling()
+      assert.equal(c.predictProvider('anthropic', { at: soon(), window: '5h', pct: 92 }), true)
+      assert.equal(c.isCool('fable', 'anthropic'), true)
+      assert.equal(c.isCool('gpt', 'openai'), false)
+      assert.equal(c.earliestReset() != null, true, 'the wake timer reads it unchanged')
+      assert.deepEqual(c.predictions().map((p) => [p.provider, p.window, p.pct]), [['anthropic', '5h', 92]])
+    })
+
+    test('a named model steps over a prediction and never over a landed cap', () => {
+      const c = new Cooling()
+      c.predictProvider('anthropic', { at: soon(), window: '5h', pct: 92 })
+      assert.equal(c.isCool('opus', 'anthropic', { ignorePredicted: true }), false)
+      assert.equal(c.isCool('opus', 'anthropic'), true, 'the hold still stands for every other dispatch')
+
+      const landed = new Cooling()
+      landed.coolProvider('anthropic', soon())
+      assert.equal(landed.isCool('opus', 'anthropic', { ignorePredicted: true }), true)
+      // The model's own cap is not a provider entry at all, so no label lifts it.
+      const sub = new Cooling()
+      sub.coolModel('fable', soon())
+      assert.equal(sub.isCool('fable', 'anthropic', { ignorePredicted: true }), true)
+    })
+
+    test('measured beats guessed, both ways round', () => {
+      const c = new Cooling()
+      c.predictProvider('anthropic', { at: soon(), window: '5h', pct: 92 })
+      c.coolProvider('anthropic', soon())
+      assert.deepEqual(c.predictions(), [], 'a landed cap overwrites the guess it lands on')
+      assert.equal(c.clearPrediction('anthropic'), false, 'and nothing about a reading clears it')
+      assert.equal(c.isCool('opus', 'anthropic'), true)
+      assert.equal(c.predictProvider('anthropic', { at: soon(), window: '5h', pct: 91 }), false,
+        'a guess never overwrites what curia measured')
+    })
+
+    test('a prediction lifts on demand, and expires on its own instant', () => {
+      const c = new Cooling()
+      c.predictProvider('anthropic', { at: soon(), window: '5h', pct: 92 })
+      assert.equal(c.clearPrediction('anthropic'), true)
+      assert.equal(c.isCool('opus', 'anthropic'), false)
+      assert.equal(c.clearPrediction('anthropic'), false, 'lifting a hold that is not up says so')
+
+      const past = new Cooling()
+      past.predictProvider('anthropic', { at: new Date(Date.now() - 1_000), window: '5h', pct: 92 })
+      assert.equal(past.isCool('opus', 'anthropic'), false)
+      assert.deepEqual(past.predictions(), [])
+      assert.equal(past.predictionFor('anthropic'), null)
+    })
+  })
 })
 
 describe('candidates', () => {
@@ -201,6 +256,39 @@ describe('candidates', () => {
     const cooling = new Cooling()
     cooling.coolProvider('anthropic', new Date(Date.now() - 1_000))
     assert.deepEqual(candidates(routing, 'fable', cooling), ['fable', 'opus', 'sonnet'])
+  })
+
+  // #384: the named model is the head of the chain and it alone steps over a
+  // pre-emptive hold. What the chain falls through to is judged the way every
+  // other dispatch judges it, because nobody named that one.
+  test('a named model steps over a predicted hold, and the rest of the chain does not', () => {
+    const cooling = new Cooling()
+    cooling.predictProvider('anthropic', { at: new Date(Date.now() + 3600_000), window: '5h', pct: 92 })
+    assert.deepEqual(candidates(routing, 'fable', cooling), [])
+    assert.deepEqual(candidates(routing, 'fable', cooling, { named: 'fable' }), ['fable'])
+    assert.deepEqual(candidates(routing, 'opus', cooling, { named: 'fable' }), [],
+      'the bypass follows the name, not the walk')
+  })
+
+  test('a landed cap empties the chain whatever was named', () => {
+    const cooling = new Cooling()
+    cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
+    assert.deepEqual(candidates(routing, 'fable', cooling, { named: 'fable' }), [])
+  })
+})
+
+// The model a human named, apart from the one routing picked (#384).
+describe('namedModel', () => {
+  test('a model: label names one, and so does the override on the start line', () => {
+    assert.equal(namedModel(['model:sonnet', 'wayfinder:research'], null), 'sonnet')
+    assert.equal(namedModel(['model:sonnet'], 'fable'), 'fable')
+    assert.equal(namedModel([], 'fable'), 'fable')
+  })
+
+  test('the type table names nothing — nobody typed it', () => {
+    assert.equal(namedModel(['wayfinder:research'], null), null)
+    assert.equal(namedModel([], null), null)
+    assert.equal(namedModel(undefined, null), null)
   })
 })
 

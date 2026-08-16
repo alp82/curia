@@ -8,6 +8,7 @@
 
 import { validSessionName, CHAT_HANDLE_RE } from './attach.mjs'
 import { clampList } from './messaging.mjs'
+import { discordTime } from './dispatch.mjs'
 
 // A repo argument is any single non-numeric token — #81 resolves it fuzzily
 // against the watch list (see #matchRepo), so `cur` is as valid as `alp82/curia`.
@@ -476,10 +477,18 @@ export class CommandRouter {
   }
 
   // Grown per #81: running agents, agents waiting on input (and where),
-  // recent cancelled and finished.
+  // recent cancelled and finished. And the pre-emptive holds (#384), which are
+  // the one thing here that is not about an agent: they say why a box with no
+  // agents on it is dispatching none.
   async #status() {
     const { agents, untracked, recent = [] } = await this.dispatcher.status()
-    if (!agents.length && !untracked.length && !recent.length) return 'no live agents'
+    const holds = this.dispatcher.preCoolings?.() ?? []
+    // ⚠️ and not a sign of its own: the signal set is closed (#95), and the
+    // exhaustion message this one stands beside already speaks it.
+    const holdLines = holds.map((h) => `• ⚠️ **${h.provider}** is held before the limit — its ${h.window} window is at ${h.pct}%. It lifts ${discordTime(new Date(h.reset_at))}`)
+    if (!agents.length && !untracked.length && !recent.length) {
+      return holdLines.length ? `no live agents\n${holdLines.join('\n')}` : 'no live agents'
+    }
     // #165: `cross-checking` is a waiting state too — the builder is parked
     // inside its gate call while a second agent reads the diff.
     const waitingStates = new Set(['blocked', 'awaiting-review', 'cross-checking'])
@@ -495,7 +504,9 @@ export class CommandRouter {
       const kind = w.reviewer ? ' 🔎 cross-check reviewer' : ''
       return `• \`${w.session}\` ${w.repo}#${w.ticket}${kind} — ${w.model ?? '?'} — **${w.state}** — up ${uptime}${w.result_received ? ' — result in' : ''}${where}${liveness} — \`/attach ${w.ticket}\``
     }
-    const lines = []
+    // The holds lead: a lane that is dispatching nothing explains every row
+    // under it, and a line at the bottom of a long list would be read last.
+    const lines = [...holdLines]
     for (const w of agents.filter((x) => !isWaiting(x))) lines.push(line(w))
     for (const w of agents.filter(isWaiting)) lines.push(line(w))
     for (const s of untracked) lines.push(`• \`${s}\` — ⚠️ live tmux session not tracked by the dispatcher (reconcile will adopt or sweep it)`)

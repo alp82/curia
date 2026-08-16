@@ -128,6 +128,9 @@ const OVERVIEW = () => ({
   // The credential warnings still standing (#380). The ordinary state is none:
   // the tests that want one say so.
   token_warnings: [],
+  // The pre-emptive holds standing (#384), same rule: the ordinary state is a
+  // box dispatching on every lane.
+  pre_cooling: [],
   events: [
     { ts: at(600), type: 'agent_spawned', agent: 'curia-255', repo: 'alp82/curia', ticket: '255', model: 'gpt-5.6-sol', harness: 'codex' },
     { ts: at(400), type: 'esc_open', id: 'esc-7', agent: 'curia-255', ticket: '255', kind: 'choice', prompt: 'Two notes race the same expiry line.' },
@@ -187,6 +190,26 @@ describe('the read screens (#264)', () => {
       assert.match(t, /Fleet \(3\)/)
       assert.match(t, /curia-263/)
       assert.match(t, /Last events/)
+    })
+
+    // #384. The strip below says how full a window is. This says curia has
+    // STOPPED dispatching on that provider, which is the fact an operator
+    // watching an idle box needs, and it gets the top of the page.
+    test('a pre-emptive hold banners the provider and the lift time', () => {
+      const held = payload({
+        pre_cooling: [{ provider: 'anthropic', window: '5h', pct: 93, reset_at: ahead(75) }],
+      })
+      const html = page.screenHome(held)
+      const t = text(html)
+      assert.match(t, /anthropic held before the limit/)
+      assert.match(t, /the 5h window is at 93%/)
+      assert.match(t, /it lifts at \d\d:\d\d/, 'the lift time is the whole point of the line')
+      assert.match(t, /model:/, 'and the one act that steps over it')
+      // It is not on the Needs-you list, for the reason a spent window is not:
+      // no operator act ends it.
+      assert.match(t, /2 needs you/)
+      assert.equal(text(page.screenHome(payload())).includes('held before the limit'), false,
+        'a box dispatching on every lane banners nothing')
     })
 
     test('the provider strip says each window once, and no agent row repeats it', () => {
@@ -1193,6 +1216,17 @@ describe('the operator verbs (#266)', () => {
     test('a start pressed here reads exactly as one typed in Discord — one seam, one event', () => {
       assert.match(feed({ type: 'command', canonical: 'start alp82/curia#266', by: 'alp@example.com' }),
         /start alp82\/curia#266 — by alp@example.com/)
+    })
+
+    // #384. The two triggers are two events, and the feed must not read them as
+    // one thing: a wall was hit, or curia stopped short of one.
+    test('a hold before the limit reads apart from a cap that landed', () => {
+      assert.match(feed({ type: 'provider_precooling', provider: 'anthropic', window: '5h', pct: 93, reset_at: ahead(75) }),
+        /anthropic is held before the limit — the 5h window is at 93%, and it lifts \d\d:\d\d/)
+      assert.match(feed({ type: 'provider_precooling_lifted', provider: 'anthropic', window: '5h', pct: 71 }),
+        /anthropic is dispatching again — its fullest window reads 71%/)
+      assert.match(feed({ type: 'provider_cooling', provider: 'anthropic', reset_at: ahead(75) }),
+        /anthropic is cooling — it rolls \d\d:\d\d/)
     })
 
     // #333. The fallback would print "console conversation opened — —", which

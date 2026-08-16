@@ -800,6 +800,33 @@ describe('CommandRouter grown verbs (#81)', () => {
     assert.match(reply, /✅ finished alp82\/curia#4/)
   })
 
+  // #384: the one line in `status` that is not about an agent. A held provider
+  // explains a box with nothing running on it, so a box with nothing running
+  // still says it.
+  test('status names a pre-emptive hold, whether or not an agent is live', async () => {
+    const lift = new Date(Date.now() + 75 * 60_000)
+    const preCoolings = () => [{ provider: 'anthropic', window: '5h', pct: 93, reset_at: lift.toISOString() }]
+    const busy = {
+      config: WATCH,
+      preCoolings,
+      status: async () => ({
+        agents: [{ session: 'curia-5', repo: 'alp82/curia', ticket: '5', model: 'gpt', state: 'working', uptime_s: 65, tmux_live: true }],
+        untracked: [],
+        recent: [],
+      }),
+    }
+    const reply = await new CommandRouter({ dispatcher: busy, attach: {}, log: () => {} }).handle('status', 'u')
+    assert.match(reply, /\*\*anthropic\*\* is held before the limit — its 5h window is at 93%/)
+    assert.match(reply, new RegExp(`It lifts <t:${Math.floor(lift.getTime() / 1000)}:t>`))
+    assert.ok(reply.indexOf('anthropic') < reply.indexOf('curia-5'), 'the lane that stopped explains every row under it')
+    assert.deepEqual(lintReply(reply), [], 'the hold speaks the signal set like every other line')
+
+    const idle = { config: WATCH, preCoolings, status: async () => ({ agents: [], untracked: [], recent: [] }) }
+    const quiet = await new CommandRouter({ dispatcher: idle, attach: {}, log: () => {} }).handle('status', 'u')
+    assert.match(quiet, /no live agents/)
+    assert.match(quiet, /is held before the limit/, 'an idle box is the case this line exists for')
+  })
+
   test('router replies conform to the messaging standard (#95)', async () => {
     const dispatcher = {
       config: WATCH,

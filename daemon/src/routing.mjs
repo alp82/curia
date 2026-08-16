@@ -11,9 +11,8 @@
 // wayfinder:<type> default > untyped default. `labels` is an array of strings
 // (callers normalise gh's label objects to `.name` first).
 export function resolveModel(routing, labels, override) {
-  if (override) return override
-  const modelLabel = labels.find((l) => l.startsWith('model:'))
-  if (modelLabel) return modelLabel.slice('model:'.length)
+  const named = namedModel(labels, override)
+  if (named) return named
   for (const l of labels) {
     if (!l.startsWith('wayfinder:')) continue
     const byType = routing.defaults[l.slice('wayfinder:'.length)]
@@ -22,13 +21,29 @@ export function resolveModel(routing, labels, override) {
   return routing.defaults.untyped
 }
 
+// The model a HUMAN named, or null when routing picked it from the type table
+// (#384). Two surfaces say it and they are one act: the `model:<x>` label on the
+// ticket, and the label typed on the start line (`/start 384 opus`), which
+// reaches `resolveModel` as the override. The default table names nothing.
+//
+// It is what the pre-emptive hold answers to. A predicted entry is curia's
+// guess about a window that has not hit its wall yet, and a human who names a
+// model has read the same bars and wants the last of that window spent on this
+// ticket. A LANDED cap is not a guess, and no label steps over one.
+export function namedModel(labels, override) {
+  if (override) return override
+  const l = (labels ?? []).find((x) => x.startsWith('model:'))
+  return l ? l.slice('model:'.length) : null
+}
+
 // The live index, seeded at boot from the journal (#377). Settled answer 6 made
 // this in-memory only, and a 5-hour window outlives a deploy: a restart inside
 // one forgot every entry, and the next `start` spawned a container straight into
 // the cap it had already measured. So the entries themselves still live here and
 // nowhere else, and `Dispatcher#seedCooling` hands back the ones a previous
 // process journalled. Nothing writes from here: `#handleLimit` journals the cap
-// and calls this, in that order.
+// and calls this, in that order, and `#judgeReadings` does the same for the
+// pre-emptive hold (#384).
 //
 // Two distinct levels:
 // a model-level entry (Fable's own weekly sub-cap) cools only that model and
@@ -38,38 +53,103 @@ export function resolveModel(routing, labels, override) {
 // routing — it is the ordinary case the cross-provider chains exist for, and
 // #exhausted fires only when BOTH providers are cooling.
 // Entries expire (field-notes contract 5): a resetAt in the past no longer cools.
+//
+// TWO TRIGGERS WRITE A PROVIDER ENTRY (#384, decided on #339), and the store
+// holds one shape for both. A LANDED entry is a cap curia measured: an agent hit
+// the wall and the pane or the transcript stated the reset. A PREDICTED entry is
+// a hot account reading — a window at or past COOL_PCT — held before the wall,
+// so the fallback chain steps over the provider instead of spawning into it.
+//
+// The difference is not cosmetic, and three rules ride on it:
+//
+//   1. A prediction is re-judged from every fresh reading (Dispatcher#judgeReadings)
+//      and cleared when the reading cools. A landed cap is never cleared: only
+//      its own reset ends it.
+//   2. A named model steps over a prediction and never over a landed cap — see
+//      `namedModel`.
+//   3. A landed cap OVERWRITES a prediction on the same provider, and a
+//      prediction never overwrites a landed cap. Measured beats guessed, both
+//      ways round.
 export class Cooling {
   constructor() {
-    this.models = new Map() // model -> resetAt (Date)
-    this.providers = new Map() // provider -> resetAt (Date)
+    // model -> { at: Date }, provider -> { at: Date, predicted?, window?, pct? }
+    this.models = new Map()
+    this.providers = new Map()
   }
 
   coolModel(model, resetAt) {
-    this.models.set(model, resetAt)
+    this.models.set(model, { at: resetAt })
   }
 
   coolProvider(provider, resetAt) {
-    this.providers.set(provider, resetAt)
+    this.providers.set(provider, { at: resetAt })
+  }
+
+  // The pre-emptive hold (#384). `window` and `pct` are the reading that wrote
+  // it, kept here because the banner and Discord `/status` say WHY a provider is
+  // held and a second copy of that number could disagree with this one.
+  //
+  // Answers whether the entry now stands, so the caller journals a hold it
+  // actually took: a landed cap on the same provider refuses it.
+  predictProvider(provider, { at, window = null, pct = null }) {
+    if (this.#active(this.providers, provider) && !this.providers.get(provider).predicted) return false
+    this.providers.set(provider, { at, predicted: true, window, pct })
+    return true
+  }
+
+  // Lift the hold. Only a prediction lifts; a landed cap waits out its reset.
+  // Answers whether anything was lifted, for the same reason.
+  clearPrediction(provider) {
+    if (!this.#active(this.providers, provider)) return false
+    if (!this.providers.get(provider).predicted) return false
+    this.providers.delete(provider)
+    return true
+  }
+
+  // The hold standing on this provider, or null. A LANDED entry answers null:
+  // the question every caller asks is "is a prediction up", and a landed cap is
+  // not one.
+  predictionFor(provider) {
+    if (!this.#active(this.providers, provider)) return null
+    const e = this.providers.get(provider)
+    return e.predicted ? { at: e.at, window: e.window, pct: e.pct } : null
+  }
+
+  // The holds standing now, for the surfaces that name them: the dashboard
+  // banner and Discord `/status`. Expired entries are dropped on the way out.
+  predictions() {
+    const out = []
+    for (const provider of [...this.providers.keys()]) {
+      if (!this.#active(this.providers, provider)) continue
+      const e = this.providers.get(provider)
+      if (e.predicted) out.push({ provider, at: e.at, window: e.window, pct: e.pct })
+    }
+    return out
   }
 
   #active(map, key) {
-    const at = map.get(key)
-    if (!at) return false
-    if (at.getTime() <= Date.now()) {
+    const e = map.get(key)
+    if (!e) return false
+    if (e.at.getTime() <= Date.now()) {
       map.delete(key) // expired — stop suppressing
       return false
     }
     return true
   }
 
-  isCool(model, provider) {
-    return this.#active(this.models, model) || this.#active(this.providers, provider)
+  // `ignorePredicted` is the named-model bypass (#384). It lifts a prediction
+  // for this ONE question and never touches the store: the hold still stands for
+  // every other model, and the entry is still there to be re-judged.
+  isCool(model, provider, { ignorePredicted = false } = {}) {
+    if (this.#active(this.models, model)) return true
+    if (!this.#active(this.providers, provider)) return false
+    return !(ignorePredicted && this.providers.get(provider).predicted)
   }
 
   earliestReset() {
     const now = Date.now()
     let best = null
-    for (const at of [...this.models.values(), ...this.providers.values()]) {
+    for (const { at } of [...this.models.values(), ...this.providers.values()]) {
       if (at.getTime() > now && (!best || at.getTime() < best.getTime())) best = at
     }
     return best
@@ -152,7 +232,12 @@ export const SAME_PROVIDER_STAMP = 'same provider — cross-provider was cooling
 // and for how long. Walking THROUGH an inactive model is deliberate — a chain
 // `fable → opus → gpt` with opus switched off still reaches gpt, so turning one
 // model off never silently shortens a chain to nothing.
-export function candidates(routing, model, cooling) {
+//
+// `named` is the model a human asked for (#384), and it lifts a PREDICTED hold
+// on that one model. The bypass does not run down the chain: the human named
+// this model, not whatever the chain falls through to, so a fallback is judged
+// the way every other dispatch judges it.
+export function candidates(routing, model, cooling, { named = null } = {}) {
   const chain = []
   const seen = new Set()
   const visit = (m) => {
@@ -162,7 +247,8 @@ export function candidates(routing, model, cooling) {
     for (const next of routing.fallbacks?.[m] ?? []) visit(next)
   }
   visit(model)
-  return chain.filter((m) => isActive(routing, m) && !cooling.isCool(m, routing.models[m]?.provider))
+  return chain.filter((m) => isActive(routing, m)
+    && !cooling.isCool(m, routing.models[m]?.provider, { ignorePredicted: m === named }))
 }
 
 // The switch, read in one place. Absent means active: a routing.yaml written

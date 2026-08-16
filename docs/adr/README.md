@@ -18,7 +18,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 ## Dispatch and routing
 
-- [ADR-0004](0004-label-only-routing.md): Model routing reads labels only. Quota awareness is reactive cooling, and exhaustion makes the frontier the queue.
+- [ADR-0004](0004-label-only-routing.md): Model routing reads labels only. Quota awareness is cooling on two triggers, a landed cap and a hot reading, and exhaustion makes the frontier the queue.
 
 ## Agents
 
