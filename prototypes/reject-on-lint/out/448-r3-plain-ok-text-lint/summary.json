@@ -1,0 +1,69 @@
+{
+  "name": "448-r3-plain-ok-text-lint",
+  "lane": "real",
+  "carriage": "ok-text",
+  "policy": "lint",
+  "tool_desc": "plain",
+  "task": "cap",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "passed_on_attempt": 2,
+  "scripts": [
+    {
+      "call_id": "call_bYdAhgg9ReaW2tdScjgwcNsg",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "printed_chars": 412
+    },
+    {
+      "call_id": "call_EyHaAH8X9NorS5UbZ5CXVoei",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 274
+    },
+    {
+      "call_id": "call_pBbGohiw2Qu2Uho1AqikUsap",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "printed_chars": 33
+    }
+  ],
+  "return_value_reached_model": true,
+  "scripts_full": [
+    {
+      "call_id": "call_bYdAhgg9ReaW2tdScjgwcNsg",
+      "printed": "[{\"name\":\"mcp__lintcheck__ask_human\",\"description\":\"Ask the human a question and block until they answer. The prompt is the question they read.\\n\\nexec tool declaration:\\n```ts\\ndeclare const tools: { mcp__lintcheck__ask_human(args: {\\n  // One line naming the decision.\\n  headline: string;\\n  // The question, with the options and their consequences.\\n  prompt: string;\\n}): Promise<CallToolResult>; };\\n```\"}]",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "script": "const hits = ALL_TOOLS.filter(x =>\n  /lintcheck|ask_human/i.test(x.name + \" \" + x.description)\n);\ntext(hits);\n"
+    },
+    {
+      "call_id": "call_EyHaAH8X9NorS5UbZ5CXVoei",
+      "printed": "REJECTED: the prompt fails the voice rules.\n1. In headline: expand every contraction: Curia’s.\n2. In prompt: remove the em-dash. Write two sentences, or use a normal dash. Found 2.\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose Curia’s rewrite cap\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5?\\n\\n- 3 — Ends a stuck loop sooner.\\n- 5 — Gives the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content ?? [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    },
+    {
+      "call_id": "call_pBbGohiw2Qu2Uho1AqikUsap",
+      "printed": "ACCEPTED. The human reads it now.",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the Curia rewrite cap\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5?\\n\\n- 3: Ends a stuck loop sooner.\\n- 5: Gives the agent more room to fix its own text.\"\n});\nfor (const item of (result?.content ?? [])) {\n  if (item.type === \"text\") text(item.text);\n}\n"
+    }
+  ],
+  "final_message": "The lintcheck tool said: “ACCEPTED. The human reads it now.” No option selection was returned.",
+  "tokens": {
+    "input_tokens": 56931,
+    "cached_input_tokens": 51200,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 528,
+    "reasoning_output_tokens": 132,
+    "total_tokens": 57459
+  },
+  "codex_log_tail": "/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/reject-on-lint/448-r3-plain-ok-text-lint/codex\"))\nReading additional input from stdin...\nOpenAI Codex v0.146.1\n--------\nworkdir: /tmp/reject-on-lint/448-r3-plain-ok-text-lint/cwd\nmodel: gpt-5.6-sol\nprovider: openai\napproval: never\nsandbox: danger-full-access\nreasoning effort: high\nreasoning summaries: none\nsession id: 01a00c2a-1acf-7f33-85f6-30ab80899006\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator one question. The question: curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5? Give the operator both options and one consequence for each. A cap of 3 ends a stuck loop sooner. A cap of 5 gives the agent more room to fix its own text. Write the headline and the prompt yourself. Report what the tool said back.\ncodex\nI’ll ask the operator through lintcheck with the two specified choices and report the response verbatim.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nThe first wording was rejected by the tool’s voice checks: it disallowed “Curia’s” in the headline and em dashes in the options. I’m rewriting those elements while preserving the decision and both consequences.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nThe lintcheck tool said: “ACCEPTED. The human reads it now.” No option selection was returned.\ntokens used\n6,259\nThe lintcheck tool said: “ACCEPTED. The human reads it now.” No option selection was returned.\n"
+}

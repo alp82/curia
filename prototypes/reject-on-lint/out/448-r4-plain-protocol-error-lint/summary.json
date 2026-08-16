@@ -1,0 +1,69 @@
+{
+  "name": "448-r4-plain-protocol-error-lint",
+  "lane": "real",
+  "carriage": "protocol-error",
+  "policy": "lint",
+  "tool_desc": "plain",
+  "task": "cap",
+  "model": "gpt-5.6-sol",
+  "effort": "high",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "passed_on_attempt": 2,
+  "scripts": [
+    {
+      "call_id": "call_oL66xBw7tk3xKeAKQDp4AFL7",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "printed_chars": 412
+    },
+    {
+      "call_id": "call_17Aumc9NBj2v9VJDMpmkRbCL",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "printed_chars": 326
+    },
+    {
+      "call_id": "call_eH7Ab4CINy3I7xO4VbqJalvz",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "printed_chars": 33
+    }
+  ],
+  "return_value_reached_model": true,
+  "scripts_full": [
+    {
+      "call_id": "call_oL66xBw7tk3xKeAKQDp4AFL7",
+      "printed": "[{\"name\":\"mcp__lintcheck__ask_human\",\"description\":\"Ask the human a question and block until they answer. The prompt is the question they read.\\n\\nexec tool declaration:\\n```ts\\ndeclare const tools: { mcp__lintcheck__ask_human(args: {\\n  // One line naming the decision.\\n  headline: string;\\n  // The question, with the options and their consequences.\\n  prompt: string;\\n}): Promise<CallToolResult>; };\\n```\"}]",
+      "carries_rejection": false,
+      "carries_accept": false,
+      "script": "const hits = ALL_TOOLS.filter(x => /lintcheck|ask_human/i.test(x.name + \" \" + x.description));\ntext(hits);\n"
+    },
+    {
+      "call_id": "call_17Aumc9NBj2v9VJDMpmkRbCL",
+      "printed": "tool call error: tool call failed for `lintcheck/ask_human`\n\nCaused by:\n    Mcp error: -32602: REJECTED: the prompt fails the voice rules.\n    1. In prompt: remove the em-dash. Write two sentences, or use a normal dash. Found 2.\n    Rewrite the prompt yourself and call ask_human again. Keep every option and every constraint.",
+      "carries_rejection": true,
+      "carries_accept": false,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the rewrite cap\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5?\\n\\n- 3 — Ends a stuck loop sooner.\\n- 5 — Gives the agent more room to fix its own text.\"\n});\nfor (const c of (result?.content ?? [])) {\n  if (c.type === \"text\") text(c.text);\n}\n"
+    },
+    {
+      "call_id": "call_eH7Ab4CINy3I7xO4VbqJalvz",
+      "printed": "ACCEPTED. The human reads it now.",
+      "carries_rejection": false,
+      "carries_accept": true,
+      "script": "const result = await tools.mcp__lintcheck__ask_human({\n  headline: \"Choose the rewrite cap\",\n  prompt: \"Curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5?\\n\\n- 3: Ends a stuck loop sooner.\\n- 5: Gives the agent more room to fix its own text.\"\n});\nfor (const c of (result?.content ?? [])) {\n  if (c.type === \"text\") text(c.text);\n}\n"
+    }
+  ],
+  "final_message": "The tool said: “ACCEPTED. The human reads it now.”",
+  "tokens": {
+    "input_tokens": 57215,
+    "cached_input_tokens": 49152,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 581,
+    "reasoning_output_tokens": 211,
+    "total_tokens": 57796
+  },
+  "codex_log_tail": "-plain-protocol-error-lint/cwd\nmodel: gpt-5.6-sol\nprovider: openai\napproval: never\nsandbox: danger-full-access\nreasoning effort: high\nreasoning summaries: none\nsession id: 01a00c2a-79a8-7d73-9ac6-3c4fb6428ab2\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator one question. The question: curia caps how many times an agent may rewrite a rejected message. Should the cap be 3 or 5? Give the operator both options and one consequence for each. A cap of 3 ends a stuck loop sooner. A cap of 5 gives the agent more room to fix its own text. Write the headline and the prompt yourself. Report what the tool said back.\ncodex\nI’ll ask the operator with the two requested choices, then relay the tool’s response exactly.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\ntool call error: tool call failed for `lintcheck/ask_human`\n\nCaused by:\n    Mcp error: -32602: REJECTED: the prompt fails the voice rules.\n    1. In prompt: remove the em-dash. Write two sentences, or use a normal dash. Found 2.\n    Rewrite the prompt yourself and call ask_human again. Keep every option and every constraint.\ncodex\nThe tool rejected the first wording because its voice rules disallow em dashes. I’m rewriting the prompt with ordinary hyphens while preserving both options and consequences.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nThe tool said: “ACCEPTED. The human reads it now.”\ntokens used\n8,644\nThe tool said: “ACCEPTED. The human reads it now.”\n"
+}

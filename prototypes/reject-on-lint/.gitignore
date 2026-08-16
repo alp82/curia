@@ -4,3 +4,4 @@
 out/*/stream.jsonl
 out/*/requests/
 out/*/codex.log
+out/*/rollout.jsonl
