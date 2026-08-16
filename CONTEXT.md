@@ -193,6 +193,11 @@ _Avoid_: OAuth app.
 What the daemon mints from the app key, one per resource owner and per role. Two roles: read-write for agents, read-only for the overseer. A minted token scopes down from what the installation grants, which is what lets one key hold both. It lives one hour, so a holder reads a file the daemon rewrites and never an environment variable frozen at spawn.
 _Avoid_: app token (that name is the JWT the daemon signs, and a JWT mints installation tokens rather than reaching a repo).
 
+**Credential watch**:
+What tells the operator a GitHub token is dying, in time to mint a new one. The daemon probes every watched repo with the token that repo is read with, once at boot, once at every watch reload, and every six hours after that. It measures two facts and says both where the operator reads. The first is reach: a token that answers 404, 403 or 401 on a watched repo. The second is expiry, on a ladder of 14 days, 7, 3, 1 and expired. Each step is said once, in `#curia`, and it also stands on the dashboard Needs-you list until the reading clears. A step already said is never repeated, so a deploy is silent, and a line that did not reach Discord is re-said at the next pass and at bridge start. The expiry is keyed on the token and the reach on the token and the repo together, because one token covers every repo of an owner. It files no ticket and dispatches nothing, which is what keeps [#345](https://github.com/alp82/curia/issues/345)'s refusal of a scheduler intact. Lives in `daemon/src/tokenwatch.mjs`. See [#380](https://github.com/alp82/curia/issues/380).
+_Avoid_: token alarm, expiry cron.
+The expiry half is a PAT-only fact and it dies holder by holder as [ADR-0018](docs/adr/0018-the-daemon-is-a-github-app.md) cuts over: an installation token lives one hour and the daemon refreshes it, so its expiry is nothing the operator can act on and curia must never warn about one. The reach half survives for every holder and for the installation itself.
+
 **The verbs**:
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
@@ -476,7 +481,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the standing credential warnings, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.

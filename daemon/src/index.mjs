@@ -53,6 +53,7 @@ import {
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
+import { TokenWatch, TOKEN_EXPIRY_WARN_DAYS } from './tokenwatch.mjs'
 import {
   probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
@@ -173,33 +174,73 @@ log(overseerEnv.CLAUDE_CODE_OAUTH_TOKEN || overseerEnv.ANTHROPIC_API_KEY
 // One pass per holder. The overseer's token is the one whose expiry is a
 // certainty rather than a risk — an org caps its lifetime — so the same warning
 // has to speak for both.
-const TOKEN_EXPIRY_WARN_DAYS = 14
-function probeWatchedTokens({ holder, tokenFor, keyFor, refusal }) {
-  Promise.all(curiaConfig.watch.map(async ({ repo }) => {
+//
+// #380 moved the JUDGEMENT out of here. This function now only measures, and
+// hands every answer to the credential watch, which decides what the operator
+// is told and where. The log lines stay, because the boot output is the one
+// place an operator reads a healthy credential — but a log line is no longer
+// the whole of what a dying one gets.
+const HOLDERS = [
+  {
+    holder: 'agent',
+    tokenFor: (repo) => agentGhToken(repo),
+    keyFor: ghTokenKeyFor,
+    refusal: 'an agent on it will fail at its first gh call',
+    where: 'daemon/.env.daemon',
+  },
+  {
+    holder: 'overseer',
+    tokenFor: (repo) => overseerGhToken(repo, overseerEnv),
+    keyFor: overseerTokenKeyFor,
+    refusal: 'the overseer cannot read it',
+    where: `daemon/${OVERSEER_ENV_FILE}`,
+  },
+]
+
+async function probeWatchedTokens({ holder, tokenFor, keyFor, refusal, where }) {
+  const answers = await Promise.all(curiaConfig.watch.map(async ({ repo }) => {
     const token = tokenFor(repo)
-    if (!token) return
+    if (!token) return null
     const key = keyFor(repo)
+    const at = { holder, key, repo, where, refusal }
     try {
       const { ok, message, expiresAt } = await probeRepoToken(repo, token)
       if (!ok) {
         log(`WARNING: ${key} cannot reach ${repo} (${message}) — ${refusal}`)
-        return
+        return { ...at, ok: false, message }
       }
       const days = tokenExpiryDays(expiresAt)
-      if (days === null) return
-      if (days <= TOKEN_EXPIRY_WARN_DAYS) log(`WARNING: ${key} expires in ${days} day(s), on ${expiresAt} — mint a new one before it dies`)
+      if (days === null) log(`${key} reaches ${repo}, and does not expire`)
+      else if (days <= TOKEN_EXPIRY_WARN_DAYS) log(`WARNING: ${key} expires in ${days} day(s), on ${expiresAt} — mint a new one before it dies`)
       else log(`${key} reaches ${repo}, expires in ${days} days`)
+      return { ...at, ok: true, expiresAt }
     } catch (e) {
-      // A network failure is a fact about the network, not about the token.
+      // A network failure is a fact about the network, not about the token. It
+      // is not silence either: `unmeasured` is what stops the watch reading it
+      // as a credential that came good (#380).
       log(`could not check the ${holder} token for ${repo} (${e.message}) — not treating that as a bad token`)
+      return { ...at, unmeasured: true }
     }
-  })).catch(() => {})
+  }))
+  return answers.filter(Boolean)
 }
+
+// Every reading one pass takes, across both holders. The watch calls this and
+// nothing else does.
+async function probeWatchedCredentials() {
+  const perHolder = await Promise.all(HOLDERS.map((h) => probeWatchedTokens(h)))
+  return perHolder.flat()
+}
+
 // Everything the boot says about the credentials behind the WATCH LIST, in one
 // function, because a reload runs it again (#362). A repo added from the
 // settings screen gets the same per-owner warning and the same GitHub probe a
 // booted one gets — without this, a live add looks watched and the failure
 // arrives as a 401 in the middle of the first agent's first `gh` call.
+//
+// The probe is still detached from the boot chain on purpose: it is one network
+// round-trip per repo per holder, and GitHub being slow or down must never hold
+// up a daemon whose other duties do not need it.
 function checkWatchedCredentials() {
   WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
   for (const owner of WATCHED_OWNERS) {
@@ -208,20 +249,8 @@ function checkWatchedCredentials() {
     const overseerKey = overseerTokenKeyFor(owner)
     if (!overseerGhToken(`${owner}/x`, overseerEnv)) log(`WARNING: no ${overseerKey} — the overseer holds no credential for ${owner}/*`)
   }
-  probeWatchedTokens({
-    holder: 'agent',
-    tokenFor: (repo) => agentGhToken(repo),
-    keyFor: ghTokenKeyFor,
-    refusal: 'an agent on it will fail at its first gh call',
-  })
-  probeWatchedTokens({
-    holder: 'overseer',
-    tokenFor: (repo) => overseerGhToken(repo, overseerEnv),
-    keyFor: overseerTokenKeyFor,
-    refusal: 'the overseer cannot read it',
-  })
+  tokenWatch.pass().catch((e) => log(`the credential watch failed (${e.message})`))
 }
-checkWatchedCredentials()
 
 // #352, building ADR-0018: the GitHub App that replaces every token above. It
 // SWAPS NO HOLDER YET — each one cuts over on its own ticket, and no PAT comes
@@ -307,6 +336,25 @@ const pending = new Map() // escalation id -> resolve(answerText) — ephemeral,
 const renderRetries = new Map() // escalation id -> timeout handles — ephemeral, rebuilt on boot
 
 let bridge = null
+
+// The credential watch (#380). It lives here rather than beside the probe
+// because it needs both the store, which remembers what was already said, and
+// the bridge, which is where the operator reads. A warning that reaches neither
+// is the log line this ticket exists to replace.
+//
+// `bridge` is read per call rather than captured: it is null at boot, it is
+// replaced whole by the wedge watchdog (#56), and a watch holding the dead
+// instance would announce into nothing for the rest of the process.
+const tokenWatch = new TokenWatch({
+  probe: () => probeWatchedCredentials(),
+  entries: () => store.standingTokenWarnings(),
+  entryFor: (key) => store.tokenWarning(key),
+  journal: (type, detail) => store.logEvent(type, detail),
+  announce: (text) => (bridge ? bridge.announce(text).then(() => true) : false),
+  log: (line) => log(line),
+})
+tokenWatch.start()
+checkWatchedCredentials()
 
 // #190: one control character anywhere in a message makes journalctl print
 // `[NNNB blob data]` and drop the words, so the streamed `docker build` output
@@ -1663,6 +1711,11 @@ async function overview() {
     bridge: health?.state ?? 'down',
     bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
     usage: providerUsage(),
+    // The credential warnings still standing (#380). Discord states each one
+    // once, at its instant, and this is where it STAYS until the operator mints
+    // the token — the half a Discord line cannot do, because a message scrolls
+    // away and a dying token does not.
+    token_warnings: store.standingTokenWarnings(),
     events: store.recentEvents(),
     frontier: dispatcher.frontierSnapshot(),
   }
@@ -2299,6 +2352,11 @@ if (process.env.DISCORD_BOT_TOKEN) {
           if (!r.discord) renderEscalation(r)
         }
         announceStart(b)
+        // #380 rule 4: a credential warning measured while there was no bridge
+        // is not said yet. Nothing is re-probed — the reduction already holds
+        // every reading this process took, so a bridge that flaps costs GitHub
+        // nothing. Never fails a start.
+        tokenWatch.flush().catch((e) => log(`the held credential warnings did not land: ${e.message}`))
         // #257: a ✅ the last process owed but never sent. Never fails a start.
         b.settleEndedThreads().catch((e) => log(`settling ended thread names failed: ${e.message}`))
       }).catch((e) => {
