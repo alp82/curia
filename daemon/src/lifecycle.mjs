@@ -30,6 +30,13 @@
 // hand-rolled ask_human.
 export const REVIEW_KIND = 'review-gate'
 
+// The lint gate's key for `report_result` (#419). It is not an escalation kind
+// and it opens no record: it keys the rejection count apart from a question's
+// and the gate's, on the agent-and-kind pair supersession already uses (#336).
+// A rejected report and a rejected question must not spend each other's three
+// attempts.
+export const RESULT_KIND = 'report-result'
+
 export const ENDING = [
   {
     key: 'commit',

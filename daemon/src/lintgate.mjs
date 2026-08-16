@@ -53,6 +53,16 @@ export function flaggedText(faults) {
     + ' Do not call again about this question. It is with them now, and this call is waiting for their answer.'
 }
 
+// The same cap, on the ending report (#419). The words differ because the
+// surface does: a report asks nothing, so nobody is waiting on an answer to it.
+// It is the last call of the ticket, and saying "do not call again" is what
+// stops an agent from spending its ending on the lint.
+export function flaggedResultText(faults) {
+  return `⚠️ curia sent your report as it stands, flagged with ${faults.length} lint fault(s) you did not fix.`
+    + ' The operator sees the faults in the thread, under the report.'
+    + ' Do not call `report_result` again. The ticket has ended and this report is on the record.'
+}
+
 // A schema fault at the cap with nothing to send. This is the one refusal that
 // is final, and it says what would have made it sendable.
 export function deadEndText(faults) {

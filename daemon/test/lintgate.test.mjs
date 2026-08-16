@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Reduction } from '../src/reduction.mjs'
-import { LintGate, REJECTION_CAP } from '../src/lintgate.mjs'
+import { LintGate, REJECTION_CAP, flaggedResultText } from '../src/lintgate.mjs'
 import { DiscordBridge } from '../src/bridge.mjs'
 import { composeCard } from '../src/card.mjs'
 
@@ -177,5 +177,36 @@ describe('the flagged card', () => {
     assert.match(msg.content, /Pick one; then move on/, 'the text the operator judges is the text that failed')
     assert.match(msg.content, /-# ⚠️ curia sent this after 1 lint fault/)
     assert.match(msg.content, /-# headline: a semicolon/)
+  })
+})
+
+describe('the ending report at the cap (#419)', () => {
+  test('the flagged line speaks of a report, not of a question waiting on an answer', () => {
+    const note = flaggedResultText(['summary: an em-dash. Write two sentences, or use a normal dash.'])
+    assert.match(note, /sent your report as it stands/)
+    assert.match(note, /flagged with 1 lint fault/)
+    assert.match(note, /Do not call `report_result` again/)
+    assert.doesNotMatch(note, /waiting for their answer/, 'nobody answers a report')
+  })
+
+  test('a report always has text, so its cap ends in a flagged send and never a dead end', () => {
+    const reduction = new Reduction(tmp())
+    const gate = new LintGate({ reduction })
+    const judge = () => gate.judge({
+      agent: 'curia-419', kind: 'report-result', faults: ['summary: missing.'], schema: true, hasText: true,
+    })
+    for (let i = 0; i < REJECTION_CAP; i += 1) judge()
+    const r = judge()
+    assert.equal(r.ok, true)
+    assert.equal(r.refuse, undefined, 'an ending that reaches the thread flagged beats one that reaches it never')
+  })
+
+  test('a rejected report spends its own three attempts, not the one a question spends', () => {
+    const reduction = new Reduction(tmp())
+    const gate = new LintGate({ reduction })
+    gate.judge({ agent: 'curia-419', kind: 'report-result', faults: ['a'] })
+    gate.judge({ agent: 'curia-419', kind: 'report-result', faults: ['a'] })
+    assert.equal(reduction.lintRejections('curia-419', 'report-result'), 2)
+    assert.equal(reduction.lintRejections('curia-419', 'free-text'), 0)
   })
 })

@@ -3,7 +3,9 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { composeCard, composeReviewBody, visualBlock, optionLabels } from '../src/card.mjs'
+import {
+  composeCard, composeReviewBody, composeResultBody, composeResultReport, visualBlock, optionLabels,
+} from '../src/card.mjs'
 import { lintReply, CHUNK_LIMIT } from '../src/messaging.mjs'
 
 const CHOICE = {
@@ -144,5 +146,44 @@ describe('composeReviewBody', () => {
 
   test('an untyped gate composes nothing', () => {
     assert.equal(composeReviewBody({}), '')
+  })
+})
+
+describe('composeResultReport: the ending report (#419)', () => {
+  const REPORT = {
+    status: 'resolved',
+    headline: 'The ending report is typed, and curia lays it out.',
+    summary: 'The report takes a headline, a summary, a detail and a visual.',
+    detail: 'The composer is daemon/src/card.mjs.',
+    visual: 'headline  150\nsummary   600',
+  }
+
+  test('the parts read top down: headline, visual, summary, spoiler', () => {
+    assert.equal(composeResultBody(REPORT), [
+      '**The ending report is typed, and curia lays it out.**',
+      '```\nheadline  150\nsummary   600\n```',
+      'The report takes a headline, a summary, a detail and a visual.',
+      'Details: ||The composer is daemon/src/card.mjs.||',
+    ].join('\n\n'))
+  })
+
+  test('the status leads, because it is what the operator reads this message for', () => {
+    const post = composeResultReport('resolved', REPORT)
+    assert.equal(post.split('\n')[0], '✅ reports **resolved**')
+    assert.ok(post.includes(composeResultBody(REPORT)))
+  })
+
+  test('an untyped report keeps the one line the thread has read since #253', () => {
+    assert.equal(composeResultReport('blocked', { summary: 'the token was missing' }),
+      '✅ reports **blocked**: the token was missing')
+  })
+
+  test('a report with no prose at all is still a status', () => {
+    assert.equal(composeResultReport('aborted', {}), '✅ reports **aborted**')
+  })
+
+  test('curia writes the fence, so an agent that fenced its visual is not fenced twice', () => {
+    const body = composeResultBody({ visual: '```\na\nb\n```' })
+    assert.equal(body, '```\na\nb\n```')
   })
 })
