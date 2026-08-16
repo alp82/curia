@@ -1,5 +1,5 @@
 // The overseer container's per-owner credential routing (#327, installing both
-// halves of #313).
+// halves of #313; reading a minted token file since #392).
 //
 // git is driven for real here, the way checkouts.test.mjs drives it: the claim
 // under test is what GIT does with the config, and a test that only compared
@@ -15,17 +15,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from '../src/exec.mjs'
 import {
-  ownersOf, helperKeyFor, credentialConfig, unroutedOwners, installCredentialConfig,
+  ownersOf, helperKeyFor, credentialConfig, unroutedOwners, unroutedNote, installCredentialConfig,
 } from '../src/overseercreds.mjs'
+import { writeOverseerToken } from '../src/overseertoken.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const SHIM = path.join(REPO, 'deploy', 'overseer', 'gh-shim.sh')
 
 const WATCHED = ['alp82/curia', 'alp82/aistack', 'getalfredo/landing-page']
-const TOKENS = {
-  CURIA_OVERSEER_GH_TOKEN_ALP82: 'tok_alp82',
-  CURIA_OVERSEER_GH_TOKEN_GETALFREDO: 'tok_org',
-}
 
 const dirs = []
 function tmp() {
@@ -37,37 +34,58 @@ test.after(() => {
   for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true })
 })
 
+// The tree the daemon writes and the container mounts read-only.
+function tokens({ alp82 = 'tok_alp82', getalfredo = 'tok_org' } = {}) {
+  const dir = tmp()
+  if (alp82) writeOverseerToken(dir, 'alp82', alp82)
+  if (getalfredo) writeOverseerToken(dir, 'getalfredo', getalfredo)
+  return dir
+}
+
 describe('the per-owner git config (#313 section 3, installed by #327)', () => {
   test('one owner per line, in watch-list order, and never twice', () => {
     assert.deepEqual(ownersOf(WATCHED), ['alp82', 'getalfredo'])
     assert.equal(helperKeyFor('alp82'), 'credential.https://github.com/alp82.helper')
   })
 
-  test('the config carries the variable NAME, never the token', () => {
-    const [alp82] = credentialConfig(WATCHED, TOKENS)
+  test('the config carries the FILE PATH, never the token', () => {
+    const dir = tokens()
+    const [alp82] = credentialConfig(WATCHED, dir)
     assert.equal(alp82.owner, 'alp82')
-    assert.ok(alp82.value.includes('CURIA_OVERSEER_GH_TOKEN_ALP82'))
+    assert.equal(alp82.file, path.join(dir, 'alp82'))
+    assert.ok(alp82.value.includes(path.join(dir, 'alp82')))
     assert.ok(!alp82.value.includes('tok_alp82'), 'a token in the config file is a token on disk')
   })
 
-  test('an owner with no token gets no line, and is named instead', () => {
-    const config = credentialConfig(WATCHED, { CURIA_OVERSEER_GH_TOKEN_ALP82: 'tok_alp82' })
-    assert.deepEqual(config.map((c) => c.owner), ['alp82'])
-    assert.deepEqual(unroutedOwners(WATCHED, { CURIA_OVERSEER_GH_TOKEN_ALP82: 'tok_alp82' }), [
-      { owner: 'getalfredo', key: 'CURIA_OVERSEER_GH_TOKEN_GETALFREDO' },
+  test('an owner with no token file gets no line, and is named instead', () => {
+    const dir = tokens({ getalfredo: null })
+    assert.deepEqual(credentialConfig(WATCHED, dir).map((c) => c.owner), ['alp82'])
+    assert.deepEqual(unroutedOwners(WATCHED, dir), [
+      { owner: 'getalfredo', file: path.join(dir, 'getalfredo') },
     ])
   })
 
-  test('a malformed token refuses at start rather than reaching a fetch as a 401', () => {
-    assert.throws(
-      () => credentialConfig(WATCHED, { CURIA_OVERSEER_GH_TOKEN_ALP82: '"quoted"' }),
-      /daemon\/\.env\.overseer/,
-    )
+  // The whole fix the reader has to make is in this sentence, and #392 moved
+  // where it points: an env file the operator edits became a file the daemon
+  // writes for every owner the app is installed on.
+  test('the note names the file and the act, never the retired env key', () => {
+    const note = unroutedNote({ owner: 'newperson', file: '/w/overseer/tokens/newperson' })
+    assert.match(note, /\/w\/overseer\/tokens\/newperson/)
+    assert.match(note, /public repositories only/)
+    assert.match(note, /GitHub App/)
+    assert.doesNotMatch(note, /CURIA_OVERSEER_GH_TOKEN|\.env\.overseer/)
   })
 
-  test('REAL git routes each owner to its own token, and answers a stranger with none', async () => {
+  test('a file that is not a token refuses at start rather than reaching a fetch as a 401', () => {
+    const dir = tokens()
+    fs.writeFileSync(path.join(dir, 'alp82'), 'not a token')
+    assert.throws(() => credentialConfig(WATCHED, dir), /does not hold a GitHub token/)
+  })
+
+  test('REAL git routes each owner to its own file, and answers a stranger with none', async () => {
     const home = tmp()
-    await installCredentialConfig(WATCHED, { env: TOKENS, gitEnv: { HOME: home } })
+    const dir = tokens()
+    await installCredentialConfig(WATCHED, { dir, gitEnv: { HOME: home } })
     // The token never lands in the file the config lives in.
     const written = fs.readFileSync(path.join(home, '.gitconfig'), 'utf8')
     assert.ok(!written.includes('tok_alp82') && !written.includes('tok_org'))
@@ -83,7 +101,7 @@ describe('the per-owner git config (#313 section 3, installed by #327)', () => {
       timeout: 30_000,
       encoding: 'utf8',
       cwd: home,
-      env: { ...hostEnv, ...TOKENS, HOME: home, GIT_TERMINAL_PROMPT: '0' },
+      env: { ...hostEnv, HOME: home, GIT_TERMINAL_PROMPT: '0' },
       input: `protocol=https\nhost=github.com\npath=${repo}\n\n`,
     })
     assert.equal(/^password=(.*)$/m.exec(fill('alp82/curia.git').stdout)?.[1], 'tok_alp82')
@@ -95,11 +113,25 @@ describe('the per-owner git config (#313 section 3, installed by #327)', () => {
     const stranger = fill('stranger/repo.git')
     assert.notEqual(stranger.status, 0)
     assert.doesNotMatch(stranger.stdout, /^password=/m)
+
+    // THE REFRESH, which is the whole reason the helper names a file: the daemon
+    // rewrites the token under a running container, and the next fetch takes it
+    // with nothing restarted.
+    writeOverseerToken(dir, 'alp82', 'tok_refreshed')
+    assert.equal(/^password=(.*)$/m.exec(fill('alp82/curia.git').stdout)?.[1], 'tok_refreshed')
+
+    // And a file that goes away is no answer, rather than an empty password —
+    // git reads an empty password as a credential and stops asking.
+    fs.rmSync(path.join(dir, 'alp82'))
+    const gone = fill('alp82/curia.git')
+    assert.notEqual(gone.status, 0)
+    assert.doesNotMatch(gone.stdout, /^password=/m)
   })
 
   test('installing twice leaves one helper per owner', async () => {
     const home = tmp()
-    for (let i = 0; i < 2; i += 1) await installCredentialConfig(WATCHED, { env: TOKENS, gitEnv: { HOME: home } })
+    const dir = tokens()
+    for (let i = 0; i < 2; i += 1) await installCredentialConfig(WATCHED, { dir, gitEnv: { HOME: home } })
     const { stdout } = await execFileP('git', ['config', '--global', '--get-all', helperKeyFor('alp82')], {
       timeout: 30_000, env: { ...process.env, HOME: home },
     })
@@ -117,9 +149,14 @@ describe('the gh shim (#313 — gh reads one GH_TOKEN, the container holds one p
     return file
   }
 
+  const TOKENS = tokens()
   const run = async (args, { cwd = REPO, env = {} } = {}) => {
     const { stdout } = await execFileP('bash', [SHIM, ...args], {
-      cwd, timeout: 30_000, env: { ...process.env, ...TOKENS, CURIA_GH_REAL: fakeGh(), ...env },
+      cwd,
+      timeout: 30_000,
+      env: {
+        ...process.env, CURIA_GH_REAL: fakeGh(), CURIA_OVERSEER_TOKEN_DIR: TOKENS, ...env,
+      },
     })
     return /^TOKEN=(.*)$/m.exec(stdout)?.[1] ?? null
   }
@@ -145,6 +182,10 @@ describe('the gh shim (#313 — gh reads one GH_TOKEN, the container holds one p
     assert.equal(await run(['issue', 'list'], { cwd: wt }), 'tok_org')
   })
 
+  test('the owner is matched without regard to case, because one file answers', async () => {
+    assert.equal(await run(['issue', 'list', '--repo', 'ALP82/curia']), 'tok_alp82')
+  })
+
   test('no owner means NO token — never the other owner\'s', async () => {
     assert.equal(await run(['--version']), '<none>')
   })
@@ -156,5 +197,23 @@ describe('the gh shim (#313 — gh reads one GH_TOKEN, the container holds one p
 
   test('an owner the container holds no token for gets none', async () => {
     assert.equal(await run(['api', 'repos/stranger/repo']), '<none>')
+  })
+
+  // The file name is built from a command line, so a name that is not a GitHub
+  // account must reach no path at all.
+  test('a traversal in the owner position reads nothing', async () => {
+    assert.equal(await run(['api', 'repos/../../etc/passwd']), '<none>')
+    assert.equal(await run(['issue', 'list', '--repo', '../alp82/curia']), '<none>')
+  })
+
+  // The daemon rewrites these files about every fifty minutes, and `gh` is a
+  // fresh process every time.
+  test('the shim reads the file at call time, so a refresh needs no restart', async () => {
+    const dir = tmp()
+    writeOverseerToken(dir, 'alp82', 'tok_first')
+    const cmd = ['issue', 'list', '--repo', 'alp82/curia']
+    assert.equal(await run(cmd, { env: { CURIA_OVERSEER_TOKEN_DIR: dir } }), 'tok_first')
+    writeOverseerToken(dir, 'alp82', 'tok_second')
+    assert.equal(await run(cmd, { env: { CURIA_OVERSEER_TOKEN_DIR: dir } }), 'tok_second')
   })
 })

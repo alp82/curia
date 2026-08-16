@@ -1,11 +1,11 @@
 // The overseer container's per-owner git routing (#327, installing the first
-// half of #313).
+// half of #313, cut over to minted tokens by #392).
 //
 // The container holds one read-only token per resource owner. git picks between
 // them by itself, with ONE CONFIG LINE PER OWNER and nothing else:
 //
 //     credential.https://github.com/<owner>.helper = <a helper that prints
-//                                                     CURIA_OVERSEER_GH_TOKEN_<OWNER>>
+//                                                     <tokens>/<owner>>
 //
 // Measured on a real `git ls-remote` in
 // docs/live-checks/313-overseer-github-token.md: git prefix-matches the owner
@@ -14,19 +14,19 @@
 // clone and every fetch the checkout pass of #312 runs. `gh` is the other half,
 // and it does need a shim (deploy/overseer/gh-shim.sh).
 //
-// THE TOKEN NEVER LANDS ON DISK. The helper stored in the config file names the
-// ENVIRONMENT VARIABLE, and the variable is read when git runs the helper. So
-// `~/.gitconfig` in this container carries one variable name per owner and no
-// secret, and a token rotated in `daemon/.env.overseer` takes effect on the next
-// container start with nothing to rewrite.
+// THE HELPER NAMES A FILE, AND READS IT WHEN GIT ASKS. Until #392 it named an
+// environment variable, which compose froze at container create. An installation
+// token lives one hour, so the value has to be re-read rather than inherited:
+// the daemon rewrites `<workspace_root>/overseer/tokens/<owner>` about every
+// fifty minutes, the container mounts that tree read-only, and the next fetch
+// gets the new token with nothing restarted. `~/.gitconfig` in this container
+// still carries no secret — one PATH per owner, as it carried one name.
 //
-// THE OWNERS COME FROM THE WATCH LIST, not from the environment keys. A key is
-// the SLUG — `CURIA_OVERSEER_GH_TOKEN_GETALFREDO` — and a slug does not spell
-// the owner back: it is uppercased and folded. The config line needs the owner
-// as it appears in a URL, so the watch list is the one source that has it.
+// THE OWNERS COME FROM THE WATCH LIST, not from the files. The config line needs
+// the owner as it appears in a URL, and the watch list is the one source that
+// has it.
 
-import { ownerSlug, readGhToken } from './workspace.mjs'
-import { OVERSEER_ENV_FILE, overseerTokenKeyFor } from './overseertoken.mjs'
+import { overseerTokenFile, readOverseerToken } from './overseertoken.mjs'
 import { execFileP } from './exec.mjs'
 
 // Every owner in the watch list, once, in the order the list names them.
@@ -48,61 +48,71 @@ export function helperKeyFor(owner) {
   return `credential.https://github.com/${owner}.helper`
 }
 
+// A path inside a `/bin/sh` word. The tokens tree comes from the config, so its
+// spelling is the operator's rather than curia's.
+function shq(text) {
+  return `'${String(text).replaceAll("'", "'\\''")}'`
+}
+
 // The config VALUE: a `!`-prefixed shell helper, run by git with the operation
 // as its first argument.
 //
 //   - `get` only. `store` and `erase` are the write half of the credential
 //     protocol, and a read-only token has nothing to store.
-//   - an EMPTY variable prints nothing, rather than an empty password. git reads
-//     an empty password as a credential and stops asking other helpers, so the
-//     empty case must look like "no answer" and not like "no password".
+//   - an EMPTY or MISSING file prints nothing, rather than an empty password.
+//     git reads an empty password as a credential and stops asking other
+//     helpers, so the empty case must look like "no answer" and not like "no
+//     password". It is the live case: the daemon writes this file, and a mint
+//     that has not landed yet leaves nothing there.
 //   - the username is `x-access-token`, GitHub's own name for a token used as a
-//     password. Any value works; a fixed one keeps two owners' helpers identical
-//     but for the variable.
+//     password. It is also what `gh auth git-credential` prints, so nothing
+//     about git's view of the credential changed across the cutover.
 //
 // /bin/sh, because that is what git runs a helper with.
-export function helperValueFor(key) {
-  return `!f() { [ "$1" = get ] || exit 0; [ -n "\${${key}}" ] || exit 0; printf 'username=x-access-token\\npassword=%s\\n' "\${${key}}"; }; f`
+export function helperValueFor(file) {
+  return `!f() { [ "$1" = get ] || exit 0; t="$(cat ${shq(file)} 2>/dev/null)"; [ -n "$t" ] || exit 0; printf 'username=x-access-token\\npassword=%s\\n' "$t"; }; f`
 }
 
 // What this container's git config must say, one entry per owner that has a
-// token. An owner with no token gets NO LINE: without one, git asks no helper
+// token file. An owner with none gets NO LINE: without one, git asks no helper
 // and the clone fails naming the repo, which is the honest failure. A line
-// pointing at an unset variable would instead make git ask, get nothing, and
-// report the same failure one layer further from its cause.
+// pointing at a file that is not there would instead make git ask, get nothing,
+// and report the same failure one layer further from its cause.
 //
-// A malformed token throws here, at start, rather than reaching a fetch as a
-// 401 in the middle of a turn — the same rule the daemon's boot check runs.
-export function credentialConfig(repos, env) {
+// A file that holds something other than a token throws here, at the start of
+// the turn, rather than reaching a fetch as a 401 in the middle of one.
+export function credentialConfig(repos, dir) {
   const out = []
   for (const owner of ownersOf(repos)) {
-    const key = overseerTokenKeyFor(`${owner}/x`)
-    if (!key) continue
-    const token = readGhToken(env, key, `daemon/${OVERSEER_ENV_FILE}`)
-    if (!token) continue
-    out.push({ owner, key, name: helperKeyFor(owner), value: helperValueFor(key) })
+    const file = overseerTokenFile(dir, owner)
+    if (!file) continue
+    if (!readOverseerToken(dir, owner)) continue
+    out.push({ owner, file, name: helperKeyFor(owner), value: helperValueFor(file) })
   }
   return out
 }
 
 // The one sentence both callers say about an owner with no token: the container
 // at start, and every turn since #361. ONE COMPOSER, so the boot log and the
-// chat note cannot drift apart, and it names the FILE as well as the key —
-// which is the whole fix the reader has to make.
-export function unroutedNote({ owner, key }) {
-  return `no ${key} in daemon/${OVERSEER_ENV_FILE}, so every read of ${owner}/* runs with no credential and reaches public repositories only`
+// chat note cannot drift apart, and it names the SOURCE as well as the owner —
+// which is the whole fix the reader has to make. Since #392 that source is a
+// file the daemon writes, so the act it asks for is an app install rather than
+// an edit of `daemon/.env.overseer`.
+export function unroutedNote({ owner, file }) {
+  if (!file) return `"${owner}" is not a GitHub account name, so no read of it can be routed`
+  return `no token file at ${file}, so every read of ${owner}/* runs with no credential and reaches public repositories only. The daemon writes that file for each watched owner curia's GitHub App is installed on`
 }
 
 // Owners the watch list names and this container holds no token for. Said out
 // loud at start, because the failure it predicts — a clone that cannot
 // authenticate — happens inside a turn, hours later, where nothing names the
-// missing key. Said again at the start of every turn (#361), because the watch
+// missing file. Said again at the start of every turn (#361), because the watch
 // list the operator changes between turns is what adds an owner to this list.
-export function unroutedOwners(repos, env) {
-  const routed = new Set(credentialConfig(repos, env).map((c) => c.owner))
+export function unroutedOwners(repos, dir) {
+  const routed = new Set(credentialConfig(repos, dir).map((c) => c.owner))
   return ownersOf(repos)
     .filter((owner) => !routed.has(owner))
-    .map((owner) => ({ owner, key: `CURIA_OVERSEER_GH_TOKEN_${ownerSlug(`${owner}/x`)}` }))
+    .map((owner) => ({ owner, file: overseerTokenFile(dir, owner) }))
 }
 
 // Write the lines into the container's own global git config.
@@ -114,14 +124,14 @@ export function unroutedOwners(repos, env) {
 // REPEATING IS THE POINT. #313 ran this once, from the watch list the container
 // booted on, while the checkout pass beside it re-read that list per turn (#314)
 // — so a repo added under a NEW owner was fetched with no credential until
-// somebody recreated the container. One local process per owner, naming a
-// variable rather than a token, is cheap enough to pay every turn.
+// somebody recreated the container. One local process per owner, naming a file
+// rather than a token, is cheap enough to pay every turn.
 //
 // AN OWNER DROPPED FROM THE WATCH LIST KEEPS ITS LINE, because removing it buys
-// nothing: the line holds a variable NAME, the shell in this container can read
-// that variable directly, and the checkout pass fetches watched repos only.
-export async function installCredentialConfig(repos, { env = process.env, exec = execFileP, gitEnv = {} } = {}) {
-  const entries = credentialConfig(repos, env)
+// nothing: the line holds a PATH, the daemon sweeps the file behind it, and the
+// checkout pass fetches watched repos only.
+export async function installCredentialConfig(repos, { dir, exec = execFileP, gitEnv = {} } = {}) {
+  const entries = credentialConfig(repos, dir)
   for (const { name, value } of entries) {
     await exec('git', ['config', '--global', '--replace-all', name, value], {
       timeout: 30_000,

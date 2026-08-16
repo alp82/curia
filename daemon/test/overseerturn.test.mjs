@@ -22,6 +22,7 @@ import {
   turnRoute, refuseTurn, checkoutNote, credentialPass, overseerConfigDirFor, overseerHomeFor,
 } from '../src/overseerturn.mjs'
 import { unroutedNote } from '../src/overseercreds.mjs'
+import { overseerTokensRootFor, writeOverseerToken } from '../src/overseertoken.mjs'
 import { OverseerClient, OverseerTurns, buildVerbMcpServer, serveVerbMcp } from '../src/overseerclient.mjs'
 import { Reduction } from '../src/reduction.mjs'
 import { overseerHandler } from '../src/overseerservice.mjs'
@@ -344,34 +345,36 @@ describe('the container half: POST /turn (#314)', () => {
 // The git routing, re-read per turn (#361). The real `install` writes the
 // runner's own global git config, so every case below injects its own.
 describe('the git routing follows the watch list (#361)', () => {
-  const TOKENS = { CURIA_OVERSEER_GH_TOKEN_ALP82: 'tok_alp82' }
+  // The tokens tree the daemon writes and the container mounts read-only (#392).
+  const tokens = (() => {
+    const dir = tmpRoot('turn-tokens')
+    writeOverseerToken(dir, 'alp82', 'tok_alp82')
+    return dir
+  })()
 
   test('a routed watch list produces no note at all', async () => {
     const seen = []
-    const notes = await credentialPass(['alp82/curia'], {
-      env: TOKENS,
+    const notes = await credentialPass(['alp82/curia'], tokens, {
       install: async (repos) => { seen.push(repos) },
     })
     assert.deepEqual(notes, [])
     assert.deepEqual(seen, [['alp82/curia']], 'the pass writes the routing for the repos it was handed')
   })
 
-  test('an owner with no token is named with its key AND its file', async () => {
-    const [note, ...rest] = await credentialPass(['alp82/curia', 'newperson/bar'], {
-      env: TOKENS,
+  test('an owner with no token is named with the FILE the daemon writes', async () => {
+    const [note, ...rest] = await credentialPass(['alp82/curia', 'newperson/bar'], tokens, {
       install: async () => {},
     })
     assert.equal(rest.length, 0, 'one note per unrouted owner, and alp82 is routed')
-    assert.match(note, /CURIA_OVERSEER_GH_TOKEN_NEWPERSON/)
-    assert.match(note, /daemon\/\.env\.overseer/, 'the key alone does not say where to put it')
+    assert.match(note, new RegExp(path.join(tokens, 'newperson')), 'the note names the file that is missing')
     assert.match(note, /newperson\/\*/)
+    assert.doesNotMatch(note, /\.env\.overseer/, 'the source moved with #392, and the sentence follows it')
     // One composer, so this sentence cannot drift from the container's boot log.
-    assert.ok(note.endsWith(unroutedNote({ owner: 'newperson', key: 'CURIA_OVERSEER_GH_TOKEN_NEWPERSON' })))
+    assert.ok(note.endsWith(unroutedNote({ owner: 'newperson', file: path.join(tokens, 'newperson') })))
   })
 
   test('a routing that will not install leaves the last good one and says so', async () => {
-    const notes = await credentialPass(['alp82/curia'], {
-      env: TOKENS,
+    const notes = await credentialPass(['alp82/curia'], tokens, {
       install: async () => { throw new Error('git config: could not lock config file\nand more') },
       unrouted: () => { throw new Error('unreachable: a failed install answers before this') },
     })
@@ -392,9 +395,9 @@ describe('the git routing follows the watch list (#361)', () => {
         log: quiet,
         queryFn: sayingModel('ok'),
         sync: okSync(watched),
-        creds: async (repos) => {
-          seen.push(repos)
-          return repos.includes('newperson/bar') ? ['⚠️ no CURIA_OVERSEER_GH_TOKEN_NEWPERSON'] : []
+        creds: async (repos, dir) => {
+          seen.push({ repos, dir })
+          return repos.includes('newperson/bar') ? [`⚠️ no token file at ${path.join(dir, 'newperson')}`] : []
         },
       }),
     }))
@@ -410,17 +413,19 @@ describe('the git routing follows the watch list (#361)', () => {
       body: JSON.stringify({ key: 'console-1', prompt: 'hi', mcp: { url: 'http://x/mcp' } }),
     })
     const first = await (await post()).text()
-    assert.ok(!/CURIA_OVERSEER_GH_TOKEN_NEWPERSON/.test(first), 'nothing to say while every owner is routed')
+    assert.ok(!/no token file/.test(first), 'nothing to say while every owner is routed')
 
     // The operator adds a repo of an owner this container holds no token for.
     // No restart, no recreate: the next turn is what re-routes.
     watched = ['alp82/curia', 'newperson/bar']
     const second = await (await post()).text()
-    assert.deepEqual(seen, [['alp82/curia'], ['alp82/curia', 'newperson/bar']],
+    assert.deepEqual(seen.map((s) => s.repos), [['alp82/curia'], ['alp82/curia', 'newperson/bar']],
       'the second turn routes the watch list as it stands NOW, not as the container booted')
+    assert.deepEqual(seen.map((s) => s.dir), Array(2).fill(overseerTokensRootFor(root)),
+      'the routing reads the tokens tree the daemon writes (#392)')
     const notes = second.trim().split('\n').map((l) => JSON.parse(l))
       .filter((e) => e.event === TURN_EVENTS.note).map((e) => e.text)
-    assert.ok(notes.some((n) => /CURIA_OVERSEER_GH_TOKEN_NEWPERSON/.test(n)), 'the operator reads the cause, not only a failed fetch')
+    assert.ok(notes.some((n) => /no token file/.test(n)), 'the operator reads the cause, not only a failed fetch')
     assert.ok(notes.some((n) => /checkouts:/.test(n)), 'the checkout verdict still lands beside it')
   })
 })

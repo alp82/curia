@@ -86,22 +86,23 @@ Compose refuses a missing `env_file`, so a deploy that arrives first fails its h
 
 ## The second env file, `daemon/.env.overseer`
 
-- `CURIA_OVERSEER_GH_TOKEN_ALP82`, `CURIA_OVERSEER_GH_TOKEN_GETALFREDO` — the overseer's own GitHub tokens ([#313](https://github.com/alp82/curia/issues/313)). One per resource owner, read-only, and 366 days or less.
+- `CLAUDE_CODE_OAUTH_TOKEN` — the model credential the overseer container runs its turns on ([#327](https://github.com/alp82/curia/issues/327)). It is the one host secret [ADR-0014](adr/0014-the-overseer-in-its-own-container.md) lets into that container, and it cannot come from `daemon/.env.daemon`, because the overseer never loads that file. The same value as the daemon's own line. Since [#392](https://github.com/alp82/curia/issues/392) it is the only thing this file holds.
 - **The overseer service loads this file and never `daemon/.env.daemon`.** That is the whole reason there are two files. The overseer container holds a shell, and a shell exports whatever the container is given. `daemon/.env.daemon` carries the agents' read-write tokens and the Discord bot token, and compose cannot filter an env file.
-- `CLAUDE_CODE_OAUTH_TOKEN` — the model credential the overseer container runs its turns on ([#327](https://github.com/alp82/curia/issues/327)). It is the one host secret [ADR-0014](adr/0014-the-overseer-in-its-own-container.md) lets into that container, and it cannot come from `daemon/.env.daemon`, because the overseer never loads that file. The same value as the daemon's own line.
-- The daemon reads this file to state each token at boot, and never loads it into its own environment.
+- `CURIA_OVERSEER_GH_TOKEN_*` is **retired** ([#392](https://github.com/alp82/curia/issues/392)). The daemon mints the overseer's read-only token from the GitHub App and writes it into the tokens tree below. A key still in this file is a live PAT with no job, and boot names it: delete the line, then revoke the token on GitHub.
+- The daemon reads this file for those two warnings, and never loads it into its own environment.
 - Boot warns when a key that belongs in `daemon/.env.daemon` turns up here. A copy of the wrong file is the accident this catches.
-- [#352](https://github.com/alp82/curia/issues/352) is what merges the two files again. A GitHub App mints short-lived tokens per holder, so the file stops being the boundary and the routing below retires with it.
 
-## The overseer container's two host trees
+## The overseer container's three host trees
 
-Docker creates a missing bind-mount source as **root**, and the container runs as uid 1000. So make both trees before the first `up`, or the container starts and cannot write its checkouts:
+Docker creates a missing bind-mount source as **root**, and every curia container runs as uid 1000. So make all three trees before the first `up`. Without them the container cannot write its checkouts, and the daemon cannot write the tokens:
 
 ```
-ssh alp@coinmatica.net 'mkdir -p ~/curia-work/overseer/repos ~/curia-work/cfg/curia-overseer'
+ssh alp@coinmatica.net 'mkdir -p ~/curia-work/overseer/repos ~/curia-work/overseer/tokens ~/curia-work/cfg/curia-overseer'
 ```
 
-Both mount at their identical paths inside. One mount line covers every watched repo, because the watch list changes and the compose file is static — the set of clones inside the tree moves with the config ([#312](https://github.com/alp82/curia/issues/312)).
+All three mount at their identical paths inside. One mount line covers every watched repo, because the watch list changes and the compose file is static — the set of clones inside the tree moves with the config ([#312](https://github.com/alp82/curia/issues/312)).
+
+`overseer/tokens` mounts **read-only** and holds one file per resource owner, and nothing else ([#392](https://github.com/alp82/curia/issues/392)). The daemon writes it on the dispatch tick, so the value turns over about every fifty minutes. A `permission denied` for that path in the daemon log means docker made the directory first. Fix it with `sudo chown -R 1000:1000 ~/curia-work/overseer/tokens`.
 
 **One daemon at a time.** The Discord bot token must live in exactly one running daemon. Before you start the local daemon for development, stop the service: `ssh alp@coinmatica.net docker compose -f curia/deploy/compose.yaml stop daemon`.
 

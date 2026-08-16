@@ -69,6 +69,13 @@ describe('the compose overseer service (#327 pins)', () => {
       assert.equal(mounts[tree].mode, 'rw')
     }
     assert.equal(mounts['/home/alp/curia/config'].mode, 'ro')
+    // The tokens tree (#392): read-only, at the same path, and the shim is
+    // pointed at that same path. A container that could write here could
+    // rewrite its own credential.
+    const tokens = '/home/alp/curia-work/overseer/tokens'
+    assert.equal(mounts[tokens].guest, tokens)
+    assert.equal(mounts[tokens].mode, 'ro')
+    assert.equal(SERVICE.environment.CURIA_OVERSEER_TOKEN_DIR, tokens)
     // The mount list is the secret-free claim, so it names files rather than
     // trees: `daemon/` as a whole carries `.env.daemon` and the journal.
     assert.ok(!SERVICE.volumes.some((v) => v.startsWith('/home/alp/curia/daemon:')))

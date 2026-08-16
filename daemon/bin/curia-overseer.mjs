@@ -8,7 +8,9 @@
 //   1. Writes the per-owner git credential config (#313), so every clone and
 //      fetch the checkout pass of #312 runs reaches GitHub as the right owner's
 //      read-only token. THE TURN WRITES IT AGAIN (#361): this pass is the boot
-//      report, and the live answer is the one beside the config re-read.
+//      report, and the live answer is the one beside the config re-read. The
+//      lines name a token FILE the daemon writes (#392), so a container that
+//      boots before the first mint routes nothing and the next turn routes it.
 //   2. Says out loud what this container holds — which owners are routed, which
 //      are not, and whether a model credential arrived. Every one of those
 //      failures otherwise surfaces hours later, inside a turn, where nothing
@@ -22,16 +24,17 @@
 // turn from the mounted `config/curia.yaml`, because the settings screen
 // rewrites the watch list and a turn must fetch what is watched NOW.
 //
-// NOTHING THIS CONTAINER READS FROM THE CONFIG IS HELD FROM BOOT (#361). The
-// watch list feeds two things, the checkout pass and the git routing above, and
-// both run per turn. What a turn cannot pick up is `daemon/.env.overseer`:
-// compose hands an env file over at container CREATE, so a token for an owner
-// this container never held needs that file edited and this service recreated.
+// NOTHING THIS CONTAINER HOLDS FROM ITS OWN BOOT IS A LIMIT ANY MORE (#361,
+// finished by #392). The watch list feeds the checkout pass and the git routing,
+// and both run per turn. The tokens themselves are files the daemon rewrites, in
+// a tree mounted read-only, so a repo watched under a brand new owner is routed
+// at the next message. Nothing here needs this service recreated.
 //
 // The environment comes from `daemon/.env.overseer`, which compose hands over
 // whole, and NEVER from `daemon/.env.daemon` — that file carries the agents'
 // read-write tokens and the Discord bot token, and a shell in this container
-// exports whatever it is given (#313).
+// exports whatever it is given (#313). What is left in it is the model
+// credential, which is the one host secret ADR-0014 lets in.
 
 import http from 'node:http'
 import path from 'node:path'
@@ -39,6 +42,7 @@ import { fileURLToPath } from 'node:url'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { checkoutsRootFor } from '../src/checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from '../src/overseercreds.mjs'
+import { overseerTokensRootFor } from '../src/overseertoken.mjs'
 import { readOverseer, overseerHandler, PING_PATH } from '../src/overseerservice.mjs'
 import { turnRoute, TURN_PATH, overseerConfigDirFor, overseerHomeFor } from '../src/overseerturn.mjs'
 
@@ -59,9 +63,17 @@ const { port } = readOverseer(cfg, (msg) => { throw new Error(`bad config ${CONF
 // transcript off the directory this container writes it to (ADR-0015).
 const configDir = overseerConfigDirFor(cfg.dispatch.workspace_root)
 
-const routed = await installCredentialConfig(repos, { env: process.env })
-for (const { owner, key } of routed) log(`git routes ${owner}/* through ${key}`)
-for (const o of unroutedOwners(repos, process.env)) log(`WARNING: ${unroutedNote(o)}`)
+// The tokens tree, at the same path on both sides of its read-only mount. It is
+// read HERE only for the boot report: a turn re-reads it, and the daemon writes
+// it, so a failure at this instant is news rather than a refusal.
+const tokensRoot = overseerTokensRootFor(cfg.dispatch.workspace_root)
+try {
+  const routed = await installCredentialConfig(repos, { dir: tokensRoot })
+  for (const { owner, file } of routed) log(`git routes ${owner}/* through ${file}`)
+  for (const o of unroutedOwners(repos, tokensRoot)) log(`WARNING: ${unroutedNote(o)}`)
+} catch (e) {
+  log(`WARNING: the git credentials did not install (${String(e.message ?? e).split('\n')[0]}) — the first turn writes them again`)
+}
 
 // The model credential is the one host secret that enters this container
 // (ADR-0014), and it rides the same env file the tokens do. Absent, the turn

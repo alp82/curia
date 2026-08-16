@@ -1,6 +1,6 @@
 # ADR-0018: The daemon is a GitHub App
 
-**Status**: accepted (2026-08). Partly built. The minting core ships with this ADR. Each holder cuts over on its own ticket.
+**Status**: accepted (2026-08). Partly built. The minting core ships with this ADR. Each holder cuts over on its own ticket: the agents on [#389](https://github.com/alp82/curia/issues/389), the overseer on [#392](https://github.com/alp82/curia/issues/392), the daemon's own `gh` on [#390](https://github.com/alp82/curia/issues/390).
 **Provenance**: [A GitHub App replaces the PAT (#338)](https://github.com/alp82/curia/issues/338), [The daemon becomes a GitHub App: one key, minted tokens (#352)](https://github.com/alp82/curia/issues/352)
 
 ## Context
@@ -50,6 +50,6 @@ Five costs come out of that shape.
 - **The private key never expires**, so nothing here is a calendar item any more. The 366-day cap stops mattering.
 - **Attribution becomes honest.** A push the daemon performs for an agent reads as `curia-sh[bot]`.
 - **The gate becomes a real GitHub approval**, which is what makes branch protection usable at all.
-- **`.env.overseer` retires as a token file** when the overseer cuts over. What is left in it is the model credential, which is the one host secret ADR-0014 lets into that container.
+- **`.env.overseer` retired as a token file** with [#392](https://github.com/alp82/curia/issues/392). What is left in it is the model credential, which is the one host secret ADR-0014 lets into that container. The overseer reads one file per owner out of a read-only mount the daemon writes, so the container asks for nothing and holds nothing from its own boot.
 - **One-click setup from the dashboard** rides GitHub's app manifest flow. It stays fog on [#244](https://github.com/alp82/curia/issues/244) until the app is real.
 - **[ADR-0007](0007-shared-credential-store.md) is untouched.** That one shares the MODEL credential, and nothing here reads it.

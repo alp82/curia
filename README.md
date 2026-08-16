@@ -114,14 +114,12 @@ Run one daemon per bot token.
 ### `daemon/.env.overseer`
 
 ```
-CURIA_OVERSEER_GH_TOKEN_<OWNER>=<a fine-grained GitHub PAT, read-only>
+CLAUDE_CODE_OAUTH_TOKEN=<the same value as in daemon/.env.daemon>
 ```
 
-The overseer runs in a container with a shell, so its own token is read-only (#313). Mint one fine-grained PAT per resource owner you watch, with **Contents**, **Issues**, **Pull requests** and **Commit statuses** at read, plus **Metadata** read. Nothing at write. An organization can cap the token lifetime, so a token for an org owner needs an expiry inside that cap.
+One key, and that is the whole file (#392). The overseer container runs its turns on this credential and cannot read the daemon's copy, so it needs its own line. The overseer service loads this file whole and never `daemon/.env.daemon`, which holds the read-write tokens the overseer must never get.
 
-Add `CLAUDE_CODE_OAUTH_TOKEN` here too (#327): the overseer container runs its turns on it, and it cannot read the daemon's copy. Same value as the one in `daemon/.env.daemon`.
-
-Keep these keys in this second file. The overseer service loads the file whole, and `daemon/.env.daemon` holds the read-write tokens the overseer must never get.
+The overseer runs in a container with a shell, so its own GitHub token is read-only (#313) — **Contents**, **Issues**, **Pull requests** and **Commit statuses** at read, plus **Metadata** read, and nothing at write. You mint none of it by hand: the daemon mints one token per resource owner from the GitHub App and writes it where the container reads it (#392). Set the app up ([docs/github-app.md](docs/github-app.md)) and install it on each owner you watch. An owner the app is not installed on reads public repositories only, and the overseer says so in the chat.
 
 ## 8. `config/curia.yaml`
 

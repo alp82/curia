@@ -1,5 +1,7 @@
 # Live checks: the overseer's read-only GitHub token (#313)
 
+**The PAT this measured is retired.** [#392](392-overseer-minted-token.md) cut the overseer over to a minted installation token in a file the daemon writes. The ROUTING measured here — one `credential.https://github.com/<owner>.helper` line per owner, plus the `gh` shim — is what carries that token today, so sections 2 and 3 still describe the live path. The org lifetime cap in section 1 stopped applying: an installation token is not a fine-grained PAT.
+
 Run 2026-08-11. Sections 1 to 3 are measurements against the real API and against real git. They were taken from inside an agent container, which carries the agent token `CURIA_AGENT_GH_TOKEN_ALP82`. The overseer's own tokens did not exist when these ran, because no agent can mint one. Section 4 is the mint record the operator reported.
 
 ## 1. The org lifetime cap is a refusal, not a narrowing

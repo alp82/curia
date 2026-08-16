@@ -23,7 +23,7 @@ The daemon expects these on the box before the first boot:
 - `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty.
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` — the FALLBACK GitHub token an agent gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. An agent mints its own token from the GitHub App since #389, and this key is what an owner the app is not installed on still gets. See [the agent's GitHub authority](#the-agents-github-authority-155-cut-over-by-389) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
-- The overseer's own tokens are **not** in this file. They live in `.env.overseer` beside it, one `CURIA_OVERSEER_GH_TOKEN_<OWNER>` per resource owner, read-only (#313). That second file is the boundary: the overseer service loads it whole and never loads `.env`. See [the overseer's GitHub authority](#the-overseers-github-authority-313) below.
+- The overseer's own tokens are **not** in this file, and since #392 they are in no env file at all. The daemon mints them and writes one file per owner under `<workspace_root>/overseer/tokens/`. `.env.overseer` beside this file keeps the model credential, and the overseer service loads that file and never this one. See [the overseer's GitHub authority](#the-overseers-github-authority-313-cut-over-by-392) below.
 - The overseer takes **no model variable here**. It runs in its own container since the cutover (#315), on `claude-sonnet-5` with no fallback, and the model is `OVERSEER_CONTAINER_MODEL` in `src/overseerturn.mjs`. `OVERSEER_MODEL` and `OVERSEER_FALLBACK_MODEL` died with the in-daemon host.
 
 Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml` (watch list, dispatch settings — `auto_dispatch` ships `false` — attach ports, preview range, agent skill set) and `../config/routing.yaml` (label-only model routing, fallback chains, harness command templates). Override the directory with `CURIA_CONFIG_DIR`.
@@ -263,23 +263,25 @@ The shape this section predicted is the shape that shipped: a per-agent `gh` con
 
 **A mint that fails falls back**, loudly, to `CURIA_AGENT_GH_TOKEN_<OWNER>`. A box with no app, an owner the app is not installed on, and a GitHub that could not be reached all read the same way. Refusing the dispatch would take a working boundary out ahead of its replacement, which is the one thing ADR-0018 says not to do.
 
-## The overseer's GitHub authority (#313)
+## The overseer's GitHub authority (#313, cut over by #392)
 
 The overseer container holds a shell. The read-only token is the control that replaces the `/command` seam, because a standing order cannot hold a shell and a shell cannot mint a token. See [ADR-0014](../docs/adr/0014-the-overseer-in-its-own-container.md).
 
-**One token per resource owner**, the same rule and the same spelling as the agent token, one prefix over: `CURIA_OVERSEER_GH_TOKEN_<OWNER>`, uppercased, hyphens folded to underscores. An operator who has written one pair of keys has written the other.
+The permissions are **Contents**, **Issues**, **Pull requests** and **Commit statuses** at read, plus **Metadata** read. Nothing at write, and nothing else at all. Agents write, and they write through pull requests. #313 bought that set as one fine-grained PAT per owner. #392 mints it instead, from the one app key, as `READ_PERMISSIONS` in `src/githubapp.mjs`. The set did not change.
 
-**The keys live in `daemon/.env.overseer`, never in `daemon/.env`.** The overseer service loads that file whole, so every key in it is a key a shell in that container holds. `daemon/.env` carries the agents' read-WRITE tokens and the Discord bot token, and compose cannot filter an env file. So the file itself is the boundary. The daemon parses this file and never loads it into its own environment. A bare token in the daemon environment would re-authenticate the daemon's own `gh`, which is the trap #155 named.
+**One file per resource owner**, named by the owner in lower case, at `<workspace_root>/overseer/tokens/<owner>`. The daemon writes it at mode 0600 through a rename, and the container mounts the tree read-only. That tree holds the tokens and nothing else.
 
-The permissions are **Contents**, **Issues**, **Pull requests** and **Commit statuses** at read, plus **Metadata** read. Nothing at write, and nothing else at all. Agents write, and they write through pull requests.
+**The daemon mints, and the container reads a file.** There is no endpoint the container can call: a shell that can mint is the capability ADR-0014 removed, and that is the whole boundary. The refresh rides the dispatch tick, every 60 s, above the `auto_dispatch` gate — an installation token lives one hour and this container answers the operator whether or not the box dispatches anything. Reconcile refreshes too, because that container was not restarted with the daemon.
 
-**The expiry follows the owner**, exactly as the agent tokens do. The `alp82` token has none. The `getalfredo` token expires after 366 days, because the organization refuses any fine-grained token with a longer life, and that refusal hits a public repo read too.
+**Both tools read the file at the moment they need it.** `gh` reads one `GH_TOKEN` and the container holds one token per owner, so something must pick. git picks by itself: one `credential.https://github.com/<owner>.helper` line per owner, whose helper prints the file, because git prefix-matches the owner path (measured). `gh` takes a shim that reads the owner off the command line or off the checkout directory name, then reads the same file. So a token the daemon rewrites takes effect on the next call, with nothing restarted.
 
-Boot states each token, then asks GitHub once per watched repo with the token that repo would be read with. It warns when a token cannot reach a repo, when a token expires within 14 days, and when an owner on the watch list has no key. An expired token does not degrade to anything. The container mounts no `~/.config/gh`, so the reach falls back to what GitHub gives an anonymous caller. The boot warning is the whole defense.
+**Nothing is held from the container's boot.** The watch list is re-read per turn, the routing is rewritten per turn (#361), and the token is a file. Watching a repo of a brand new owner is an ordinary save: no env file edited, and no service recreated. That was the last limit a turn could not re-read.
 
-The probe has the same blind spot as the agent one, and it is measured, not assumed: a public repo left off the token's selection cannot be detected by any read. The full transcript is in [docs/live-checks/313-overseer-github-token.md](../docs/live-checks/313-overseer-github-token.md).
+**An owner with no installation reads public repositories only.** It gets no token file, so it gets no credential rather than another owner's. The container names that owner in the chat, once per turn, through `unroutedNote` — the one sentence the boot log and the turn share. The daemon's boot names it too, beside the app installations it can see.
 
-`gh` reads one `GH_TOKEN`, and the container holds one token per owner, so something must pick. git picks by itself: one `credential.https://github.com/<owner>.helper` line per owner, because git prefix-matches the owner path (measured). `gh` needs a shim that reads the owner off the command line or off the checkout directory name. [#327](https://github.com/alp82/curia/issues/327) installs both, because it owns the image.
+`CURIA_OVERSEER_GH_TOKEN_<OWNER>` is retired. A key still sitting in `daemon/.env.overseer` is a live PAT with no job, so boot names it and asks for two acts: delete the key, and revoke the token on GitHub. What is left in that file is the model credential, which is the one host secret ADR-0014 lets into that container. The daemon parses that file and never loads it into its own environment. A bare token in the daemon environment would re-authenticate the daemon's own `gh`, which is the trap #155 named.
+
+The transcripts are [docs/live-checks/313-overseer-github-token.md](../docs/live-checks/313-overseer-github-token.md) for the routing and [docs/live-checks/392-overseer-minted-token.md](../docs/live-checks/392-overseer-minted-token.md) for the cutover.
 
 ## What an agent knows (#57)
 
