@@ -174,6 +174,22 @@ Read the bridge subnet and the gateway off the box first — `docker network ins
 
 This rule is host state. No file in this repo carries it, so a rebuilt box needs it again.
 
+**The overseer needs its own rule.** The overseer container is not on `docker0`: compose puts it
+on the `curia_default` network, which this box carved out of the next pool block, `10.0.2.0/24`.
+Its MCP seam — the verb tools of every turn — goes to the daemon at `host.docker.internal:4271`,
+and without a rule that traffic is dropped the same silent way. The symptom is a turn that runs
+but holds no `start` tool, because Claude Code drops an unreachable MCP server without a word.
+Done on 2026-08-16, keyed on the subnet because the `br-…` interface name embeds the network id
+and dies on a network recreate:
+
+```
+sudo ufw allow from 10.0.2.0/24 to 10.0.1.1 port 4271 proto tcp \
+  comment 'curia overseer mcp'
+```
+
+Read the subnet off the box first — `docker network inspect curia_default`. Compose does not pin
+it, so a rebuilt box may get a different block. This rule is host state too.
+
 Since [#188](https://github.com/alp82/curia/issues/188) the daemon no longer trusts the rule to
 be there. Every sandboxed dispatch first binds the gateway, then sends one throwaway container
 at `GET /ping`, and refuses the dispatch if the answer does not come back. A **timeout** in that
