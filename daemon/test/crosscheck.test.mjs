@@ -339,6 +339,24 @@ describe('the press spawns the reviewer and parks the builder (#165)', () => {
     await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: pass' })
     await gate
   })
+
+  // #458, from #426: the park is the SECOND wait a dying daemon strands, and a
+  // goodbye that woke only the escalation resolvers would leave this builder
+  // sitting on a verdict this process will never hand it. On codex that wait is
+  // a day, so #237's rejoin never gets its chance.
+  test('the daemon\'s goodbye ends the park with an error, and names the call that re-parks it', async () => {
+    const d = makeDispatcher()
+    withBuilder(d)
+    const { gate } = await pressAndPark(d)
+
+    assert.equal(d.wakeParkedBuilders(), 1, 'the goodbye counts what it woke')
+    const err = await gate.then(() => null, (e) => e)
+    assert.ok(err instanceof Error, 'a text result would read as a verdict')
+    assert.match(err.message, /CURIA IS RESTARTING/)
+    assert.match(err.message, /NOT A VERDICT/)
+    assert.match(err.message, /`request_review`/, 'the call that parks it back on the verdict')
+    assert.equal(d.reviewWaits.size, 0, 'nothing is left to settle twice')
+  })
 })
 
 // ---- 3. the way back ---------------------------------------------------------
