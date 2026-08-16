@@ -69,17 +69,21 @@ const OVERVIEW = () => ({
       session: 'curia-263', repo: 'alp82/curia', ticket: '263', title: 'The sidecar stands up',
       model: 'claude-opus-5', reviewer: false, state: 'ready', uptime_s: 900,
       result_received: false, tmux_live: true, waiting_on: [], ctx_pct: 41, ctx_over: false,
+      // how long ago it last reached curia (#370) — a reading of the live
+      // daemon process, null when that process has heard nothing
+      last_contact_s: 12,
     },
     {
       session: 'curia-255', repo: 'alp82/curia', ticket: '255', title: 'The note queue drains in order',
       model: 'gpt-5.6-sol', reviewer: false, state: 'ready', uptime_s: 3600,
       result_received: false, tmux_live: true, waiting_on: [{ id: 'esc-7', kind: 'choice' }],
-      ctx_pct: 68, ctx_over: false,
+      ctx_pct: 68, ctx_over: false, last_contact_s: 480,
     },
     {
       session: 'curia-review-263', repo: 'alp82/curia', ticket: '263', title: 'Cross-check of curia-263',
       model: 'gpt-5.6-sol', reviewer: true, state: 'ready', uptime_s: 120,
       result_received: false, tmux_live: true, waiting_on: [], ctx_pct: null, ctx_over: false,
+      last_contact_s: 3,
     },
   ],
   untracked: [],
@@ -253,6 +257,29 @@ describe('the read screens (#264)', () => {
       over.overview.agents[0].ctx_pct = 118
       over.overview.agents[0].ctx_over = true
       assert.match(text(page.screenAgents(over)), /118% ⚠/, 'over 100% is a complaint about the denominator, and is marked')
+    })
+
+    test('the contact column reads the silence, and states which null it is (#370)', () => {
+      const t = text(page.screenAgents(payload()))
+      assert.match(t, /12s/, 'an agent heard 12 seconds ago')
+      assert.match(t, /8m/, 'and one heard 8 minutes ago')
+      assert.match(t, /never is an agent that has said nothing since it spawned/, 'the table says what its words mean')
+
+      const quiet = payload()
+      // spawned by this process and never heard: the mute shape (#194)
+      quiet.overview.agents[0].last_contact_s = null
+      // adopted after a restart: no spawn on this process, so no uptime either
+      quiet.overview.agents[1].last_contact_s = null
+      quiet.overview.agents[1].uptime_s = null
+      const q = text(page.screenAgents(quiet))
+      assert.match(q, /never/)
+      assert.match(q, /adopted/)
+      assert.doesNotMatch(q, /\b0s\b/, 'no reading is never 0 seconds ago')
+    })
+
+    test('the fleet on home carries the same reading', () => {
+      const t = text(page.screenHome(payload()))
+      assert.match(t, /12s/)
     })
 
     test('only the agent that wants you is marked, and the mark is the only color', () => {
