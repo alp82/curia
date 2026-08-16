@@ -53,3 +53,9 @@ A verdict binds only the dispatch that earned it: one captured before the ticket
 - **The ending parks.** `report_result` with a reviewer in flight parks exactly as `request_review` parks. The verdict lands on the parked call, the builder wakes, judges it, and then ends. The refusal stays as the belt for a caller that reaches `onResult` directly. The unjudged-verdict refusal does not change: nothing is left to wait for there, only a duty to do.
 
 The park is the control, and the note is the reach. `gh pr merge` and `gh issue close` run in the agent's own shell, where curia holds no wire. The note is the only thing that can hold those two, so it says that in plain words rather than promise a park it cannot give. The carrier rule on [#252](https://github.com/alp82/curia/issues/252) stays as the net for a cross-check started after the builder is gone.
+
+## Amendment: the verdict is typed ([#421](https://github.com/alp82/curia/issues/421), 2026-08)
+
+The reviewer wrote its verdict as one block of prose, in a shape the prompt drew by hand. It is typed now, and [ADR-0019](0019-typed-payloads-and-the-lint-grades.md) holds that shape: a headline, a summary, and one entry per finding with a severity and an out-of-scope flag. curia derives the grade — `pass`, `concerns` or `fail` — from those severities, so the reviewer never writes that word and no verdict passes over its own blocker.
+
+Nothing above changes. The verdict is still an opinion, it still reaches the builder first, and the operator still arbitrates. Two consequences follow from the shape alone. The builder answers with one question per finding in one `ask_human` round, which is the round [#418](https://github.com/alp82/curia/issues/418) typed. And an out-of-scope finding carries a flag rather than a phrase inside its own prose, so the charting line it becomes is sorted rather than read out of the text.

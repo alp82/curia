@@ -280,13 +280,14 @@ describe('elapsedLabel', () => {
   })
 })
 
-// #457 measured the promise this line makes, per harness. The claude lane keeps
-// it: a dropped call is reported in about two minutes, so a next tool result
-// comes. The codex lane cannot: #371 measured a codex agent told NOTHING about
-// the death, with a day-long `tool_timeout_sec` as its only bound. So the old
-// line promised that lane a delivery that never happened.
+// #457 measured the promise this line makes. A parked codex agent makes NO next
+// tool result: #371 measured one told nothing about the death, with a day-long
+// `CODEX_TOOL_TIMEOUT_S` as its only bound. Since #458 a planned death ends
+// every blocked call with an error, so an agent that SPOKE to this daemon is not
+// parked. `spoken` is what separates the two, and a SIGKILL is the death that
+// leaves it false.
 describe('handOffLine (#139, corrected by #457)', () => {
-  const codex = { agent: 'curia-7', ticket: '7', harness: 'codex', live: true }
+  const parked = { agent: 'curia-7', ticket: '7', harness: 'codex', live: true, spoken: false }
 
   test('an agent that is not running gets the resume verb, whatever its harness', () => {
     for (const harness of ['claude', 'codex', null]) {
@@ -297,36 +298,51 @@ describe('handOffLine (#139, corrected by #457)', () => {
     }
   })
 
-  test('a live claude agent keeps the next-tool-result promise', () => {
-    const line = handOffLine({ agent: 'curia-7', ticket: '7', harness: 'claude', live: true })
-    assert.match(line, /gets this answer with its next tool result/)
+  test('a live claude agent keeps the next-tool-result promise, spoken or not', () => {
+    for (const spoken of [true, false]) {
+      const line = handOffLine({ agent: 'curia-7', ticket: '7', harness: 'claude', live: true, spoken })
+      assert.match(line, /gets this answer with its next tool result/)
+    }
   })
 
   test('an unknown harness reads as claude, which is the default lane', () => {
     assert.equal(
-      handOffLine({ agent: 'curia-7', ticket: '7', harness: null, live: true }),
-      handOffLine({ agent: 'curia-7', ticket: '7', harness: 'claude', live: true }),
+      handOffLine({ agent: 'curia-7', ticket: '7', harness: null, live: true, spoken: false }),
+      handOffLine({ agent: 'curia-7', ticket: '7', harness: 'claude', live: true, spoken: false }),
     )
   })
 
-  test('a live codex agent is NOT promised a next tool result', () => {
-    assert.ok(!handOffLine(codex).includes('next tool result'), 'the false promise reached the codex lane')
+  test('a parked codex agent is NOT promised a next tool result', () => {
+    assert.ok(!handOffLine(parked).includes('next tool result'), 'the false promise reached a parked agent')
   })
 
-  test('the codex line says the wait and names the pair of verbs that ends it', () => {
-    const line = handOffLine(codex)
-    assert.match(line, /parked in the call that died/)
+  test('the parked line says the wait and names the pair of verbs that ends it', () => {
+    const line = handOffLine(parked)
+    assert.match(line, /has not spoken since this daemon started/)
+    assert.match(line, /parked/)
     assert.match(line, /cancel 7/)
     assert.match(line, /resume 7/)
   })
 
+  // #458's goodbye ends a blocked call with an error before the daemon exits, so
+  // the agent has its turn back and speaks again within seconds. A codex agent
+  // that reached this daemon is therefore working, not parked, and the warning
+  // would send the operator to cancel it for nothing.
+  test('a codex agent that has spoken to this daemon is working, not parked', () => {
+    const line = handOffLine({ ...parked, spoken: true })
+    assert.match(line, /gets this answer with its next tool result/)
+    assert.ok(!line.includes('cancel 7'), 'a working agent was offered the cancel verb')
+  })
+
   test('every lane passes the reply lint', () => {
     for (const live of [true, false]) {
-      for (const harness of ['claude', 'codex', null]) {
-        const line = handOffLine({ agent: 'curia-7', ticket: '7', harness, live })
-        assert.deepEqual(lintReply(line), [], `${harness}/${live}: ${line}`)
-        assert.ok(!line.includes('\n'), 'a hand-off line is one line')
-        assert.ok(line.length <= CHUNK_LIMIT, `${line.length} chars`)
+      for (const spoken of [true, false]) {
+        for (const harness of ['claude', 'codex', null]) {
+          const line = handOffLine({ agent: 'curia-7', ticket: '7', harness, live, spoken })
+          assert.deepEqual(lintReply(line), [], `${harness}/${live}/${spoken}: ${line}`)
+          assert.ok(!line.includes('\n'), 'a hand-off line is one line')
+          assert.ok(line.length <= CHUNK_LIMIT, `${line.length} chars`)
+        }
       }
     }
   })

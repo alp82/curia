@@ -288,6 +288,13 @@ export function resultFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {
   const faults = []
   if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say what the work came to in one line.')
   if (!present(payload.summary)) faults.push('summary: missing. Say what you did and what it came to.')
+  // `findings` belongs to the cross-check verdict and to nothing else (#421). A
+  // builder that sent them would lose them in silence: no lint reads them here
+  // and no surface renders them, and losing information in silence is the one
+  // thing this map forbids. So the call is refused and the field is named.
+  if (Array.isArray(payload.findings)) {
+    faults.push('findings: the cross-check reviewer\'s field, not a builder\'s. Put what you found in the summary.')
+  }
   return faults
 }
 
@@ -335,6 +342,79 @@ export function lintNotify(payload = {}) {
   if (present(payload.message)) faults.push(...gradeB('message', payload.message))
   if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
   if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
+  return faults
+}
+
+// ---- the cross-check verdict (#421) -------------------------------------------
+//
+// The reviewer's `report_result` is the VERDICT, which ADR-0019 lists as a
+// surface of its own. It was the last untyped surface on the #413 map, and it
+// was exempt from the report lint while it stayed one (#419).
+//
+// It differs from every other surface in one way: it carries a LIST of findings
+// rather than one block of prose. So `findings[]` is the shape, one entry per
+// finding, and the prose of each entry is Grade B like any other block.
+
+// The severity of one finding. Three values, most serious first, and the order
+// of this array is what `verdictGrade` reads.
+export const VERDICT_SEVERITIES = ['blocker', 'concern', 'note']
+
+// The grade of the whole verdict, DERIVED from the severities the reviewer set.
+// It is never a field of its own, for the reason ADR-0019 retired the
+// `recommended` boolean: a claim the payload can contradict is a claim that can
+// lie. A typed verdict cannot say `pass` over a finding it called a blocker.
+//
+// An untyped verdict has no findings, so it has no grade, and curia states none.
+export function verdictGrade(findings) {
+  if (!Array.isArray(findings)) return null
+  const sev = (f) => String(f?.severity ?? '').trim().toLowerCase()
+  if (findings.some((f) => sev(f) === 'blocker')) return 'fail'
+  if (findings.some((f) => sev(f) === 'concern')) return 'concerns'
+  return 'pass'
+}
+
+// Whether a verdict carries a typed field at all. Until the flip (#422) an
+// untyped verdict is accepted and renders as it did: the summary, whole.
+export function isTypedVerdict(payload = {}) {
+  return present(payload.headline) || Array.isArray(payload.findings)
+    || present(payload.detail) || present(payload.visual)
+}
+
+// The verdict's floor. `summary` was required by the report schema before this
+// ticket, so it is required now, flip or no flip — the same rule the gate's and
+// the report's follow. The `headline` and the `findings` wait for the flip
+// (#422), because they are the fields this ticket adds.
+//
+// AN EMPTY FINDINGS LIST IS A VERDICT. A clean reading is a real result, and a
+// floor of one finding would make a reviewer that found nothing write filler —
+// the fault ADR-0019 named when it left `example` to agent judgment. The field
+// is still required after the flip, because an empty list says "I found
+// nothing" and a missing one says nothing at all.
+export function verdictFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {}) {
+  const faults = []
+  if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say the verdict in one line.')
+  if (!present(payload.summary)) faults.push('summary: missing. Say what you read and what you ran.')
+  if (typedFloor && !Array.isArray(payload.findings)) {
+    faults.push('findings: missing. Send one entry per finding, or an empty list when the reading is clean.')
+  }
+  ;(payload.findings ?? []).forEach((f, i) => {
+    if (!present(f?.text)) faults.push(`findings[${i}].text: missing. Name the file and the line, say what is wrong, say why it matters.`)
+    const severity = String(f?.severity ?? '').trim().toLowerCase()
+    if (!severity) faults.push(`findings[${i}].severity: missing. One of ${VERDICT_SEVERITIES.join(', ')}. Curia reads the grade of the whole verdict off these.`)
+    else if (!VERDICT_SEVERITIES.includes(severity)) faults.push(`findings[${i}].severity: "${f.severity}" is not one of ${VERDICT_SEVERITIES.join(', ')}.`)
+  })
+  return faults
+}
+
+export function lintVerdict(payload = {}) {
+  const faults = []
+  if (present(payload.headline)) faults.push(...gradeA('headline', payload.headline, CAPS.headline))
+  if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
+  if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
+  if (present(payload.summary)) faults.push(...gradeB('summary', payload.summary))
+  ;(payload.findings ?? []).forEach((f, i) => {
+    if (present(f?.text)) faults.push(...gradeB(`findings[${i}].text`, f.text))
+  })
   return faults
 }
 

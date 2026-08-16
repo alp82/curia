@@ -4,7 +4,7 @@ Evidence for [wayfinder #457](https://github.com/alp82/curia/issues/457), on [ma
 
 ## The question
 
-[#426](https://github.com/alp82/curia/issues/426) decided that the daemon says goodbye before it dies. A goodbye covers a restart, a deploy and a crash. It cannot cover a SIGKILL, because the daemon never gets to speak. For that one death the pane is the only wire left.
+[#426](https://github.com/alp82/curia/issues/426) decided that the daemon says goodbye before it dies, and [#458](https://github.com/alp82/curia/issues/458) shipped it. A goodbye covers a restart, a deploy and a crash. It cannot cover a SIGKILL, because the daemon never gets to speak. For that one death the pane is the only wire left.
 
 Today curia refuses that wire in exactly this case. `interruptNote` turns away an agent with an open escalation (`dispatch.mjs:4892`), because Escape would abort the very call that is asking the question. After a SIGKILL that call is already dead, so the refusal no longer fits. Nobody had measured whether the keystrokes land at all.
 
@@ -125,7 +125,9 @@ The words never reach the model. Two turns ran, both before the block. No reques
 
 **The abort does not cost the session.** This was the open worry in #426, and it is answered: the transcript, the MCP connection and the pane all survive, and the agent goes back to work on the next turn.
 
-**One line in the daemon was promising a delivery that never happens.** When an answer lands with no resolver, `handOffAnswer` told the thread that the agent "gets this answer with its next tool result". A parked codex agent makes no next tool result. Fixed on this ticket: the line is per lane now, and the codex one states the wait and names the pair of verbs that ends it. The composer is `handOffLine` in `daemon/src/messaging.mjs`.
+**One line in the daemon was promising a delivery that never happens.** When an answer lands with no resolver, `handOffAnswer` told the thread that the agent "gets this answer with its next tool result". A parked codex agent makes no next tool result. Fixed on this ticket, in `handOffLine` in `daemon/src/messaging.mjs`.
+
+The line now turns on a fact rather than on the harness alone. #458's goodbye ends every blocked call with an error before a planned death, so a codex agent usually has its turn back within a second, and the promise holds for it. The one that does not is the agent that has NOT spoken to this daemon process since it started. #194 already records that, as `mcpLastAt`. A SIGKILL is the death that leaves it empty, and that is the agent the warning is for. A young agent that has not spoken yet reads the warning too. That costs one warning nobody needed, where the other way round costs an answer.
 
 The agent-note lines that carry the same phrase are NOT wrong, and they stay. A note is queued at any moment, and a working codex agent does make a next tool result. The hand-off line is the one that only ever runs after a death.
 

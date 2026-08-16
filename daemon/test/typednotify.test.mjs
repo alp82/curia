@@ -70,9 +70,6 @@ describe('notify carries the typed fields and the lint gate (#420, real boot)', 
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
-    // #472: one set, drawn with every socket held, so two of them can never be
-    // the same number. #420 landed this file beside #477's rename of the helper,
-    // and the two merges left the import naming a function that is gone.
     const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [

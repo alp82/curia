@@ -305,28 +305,40 @@ export function failureProse(raw) {
 //
 //   not running   a fresh agent drains the queue on its first tool result, so
 //                 the verb is `resume`.
-//   claude        the dead call is reported dropped in about two minutes
-//                 (#341), the agent retries, and the queued answer rides that
-//                 next tool result. The promise holds.
-//   codex         it does not. #371 measured a codex agent whose daemon died
-//                 under its call: it is told NOTHING, and `tool_timeout_sec` —
-//                 a day — is the only bound. So there is no next tool result to
-//                 ride, and the old line promised a delivery that never came.
+//   parked        a codex agent whose call died with NO last word. #371
+//                 measured that case: the agent is told nothing, and
+//                 `CODEX_TOOL_TIMEOUT_S`, a day, is the only bound. It makes no
+//                 next tool result, so the old line promised a delivery that
+//                 never came.
+//   working       everyone else. The claude client aborts a dropped call in
+//                 about 120 s (#341), and since #458 a planned death ends every
+//                 blocked call with an error on BOTH lanes. So the agent has its
+//                 turn back and the queued answer rides its next tool result.
 //
-// The codex line states the wait and names the one pair of verbs that ends it.
-// `resume` alone is refused while the session is live, so both are stated: a
-// fresh agent inherits the surviving worktree (#81) and drains this answer on
-// its first tool result.
+// `spoken` is what separates the last two, and it is a positive fact rather than
+// a guess: it says this agent has made an MCP call against THIS daemon process
+// (#194's `mcpLastAt`). A codex agent that spoke since boot is not parked, so
+// the goodbye reached it, or its own call ended some other way. One that has not
+// spoken may be parked, and after a SIGKILL it is — that is the one death #458
+// leaves to the pane, measured on #457.
 //
-// An unknown harness takes the claude line. That is the default lane, and a
+// The parked line names `cancel` and then `resume`, in that order. `resume`
+// alone is refused while the session is live, and a fresh agent inherits the
+// surviving worktree (#81) and drains this answer on its first tool result.
+//
+// A codex agent that is merely young reads the parked line too, because it has
+// not spoken yet. That costs a warning where none was needed. The other way
+// round costs a lost answer, so the doubt is spent on the safe side.
+//
+// An unknown harness takes the working line. That is the default lane, and a
 // session adopted from before the harness was recorded is a claude one.
-export function handOffLine({ agent, ticket, harness = null, live = false }) {
+export function handOffLine({ agent, ticket, harness = null, live = false, spoken = false }) {
   if (!live) return `${SIGNALS.ok} recorded — \`${agent}\` is not running; \`resume ${ticket}\` hands it over`
-  if (harness === 'codex') {
+  if (harness === 'codex' && !spoken) {
     return `${SIGNALS.warn} recorded, and \`${agent}\` did not get it.`
-      + ' That agent runs on codex, and it is still parked in the call that died.'
-      + ' The call ends at its own deadline, a day out, and the agent reads nothing before it does.'
-      + ` To hand this answer over now: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`
+      + ' That codex agent has not spoken since this daemon started, so its own call died with no last word.'
+      + ' It is parked, and it reads nothing until that call times out, a day out.'
+      + ` To hand this answer over: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`
   }
   return `${SIGNALS.ok} recorded — \`${agent}\` gets this answer with its next tool result`
 }

@@ -17,7 +17,7 @@
 // instructions stay in the bridge, because they are the answer surface rather
 // than the question.
 
-import { unfence, isTypedResult } from './lint.mjs'
+import { unfence, isTypedResult, verdictGrade, VERDICT_SEVERITIES } from './lint.mjs'
 import { SIGNALS, smallPrint } from './messaging.mjs'
 
 // A. B. C. up to Z, then the number. 26 options or more is the numbered-list
@@ -166,6 +166,66 @@ export function composeNotify(payload = {}) {
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   if (kind === 'ask' && parts.length) parts.push(smallPrint(ASK_LINE))
   return parts.join('\n\n')
+}
+
+// ---- the cross-check verdict (#421, ADR-0010, ADR-0019) -----------------------
+//
+// The reviewer's `report_result` is the verdict, and this composes it ONCE. The
+// daemon stores the result on the captured artifact, and the three renderings
+// that follow — the pull-request comment, the builder's note and the thread
+// carrier when no builder is left — all read that one string. Three renderings
+// of one text is the rule `resolve.mjs` already keeps, and this keeps the text
+// itself in one place.
+//
+// The GRADE leads, under the headline, because it is the one thing the operator
+// reads a verdict for. It is derived from the severities rather than typed, so
+// a verdict cannot say `pass` over its own blocker.
+const VERDICT_SIGNAL = { pass: SIGNALS.ok, concerns: SIGNALS.warn, fail: SIGNALS.no }
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// What the grade line counts. A clean reading says so in words: "no findings" is
+// a result, and an empty line under a `pass` would read as a missing one.
+function findingCounts(findings) {
+  const counts = VERDICT_SEVERITIES
+    .map((s) => [s, findings.filter((f) => String(f?.severity ?? '').trim().toLowerCase() === s).length])
+    .filter(([, n]) => n > 0)
+    .map(([s, n]) => plural(n, s))
+  return counts.length ? counts.join(', ') : 'no findings'
+}
+
+// A finding beyond this ticket's scope is marked, not dropped. ADR-0010 sends it
+// to the builder's charting field, and the mark is what the builder sorts on.
+const OUT_OF_SCOPE = 'out of scope'
+
+export function composeVerdict(payload = {}) {
+  const findings = Array.isArray(payload.findings) ? payload.findings : null
+  const parts = []
+  if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
+  const grade = verdictGrade(findings)
+  if (grade) parts.push(`${VERDICT_SIGNAL[grade]} **${grade}** — ${findingCounts(findings)}`)
+  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  if (has(payload.summary)) parts.push(String(payload.summary).trim())
+  for (const [i, f] of (findings ?? []).entries()) {
+    const severity = String(f?.severity ?? '').trim().toLowerCase()
+    const scope = f?.out_of_scope ? ` (${OUT_OF_SCOPE})` : ''
+    parts.push([`**${i + 1}. ${severity || '?'}**${scope}`, String(f?.text ?? '').trim()].join('\n'))
+  }
+  if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
+  return parts.join('\n\n')
+}
+
+// The reviewer's ending post, in the reviewer's own voice (#421). A builder's
+// ending says the ticket is done, and this one says what a second reading
+// found, so it wears the cross-check signal rather than the ✅ of an ending.
+//
+// The STATUS still leads, for the reason the report's does: a reviewer that
+// reports `blocked` could not read the diff at all, and that is the first thing
+// the operator needs. The grade of the diff sits under it, inside the verdict.
+export function composeVerdictReport(status, payload = {}) {
+  const head = `🔎 the cross-check reports **${status}**`
+  const body = composeVerdict(payload)
+  return body ? `${head}\n\n${body}` : head
 }
 
 // The ✅ All as recommended button, DERIVED (ADR-0019). It renders when every

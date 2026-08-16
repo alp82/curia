@@ -256,9 +256,10 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     send: async (text) => { sentTo.push({ id, text }) },
     setName: async () => {},
     delete: async () => { deleted.push(id); threads.delete(id) },
+    members: { add: async (uid) => { joined.push({ id, uid }) } },
   })
 
-  let threads, deleted, held
+  let threads, deleted, held, joined
 
   // The #277 clock. The bridge holds a 🎫 clear rather than sending it, so the
   // tests own when that window runs out — `fireHeld` is "two minutes passed".
@@ -276,6 +277,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     deleted = []
     threads = new Map()
     held = []
+    joined = []
     bridge = new DiscordBridge({
       token: 'x', allowedUsers: [], dataDir: tmp(),
       handlers: {}, log: () => {},
@@ -335,6 +337,38 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(created.length, 1)
     assert.equal(created[0].name, '🎫 108 · prototype')
     assert.equal(sentTo.length, 0)
+  })
+
+  // ---- watchers on a fresh thread --------------------------------------------
+
+  test('a fresh thread adds every allowed user as a member, with no ping', async () => {
+    bridge.allowedUsers = ['u-1', 'u-2']
+    const r = await bridge.bindTicket('120', {})
+    assert.equal(r.ok, true)
+    assert.deepEqual(joined, [
+      { id: created[0].id, uid: 'u-1' },
+      { id: created[0].id, uid: 'u-2' },
+    ])
+    assert.equal(sentTo.length, 0, 'membership is silent — no message carries a mention')
+  })
+
+  test('a failed member add is logged and costs the thread nothing', async () => {
+    bridge.allowedUsers = ['u-stale', 'u-2']
+    const logged = []
+    bridge.log = (msg) => logged.push(msg)
+    const failing = makeThread('t-fail', 'x')
+    failing.members = {
+      add: async (uid) => {
+        if (uid === 'u-stale') throw new Error('Unknown User')
+        joined.push({ id: 't-fail', uid })
+      },
+    }
+    bridge.channel.threads.create = async () => { threads.set('t-fail', failing); return failing }
+    const r = await bridge.bindTicket('121', {})
+    assert.equal(r.ok, true, 'the bind survives the failed add')
+    assert.deepEqual(joined, [{ id: 't-fail', uid: 'u-2' }], 'the good id still joins')
+    assert.equal(logged.length, 1)
+    assert.match(logged[0], /could not add watcher u-stale/)
   })
 
   test('an untyped ticket names its thread with the number alone', async () => {

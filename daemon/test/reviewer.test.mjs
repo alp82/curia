@@ -319,7 +319,7 @@ describe('the reviewer\'s standing orders (#164)', () => {
   test('the ending is one step, and it is the verdict', () => {
     assert.equal(REVIEW_ENDING.length, 1)
     assert.deepEqual(outstanding({ reviewer: true, hasResult: false }), [
-      'call `report_result` once, with your verdict as the summary',
+      'call `report_result` once, with your verdict in its headline, its summary and its findings',
     ])
     assert.deepEqual(outstanding({ reviewer: true, hasResult: true }), [], 'the verdict ends it')
   })
@@ -339,7 +339,12 @@ describe('the reviewer\'s standing orders (#164)', () => {
     assert.match(text, /Run the tests/)
     assert.match(text, /Write nothing/)
     assert.match(text, /No tracker write/)
-    assert.match(text, /VERDICT: pass \| concerns \| fail/, 'the shape the return path reads')
+    // #421: the verdict is typed. The prompt names the fields, and it never
+    // names the grade word, because curia derives that from the severities.
+    assert.match(text, /`findings` — one entry per finding/, 'the shape the return path reads')
+    assert.match(text, /`severity` — `blocker`/)
+    assert.match(text, /You never write that word yourself/)
+    assert.match(text, /EMPTY `findings` list when the reading is clean/)
     assert.match(text, /report_result/)
     // The two things a reviewer must not inherit from a builder's prompt.
     assert.ok(!text.includes('/wayfinder'), 'a reviewer works through no map and resolves no ticket')

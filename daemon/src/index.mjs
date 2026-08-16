@@ -32,6 +32,7 @@ import { Reduction, CONFIRM_KIND, noteDisposition } from './reduction.mjs'
 import { JOURNAL } from './journal.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
+import { sayGoodbye, questionGoodbye } from './goodbye.mjs'
 import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
@@ -71,10 +72,11 @@ import {
   TYPED_FLOOR, isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
   lintResult, resultFloorFaults,
   lintNotify, notifyFloorFaults, notifyHasText,
+  lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES,
 } from './lint.mjs'
 import {
   composeCard, composeReviewBody, composeResultReport, optionLabels, derivedRecommended,
-  composeNotify, NOTIFY_KINDS,
+  composeNotify, NOTIFY_KINDS, composeVerdictReport,
 } from './card.mjs'
 import { LintGate, flaggedResultText, flaggedNotifyText } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
@@ -379,7 +381,10 @@ const statusLine = new StatusLine({
 })
 statusLine.start()
 reduction.onEvent = (ev) => statusLine.onEvent(ev)
-const pending = new Map() // escalation id -> resolve(answerText) — ephemeral, dies with the process
+// escalation id -> { resolve, reject } — ephemeral, dies with the process. The
+// reject half is #458's: the daemon ends every call in here with a tool ERROR
+// before it exits, rather than letting the call die unannounced.
+const pending = new Map()
 const renderRetries = new Map() // escalation id -> timeout handles — ephemeral, rebuilt on boot
 
 let bridge = null
@@ -433,14 +438,70 @@ function log(...args) {
   console.log(`[${new Date().toISOString()}] ${readable(format(...args))}`)
 }
 
+// ---- the three deaths that say goodbye (#458, deciding #426) ----------------
+//
+// A blocked call dies with this process, and until #458 it died in silence: a
+// codex agent holding an `ask_human` is told nothing and waits out a deadline a
+// day away. So the daemon speaks first. Every death it can see — the restart
+// order, a deploy's SIGTERM, and a fatal crash — ends every blocked call with a
+// tool ERROR, which is the failure #341's ladder needs to retry.
+//
+// The two wait registries are BOTH woken (#426): the escalation resolvers in
+// this file, and the cross-check park inside the dispatcher. A goodbye that woke
+// one would strand the other. See `goodbye.mjs` for the words and their rules.
+//
+// A SIGKILL reaches nobody, and nothing here pretends otherwise (#457).
+function sayDaemonGoodbye(reason) {
+  return sayGoodbye({
+    reason,
+    wake: {
+      // Named for the operator reading the journal afterwards, not for the code.
+      questions: wakeBlockedQuestions,
+      parks: () => dispatcher.wakeParkedBuilders(),
+    },
+    journal: (type, detail) => reduction.journal(type, detail),
+    log,
+  })
+}
+
+// The exit is once, whatever arrives twice. A second SIGTERM, or a crash inside
+// the goodbye, must not start a second goodbye or race a second exit code.
+let dying = null
+function goodbyeThenExit(reason, code, delayMs = 0) {
+  if (dying) return dying
+  dying = sayDaemonGoodbye(reason)
+    .catch((e) => log(`the goodbye failed (${e.message}) — exiting anyway`))
+    // A ref'd timer, so the exit code is this one rather than the 0 an empty
+    // event loop would leave. `restart: on-failure` reads that difference.
+    .then(() => { setTimeout(() => process.exit(code), delayMs) })
+  return dying
+}
+
+// Death two: the deploy. `deploy/self-deploy.sh` recreates this container, so
+// compose sends SIGTERM and waits out its default 10 s grace before the KILL.
+// Nothing caught it before this, which made every deploy the silent death #371
+// measured. The exit code is what the process left with no handler at all
+// (128 + 15), so the supervisor reads a deploy exactly as it did.
+const SIGTERM_EXIT_CODE = 143
+process.on('SIGTERM', () => {
+  log(`SIGTERM — saying goodbye to every blocked call, then exiting ${SIGTERM_EXIT_CODE}`)
+  goodbyeThenExit('sigterm', SIGTERM_EXIT_CODE)
+})
+
 // #56: a transient gateway/socket error must not take dispatch, escalation,
 // preview and reconcile down with it. Installed HERE, before the bridge and
 // before boot reconcile, because the crash it exists for fires from a timer
 // nobody in this file owns. Everything without a network signal still exits —
 // the difference from today is one journal line before it does.
+//
+// Death three (#458): a fatal crash says goodbye on its way out. It is a last
+// word and not a swallow — the daemon journals the fault, speaks, and exits 1
+// exactly as it did — so an OOM or a bug reaches a blocked agent the way a
+// deploy now does.
 installCrashGuard({
   log,
   journal: (type, detail) => reduction.journal(type, detail),
+  onFault: () => sayDaemonGoodbye('crash'),
 })
 
 // ---- escalation lifecycle -------------------------------------------------
@@ -507,7 +568,14 @@ function openEscalation({ agent, ticket, kind, prompt, options, preview_url, rec
   // recorded, queued as an agent note, and handed over on the agent's next tool
   // result. A resolver registered here would swallow the answer instead.
   if (awaited === false) return { record, answered: null }
-  const answered = new Promise((resolve) => pending.set(record.id, resolve))
+  const answered = new Promise((resolve, reject) => pending.set(record.id, { resolve, reject }))
+  // The goodbye (#458) rejects this promise, and not every caller awaits it:
+  // `POST /escalate` without `?wait` drops it on the floor. A dropped rejection
+  // is an unhandledRejection, which the #56 crash guard reads as a fault and
+  // kills the process over — during a restart, with the wrong exit code. One
+  // handler here makes the rejection handled for every caller that ignores it,
+  // and changes nothing for the callers that await.
+  answered.catch(() => {})
   return { record, answered }
 }
 
@@ -517,10 +585,25 @@ function openEscalation({ agent, ticket, kind, prompt, options, preview_url, rec
 // process, and the answer needs the #139 hand-off instead.
 function settle(record, text, attachments = []) {
   clearRenderRetries(record.id)
-  const resolve = pending.get(record.id)
+  const waiter = pending.get(record.id)
   pending.delete(record.id)
-  if (resolve) resolve({ text, attachments })
-  return Boolean(resolve)
+  if (waiter) waiter.resolve({ text, attachments })
+  return Boolean(waiter)
+}
+
+// The goodbye over the escalation resolvers (#458). Every blocked question ends
+// with a tool ERROR, and the RECORD IS LEFT ALONE: it stays open, it stays
+// rendered, and it stays answerable. The question is still the operator's to
+// answer, and an answer that lands in the seconds after this takes the #139
+// hand-off, which is exactly what a re-asked question reads back (#369).
+function wakeBlockedQuestions() {
+  let woken = 0
+  for (const [id, waiter] of [...pending]) {
+    pending.delete(id)
+    waiter.reject(new Error(questionGoodbye()))
+    woken += 1
+  }
+  return woken
 }
 
 // #139: the answer is recorded, but nothing live received it — no resolver
@@ -534,11 +617,14 @@ function handOffAnswer(record) {
   // does. Only synthetic and lab callers are excluded here.
   if (!/^curia-(\d+|chat-\d+)$/.test(record.agent)) return
   reduction.queueRecordedAnswer(record)
-  // #457: the line is per LANE, because the promise it makes is. The composer
-  // and the reason live in messaging.mjs.
+  // #457: the line says what is true of THIS agent, because the promise it
+  // makes is not true of every one. `mcpLastAt` is #194's own record of the
+  // agent having reached this daemon process. The composer and the whole reason
+  // live in messaging.mjs.
   const w = dispatcher.agents.get(record.agent)
   notifyThread(record.ticket, handOffLine({
-    agent: record.agent, ticket: record.ticket, harness: w?.harness ?? null, live: Boolean(w),
+    agent: record.agent, ticket: record.ticket, harness: w?.harness ?? null,
+    live: Boolean(w), spoken: Boolean(w?.mcpLastAt),
   }))
   log(`escalation ${record.id} answered with no live receiver — hand-off note queued for ${record.agent}`)
 }
@@ -1661,6 +1747,14 @@ function buildMcpServer(agent, ticket) {
       // ADR-0019 rule 3: a free record. No surface renders it and no lint reads
       // it, so it stays the one field an agent may shape for itself.
       details: z.record(z.string(), z.any()).optional(),
+      // #421: the CROSS-CHECK REVIEWER's field, and nobody else's. A verdict is
+      // a list of findings rather than one block of prose, and the severities
+      // are what curia derives the verdict's grade from.
+      findings: z.array(z.object({
+        text: z.string().optional().describe('One finding: the file and the line, what is wrong, why it matters. Block prose, 600 characters.'),
+        severity: z.enum(VERDICT_SEVERITIES).optional().describe('blocker (do not merge as it stands), concern (the operator decides), note (worth knowing).'),
+        out_of_scope: z.boolean().optional().describe('True when the finding is real but sits beyond this ticket. The builder carries it into its charting.'),
+      })).optional().describe('The cross-check reviewer only: one entry per finding. Send an empty list when the reading is clean.'),
     },
     async (result, extra) => {
       // The lint gate, BEFORE the park and before anything persists (#419). A
@@ -1669,30 +1763,32 @@ function buildMcpServer(agent, ticket) {
       // Linting after the cross-check park would make an agent wait hours for a
       // rejection it could have read at once.
       //
-      // The cross-check REVIEWER is exempt. Its `report_result` summary is the
-      // VERDICT, which ADR-0019 lists as a surface of its own with its own
-      // fields, and #421 types it. Holding a verdict to the report's shape here
-      // would half-type a surface another ticket owns, and a verdict runs to as
-      // many findings as the diff earns.
-      let flags = null
-      let flagNote = null
-      if (!dispatcher.isReviewerSession(agent)) {
-        const floor = resultFloorFaults(result)
-        const verdict = lintGate.judge({
-          agent, kind: RESULT_KIND, faults: [...floor, ...lintResult(result)],
-          schema: floor.length > 0, prompt: result.summary ?? null, payload: result,
-          // A report always carries something a human can read: the status. So
-          // the cap always ends in a flagged send, and the dead end a textless
-          // question gets has no counterpart here. An ending that reaches the
-          // thread flagged beats an ending that reaches it never.
-          hasText: true,
-        })
-        if (verdict.reject) return { content: [{ type: 'text', text: verdict.reject }] }
-        flags = verdict.flags ?? null
-        // The gate's own flagged line speaks of a card and of an operator about
-        // to answer. A report has neither, so the report says its own words.
-        flagNote = flags ? flaggedResultText(flags) : null
-      }
+      // The cross-check REVIEWER takes the VERDICT's shape here, not the
+      // report's (#421). Its `report_result` is the verdict, which ADR-0019
+      // lists as a surface of its own: a headline, the findings as a list, and
+      // the summary that says what it read and what it ran. It was exempt from
+      // this gate while that surface stayed untyped (#419), and the exemption
+      // ends with the shape it was waiting for.
+      //
+      // ONE ledger key for both (`RESULT_KIND`). A reviewer makes no other
+      // linted call, so nothing of its own can spend those three attempts, and
+      // the Stop hook's report words fit a verdict as they stand.
+      const reviewer = dispatcher.isReviewerSession(agent)
+      const floor = reviewer ? verdictFloorFaults(result) : resultFloorFaults(result)
+      const judged = lintGate.judge({
+        agent, kind: RESULT_KIND, faults: [...floor, ...(reviewer ? lintVerdict(result) : lintResult(result))],
+        schema: floor.length > 0, prompt: result.summary ?? null, payload: result,
+        // A report always carries something a human can read: the status. So
+        // the cap always ends in a flagged send, and the dead end a textless
+        // question gets has no counterpart here. An ending that reaches the
+        // thread flagged beats an ending that reaches it never.
+        hasText: true,
+      })
+      if (judged.reject) return { content: [{ type: 'text', text: judged.reject }] }
+      const flags = judged.flags ?? null
+      // The gate's own flagged line speaks of a card and of an operator about
+      // to answer. A report has neither, so the report says its own words.
+      const flagNote = flags ? flaggedResultText(flags) : null
       // #258: a cross-check still reading PARKS this call, exactly as it parks
       // the gate. The keepalive starts first, because the park lasts as long as
       // a reviewer takes and the client aborts an MCP call after 300s of silence
@@ -1744,7 +1840,14 @@ function buildMcpServer(agent, ticket) {
       if (bridge) {
         const pr = dispatcher.pullRequestUrlFor(agent)
         const tail = pr && !String(result.summary ?? '').includes(pr) ? `\n🔗 ${pr}` : ''
-        bridge.notify(bound, `${composeResultReport(result.status, result)}${tail}`, { as: speaker }).catch(() => {})
+        // #421: a verdict is a list of findings, and `composeResultReport` can
+        // render only a summary. A reviewer posting through the report shape
+        // would drop every finding from the thread, which is the one thing this
+        // map forbids: shortening must never lose information.
+        const report = reviewer
+          ? composeVerdictReport(result.status, result)
+          : composeResultReport(result.status, result)
+        bridge.notify(bound, `${report}${tail}`, { as: speaker }).catch(() => {})
         // A flagged send is CURIA's fact about the agent's text, so it is curia
         // that says it (ADR-0013). It rides a second message in the bot voice,
         // under the report it is about, rather than inside the agent's own.
@@ -1959,6 +2062,10 @@ function providerUsage() {
 // The code is nonzero because `restart: on-failure` is what respawns this
 // process: a clean exit is how the daemon stays down for a deploy. The pause is
 // only long enough for the answer already written to leave the socket.
+//
+// The goodbye (#458) sits between the two, and it has a drain of its own for the
+// errors it sends to the blocked calls. This pause is unchanged and still means
+// what it says: it covers the restart ANSWER, which is written before either.
 const RESTART_EXIT_CODE = 75
 const RESTART_DELAY_MS = 50
 
@@ -2543,6 +2650,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // is scheduled behind it — an exit inside the handler would kill the socket
   // the sidecar is waiting on, and the operator would read a restart that
   // worked as a restart that failed.
+  //
+  // Death one of #458's three: the blocked calls get their goodbye between the
+  // answer and the exit. It costs this route the drain — a quarter of a second,
+  // and only when somebody was actually blocked.
   if (url.pathname === '/restart' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = typeof body?.by === 'string' ? body.by : 'loopback'
@@ -2550,7 +2661,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     log(`restart requested by ${by} — exiting ${RESTART_EXIT_CODE} so the supervisor respawns this process`)
     res.writeHead(200, { 'content-type': 'application/json' })
     return res.end(JSON.stringify({ ok: true, by, exit_code: RESTART_EXIT_CODE }), () => {
-      setTimeout(() => process.exit(RESTART_EXIT_CODE), RESTART_DELAY_MS).unref()
+      goodbyeThenExit('restart', RESTART_EXIT_CODE, RESTART_DELAY_MS)
     })
   }
 

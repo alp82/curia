@@ -330,7 +330,7 @@ The `review:` section of `routing.yaml`, keyed by the builder's provider. An ant
 The reviewer's own checkout, at `repos/<owner>__<repo>/review/<n>`. It is a detached HEAD at the pushed tip of `curia/<n>`, because git refuses the same branch in two worktrees. It carries no branch, so there is nothing in it to commit onto.
 
 **Verdict**:
-The reviewer's one output: the text of its `report_result` summary. The daemon captures it as `data/verdicts/<n>.json` and holds it for the return path. A verdict read on the builder's own provider carries the stamp "same provider — cross-provider was cooling" at its top, written by curia.
+The reviewer's one output: its `report_result` call. It is typed (#421): a `headline`, a `summary` of what it read and ran, and one `finding` entry per finding, each with a severity of `blocker`, `concern` or `note` and a flag for one that sits beyond the ticket. curia derives the **grade** — `pass`, `concerns` or `fail` — from those severities, so the reviewer never writes it. The daemon composes the text once, captures it as `data/verdicts/<n>.json` beside the parts, and holds it for the return path. A verdict read on the builder's own provider carries the stamp "same provider — cross-provider was cooling" at its top, written by curia.
 
 ### Human in the loop
 
@@ -357,7 +357,7 @@ The optional code-block table or ASCII diagram on a card. At most 42 columns by 
 _Avoid_: diagram, figure.
 
 **Ending report**:
-What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a verdict instead, and #421 types that surface.
+What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a **verdict** instead: it is typed on its own fields (#421), and it wears the 🔎 signal rather than the ✅ of an ending.
 _Avoid_: final summary, result message.
 
 **Status line**:
@@ -390,7 +390,7 @@ _Avoid_: checker.
 The reviewer's findings on one diff. It reaches the builder on its note queue, and it lands as a pull-request comment.
 
 **Judgement**:
-The builder's reading of a verdict. It agrees or disagrees with each finding and recommends what to do. It reaches the operator as a plain question, and it lands as the second pull-request comment.
+The builder's reading of a verdict. It agrees or disagrees with each finding and recommends what to do. It reaches the operator as one `ask_human` round, one question per finding, each carrying the builder's recommendation (#421). It is a plain question and never a gate, and it lands as the second pull-request comment.
 
 **Parked**:
 A builder idle inside its own `request_review` or `report_result` call while a cross-check reads. It holds its claim, its worktree and its slot, and it wakes when the verdict lands.
@@ -407,6 +407,10 @@ A re-asked question closes the older record and routes late answers to the live 
 **Recorded answer**:
 An answer a human gave to a question no live call could receive. `settle` finds no resolver, so the daemon parks question and answer on the agent's note queue (#139). A question re-asked word for word takes that answer back at once, while the note is still unread, and no second card opens (#369). The note leaves with the answer, so one fact is said once. The tool result names the record, the person and the moment, so the agent knows the answer is a recorded one. At the review gate the same rule needs the diff digest to match, or a fresh gate opens.
 _Avoid_: replay, cached answer.
+
+**Goodbye**:
+The tool error the daemon sends to every blocked call before it dies (#458, deciding #426). Three deaths say it: `POST /restart`, a SIGTERM from a deploy, and a fatal crash. A SIGKILL says nothing. It is an error and never a text result, because the retry ladder needs a failure to retry and a text result reads as an answer. The words say three things: curia is restarting, the question is not answered, and how long to wait before asking again. The record stays open, so the agent asks again and takes back the recorded answer if one landed. It wakes both wait registries: the escalation resolvers and the cross-check park. One `daemon_goodbye` event carries the reason and the count.
+_Avoid_: shutdown notice, drain.
 
 **Inherited exchange**:
 Every question a human has answered on a ticket, written into the next dispatch's spawn prompt (#374). A prior answer is a parameter of this dispatch, so it lands in the prompt's parameters and never in the standing orders. The key is the session, which is `curia-<n>` for the ticket's whole life, so the push reaches every dispatch the ticket has had. It carries the question and the answer whole, and every kind, the review gate included. A cancelled, lapsed or superseded record holds no answer and does not appear. The block is capped, the newest survive, and the prompt says the words are recorded rather than fresh. It cures the re-ask a `resume` caused. The recorded answer cures the re-ask inside one dispatch, and the two never meet.

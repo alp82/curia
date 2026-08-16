@@ -57,6 +57,9 @@ import {
   verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
+import { parkGoodbye } from './goodbye.mjs'
+import { composeVerdict } from './card.mjs'
+import { verdictGrade } from './lint.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, RESULT_KIND, NOTIFY_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, CROSS_CHECK_LABEL, VERDICT_LABEL } from './reduction.mjs'
 import {
@@ -434,8 +437,11 @@ export class Dispatcher {
     // the path without waiting out a real one.
     this.interruptGraceMs = INTERRUPT_GRACE_MS
     // Builders parked at the gate waiting for a verdict (#165), ticket ->
-    // { agent, resolve }. Process-scoped on purpose: the thing waiting is a live
-    // MCP call, and a daemon restart kills the call before it kills this map.
+    // { agent, on, resolve, reject }. Process-scoped on purpose: the thing
+    // waiting is a live MCP call, and a daemon restart kills the call before it
+    // kills this map. That kill is what the `reject` half announces (#458): this
+    // is the SECOND wait a death strands, and `wakeParkedBuilders` is its
+    // goodbye.
     this.reviewWaits = new Map()
     this.mapLocks = new Map() // "repo#map" -> tail of that map's write chain (#41)
     this.exhaustionNotified = false
@@ -2084,7 +2090,12 @@ export class Dispatcher {
       return 'result recorded — curia could not tell which ticket this reviewer was reading, so no verdict was captured'
     }
     const sameProvider = w?.sameProvider ?? Boolean(spawn?.same_provider)
-    const text = String(result.summary ?? '').trim()
+    // #421: ONE composer builds the verdict text, and the artifact stores what
+    // it built. The pull-request comment, the builder's note and the thread
+    // carrier are three renderings of this one string, so a typed verdict that
+    // composed differently per surface would be evidence of nothing.
+    const text = composeVerdict(result).trim()
+    const grade = verdictGrade(result.findings)
     const verdict = {
       repo,
       ticket,
@@ -2094,6 +2105,11 @@ export class Dispatcher {
       same_provider: sameProvider,
       sha: w?.sha ?? spawn?.sha ?? null,
       status: result.status,
+      // The grade curia DERIVED from the severities, and the findings it read
+      // them off. Both ride the artifact because it outlives the reviewer: a
+      // later reader gets the parts, not just the prose curia laid out (#421).
+      grade,
+      findings: result.findings ?? null,
       // The stamp rides IN the text, because the text is what a human and the
       // builder read. The flag beside it is for the daemon.
       verdict: sameProvider ? `**${SAME_PROVIDER_STAMP}**\n\n${text}` : text,
@@ -2112,9 +2128,14 @@ export class Dispatcher {
     this.reduction.journal('verdict_captured', {
       repo, ticket, agent: agentName, model: verdict.model, status: result.status,
       same_provider: sameProvider, chars: verdict.verdict.length, on_disk: held,
+      grade, findings: (result.findings ?? []).length,
     })
     const named = spawnModelId(this.routing, verdict.model ?? '')
     const stamp = sameProvider ? ` (**${SAME_PROVIDER_STAMP}**)` : ''
+    // The grade rides the holding line, because that line is what an operator
+    // scrolling the thread reads (#421). An untyped verdict has no grade and
+    // this says nothing rather than guess one.
+    const graded = grade ? ` — **${grade}**` : ''
     // #237: a verdict that lost the race says so, loudly, instead of the
     // neutral holding line. On #223 the merge beat the verdict by three
     // seconds, and "curia is holding it" read as a delivery — the operator had
@@ -2122,9 +2143,9 @@ export class Dispatcher {
     const late = this.#verdictIsLate(ticket)
     if (late) {
       this.reduction.journal('verdict_late', { repo, ticket, agent: agentName })
-      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — ⚠️ it arrived TOO LATE to gate anything: the ticket was resolved before the verdict landed. The verdict goes on the pull request; reopening is the operator's call.`)
+      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp}${graded} — ⚠️ it arrived TOO LATE to gate anything: the ticket was resolved before the verdict landed. The verdict goes on the pull request; reopening is the operator's call.`)
     } else {
-      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
+      this.notify(ticket, `🔎 cross-check verdict on ${repo ?? ''}#${ticket} from \`${agentName}\` on **${named}**${stamp}${graded} — curia is holding it${held ? '' : ' in memory only: the artifact could NOT be written'}`)
     }
     // The return path (#165). It runs INSIDE the reviewer's own tool call, so a
     // failure in it must never fail the capture: the verdict is already held,
@@ -3313,11 +3334,13 @@ export class Dispatcher {
   // (reconcile re-adopts it) and never asked — so the operator approved and the
   // merge outran the verdict by three seconds.
   //
-  // "The builder's client sees an error" is the CLAUDE lane, about 120 s after
-  // the death. A codex builder sees nothing and sits in the park for up to
-  // `CODEX_TOOL_TIMEOUT_S`, so on that lane the rejoin never gets its chance
-  // (#371). This map is the second blocking call a restart strands, beside the
-  // escalation resolvers in `index.mjs`, and #426's goodbye has to wake both.
+  // "The builder's client sees an error" was the CLAUDE lane alone, about 120 s
+  // after the death. A codex builder saw nothing and sat in the park for up to
+  // `CODEX_TOOL_TIMEOUT_S`, so on that lane the rejoin never got its chance
+  // (#371). #458 made the error curia's own act: `wakeParkedBuilders` ends every
+  // park here with one, on both lanes, in about a second. The sentence above
+  // therefore holds for a restart, a deploy and a crash, and for a SIGKILL it
+  // still holds on claude alone (#457).
   async #parkForVerdict(agentName, { repo, ticket, w }) {
     const out = await this.#awaitVerdict(ticket, agentName)
     if (w) w.state = 'ready'
@@ -3362,8 +3385,8 @@ export class Dispatcher {
   #awaitVerdict(ticket, agentName, on = 'gate') {
     const key = String(ticket)
     this.#endReviewWait(key, 'the builder is now waiting on a newer call')
-    return new Promise((resolve) => {
-      this.reviewWaits.set(key, { agent: agentName, on, resolve })
+    return new Promise((resolve, reject) => {
+      this.reviewWaits.set(key, { agent: agentName, on, resolve, reject })
     })
   }
 
@@ -3382,6 +3405,29 @@ export class Dispatcher {
   // never cause, because the builder holds the ticket's only claim.
   #endReviewWait(ticket, why) {
     return this.#settleReviewWait(ticket, { ok: false, why })
+  }
+
+  // The goodbye over this map (#458, from #426). The daemon is about to die, so
+  // every parked builder ends its call with a tool ERROR rather than sitting on
+  // a verdict this process will never hand it. It is the one exit from this map
+  // that is not an outcome: `#settleReviewWait` says what a cross-check came to,
+  // and this says the daemon will not be the one to tell you.
+  //
+  // `on` says which call the builder is parked inside, so the words name the
+  // call it must make again — and that call is #237's rejoin, which a codex
+  // builder could never reach before.
+  //
+  // Nothing durable moves. The reviewer reads on in its own pane, reconcile
+  // re-adopts it, and `data/verdicts/<ticket>.json` holds a verdict that lands
+  // in between.
+  wakeParkedBuilders() {
+    let woken = 0
+    for (const [key, wait] of [...this.reviewWaits]) {
+      this.reviewWaits.delete(key)
+      wait.reject(new Error(parkGoodbye(wait.on)))
+      woken += 1
+    }
+    return woken
   }
 
   // A cross-check that has not returned yet (#237). The reviewer record is the
