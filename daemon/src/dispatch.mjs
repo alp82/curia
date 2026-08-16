@@ -2647,8 +2647,14 @@ export class Dispatcher {
       diff: digest, diff_error: digestError,
     })
     if (w) w.state = 'awaiting-review'
-    const { text: answer, status } = await this.askReview(agentName, ticket, text, { diff: digest, diffError: digestError })
+    // `recorded` is set only when the gate handed back an answer the operator
+    // had already given to this same summary over this same diff (#369). It is
+    // a LINE rather than a flag, and it stays out of `answer`: the answer is
+    // classified by a narrow set of words, and a preface in front of `approve`
+    // would read as a rejection.
+    const { text: answer, status, recorded } = await this.askReview(agentName, ticket, text, { diff: digest, diffError: digestError })
     if (w && w.state === 'awaiting-review') w.state = 'ready'
+    const said = (body) => (recorded && typeof body === 'string' ? `${recorded}\n\n${body}` : body)
 
     if (status !== 'answered') {
       this.store.logEvent('review_answered', { repo, ticket, agent: agentName, approved: false, status })
@@ -2658,12 +2664,16 @@ export class Dispatcher {
     this.store.logEvent('review_answered', {
       repo, ticket, agent: agentName, approved, via: 'gate',
       ...(crossCheck ? { outcome: 'cross-check' } : {}),
+      ...(recorded ? { recorded: true } : {}),
     })
     // #165, ADR-0010: the third button. The gate had two answers and now has
     // three, and this one answers NOTHING — nothing merges, nothing is rejected,
     // and the round ends where it started. What it does is put a second model on
     // the diff and hold the builder here until that model has read it.
-    if (crossCheck) return await this.#runCrossCheck(agentName, { repo, ticket, w })
+    if (crossCheck) {
+      const out = await this.#runCrossCheck(agentName, { repo, ticket, w })
+      return { ...out, text: said(out.text) }
+    }
     if (approved) {
       // #297: the ORDER is the answer to #48, and this is where it is said at
       // the moment it matters. A charting agent closes research tickets, never
@@ -2672,25 +2682,25 @@ export class Dispatcher {
       return {
         ok: true,
         approved: true,
-        text: mapDispatch
+        text: said(mapDispatch
           ? [
             `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`),`,
             'then resolve each research ticket you burned down — comment, close, map line — then report_result.',
             'Nothing closes before the merge, and the map itself never closes.',
           ].join('\n')
-          : `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.`,
+          : `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.`),
       }
     }
     return {
       ok: true,
       approved: false,
-      text: [
+      text: said([
         'NOT approved. The human said:',
         feedback || '(nothing beyond the rejection itself — ask them what to change with ask_human)',
         '',
         'Do not merge and do not resolve. Make the changes, commit, call open_pull_request again, then',
         'request_review again.',
-      ].join('\n'),
+      ].join('\n')),
     }
   }
 

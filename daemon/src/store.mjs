@@ -10,6 +10,9 @@
 //   - supersede (#29, #336): a re-issued ask_human — a second open record of one
 //     kind on one agent, whatever its wording — marks the old record superseded;
 //     answers posted to a dead id route along the successor chain to the live call
+//   - the recorded answer (#369): a question re-asked word for word takes back
+//     the answer #139 parked for it, while that note is still unread — so the
+//     operator waits once for one question
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -144,6 +147,7 @@ export class EscalationStore {
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
+    this.handoffNotes = new Map() // escalation id -> the note its recorded answer rides on (#369)
     this.recent = [] // the last RECENT_EVENTS journal lines, oldest first (#262)
     this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
@@ -340,14 +344,21 @@ export class EscalationStore {
         // can point at the words that receipt was about. Absent on every note
         // journalled before the two delivery modes existed, and a receipt with
         // no id carries no button.
+        // `handoff_for` names the escalation whose recorded answer this note
+        // carries (#369). Only the #139 hand-off sets it, and it is what lets a
+        // re-asked question find its own parked answer. Absent on every note
+        // journalled before this ticket, so an old hand-off is delivered by the
+        // drain alone, exactly as it always was.
         const note = {
           id: ev.id ?? null, agent: ev.agent, text: ev.text, after: ev.after ?? null,
           instance: ev.instance ?? null, label: ev.label ?? null, pending: true, at: ev.ts ?? null,
+          handoff_for: ev.handoff_for ?? null,
         }
         if (note.id) {
           const n = Number(String(note.id).split('-')[1])
           if (Number.isFinite(n) && n >= this.noteSeq) this.noteSeq = n
           this.notes.set(note.id, note)
+          if (note.handoff_for) this.handoffNotes.set(note.handoff_for, note.id)
         }
         arr.push(note)
         this.agentNotes.set(ev.agent, arr)
@@ -377,6 +388,19 @@ export class EscalationStore {
         const note = this.notes.get(ev.id)
         if (note) note.pending = false
         this.agentNotes.set(ev.agent, arr.filter((n) => n.id !== ev.id))
+        break
+      }
+      // #369: the re-asked question took its own recorded answer. ONE event for
+      // one act, because the answer and its note leave together — the call
+      // returns the answer, so the note carries nothing left to say and a drain
+      // that also delivered it would state one fact twice (ADR-0013).
+      case 'esc_replayed': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.replayed_at = ev.ts
+        const note = this.notes.get(ev.note)
+        if (note) note.pending = false
+        const arr = this.agentNotes.get(ev.agent) ?? []
+        this.agentNotes.set(ev.agent, arr.filter((n) => n.id !== ev.note))
         break
       }
       case 'overseer_notes_drained': {
@@ -623,7 +647,11 @@ export class EscalationStore {
   // words are a human's. The cross-check verdict rides this same queue and must
   // not read as something the operator typed: it is a second model's reading,
   // and the builder judges it rather than obeying it.
-  queueAgentNote(agent, text, { by = null, instance = null, label = null, graceMs = 120_000, now = Date.now() } = {}) {
+  // `handoffFor` is the #139 hand-off's own mark (#369): the escalation whose
+  // recorded answer these words carry. Every other caller leaves it null,
+  // because only a recorded answer can be handed back to the call that re-asks
+  // for it.
+  queueAgentNote(agent, text, { by = null, instance = null, label = null, handoffFor = null, graceMs = 120_000, now = Date.now() } = {}) {
     const recent = [...this.escalations.values()]
       .filter((r) => r.agent === agent && r.status !== 'open' && r.closed_at)
       .sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)))
@@ -631,7 +659,7 @@ export class EscalationStore {
     const closedMs = recent ? now - Date.parse(recent.closed_at) : Infinity
     const after = Number.isFinite(closedMs) && closedMs <= graceMs ? recent.id : null
     const id = `note-${++this.noteSeq}`
-    this._append({ type: 'agent_note', id, agent, text, after, by, instance, label })
+    this._append({ type: 'agent_note', id, agent, text, after, by, instance, label, handoff_for: handoffFor })
     return { id, after }
   }
 
@@ -668,7 +696,53 @@ export class EscalationStore {
       : ''
     const text = `a human answered ${record.id}, a question asked on this ticket that no live agent could receive.`
       + `\nquestion: ${record.prompt}\nanswer: ${record.answer}${att}`
-    return this.queueAgentNote(record.agent, text, { by: record.answered_by ?? null })
+    return this.queueAgentNote(record.agent, text, { by: record.answered_by ?? null, handoffFor: record.id })
+  }
+
+  // #369: the recorded answer a re-asked question may take back at once.
+  //
+  // The daemon restarts, the blocked call dies, the operator answers the card
+  // anyway, and #139 parks question and answer as a note. The agent then asks
+  // the same thing again. Supersede cannot help, because it only closes OPEN
+  // records and this one is answered — so a second card carried the same
+  // question and the operator paid the wait twice.
+  //
+  // TWO conditions, and both are narrow on purpose.
+  //
+  // The payload hash is EXACT here, where supersede deliberately dropped it
+  // (#336). Supersede asks "is this the same CALL", and a re-send may explain
+  // itself in new words. This asks "is this the same QUESTION", and only the
+  // question can decide that: an agent that asks something new of the same kind
+  // must never be handed the old answer instead of a human.
+  //
+  // The pending note is the WINDOW. A delivered answer parks no note, so this
+  // can only ever serve one nothing has read, and the moment the agent drains
+  // that note the answer has arrived and a later re-ask is a real second
+  // question. That needs no clock, and a clock would only guess at the same
+  // fact the queue already states.
+  //
+  // Only an ANSWERED record replays. A cancelled or lapsed one holds no answer,
+  // and a superseded one has a live successor to wait on.
+  recordedAnswerFor({ agent, kind, prompt, options, preview_url }) {
+    const payload_hash = EscalationStore.payloadHash({ kind, prompt, options, preview_url })
+    const matches = [...this.escalations.values()]
+      .filter((r) => r.agent === agent && r.kind === kind && r.status === 'answered' && r.payload_hash === payload_hash)
+      .sort((a, b) => String(a.closed_at).localeCompare(String(b.closed_at)))
+    // Newest first: if one question was somehow answered twice, the last answer
+    // is the operator's current mind.
+    for (const record of matches.reverse()) {
+      const note = this.notes.get(this.handoffNotes.get(record.id))
+      if (note?.pending) return { record, note }
+    }
+    return null
+  }
+
+  // The take, journalled as one act. The caller has already decided the record
+  // answers its question — this is where the answer stops being a queued note
+  // and becomes the return value of the call that asked.
+  takeRecordedAnswer(record, note) {
+    this._append({ type: 'esc_replayed', id: record.id, agent: record.agent, ticket: record.ticket, note: note.id })
+    return record
   }
 
   // The #208 rule, in one predicate: a note stamped with an instance belongs

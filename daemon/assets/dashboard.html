@@ -1050,6 +1050,7 @@ const EVENTS = {
   esc_cancel: ["answer", "", (e) => `escalation ${esc(e.id)} cancelled by ${esc(e.by)}`],
   esc_lapse: ["answer", "", (e) => `escalation ${esc(e.id)} lapsed — ${esc(e.reason)}`],
   esc_supersede: ["escalation", "", (e) => `escalation ${esc(e.id)} superseded by ${esc(e.successor)}`],
+  esc_replayed: ["answer", "", (e) => `${who(e)} asked ${esc(e.id)} again and took the recorded answer — nobody was asked twice`],
   review_requested: ["gate", "warn", (e) => `review gate opened for ${tkt(e)} by ${who(e)}`],
   review_answered: ["gate", "", (e) => `${tkt(e)} ${e.approved ? "approved" : "rejected"} at the gate${e.outcome ? ` — ${esc(e.outcome)}` : ""}`],
   cross_check_requested: ["cross-check", "", (e) => `cross-check pressed on ${tkt(e)} — ${who(e)} parks`],
