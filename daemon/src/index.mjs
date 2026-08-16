@@ -516,8 +516,13 @@ function askHumanGate(agentName, kind, raw) {
   // the only rejection it could write is "this prompt is wrong somewhere". #416
   // measured that a named and quoted fault is fixed in one attempt, and a vague
   // one is the expensive kind.
-  const floor = typed && TYPED_FLOOR ? floorFaults(kind, raw) : []
-  const faults = typed ? [...floor, ...lintAskHuman(kind, raw)] : []
+  // A call carrying NO prose at all is refused whatever the flip says. `prompt`
+  // was required by the schema before this ticket, and moving that check off
+  // zod (#438) must not turn a blank call into a blank card in a human's
+  // thread. There is no question in it to trap.
+  const empty = !hasText(raw)
+  const floor = empty || (typed && TYPED_FLOOR) ? floorFaults(kind, raw) : []
+  const faults = typed || empty ? [...floor, ...lintAskHuman(kind, raw)] : []
   const prompt = typed ? composeCard(kind, raw) : raw.prompt ?? ''
   const verdict = lintGate.judge({
     agent: agentName, kind, faults, schema: floor.length > 0, hasText: hasText(raw), prompt,
@@ -1348,7 +1353,7 @@ function buildMcpServer(agent, ticket) {
       // The same gate as `ask_human`, keyed on the same agent-and-kind pair the
       // supersession key uses (#336), so a rejected gate and a rejected question
       // count apart.
-      const floor = TYPED_FLOOR ? reviewFloorFaults(raw) : []
+      const floor = reviewFloorFaults(raw)
       const verdict = lintGate.judge({
         agent, kind: REVIEW_KIND, faults: [...floor, ...lintRequestReview(raw)],
         schema: floor.length > 0, hasText: hasText(raw), prompt: raw.summary ?? null, payload: raw,

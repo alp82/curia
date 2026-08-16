@@ -261,10 +261,17 @@ export function hasText(payload = {}) {
     || (payload.options ?? []).some((o) => present(typeof o === 'object' ? o?.label : o))
 }
 
-export function reviewFloorFaults(payload = {}) {
+// The gate's floor, in two halves.
+//
+// `summary` and `charting` were REQUIRED by the schema before this ticket, so
+// they are required now, flip or no flip. Making them optional to zod is about
+// which layer refuses the call (#438: a zod refusal dies in silence on codex),
+// never about letting a silent gate open. Only the `headline` waits for #422,
+// because it is the field this ticket adds.
+export function reviewFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {}) {
   const faults = []
-  if (!present(payload.headline)) faults.push('headline: missing. Say the whole change in one line.')
-  if (!present(payload.summary)) faults.push('summary: missing.')
+  if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say the whole change in one line.')
+  if (!present(payload.summary)) faults.push('summary: missing. Say what you did.')
   if (!present(payload.charting)) faults.push('charting: missing. Write "none" when there is nothing to chart.')
   return faults
 }

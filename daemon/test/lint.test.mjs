@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import {
   CAPS, VISUAL_COLUMNS, VISUAL_LINES, SENTENCE_WORDS,
   gradeA, gradeB, lintVisual, unfence, isTyped, floorFaults, lintAskHuman,
-  lintRequestReview, reviewFloorFaults,
+  lintRequestReview, reviewFloorFaults, hasText,
 } from '../src/lint.mjs'
 
 const names = (faults) => faults.join(' | ')
@@ -187,6 +187,20 @@ describe('the mandatory floor', () => {
     assert.deepEqual(floorFaults('approve-reject', { headline: 'h', options: [{ consequence: 'x' }, { consequence: 'y' }] }), [])
   })
 
+  test('a call with no prose at all fails the whole floor, flip or no flip', () => {
+    // What `ask_human` leans on before the flip. `prompt` was required by the
+    // schema until this ticket, and moving that check off zod (#438) must not
+    // turn a blank call into a blank card in a human's thread.
+    assert.equal(hasText({ kind: 'free-text' }), false)
+    const faults = names(floorFaults('free-text', {}))
+    assert.match(faults, /headline: missing/)
+    assert.match(faults, /questions: missing/)
+  })
+
+  test('an untyped prompt is prose, so it is not an empty call', () => {
+    assert.equal(hasText({ prompt: 'which port?' }), true)
+  })
+
   test('preview-review owes its preview url', () => {
     assert.match(names(floorFaults('preview-review', { headline: 'h' })), /preview_url: missing/)
   })
@@ -250,9 +264,19 @@ describe('lintRequestReview', () => {
   })
 
   test('the gate floor is the headline, the summary and the charting', () => {
-    assert.deepEqual(reviewFloorFaults({ headline: 'h', summary: 's', charting: 'none' }), [])
-    assert.match(names(reviewFloorFaults({})), /headline: missing/)
-    assert.match(names(reviewFloorFaults({})), /summary: missing/)
-    assert.match(names(reviewFloorFaults({})), /charting: missing/)
+    assert.deepEqual(reviewFloorFaults({ headline: 'h', summary: 's', charting: 'none' }, { typedFloor: true }), [])
+    const faults = names(reviewFloorFaults({}, { typedFloor: true }))
+    assert.match(faults, /headline: missing/)
+    assert.match(faults, /summary: missing/)
+    assert.match(faults, /charting: missing/)
+  })
+
+  test('summary and charting are required BEFORE the flip: the schema required them already', () => {
+    // Moving the check off zod (#438) decides which layer refuses the call. It
+    // must not let a silent gate open in the meantime.
+    assert.match(names(reviewFloorFaults({ headline: 'h' })), /summary: missing/)
+    assert.match(names(reviewFloorFaults({ headline: 'h' })), /charting: missing/)
+    assert.deepEqual(reviewFloorFaults({ summary: 's', charting: 'none' }), [],
+      'only the headline waits for the flip, because only the headline is new')
   })
 })
