@@ -446,6 +446,7 @@ describe('timeline config (#74)', () => {
         '  preview_proxy_from: 9100',
         'sandbox:',
         '  image: curia-agent',
+        '  node_version: 24.19.0',
         '  claude_version: 2.1.220',
         '  codex_version: 0.146.0',
         '  gh_version: 2.97.0',

@@ -4,6 +4,10 @@
   "private": true,
   "type": "module",
   "description": "Curia daemon: agent-facing MCP surface + Discord bridge + durable escalation record",
+  "//engines": "The Node pin (#357, applied by #409). A warning and not a wall: npm prints it and installs anyway, because a daemon that refuses to install is worse than the stack trace it prevents. The pin that binds is the image, in deploy/compose.yaml and config/curia.yaml.",
+  "engines": {
+    "node": ">=24.19.0"
+  },
   "scripts": {
     "start": "node src/index.mjs",
     "test": "node --test 'test/*.test.mjs'",

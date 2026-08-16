@@ -15,7 +15,9 @@
 # of a module the two processes share. Today that tree is needed for one package
 # (`yaml`, to read curia.yaml); the pin is what matters, not the count.
 
-ARG NODE_VERSION=22.17.1
+# No default: the pin is one version across every curia image, and it comes from
+# the anchor in deploy/compose.yaml (#357, applied by #409).
+ARG NODE_VERSION
 ARG TAILSCALE_VERSION=v1.98.10
 
 FROM tailscale/tailscale:${TAILSCALE_VERSION} AS tailscale

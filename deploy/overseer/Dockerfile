@@ -30,7 +30,9 @@
 # is the dependency tree, for the reason the dashboard states: `daemon/` as a
 # whole must not be mounted, because `.env.daemon` and `data/` live in it.
 
-ARG NODE_VERSION=22.17.1
+# No default: the pin is one version across every curia image, and it comes from
+# the anchor in deploy/compose.yaml (#357, applied by #409).
+ARG NODE_VERSION
 ARG GH_VERSION=2.97.0
 
 FROM node:${NODE_VERSION}-bookworm-slim

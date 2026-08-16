@@ -12,12 +12,21 @@
 # Nothing is COPYed, so the build context is this directory and it stays empty
 # of content. See daemon/src/image.mjs for the context and the tag.
 
-FROM node:lts-slim
-
 # Every version is a build ARG with NO default. An unpinned CLI in an agent
 # image is the failure this ticket exists to prevent: the pins live in
 # config/curia.yaml under `sandbox`, and they feed the image tag, so a bump
 # there names a tag that is not on the box and the daemon rebuilds.
+#
+# NODE_VERSION joined that set at #409, from the ruling at #357. This image ran
+# `FROM node:lts-slim` and served whatever Node that tag pointed at, while the
+# other three images pinned one. The daemon suite runs in here, so the suite
+# that must prove a Node upgrade ran on a Node nobody pinned. The distro is
+# named too, as `-bookworm-slim`, so a new Debian arrives by a commit and not by
+# a rebuild. The other three images name it the same way.
+ARG NODE_VERSION
+
+FROM node:${NODE_VERSION}-bookworm-slim
+
 ARG CLAUDE_VERSION
 ARG CODEX_VERSION
 ARG GH_VERSION
@@ -39,7 +48,9 @@ ENV LANG=C.UTF-8 \
 # ca-certificates is what makes every https fetch below work at all. tmux is
 # for the daemon's own test suite (#231): without it, three describes in
 # tmux.test.mjs — the #141 wedged-tmux classification guard — skip in every
-# agent container. Unpinned like the rest of the apt set.
+# agent container. sqlite3 is there for the same reason (#409): the daemon
+# suite runs in this image, and the backup (#436) spawns the binary. The daemon
+# image carries it for the backup itself. Unpinned like the rest of the apt set.
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
@@ -51,6 +62,7 @@ RUN set -eux; \
       procps \
       python3 \
       ripgrep \
+      sqlite3 \
       tmux; \
     rm -rf /var/lib/apt/lists/*
 
@@ -100,8 +112,8 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/* /root/.npm
 
 # The agent user (#148: Claude Code refuses to run as root, and root is the
-# escape surface worth removing anyway). node:lts-slim already holds uid 1000
-# as `node`, so the normal path renames it rather than adding a second user.
+# escape surface worth removing anyway). The node base image already holds uid
+# 1000 as `node`, so the normal path renames it rather than adding a second user.
 RUN set -eux; \
     at_uid="$(getent passwd "${AGENT_UID}" | cut -d: -f1 || true)"; \
     if [ -n "${at_uid}" ]; then \

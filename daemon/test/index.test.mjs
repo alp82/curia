@@ -494,6 +494,7 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       ...skillsYaml(seedSkillsRoot(tmp)),
       'sandbox:',
       '  image: curia-agent-test',
+      '  node_version: 1.0.0',
       '  claude_version: 1.0.0',
       '  codex_version: 1.0.0',
       '  gh_version: 1.0.0',

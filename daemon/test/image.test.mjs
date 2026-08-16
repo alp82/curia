@@ -22,6 +22,7 @@ import { withSeededHome } from './fixtures/skills.mjs'
 
 const PINS = {
   image: 'curia-agent',
+  node_version: '24.19.0',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
   gh_version: '2.97.0',
@@ -81,6 +82,7 @@ describe('the image tag (#154)', () => {
   test('every pin reaches the build as the ARG the Dockerfile declares', () => {
     const args = buildArgs(PINS)
     assert.deepEqual(args, {
+      NODE_VERSION: '24.19.0',
       CLAUDE_VERSION: '2.1.220',
       CODEX_VERSION: '0.146.0',
       GH_VERSION: '2.97.0',
@@ -278,6 +280,7 @@ describe('sandbox config (#154)', () => {
 
   const FULL = [
     'sandbox:',
+    '  node_version: 24.19.0',
     '  claude_version: 2.1.220',
     '  codex_version: 0.146.0',
     '  gh_version: 2.97.0',
@@ -304,7 +307,7 @@ describe('sandbox config (#154)', () => {
   })
 
   test('a missing pin is refused, naming the key', () => {
-    for (const key of ['claude_version', 'codex_version', 'gh_version', 'playwright_version', 'ttyd_version']) {
+    for (const key of ['node_version', 'claude_version', 'codex_version', 'gh_version', 'playwright_version', 'ttyd_version']) {
       const lines = FULL.filter((l) => !l.trim().startsWith(`${key}:`))
       assert.throws(() => loadCuriaConfig(writeConfig(lines)), new RegExp(`sandbox\\.${key}`))
     }
@@ -373,5 +376,52 @@ describe('the shipped config (#154)', () => {
     const text = fs.readFileSync(upstream, 'utf8')
     assert.match(text, /`v\d+\.\d+\.\d+`/, 'UPSTREAM.md names no upstream release')
     assert.match(text, /`[0-9a-f]{40}`/, 'UPSTREAM.md names no upstream commit')
+  })
+})
+
+// The Node pin (#357, applied by #409). One patch version runs every curia
+// image, and the rule that makes that hold is negative: NO Dockerfile carries a
+// default, so a build that forgets the arg fails instead of picking a Node. A
+// default put back here would restore the old failure silently — the agent
+// image floated on `node:lts-slim` and served Node 24.19.0 while the daemon ran
+// 22.17.1, and the daemon suite runs in the agent image. So the suite that must
+// prove a Node upgrade ran on a Node nobody pinned.
+//
+// The value itself is checked in one direction only: the two committed places
+// must agree. Which version they name is the operator's call, and the upgrade
+// recipe in the daemon README is what moves it.
+describe('the Node pin (#357, applied by #409)', () => {
+  const REPO = path.resolve(import.meta.dirname, '..', '..')
+  const compose = parse(fs.readFileSync(path.join(REPO, 'deploy', 'compose.yaml'), 'utf8'))
+  const dockerfile = (name) => fs.readFileSync(path.join(REPO, 'deploy', name, 'Dockerfile'), 'utf8')
+  const BUILT = { daemon: 'daemon', dashboard: 'dashboard', overseer: 'overseer' }
+
+  test('the three composed images take one Node version, from one anchor', () => {
+    const passed = Object.keys(BUILT).map((svc) => compose.services[svc].build.args.NODE_VERSION)
+    assert.equal(new Set(passed).size, 1, `the composed images name ${passed.length} Node versions: ${passed.join(', ')}`)
+    assert.match(passed[0], /^\d+\.\d+\.\d+$/, `the anchor is not a patch version: ${passed[0]}`)
+  })
+
+  test('the agent image takes the same version, through sandbox.node_version', () => {
+    const cfg = loadCuriaConfig(path.join(REPO, 'config', 'curia.yaml'))
+    assert.equal(cfg.sandbox.node_version, compose.services.daemon.build.args.NODE_VERSION)
+  })
+
+  test('no Dockerfile defaults NODE_VERSION — a build that forgets the arg has to fail', () => {
+    for (const name of [...Object.values(BUILT), 'agent']) {
+      const text = dockerfile(name)
+      assert.match(text, /^ARG NODE_VERSION$/m, `${name} declares no bare ARG NODE_VERSION`)
+      assert.doesNotMatch(text, /^ARG NODE_VERSION=/m, `${name} defaults NODE_VERSION`)
+    }
+  })
+
+  test('every image builds on the pinned Node and a named distro, never a floating tag', () => {
+    for (const name of [...Object.values(BUILT), 'agent']) {
+      assert.match(
+        dockerfile(name),
+        /^FROM node:\$\{NODE_VERSION\}-bookworm-slim$/m,
+        `${name} does not build on the pinned node base image`,
+      )
+    }
   })
 })

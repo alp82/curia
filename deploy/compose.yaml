@@ -16,6 +16,20 @@
 
 name: curia
 
+# THE NODE PIN (ruled by #357, first value applied by #409). One patch version
+# runs every curia image, and this anchor is that version for the three images
+# built here. The fourth is the agent image, pinned by `sandbox.node_version` in
+# config/curia.yaml. Move both in one commit.
+#
+# It is an anchor and not an interpolated variable on purpose: the pin is
+# committed, and `.env` beside this file is not. No Dockerfile carries a default
+# for it, so a build that forgets the arg fails rather than picking a Node.
+#
+# The journal runs on `node:sqlite`, which Node marks Stability 1.2, so a patch
+# update can change the API, the defaults and the bundled SQLite engine. The
+# upgrade recipe is in the daemon README, under "The Node pin".
+x-node-version: &node-version "24.19.0"
+
 volumes:
   # The tmux server socket. The server lives in the `tmux` container; the
   # daemon and ttyd are clients over this shared path. Same path in every
@@ -27,6 +41,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/daemon/Dockerfile
+      args:
+        NODE_VERSION: *node-version
     image: curia-daemon
     # The #249 restart contract: POST /restart journals and exits nonzero,
     # docker respawns. A clean exit stays down until the next deploy.
@@ -152,6 +168,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/dashboard/Dockerfile
+      args:
+        NODE_VERSION: *node-version
     image: curia-dashboard
     restart: unless-stopped
     network_mode: host
@@ -195,6 +213,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/overseer/Dockerfile
+      args:
+        NODE_VERSION: *node-version
     image: curia-overseer
     restart: unless-stopped
     user: "1000:1000"
