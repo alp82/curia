@@ -220,6 +220,9 @@ function makeDispatcher(deps = {}, {
     issueComments: async () => [],
     findPullRequest: async () => null,
     createPullRequest: async () => 'https://github.com/o/r/pull/1',
+    // #391: the gate press posts a real approval. Stubbed everywhere but its
+    // own tests, so no suite reaches for `gh`.
+    approvePullRequest: async () => {},
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [],
     pushBranch: async () => 'abc1234',
@@ -3823,6 +3826,185 @@ describe('request_review: the one gate (#54 item 2)', () => {
     await d.requestReview('curia-42', { summary: 's', charting: 'none' })
     assert.ok(events.some((e) => e.type === 'review_requested'))
     assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === true))
+  })
+
+  // ---- the press is a real GitHub approval (#391, ADR-0018) -------------------
+  //
+  // `main` is protected now, so the merge the agent owns needs an approving
+  // review on the pull request. The press is what posts it, and everything here
+  // pins the one rule that makes the gate honest: what is journalled as approved
+  // is what GitHub actually carries.
+
+  const OPEN_PR = { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' }
+
+  test('the press posts one approving review on the pull request the gate showed', async () => {
+    const approvals = []
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ ...OPEN_PR }),
+      approvePullRequest: async (repo, n) => { approvals.push({ repo, n }) },
+    }, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.deepEqual(approvals, [{ repo: 'o/r', n: 7 }])
+    assert.equal(r.approved, true)
+    assert.match(r.text, /APPROVED by the human/)
+    assert.ok(events.some((e) => e.type === 'pr_approved' && e.pr === 'https://github.com/o/r/pull/7'))
+    assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === true))
+  })
+
+  // The gate stays open for hours, so the pull request is read again at the
+  // press. The state that decides is the state the operator answered on.
+  test('the pull request is re-read at the press, not taken from the open', async () => {
+    const seen = []
+    let reads = 0
+    const d = makeDispatcher({
+      findPullRequest: async () => {
+        reads += 1
+        return reads === 1 ? { ...OPEN_PR } : { number: 9, url: 'https://github.com/o/r/pull/9', state: 'OPEN' }
+      },
+      approvePullRequest: async (repo, n) => { seen.push(n) },
+    }, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.deepEqual(seen, [9])
+  })
+
+  // The failure this ticket exists to contain. A press whose approval never
+  // reached GitHub must not send the agent at a merge a protected branch
+  // refuses, and must not read as approved to anything that asks later.
+  test('an approval curia could not post does NOT read as approved', async () => {
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ ...OPEN_PR }),
+      approvePullRequest: async () => { throw new Error('HTTP 401: Bad credentials') },
+    }, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, false, 'the agent must not read this as an approval')
+    assert.equal(r.approvalFailed, true)
+    assert.match(r.text, /could NOT post the GitHub approval/)
+    assert.match(r.text, /HTTP 401: Bad credentials/)
+    assert.match(r.text, /Do not merge and do not resolve/)
+    assert.match(r.text, /no commit of yours fixes it/)
+
+    const answered = events.find((e) => e.type === 'review_answered')
+    assert.equal(answered.approved, false, 'the Stop hook reads this, and it must not let the ticket resolve')
+    assert.equal(answered.outcome, 'approval-failed')
+    assert.equal(answered.pressed, 'approve', 'the operator pressed approve, and the record must keep that')
+    assert.ok(events.some((e) => e.type === 'pr_approval_failed'))
+    assert.ok(notifies.some((n) => /could not post the GitHub approval/.test(n.message)))
+  })
+
+  // A pull request curia cannot name is indeterminate, and an indeterminate
+  // approval is a failed one: nobody can tell whether the review is there.
+  test('a pull-request read that fails is a failed approval, not a silent skip', async () => {
+    const d = makeDispatcher({
+      findPullRequest: async () => { throw new Error('could not resolve host: github.com') },
+    }, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d, { prUrl: 'https://github.com/o/r/pull/7' })
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, false)
+    assert.match(r.text, /could not read the pull request/)
+    assert.ok(events.some((e) => e.type === 'pr_approval_failed'))
+  })
+
+  // Two honest skips. Neither is a failure, because neither leaves a merge
+  // waiting on a review that is not there.
+  test('a ticket with no pull request approves nothing and still approves', async () => {
+    let called = false
+    const d = makeDispatcher({
+      findPullRequest: async () => null,
+      approvePullRequest: async () => { called = true },
+    }, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 'a grilling answer', charting: 'none' })
+
+    assert.equal(called, false)
+    assert.equal(r.approved, true)
+    assert.ok(events.some((e) => e.type === 'pr_approval_skipped' && e.reason === 'no pull request'))
+  })
+
+  test('a merged pull request is skipped — the #369 replay of an approval already given', async () => {
+    let called = false
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' }),
+      approvePullRequest: async () => { called = true },
+    }, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(called, false)
+    assert.equal(r.approved, true)
+    assert.ok(events.some((e) => e.type === 'pr_approval_skipped' && /MERGED/.test(e.reason)))
+  })
+
+  // A box with no app for this owner: #390's fallback opens the pull request on
+  // the host login, so the press and the pull request are one account. That box
+  // keeps exactly the gate it had before this ticket, and the operator hears why
+  // once. ADR-0018: no credential comes out ahead of its replacement.
+  test('a self-approval is a skip, and the ending is untouched', async () => {
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ ...OPEN_PR }),
+      approvePullRequest: async () => {
+        throw new Error('GraphQL: Can not approve your own pull request (addPullRequestReview)')
+      },
+    }, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, true, 'the ending must not break on a box with no app')
+    assert.match(r.text, /APPROVED by the human/)
+    assert.ok(events.some((e) => e.type === 'pr_approval_skipped' && e.reason === 'self-approval'))
+    assert.ok(!events.some((e) => e.type === 'pr_approval_failed'))
+    assert.ok(events.some((e) => e.type === 'review_answered' && e.approved === true))
+    assert.ok(notifies.some((n) => /refused the approval as a self-approval/.test(n.message)))
+  })
+
+  // The rejection path is untouched: nothing is submitted on ❌.
+  test('a rejection submits nothing', async () => {
+    let called = false
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ ...OPEN_PR }),
+      approvePullRequest: async () => { called = true },
+    }, { askReview: async () => ({ text: 'rename the flag', status: 'answered' }) })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.equal(called, false)
+  })
+
+  // The third button answers neither way, so it posts nothing either (#165).
+  test('a cross-check press submits nothing', async () => {
+    let called = false
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ ...OPEN_PR }),
+      approvePullRequest: async () => { called = true },
+    }, { askReview: async () => ({ text: 'cross-check', status: 'answered' }) })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.equal(called, false)
+  })
+
+  test('a cancelled gate submits nothing', async () => {
+    let called = false
+    const d = makeDispatcher({
+      findPullRequest: async () => ({ ...OPEN_PR }),
+      approvePullRequest: async () => { called = true },
+    }, { askReview: async () => ({ text: 'aborted: a human cancelled this escalation', status: 'cancelled' }) })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    assert.equal(called, false)
   })
 
   test('a rejection returns the human words as feedback and forbids merging', async () => {

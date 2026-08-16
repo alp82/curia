@@ -365,7 +365,7 @@ The lever that makes a rejection unmissable on codex (#438). On codex 0.146.0 a 
 _Avoid_: hook fallback.
 
 **Review gate**:
-The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records.
+The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records. The ✅ press posts a real GitHub approval on the pull request (#391), under the host `gh` login, because an app cannot approve for a human and GitHub refuses a self-approval. What GitHub carries is what the journal calls approved: a press whose approval fails reads as not approved to the agent, to the Stop hook and to `/status`. Branch protection on the watched repo is what makes the press binding, and it is the operator's own optional act: curia requires no setting in a watched repo, and nothing in the daemon reads the rule.
 
 **Cross-check**:
 The operator's third choice at the review gate. Curia spawns a reviewer on the other provider, and the verdict returns to the builder. The press answers neither way: nothing merges and nothing is rejected.

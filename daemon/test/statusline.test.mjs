@@ -98,6 +98,34 @@ describe('StatusLine', () => {
     }
   })
 
+  // #391: the press is read off the button, and the approval that follows it can
+  // fail. A line left saying "executing approved writes" would state a merge
+  // nobody may make, on a ticket the operator has to look at again.
+  test('a press whose approval curia could not post stops reading as executing', async () => {
+    line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    records.set('esc-2', { id: 'esc-2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND })
+    line.onEvent({ type: 'esc_open', id: 'esc-2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
+    line.onEvent({ type: 'esc_answer', id: 'esc-2', answer: 'approve' })
+    assert.equal(line.stateOf('curia-9')?.state, 'executing', 'the button alone reads as approved')
+
+    line.onEvent({
+      type: 'review_answered', agent: 'curia-9', ticket: '9', approved: false, outcome: 'approval-failed',
+    })
+    await drain()
+    assert.equal(line.stateOf('curia-9')?.state, 'working')
+    assert.ok(!posts.at(-1).text.includes('executing approved writes'))
+  })
+
+  test('an approval that went through leaves the executing line alone', async () => {
+    line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    records.set('esc-2', { id: 'esc-2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND })
+    line.onEvent({ type: 'esc_open', id: 'esc-2', agent: 'curia-9', ticket: '9', kind: REVIEW_KIND, prompt: 'done?', ts: new Date().toISOString() })
+    line.onEvent({ type: 'esc_answer', id: 'esc-2', answer: 'approve' })
+    line.onEvent({ type: 'review_answered', agent: 'curia-9', ticket: '9', approved: true })
+    await drain()
+    assert.equal(line.stateOf('curia-9')?.state, 'executing')
+  })
+
   test('the tick refreshes the waiting line in place — no reminder message (#108 item 13)', async () => {
     // Since #261 the meter tick is the only thing that moves a parked line. The
     // clock is injected rather than real: the refresh is only worth an edit when

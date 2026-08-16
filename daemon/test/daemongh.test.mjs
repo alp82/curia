@@ -117,11 +117,20 @@ describe('every repo-named call in github.mjs carries its repo', () => {
     return out
   }
 
-  test('the only unrouted call is viewerLogin\'s, and it is the host login by design', () => {
+  // TWO unrouted calls since #391, and they are unrouted for different reasons.
+  // `viewerLogin` asks an account-wide question an installation token cannot
+  // answer. The gate approval names a repo and keeps the host login anyway: the
+  // approval is the OPERATOR's judgement, an app cannot post one for them, and
+  // an app-minted approval on an app-authored pull request is the self-approval
+  // GitHub refuses. Every other repo-named call routes.
+  test('the two unrouted calls are the host login by design, and nothing else joins them', () => {
     const unrouted = callsIn(SRC).filter((c) => !c.includes('{ repo }'))
     assert.deepEqual(
       unrouted,
-      ["gh(['api', 'user', '--jq', '.login'])"],
+      [
+        "gh(['api', 'user', '--jq', '.login'])",
+        "gh(['pr', 'review', String(n), '--repo', repo, '--approve'])",
+      ],
       'a gh call that names a repo and does not pass it runs as the operator, not as the bot',
     )
   })

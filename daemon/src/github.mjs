@@ -12,9 +12,12 @@
 // passes it to `gh`, which mints that owner's token and puts it in the child's
 // environment — so the daemon reads the frontier, claims, comments, closes,
 // opens pull requests and deletes branches as `curia-sh[bot]`. A call that names
-// NO repo gets no token and keeps the host login. There are two of those, both
-// account-wide questions an installation token cannot answer: `viewerLogin` and
-// the settings screen's `user/repos` read. See daemongh.mjs.
+// NO repo gets no token and keeps the host login. There are three of those. Two
+// are account-wide questions an installation token cannot answer: `viewerLogin`
+// and the settings screen's `user/repos` read. The third is the gate approval
+// (#391), which names a repo and keeps the host login anyway, because the
+// approval is the OPERATOR's and an app cannot post one for them. See
+// daemongh.mjs and `approvePullRequest`.
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -170,6 +173,28 @@ export async function createPullRequest(repo, { head, base, title, body }) {
     'pr', 'create', '--repo', repo, '--head', head, '--base', base, '--title', title, '--body-file', f,
   ], { repo }))
   return out.trim().split('\n').filter(Boolean).at(-1) ?? ''
+}
+
+// The gate press, as a real GitHub approval (#391, ADR-0018).
+//
+// THE ONE `gh` CALL THAT KEEPS THE HOST LOGIN ON PURPOSE, and the reason the
+// host login did not retreat whole with #390. Two facts make it that way:
+//
+//   - An app cannot approve for a human. A review submitted under a minted
+//     token is `curia-sh[bot]`'s, and the pull request is `curia-sh[bot]`'s
+//     too since #390 — so it is a self-approval, which GitHub refuses.
+//   - The operator IS the reviewer. The ✅ press is their judgement, and the
+//     approval that records it must carry their own account.
+//
+// So `repo` is deliberately NOT passed to `gh()`. The `--repo` flag names the
+// repository for the CLI, and the option object is what routes a token — see
+// daemongh.mjs, where a call with no repo gets no token and inherits the
+// operator's `~/.config/gh`.
+//
+// It throws on every failure, and the gate reads the throw as "not approved"
+// rather than as an approval it could not post.
+export function approvePullRequest(repo, n) {
+  return gh(['pr', 'review', String(n), '--repo', repo, '--approve'])
 }
 
 // Replace an open PR's body in place — the rejection loop opens one pull request
