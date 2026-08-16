@@ -506,6 +506,19 @@ function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
 // longest real block on record (7 h 53 m, #56), and a block that outlives it
 // re-dispatches rather than resolving anything (#11/#12). The keepalive stays on
 // for the claude harness and costs nothing here.
+//
+// #371 then measured what else this number bounds, and it is more than the human
+// wait. Codex has NO transport-drop watchdog: when the daemon dies holding a
+// call, the client is told nothing and waits out this deadline from the moment
+// the CALL was made. Measured three ways in
+// docs/research/tool-channel-mid-session-codex.md — still waiting 595 s and
+// 295 s after the death at this value, and dying at 60.009 s and 60.007 s with
+// the value cut to 60. The claude row above is told in ~120 s instead, which is
+// why #341's retry ladder works there and cannot fire here.
+//
+// So one number serves two jobs that pull apart: generous to a slow human, and
+// a day of silence for an agent a restart stranded. Changing it is a decision
+// against #34, not a tuning.
 const CODEX_TOOL_TIMEOUT_S = 86_400
 
 // The Stop hook, identical on both harnesses: POST the hook's own stdin payload to
