@@ -489,7 +489,7 @@ describe('TimelineSurface', () => {
   const turns = [] // every text handed to the driver
   let turnFails = null // a message to throw from send()
   // The conversation key's live session id, as the daemon journals it (#332).
-  // Read per driverFor call, exactly as index.mjs reads it off the store.
+  // Read per driverFor call, exactly as index.mjs reads it off the reduction.
   let drivenSessionId = 'browser-1111'
 
   before(async () => {

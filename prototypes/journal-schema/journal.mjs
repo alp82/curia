@@ -10,7 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
-import { normalizeEvent } from '../../daemon/src/store.mjs'
+import { normalizeEvent } from '../../daemon/src/journal.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 

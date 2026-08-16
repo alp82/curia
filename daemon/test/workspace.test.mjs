@@ -372,7 +372,7 @@ describe('the codex agent harness (#39)', () => {
 
   // #158: a container mounts no host HOME, so the link resolves to nothing
   // inside it. `os.homedir()` reads $HOME on POSIX, which is what lets these
-  // drive both the copy and the refusal without touching the real store.
+  // drive both the copy and the refusal without touching the real reduction.
   const withHome = (fn) => {
     const saved = process.env.HOME
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-codex-home-'))

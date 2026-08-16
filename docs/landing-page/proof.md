@@ -111,7 +111,7 @@ Then read the three numbers off them:
 
 - **Agents spawned** — `agent_spawned` **plus** `worker_spawned`. The journal is append-only and
   every line written before the #184 rename says `worker_spawned`, so `normalizeEvent` in
-  `daemon/src/store.mjs` rewrites the type on read. They are one event under two spellings, and a
+  `daemon/src/journal.mjs` rewrites the type on read. They are one event under two spellings, and a
   count that takes only the new one is short by every agent before the rename.
 - **Questions asked** — `esc_open` minus the `review-gate` kind, because the gate is the third
   number and one thing gets counted once.

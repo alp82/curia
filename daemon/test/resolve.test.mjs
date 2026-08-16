@@ -152,17 +152,17 @@ let journalled
 let calls
 
 function fixture({ issues, overrides = {}, result = { status: 'resolved', summary: 'the answer' }, login = 'me', epochTs = null } = {}) {
-  const store = new Map(Object.entries(issues).map(([k, v]) => [String(k), { ...v }]))
+  const reduction = new Map(Object.entries(issues).map(([k, v]) => [String(k), { ...v }]))
   const deps = {
     fetchIssue: async (repo, n) => {
-      const i = store.get(String(n))
+      const i = reduction.get(String(n))
       if (!i) throw new Error('HTTP 404: Not Found')
       return { ...i }
     },
     issueComments: async () => [],
     commentIssue: async (repo, n, body) => { calls.push({ op: 'comment', n: String(n), body }) },
-    closeIssue: async (repo, n) => { calls.push({ op: 'close', n: String(n) }); store.get(String(n)).state = 'closed' },
-    setIssueBody: async (repo, n, body) => { calls.push({ op: 'setBody', n: String(n) }); store.get(String(n)).body = body },
+    closeIssue: async (repo, n) => { calls.push({ op: 'close', n: String(n) }); reduction.get(String(n)).state = 'closed' },
+    setIssueBody: async (repo, n, body) => { calls.push({ op: 'setBody', n: String(n) }); reduction.get(String(n)).body = body },
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
     pushBranch: async (wt, repo, branch) => { calls.push({ op: 'push', branch }); return 'abc1234' },
@@ -174,7 +174,7 @@ function fixture({ issues, overrides = {}, result = { status: 'resolved', summar
     ...overrides,
   }
   return {
-    store,
+    reduction,
     run: () => resolveAndLand({
       repo: 'o/r', ticket: '42', agent: 'curia-42', result, login, epochTs, model: 'opus',
       wtPath: '/w/42', basePath: '/b', branch: 'curia/42',
@@ -239,7 +239,7 @@ describe('resolveAndLand: repairs', () => {
     const comment = calls.find((c) => c.op === 'comment')
     assert.match(comment.body, /recorded by curia/)
     assert.match(comment.body, /the answer/)
-    assert.equal(h.store.get('42').state, 'closed')
+    assert.equal(h.reduction.get('42').state, 'closed')
     assert.equal(journalled.filter((e) => e.type === 'resolve_repaired').length, 2)
   })
 
@@ -268,7 +268,7 @@ describe('resolveAndLand: repairs', () => {
     assert.ok(out.repaired.includes('map pointer on #1'))
     const appended = journalled.find((e) => e.type === 'map_pointer_appended')
     assert.match(appended.line, /^- \[a ticket\]\(https:\/\/github\.com\/o\/r\/issues\/42\) — the answer$/)
-    assert.ok(mapPointerFor(h.store.get('1').body, 'o/r', 42), 'the map body now carries the pointer')
+    assert.ok(mapPointerFor(h.reduction.get('1').body, 'o/r', 42), 'the map body now carries the pointer')
   })
 
   test('a write that does not show up on re-read is reported unverified, with the line still journalled', async () => {

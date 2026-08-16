@@ -17,7 +17,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EscalationStore, VERDICT_LABEL } from '../src/store.mjs'
+import { Reduction, VERDICT_LABEL } from '../src/reduction.mjs'
 import { DiscordBridge, noteReceipt, noteInterruptId, interruptedReceipt } from '../src/bridge.mjs'
 import { verdictCarrier } from '../src/resolve.mjs'
 
@@ -34,80 +34,80 @@ after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true 
 // ---------------------------------------------------------------------------
 
 describe('a note has an identity, so a button can name it (#252)', () => {
-  let dir, store
+  let dir, reduction
 
   beforeEach(() => {
     dir = tmpDir()
-    store = new EscalationStore(dir)
+    reduction = new Reduction(dir)
   })
 
   test('queueing returns the id, and the id finds the note back', () => {
-    const { id } = store.queueAgentNote('curia-9', 'look at the logs', { instance: 'curia-9@1' })
+    const { id } = reduction.queueAgentNote('curia-9', 'look at the logs', { instance: 'curia-9@1' })
     assert.match(id, /^note-\d+$/)
-    assert.equal(store.noteById(id).text, 'look at the logs')
-    assert.equal(store.noteById(id).pending, true)
+    assert.equal(reduction.noteById(id).text, 'look at the logs')
+    assert.equal(reduction.noteById(id).pending, true)
   })
 
   test('ids do not repeat, and a restart does not hand out one twice', () => {
-    const a = store.queueAgentNote('curia-9', 'first', {}).id
-    const b = store.queueAgentNote('curia-9', 'second', {}).id
+    const a = reduction.queueAgentNote('curia-9', 'first', {}).id
+    const b = reduction.queueAgentNote('curia-9', 'second', {}).id
     assert.notEqual(a, b)
-    const reborn = new EscalationStore(dir)
+    const reborn = new Reduction(dir)
     assert.notEqual(reborn.queueAgentNote('curia-9', 'third', {}).id, b)
   })
 
   test('an interrupt takes the words OUT of the queue — one fact, one delivery', () => {
-    const { id } = store.queueAgentNote('curia-9', 'answer me', { instance: 'curia-9@1' })
-    store.queueAgentNote('curia-9', 'and this one stays queued', { instance: 'curia-9@1' })
+    const { id } = reduction.queueAgentNote('curia-9', 'answer me', { instance: 'curia-9@1' })
+    reduction.queueAgentNote('curia-9', 'and this one stays queued', { instance: 'curia-9@1' })
 
-    assert.equal(store.interruptAgentNote(id).text, 'answer me')
+    assert.equal(reduction.interruptAgentNote(id).text, 'answer me')
 
-    assert.deepEqual(store.takeAgentNotes('curia-9', 'curia-9@1').map((n) => n.text),
+    assert.deepEqual(reduction.takeAgentNotes('curia-9', 'curia-9@1').map((n) => n.text),
       ['and this one stays queued'], 'the interrupted words must never also ride a tool result')
   })
 
   test('the removal is journalled, so a restart does not resurrect the words', () => {
-    const { id } = store.queueAgentNote('curia-9', 'answer me', { instance: 'curia-9@1' })
-    store.interruptAgentNote(id, { by: 'alp' })
-    assert.deepEqual(new EscalationStore(dir).takeAgentNotes('curia-9', 'curia-9@1'), [])
+    const { id } = reduction.queueAgentNote('curia-9', 'answer me', { instance: 'curia-9@1' })
+    reduction.interruptAgentNote(id, { by: 'alp' })
+    assert.deepEqual(new Reduction(dir).takeAgentNotes('curia-9', 'curia-9@1'), [])
   })
 
   // The ADR's own case: no drain receipt exists, so an operator who wants a
   // reply presses interrupt — and by then the agent has usually read the words
   // already and said nothing. The button must still work.
   test('a note the agent already read is still interruptable, and nothing is journalled twice', () => {
-    const { id } = store.queueAgentNote('curia-9', 'whats taking so long', { instance: 'curia-9@1' })
-    store.takeAgentNotes('curia-9', 'curia-9@1')
-    assert.equal(store.noteById(id).pending, false)
+    const { id } = reduction.queueAgentNote('curia-9', 'whats taking so long', { instance: 'curia-9@1' })
+    reduction.takeAgentNotes('curia-9', 'curia-9@1')
+    assert.equal(reduction.noteById(id).pending, false)
 
-    assert.equal(store.interruptAgentNote(id).text, 'whats taking so long')
+    assert.equal(reduction.interruptAgentNote(id).text, 'whats taking so long')
 
-    const journal = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+    const journal = reduction.journalEvents()
     assert.equal(journal.filter((e) => e.type === 'agent_note_interrupted').length, 0,
       'nothing left the queue, so nothing is recorded as leaving it')
   })
 
   test('an id that names nothing is null, never a guess', () => {
-    assert.equal(store.noteById('note-404'), null)
-    assert.equal(store.interruptAgentNote('note-404'), null)
+    assert.equal(reduction.noteById('note-404'), null)
+    assert.equal(reduction.interruptAgentNote('note-404'), null)
   })
 })
 
 describe('expiry always announces, on every path (#252)', () => {
-  let dir, store, fired
+  let dir, reduction, fired
 
   beforeEach(() => {
     dir = tmpDir()
-    store = new EscalationStore(dir)
+    reduction = new Reduction(dir)
     fired = []
-    store.onNotesExpired = (ev) => fired.push(ev)
+    reduction.onNotesExpired = (ev) => fired.push(ev)
   })
 
   test('the hook carries the notes themselves, not a count', () => {
-    store.queueAgentNote('curia-9', 'cancel 9', { instance: 'curia-9@1' })
-    store.queueAgentNote('curia-9', 'and check the logs', { instance: 'curia-9@1' })
+    reduction.queueAgentNote('curia-9', 'cancel 9', { instance: 'curia-9@1' })
+    reduction.queueAgentNote('curia-9', 'and check the logs', { instance: 'curia-9@1' })
 
-    const gone = store.expireAgentNotes('curia-9', null, 'finished')
+    const gone = reduction.expireAgentNotes('curia-9', null, 'finished')
 
     assert.deepEqual(gone.map((n) => n.text), ['cancel 9', 'and check the logs'])
     assert.equal(fired.length, 1, 'one expiry, one announcement')
@@ -119,25 +119,25 @@ describe('expiry always announces, on every path (#252)', () => {
   // caught by the drain's own belt-and-braces sweep. It expired the words and
   // said nothing, which is exactly how the #223 verdict vanished.
   test('the drain sweep announces too — the path that used to be silent', () => {
-    store.queueAgentNote('curia-9', 'typed at the predecessor', { instance: 'curia-9@15:13' })
+    reduction.queueAgentNote('curia-9', 'typed at the predecessor', { instance: 'curia-9@15:13' })
 
-    store.takeAgentNotes('curia-9', 'curia-9@16:36')
+    reduction.takeAgentNotes('curia-9', 'curia-9@16:36')
 
     assert.equal(fired.length, 1)
     assert.deepEqual(fired[0].notes.map((n) => n.text), ['typed at the predecessor'])
   })
 
   test('expiring nothing announces nothing — an empty sweep is not an event', () => {
-    store.queueAgentNote('curia-9', 'a note for whoever resumes', {})
-    assert.deepEqual(store.expireAgentNotes('curia-9', null), [])
+    reduction.queueAgentNote('curia-9', 'a note for whoever resumes', {})
+    assert.deepEqual(reduction.expireAgentNotes('curia-9', null), [])
     assert.deepEqual(fired, [])
   })
 
   test('an observer that throws never poisons the record', () => {
-    store.onNotesExpired = () => { throw new Error('boom') }
-    store.queueAgentNote('curia-9', 'cancel 9', { instance: 'curia-9@1' })
-    assert.equal(store.expireAgentNotes('curia-9', null).length, 1)
-    assert.deepEqual(new EscalationStore(dir).takeAgentNotes('curia-9'), [], 'the journal write already happened')
+    reduction.onNotesExpired = () => { throw new Error('boom') }
+    reduction.queueAgentNote('curia-9', 'cancel 9', { instance: 'curia-9@1' })
+    assert.equal(reduction.expireAgentNotes('curia-9', null).length, 1)
+    assert.deepEqual(new Reduction(dir).takeAgentNotes('curia-9'), [], 'the journal write already happened')
   })
 })
 

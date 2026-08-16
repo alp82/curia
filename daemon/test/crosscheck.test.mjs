@@ -83,13 +83,17 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
     // #195: every dispatch prepares a container, so every Dispatcher needs pins
     sandbox: TEST_PINS,
   }
-  const store = {
-    logEvent: (type, data) => {
+  const reduction = {
+    // The array IS the journal here. The dispatcher reads its own journal back
+    // — #epochScan, #epochSpawn and the reviewer adoption pass all do — and it
+    // asks the reduction for it since #407, so the double answers with what it
+    // was given.
+    journal: (type, data) => {
       const rec = { type, ts: new Date().toISOString(), ...data }
       events.push(rec)
-      fs.appendFileSync(path.join(dataDir, 'events.jsonl'), `${JSON.stringify(rec)}\n`)
       return rec
     },
+    journalEvents: () => events,
     openEscalations: () => [],
     // #374: no test here records an answered escalation, so the resumed prompt
     // inherits an empty exchange and says nothing about one.
@@ -145,7 +149,7 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
   const d = new Dispatcher({
     config,
     routing: ROUTING,
-    store,
+    reduction,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     askReview: askReview ?? (async () => ({ text: CROSS_CHECK_ANSWER, status: 'answered' })),
     log: () => {},
@@ -814,7 +818,7 @@ describe('request_review knows a cross-check is in flight (#237)', () => {
     const d = makeDispatcher({}, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
     withBuilder(d)
     plantVerdict({ at: '2020-01-01T00:00:00.000Z' })
-    d.store.logEvent('dispatch_claimed', { repo: 'o/r', ticket: '42', agent: 'curia-42', kind: 'ticket' })
+    d.reduction.journal('dispatch_claimed', { repo: 'o/r', ticket: '42', agent: 'curia-42', kind: 'ticket' })
 
     const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
     assert.equal(r.approved, true, 'a dead dispatch\'s verdict must not shut every later gate')
@@ -889,8 +893,8 @@ describe('a verdict that lost the race says so (#237)', () => {
   test('the journal alone proves late — a restart holds no builder record', async () => {
     const d = makeDispatcher()
     withAdoptedReviewer(d)
-    d.store.logEvent('reviewer_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-review-42' })
-    d.store.logEvent('ticket_resolved', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    d.reduction.journal('reviewer_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-review-42' })
+    d.reduction.journal('ticket_resolved', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
 
     await d.onResult('curia-review-42', { ticket: '42', status: 'resolved', summary: 'VERDICT: fail' })
 
@@ -952,7 +956,7 @@ describe('the start of a cross-check speaks to the builder (#258)', () => {
 
   test('no builder to reach, so nothing queues and the journal says why', async () => {
     const d = makeDispatcher()
-    d.store.logEvent('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'opus', kind: 'ticket' })
+    d.reduction.journal('agent_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'opus', kind: 'ticket' })
 
     await d.crossCheck('42', { repo: 'o/r' })
 

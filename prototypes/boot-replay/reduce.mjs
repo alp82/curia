@@ -1,7 +1,7 @@
 // The three ways to fill the reduction at boot, and one way to compare them.
 //
-// The daemon builds every in-memory reduction with one pass: `_replay` reads
-// `events.jsonl` whole and hands each line to `_apply`. This module holds that
+// The daemon builds every in-memory reduction with one pass: the rebuild reads
+// the journal whole and hands each line to `_apply`. This module holds that
 // pass, the same pass reading the journal instead, and a narrowed variant that
 // scans only the types the reducer acts on and answers the rest with queries.
 //
@@ -9,7 +9,8 @@
 // check that all three end at the same reduction.
 
 import fs from 'node:fs'
-import { normalizeEvent, EscalationStore, RECENT_EVENTS, RECENT_OUTCOMES } from '../../daemon/src/store.mjs'
+import { normalizeEvent } from '../../daemon/src/journal.mjs'
+import { Reduction, RECENT_EVENTS, RECENT_OUTCOMES } from '../../daemon/src/reduction.mjs'
 
 // ------------------------------------------------------------- the two halves
 //
@@ -21,7 +22,7 @@ import { normalizeEvent, EscalationStore, RECENT_EVENTS, RECENT_OUTCOMES } from 
 // Only the verbatim three can be a query, because only they are "the last N
 // rows matching X". The narrowed variant below is exactly that split made real.
 
-// The 26 types `_apply`'s switch acts on, read off `daemon/src/store.mjs`.
+// The 26 types `_apply`'s switch acts on, read off `daemon/src/reduction.mjs`.
 // `checkTypeList` asserts this list is still the whole switch.
 const SWITCH_TYPES = [
   'esc_open', 'escalation_agent_died', 'esc_render', 'esc_answer', 'esc_cancel', 'esc_lapse',
@@ -52,7 +53,7 @@ const NOTE_EVENTS = [
   'agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused', 'agent_note_interrupted',
 ]
 
-// `#feedShape` is private to the store, so the query path repeats it. A feed
+// `#feedShape` is private to the reduction, so the query path repeats it. A feed
 // row trims the review gate's per-file diff list and keeps the totals (#355).
 function feedShape(ev) {
   if (!ev.diff?.list) return ev
@@ -60,17 +61,20 @@ function feedShape(ev) {
   return { ...ev, diff: { ...totals, list_on_the_record: list.length } }
 }
 
-// A reducer with nothing in it. The store rebuilds from its own file in the
-// constructor, so an empty directory is how you get a blank one.
+// A reducer with nothing in it. The reduction rebuilds from its own journal in
+// the constructor, so an empty directory is how you get a blank one.
 function blank(dir) {
   fs.mkdirSync(dir, { recursive: true })
-  fs.rmSync(`${dir}/events.jsonl`, { force: true })
-  return new EscalationStore(dir)
+  for (const f of ['events.jsonl', 'events.db', 'events.db-wal', 'events.db-shm']) {
+    fs.rmSync(`${dir}/${f}`, { force: true })
+  }
+  return new Reduction(dir)
 }
 
 // ------------------------------------------------------------- the three boots
 
-// Today. `_replay`, line for line, with the construction it sits inside.
+// The file baseline: the boot pass as it stood before #407, line for line,
+// with the construction it sits inside.
 export function bootFromFile(dir, file) {
   const r = blank(dir)
   for (const line of fs.readFileSync(file, 'utf8').split('\n')) {

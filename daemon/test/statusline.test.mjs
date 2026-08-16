@@ -3,13 +3,13 @@
 // thread bottom — delete + repost (#108 item 17) — because an edit-in-place
 // stays where the line was born, screens above where the operator reads. Only
 // the same-state elapsed refresh edits in place. Events are fed straight to
-// onEvent — the same records the store's append hook delivers live.
+// onEvent — the same records the reduction's append hook delivers live.
 
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { StatusLine, LINE_BUDGET, GROUP_SEP, visibleWidth } from '../src/statusline.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
-import { CONFIRM_KIND } from '../src/store.mjs'
+import { CONFIRM_KIND } from '../src/reduction.mjs'
 
 describe('StatusLine', () => {
   let posts, edits, removals, records, line, meters
@@ -510,21 +510,21 @@ describe('StatusLine', () => {
     assert.equal(edits.length, 0, 'the tick skips an agent whose run is over')
   })
 
-  test('the store append hook delivers live events and stays silent on replay', async () => {
+  test('the reduction append hook delivers live events and stays silent on replay', async () => {
     const os = await import('node:os')
     const fs = await import('node:fs')
     const path = await import('node:path')
-    const { EscalationStore } = await import('../src/store.mjs')
+    const { Reduction } = await import('../src/reduction.mjs')
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-statusline-'))
     try {
-      const store = new EscalationStore(dir)
+      const reduction = new Reduction(dir)
       const seen = []
-      store.onEvent = (ev) => seen.push(ev.type)
-      store.logEvent('agent_spawned', { agent: 'curia-1', ticket: '1', model: 'opus' })
-      store.open({ agent: 'curia-1', ticket: '1', kind: 'free-text', prompt: 'q' })
+      reduction.onEvent = (ev) => seen.push(ev.type)
+      reduction.journal('agent_spawned', { agent: 'curia-1', ticket: '1', model: 'opus' })
+      reduction.open({ agent: 'curia-1', ticket: '1', kind: 'free-text', prompt: 'q' })
       assert.deepEqual(seen, ['agent_spawned', 'esc_open'])
-      // replay: a rebooted store re-announces nothing
-      const reborn = new EscalationStore(dir)
+      // replay: a rebooted reduction re-announces nothing
+      const reborn = new Reduction(dir)
       const replaySeen = []
       reborn.onEvent = (ev) => replaySeen.push(ev.type)
       assert.deepEqual(replaySeen, [])

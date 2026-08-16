@@ -3,8 +3,8 @@
 //
 // Three halves are driven here, and each one is the real thing:
 //
-//   1. The journal reduction, on a real `EscalationStore` over a real file —
-//      including the second store that reads the same file cold, because the
+//   1. The journal reduction, on a real `Reduction` over a real journal —
+//      including the second reduction that reads that journal cold, because the
 //      whole point is that the message survives the process.
 //   2. `refuseReplay`, which is the whole decision and is pure.
 //   3. `replayKilledTurns`, the boot pass, with the container, the bridge and
@@ -15,7 +15,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { EscalationStore } from '../src/store.mjs'
+import { Reduction } from '../src/reduction.mjs'
 import {
   replayKilledTurns, refuseReplay, droppedLine, replayLine, REPLAY_FRESH_MS,
 } from '../src/overseerreplay.mjs'
@@ -24,33 +24,33 @@ const quiet = () => {}
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-replay-'))
 
 // One started turn, as the client writes it.
-function start(store, { key = '111', prompt = 'what is on the frontier', threadId = '111', replay = false } = {}) {
-  store.beginOverseerTurn({ key, turn: 'abc', prompt, threadId, replay })
+function start(reduction, { key = '111', prompt = 'what is on the frontier', threadId = '111', replay = false } = {}) {
+  reduction.beginOverseerTurn({ key, turn: 'abc', prompt, threadId, replay })
 }
 
 // One seam crossing, as index.mjs writes it: the command event the daemon
 // already journals, carrying the conversation key.
-function cross(store, key, canonical) {
-  store.logEvent('command', { canonical, by: 'overseer', overseer_key: key })
+function cross(reduction, key, canonical) {
+  reduction.journal('command', { canonical, by: 'overseer', overseer_key: key })
 }
 
 describe('the journal holds the pending turn (#388)', () => {
   test('a started turn is pending, and an ended one is not', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    start(store)
-    assert.equal(store.pendingOverseerTurns().length, 1)
-    assert.equal(store.pendingOverseerTurns()[0].prompt, 'what is on the frontier')
-    store.endOverseerTurn({ key: '111', turn: 'abc', ok: true, crossings: 0 })
-    assert.deepEqual(store.pendingOverseerTurns(), [])
+    const reduction = new Reduction(dir)
+    start(reduction)
+    assert.equal(reduction.pendingOverseerTurns().length, 1)
+    assert.equal(reduction.pendingOverseerTurns()[0].prompt, 'what is on the frontier')
+    reduction.endOverseerTurn({ key: '111', turn: 'abc', ok: true, crossings: 0 })
+    assert.deepEqual(reduction.pendingOverseerTurns(), [])
   })
 
-  test('a fresh store reads the same pending turn off the file — the message survives the process', () => {
+  test('a fresh reduction reads the same pending turn off the file — the message survives the process', () => {
     const dir = tmp()
-    const first = new EscalationStore(dir)
+    const first = new Reduction(dir)
     start(first, { prompt: 'start 256' })
     // No end event: this is the process the restart killed.
-    const booted = new EscalationStore(dir)
+    const booted = new Reduction(dir)
     const killed = booted.pendingOverseerTurns()
     assert.equal(killed.length, 1)
     assert.equal(killed[0].prompt, 'start 256')
@@ -60,11 +60,11 @@ describe('the journal holds the pending turn (#388)', () => {
 
   test('the crossings are counted off the command event the seam already writes', () => {
     const dir = tmp()
-    const first = new EscalationStore(dir)
+    const first = new Reduction(dir)
     start(first)
     cross(first, '111', 'start 256 in alp82/curia')
     cross(first, '111', 'status')
-    const booted = new EscalationStore(dir)
+    const booted = new Reduction(dir)
     const killed = booted.pendingOverseerTurns()[0]
     assert.equal(killed.crossings, 2)
     assert.deepEqual(killed.commands, ['start 256 in alp82/curia', 'status'])
@@ -72,51 +72,51 @@ describe('the journal holds the pending turn (#388)', () => {
 
   test('a command with no conversation key counts against nothing', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    start(store)
-    store.logEvent('command', { canonical: 'start 256', by: 'alp82' })
-    assert.equal(store.pendingOverseerTurns()[0].crossings, 0)
+    const reduction = new Reduction(dir)
+    start(reduction)
+    reduction.journal('command', { canonical: 'start 256', by: 'alp82' })
+    assert.equal(reduction.pendingOverseerTurns()[0].crossings, 0)
   })
 
   test('a drop ends the turn and leaves the line for the surfaces', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    start(store, { key: 'console-1', threadId: null })
-    store.dropOverseerTurn({ key: 'console-1', crossings: 1, commands: ['cancel 3'], replayed: false, why: 'it already crossed the seam' })
-    assert.deepEqual(store.pendingOverseerTurns(), [])
-    assert.equal(store.droppedOverseerTurn('console-1').why, 'it already crossed the seam')
+    const reduction = new Reduction(dir)
+    start(reduction, { key: 'console-1', threadId: null })
+    reduction.dropOverseerTurn({ key: 'console-1', crossings: 1, commands: ['cancel 3'], replayed: false, why: 'it already crossed the seam' })
+    assert.deepEqual(reduction.pendingOverseerTurns(), [])
+    assert.equal(reduction.droppedOverseerTurn('console-1').why, 'it already crossed the seam')
     // And the next boot reads no corpse twice.
-    assert.deepEqual(new EscalationStore(dir).pendingOverseerTurns(), [])
+    assert.deepEqual(new Reduction(dir).pendingOverseerTurns(), [])
   })
 
   test('the conversation\'s next turn clears the dropped line', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    start(store, { key: 'console-1', threadId: null })
-    store.dropOverseerTurn({ key: 'console-1', crossings: 1, commands: [], replayed: false, why: 'no' })
-    assert.ok(store.droppedOverseerTurn('console-1'))
-    start(store, { key: 'console-1', threadId: null })
-    assert.equal(store.droppedOverseerTurn('console-1'), null)
+    const reduction = new Reduction(dir)
+    start(reduction, { key: 'console-1', threadId: null })
+    reduction.dropOverseerTurn({ key: 'console-1', crossings: 1, commands: [], replayed: false, why: 'no' })
+    assert.ok(reduction.droppedOverseerTurn('console-1'))
+    start(reduction, { key: 'console-1', threadId: null })
+    assert.equal(reduction.droppedOverseerTurn('console-1'), null)
   })
 
   test('a deleted conversation takes its pending and dropped turns with it', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    store.openConsoleConversation()
-    start(store, { key: 'console-1', threadId: null })
-    store.deleteConsoleConversation('console-1')
-    assert.deepEqual(store.pendingOverseerTurns(), [])
-    assert.equal(store.droppedOverseerTurn('console-1'), null)
+    const reduction = new Reduction(dir)
+    reduction.openConsoleConversation()
+    start(reduction, { key: 'console-1', threadId: null })
+    reduction.deleteConsoleConversation('console-1')
+    assert.deepEqual(reduction.pendingOverseerTurns(), [])
+    assert.equal(reduction.droppedOverseerTurn('console-1'), null)
   })
 
   test('the turn bookkeeping stays out of the feed, and the drop does not', () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    start(store)
-    store.endOverseerTurn({ key: '111', turn: 'abc', ok: true })
-    assert.deepEqual(store.recentEvents().map((e) => e.type), [])
-    store.dropOverseerTurn({ key: '111', replayed: true })
-    assert.deepEqual(store.recentEvents().map((e) => e.type), ['overseer_turn_dropped'])
+    const reduction = new Reduction(dir)
+    start(reduction)
+    reduction.endOverseerTurn({ key: '111', turn: 'abc', ok: true })
+    assert.deepEqual(reduction.recentEvents().map((e) => e.type), [])
+    reduction.dropOverseerTurn({ key: '111', replayed: true })
+    assert.deepEqual(reduction.recentEvents().map((e) => e.type), ['overseer_turn_dropped'])
   })
 })
 
@@ -165,7 +165,7 @@ describe('what stops a replay (#388, ADR-0015)', () => {
 
 function harness({ killed, up = true, bridge = true, live = () => false, bootAt = Date.now() }) {
   const dir = tmp()
-  const store = new EscalationStore(dir)
+  const reduction = new Reduction(dir)
   const said = []
   const replayed = []
   const browsed = []
@@ -174,13 +174,13 @@ function harness({ killed, up = true, bridge = true, live = () => false, bootAt 
   let clock = bootAt
   return {
     dir,
-    store,
+    reduction,
     said,
     replayed,
     browsed,
     run: () => replayKilledTurns({
       killed,
-      store,
+      reduction,
       bootAt,
       nowMs: () => clock,
       probe: async () => ({ up }),
@@ -216,7 +216,7 @@ describe('the boot pass (#388)', () => {
     assert.deepEqual(out, [{ key: '111', replayed: true, why: null }])
     assert.deepEqual(h.replayed, [['111', 'what is on the frontier']])
     assert.equal(h.said.length, 0)
-    assert.equal(h.store.droppedOverseerTurn('111').replayed, true)
+    assert.equal(h.reduction.droppedOverseerTurn('111').replayed, true)
   })
 
   test('a turn that ran a verb gets one line naming what it ran, and no replay', async () => {
@@ -242,7 +242,7 @@ describe('the boot pass (#388)', () => {
     await h.run()
     assert.equal(h.browsed.length, 0)
     assert.equal(h.said.length, 0)
-    const dropped = h.store.droppedOverseerTurn('console-2')
+    const dropped = h.reduction.droppedOverseerTurn('console-2')
     assert.equal(dropped.replayed, false)
     assert.deepEqual(dropped.commands, ['cancel 3'])
   })
@@ -257,11 +257,11 @@ describe('the boot pass (#388)', () => {
 
   test('a health check that throws reads as a container that is down, never as a lost turn', async () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
+    const reduction = new Reduction(dir)
     let clock = Date.now()
     const out = await replayKilledTurns({
       killed: [killedTurn()],
-      store,
+      reduction,
       bootAt: clock,
       nowMs: () => clock,
       probe: async () => { throw new Error('the socket is gone') },
@@ -273,7 +273,7 @@ describe('the boot pass (#388)', () => {
     })
     assert.equal(out[0].why, 'the overseer container did not come back')
     // And the turn is closed, not left pending for a boot an hour from now.
-    assert.deepEqual(new EscalationStore(dir).pendingOverseerTurns(), [])
+    assert.deepEqual(new Reduction(dir).pendingOverseerTurns(), [])
   })
 
   test('a bridge that never comes back holds the Discord replay', async () => {
@@ -302,20 +302,19 @@ describe('the boot pass (#388)', () => {
     const killed = [killedTurn()]
     const h = harness({ killed })
     await h.run()
-    // The pass ended the killed turn. A store reading the same file cold — the
+    // The pass ended the killed turn. A reduction reading the same file cold — the
     // next boot — has no corpse to read.
-    assert.deepEqual(new EscalationStore(h.dir).pendingOverseerTurns(), [])
+    assert.deepEqual(new Reduction(h.dir).pendingOverseerTurns(), [])
   })
 
   test('every verdict is on the record before one word is sent', async () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
-    const drops = () => fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8')
-      .split('\n').filter((l) => l.includes('"overseer_turn_dropped"')).length
+    const reduction = new Reduction(dir)
+    const drops = () => reduction.journalEvents().filter((e) => e.type === 'overseer_turn_dropped').length
     let atFirstSend = null
     await replayKilledTurns({
       killed: [killedTurn(), killedTurn({ key: '222', thread_id: '222' })],
-      store,
+      reduction,
       bootAt: Date.now(),
       probe: async () => ({ up: true }),
       sleep: async () => {},
@@ -333,11 +332,11 @@ describe('the boot pass (#388)', () => {
 
   test('a replay that throws does not stop the next conversation', async () => {
     const dir = tmp()
-    const store = new EscalationStore(dir)
+    const reduction = new Reduction(dir)
     const browsed = []
     const out = await replayKilledTurns({
       killed: [killedTurn(), killedTurn({ key: 'console-3', thread_id: null })],
-      store,
+      reduction,
       bootAt: Date.now(),
       probe: async () => ({ up: true }),
       sleep: async () => {},

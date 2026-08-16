@@ -1,0 +1,1 @@
+codex --model "gpt-5.5" --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat "/tmp/codex-stop-hook/t1/prompt.md")"

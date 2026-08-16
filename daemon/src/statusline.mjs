@@ -6,7 +6,7 @@
 // edits in place.
 //
 // Every transition is a journal event the daemon already writes, so this
-// module subscribes to the store's append hook rather than threading a
+// module subscribes to the reduction's append hook rather than threading a
 // callback through the dispatcher. The daemon composes every string; agent
 // text never lands here verbatim. State is ephemeral — after a daemon restart
 // the next transition posts a fresh line, and the journal remains the truth.
@@ -24,7 +24,7 @@
 // line, the cancel line), and a 🏁 beside each one said the same fact twice.
 
 import { REVIEW_KIND } from './lifecycle.mjs'
-import { CONFIRM_KIND } from './store.mjs'
+import { CONFIRM_KIND } from './reduction.mjs'
 import { promptTitle, elapsedLabel } from './messaging.mjs'
 import { meterParts } from './usage.mjs'
 

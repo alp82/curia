@@ -25,12 +25,13 @@ import { fileURLToPath } from 'node:url'
 import { AGENT_ROUTES } from '../src/agenttoken.mjs'
 import { Dispatcher } from '../src/dispatch.mjs'
 import { directUnblocks } from '../src/github.mjs'
-import { EscalationStore, RECENT_EVENTS, RECENT_OUTCOMES } from '../src/store.mjs'
+import { Reduction, RECENT_EVENTS, RECENT_OUTCOMES } from '../src/reduction.mjs'
 import { REVIEW_KIND } from '../src/lifecycle.mjs'
 import { ctxOnWire } from '../src/usage.mjs'
 import { freePort, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot, skillsYaml } from './fixtures/skills.mjs'
 import { sandboxYaml, TEST_PINS } from './fixtures/sandbox.mjs'
+import { journalEvents } from './fixtures/journal.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -213,12 +214,12 @@ describe('GET /overview (index.mjs, real boot)', () => {
     assert.match(o.frontier.repos[0].error, /gh api/)
   })
 
-  test('the feed carries the daemon journal, and never the journal file', async () => {
+  test('the feed carries the daemon journal, and never the journal itself', async () => {
     const o = await overview()
     assert.ok(o.events.length > 0, 'a booted daemon has journalled something')
-    assert.ok(o.events.length <= 100, 'the feed is the tail, not the file')
+    assert.ok(o.events.length <= 100, 'the feed is the tail, not the whole journal')
     for (const ev of o.events) assert.ok(ev.type && ev.ts, 'every event names itself and dates itself')
-    assert.equal(JSON.stringify(o).includes('events.jsonl'), false, 'the journal file stays daemon-private')
+    assert.equal(JSON.stringify(o).includes('events.db'), false, 'the journal stays daemon-private')
   })
 
   test('open escalations and the review gate are two lists, and the gate carries its pull request', async () => {
@@ -362,23 +363,23 @@ describe('the context meter on the wire (#264)', () => {
 
 describe('the journal tail the feed reads (#262)', () => {
   let dir
-  const store = () => new EscalationStore(dir)
+  const reduction = () => new Reduction(dir)
 
-  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-overview-store-')) })
+  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-overview-reduction-')) })
   after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
   test('the ring holds the last events, oldest first, and survives a restart as the file does', () => {
-    const a = store()
-    for (let i = 1; i <= RECENT_EVENTS + 20; i += 1) a.logEvent('notify', { n: i })
+    const a = reduction()
+    for (let i = 1; i <= RECENT_EVENTS + 20; i += 1) a.journal('notify', { n: i })
     const tail = a.recentEvents()
     assert.equal(tail.length, RECENT_EVENTS)
     assert.equal(tail[0].n, 21, 'oldest first, and the head has fallen off')
     assert.equal(tail.at(-1).n, RECENT_EVENTS + 20)
     assert.deepEqual(a.recentEvents(3).map((e) => e.n), [118, 119, 120], 'a smaller ask takes the newest')
 
-    // A second store over the same journal replays the file, so the tail is
-    // right the instant the boot replay ends — no first-append warm-up.
-    assert.deepEqual(store().recentEvents().map((e) => e.n), tail.map((e) => e.n))
+    // A second reduction over the same journal rebuilds from it, so the tail is
+    // right the instant the boot rebuild ends — no first-append warm-up.
+    assert.deepEqual(reduction().recentEvents().map((e) => e.n), tail.map((e) => e.n))
   })
 
   // The digest (#355) is up to two hundred file rows, and the feed rides every
@@ -387,9 +388,9 @@ describe('the journal tail the feed reads (#262)', () => {
   // route does not come back under a new name. The console reads the list off
   // the review-gate record instead, in full.
   test('the feed keeps a diff digest\'s totals and drops its per-file list', () => {
-    const a = store()
+    const a = reduction()
     const list = Array.from({ length: 200 }, (_, i) => ({ path: `src/f${i}.mjs`, added: 1, deleted: 0, status: 'M' }))
-    a.logEvent('review_requested', { repo: 'o/r', ticket: '9', agent: 'curia-9', diff: { files: 200, added: 200, deleted: 0, list } })
+    a.journal('review_requested', { repo: 'o/r', ticket: '9', agent: 'curia-9', diff: { files: 200, added: 200, deleted: 0, list } })
 
     const ev = a.recentEvents().at(-1)
     assert.equal(ev.diff.files, 200)
@@ -398,8 +399,7 @@ describe('the journal tail the feed reads (#262)', () => {
     assert.equal(ev.diff.list_on_the_record, 200, 'the feed says the list exists rather than hiding it')
 
     // The journal itself is untouched: the durable record carries the list.
-    const line = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').trim().split('\n').at(-1)
-    assert.equal(JSON.parse(line).diff.list.length, 200)
+    assert.equal(journalEvents(dir).at(-1).diff.list.length, 200)
   })
 })
 
@@ -416,16 +416,16 @@ describe('the journal tail the feed reads (#262)', () => {
 // anyway.
 describe('the recent past, answered without the file (#289)', () => {
   let dir
-  const store = () => new EscalationStore(dir)
+  const reduction = () => new Reduction(dir)
 
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-289-')) })
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
 
   test('the outcomes keep the last few of each kind, newest last, in the order the status prints', () => {
-    const s = store()
-    for (let i = 1; i <= RECENT_OUTCOMES + 3; i += 1) s.logEvent('lifecycle_closed', { repo: 'o/r', ticket: i })
-    s.logEvent('agent_cancelled', { repo: 'o/r', ticket: 90 })
-    s.logEvent('agent_died', { repo: 'o/r', ticket: 91 })
+    const s = reduction()
+    for (let i = 1; i <= RECENT_OUTCOMES + 3; i += 1) s.journal('lifecycle_closed', { repo: 'o/r', ticket: i })
+    s.journal('agent_cancelled', { repo: 'o/r', ticket: 90 })
+    s.journal('agent_died', { repo: 'o/r', ticket: 91 })
 
     const out = s.recentOutcomes()
     assert.deepEqual(out.map((o) => o.kind), ['cancelled', ...Array(RECENT_OUTCOMES).fill('finished'), 'died'])
@@ -437,34 +437,34 @@ describe('the recent past, answered without the file (#289)', () => {
   })
 
   test('a restart replays them, so the first poll after a restart is not blank', () => {
-    const s = store()
-    s.logEvent('lifecycle_closed', { repo: 'o/r', ticket: 42 })
-    assert.deepEqual(store().recentOutcomes(), s.recentOutcomes())
+    const s = reduction()
+    s.journal('lifecycle_closed', { repo: 'o/r', ticket: 42 })
+    assert.deepEqual(reduction().recentOutcomes(), s.recentOutcomes())
   })
 
   test('the pull request answers per agent, and a fresh dispatch does not inherit the last one\'s', () => {
-    const s = store()
-    s.logEvent('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
-    s.logEvent('pr_opened', { agent: 'curia-43', url: 'https://github.com/o/r/pull/10' })
+    const s = reduction()
+    s.journal('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+    s.journal('pr_opened', { agent: 'curia-43', url: 'https://github.com/o/r/pull/10' })
     assert.equal(s.pullRequestFor('curia-42'), 'https://github.com/o/r/pull/9')
     assert.equal(s.pullRequestFor('curia-43'), 'https://github.com/o/r/pull/10')
     assert.equal(s.pullRequestFor('curia-99'), null, 'an agent with no pull request is null, never another agent\'s')
 
     // The session name is reused by every dispatch of a ticket, so the spawn
     // clears it (#253). The reuse and the repair both land on it after that.
-    s.logEvent('agent_spawned', { agent: 'curia-42', ticket: 42 })
+    s.journal('agent_spawned', { agent: 'curia-42', ticket: 42 })
     assert.equal(s.pullRequestFor('curia-42'), null)
-    s.logEvent('pr_reused', { agent: 'curia-42', url: 'https://github.com/o/r/pull/11' })
+    s.journal('pr_reused', { agent: 'curia-42', url: 'https://github.com/o/r/pull/11' })
     assert.equal(s.pullRequestFor('curia-42'), 'https://github.com/o/r/pull/11')
-    s.logEvent('land_repaired', { agent: 'curia-42', url: 'https://github.com/o/r/pull/12' })
+    s.journal('land_repaired', { agent: 'curia-42', url: 'https://github.com/o/r/pull/12' })
     assert.equal(s.pullRequestFor('curia-42'), 'https://github.com/o/r/pull/12')
   })
 
-  test('both answer with the journal file taken away — the proof the poll never reads it', async () => {
-    const s = store()
-    s.logEvent('agent_cancelled', { repo: 'o/r', ticket: 3 })
-    s.logEvent('lifecycle_closed', { repo: 'o/r', ticket: 4 })
-    s.logEvent('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+  test('both answer with the journal read made to fail — the proof the poll never reads it', async () => {
+    const s = reduction()
+    s.journal('agent_cancelled', { repo: 'o/r', ticket: 3 })
+    s.journal('lifecycle_closed', { repo: 'o/r', ticket: 4 })
+    s.journal('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
 
     const d = new Dispatcher({
       config: {
@@ -479,16 +479,17 @@ describe('the recent past, answered without the file (#289)', () => {
         sandbox: TEST_PINS,
       },
       routing: { defaults: { untyped: 'sonnet' }, models: {}, fallbacks: {}, harnesses: {} },
-      store: s,
+      reduction: s,
       notify: () => {},
       log: () => {},
       dataDir: dir,
       deps: { listSessions: async () => [] },
     })
 
-    // Nothing on this path may open it, so the strongest statement of that is
-    // to make opening it fail.
-    fs.rmSync(path.join(dir, 'events.jsonl'))
+    // Nothing on this path may read the journal, so the strongest statement of
+    // that is to make a read fail. The medium moved to `node:sqlite` at #407,
+    // and deleting a file an open connection holds proves nothing on Linux.
+    s.journalEvents = () => { throw new Error('the poll must never read the journal') }
 
     const { recent } = await d.status()
     assert.deepEqual(recent, [
@@ -500,12 +501,12 @@ describe('the recent past, answered without the file (#289)', () => {
   })
 
   test('the live agent record still wins over the reduction', () => {
-    const s = store()
-    s.logEvent('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
+    const s = reduction()
+    s.journal('pr_opened', { agent: 'curia-42', url: 'https://github.com/o/r/pull/9' })
     const d = new Dispatcher({
       config: { watch: [], dispatch: { auto_dispatch: false, max_concurrent: 1, poll_interval_s: 60, workspace_root: path.join(dir, 'work'), ready_timeout_s: 5, stop_nudge_budget: 3 }, attach: { ttyd_port: 7681, serve_port: 8443 }, identity: { allow: [], proxy_port: 7682 }, skills: null, sandbox: TEST_PINS },
       routing: { defaults: { untyped: 'sonnet' }, models: {}, fallbacks: {}, harnesses: {} },
-      store: s,
+      reduction: s,
       notify: () => {},
       log: () => {},
       dataDir: dir,
@@ -524,15 +525,15 @@ describe('the recent past, answered without the file (#289)', () => {
 // one: the boot replay is what hands it back.
 describe('the limit resume curia still owes (#346)', () => {
   let dir
-  const store = () => new EscalationStore(dir)
+  const reduction = () => new Reduction(dir)
 
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-346-')) })
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
 
   test('an arm is answered per ticket, with the repo and the instant it was written with', () => {
-    const s = store()
-    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
-    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 43, resume_at: '2026-08-15T13:00:00.000Z' })
+    const s = reduction()
+    s.journal('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.journal('limit_resume_armed', { repo: 'o/r', ticket: 43, resume_at: '2026-08-15T13:00:00.000Z' })
     assert.deepEqual(s.armedLimitResumes(), [
       { ticket: '42', repo: 'o/r', at: '2026-08-15T12:00:00.000Z' },
       { ticket: '43', repo: 'o/r', at: '2026-08-15T13:00:00.000Z' },
@@ -540,31 +541,31 @@ describe('the limit resume curia still owes (#346)', () => {
   })
 
   test('a restart replays it, which is the whole point of the reduction', () => {
-    const s = store()
-    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
-    assert.deepEqual(store().armedLimitResumes(), s.armedLimitResumes())
+    const s = reduction()
+    s.journal('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    assert.deepEqual(reduction().armedLimitResumes(), s.armedLimitResumes())
   })
 
   test('the attempt clears it, so one arm buys one attempt and never a loop', () => {
-    const s = store()
-    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
-    s.logEvent('limit_resume', { repo: 'o/r', ticket: 42, outcome: 'ran' })
+    const s = reduction()
+    s.journal('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.journal('limit_resume', { repo: 'o/r', ticket: 42, outcome: 'ran' })
     assert.deepEqual(s.armedLimitResumes(), [])
   })
 
   test('an agent on that ticket by any other route clears it too', () => {
-    const s = store()
-    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
-    s.logEvent('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    const s = reduction()
+    s.journal('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.journal('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
     assert.deepEqual(s.armedLimitResumes(), [], 'the operator resumed it by hand, so curia owes nothing')
   })
 
   test('a fresh cap after an attempt arms again', () => {
-    const s = store()
-    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
-    s.logEvent('limit_resume', { repo: 'o/r', ticket: 42, outcome: 'ran' })
-    s.logEvent('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
-    s.logEvent('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T17:00:00.000Z' })
+    const s = reduction()
+    s.journal('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T12:00:00.000Z' })
+    s.journal('limit_resume', { repo: 'o/r', ticket: 42, outcome: 'ran' })
+    s.journal('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('limit_resume_armed', { repo: 'o/r', ticket: 42, resume_at: '2026-08-15T17:00:00.000Z' })
     assert.deepEqual(s.armedLimitResumes(), [{ ticket: '42', repo: 'o/r', at: '2026-08-15T17:00:00.000Z' }])
   })
 })
@@ -574,15 +575,15 @@ describe('the limit resume curia still owes (#346)', () => {
 // carried `reset_at`; this is the read side.
 describe('the cooling a previous process measured (#377)', () => {
   let dir
-  const store = () => new EscalationStore(dir)
+  const reduction = () => new Reduction(dir)
 
   beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-377-')) })
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
 
   test('a landed cap is answered per level, with the reset instant it was journalled with', () => {
-    const s = store()
-    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
-    s.logEvent('model_cooling', { model: 'fable', reset_at: '2026-08-15T18:00:00.000Z', reset_source: 'transcript' })
+    const s = reduction()
+    s.journal('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
+    s.journal('model_cooling', { model: 'fable', reset_at: '2026-08-15T18:00:00.000Z', reset_source: 'transcript' })
     assert.deepEqual(s.armedCoolings(), {
       models: [{ model: 'fable', at: '2026-08-15T18:00:00.000Z' }],
       providers: [{ provider: 'anthropic', at: '2026-08-15T14:00:00.000Z' }],
@@ -590,40 +591,40 @@ describe('the cooling a previous process measured (#377)', () => {
   })
 
   test('a restart replays it, which is the whole point of the reduction', () => {
-    const s = store()
-    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
-    assert.deepEqual(store().armedCoolings().providers, [{ provider: 'anthropic', at: '2026-08-15T14:00:00.000Z' }])
+    const s = reduction()
+    s.journal('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
+    assert.deepEqual(reduction().armedCoolings().providers, [{ provider: 'anthropic', at: '2026-08-15T14:00:00.000Z' }])
   })
 
   test('the one-hour floor is kept like any other cap — the guess is the fact curia has', () => {
-    const s = store()
-    s.logEvent('provider_cooling', { provider: 'openai', reset_at: '2026-08-15T10:00:00.000Z', reset_source: 'floor' })
+    const s = reduction()
+    s.journal('provider_cooling', { provider: 'openai', reset_at: '2026-08-15T10:00:00.000Z', reset_source: 'floor' })
     assert.deepEqual(s.armedCoolings().providers, [{ provider: 'openai', at: '2026-08-15T10:00:00.000Z' }])
   })
 
   test('a later cap on the same key replaces the earlier one — a resume that re-cools states a fresh reset', () => {
-    const s = store()
-    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
-    s.logEvent('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T19:00:00.000Z', reset_source: 'pane' })
+    const s = reduction()
+    s.journal('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T14:00:00.000Z', reset_source: 'pane' })
+    s.journal('provider_cooling', { provider: 'anthropic', reset_at: '2026-08-15T19:00:00.000Z', reset_source: 'pane' })
     assert.deepEqual(s.armedCoolings().providers, [{ provider: 'anthropic', at: '2026-08-15T19:00:00.000Z' }])
   })
 
   test('the two levels never mix: a model cap leaves its provider warm', () => {
-    const s = store()
-    s.logEvent('model_cooling', { model: 'fable', reset_at: '2026-08-15T18:00:00.000Z', reset_source: 'pane' })
+    const s = reduction()
+    s.journal('model_cooling', { model: 'fable', reset_at: '2026-08-15T18:00:00.000Z', reset_source: 'pane' })
     assert.deepEqual(s.armedCoolings().models, [{ model: 'fable', at: '2026-08-15T18:00:00.000Z' }])
     assert.deepEqual(s.armedCoolings().providers, [])
   })
 
   test('nothing else in the journal touches it — only a landed cap writes a hold', () => {
-    const s = store()
-    s.logEvent('dispatch_exhausted', { repo: 'o/r', ticket: 42, earliest_reset: '2026-08-15T14:00:00.000Z' })
-    s.logEvent('reset_unparseable', { agent: 'curia-42', scope: 'provider', applied_cooldown_h: 1 })
-    s.logEvent('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    const s = reduction()
+    s.journal('dispatch_exhausted', { repo: 'o/r', ticket: 42, earliest_reset: '2026-08-15T14:00:00.000Z' })
+    s.journal('reset_unparseable', { agent: 'curia-42', scope: 'provider', applied_cooldown_h: 1 })
+    s.journal('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
     // #384's pre-emptive hold least of all: it is a guess re-made from a fresh
     // reading, and seeding it back would hold the frontier on a reading curia
     // no longer has.
-    s.logEvent('provider_precooling', { provider: 'anthropic', window: '5h', pct: 96, reset_at: '2026-08-15T14:00:00.000Z' })
+    s.journal('provider_precooling', { provider: 'anthropic', window: '5h', pct: 96, reset_at: '2026-08-15T14:00:00.000Z' })
     assert.deepEqual(s.armedCoolings(), { models: [], providers: [] })
   })
 })
@@ -683,7 +684,7 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
     const d = new Dispatcher({
       config,
       routing: { defaults: { untyped: 'sonnet' }, models: { sonnet: { provider: 'anthropic', harness: 'claude' } }, fallbacks: {}, harnesses: {} },
-      store: { logEvent: () => {}, openEscalations: () => [], answeredExchangeFor: () => [], boundTickets: () => [] },
+      reduction: { journal: () => {}, journalEvents: () => [], openEscalations: () => [], answeredExchangeFor: () => [], boundTickets: () => [] },
       notify: () => {},
       log: () => {},
       dataDir: path.join(tmp, 'data'),

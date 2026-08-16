@@ -88,16 +88,17 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
     sandbox: TEST_PINS,
   }
   const dataDir = path.join(tmp, 'data')
-  const store = {
-    // Written to disk as well as collected, because the dispatcher reads its own
-    // journal back — #epochScan, #epochSpawn and the reviewer adoption pass all
-    // go through the file rather than through this array.
-    logEvent: (type, data) => {
+  const reduction = {
+    // The array IS the journal here. The dispatcher reads its own journal back
+    // — #epochScan, #epochSpawn and the reviewer adoption pass all do — and it
+    // asks the reduction for it since #407, so the double answers with what it
+    // was given.
+    journal: (type, data) => {
       const rec = { type, ts: new Date().toISOString(), ...data }
       events.push(rec)
-      fs.appendFileSync(path.join(dataDir, 'events.jsonl'), `${JSON.stringify(rec)}\n`)
       return rec
     },
+    journalEvents: () => events,
     openEscalations: () => [],
     // #374: no test here records an answered escalation, so the resumed prompt
     // inherits an empty exchange and says nothing about one.
@@ -155,7 +156,7 @@ function makeDispatcher(deps = {}, { routing = ROUTING } = {}) {
   const d = new Dispatcher({
     config,
     routing,
-    store,
+    reduction,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     log: () => {},
     dataDir,

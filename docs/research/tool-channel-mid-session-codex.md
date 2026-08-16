@@ -109,7 +109,7 @@ So a call made INTO an outage fails fast and says so plainly, and the tools come
 
 **The cost is bigger than the wait.** A claude agent loses about two minutes and the answer. A codex agent loses its whole session to a restart it never hears about: no error, no retry, no Stop hook, and no report. Every deploy and every `POST /restart` can do this to a live codex agent that holds a blocking call.
 
-**What to do about it is a decision, not a reading.** This ticket took the reading. The trade against #34 belongs to its own ticket.
+**What to do about it is a decision, not a reading.** This ticket took the reading. [#426](https://github.com/alp82/curia/issues/426) then took the decision, and it left this number alone: the daemon says goodbye instead. Before it exits, a restart, a SIGTERM and a crash each end every blocked call with a tool error, which is the error the ladder needs. A SIGKILL reaches nobody, and the pane is measured on its own before anything is built on it.
 
 ## What else the probe saw
 

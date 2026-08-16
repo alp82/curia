@@ -361,6 +361,24 @@ export function removeCredentials(cfgDir) {
 // reaches an HTTP MCP server from `[mcp_servers]`, its Stop hook carries the
 // same payload keys and honours `{decision:"block", reason}`, and `stop_hook_active`
 // flips on the second stop exactly as Claude's does.
+//
+// RE-MEASURED on 0.146.0, the pinned version, for #447
+// (docs/live-checks/447-codex-stop-hook.md). The hook still blocks. The `reason`
+// reaches the model as a user message wrapped in a `<hook_prompt>` tag, and
+// `stop_hook_active` is false on the first stop and true on every stop after it.
+// It blocked five times in a row with no cap, in the TUI lane and the `exec`
+// lane alike — so the `exec` move between 0.145 and 0.146 did not touch this.
+//
+// #438 makes this hook the codex gate's whole guarantee, because a rejection
+// there is only a return value and can be thrown away (#416). A Stop-hook
+// refusal cannot: codex forces another turn whatever the model does. So the
+// worst case is a loop, not an escape.
+//
+// Two shapes that re-measure owes a look, both pinned by the same check: the
+// allow body must stay a BARE `{}` (see `/agent_done`), and
+// `--dangerously-bypass-hook-trust` is load-bearing rather than incidental —
+// without it the spawn stalls at a "Hooks need review" menu before the first
+// turn, and no hook runs at all.
 
 export const HARNESS_NAMES = ['claude', 'codex']
 
@@ -519,6 +537,14 @@ function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
 // So one number serves two jobs that pull apart: generous to a slow human, and
 // a day of silence for an agent a restart stranded. Changing it is a decision
 // against #34, not a tuning.
+//
+// #426 took that decision and left the number ALONE. One value cannot be both
+// jobs, so the second job moves off it: the daemon says goodbye. Before it
+// exits, a restart, a SIGTERM and a crash each end every blocked call with a
+// tool ERROR, which is the error #341's ladder needs and the thing codex never
+// gets by itself. That reaches the agent in about a second rather than in a
+// day, and it costs the slow human nothing. What the goodbye cannot reach is a
+// SIGKILL, and this deadline is still the only bound there.
 const CODEX_TOOL_TIMEOUT_S = 86_400
 
 // The Stop hook, identical on both harnesses: POST the hook's own stdin payload to
@@ -1249,7 +1275,7 @@ function quoteLines(text) {
 // forced (2026-08-16, esc round on #374):
 //
 //   1. It reaches EVERY dispatch this ticket has had, not just the dead agent.
-//      The store keys escalations by session, and a builder session is
+//      The reduction keys escalations by session, and a builder session is
 //      `curia-<n>` for the ticket's whole life, so the history is free.
 //   2. It carries QUESTION AND ANSWER, both verbatim. An answer alone is
 //      unreadable: "yes, option 2" says nothing without what was asked.
@@ -1260,7 +1286,7 @@ function quoteLines(text) {
 //   5. The agent is TOLD these are recorded. A recorded answer read as a fresh
 //      one is worse than no answer at all: the agent would take a stale ruling
 //      as this session's, and nobody would see it happen.
-//   6. Every kind rides along, the review gate included (see `store.mjs`).
+//   6. Every kind rides along, the review gate included (see `reduction.mjs`).
 //   7. It runs on EVERY dispatch, not only `resume`. A first dispatch has no
 //      records and gets no block, so one rule covers both.
 //
