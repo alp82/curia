@@ -157,6 +157,19 @@ describe('report_result carries the typed fields and the lint gate (#419, real b
     assert.ok(!fs.existsSync(path.join(tmp, 'data', 'results', 'curia-419.json')))
   })
 
+  test('a report with no headline is refused since the flip (#422)', async () => {
+    const text = await call('curia-419-b', '419', {
+      ticket: '419',
+      status: 'resolved',
+      summary: 'The switch is gone and every floor is unconditional.',
+    })
+
+    assert.match(text, /does not carry the fields this kind needs/)
+    assert.match(text, /headline: missing/)
+    assert.ok(!fs.existsSync(path.join(tmp, 'data', 'results', 'curia-419-b.json')),
+      'a refused report reported nothing')
+  })
+
   test("a reviewer takes the VERDICT's shape, which #421 typed and this ticket exempted", async () => {
     // The exemption this test guarded ended with #421. A verdict is linted on
     // its own fields now, and `typedverdict.test.mjs` holds that surface whole.

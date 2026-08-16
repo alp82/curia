@@ -68,7 +68,7 @@ import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './id
 import { detectHarness } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName, smallPrint } from './messaging.mjs'
 import {
-  TYPED_FLOOR, isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
+  isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
   lintResult, resultFloorFaults,
   lintNotify, notifyFloorFaults, notifyHasText,
   lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES,
@@ -573,18 +573,21 @@ const lintGate = new LintGate({ reduction, log })
 
 function askHumanGate(agentName, kind, raw) {
   const typed = isTyped(raw)
-  // An untyped call is not linted. Until the flip (#422) it renders as it does
-  // today, and the lint reads NAMED fields — a blob has no name to point at, so
-  // the only rejection it could write is "this prompt is wrong somewhere". #416
-  // measured that a named and quoted fault is fixed in one attempt, and a vague
-  // one is the expensive kind.
-  // A call carrying NO prose at all is refused whatever the flip says. `prompt`
-  // was required by the schema before this ticket, and moving that check off
-  // zod (#438) must not turn a blank call into a blank card in a human's
-  // thread. There is no question in it to trap.
-  const empty = !hasText(raw)
-  const floor = empty || (typed && TYPED_FLOOR) ? floorFaults(kind, raw) : []
-  const faults = typed || empty ? [...floor, ...lintAskHuman(kind, raw)] : []
+  // THE FLIP (#422): every call takes the floor and the lint, whatever shape it
+  // arrives in. An untyped call has no headline, so the floor refuses it and
+  // names the fields it wants. `floorFaults` also names the three retired
+  // fields, so an agent that wrote a `prompt` is told where that text goes
+  // rather than watching it disappear.
+  //
+  // A call carrying NO prose at all is the one refusal that is final. `prompt`
+  // was required by the schema before #418, and moving that check off zod
+  // (#438) must not turn a blank call into a blank card in a human's thread.
+  // There is no question in it to trap, and `hasText` below is what says so.
+  const floor = floorFaults(kind, raw)
+  const faults = [...floor, ...lintAskHuman(kind, raw)]
+  // The prompt of a FLAGGED send, on the path where the cap is reached (#416).
+  // A typed payload composes its card, and an untyped one carries the prompt it
+  // wrote, because that is the only text it gave the operator to read.
   const prompt = typed ? composeCard(kind, raw) : raw.prompt ?? ''
   const verdict = lintGate.judge({
     agent: agentName, kind, faults, schema: floor.length > 0, hasText: hasText(raw), prompt,
@@ -1525,15 +1528,19 @@ function buildMcpServer(agent, ticket) {
     'ask_human',
     'Escalate a question to the human and BLOCK until an answer arrives. kind: free-text | choice | approve-reject | preview-review.'
     + ' Write the PARTS, not a card: `headline` is the whole decision in one line, and curia lays out the rest.'
+    + ' Every call needs a `headline`. The untyped `prompt` is retired, and curia refuses a call that carries it.'
     + ' free-text is a ROUND — put every question in `questions`, give each a `recommendation`, and curia adds the ✅ All as recommended button when every one of them has it.'
     + ' choice takes `options`, each with a `label` and the `consequence` of picking it.'
     + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule, and the refusal names the rule and quotes the text. Rewrite the named field and call again. You get three attempts, and the fourth text goes out flagged.',
     {
-      // The untyped fields, kept until the flip (#422). An untyped call is
-      // accepted and renders as it does today.
-      prompt: z.string().optional(),
+      // The two RETIRED fields (#422). They stay in the schema so that curia
+      // can see one and name it. zod strips a key it does not declare, and a
+      // stripped `prompt` would take the agent's whole question with it — the
+      // silent loss this map forbids. Declared, they reach `floorFaults`, which
+      // refuses the call and says where the text goes.
+      prompt: z.string().optional().describe('RETIRED. Write `headline` and the parts instead. Curia refuses a call that carries this.'),
+      recommended: z.boolean().optional().describe('RETIRED. Curia derives the ✅ button from `questions[]`. Curia refuses a call that carries this.'),
       kind: z.enum(['free-text', 'choice', 'approve-reject', 'preview-review']).optional(),
-      recommended: z.boolean().optional(),
       // The typed fields.
       headline: z.string().optional().describe('The whole decision in one line. One line, no markdown, no link, 150 characters.'),
       questions: z.array(z.object({
@@ -1541,6 +1548,9 @@ function buildMcpServer(agent, ticket) {
         recommendation: z.string().optional().describe('Your recommended answer to THIS question. One line, 300 characters.'),
       })).optional().describe('free-text only: the round, one entry per question. Curia numbers them.'),
       options: z.union([
+        // The bare-string form is RETIRED with the other two, and it is
+        // declared for the same reason: seen, it is named and refused, and
+        // stripped it would be a choice card that lost every option.
         z.array(z.string()),
         z.array(z.object({
           label: z.string().optional().describe('The choice, by its name. One line, 80 characters, which is what a select menu carries whole.'),

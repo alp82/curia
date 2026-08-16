@@ -115,9 +115,11 @@ export function composeResultBody(payload = {}) {
 // The whole post, status and all. The STATUS leads, because it is the one thing
 // the operator reads this message for.
 //
-// An untyped report keeps the one-line shape the thread has read since #253: the
-// status, a colon, and the summary. Until the flip (#422) both shapes are live,
-// and a one-line report must not grow a paragraph break it never had.
+// A report with no headline keeps the one-line shape the thread has read since
+// #253: the status, a colon, and the summary. Since the flip (#422) that report
+// is a FLAGGED send and nothing else, because the floor refuses a headline-less
+// one three times first. It still renders, because a flagged ending in the
+// thread beats an ending that reaches it never.
 export function composeResultReport(status, payload = {}) {
   const head = `✅ reports **${status}**`
   const body = composeResultBody(payload)
@@ -155,9 +157,10 @@ const NOTIFY_SIGNAL = {
 const ASK_LINE = 'Reply in this thread when you can. It reaches the agent on its next tool call.'
 
 // The prefix rides here rather than at the call site, because this composer
-// owns the whole post — the same rule the ending report follows. An untyped
-// notify is a `progress` one, so it keeps the exact line the thread has read
-// since the first one.
+// owns the whole post — the same rule the ending report follows. A notify with
+// no kind is a `progress` one, so it keeps the exact line the thread has read
+// since the first one. The flip (#422) left this surface alone: `message` was
+// the floor before it and it is the floor after it.
 export function composeNotify(payload = {}) {
   const kind = NOTIFY_KINDS.includes(payload.kind) ? payload.kind : DEFAULT_NOTIFY_KIND
   const parts = []

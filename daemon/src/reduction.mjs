@@ -330,8 +330,8 @@ export class Reduction {
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
           recommended: ev.recommended ?? false,
           // The typed payload (#418, ADR-0019). Null on an untyped call, which
-          // is every call until the flip (#422) and every call written before
-          // this ticket. `prompt` is composed FROM this payload when it is
+          // since the flip (#422) is a flagged send or a record written before
+          // #418. `prompt` is composed FROM this payload when it is
           // present (card.mjs), so the record still carries one readable
           // question for the timeline, the console and the inherited exchange
           // — and the bridge reads the payload for the parts only a component

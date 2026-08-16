@@ -145,7 +145,7 @@ describe('composeReviewBody', () => {
     assert.equal(body, '**Typed ask_human.**\n\nDetails: ||The lint module is daemon/src/lint.mjs.||')
   })
 
-  test('an untyped gate composes nothing', () => {
+  test('a gate with no typed part composes nothing', () => {
     assert.equal(composeReviewBody({}), '')
   })
 })
@@ -174,7 +174,7 @@ describe('composeResultReport: the ending report (#419)', () => {
     assert.ok(post.includes(composeResultBody(REPORT)))
   })
 
-  test('an untyped report keeps the one line the thread has read since #253', () => {
+  test('a report with no headline keeps the one line the thread has read since #253', () => {
     assert.equal(composeResultReport('blocked', { summary: 'the token was missing' }),
       '✅ reports **blocked**: the token was missing')
   })
@@ -204,7 +204,7 @@ describe('composeNotify: the status line (#420)', () => {
     ].join('\n\n'))
   })
 
-  test('an untyped notify keeps the one line the thread has always read', () => {
+  test('a notify with no kind keeps the one line the thread has always read', () => {
     assert.equal(composeNotify({ message: 'reading the map' }), '⚙️ reading the map')
     assert.equal(composeNotify({ kind: 'progress', message: 'reading the map' }), '⚙️ reading the map',
       'progress IS the default, so naming it changes nothing')
@@ -286,7 +286,7 @@ describe('composeVerdict: the cross-check verdict (#421)', () => {
     assert.ok(body.includes('⚠️ **concerns** — 1 concern'))
   })
 
-  test('an untyped verdict is its summary, whole and unchanged', () => {
+  test('a verdict with no findings list is its summary, whole and unchanged', () => {
     assert.equal(composeVerdict({ summary: 'VERDICT: pass\n\nTESTS: green' }), 'VERDICT: pass\n\nTESTS: green')
   })
 

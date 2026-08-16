@@ -171,15 +171,20 @@ export function lintVisual(value) {
 
 const present = (v) => v !== undefined && v !== null && String(v).trim() !== ''
 
-// THE FLIP (#422). Until the deploy that ends the #413 map, an untyped call is
-// accepted and renders as it does today, and a typed call that omits a required
-// field is accepted too. After it, a call that omits a required field is
-// rejected. One constant decides it, and #422 turns it on.
-export const TYPED_FLOOR = false
+// THE FLIP (#422) HAS LANDED. Every floor below is unconditional now: a call
+// that omits a required field is rejected on every shipped surface. The switch
+// that held them off is gone rather than set to true, because it had no second
+// position left. A rollback is a revert and a deploy, which is what flipping the
+// switch back would have cost anyway.
+//
+// The untyped shape survives in ONE place, and that place is not an accepted
+// call. A flagged send (ADR-0005) puts the text of a refused call in front of
+// the operator at the cap, and `prompt` is text the call carried. So `isTyped`
+// and the `prompt` fallback stay, on the flagged path rather than the open one.
 
-// Whether a call carries any typed field at all. Until the flip (#422) an
-// untyped call is accepted and renders as it does today, so this is what tells
-// the two apart. `images` is not prose and does not type a call by itself.
+// Whether a call carries any typed field at all. It picks the SHAPE a flagged
+// send renders: a typed payload composes a card, and an untyped one carries the
+// prompt it wrote. `images` is not prose and does not type a call by itself.
 export function isTyped(payload = {}) {
   return present(payload.headline)
     || (payload.questions ?? []).length > 0
@@ -187,12 +192,32 @@ export function isTyped(payload = {}) {
     || present(payload.detail) || present(payload.visual)
 }
 
+// The three fields the untyped call carried, retired by the flip (#422).
+//
+// curia NAMES them rather than dropping them. A field it ignored in silence
+// would take the words the agent wrote with it, and losing information in
+// silence is the one thing this map forbids. So each one is refused with the
+// place its content goes, and the agent moves the text in one attempt (#416).
+function retiredFaults(payload = {}) {
+  const faults = []
+  if (present(payload.prompt)) {
+    faults.push('prompt: retired by the flip. Write the headline and the parts, and curia lays the card out.')
+  }
+  if ((payload.options ?? []).some((o) => o === null || typeof o !== 'object')) {
+    faults.push('options: a bare string. An option is an object with a label and the consequence of picking it.')
+  }
+  if (payload.recommended !== undefined) {
+    faults.push('recommended: retired by the flip. Curia derives the button from questions[], so recommend each question of the round.')
+  }
+  return faults
+}
+
 // The mandatory floor, checked apart from the words. A missing field is a
 // SCHEMA fault and takes the schema path of ADR-0005, where a lint fault takes
 // the lint path. The two are counted together and the difference is what the
 // agent is told.
 export function floorFaults(kind, payload = {}) {
-  const faults = []
+  const faults = retiredFaults(payload)
   if (!present(payload.headline)) faults.push('headline: missing. Every card needs the whole decision in one line.')
   if (kind === 'free-text') {
     const qs = payload.questions ?? []
@@ -203,6 +228,9 @@ export function floorFaults(kind, payload = {}) {
     const opts = payload.options ?? []
     if (opts.length < 2) faults.push('options: a choice needs two options or more, each with its consequence.')
     opts.forEach((o, i) => {
+      // A bare string is named once, by `retiredFaults`. Naming it again per
+      // field would spend the agent's reading on the same fault three times.
+      if (o === null || typeof o !== 'object') return
       if (!present(o?.label)) faults.push(`options[${i}].label: missing.`)
       if (!present(o?.consequence)) faults.push(`options[${i}].consequence: missing. An option with no cost stated is the fault this floor exists to stop.`)
     })
@@ -211,6 +239,7 @@ export function floorFaults(kind, payload = {}) {
     const opts = payload.options ?? []
     if (opts.length && opts.length !== 2) faults.push(`options: ${opts.length} given. Approve and reject are exactly two, and curia keeps its own button words.`)
     opts.forEach((o, i) => {
+      if (o === null || typeof o !== 'object') return
       if (!present(o?.consequence)) faults.push(`options[${i}].consequence: missing.`)
     })
   }
@@ -271,22 +300,19 @@ export function hasText(payload = {}) {
 // `details` is a free record and no lint reads it (ADR-0019 rule 3). It is
 // machine-facing and no surface renders it.
 
-// Whether a report carries a typed field at all. The report differs from a card
-// here: `summary` is linted either way, because it shipped before this ticket
-// and it is the text the thread has always read. This tells curia which SHAPE to
-// render, not whether to lint.
+// Whether a report carries a typed field at all. It tells curia which SHAPE to
+// render, never whether to lint: `summary` shipped before #419 and it is linted
+// either way. After the flip (#422) a report that reaches the thread without a
+// headline is a flagged send, and this is what keeps its one line intact.
 export function isTypedResult(payload = {}) {
   return present(payload.headline) || present(payload.detail) || present(payload.visual)
 }
 
-// The report's floor. `summary` was required by the schema before this ticket,
-// so it is required now, flip or no flip — the same rule as the gate's, and for
-// the same reason (#438: moving a check off zod decides which layer refuses the
-// call, never whether a silent report lands). Only the `headline` waits for the
-// flip (#422), because it is the field this ticket adds.
-export function resultFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {}) {
+// The report's floor. `summary` was required by the schema before #419, and the
+// flip (#422) added the `headline` beside it. Both are unconditional now.
+export function resultFloorFaults(payload = {}) {
   const faults = []
-  if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say what the work came to in one line.')
+  if (!present(payload.headline)) faults.push('headline: missing. Say what the work came to in one line.')
   if (!present(payload.summary)) faults.push('summary: missing. Say what you did and what it came to.')
   // `findings` belongs to the cross-check verdict and to nothing else (#421). A
   // builder that sent them would lose them in silence: no lint reads them here
@@ -317,12 +343,11 @@ export function lintResult(payload = {}) {
 // A status line needs no `isTyped` twin of its own. The report has one because
 // its untyped shape is a DIFFERENT post (#419), and a notify's is not: the
 // message is the line either way, and a detail or a visual only adds to it.
-// After the flip (#422) the floor is the same field the schema always required.
 
-// The status line's floor. `message` was required by the schema before this
-// ticket, so it is required now, flip or no flip — the same rule the gate's
-// `summary` and the report's follow (#438: moving a check off zod decides which
-// layer refuses the call, never whether a silent send lands).
+// The status line's floor, and the one surface the flip (#422) left as it was.
+// `message` was required by the schema before #420, so it was required before
+// the flip and it is required after it (#438: moving a check off zod decides
+// which layer refuses the call, never whether a silent send lands).
 export function notifyFloorFaults(payload = {}) {
   const faults = []
   if (!present(payload.message)) faults.push('message: missing. A status line says what happened, in plain words.')
@@ -373,28 +398,28 @@ export function verdictGrade(findings) {
   return 'pass'
 }
 
-// Whether a verdict carries a typed field at all. Until the flip (#422) an
-// untyped verdict is accepted and renders as it did: the summary, whole.
+// Whether a verdict carries a typed field at all. Since the flip (#422) an
+// untyped verdict is refused, so this picks the shape of a flagged send: the
+// summary, whole, with no grade line over it that no severity backs.
 export function isTypedVerdict(payload = {}) {
   return present(payload.headline) || Array.isArray(payload.findings)
     || present(payload.detail) || present(payload.visual)
 }
 
-// The verdict's floor. `summary` was required by the report schema before this
-// ticket, so it is required now, flip or no flip — the same rule the gate's and
-// the report's follow. The `headline` and the `findings` wait for the flip
-// (#422), because they are the fields this ticket adds.
+// The verdict's floor. `summary` was required by the report schema before #421,
+// and the flip (#422) added the `headline` and the `findings` beside it. All
+// three are unconditional now.
 //
 // AN EMPTY FINDINGS LIST IS A VERDICT. A clean reading is a real result, and a
 // floor of one finding would make a reviewer that found nothing write filler —
 // the fault ADR-0019 named when it left `example` to agent judgment. The field
 // is still required after the flip, because an empty list says "I found
 // nothing" and a missing one says nothing at all.
-export function verdictFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {}) {
+export function verdictFloorFaults(payload = {}) {
   const faults = []
-  if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say the verdict in one line.')
+  if (!present(payload.headline)) faults.push('headline: missing. Say the verdict in one line.')
   if (!present(payload.summary)) faults.push('summary: missing. Say what you read and what you ran.')
-  if (typedFloor && !Array.isArray(payload.findings)) {
+  if (!Array.isArray(payload.findings)) {
     faults.push('findings: missing. Send one entry per finding, or an empty list when the reading is clean.')
   }
   ;(payload.findings ?? []).forEach((f, i) => {
@@ -418,16 +443,15 @@ export function lintVerdict(payload = {}) {
   return faults
 }
 
-// The gate's floor, in two halves.
+// The gate's floor.
 //
-// `summary` and `charting` were REQUIRED by the schema before this ticket, so
-// they are required now, flip or no flip. Making them optional to zod is about
-// which layer refuses the call (#438: a zod refusal dies in silence on codex),
-// never about letting a silent gate open. Only the `headline` waits for #422,
-// because it is the field this ticket adds.
-export function reviewFloorFaults(payload = {}, { typedFloor = TYPED_FLOOR } = {}) {
+// `summary` and `charting` were REQUIRED by the schema before #418. Making them
+// optional to zod is about which layer refuses the call (#438: a zod refusal
+// dies in silence on codex), never about letting a silent gate open. The flip
+// (#422) added the `headline` beside them, and all three are unconditional now.
+export function reviewFloorFaults(payload = {}) {
   const faults = []
-  if (typedFloor && !present(payload.headline)) faults.push('headline: missing. Say the whole change in one line.')
+  if (!present(payload.headline)) faults.push('headline: missing. Say the whole change in one line.')
   if (!present(payload.summary)) faults.push('summary: missing. Say what you did.')
   if (!present(payload.charting)) faults.push('charting: missing. Write "none" when there is nothing to chart.')
   return faults

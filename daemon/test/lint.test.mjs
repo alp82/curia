@@ -190,10 +190,10 @@ describe('the mandatory floor', () => {
     assert.deepEqual(floorFaults('approve-reject', { headline: 'h', options: [{ consequence: 'x' }, { consequence: 'y' }] }), [])
   })
 
-  test('a call with no prose at all fails the whole floor, flip or no flip', () => {
-    // What `ask_human` leans on before the flip. `prompt` was required by the
-    // schema until this ticket, and moving that check off zod (#438) must not
-    // turn a blank call into a blank card in a human's thread.
+  test('a call with no prose at all fails the whole floor', () => {
+    // What `ask_human` leans on. `prompt` was required by the schema until
+    // #418, and moving that check off zod (#438) must not turn a blank call
+    // into a blank card in a human's thread.
     assert.equal(hasText({ kind: 'free-text' }), false)
     const faults = names(floorFaults('free-text', {}))
     assert.match(faults, /headline: missing/)
@@ -206,6 +206,60 @@ describe('the mandatory floor', () => {
 
   test('preview-review owes its preview url', () => {
     assert.match(names(floorFaults('preview-review', { headline: 'h' })), /preview_url: missing/)
+  })
+})
+
+// THE FLIP (#422). The untyped call is refused now, and the three fields it was
+// written with are named rather than dropped. A dropped field takes the words
+// the agent wrote with it, which is the silent loss this map exists to stop.
+describe('the flip: an untyped call and the fields it retired (#422)', () => {
+  test('an untyped call is refused, and the refusal names the headline it wants', () => {
+    const faults = names(floorFaults('free-text', { prompt: 'which port should the dev server bind?' }))
+    assert.match(faults, /headline: missing/)
+    assert.match(faults, /questions: missing/)
+  })
+
+  test('a prompt is named, so the agent knows where its own words go', () => {
+    assert.match(names(floorFaults('free-text', { prompt: 'which port?' })), /prompt: retired by the flip/)
+    assert.deepEqual(floorFaults('free-text', { headline: 'h', questions: [{ text: 'one?' }] }), [])
+  })
+
+  test('a bare string option is named ONCE, not three times over its own fields', () => {
+    const faults = floorFaults('choice', { headline: 'h', options: ['claude', 'codex'] })
+    assert.match(names(faults), /options: a bare string/)
+    assert.doesNotMatch(names(faults), /options\[0\]\./)
+    assert.doesNotMatch(names(faults), /options\[1\]\./)
+  })
+
+  test('a bare string option is named on approve-reject too', () => {
+    const faults = floorFaults('approve-reject', { headline: 'h', options: ['yes', 'no'] })
+    assert.match(names(faults), /options: a bare string/)
+    assert.doesNotMatch(names(faults), /options\[0\]\./)
+  })
+
+  test('the recommended boolean is named, because a retired flag draws no button', () => {
+    assert.match(
+      names(floorFaults('free-text', { headline: 'h', questions: [{ text: 'one?' }], recommended: true })),
+      /recommended: retired by the flip/,
+    )
+    // `false` is a claim too, and it is just as retired as `true`.
+    assert.match(
+      names(floorFaults('free-text', { headline: 'h', questions: [{ text: 'one?' }], recommended: false })),
+      /recommended: retired by the flip/,
+    )
+  })
+
+  test('an option-level recommended is NOT retired: it is what a choice card marks', () => {
+    assert.deepEqual(floorFaults('choice', {
+      headline: 'h',
+      options: [{ label: 'A', consequence: 'x', recommended: true }, { label: 'B', consequence: 'y' }],
+    }), [])
+  })
+
+  test('a refused untyped call still has text, so the cap sends it flagged', () => {
+    // ADR-0019: a schema rejection never traps a question. The prompt is the
+    // one thing the call gave the operator to read, so it is what goes out.
+    assert.equal(hasText({ prompt: 'which port?' }), true)
   })
 })
 
@@ -267,20 +321,19 @@ describe('lintRequestReview', () => {
   })
 
   test('the gate floor is the headline, the summary and the charting', () => {
-    assert.deepEqual(reviewFloorFaults({ headline: 'h', summary: 's', charting: 'none' }, { typedFloor: true }), [])
-    const faults = names(reviewFloorFaults({}, { typedFloor: true }))
+    assert.deepEqual(reviewFloorFaults({ headline: 'h', summary: 's', charting: 'none' }), [])
+    const faults = names(reviewFloorFaults({}))
     assert.match(faults, /headline: missing/)
     assert.match(faults, /summary: missing/)
     assert.match(faults, /charting: missing/)
   })
 
-  test('summary and charting are required BEFORE the flip: the schema required them already', () => {
+  test('summary and charting were required before the flip, and the headline joins them (#422)', () => {
     // Moving the check off zod (#438) decides which layer refuses the call. It
-    // must not let a silent gate open in the meantime.
+    // never lets a silent gate open.
     assert.match(names(reviewFloorFaults({ headline: 'h' })), /summary: missing/)
     assert.match(names(reviewFloorFaults({ headline: 'h' })), /charting: missing/)
-    assert.deepEqual(reviewFloorFaults({ summary: 's', charting: 'none' }), [],
-      'only the headline waits for the flip, because only the headline is new')
+    assert.match(names(reviewFloorFaults({ summary: 's', charting: 'none' })), /headline: missing/)
   })
 })
 
@@ -322,16 +375,14 @@ describe('lintResult: the ending report (#419)', () => {
     assert.deepEqual(lintResult({ ...REPORT, details: { note: "it's a machine field — and it stays one" } }), [])
   })
 
-  test('the floor is the summary now, and the headline waits for the flip', () => {
-    assert.deepEqual(resultFloorFaults({ summary: 's' }), [],
-      'only the headline waits for #422, because only the headline is new')
+  test('the floor is the headline and the summary, both unconditional since the flip (#422)', () => {
+    assert.match(names(resultFloorFaults({ summary: 's' })), /headline: missing/)
     assert.match(names(resultFloorFaults({ headline: 'h' })), /summary: missing/)
-    assert.match(names(resultFloorFaults({ summary: 's' }, { typedFloor: true })), /headline: missing/)
-    assert.deepEqual(resultFloorFaults({ headline: 'h', summary: 's' }, { typedFloor: true }), [])
+    assert.deepEqual(resultFloorFaults({ headline: 'h', summary: 's' }), [])
   })
 
   test('findings are the verdict\'s field, so a builder that sends them is refused (#421)', () => {
-    const faults = resultFloorFaults({ summary: 's', findings: [{ text: 't', severity: 'note' }] })
+    const faults = resultFloorFaults({ headline: 'h', summary: 's', findings: [{ text: 't', severity: 'note' }] })
     assert.match(names(faults), /findings: the cross-check reviewer's field/)
   })
 
@@ -395,7 +446,7 @@ describe('the cross-check verdict (#421)', () => {
   }
 
   test('a typed verdict passes both the floor and the words', () => {
-    assert.deepEqual(verdictFloorFaults(VERDICT, { typedFloor: true }), [])
+    assert.deepEqual(verdictFloorFaults(VERDICT), [])
     assert.deepEqual(lintVerdict(VERDICT), [])
   })
 
@@ -419,13 +470,14 @@ describe('the cross-check verdict (#421)', () => {
   })
 
   test('AN EMPTY findings list is a verdict, and a missing one is not', () => {
-    assert.deepEqual(verdictFloorFaults({ headline: 'h', summary: 's', findings: [] }, { typedFloor: true }), [])
-    assert.match(names(verdictFloorFaults({ headline: 'h', summary: 's' }, { typedFloor: true })), /findings: missing/)
+    assert.deepEqual(verdictFloorFaults({ headline: 'h', summary: 's', findings: [] }), [])
+    assert.match(names(verdictFloorFaults({ headline: 'h', summary: 's' })), /findings: missing/)
   })
 
-  test('the floor is the summary now, and the typed fields wait for the flip', () => {
-    assert.deepEqual(verdictFloorFaults({ summary: 's' }), [],
-      'before #422 a reviewer may still send the summary alone')
+  test('the floor is the headline, the summary and the list, all three since the flip (#422)', () => {
+    const faults = names(verdictFloorFaults({ summary: 's' }))
+    assert.match(faults, /headline: missing/)
+    assert.match(faults, /findings: missing/)
     assert.match(names(verdictFloorFaults({ headline: 'h' })), /summary: missing/)
   })
 
