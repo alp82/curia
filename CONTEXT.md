@@ -535,7 +535,11 @@ Decided and not built: the journal becomes a `node:sqlite` database at `daemon/d
 `daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotates, so it only grows. A historical term after the migration. Name it only where the migration is discussed, and never as a synonym for the journal.
 
 **Reduction**:
-The daemon's in-memory state, folded from the journal at boot and kept current by every append after it. It holds the open escalations, the agent notes, the ticket-to-thread bindings and the console conversations. It also holds the event tail, the outcomes, the pull requests and the armed limit resumes. It is a disposable cache and never a state home. A surface that answers about the recent past reads it, and never the journal.
+The daemon's in-memory state, folded from the journal at boot and kept current by every append after it. Replay every journal event in order through one function, and what you hold at the end is the reduction. That function is the reducer.
+
+It holds the open escalations, the agent notes, the ticket-to-thread bindings and the console conversations. It also holds the event tail, the outcomes, the pull requests and the armed limit resumes. It is a disposable cache and never a state home. A surface that answers about the recent past reads it, and never the journal.
+
+It is not a subset of the journal. Three of its fields keep rows verbatim: the event tail, the outcomes, and the last event per agent. Everything else is computed, so one escalation record folds the opened, superseded, answered and closed rows into a single object no row holds.
 _Avoid_: store, state, projection (#358).
 
 Curia writes one name for one thing, so "store" names nothing in this domain. It survives as an ordinary English word only, as in the shared credential store of [ADR-0007](docs/adr/0007-shared-credential-store.md). The class `EscalationStore` in `daemon/src/store.mjs` holds the reduction today, and `logEvent` is how the daemon journals an event.
