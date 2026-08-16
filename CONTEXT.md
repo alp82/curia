@@ -536,9 +536,25 @@ How full an agent's context window is. The numerator is the last request's input
 ### State and evidence
 
 **Journal**:
-`daemon/data/events.jsonl`. Append-only, and the daemon's only durable artifact. In-memory state is a reduction over it. The file never rotates, so it only grows. `EscalationStore` reads it whole ONCE, at boot, and every append after that passes the same reducer. A surface that answers about the recent past reads the reduction and never the file again.
+Curia's durable record of its own events, append-only and in time order. It is the daemon's only durable artifact, and the reduction is derived from it. It is `daemon/data/events.jsonl` today. To journal an event is to write one line of that record.
+_Avoid_: store, event store, log (#358).
 
-Decided and not built: the durable artifact becomes a `node:sqlite` store, and these JSON lines retire. A row keeps the written line verbatim, so the store is a superset of the file. The daemon is the only writer. See [ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md), built on [the store map (#316)](https://github.com/alp82/curia/issues/316).
+Decided and not built: the journal becomes a `node:sqlite` database at `daemon/data/events.db`, and the JSON lines retire. The name follows the record and not the medium, so the database IS the journal. A row keeps the written line verbatim, so the journal after the change is a superset of the file before it. The daemon holds the only write connection, and every other process reads it read-only. See [ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md), built on [the journal map (#316)](https://github.com/alp82/curia/issues/316).
+
+**Journal file**:
+`daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotates, so it only grows. A historical term after the migration. Name it only where the migration is discussed, and never as a synonym for the journal.
+
+**Reduction**:
+The daemon's in-memory state, folded from the journal at boot and kept current by every append after it. Replay every journal event in order through one function, and what you hold at the end is the reduction. That function is the reducer.
+
+It holds the open escalations, the agent notes, the ticket-to-thread bindings and the console conversations. It also holds the event tail, the outcomes, the pull requests and the armed limit resumes. It is a disposable cache and never a state home. A surface that answers about the recent past reads it, and never the journal.
+
+It is not a subset of the journal. Three of its fields keep rows verbatim: the event tail, the outcomes, and the last event per agent. Everything else is computed, so one escalation record folds the opened, superseded, answered and closed rows into a single object no row holds.
+_Avoid_: store, state, projection (#358).
+
+Curia writes one name for one thing, so "store" names nothing in this domain. It survives as an ordinary English word only, as in the shared credential store of [ADR-0007](docs/adr/0007-shared-credential-store.md). The class `EscalationStore` in `daemon/src/store.mjs` holds the reduction today, and `logEvent` is how the daemon journals an event.
+
+Decided and not built: `EscalationStore` becomes `Reduction` in `daemon/src/reduction.mjs`, the journal's own module becomes `Journal` in `daemon/src/journal.mjs`, and `logEvent` becomes `journal`. The rename lands with the journal build (#316).
 
 **State home**:
 The one durable place a fact lives. GitHub holds ticket truth. The journal holds curia's events. Everything in memory is a disposable cache.
@@ -582,7 +598,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 ## State homes
 
 - **GitHub**: ticket state, labels, claims, sub-issue parentage, map bodies, branches, pull requests. The source of truth.
-- **Journal** (`daemon/data/events.jsonl`): every durable curia event. Decided and not built: a `node:sqlite` store replaces this file ([ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md)).
+- **Journal** (`daemon/data/events.jsonl`): every durable curia event. Decided and not built: the journal moves to a `node:sqlite` database at `daemon/data/events.db`, and this file retires ([ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md)).
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
