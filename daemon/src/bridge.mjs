@@ -1412,6 +1412,7 @@ export class DiscordBridge {
       files,
     })
     await this.#pointFromTicketThreads(record, thread).catch((e) => this.log(`confirm pointer for ${record.id} failed: ${e.message}`))
+    this.#reportPost(record.ticket)
     return { channelId: this.channel.id, threadId: thread.id, messageId: msg.id }
   }
 
@@ -1511,7 +1512,9 @@ export class DiscordBridge {
   async notifyRecordThread(record, text) {
     if (!record.discord) return
     const thread = await this.client.channels.fetch(record.discord.threadId).catch(() => null)
-    if (thread) await this.#sendChunked(thread, { content: text })
+    if (!thread) return
+    await this.#sendChunked(thread, { content: text })
+    this.#reportPost(record.ticket)
   }
 
   // The per-agent status line (#108 item 8): one message per agent thread,
@@ -1567,9 +1570,25 @@ export class DiscordBridge {
     if (as) {
       const tail = links.length ? `\n${links.map((l) => `🔗 ${l.label} ${l.url}`).join('\n')}` : ''
       await this.#sendAs(as, thread, { content: `${message}${tail}`, files })
+      this.#reportPost(ticket)
       return
     }
     await this.#sendChunked(thread, { content: message, files, components: DiscordBridge.linkRow(links) })
+    this.#reportPost(ticket)
+  }
+
+  // Every post into a ticket thread buries the agent's status line (#480), so
+  // each posting path reports itself and the daemon moves the line back to the
+  // thread bottom. Display only: a handler failure loses a reposition, never a
+  // message. postStatus does NOT report — the status line's own post must not
+  // trigger its own move.
+  #reportPost(ticket) {
+    if (!ticket) return
+    try {
+      this.handlers.ticketPosted?.(ticket)
+    } catch (e) {
+      this.log(`ticketPosted for ${ticket} failed: ${e.message}`)
+    }
   }
 
   // Attachment names come from Discord, i.e. from outside — path.join with a
@@ -1775,6 +1794,9 @@ export class DiscordBridge {
             `this thread belongs to \`${owner}\` — text here reaches the agent only as a reply to an open escalation.`,
           )).catch(() => {})
         }
+        // The operator's message and the receipt both landed under the status
+        // line (#480) — move it back down.
+        this.#reportPost(this.bindings?.ticketOf?.(m.channel.id) ?? null)
         return
       }
       if (this.handlers.overseerTurn && m.content?.trim()) return this.#overseerTurn(m.channel, m.content)

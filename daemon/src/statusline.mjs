@@ -181,6 +181,25 @@ export class StatusLine {
     }
   }
 
+  // Any OTHER message into the ticket thread buries the line (#480): a
+  // multi-chunk agent send, an escalation card, a receipt — each lands under
+  // it, and an edit-in-place then refreshes a message screens above where the
+  // operator reads. The bridge reports every such post here, and the line
+  // moves back to the thread bottom: same text, delete + repost.
+  //
+  // The status line's own posts never route through this — postStatus is not a
+  // reported path — so a bump cannot trigger itself. The move is queued on the
+  // agent's chain: a post still in flight finishes first, and a session with
+  // no message yet has nothing to move.
+  bump(ticket) {
+    for (const [session, w] of this.agents) {
+      if (w.ticket !== ticket) continue
+      w.chain = w.chain
+        .then(() => (w.ids ? this.#apply(w, w.text, { move: true }) : null))
+        .catch((e) => this.log(`status line bump for ${session} failed: ${e.message}`))
+    }
+  }
+
   onEvent(ev) {
     // Every ending is the dispatcher's own message (#253) — this line adds
     // nothing to it and steps out of the way. Checked before the switch so one
@@ -299,32 +318,38 @@ export class StatusLine {
   // with. `dispatched` keeps it inline — there is no transcript yet, so the
   // model IS the dispatch news.
   //
+  // The session label is gone from every state (#480): the line lives in the
+  // ticket's own thread, so the name repeated a fact the thread already
+  // carries. `working` is the icon alone for the same reason — the meters
+  // behind it are the whole message, and the word "working" only pushed them
+  // toward the budget.
+  //
   // `model` is what the meters call the model (#179), not the routing label the
   // event carried — one line must not name the same thing two ways.
   #base(session, state, detail, model) {
     switch (state) {
       case 'dispatched':
-        return `⚙️ \`${session}\`${GROUP_SEP}dispatched on **${model}** — waiting for the composer`
+        return `⚙️ dispatched on **${model}** — waiting for the composer`
       case 'working':
-        return `▶️ \`${session}\`${GROUP_SEP}working`
+        return '▶️'
       case 'waiting': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
-        return `⏳ \`${session}\`${GROUP_SEP}waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`
+        return `⏳ waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`
       }
       case 'awaiting-review': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
-        return `🔎 \`${session}\`${GROUP_SEP}awaiting review — **[${detail.esc.id}]**${waited ? ` — ${waited}` : ''}`
+        return `🔎 awaiting review — **[${detail.esc.id}]**${waited ? ` — ${waited}` : ''}`
       }
       case 'cross-checking': {
         const waited = elapsedLabel(detail.at, this.now())
-        return `⏸️ \`${session}\`${GROUP_SEP}idle at ${detail.on === 'ending' ? 'its ending' : 'the gate'} — a cross-check is reading its diff${waited ? ` — ${waited}` : ''}`
+        return `⏸️ idle at ${detail.on === 'ending' ? 'its ending' : 'the gate'} — a cross-check is reading its diff${waited ? ` — ${waited}` : ''}`
       }
       case 'executing':
-        return `🚀 \`${session}\`${GROUP_SEP}executing approved writes`
+        return '🚀 executing approved writes'
       case 'resolving':
-        return `📦 \`${session}\`${GROUP_SEP}result received (**${detail.status}**) — resolving the ticket`
+        return `📦 result received (**${detail.status}**) — resolving the ticket`
       default:
-        return `\`${session}\`${GROUP_SEP}${state}`
+        return state
     }
   }
 

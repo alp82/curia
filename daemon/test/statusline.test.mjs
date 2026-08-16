@@ -62,9 +62,9 @@ describe('StatusLine', () => {
     const texts = posts.map((p) => p.text)
     assert.equal(posts.length, 7, 'one post per LIVE state change')
     assert.match(texts[0], /dispatched on \*\*opus\*\*/)
-    assert.ok(texts[1].includes(`working${GROUP_SEP}**opus**`))
+    assert.equal(texts[1], `▶️${GROUP_SEP}**opus**`, 'working is the icon and the meters, nothing else (#480)')
     assert.match(texts[2], /waiting on \*\*\[esc-1\]\*\* — Which shade of blue\?/)
-    assert.match(texts[3], /working/)
+    assert.match(texts[3], /^▶️/)
     assert.match(texts[4], /awaiting review — \*\*\[esc-2\]\*\*/)
     assert.match(texts[5], /executing approved writes/)
     assert.match(texts[6], /result received \(\*\*resolved\*\*\)/)
@@ -240,7 +240,7 @@ describe('StatusLine', () => {
     l2.onEvent({ type: 'agent_ready', agent: 'curia-7', ticket: '7', model: 'opus', ts: 'T' })
     await l2.settle()
     assert.equal(posts.length, 2, 'the dead message is replaced by a fresh post')
-    assert.match(posts[1].text, /working/)
+    assert.match(posts[1].text, /^▶️/)
   })
 
   // #240, observed live: curia-98 opened esc-133 (question 1 of 3 on a
@@ -331,7 +331,7 @@ describe('StatusLine', () => {
     await drain()
     assert.equal(
       posts.at(-1).text,
-      ['▶️ `curia-138`', 'working', '**gpt** high', 'ctx 41%',
+      ['▶️', '**gpt** high', 'ctx 41%',
         '**5h** 🟥 ▓▓▓┃███░░░░ 62%', '**7d** 🟩 ▓▓▓▓░░░░┃░░ 41%'].join(GROUP_SEP),
     )
     // dispatched already names the model in its own sentence — it must not
@@ -344,7 +344,7 @@ describe('StatusLine', () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-5', ticket: '5', model: 'opus' })
     line.onEvent({ type: 'agent_ready', agent: 'curia-5', ticket: '5', model: 'opus', ts: 'T' })
     await drain()
-    assert.equal(posts.at(-1).text, `▶️ \`curia-5\`${GROUP_SEP}working${GROUP_SEP}**opus**`)
+    assert.equal(posts.at(-1).text, `▶️${GROUP_SEP}**opus**`)
   })
 
   test('a meter source that throws costs the meters, not the status line', async () => {
@@ -357,7 +357,7 @@ describe('StatusLine', () => {
     })
     l.onEvent({ type: 'agent_ready', agent: 'curia-6', ticket: '6', model: 'opus', ts: 'T' })
     await l.settle()
-    assert.equal(posts.at(-1).text, `▶️ \`curia-6\`${GROUP_SEP}working`)
+    assert.equal(posts.at(-1).text, '▶️')
   })
 
   test('the base sentence names the MODEL the meters state, not the routing label (#179)', async () => {
@@ -380,7 +380,7 @@ describe('StatusLine', () => {
 
     l.onEvent({ type: 'agent_ready', agent: 'curia-4', ticket: '4', model: 'gpt', ts: 'T' })
     await l.settle()
-    assert.equal(posts.at(-1).text, `▶️ \`curia-4\`${GROUP_SEP}working${GROUP_SEP}**gpt-5.6-sol** high${GROUP_SEP}ctx 12%`)
+    assert.equal(posts.at(-1).text, `▶️${GROUP_SEP}**gpt-5.6-sol** high${GROUP_SEP}ctx 12%`)
   })
 
   test('the escalation title yields columns to the model, never the other way round (#179)', async () => {
@@ -388,19 +388,30 @@ describe('StatusLine', () => {
     // wide, so a full-length title pushed the model — first in value order —
     // off the line, and every meter behind it too. The line then said nothing
     // at all about the model. Now the title takes the cut instead.
-    meters = {
-      effort: 'high',
-      ctxPct: 41,
-      windows: [{ label: '5h', pct: 62, elapsedPct: 30 }, { label: '7d', pct: 41, elapsedPct: 76 }],
-    }
+    //
+    // #480 took the session label out of the base, so a full-length title plus
+    // a normal model name now fit together and no cut fires. A wide model name
+    // drives the yield directly instead — the same trade, further along.
+    const MODEL = 'sol-ultra-'.repeat(4)
+    const l = new StatusLine({
+      post: async (ticket, text) => { posts.push({ ticket, text }); return { threadId: 't', messageId: 'm' } },
+      edit: async () => true,
+      get: (id) => records.get(id),
+      log: () => {},
+      meters: () => ({
+        model: MODEL,
+        effort: null,
+        ctxPct: 41,
+        windows: [{ label: '5h', pct: 62, elapsedPct: 30 }, { label: '7d', pct: 41, elapsedPct: 76 }],
+      }),
+    })
     const title = 'Which of these seven candidate shades of blue should the launch banner use'
     records.set('esc-9', { id: 'esc-9', agent: 'curia-8', ticket: '8', kind: 'choice' })
-    line.onEvent({ type: 'agent_spawned', agent: 'curia-8', ticket: '8', model: 'gpt' })
-    line.onEvent({ type: 'esc_open', id: 'esc-9', agent: 'curia-8', ticket: '8', kind: 'choice', prompt: title, ts: new Date().toISOString() })
-    await drain()
+    l.onEvent({ type: 'esc_open', id: 'esc-9', agent: 'curia-8', ticket: '8', kind: 'choice', prompt: title, ts: new Date().toISOString() })
+    await l.settle()
     const text = posts.at(-1).text
     assert.ok(visibleWidth(text) <= LINE_BUDGET, `${visibleWidth(text)} columns is over the ${LINE_BUDGET} budget`)
-    assert.ok(text.includes('**gpt** high'), 'the model survives the longest title there is')
+    assert.ok(text.includes(`**${MODEL}**`), 'the model survives the longest title there is')
     assert.ok(text.includes('Which of these seven candidate shades'), 'and the title still reads as one')
     assert.ok(text.includes('…'), 'it paid for the model in its own tail')
     assert.ok(!text.includes('5h') && !text.includes('7d'), 'the bars still go — a blocked agent burns no quota')
@@ -411,10 +422,10 @@ describe('StatusLine', () => {
     // a base with no columns to spare keeps its words and loses the meter —
     // which is #146's behaviour, held as the floor case rather than the rule.
     //
-    // No model name is 70 columns wide, and with a title capped at 80 no real
+    // No model name is 85 columns wide, and with a title capped at 80 no real
     // line reaches this floor today. The guard is for the day LINE_BUDGET drops
     // or a meter grows, so the probe drives it directly.
-    const WIDE = 'wide-'.repeat(14)
+    const WIDE = 'wide-'.repeat(17)
     const l = new StatusLine({
       post: async (ticket, text) => { posts.push({ ticket, text }); return { threadId: 't', messageId: 'm' } },
       edit: async () => true,
@@ -508,6 +519,48 @@ describe('StatusLine', () => {
     await drain()
     assert.equal(posts.length, 1, 'the ending posted nothing of its own')
     assert.equal(edits.length, 0, 'the tick skips an agent whose run is over')
+  })
+
+  // #480: any other message into the ticket thread buries the line — a
+  // multi-chunk agent send, an escalation card, a receipt. The bridge reports
+  // each post and the line moves back to the thread bottom: same text,
+  // delete + repost.
+  describe('a reported post moves the line back to the bottom (#480)', () => {
+    test('the buried line is deleted and reposted with the same text', async () => {
+      line.onEvent({ type: 'agent_ready', agent: 'curia-1', ticket: '1', model: 'opus', ts: 'T' })
+      await drain()
+      assert.equal(posts.length, 1)
+      line.bump('1')
+      await drain()
+      assert.equal(posts.length, 2, 'the bump reposts')
+      assert.deepEqual(removals, ['m1'], 'and deletes the buried message first')
+      assert.equal(posts[1].text, posts[0].text, 'the text does not change — only the position')
+    })
+
+    test('a post under another ticket moves nothing', async () => {
+      line.onEvent({ type: 'agent_ready', agent: 'curia-1', ticket: '1', model: 'opus', ts: 'T' })
+      await drain()
+      line.bump('2')
+      await drain()
+      assert.equal(posts.length, 1)
+      assert.deepEqual(removals, [])
+    })
+
+    test('a session with no message yet has nothing to move', async () => {
+      // The bridge was down when the state posted — ids stayed null.
+      const l = new StatusLine({
+        post: async () => null,
+        edit: async () => false,
+        remove: async (ids) => { removals.push(ids.messageId) },
+        get: () => null,
+        log: () => {},
+      })
+      l.onEvent({ type: 'agent_ready', agent: 'curia-1', ticket: '1', model: 'opus', ts: 'T' })
+      await l.settle()
+      l.bump('1')
+      await l.settle()
+      assert.deepEqual(removals, [], 'no delete against a message that never existed')
+    })
   })
 
   test('the reduction append hook delivers live events and stays silent on replay', async () => {

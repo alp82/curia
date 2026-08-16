@@ -614,6 +614,9 @@ function askHumanGate(agentName, kind, raw) {
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
 const gate = {
   get: (id) => reduction.get(id),
+  // Every bridge post into a ticket thread buries that ticket's status lines
+  // (#480); the bump moves each one back to the thread bottom.
+  ticketPosted: (ticket) => statusLine.bump(ticket),
   // `review-gate` is here because a rejection IS feedback (#48): the human's own
   // words have to reach the agent, and a button cannot carry them. Approval
   // still comes from the ✅ button — see classifyReviewAnswer, where anything
