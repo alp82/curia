@@ -73,9 +73,11 @@ export const CONTAINER_MAX_TURNS = 40
 //
 // ADR-0015 puts the config dir at `<workspace_root>/cfg/curia-overseer`, and
 // compose mounts it at that identical path on both sides — which is what lets
-// the Chat screen read a transcript this container wrote. The in-daemon host
-// keeps `daemon/data/overseer/config` until #315, because moving that one would
-// orphan the transcripts of every conversation the live overseer is holding.
+// the Chat screen read a transcript this container wrote. This is the ONLY
+// overseer config dir now. The in-daemon host held its own under
+// `daemon/data/overseer/config`, and #315 deleted that host. Nothing reads the
+// old tree any more, and the cutover copied no history (ADR-0016), so whatever
+// a box still carries there is dead paper.
 export function overseerConfigDirFor(workspaceRoot) {
   return path.join(workspaceRoot, 'cfg', 'curia-overseer')
 }
