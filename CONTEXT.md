@@ -345,7 +345,7 @@ The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#28
 _Avoid_: batch.
 
 **Typed payload**:
-The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `visual`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
+The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `visual`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. Since the flip (#422) every floor is mandatory: a call that omits a required field is refused, and the untyped `prompt`, the bare string option and the top-level `recommended` are refused with it. A refused call still reaches the operator at the cap, as a flagged send. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
 _Avoid_: structured payload, card schema.
 
 **Lint grade**:

@@ -185,15 +185,35 @@ describe('report_result carries a typed verdict, and the reviewer is linted (#42
     assert.match(text, /fields this kind needs/, 'a missing field is a schema fault, not a word fault')
   })
 
-  test('an untyped verdict still lands before the flip, and its words are still linted', async () => {
+  test('an untyped verdict is refused since the flip (#422), and nothing of it lands', async () => {
+    // The summary alone was a verdict until the flip. It is refused now, and
+    // the refusal names both fields it wants: the reviewer writes a headline,
+    // and it writes the list even when the list is empty.
     const text = await verdict('curia-review-4214', '4214', {
       ticket: '4214',
       status: 'resolved',
       summary: 'VERDICT: pass. I read the diff and ran the tests. They are green.',
     })
 
+    assert.match(text, /curia refused this call/)
+    assert.match(text, /headline: missing/)
+    assert.match(text, /findings: missing/)
+    const events = journalEvents(path.join(tmp, 'data'))
+    assert.ok(!events.some((e) => e.type === 'result' && e.agent === 'curia-review-4214'),
+      'a refused verdict reported nothing')
+  })
+
+  test('an empty findings list passes the flipped floor, because a clean reading is a result', async () => {
+    const text = await verdict('curia-review-4215', '4215', {
+      ticket: '4215',
+      status: 'resolved',
+      headline: 'The diff reads clean',
+      summary: 'I read the diff and ran the daemon suite. It is green.',
+      findings: [],
+    })
+
     assert.doesNotMatch(text, /curia refused this call/)
     const events = journalEvents(path.join(tmp, 'data'))
-    assert.ok(events.some((e) => e.type === 'result' && e.agent === 'curia-review-4214'))
+    assert.ok(events.some((e) => e.type === 'result' && e.agent === 'curia-review-4215'))
   })
 })

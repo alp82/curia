@@ -218,6 +218,16 @@ describe('the re-ask takes the recorded answer (#369, real boot pair + real MCP 
   let port
   let watch
 
+  // ONE payload, asked twice. The record's prompt is the composed card (#418),
+  // so the match is over the card the two calls both compose. Since the flip
+  // (#422) the untyped shape this test used is refused, and the round it became
+  // is what a re-asking agent sends today.
+  const PORT_QUESTION = {
+    kind: 'free-text',
+    headline: 'which port should the dev server bind?',
+    questions: [{ text: 'which port should the dev server bind?' }],
+  }
+
   const armed = (agent) => {
     const token = mintAgentToken(path.join(tmp, 'data'), agent)
     return { requestInit: { headers: { [TOKEN_HEADER]: token } } }
@@ -325,7 +335,7 @@ describe('the re-ask takes the recorded answer (#369, real boot pair + real MCP 
     // its resolver dies with it — the #56 outage, exactly.
     const asking = await connect('curia-369', '369')
     asking
-      .callTool({ name: 'ask_human', arguments: { prompt: 'which port should the dev server bind?', kind: 'free-text' } }, undefined, { timeout: 60_000 })
+      .callTool({ name: 'ask_human', arguments: PORT_QUESTION }, undefined, { timeout: 60_000 })
       .catch(() => { /* this call dies with the daemon, which IS the fault */ })
     const open = await (async () => {
       const deadline = Date.now() + 10_000
@@ -349,7 +359,7 @@ describe('the re-ask takes the recorded answer (#369, real boot pair + real MCP 
     assert.equal(JSON.parse(answered.body).ok, true)
 
     // The agent re-asks, word for word, as its standing orders tell it to.
-    const second = await call('curia-369', '369', 'ask_human', { prompt: 'which port should the dev server bind?', kind: 'free-text' })
+    const second = await call('curia-369', '369', 'ask_human', PORT_QUESTION)
     const text = second.content.map((c) => c.text ?? '').join('\n')
     assert.match(text, /9012/, 'the answer came back on the call that asked')
     assert.match(text, /recorded answer/, 'and the agent is told it is a recorded one')

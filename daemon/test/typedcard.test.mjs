@@ -6,8 +6,10 @@
 // two things of every case — did the card say the whole decision, and can the
 // operator answer it with a tap.
 //
-// An untyped record renders exactly as it did before this ticket. The flip is
-// #422, and until it lands both shapes are live.
+// An untyped record still renders, and since the flip (#422) it is a FLAGGED
+// send: the floor refused the call three times, then curia sent the text the
+// agent did write. So the untyped rendering is the last stop of a refused call
+// rather than a shape an agent may choose.
 
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -188,7 +190,7 @@ describe('a typed choice past the button band', () => {
   })
 })
 
-describe('an untyped card is untouched until the flip (#422)', () => {
+describe('an untyped card is what a flagged send renders (#422)', () => {
   let bridge, sent, thread
 
   beforeEach(() => {

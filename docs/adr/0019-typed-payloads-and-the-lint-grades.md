@@ -1,7 +1,7 @@
 # ADR-0019: Typed payloads and the lint grades
 
 **Status**: accepted (2026-08)
-**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438), [Typed notify (#420)](https://github.com/alp82/curia/issues/420), [Typed verdict carriage (#421)](https://github.com/alp82/curia/issues/421)
+**Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438), [Typed notify (#420)](https://github.com/alp82/curia/issues/420), [Typed verdict carriage (#421)](https://github.com/alp82/curia/issues/421), [The flip (#422)](https://github.com/alp82/curia/issues/422)
 
 ## Context
 
@@ -63,7 +63,7 @@ Rule 4 above left this set open. [#420](https://github.com/alp82/curia/issues/42
 | `look` | opens a file or a page now | 🔗 |
 | `ask` | replies whenever they get to it | ❓ |
 
-`progress` is the default, so an untyped call keeps the exact line the thread has always read.
+`progress` is the default, so a call that names no kind keeps the exact line the thread has always read.
 
 The axis is what makes the set checkable. A set built on the agent's own weighting — routine against notable, minor against important — is a claim the payload cannot check, and this ADR retired the `recommended` boolean over exactly that. A `look` states that a file or a page is waiting, which the call itself carries. An `ask` states that a reply is wanted, which the card under it repeats in small print.
 
@@ -174,9 +174,15 @@ A card with buttons speaks in the bot voice, because an interactive component ne
 
 A **schema** fault takes the same path, with one rule of its own. **A schema rejection never traps a question.** At the third schema rejection curia sends whatever text fields the call did carry, flagged, and the operator sees which fields were missing. A call that carried no text at all has nothing to send, so curia refuses it for good and says so. The alternative is a question that reaches nobody, which is the failure [#438](https://github.com/alp82/curia/issues/438) spent a whole ticket closing.
 
-### The flip
+### The flip (#422)
 
-The typed fields ship one surface per ticket, and one deploy lands them all ([#422](https://github.com/alp82/curia/issues/422)). Before that deploy an untyped call is accepted and renders as it does today. After it, a call that omits a required field is rejected.
+The typed fields shipped one surface per ticket, and one deploy landed them all ([#422](https://github.com/alp82/curia/issues/422)). Before that deploy an untyped call was accepted and rendered as it always had. After it, a call that omits a required field is rejected. Every floor in the table above is unconditional now, and `notify` is the one surface the flip left alone: `message` was its floor before and after.
+
+**The switch is gone, not set.** One constant held the floors off while the surfaces shipped. It had no second position left after the flip, and a rollback is a revert plus a deploy either way, so the flip deleted it rather than pinning it to true.
+
+**The three retired fields are named, never dropped.** An `ask_human` call carried a `prompt`, an `options` array of bare strings and a top-level `recommended` boolean. All three are refused now, and each refusal says where that content goes. They stay declared on the tool schema for one reason: zod strips a key it does not declare, and a stripped `prompt` would take the agent's whole question with it. Losing information in silence is the fault this map exists to stop.
+
+**An untyped call still reaches the operator at the cap.** The rejection rule above is unchanged by the flip: three refusals, then curia sends whatever text the call did carry, flagged. So the untyped rendering survives as the last stop of a refused call, and no question is lost to the flip. A call carrying no prose at all is still the one refusal that is final.
 
 ## Consequences
 
@@ -185,6 +191,6 @@ The typed fields ship one surface per ticket, and one deploy lands them all ([#4
 - The `recommended` boolean retires, and the ✅ button becomes a fact about the payload rather than a claim about it.
 - An agent loses the freedom to lay out its own card. It writes the parts, and the bridge lays them out. This is ADR-0002 read at the level of one message: the bridge renders, it never interprets.
 - A cap refuses rather than truncates. Truncation loses information in silence, and losing no information is the requirement this whole map serves.
-- Every surface is settled. The `notify` kind set (#420) and the verdict shape (#421) are the two sections above, and both build against this vocabulary. What remains is the flip itself (#422).
+- Every surface is settled and flipped. The `notify` kind set (#420) and the verdict shape (#421) are the two sections above, and both build against this vocabulary. #422 turned the floors on and retired the untyped fields.
 - The lint is weaker than `voice.md`. It checks the deterministic rules only, so prose that passes the gate can still read badly. The operator remains the last reader.
 - The `visual` field emits a fence on a common path, and the render path already carries it (#432). `fenceParts()` and `CODE_BLOCK_LIMIT` are exported from `daemon/src/messaging.mjs`, so [#418](https://github.com/alp82/curia/issues/418) reuses them rather than writing a second fence reader.

@@ -165,7 +165,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     // exactly what Claude Code does, so this exercises the token branch.
     const progress = []
     const call = client.callTool(
-      { name: 'ask_human', arguments: { prompt: 'keepalive fixture', kind: 'free-text' } },
+      { name: 'ask_human', arguments: { kind: 'free-text', headline: 'keepalive fixture', questions: [{ text: 'does the stream stay alive?' }] } },
       undefined,
       { onprogress: (p) => progress.push(p), timeout: 30_000 },
     )
@@ -223,7 +223,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
 
     // No onprogress ⇒ no progressToken on the wire ⇒ the fallback path.
     const call = client.callTool(
-      { name: 'ask_human', arguments: { prompt: 'fallback fixture', kind: 'free-text' } },
+      { name: 'ask_human', arguments: { kind: 'free-text', headline: 'fallback fixture', questions: [{ text: 'does the tokenless path tick?' }] } },
       undefined,
       { timeout: 30_000 },
     )
@@ -276,7 +276,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     const client = new Client({ name: 'curia-image-test', version: '0.0.0' })
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-70&ticket=70`), armed('curia-70')))
     const call = client.callTool(
-      { name: 'ask_human', arguments: { prompt: 'does this look right?', kind: 'free-text' } },
+      { name: 'ask_human', arguments: { kind: 'free-text', headline: 'does this look right?', questions: [{ text: 'is the header where you want it?' }] } },
       undefined,
       { timeout: 30_000 },
     )
@@ -312,7 +312,17 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     const client = new Client({ name: 'curia-choice-test', version: '0.0.0' })
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-71&ticket=71`), armed('curia-71')))
     const call = client.callTool(
-      { name: 'ask_human', arguments: { prompt: 'which harness runs this?', kind: 'choice', options: ['claude', 'codex'] } },
+      {
+        name: 'ask_human',
+        arguments: {
+          kind: 'choice',
+          headline: 'which harness runs this?',
+          options: [
+            { label: 'claude', consequence: 'the Stop hook is a real block.' },
+            { label: 'codex', consequence: 'a rejection is only a return value.' },
+          ],
+        },
+      },
       undefined,
       { timeout: 30_000 },
     )
@@ -375,7 +385,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       const client = new Client({ name: 'curia-result-test', version: '0.0.0' })
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=${agent}&ticket=${ticket}`), armed(agent)))
       const res = await client.callTool(
-        { name: 'report_result', arguments: { ticket: String(ticket), status: 'resolved', summary: 'fixture' } },
+        { name: 'report_result', arguments: { ticket: String(ticket), status: 'resolved', headline: 'fixture', summary: 'fixture' } },
         undefined,
         { timeout: 30_000 },
       )
@@ -404,7 +414,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
     const client = new Client({ name: 'curia-result-bind-test', version: '0.0.0' })
     await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp?agent=curia-88&ticket=88`), armed('curia-88')))
     await client.callTool(
-      { name: 'report_result', arguments: { ticket: 'alp82/curia#164', status: 'resolved', summary: 'fixture' } },
+      { name: 'report_result', arguments: { ticket: 'alp82/curia#164', status: 'resolved', headline: 'fixture', summary: 'fixture' } },
       undefined,
       { timeout: 30_000 },
     )

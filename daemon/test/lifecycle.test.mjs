@@ -128,7 +128,7 @@ describe('the review gate payload', () => {
     assert.match(text, /Details: \|\|The lint is daemon\/src\/lint\.mjs\.\|\|/)
   })
 
-  test('an untyped gate is byte-for-byte what it was before the typed fields', () => {
+  test('a gate with an empty body is byte-for-byte what it was before the typed fields', () => {
     assert.equal(reviewGateText({ ...base, body: '' }).text, reviewGateText(base).text)
     assert.equal(reviewGateText({ ...base, body: '   ' }).text, reviewGateText(base).text)
   })
