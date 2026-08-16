@@ -36,7 +36,7 @@
 //   req-N.json    the request body codex sent for turn N (stub lane)
 //   summary.json  the counted result
 import { spawn } from 'node:child_process'
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, statSync } from 'node:fs'
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -54,7 +54,7 @@ const TOOL_DESC = process.env.LINT_TOOL_DESC ?? 'plain'
 const TASK_VARIANT = process.env.TASK_VARIANT ?? 'cap'
 const MODEL = process.env.MODEL ?? 'gpt-5.6-sol'
 const EFFORT = process.env.EFFORT ?? 'high'
-const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? (REAL ? 900_000 : 120_000))
+const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? (REAL ? 1_800_000 : 120_000))
 
 const outDir = join(HERE, 'out', name)
 mkdirSync(outDir, { recursive: true })
@@ -63,9 +63,14 @@ writeFileSync(callsLog, '')
 const stubLog = join(outDir, 'requests')
 mkdirSync(stubLog, { recursive: true })
 
+// The whole sandbox goes first. A re-run under the same name would otherwise
+// keep the last session's rollout, and the reading below takes the newest file
+// it finds. A run that dies before it writes one would then be read as the run
+// before it.
 const sandboxRoot = process.env.SANDBOX_ROOT ?? '/tmp/reject-on-lint'
 const codexHome = join(sandboxRoot, name, 'codex')
 const cwd = join(sandboxRoot, name, 'cwd')
+rmSync(join(sandboxRoot, name), { recursive: true, force: true })
 mkdirSync(codexHome, { recursive: true })
 mkdirSync(cwd, { recursive: true })
 
