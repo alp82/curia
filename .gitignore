@@ -43,3 +43,6 @@ credentials.json
 *.orig
 tmp/
 .forge/
+
+# other
+spikes/

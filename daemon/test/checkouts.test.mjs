@@ -127,8 +127,14 @@ describe('the overseer checkouts (#312)', () => {
   test('the checkout is a mirror: no git identity, and a push url that refuses', async () => {
     const { repos } = await sync(['alp82/curia'])
     const wt = repos[0].path
-    assert.throws(() => git(wt, 'config', '--get', 'user.email'),
-      'no identity is deliberate — a commit here must fail by naming what is missing')
+    // The claim is about the CHECKOUT, so the host's global/system gitconfig is
+    // masked — a developer machine with a global user.email must not pass for
+    // an identity the checkout configured.
+    const bare = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' }
+    assert.throws(
+      () => execFileSync('git', ['-C', wt, 'config', '--get', 'user.email'], { encoding: 'utf8', env: bare }),
+      'no identity is deliberate — a commit here must fail by naming what is missing',
+    )
     assert.match(git(wt, 'config', '--get', 'remote.origin.pushurl'), /^no_push:/)
   })
 

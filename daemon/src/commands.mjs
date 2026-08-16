@@ -437,12 +437,16 @@ export class CommandRouter {
   async #tickets(repoFilter) {
     const rows = await this.dispatcher.frontier(repoFilter)
     if (!rows.length) return `❌ no watched repo matches \`${repoFilter}\``
-    const lines = rows.map((r) => {
+    // A repo with nothing takeable is hidden — the reply lists frontiers, not
+    // the watch list. Error rows stay: a repo that could not be read is not
+    // known to be empty.
+    const shown = rows.filter((r) => r.error || r.items.length)
+    if (!shown.length) return `nothing takeable in ${rows.map((r) => `**${r.repo}**`).join(', ')}`
+    const lines = shown.map((r) => {
       if (r.error) return `**${r.repo}** — ⚠️ ${r.error}`
       // #81: the count of HITL-free tickets per blocker chains — how many an
       // agent can work through with no human in the loop
       const chain = r.agentOnly == null ? '' : ` — ${r.agentOnly} agent-only runnable`
-      if (!r.items.length) return `**${r.repo}** (${r.lane} lane) — nothing takeable${chain}`
       // #95: one line per ticket, bold titles, and "N more" instead of a tail.
       // #120: map-lane tickets sit under their map's header, so a map named in
       // prose ("the landing page map") is resolvable against this output.
@@ -450,16 +454,23 @@ export class CommandRouter {
         const type = i.labels.find((l) => l.startsWith('wayfinder:'))
         return `  • #${i.number} **${i.title}**${type ? ` \`${type.replace('wayfinder:', '')}\`` : ''}`
       }
-      const lines = []
-      let currentMap
+      // The clamp is per map, not per reply: every map shows its header and up
+      // to 5 tickets, so a long first map cannot push the later maps off the
+      // reply. Unmapped tickets clamp as one group of their own.
+      const groups = []
       for (const i of r.items) {
-        if (i.map != null && i.map !== currentMap) {
-          lines.push(`  🎫 map #${i.map} **${i.mapTitle}**:`)
-        }
-        currentMap = i.map
-        lines.push(`${i.map != null ? '  ' : ''}${ticketLine(i)}`)
+        const last = groups[groups.length - 1]
+        if (!last || last.map !== (i.map ?? null)) groups.push({ map: i.map ?? null, mapTitle: i.mapTitle, items: [] })
+        groups[groups.length - 1].items.push(i)
       }
-      return `**${r.repo}** (${r.lane} lane)${chain}:\n${clampList(lines).join('\n')}`
+      const lines = []
+      for (const g of groups) {
+        if (g.map != null) lines.push(`  🎫 map #${g.map} **${g.mapTitle}**:`)
+        // The indent goes on before the clamp so the small-print "N more" line
+        // stays flush left — Discord's `-#` only renders at line start.
+        lines.push(...clampList(g.items.map((i) => `${g.map != null ? '  ' : ''}${ticketLine(i)}`), 5))
+      }
+      return `**${r.repo}** (${r.lane} lane)${chain}:\n${lines.join('\n')}`
     })
     return lines.join('\n')
   }

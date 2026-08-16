@@ -656,7 +656,7 @@ describe('CommandRouter grown verbs (#81)', () => {
     assert.match(reply, /research/)
   })
 
-  test('a long tickets list clamps to one line per item plus "N more" (#95)', async () => {
+  test('a long tickets list clamps to 5 lines per map plus "N more" (#95)', async () => {
     const items = Array.from({ length: 14 }, (_, i) => ({ number: i + 1, title: `t${i + 1}`, labels: [] }))
     const dispatcher = {
       config: WATCH,
@@ -664,8 +664,76 @@ describe('CommandRouter grown verbs (#81)', () => {
     }
     const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
     const reply = await router.handle('tickets', 'u')
-    assert.match(reply, /-# … 4 more/)
-    assert.ok(!reply.includes('t11'), 'the tail is cut, not listed')
+    assert.match(reply, /-# … 9 more/)
+    assert.ok(reply.includes('t5'), 'the first 5 are listed')
+    assert.ok(!reply.includes('t6'), 'the tail is cut, not listed')
+  })
+
+  test('each map clamps on its own, so a long first map cannot hide the later ones', async () => {
+    const mapped = (map, n) => Array.from({ length: n }, (_, i) => ({
+      number: map * 100 + i, title: `m${map}-t${i}`, labels: [], map, mapTitle: `map ${map}`,
+    }))
+    const dispatcher = {
+      config: WATCH,
+      frontier: async () => [{
+        repo: 'alp82/curia', lane: 'map', numbers: [], agentOnly: 0,
+        items: [...mapped(1, 8), ...mapped(2, 3)],
+      }],
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('tickets', 'u')
+    assert.match(reply, /map #1/)
+    assert.match(reply, /map #2/)
+    assert.match(reply, /-# … 3 more/, 'the first map clamps at 5')
+    assert.ok(!reply.includes('m1-t5'), 'the first map\'s tail is cut')
+    assert.ok(reply.includes('m2-t2'), 'the second map still shows all 3 tickets')
+  })
+
+  test('a repo with nothing takeable is hidden when another repo has tickets', async () => {
+    const dispatcher = {
+      config: WATCH,
+      frontier: async () => [
+        { repo: 'alp82/curia', lane: 'map', numbers: [], agentOnly: 0, items: [] },
+        {
+          repo: 'alp82/aistack', lane: 'map', numbers: [1], agentOnly: 1,
+          items: [{ number: 1, title: 'only ticket', labels: [] }],
+        },
+      ],
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('tickets', 'u')
+    assert.ok(!reply.includes('alp82/curia'), 'the empty repo does not render')
+    assert.match(reply, /alp82\/aistack/)
+    assert.match(reply, /#1 \*\*only ticket\*\*/)
+  })
+
+  test('all repos empty says so instead of rendering an empty reply', async () => {
+    const dispatcher = {
+      config: WATCH,
+      frontier: async () => [
+        { repo: 'alp82/curia', lane: 'map', numbers: [], agentOnly: 0, items: [] },
+        { repo: 'alp82/aistack', lane: 'map', numbers: [], agentOnly: 0, items: [] },
+      ],
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('tickets', 'u')
+    assert.match(reply, /nothing takeable/)
+    assert.match(reply, /alp82\/curia/)
+    assert.match(reply, /alp82\/aistack/)
+  })
+
+  test('an error row stays visible even though it lists no tickets', async () => {
+    const dispatcher = {
+      config: WATCH,
+      frontier: async () => [
+        { repo: 'alp82/curia', error: 'rate limited' },
+        { repo: 'alp82/aistack', lane: 'map', numbers: [], agentOnly: 0, items: [] },
+      ],
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+    const reply = await router.handle('tickets', 'u')
+    assert.match(reply, /alp82\/curia.*⚠️ rate limited/)
+    assert.ok(!reply.includes('alp82/aistack'), 'the empty repo is still hidden')
   })
 
   test('next hands the resolved repo and the user to the dispatcher', async () => {
