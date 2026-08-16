@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import {
   SIGNALS, smallPrint, link, clampList, lintReply, chunkMessage, promptTitle, elapsedLabel,
   speakerName, failureProse, FailureLines, CHUNK_LIMIT, SPEAKER_NAME_LIMIT,
-  FAILURE_PROSE_LIMIT, FAILURE_REPEAT_WINDOW_MS,
+  FAILURE_PROSE_LIMIT, FAILURE_REPEAT_WINDOW_MS, CODE_BLOCK_LIMIT, fenceParts,
 } from '../src/messaging.mjs'
 
 describe('smallPrint', () => {
@@ -66,6 +66,70 @@ describe('lintReply', () => {
     assert.deepEqual(lintReply(smallPrint('meta line')), [])
     assert.equal(lintReply(smallPrint('🚀 meta')).length, 1)
   })
+
+  // #432: the code-block table is the one table form Discord renders (#414),
+  // so the markdown rules read prose only.
+  test('a table inside a fence passes, the same table outside it does not', () => {
+    const rows = '| a | b |\n|---|---|\n| 1 | 2 |'
+    assert.deepEqual(lintReply(`the shape:\n\`\`\`\n${rows}\n\`\`\``), [])
+    assert.equal(lintReply(`the shape:\n${rows}`).length, 3)
+  })
+
+  test('a heading inside a fence passes, and prose after the fence is read again', () => {
+    assert.deepEqual(lintReply('```\n# not a heading\n```'), [])
+    assert.equal(lintReply('```\n# fine\n```\n\n# heading').length, 1)
+  })
+
+  test('an emoji outside the signal set is a violation inside a fence too', () => {
+    assert.equal(lintReply('```\n🚀 launched\n```').length, 1)
+  })
+
+  test('a code block over the cap is a violation, one under it is not', () => {
+    const rows = (n) => Array.from({ length: n }, (_, i) => `row ${i} ${'x'.repeat(30)}`).join('\n')
+    assert.deepEqual(lintReply(`\`\`\`\n${rows(20)}\n\`\`\``), [])
+    const over = lintReply(`\`\`\`\n${rows(60)}\n\`\`\``)
+    assert.equal(over.length, 1)
+    assert.match(over[0], /code block of \d+ chars over the 1000 cap/)
+  })
+
+  test('the cap is per block, so two blocks under it pass', () => {
+    const half = 'y'.repeat(CODE_BLOCK_LIMIT - 20)
+    assert.deepEqual(lintReply(`\`\`\`\n${half}\n\`\`\`\n\nand\n\n\`\`\`\n${half}\n\`\`\``), [])
+  })
+})
+
+// #432: a fence is a unit. The parts keep source order and lose nothing.
+describe('fenceParts', () => {
+  test('prose with no fence is one part', () => {
+    assert.deepEqual(fenceParts('one\n\ntwo'), [{ code: false, text: 'one\n\ntwo' }])
+  })
+
+  test('a fence is its own part, with the prose on both sides', () => {
+    const parts = fenceParts('before\n```js\nlet a = 1\n```\nafter')
+    assert.deepEqual(parts.map((p) => p.code), [false, true, false])
+    assert.equal(parts[1].text, '```js\nlet a = 1\n```')
+    assert.equal(parts[1].open, '```js')
+    assert.equal(parts[1].close, '```')
+    assert.equal(parts[2].text, 'after')
+  })
+
+  test('a tilde fence and a longer marker both close on their own kind', () => {
+    const parts = fenceParts('~~~~\nhas ``` inside\n~~~~\n')
+    assert.equal(parts[0].code, true)
+    assert.equal(parts[0].text, '~~~~\nhas ``` inside\n~~~~')
+  })
+
+  test('an unclosed fence runs to the end and reports no closing marker', () => {
+    const parts = fenceParts('```\nno end')
+    assert.equal(parts.length, 1)
+    assert.equal(parts[0].close, null)
+    assert.equal(parts[0].text, '```\nno end')
+  })
+
+  test('the parts rejoin into the original text', () => {
+    const text = 'a\n\nb\n```\nc\n```\n\nd\n~~~\ne\n~~~\nf'
+    assert.equal(fenceParts(text).map((p) => p.text).join('\n'), text)
+  })
 })
 
 // #119: long composed messages become consecutive chunks instead of a silent
@@ -97,6 +161,73 @@ describe('chunkMessage', () => {
     const chunks = chunkMessage(text)
     for (const c of chunks) assert.ok(c.length <= CHUNK_LIMIT)
     assert.equal(chunks.join(''), text)
+  })
+
+  // #432, proved live in #414: a 34-row table in one fence split across two
+  // messages, and both halves rendered as literal backticks.
+  const fences = (chunk) => (chunk.match(/^ {0,3}(`{3,}|~{3,})/gm) ?? []).length
+  const table = (rows) => Array.from(
+    { length: rows },
+    (_, i) => `row ${String(i).padStart(2, '0')} | ${'col'.padEnd(12)} | value`,
+  )
+
+  test('every chunk closes the fences it opens', () => {
+    const text = `${'prose '.repeat(200)}\n\n\`\`\`\n${table(60).join('\n')}\n\`\`\`\n\ntail`
+    const chunks = chunkMessage(text)
+    assert.ok(chunks.length > 1)
+    for (const c of chunks) {
+      assert.equal(fences(c) % 2, 0, `unbalanced fence in chunk: ${c.slice(0, 80)}`)
+      assert.ok(c.length <= CHUNK_LIMIT, `chunk of ${c.length} over the limit`)
+    }
+  })
+
+  test('a split block loses no row and keeps every row inside a fence', () => {
+    const rows = table(60)
+    const chunks = chunkMessage(`\`\`\`\n${rows.join('\n')}\n\`\`\``)
+    assert.ok(chunks.length > 1)
+    const body = chunks.flatMap((c) => c.split('\n').filter((l) => !/^(`{3,}|~{3,})/.test(l)))
+    assert.deepEqual(body, rows)
+    for (const c of chunks) {
+      assert.match(c, /^```\n/)
+      assert.match(c, /\n```$/)
+    }
+  })
+
+  test('the info string is repeated on every reopened fence', () => {
+    const chunks = chunkMessage(`\`\`\`diff\n${table(60).join('\n')}\n\`\`\``)
+    assert.ok(chunks.length > 1)
+    for (const c of chunks) assert.match(c, /^```diff\n/)
+  })
+
+  test('a block that fits moves whole into one chunk instead of straddling', () => {
+    const block = `\`\`\`\n${table(12).join('\n')}\n\`\`\``
+    assert.ok(block.length < CHUNK_LIMIT)
+    const chunks = chunkMessage(`${'prose '.repeat(250)}\n\n${block}\n\nafter`)
+    assert.ok(chunks.length > 1)
+    assert.ok(chunks.some((c) => c.includes(block)), 'the block was split')
+  })
+
+  test('prose around a split block still reads as prose', () => {
+    const chunks = chunkMessage(`intro\n\n\`\`\`\n${table(60).join('\n')}\n\`\`\`\n\noutro`)
+    assert.ok(chunks[0].startsWith('intro'))
+    assert.ok(chunks.at(-1).endsWith('outro'))
+  })
+
+  test('an unclosed fence stays unclosed at the end and nowhere else', () => {
+    const chunks = chunkMessage(`\`\`\`\n${table(60).join('\n')}`)
+    assert.ok(chunks.length > 1)
+    for (const c of chunks.slice(0, -1)) assert.equal(fences(c) % 2, 0)
+    assert.equal(fences(chunks.at(-1)) % 2, 1)
+  })
+
+  test('one code line longer than a whole chunk is sliced inside the fence', () => {
+    const chunks = chunkMessage(`\`\`\`\n${'q'.repeat(CHUNK_LIMIT * 2)}\n\`\`\``)
+    assert.ok(chunks.length > 1)
+    for (const c of chunks) {
+      assert.ok(c.length <= CHUNK_LIMIT)
+      assert.equal(fences(c), 2)
+    }
+    assert.equal(chunks.map((c) => c.split('\n')[1]).join(''), 'q'.repeat(CHUNK_LIMIT * 2))
   })
 })
 

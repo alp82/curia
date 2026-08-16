@@ -133,6 +133,7 @@ export class Reduction {
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
+    this.tokenWarnings = new Map() // credential key -> the last warning curia said about it (#380)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
     this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
@@ -269,6 +270,24 @@ export class Reduction {
     }
     if (ev.type === 'provider_cooling' && ev.provider && ev.reset_at) {
       this.coolings.providers.set(ev.provider, ev.reset_at)
+    }
+
+    // The credential warnings still standing (#380). A reduction for the two
+    // reasons the coolings above are one: the ladder must not re-say at every
+    // boot what it already said, and the dashboard's Needs-you item has to
+    // survive the deploy that happens between the warning and the operator
+    // acting on it. The write path adds nothing for this — `token_warned` and
+    // `token_cleared` are the events the watch already states.
+    //
+    // The key is composed here rather than carried, so one rule decides it: an
+    // expiry belongs to the TOKEN and a reach failure to the token and the repo
+    // together (ADR-0013, and see tokenwatch.mjs rule 3).
+    if (ev.type === 'token_warned' || ev.type === 'token_cleared') {
+      const key = ev.fault === 'expiring'
+        ? `${ev.holder}:${ev.key}`
+        : `${ev.holder}:${ev.key}:${ev.repo}`
+      if (ev.type === 'token_cleared') this.tokenWarnings.delete(key)
+      else this.tokenWarnings.set(key, { ...ev, at: ev.ts ?? null })
     }
 
     switch (ev.type) {
@@ -1064,6 +1083,20 @@ export class Reduction {
   // capped per kind. A copy, for the reason `recentEvents` hands out one.
   recentOutcomes() {
     return [...this.outcomes.cancelled, ...this.outcomes.finished, ...this.outcomes.died]
+  }
+
+  // Every credential warning still standing, oldest first (#380). A copy, for
+  // the reason `recentEvents` hands out one: the route serializes it while the
+  // watch keeps appending.
+  standingTokenWarnings() {
+    return [...this.tokenWarnings.values()].map((w) => ({ ...w }))
+  }
+
+  // The last warning curia said about one credential key, or null. The ladder
+  // reads this to decide whether a reading is news.
+  tokenWarning(key) {
+    const w = this.tokenWarnings.get(key)
+    return w ? { ...w } : null
   }
 
   // The pull request an agent's CURRENT dispatch pushed, or null (#289). This

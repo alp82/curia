@@ -22,6 +22,7 @@ import { finished } from 'node:stream/promises'
 import {
   Client, Events, GatewayIntentBits, ChannelType, REST, Routes,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, SlashCommandBuilder,
+  StringSelectMenuBuilder,
 } from 'discord.js'
 import { isChatHandle } from './attach.mjs'
 import { safeLeaf } from './attachments.mjs'
@@ -30,7 +31,50 @@ import { CONFIRM_KIND } from './reduction.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
 
-const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
+// The `choice` surface, in three bands (#431, on the #413 map).
+//
+// It used to be two. Buttons held up to 23 options, and above that the card
+// dropped its buttons, printed a numbered list and asked for a typed reply.
+// #414 named that list the worst answer surface the daemon has on a phone, and
+// it could not judge the alternative, because the bridge built buttons and link
+// buttons only. A string select menu is that alternative, and it takes the case
+// back to a tap.
+//
+// The operator set both edges on #431:
+//
+//  - buttons keep 2 to 4 options. Five buttons fill a row, and a card that
+//    wraps into a wall of blurple is what the menu exists to stop;
+//  - one menu holds 5 to 25 options. Twenty-five is Discord's cap on a string
+//    select, and the operator wants no more than that on a card: past 25 the
+//    list has stopped being a choice a human makes by reading it;
+//  - past 25 the numbered list stays. It is the surface of last resort, and it
+//    loses nothing, which a menu that silently dropped option 26 would.
+const MAX_BUTTON_OPTIONS = 4
+export const MAX_SELECT_OPTIONS = 25
+
+// One select option shows a 100-char label and a 100-char description under it.
+// An option longer than the label spills its tail into the description, so 200
+// chars ride the menu whole. Past that the menu clips, and the body keeps the
+// numbered list beside it. An option never loses its words to this component.
+const SELECT_LABEL = 100
+const SELECT_DESC = 100
+
+// Whether the menu can carry this list at all, and whether it can carry it
+// unclipped. Two separate questions: the first picks the component, the second
+// picks whether the numbered list stays under it.
+export const selectFits = (options) => options.length > MAX_BUTTON_OPTIONS
+  && options.length <= MAX_SELECT_OPTIONS
+export const selectClips = (options) => options.some((o) => String(o).length > SELECT_LABEL + SELECT_DESC)
+
+// The option payload. `value` is the index into `record.options`, the same key
+// the `idx` buttons use, so every answer path resolves a pick the one way.
+export function selectOption(text, idx) {
+  const s = String(text)
+  const option = { label: s.slice(0, SELECT_LABEL), value: String(idx) }
+  const tail = s.slice(SELECT_LABEL)
+  if (tail) option.description = tail.length > SELECT_DESC ? `${tail.slice(0, SELECT_DESC - 1)}…` : tail
+  return option
+}
 
 // The round's one-tap answer (#285, ADR-0005). It rides `free-text` and it is
 // pure capture: the press records this word, the agent reads it, and the agent
@@ -1105,6 +1149,19 @@ export class DiscordBridge {
           .setLabel(label.slice(0, 80)).setStyle(ButtonStyle.Primary))
       })
     }
+    // Above the button cap the same options ride one select menu (#431).
+    //
+    // A menu owns its whole row, so any half-filled row is flushed first. A
+    // choice card carries no other button, so that row is empty here today.
+    if (record.kind === 'choice' && selectFits(record.options ?? [])) {
+      if (row.components.length) { rows.push(row); row = new ActionRowBuilder() }
+      rows.push(new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`esc|${record.id}|sel`)
+          .setPlaceholder('Pick one')
+          .addOptions(record.options.map(selectOption)),
+      ))
+    }
     // The round's one tap (#285). It is the ONLY button a free-text card ever
     // gets, and the agent asks for it by promising every question in the prompt
     // carries a recommendation. There is no ❌ beside it: the opposite of "all
@@ -1148,7 +1205,19 @@ export class DiscordBridge {
     const head = `**[${record.id}]** \`${record.agent}\` asks (*${record.kind}*):\n${record.prompt}`
     const parts = [head]
     if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {
-      parts.push(record.options.map((o, i) => `**${i + 1}.** ${o}`).join('\n'), '_Reply in this thread with a number._')
+      // The numbered list is now the FALLBACK, not the surface (#431). It is
+      // printed in the two cases the menu cannot serve: a list past the menu's
+      // reach, and a list whose options are too long for the menu to show
+      // whole. Otherwise the menu carries every option and the list would say
+      // the same thing twice, which is what makes this card scroll on a phone.
+      const numbered = record.options.map((o, i) => `**${i + 1}.** ${o}`).join('\n')
+      if (!selectFits(record.options)) {
+        parts.push(numbered, '_Reply in this thread with a number._')
+      } else if (selectClips(record.options)) {
+        parts.push(numbered, '_Pick from the menu below, or reply with a number._')
+      } else {
+        parts.push('_Pick from the menu below._')
+      }
     } else if (record.kind === 'free-text') {
       // A round says what the tap means and what a partial reply does (#285).
       // The second sentence is the load-bearing one: a question you do not
@@ -1547,7 +1616,10 @@ export class DiscordBridge {
       return
     }
 
-    if (i.isButton() && i.customId.startsWith('esc|')) {
+    // A pick on a long-choice menu (#431) lands here beside the buttons: same
+    // custom id, same record, same answer path. The only difference is where
+    // the picked index rides — `i.values[0]` instead of the id's last field.
+    if ((i.isButton() || i.isStringSelectMenu()) && i.customId.startsWith('esc|')) {
       const [, id, action, value] = i.customId.split('|')
       // A message posted before #200 still carries the old cancel button, and
       // Discord keeps it pressable forever. The act it named is gone, so the
@@ -1562,8 +1634,13 @@ export class DiscordBridge {
         return
       }
       const record = this.handlers.get(id)
-      const answer = action === 'idx' ? record?.options?.[Number(value)] ?? value : value
-      const result = this.handlers.answer(id, { answer, by: i.user.id, via: 'button' })
+      const picked = action === 'sel' ? i.values?.[0] : value
+      const answer = action === 'idx' || action === 'sel'
+        ? record?.options?.[Number(picked)] ?? picked
+        : picked
+      const result = this.handlers.answer(id, {
+        answer, by: i.user.id, via: action === 'sel' ? 'select menu' : 'button',
+      })
       if (result.ok) {
         // #253, ADR-0013: the card is the only record. `answer` above already
         // edits the mark onto it, so this press is acknowledged SILENTLY —

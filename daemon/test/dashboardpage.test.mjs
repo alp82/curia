@@ -125,6 +125,9 @@ const OVERVIEW = () => ({
       { label: '5h', pct: 97, elapsed_pct: 48, resets_at: ahead(30), fresh: true },
     ] },
   ],
+  // The credential warnings still standing (#380). The ordinary state is none:
+  // the tests that want one say so.
+  token_warnings: [],
   events: [
     { ts: at(600), type: 'agent_spawned', agent: 'curia-255', repo: 'alp82/curia', ticket: '255', model: 'gpt-5.6-sol', harness: 'codex' },
     { ts: at(400), type: 'esc_open', id: 'esc-7', agent: 'curia-255', ticket: '255', kind: 'choice', prompt: 'Two notes race the same expiry line.' },
@@ -199,6 +202,59 @@ describe('the read screens (#264)', () => {
       const t = text(page.screenHome(payload()))
       assert.match(t, /openai the 5h window is spent at 97%/)
       assert.match(t, /it rolls at \d\d:\d\d/)
+    })
+
+    // The credential watch (#380). The warning used to be a boot log line, so
+    // what these pin is that it now reaches a surface the operator reads and
+    // STAYS there: a Discord line scrolls away, and a dying token does not.
+    test('a dying token joins the attention list, with the act that ends it', () => {
+      const t = text(page.screenHome(payload({
+        token_warnings: [{
+          holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
+          days: 3, expires_at: '2026-08-19 06:20:31 UTC', step: 3, said: true,
+          where: 'daemon/.env.daemon', refusal: 'an agent on it will fail at its first gh call',
+        }],
+      })))
+      assert.match(t, /GH_TOKEN_ALP82 expires in 3 days/)
+      assert.match(t, /an agent on it will fail at its first gh call/)
+      assert.match(t, /mint a new token into daemon\/\.env\.daemon/)
+    })
+
+    test('a token that cannot reach a repo names the repo and GitHub\'s own words', () => {
+      const t = text(page.screenHome(payload({
+        token_warnings: [{
+          holder: 'overseer', key: 'OVERSEER_GH_TOKEN_ALP82', repo: 'alp82/aistack', fault: 'unreachable',
+          message: 'HTTP 404: Not Found', said: true,
+          where: 'daemon/.env.overseer', refusal: 'the overseer cannot read it',
+        }],
+      })))
+      assert.match(t, /OVERSEER_GH_TOKEN_ALP82 cannot reach alp82\/aistack — HTTP 404: Not Found/)
+      assert.match(t, /add alp82\/aistack to the token on GitHub/)
+    })
+
+    test('an expired token says it is dead rather than counting past zero', () => {
+      const t = text(page.screenHome(payload({
+        token_warnings: [{
+          holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
+          days: -2, expires_at: '2026-08-14 06:20:31 UTC', step: 0, said: true,
+          where: 'daemon/.env.daemon', refusal: 'an agent on it will fail at its first gh call',
+        }],
+      })))
+      assert.match(t, /GH_TOKEN_ALP82 has expired/)
+      assert.doesNotMatch(t, /expires in -/)
+    })
+
+    test('a credential warning IS counted, because an operator act is what ends it', () => {
+      // The rule that separates it from a spent window, which the count skips:
+      // a window rolls on its own clock, and a token nobody mints stays dead.
+      const one = payload({
+        token_warnings: [{
+          holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
+          days: 3, step: 3, said: true, where: 'daemon/.env.daemon', refusal: 'r',
+        }],
+      })
+      assert.equal(page.needsYou(one.overview), 3)
+      assert.match(text(page.screenHome(one)), /3 needs you/)
     })
 
     test('the needs-you count is escalations plus the gate, and the tab title carries it', () => {

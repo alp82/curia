@@ -31,8 +31,9 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 ## Human in the loop
 
-- [ADR-0005](0005-escalation-contract.md): Escalations are blocking MCP calls, rendered on Discord, first-valid-wins, durable in the journal.
+- [ADR-0005](0005-escalation-contract.md): Escalations are blocking MCP calls, rendered on Discord, first-valid-wins, durable in the journal. Agent prose is lint-gated: three rejections, then a flagged send, and on codex the Stop hook is what makes a rejection unmissable. Decided, not built.
 - [ADR-0013](0013-one-voice-per-fact.md): CuriaBot states mechanics, the agent voice states meaning, and no fact is said twice. Notes queue or interrupt, and a pending cross-check gates the ending.
+- [ADR-0019](0019-typed-payloads-and-the-lint-grades.md): Agent prose ships as typed fields, not one string. One vocabulary of seven names, a mandatory floor per surface, two lint grades and a geometry check on the visual. Decided, not built.
 
 ## Resolution
 

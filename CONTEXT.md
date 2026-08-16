@@ -193,6 +193,11 @@ _Avoid_: OAuth app.
 What the daemon mints from the app key, one per resource owner and per role. Two roles: read-write for agents, read-only for the overseer. A minted token scopes down from what the installation grants, which is what lets one key hold both. It lives one hour, so a holder reads a file the daemon rewrites and never an environment variable frozen at spawn.
 _Avoid_: app token (that name is the JWT the daemon signs, and a JWT mints installation tokens rather than reaching a repo).
 
+**Credential watch**:
+What tells the operator a GitHub token is dying, in time to mint a new one. The daemon probes every watched repo with the token that repo is read with, once at boot, once at every watch reload, and every six hours after that. It measures two facts and says both where the operator reads. The first is reach: a token that answers 404, 403 or 401 on a watched repo. The second is expiry, on a ladder of 14 days, 7, 3, 1 and expired. Each step is said once, in `#curia`, and it also stands on the dashboard Needs-you list until the reading clears. A step already said is never repeated, so a deploy is silent, and a line that did not reach Discord is re-said at the next pass and at bridge start. The expiry is keyed on the token and the reach on the token and the repo together, because one token covers every repo of an owner. It files no ticket and dispatches nothing, which is what keeps [#345](https://github.com/alp82/curia/issues/345)'s refusal of a scheduler intact. Lives in `daemon/src/tokenwatch.mjs`. See [#380](https://github.com/alp82/curia/issues/380).
+_Avoid_: token alarm, expiry cron.
+The expiry half is a PAT-only fact and it dies holder by holder as [ADR-0018](docs/adr/0018-the-daemon-is-a-github-app.md) cuts over: an installation token lives one hour and the daemon refreshes it, so its expiry is nothing the operator can act on and curia must never warn about one. The reach half survives for every holder and for the installation itself.
+
 **The verbs**:
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
@@ -308,8 +313,32 @@ The durable record of one question from an agent to a human. It survives daemon 
 The blocking tool an agent calls to ask a question. Kinds: free-text, choice, approve-reject, preview-review. The call blocks until an answer arrives, hours included.
 
 **Round**:
-The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#285). It holds every question whose answer does not depend on another question still open. The agent numbers them and gives each a recommended answer, and the `recommended` flag puts a ✅ All as recommended button on the card. One question is a round of one. A question the operator leaves unanswered returns in the next round, and it is never taken as recommended.
+The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#285). It holds every question whose answer does not depend on another question still open. The agent numbers them and gives each a recommended answer, and the `recommended` flag puts a ✅ All as recommended button on the card. One question is a round of one. A question the operator leaves unanswered returns in the next round, and it is never taken as recommended. [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md) retires that flag: a typed round carries `questions[]`, and curia renders the button when every question carries a recommendation.
 _Avoid_: batch.
+
+**Typed payload**:
+The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `visual`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
+_Avoid_: structured payload, card schema.
+
+**Lint grade**:
+Which rules of `voice.md` a typed field is held to. Grade A is inline decision text: a hard character cap, one line, no markdown structure and no link. Grade B is block prose: a cap, at most 25 words per sentence, and no heading, table or blockquote. The `visual` field takes neither, because it is not prose. curia checks its width, its height and its fence.
+_Avoid_: strict lint, soft lint.
+
+**Visual**:
+The optional code-block table or ASCII diagram on a card. At most 42 columns by 20 lines, which is the phone limit from #414 and keeps a typed card under the 1600-character chunk limit. curia writes the fence, never the agent. A visual earns its space by removing prose (#415).
+_Avoid_: diagram, figure.
+
+**Lint gate**:
+The voice check on agent prose that reaches a human, and the rejection that enforces it (#416, #438). The daemon lints against `daemon/assets/voice.md` and refuses the call with the lint message. The agent rewrites its own text and calls again. The daemon never rewrites it. Three rejections is the cap, and the daemon counts them, because an agent miscounts its own. See [ADR-0005](docs/adr/0005-escalation-contract.md).
+_Avoid_: voice gate, prose check.
+
+**Flagged send**:
+What the lint gate does at the cap (#416). curia takes the fourth text as it stands, sends it, and shows the operator which rule it broke. The tool result says the text went out flagged and tells the agent not to call again. A flagged send is a delivered question, so it is never a failure to report.
+_Avoid_: fallback, degraded send.
+
+**Stop-hook catch**:
+The lever that makes a rejection unmissable on codex (#438). On codex 0.146.0 a tool call sits inside the `exec` script, so a rejection is only a return value and it never throws. An agent that threw the value away believes its question went out and moves to end its turn. The Stop hook fires there, refuses the stop with `{decision:"block", reason}`, and hands back the lint message. At the second stop block curia sends the flagged text itself, so an agent that never calls again still delivers its question. The tool description and the memory-file line reach the model earlier, and both are prose that can be ignored. This one is the guarantee.
+_Avoid_: hook fallback.
 
 **Review gate**:
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records.
@@ -476,7 +505,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the standing credential warnings, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.

@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#431 — The select menu, built and judged</title>
+<style>
+  :root {
+    --bg: #16181d;
+    --card: #1e2128;
+    --thread: #313338;
+    --line: #2f333d;
+    --ink: #e3e6ea;
+    --dim: #98a0ad;
+    --blurple: #5865f2;
+    --keep: #57f287;
+    --drop: #ed4245;
+    --hold: #fee75c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 0 4rem;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    padding: 1.6rem 1.1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg));
+  }
+  header .tag {
+    display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--keep); letter-spacing: .04em;
+  }
+  header h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2 {
+    margin: 2.1rem 0 .8rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700;
+  }
+  p.lede { margin: .2rem 0 1rem; color: var(--dim); font-size: .92rem; }
+
+  /* the one control: how many options the card carries */
+  .picker { display: flex; flex-wrap: wrap; gap: .45rem; margin: 0 0 1.2rem; }
+  .picker button {
+    flex: 1 1 4.4rem; min-height: 2.9rem; padding: .5rem .3rem;
+    background: var(--card); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 8px;
+    font: 600 .84rem/1.2 var(--mono); cursor: pointer;
+  }
+  .picker button[aria-pressed="true"] { border-color: var(--blurple); background: #262a45; color: #fff; }
+  .picker button small { display: block; font: 400 .64rem/1.3 var(--mono); color: var(--dim); }
+  .picker button[aria-pressed="true"] small { color: #b6bdf5; }
+
+  .pane { margin: 0 0 1.3rem; }
+  .pane > h3 {
+    margin: 0 0 .5rem; font-size: .95rem; display: flex; gap: .5rem;
+    align-items: baseline; flex-wrap: wrap;
+  }
+  .pane > h3 .badge {
+    padding: .18rem .48rem; border-radius: 5px;
+    font: 700 .68rem/1.3 var(--mono); letter-spacing: .04em;
+  }
+  .before .badge { background: rgba(237,66,69,.14); color: var(--drop); }
+  .after .badge { background: rgba(87,242,135,.13); color: var(--keep); }
+
+  /* a Discord thread, at the width a phone gives it */
+  .msg {
+    background: var(--thread); border: 1px solid var(--line); border-radius: 10px;
+    padding: .85rem .8rem .9rem; font-size: .93rem;
+  }
+  .msg .who { display: flex; gap: .5rem; align-items: center; margin: 0 0 .35rem; }
+  .msg .who .av {
+    width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    background: var(--blurple); flex: none;
+  }
+  .msg .who b { font-size: .88rem; }
+  .msg .who .bot {
+    background: var(--blurple); color: #fff; border-radius: 4px;
+    padding: .05rem .3rem; font: 700 .6rem/1.5 var(--mono);
+  }
+  .msg .body { margin: 0 0 .6rem; }
+  .msg code { font: .86rem var(--mono); background: #2b2d31; padding: .05rem .28rem; border-radius: 4px; }
+  .msg .hint { color: var(--dim); font-style: italic; font-size: .85rem; }
+  .scroller { max-height: 17rem; overflow-y: auto; margin: .4rem 0 .5rem; }
+  ol.opts { margin: 0; padding: 0 0 0 .2rem; list-style: none; }
+  ol.opts li { padding: .1rem 0; }
+  ol.opts li b { color: var(--ink); }
+
+  /* the mock components */
+  .row { display: flex; flex-wrap: wrap; gap: .35rem; margin: .35rem 0 0; }
+  .btn {
+    background: var(--blurple); color: #fff; border: none; border-radius: 6px;
+    padding: .5rem .7rem; font: 500 .82rem/1.2 inherit; cursor: pointer;
+  }
+  .btn.link { background: #4e5058; }
+  .menu { margin: .35rem 0 0; }
+  .menu > button {
+    width: 100%; text-align: left; display: flex; justify-content: space-between;
+    align-items: center; gap: .5rem;
+    background: #1e1f22; color: var(--dim); border: 1px solid #43444b;
+    border-radius: 6px; padding: .65rem .7rem; font: 500 .87rem/1.25 inherit; cursor: pointer;
+  }
+  .menu > button[aria-expanded="true"] { border-color: var(--blurple); color: var(--ink); }
+  .menu > button .caret { color: var(--dim); font-size: .7rem; }
+  .menu .list {
+    display: none; margin: .25rem 0 0; padding: .3rem;
+    background: #111214; border: 1px solid #43444b; border-radius: 6px;
+    max-height: 15rem; overflow-y: auto;
+  }
+  .menu.open .list { display: block; }
+  .menu .list button {
+    display: block; width: 100%; text-align: left;
+    background: none; border: none; color: var(--ink);
+    padding: .5rem .55rem; border-radius: 4px; font: 500 .87rem/1.25 inherit; cursor: pointer;
+  }
+  .menu .list button em { display: block; font: 400 .76rem/1.3 inherit; color: var(--dim); font-style: normal; }
+  .menu .list button:hover, .menu .list button:focus { background: #3f4147; }
+  .picked {
+    margin: .55rem 0 0; padding: .45rem .6rem; border-radius: 6px;
+    background: rgba(87,242,135,.1); color: var(--keep);
+    font: 600 .82rem/1.3 var(--mono);
+  }
+
+  .taps { margin: .55rem 0 0; color: var(--dim); font-size: .82rem; }
+  .taps b { color: var(--ink); }
+
+  table { width: 100%; border-collapse: collapse; margin: .3rem 0 0; font-size: .87rem; }
+  th, td { text-align: left; padding: .5rem .55rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-size: .74rem; text-transform: uppercase; letter-spacing: .07em; }
+  td code { font: .82rem var(--mono); color: var(--hold); }
+
+  ul.notes { margin: .3rem 0 0; padding-left: 1.1rem; color: var(--dim); font-size: .9rem; }
+  ul.notes li { margin: .35rem 0; }
+  ul.notes b { color: var(--ink); }
+  footer { margin-top: 2.4rem; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--dim); font-size: .83rem; }
+</style>
+</head>
+<body>
+<header>
+  <span class="tag">alp82/curia#431</span>
+  <h1>The select menu, built and judged</h1>
+  <p>
+    Does a Discord select menu read better than a numbered list on a phone?
+    Pick an option count below. The same <code>choice</code> card is drawn twice:
+    as the daemon draws it today, and as this branch draws it.
+    Every menu here opens on one tap and answers on one more.
+  </p>
+</header>
+
+<main>
+  <h2>How many options</h2>
+  <p class="lede">Buttons hold 4. The menu holds 25. Both edges are in the row.</p>
+  <div class="picker" id="picker"></div>
+
+  <section class="pane before">
+    <h3>Today <span class="badge">on main</span></h3>
+    <div class="msg" id="before"></div>
+  </section>
+
+  <section class="pane after">
+    <h3>This branch <span class="badge">#431</span></h3>
+    <div class="msg" id="after"></div>
+  </section>
+
+  <h2>The rule</h2>
+  <p class="lede">Three bands. The operator set both edges on #431.</p>
+  <table>
+    <tr><th>Options</th><th>Surface</th><th>Why</th></tr>
+    <tr>
+      <td><code>2-4</code></td>
+      <td>Buttons</td>
+      <td>Five buttons fill a row. A card that wraps into a wall of blurple is what the menu stops.</td>
+    </tr>
+    <tr>
+      <td><code>5-25</code></td>
+      <td>Select menu</td>
+      <td>25 is Discord's cap on one menu. It is also as many options as a person picks by reading.</td>
+    </tr>
+    <tr>
+      <td><code>26+</code></td>
+      <td>Numbered list</td>
+      <td>The menu cannot hold them. A card that drops option 26 in silence is worse than a card that scrolls.</td>
+    </tr>
+  </table>
+
+  <h2>What the menu cannot show</h2>
+  <ul class="notes">
+    <li>
+      <b>An option shows 100 characters of label and 100 of description.</b>
+      A longer option spills its tail into the description, so 200 characters ride the menu whole.
+    </li>
+    <li>
+      <b>Past 200 characters the menu clips.</b>
+      Then the numbered list stays under it and carries the full words. The menu carries the tap.
+      Pick the third count to see that card.
+    </li>
+    <li>
+      <b>The typed number still answers.</b>
+      The reply path in the bridge is unchanged, so an old card and a stale phone both still work.
+    </li>
+  </ul>
+
+  <h2>The verdict</h2>
+  <p class="lede">
+    This page is the design. The verdict is taken on a real card in the ticket thread,
+    after the merge and the deploy. It goes into the resolution comment on #431.
+  </p>
+</main>
+
+<footer>
+  prototypes/select-menu · map: Typed HITL payloads (#413) · code: <code>daemon/src/bridge.mjs</code>
+</footer>
+
+<script>
+// The daemon's numbers, restated here so the page cannot drift from the rule
+// it draws. Changing one here changes nothing in the bridge — read
+// daemon/src/bridge.mjs for the truth.
+const OLD_BUTTON_CAP = 23        // what main does today
+const MAX_BUTTON_OPTIONS = 4     // what this branch does
+const MAX_SELECT_OPTIONS = 25
+const SELECT_LABEL = 100
+const SELECT_DESC = 100
+
+const MODULES = [
+  'agenttoken.mjs', 'attach.mjs', 'bridge.mjs', 'checkouts.mjs', 'commands.mjs',
+  'config.mjs', 'dashboard.mjs', 'deploy.mjs', 'diffdigest.mjs', 'dispatch.mjs',
+  'exec.mjs', 'github.mjs', 'githubapp.mjs', 'health.mjs', 'identity.mjs',
+  'image.mjs', 'images.mjs', 'index.mjs', 'lifecycle.mjs', 'logline.mjs',
+  'messaging.mjs', 'overseerclient.mjs', 'overseercreds.mjs', 'overseerprompt.mjs',
+  'overseerreplay.mjs', 'overseerservice.mjs', 'overseerturn.mjs', 'overseertoken.mjs',
+  'overseerverbs.mjs', 'preview.mjs', 'renderretry.mjs', 'resolve.mjs', 'routing.mjs',
+  'sandbox.mjs', 'settings.mjs', 'statusline.mjs', 'store.mjs', 'threadname.mjs',
+  'timeline.mjs', 'tmux.mjs', 'transcript.mjs', 'usage.mjs', 'workspace.mjs',
+]
+
+// A long option, so the clipping case is real and not described. It rides the
+// 24-option card only.
+const LONG = 'The overseer service holds the shell, so the module that owns this '
+  + 'change is the one that composes its turn, and that module is the one to open '
+  + 'first even though the fault shows up two hops away in the bridge, where the '
+  + 'card is drawn and where the operator reads the failure on a phone with no '
+  + 'other context to hand.'
+
+const COUNTS = [
+  { n: 4, note: 'buttons' },
+  { n: 5, note: 'the menu' },
+  { n: 8, long: true, note: 'a long one' },
+  { n: 25, note: 'the cap' },
+  { n: 26, note: 'past it' },
+]
+
+const optionsFor = ({ n, long }) => {
+  const out = []
+  for (let i = 0; i < n; i++) out.push(MODULES[i % MODULES.length])
+  if (long) out[n - 1] = LONG
+  return out
+}
+
+const esc = (s) => s.replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+const head = '<div class="who"><span class="av"></span><b>curia</b>'
+  + '<span class="bot">APP</span></div>'
+const prompt = '<div class="body"><b>[esc-1]</b> <code>curia-431</code> asks (<i>choice</i>):<br>'
+  + 'Which daemon module should the follow-up touch first?</div>'
+
+const numbered = (options) => '<div class="scroller"><ol class="opts">'
+  + options.map((o, i) => `<li><b>${i + 1}.</b> ${esc(o)}</li>`).join('')
+  + '</ol></div>'
+
+const buttonRow = (options) => '<div class="row">'
+  + options.map((o) => `<button class="btn">${esc(o)}</button>`).join('')
+  + '</div>'
+
+const linkRow = '<div class="row"><button class="btn link">🔗 preview</button>'
+  + '<button class="btn link">timeline</button>'
+  + '<button class="btn link">terminal</button></div>'
+
+// The card as main draws it: buttons up to 23, a numbered list over that.
+function drawBefore(options) {
+  if (options.length <= OLD_BUTTON_CAP) {
+    return head + prompt + buttonRow(options) + linkRow
+      + '<p class="taps">One tap, and <b>' + options.length + ' buttons</b> to read through.</p>'
+  }
+  return head + prompt + numbered(options)
+    + '<p class="hint">Reply in this thread with a number.</p>' + linkRow
+    + '<p class="taps">Scroll the list, hold the number, leave the card, type it, send it. '
+    + '<b>No tap answers this.</b></p>'
+}
+
+// The card as this branch draws it.
+function drawAfter(options) {
+  if (options.length <= MAX_BUTTON_OPTIONS) {
+    return head + prompt + buttonRow(options) + linkRow
+      + '<p class="taps">Unchanged. <b>Four buttons fit one row.</b></p>'
+  }
+  if (options.length > MAX_SELECT_OPTIONS) {
+    return head + prompt + numbered(options)
+      + '<p class="hint">Reply in this thread with a number.</p>' + linkRow
+      + '<p class="taps">Past the menu cap. <b>The list stays, whole.</b></p>'
+  }
+  const clips = options.some((o) => o.length > SELECT_LABEL + SELECT_DESC)
+  let html = head + prompt
+  if (clips) {
+    html += numbered(options)
+      + '<p class="hint">Pick from the menu below, or reply with a number.</p>'
+  } else {
+    html += '<p class="hint">Pick from the menu below.</p>'
+  }
+  html += '<div class="menu" data-menu><button aria-expanded="false" data-toggle>'
+    + '<span>Pick one</span><span class="caret">▾</span></button><div class="list">'
+    + options.map((o) => {
+      const main = o.slice(0, SELECT_LABEL)
+      let tail = o.slice(SELECT_LABEL)
+      if (tail.length > SELECT_DESC) tail = tail.slice(0, SELECT_DESC - 1) + '…'
+      return `<button data-pick="${esc(o)}">${esc(main)}`
+        + (tail ? `<em>${esc(tail)}</em>` : '') + '</button>'
+    }).join('')
+    + '</div></div>'
+  html += linkRow
+  html += '<p class="taps">Tap the menu, tap the option. <b>Two taps, no typing.</b></p>'
+  html += '<div class="picked" hidden data-picked></div>'
+  return html
+}
+
+const before = document.getElementById('before')
+const after = document.getElementById('after')
+const picker = document.getElementById('picker')
+
+function render(i) {
+  const options = optionsFor(COUNTS[i])
+  before.innerHTML = drawBefore(options)
+  after.innerHTML = drawAfter(options)
+  for (const b of picker.querySelectorAll('button')) {
+    b.setAttribute('aria-pressed', String(Number(b.dataset.i) === i))
+  }
+}
+
+picker.innerHTML = COUNTS.map((c, i) =>
+  `<button data-i="${i}" aria-pressed="false">${c.n}<small>${c.note}</small></button>`).join('')
+picker.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-i]')
+  if (b) render(Number(b.dataset.i))
+})
+
+// One tap opens a menu, one tap answers it. No double-click anywhere on this
+// page: the operator reads it on a phone.
+after.addEventListener('click', (e) => {
+  const toggle = e.target.closest('[data-toggle]')
+  if (toggle) {
+    const menu = toggle.closest('[data-menu]')
+    const open = menu.classList.toggle('open')
+    toggle.setAttribute('aria-expanded', String(open))
+    return
+  }
+  const pick = e.target.closest('[data-pick]')
+  if (!pick) return
+  const menu = pick.closest('[data-menu]')
+  menu.classList.remove('open')
+  menu.querySelector('[data-toggle]').setAttribute('aria-expanded', 'false')
+  const out = after.querySelector('[data-picked]')
+  out.hidden = false
+  out.textContent = '✅ answered via select menu: ' + pick.dataset.pick.slice(0, 80)
+})
+
+render(1)
+</script>
+</body>
+</html>
