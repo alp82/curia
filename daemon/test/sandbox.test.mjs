@@ -25,6 +25,7 @@ import { installSkills, seedConfigDir, agentEnv, writePrompt as realWritePrompt 
 
 const PINS = {
   image: 'curia-agent',
+  node_version: '24.19.0',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
   gh_version: '2.97.0',
@@ -385,6 +386,7 @@ function curiaConfigWith(sandboxOver, dir) {
     ...(sandboxOver === null ? [] : [
       'sandbox:',
       '  image: curia-agent',
+      '  node_version: 24.19.0',
       '  claude_version: 2.1.220',
       '  codex_version: 0.146.0',
       '  gh_version: 2.97.0',

@@ -1,12 +1,17 @@
 # The daemon image (#260). The code is NOT baked in — it runs from the repo
-# mount at /home/alp/curia — so this image is only the toolchain: node (pinned
-# to what the box ran under systemd), git, gh, the docker CLI (agent containers
+# mount at /home/alp/curia — so this image is only the toolchain: node (the one
+# pin every curia image shares, #357), git, gh, the docker CLI (agent containers
 # are siblings on host dockerd), the tailscale CLI (Serve over the host
-# tailscaled socket), and tmux as a CLIENT of the tmux service's server.
+# tailscaled socket), tmux as a CLIENT of the tmux service's server, and the
+# sqlite3 shell for the journal.
 #
 # Every version is a pin, same rule as config/curia.yaml `sandbox:`.
 
-ARG NODE_VERSION=22.17.1
+# NODE_VERSION carries NO default (#357, applied by #409). One patch version
+# runs every curia image, and it is committed in deploy/compose.yaml for this
+# image and in config/curia.yaml for the agent one. A build that forgets the arg
+# fails here rather than picking a Node of its own.
+ARG NODE_VERSION
 ARG NPM_VERSION=11.12.1
 ARG DOCKER_CLI_VERSION=28
 ARG COMPOSE_VERSION=v2.39.2
@@ -20,14 +25,22 @@ FROM node:${NODE_VERSION}-bookworm-slim
 ARG GH_VERSION=2.97.0
 ARG NPM_VERSION
 
-# node 22 ships npm 10, and npm 10 strips the `libc` field that npm 11 writes
-# into package-lock.json. The start-time `npm install` runs against the repo
-# mount, so a mismatched npm dirties the checkout and the next deploy refuses.
-# Pin the same major the dev machines run.
+# The base image ships its own npm, and one npm major rewrites what another one
+# wrote: npm 10 strips the `libc` field npm 11 puts in package-lock.json. The
+# start-time `npm install` runs against the repo mount, so a mismatched npm
+# dirties the checkout and the next deploy refuses. Pin the version the dev
+# machines run. Node 24 ships an npm 11 of its own, so this pin now fixes the
+# patch rather than the major.
 RUN npm install -g --no-fund --no-audit "npm@${NPM_VERSION}"
 
+# sqlite3 is the journal's shell (#409, from ADR-0017). Two things need it: the
+# daily `.dump` the daemon spawns for the backup (#436), and the operator, whose
+# whole read surface on the journal is SQL after #320. The host's own copy is not
+# an option — Ubuntu 20.04 packages SQLite 3.31, which cannot open a STRICT
+# table. Debian 12 packages 3.40, which can. Unpinned, like the rest of this apt
+# set.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git tmux bash curl ca-certificates \
+  && apt-get install -y --no-install-recommends git tmux bash curl ca-certificates sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Debian ships a 2023 gh; pinned from the upstream release instead (same

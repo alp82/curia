@@ -128,6 +128,14 @@ sandbox:
   # this section exists to stop. Build it by hand ahead of a dispatch with
   # `npm run build-agent-image --prefix daemon`.
   image: curia-agent
+  # ONE NODE PATCH VERSION RUNS EVERY CURIA IMAGE (#357, applied by #409). This
+  # line is that pin for the agent image. The other three images take it from
+  # the `x-node-version` anchor in deploy/compose.yaml. Move both in one commit.
+  # The journal runs on `node:sqlite`, which Node marks Stability 1.2, and the
+  # daemon suite runs in this image — so the suite that proves an upgrade must
+  # run on the Node the daemon runs. The upgrade recipe is in the daemon README,
+  # under "The Node pin".
+  node_version: 24.19.0
   # Both pins track what the box itself runs, so an agent and a hand session
   # meet the same CLI. Read them off the box with `claude --version` and
   # `codex --version` before bumping.

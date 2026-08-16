@@ -16,6 +16,7 @@ import path from 'node:path'
 // only have to satisfy the config validator and the tag derivation.
 export const TEST_PINS = {
   image: 'curia-agent',
+  node_version: '24.19.0',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
   gh_version: '2.97.0',
@@ -77,6 +78,7 @@ export function sandboxYaml() {
   return [
     'sandbox:',
     `  image: ${TEST_PINS.image}`,
+    `  node_version: "${TEST_PINS.node_version}"`,
     `  claude_version: "${TEST_PINS.claude_version}"`,
     `  codex_version: "${TEST_PINS.codex_version}"`,
     `  gh_version: "${TEST_PINS.gh_version}"`,

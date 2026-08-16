@@ -304,7 +304,7 @@ docker compose -f /home/alp/curia/deploy/compose.yaml run --rm --no-deps daemon 
 
 Two flags carry a reason. `--no-deps` is required, because a compose command that recreates the `tmux` service kills every live agent. `run` and not `exec`, because `run` still works while the daemon is down, and that is when a post-mortem happens.
 
-The image carries `sqlite3` because the ADR-0017 backup needs it. The host copy is not used. Ubuntu 20.04 packages SQLite 3.31, which cannot open a STRICT table.
+The image carries `sqlite3` since [#409](https://github.com/alp82/curia/issues/409), because the ADR-0017 backup needs it and this shell is the operator's whole read surface. The agent image carries it too, because the daemon suite runs there. The host copy is not used. Ubuntu 20.04 packages SQLite 3.31, which cannot open a STRICT table. Debian 12 packages 3.40, which can.
 
 Five queries answer most of what the old `grep` answered:
 
@@ -420,14 +420,18 @@ The daemon sets `journal_mode` and `synchronous` when it opens the journal, so t
 
 ### The Node pin
 
-**Decided and not built.** [The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it. [The daemon image takes Node 24 and sqlite3 (#409)](https://github.com/alp82/curia/issues/409) applies the first value. The journal sits on `node:sqlite`, which Node marks Stability 1.2, and a patch update can change the API, the defaults and the bundled SQLite engine.
+[The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it. [The daemon image takes Node 24 and sqlite3 (#409)](https://github.com/alp82/curia/issues/409) applied the first value. The journal sits on `node:sqlite`, which Node marks Stability 1.2, and a patch update can change the API, the defaults and the bundled SQLite engine.
+
+**The pin is Node 24.19.0.** It is the version the [schema prototype](https://github.com/alp82/curia/blob/main/prototypes/journal-schema/) and the [guarantees research](../docs/research/node-sqlite-guarantees.md) both ran on.
 
 One Node patch version runs every curia image. It is committed in two places, and it carries no default anywhere.
 
-- `deploy/compose.yaml` passes `NODE_VERSION` to the daemon, the dashboard and the overseer from one anchor.
+- `deploy/compose.yaml` passes `NODE_VERSION` to the daemon, the dashboard and the overseer from the `x-node-version` anchor. It is an anchor and not an interpolated variable, because the pin is committed and the `.env` file beside it is not.
 - `config/curia.yaml` holds `sandbox.node_version` for the agent image, beside the other pins. It rides the image content address, so a bump names a tag the box does not have and the daemon rebuilds.
-- The three Dockerfiles take `ARG NODE_VERSION` with no default. A build that forgets the arg then fails. This is the rule the agent Dockerfile already states for every other version it carries.
+- The four Dockerfiles take `ARG NODE_VERSION` with no default. A build that forgets the arg then fails. This is the rule the agent Dockerfile already states for every other version it carries.
+- Every image names its distro too, as `node:${NODE_VERSION}-bookworm-slim`. A new Debian then arrives by a commit and never by a rebuild.
 - `daemon/package.json` states `engines.node`. It is a warning and not a wall, because a daemon that refuses to install is worse than the stack trace it prevents.
+- `image.test.mjs` holds the two rules that silence would break: the two committed places name one version, and no Dockerfile carries a default.
 
 The agent image belongs in that set. It ran `FROM node:lts-slim` and served Node 24.19.0 while the daemon ran 22.17.1. The daemon suite runs in the agent image, so the suite that must prove an upgrade ran on a Node nobody pinned.
 
