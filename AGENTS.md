@@ -1,5 +1,9 @@
 # Curia
 
+## Voice
+
+Write all prose in the Literal style defined in `.claude/output-styles/literal.md`. This covers chat, docs, PR text, and commit messages. Claude Code loads the style automatically through `outputStyle` in `.claude/settings.json`. All other harnesses: read the file and follow it.
+
 ## Agent skills
 
 ### Issue tracker
