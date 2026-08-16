@@ -328,6 +328,46 @@ Two facts make this work.
 - **A read-only reader opens a hot WAL.** Measured for #320: a writer killed mid-write left a `-wal` and a `-shm` behind, and a read-only connection then read every committed row back. It fails only when the data directory is not writable and no `-shm` file exists. Curia's data directory is writable, so a crash does not lock the operator out.
 - **The columns carry today's spelling, and `body` carries the line as written.** [#184](https://github.com/alp82/curia/issues/184) renamed the worker to the agent, and older lines still spell it `"worker"`. The schema normalizes on the way in, so `where agent='curia-170'` finds those lines too.
 
+### The migration to the database
+
+**Decided and not built.** [The migration (#323)](https://github.com/alp82/curia/issues/323) rules how the journal file becomes `data/events.db`.
+
+**The daemon converts at first boot.** It finds `events.db` absent, reads the journal file whole, and inserts every line in one transaction. It builds `events.db.migrating`, checks that the row count matches the line count, and renames the file into place. It accepts exactly what `_replay` accepts today, and it stops the boot on anything else. The measured cost is 298 ms for the 4,282 events the box held on 2026-08-13 ([#321](https://github.com/alp82/curia/issues/321), `prototypes/journal-schema/results.json`).
+
+A conversion that fails needs no hand. The daemon crash-loops, the self-deploy health check fails, and the box resets to the previous ref. That daemon still finds a whole journal file.
+
+**The journal file stays where it is.** The migration does not rename it and does not delete it. `git reset --hard` never touches it, because `daemon/data/` is git-ignored. So the automatic rollback finds the exact path the previous daemon looks for, and a rename would hand that daemon an empty reduction. The daemon never writes the file again. A follow-up ticket deletes it once the journal is checked on the box.
+
+**Take the migration deploy at zero live agents, with auto-dispatch off.** No agent is then mid-turn while the write path changes under it, and the window below carries only the daemon's own boot lines.
+
+#### The rollback
+
+Two rollbacks, and they differ.
+
+**The automatic one.** The self-deploy health check fails inside about 190 seconds and resets the checkout. Nothing to do by hand. The old daemon reads the journal file and comes up. `events.db` stays on disk and nothing reads it. The loss is what the new daemon journaled inside that window, which went to the database alone. The box wrote about 404 events per day on 2026-08-13, so that window holds under one ordinary event.
+
+**The deliberate one**, hours or days later. Regenerate the file first. `body` holds the line curia wrote, byte for byte, so one query reproduces the file exactly. The #321 prototype checked that at 4,282 lines and at 60,000.
+
+1. Stop the daemon. A live writer makes the regenerated file stale as it is written.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml stop daemon
+   ```
+
+2. Regenerate the journal file from the database. `-T` keeps the redirect on bytes rather than on a terminal.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm -T --no-deps daemon \
+     sqlite3 -readonly -noheader -list /home/alp/curia/daemon/data/events.db \
+     'select body from events order by id' > /home/alp/curia/daemon/data/events.jsonl
+   ```
+
+3. Move the database aside. Take `events.db`, `events.db-wal`, `events.db-shm`, and an `events.db.migrating` if a failed conversion left one.
+
+4. Deploy the previous ref.
+
+A roll-forward after this converts again, from a file that by then also holds the old daemon's own appends.
+
 ## Blocking for hours (#34)
 
 The daemon holds a blocked `ask_human` indefinitely — Node's `requestTimeout` covers only request *receipt*, so nothing server-side expires the held response. The client is what needed handling: **Claude Code aborts an MCP tool call after 300s of server silence** (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`), which killed every real agent five minutes in — twenty-five minutes before the #11 re-nudge could ever fire.
