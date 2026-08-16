@@ -357,6 +357,73 @@ export function spentReset(limits, now = Date.now()) {
   return best === null ? null : new Date(best)
 }
 
+// ---------------------------------------------------------------------------
+// the pre-emptive hold (#384, decided on #339)
+// ---------------------------------------------------------------------------
+
+// A window this full holds the provider BEFORE the wall. It sits beside
+// SPENT_PCT because it answers the same question one step earlier: 95 is where
+// the cap already landed, 90 is where curia stops walking towards it.
+//
+// Raw usage, not pace. Ahead-of-pace at 30% on day one of a 7 d window is an
+// ordinary burst, and holding there idles the box for days (#339 answer 5).
+export const COOL_PCT = 90
+// And the hysteresis: the hold stands until the newest reading falls BELOW
+// this. Without the gap a reading hovering on 90 would lift and re-take the
+// hold every ten minutes, and every surface would say a different thing each
+// time it was read.
+export const WARM_PCT = 85
+
+// Does this reading hold the provider, and until when?
+//
+// `standing` is whether a hold is already up, and it is the whole hysteresis: a
+// fresh hold needs COOL_PCT, a standing one only WARM_PCT to survive.
+//
+// Four rules, and each one keeps a wrong hold out:
+//
+//   1. ANY window counts. The two anthropic windows are 5 h and 7 d and a codex
+//      plan states its own; whichever is hot is the one that will refuse the
+//      next turn.
+//   2. A window with no stated reset holds nothing. The hold's whole shape is a
+//      prediction with a lift time — the store expires on it and the banner
+//      names it — and an hour guessed here would idle the box on a guess. The
+//      reactive path is the backstop for that window.
+//   3. A reset already past holds nothing. That window rolled, which is one of
+//      the two ways #339 asks a hold to clear, and `accountWindows` has already
+//      rolled the reading over to a fresh window at 0%.
+//   4. The LATEST hot window wins, for the reason `spentReset` takes the latest
+//      slot: two hot windows are two walls, and lifting at the earlier one walks
+//      straight into the later.
+//
+// The percentages are the ones the operator READS — the same rounded figures
+// the provider strip draws — so the banner can never name a number the bar
+// beside it contradicts.
+export function holdVerdict(windows, { standing = false, now = Date.now() } = {}) {
+  const floor = standing ? WARM_PCT : COOL_PCT
+  let hot = null
+  for (const w of windows ?? []) {
+    const pct = Number(w?.pct)
+    if (!Number.isFinite(pct) || pct < floor) continue
+    const at = Date.parse(w.resetsAt ?? '')
+    if (!Number.isFinite(at) || at <= now) continue
+    if (!hot || at > hot.at) hot = { at, label: w.label, pct }
+  }
+  if (!hot) return null
+  return { at: new Date(hot.at), window: hot.label, pct: hot.pct }
+}
+
+// The fullest window in a reading. The lift event states it, so the feed says
+// how far the reading fell rather than only that it fell. Null when the reading
+// carries no usable number.
+export function hottestPct(windows) {
+  let best = null
+  for (const w of windows ?? []) {
+    const pct = Number(w?.pct)
+    if (Number.isFinite(pct) && (best === null || pct > best)) best = pct
+  }
+  return best
+}
+
 // The instant this config dir's transcript says a cap hit has to wait for.
 // Date | null. The claude harness always answers null: its transcript states no
 // rate limits anywhere, which is why its reset rides the pane text instead.

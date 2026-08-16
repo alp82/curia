@@ -121,7 +121,11 @@ The program an agent runs under: claude or codex. It is a function of the model:
 _Avoid_: backend, lane.
 
 **Cooling**:
-A temporary hold on a model or provider after a usage-limit signal, until the stated reset. It survives a restart: the daemon journals every landed cap with its reset instant, and it seeds the hold back from the journal as it starts, before it takes a command. A hold whose reset passed while the daemon was down binds nothing. Only time ends a cooling. No command clears one by hand, so a wrong hold stands until its reset, which is the stated instant or one hour for a guess.
+A temporary hold on a model or provider, until a stated reset. Two triggers write one kind of entry, and every start path steps the fallback chain over both.
+
+A **landed** entry follows a usage-limit signal an agent hit. It survives a restart: the daemon journals every landed cap with its reset instant, and it seeds the hold back from the journal as it starts, before it takes a command. A hold whose reset passed while the daemon was down binds nothing. Only time ends a landed entry. No command clears one by hand, so a wrong hold stands until its reset, which is the stated instant or one hour for a guess.
+
+A **predicted** entry follows a hot account reading, before any agent hits the wall. Any window at or past `COOL_PCT = 90` writes one, on that provider. It is a guess, so curia judges it again on every fresh reading. It lifts under 85, or when the window rolls. Its expiry is the window's `resetsAt`, which the wake timer already reads, and nothing seeds it at boot. A provider with no reading is never held. A `model:` label steps over a predicted entry, and never over a landed one. Three surfaces name a predicted hold: its own journal event, a dashboard banner and Discord `/status`. It narrows the reactive path and does not replace it. The reading refreshes every ten minutes at most, so a burst can cross from 89 to the wall between two readings. See [#339](https://github.com/alp82/curia/issues/339) and [#384](https://github.com/alp82/curia/issues/384).
 
 **Stated reset**:
 The instant a cooling ends. Two surfaces state it, and curia reads both: the anthropic pane text carries an epoch beside the reached-text, and the codex transcript carries `resets_at` beside the rate-limit window that is spent. A cap is account-level, so any live agent on that provider states it for the harness. With neither surface stating one, cooling holds for one hour.

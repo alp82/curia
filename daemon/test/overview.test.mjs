@@ -172,7 +172,7 @@ describe('GET /overview (index.mjs, real boot)', () => {
       defaults: [{ type: 'untyped', model: 'sonnet' }],
       models: [{ name: 'sonnet', active: true }],
     })
-    for (const key of ['agents', 'untracked', 'recent', 'escalations', 'review_gate', 'usage', 'events']) {
+    for (const key of ['agents', 'untracked', 'recent', 'escalations', 'review_gate', 'usage', 'pre_cooling', 'events']) {
       assert.ok(Array.isArray(o[key]), `${key} is a list`)
     }
     assert.equal(o.fleet_error, null, 'tmux answered, so the fleet is a reading rather than a refusal')
@@ -620,6 +620,10 @@ describe('the cooling a previous process measured (#377)', () => {
     s.logEvent('dispatch_exhausted', { repo: 'o/r', ticket: 42, earliest_reset: '2026-08-15T14:00:00.000Z' })
     s.logEvent('reset_unparseable', { agent: 'curia-42', scope: 'provider', applied_cooldown_h: 1 })
     s.logEvent('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    // #384's pre-emptive hold least of all: it is a guess re-made from a fresh
+    // reading, and seeding it back would hold the frontier on a reading curia
+    // no longer has.
+    s.logEvent('provider_precooling', { provider: 'anthropic', window: '5h', pct: 96, reset_at: '2026-08-15T14:00:00.000Z' })
     assert.deepEqual(s.armedCoolings(), { models: [], providers: [] })
   })
 })

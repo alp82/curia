@@ -161,6 +161,18 @@
      page fixes it, and an agent meets it as a failed first `gh` call (#380). */
   .att-item.token { border-left-color: var(--bad); background: var(--chip-bad-bg); }
 
+  /* The pre-emptive hold (#384). It sits at the top of Home, above everything,
+     because it explains a box that looks idle and is not: curia is dispatching
+     nothing on that provider on purpose. Warn and not bad — nothing is broken,
+     and it lifts on its own clock. */
+  .hold-banner {
+    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+    border: 1px solid var(--warn); background: var(--chip-warn-bg); border-radius: 9px;
+    padding: 9px 14px; margin-bottom: 14px; font-size: 13px;
+  }
+  .hold-banner .who { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+  .hold-banner .dim { color: var(--ink-dim); font-size: 12px; }
+
   .prov-strip { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; margin-top: 14px; font-size: 12px; color: var(--ink-dim); }
   .prov { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .prov > b { font-family: ui-monospace, Menlo, monospace; color: var(--ink); font-size: 12.5px; }
@@ -770,6 +782,23 @@ function provStrip(o) {
       <span class="pnote">from the ${esc(p.from)}${p.session ? ` of ${esc(p.session)}` : ""}</span></span>`;
   }).join("")}</div>`;
 }
+/* The pre-emptive hold, said once at the top (#384). It names the provider and
+   the lift time, which are the two things an operator watching an idle box
+   needs: WHICH lane stopped, and WHEN it starts again.
+
+   It is not on the Needs-you list, for the reason a spent window is not: the
+   test is whether an operator act ends it, and this one ends on its own clock.
+   A model label on the ticket steps over it, which the line says, because that
+   is the one act there is. */
+function holdBanner(o) {
+  const holds = o?.pre_cooling ?? [];
+  if (!holds.length) return "";
+  return holds.map((h) => `<div class="hold-banner">
+    <span class="who">${esc(h.provider)}</span>
+    <span>held before the limit — the ${esc(h.window)} window is at ${esc(h.pct)}%, and it lifts at ${esc(clock(h.reset_at))}</span>
+    <span class="dim">curia dispatches on the other lanes. A <code>model:</code> label on a ticket still starts it here.</span>
+  </div>`).join("");
+}
 function spentWindows(usage) {
   return (usage ?? []).flatMap((p) => (p.windows ?? [])
     .filter((w) => Number(w.pct ?? 0) >= SPENT_PCT)
@@ -1119,6 +1148,10 @@ const EVENTS = {
   preview: ["preview", "", (e) => `${who(e)} published a preview${e.path ? ` at ${esc(e.path)}` : ""}${e.ok === false ? ` — refused: ${esc(e.reason)}` : ""}`],
   model_cooling: ["cooling", "bad", (e) => `${esc(e.model)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
   provider_cooling: ["cooling", "bad", (e) => `${esc(e.provider)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
+  /* The pre-emptive hold (#384). Its own two lines, never the landed cap's: one
+     says a wall was hit, this says curia stopped short of one. */
+  provider_precooling: ["cooling", "warn", (e) => `${esc(e.provider)} is held before the limit — the ${esc(e.window)} window is at ${esc(e.pct)}%${e.reset_at ? `, and it lifts ${esc(clock(e.reset_at))}` : ""}`],
+  provider_precooling_lifted: ["cooling", "", (e) => `${esc(e.provider)} is dispatching again${e.pct == null ? "" : ` — its fullest window reads ${esc(e.pct)}%`}`],
   restart_requested: ["restart", "warn", (e) => `restart ordered by ${esc(e.by)} — the daemon exits ${esc(e.exit_code)} and the supervisor respawns it`],
   /* The live reload (#362). A save applies, so the feed says what moved — and
      a reload the daemon would not take says which key needs the restart. */
@@ -1196,6 +1229,7 @@ function screenHome(p) {
   if (!o) return noSnapshot(p, "Home");
   const att = attentionList(o);
   return `${head(p, "Home")}
+    ${holdBanner(o)}
     ${statTiles(o)}
     <div class="split-cols">
       <div>

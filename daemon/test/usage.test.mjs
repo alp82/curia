@@ -27,6 +27,7 @@ import {
   AccountUsage, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
   readTranscriptMeters, modelName, windowFromModel, windowLabel, agentMeters,
   spentReset, transcriptReset, consoleConversationsOnWire,
+  holdVerdict, hottestPct, COOL_PCT, WARM_PCT, SPENT_PCT,
   USAGE_ATTEMPT_MS, USAGE_STALE_MS, WINDOW_STALE_MS,
 } from '../src/usage.mjs'
 
@@ -306,6 +307,59 @@ describe('the cooling reset (#175)', () => {
     // An agent capped before its first turn has written no transcript at all.
     assert.equal(transcriptReset('codex', path.join(dir, 'cfg-empty'), NOW), null)
     assert.equal(transcriptReset(null, codexDir, NOW), null)
+  })
+})
+
+// The reading that holds a provider BEFORE an agent hits the wall (#384). Same
+// bars the provider strip draws, asked a different question: not "how full is
+// this window" but "does curia stop dispatching on it".
+describe('the pre-emptive hold (#384)', () => {
+  // The bars' own shape, as `accountWindows` and the codex transcript hand them
+  // over: a rounded percent and an ISO reset.
+  const win = (label, pct, resetsInMinutes) => ({
+    label, pct, elapsedPct: 50, resetsAt: resetsInMinutes === null ? null : new Date(NOW + resetsInMinutes * MIN).toISOString(),
+  })
+
+  test('the thresholds sit either side of one another, and under the landed one', () => {
+    assert.equal(COOL_PCT, 90)
+    assert.equal(WARM_PCT, 85)
+    assert.ok(WARM_PCT < COOL_PCT && COOL_PCT < SPENT_PCT, 'a hold starts before a cap lands and lifts before it starts')
+  })
+
+  test('a window at or past COOL_PCT holds, and one under it does not', () => {
+    assert.deepEqual(holdVerdict([win('5h', 90, 42)], { now: NOW }), { at: new Date(NOW + 42 * MIN), window: '5h', pct: 90 })
+    assert.equal(holdVerdict([win('5h', 89, 42)], { now: NOW }), null)
+    // Either window, and the 7 d one is not special.
+    assert.deepEqual(holdVerdict([win('5h', 12, 42), win('7d', 96, 4000)], { now: NOW }),
+      { at: new Date(NOW + 4000 * MIN), window: '7d', pct: 96 })
+  })
+
+  test('a standing hold survives the band between WARM_PCT and COOL_PCT', () => {
+    // The whole hysteresis: 87 takes no hold and keeps one.
+    assert.equal(holdVerdict([win('5h', 87, 42)], { now: NOW }), null)
+    assert.deepEqual(holdVerdict([win('5h', 87, 42)], { standing: true, now: NOW }),
+      { at: new Date(NOW + 42 * MIN), window: '5h', pct: 87 })
+    assert.equal(holdVerdict([win('5h', 84, 42)], { standing: true, now: NOW }), null)
+  })
+
+  test('two hot windows are two walls, so the LATER lift time wins', () => {
+    assert.deepEqual(holdVerdict([win('5h', 99, 42), win('7d', 91, 4000)], { now: NOW }),
+      { at: new Date(NOW + 4000 * MIN), window: '7d', pct: 91 })
+  })
+
+  test('a window with no lift time holds nothing, and neither does one that rolled', () => {
+    // The hold's whole shape is a prediction with an instant on it. Without one
+    // the reactive path is the backstop, which is what #339 put on the record.
+    assert.equal(holdVerdict([win('5h', 99, null)], { now: NOW }), null)
+    assert.equal(holdVerdict([win('5h', 99, -1)], { now: NOW }), null)
+    assert.equal(holdVerdict(null, { now: NOW }), null)
+    assert.equal(holdVerdict([], { now: NOW }), null)
+  })
+
+  test('the fullest window is what the lift event states', () => {
+    assert.equal(hottestPct([win('5h', 12, 42), win('7d', 71, 4000)]), 71)
+    assert.equal(hottestPct([]), null)
+    assert.equal(hottestPct(null), null)
   })
 })
 

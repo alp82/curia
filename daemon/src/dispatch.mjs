@@ -25,7 +25,7 @@ import {
 } from './github.mjs'
 import {
   resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
-  carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP,
+  carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
 } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey } from './tmux.mjs'
 import {
@@ -38,7 +38,7 @@ import {
 } from './workspace.mjs'
 import { ensureAgentImage } from './image.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
-import { transcriptReset } from './usage.mjs'
+import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { mintAgentToken, forgetAgentToken, sweepAgentTokens } from './agenttoken.mjs'
 import {
   GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, ENV_FILE, PORTS_PER_AGENT,
@@ -305,7 +305,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, dataDir, daemonPort, previews, attachLinks, channelName, deps }) {
+  constructor({ config, routing, store, notify, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, channelName, deps }) {
     this.config = config
     this.routing = routing
     this.store = store
@@ -333,6 +333,14 @@ export class Dispatcher {
     this.threads = threads ?? { bind: async () => ({ ok: true }), release: async () => {}, cancelled: async () => {} }
     this.log = log
     this.cooling = cooling ?? new Cooling()
+    // The account readings the pre-emptive hold judges (#384), injected by
+    // index.mjs: `[{ provider, from, session, windows }]`, one entry per
+    // provider that has a reading at all. It is the SAME read the dashboard's
+    // provider strip draws, so the hold and the bar the operator looks at can
+    // never disagree. Absent it, curia holds nothing pre-emptively and the
+    // reactive path stands alone — which is what every test that does not drive
+    // this gets.
+    this.readings = readings ?? (() => [])
     this.dataDir = dataDir
     this.daemonPort = daemonPort
     // Preview registry (#40) — optional so tests and any preview-less
@@ -435,6 +443,78 @@ export class Dispatcher {
     for (const { model, at } of models) arm(model, at, (m, d) => this.cooling.coolModel(m, d))
     for (const { provider, at } of providers) arm(provider, at, (p, d) => this.cooling.coolProvider(p, d))
     if (live.length) this.log(`boot: cooling still holds — ${live.join(', ')}`)
+  }
+
+  // ---- the pre-emptive hold (#384, decided on #339) ---------------------------
+
+  // Re-judge every provider's newest reading and hold the hot ones.
+  //
+  // The hold is a PREDICTION, so it is re-made from scratch on every reading
+  // rather than set once and waited out: it stands while the newest reading is
+  // at or past COOL_PCT, and it lifts below WARM_PCT or when the window rolls
+  // (`accountWindows` rolls a passed window over to a fresh one at 0%, so the
+  // second case falls out of the first). The store expiry is the window's own
+  // `resetsAt`, which is the outer bound and what the existing wake timer reads.
+  //
+  // It runs on the dispatch tick, beside the liveness sweep and BEFORE the
+  // auto_dispatch gate — a hold is not a dispatch, and an operator typing
+  // `start` on a box with auto-dispatch off must get the same answer the loop
+  // would. It runs again at the head of every start path, because the tick is
+  // not the only thing that spawns a container.
+  //
+  // A provider with no reading is never held (#339 answer 4): an unmeasured
+  // window and an unspent one are not the same fact, and cooling on absent data
+  // would freeze a provider with no probe every idle morning. Nothing is
+  // journalled at boot either — the seed takes landed caps only, so a hold this
+  // process did not measure never binds it.
+  judgeReadings() {
+    let readings = []
+    try {
+      readings = this.readings() ?? []
+    } catch (e) {
+      // A reading curia could not take clears nothing and holds nothing: the
+      // entries already standing wait for their own reset.
+      this.log('usage reading for the pre-emptive hold failed:', e.message)
+      return
+    }
+    for (const r of readings) {
+      if (!r?.provider) continue
+      const standing = this.cooling.predictionFor(r.provider)
+      const hot = holdVerdict(r.windows, { standing: Boolean(standing) })
+      if (hot) {
+        // A hold that already stands is re-stated, not re-journalled: the
+        // reading moves every ten minutes and the feed would say the same fact
+        // every ten minutes with it. A hold whose WINDOW changed is news, and
+        // says so.
+        const fresh = !standing || standing.window !== hot.window
+        if (!this.cooling.predictProvider(r.provider, hot)) continue
+        if (!fresh) continue
+        this.store.logEvent('provider_precooling', {
+          provider: r.provider, window: hot.window, pct: hot.pct,
+          reset_at: hot.at.toISOString(), from: r.from ?? null,
+        })
+        this.log(`pre-emptive hold on ${r.provider}: the ${hot.window} window is at ${hot.pct}% — it lifts ${hot.at.toISOString()}`)
+        // The reset is the outer bound of the hold, so the timer that wakes the
+        // box at a landed cap's reset wakes it at this one too.
+        this.#armWake()
+        continue
+      }
+      if (!standing) continue
+      if (!this.cooling.clearPrediction(r.provider)) continue
+      this.store.logEvent('provider_precooling_lifted', {
+        provider: r.provider, window: standing.window, pct: hottestPct(r.windows),
+      })
+      this.log(`pre-emptive hold on ${r.provider} lifted — the newest reading is below ${WARM_PCT}%`)
+    }
+  }
+
+  // The holds standing now, for the surfaces that name them (#384): the
+  // dashboard banner and Discord `/status`. One read, so the two cannot say
+  // different providers or different lift times.
+  preCoolings() {
+    return this.cooling.predictions().map((p) => ({
+      provider: p.provider, window: p.window, pct: p.pct, reset_at: p.at.toISOString(),
+    }))
   }
 
   // ---- frontier --------------------------------------------------------------
@@ -938,7 +1018,14 @@ export class Dispatcher {
     if (!isActive(this.routing, modelName)) {
       return `❌ \`${modelName}\` is \`active: false\` in routing.yaml — turn it back on in the dashboard's Routing section, or name a model that is on: ${Object.keys(this.routing.models).filter((m) => isActive(this.routing, m)).join(', ')}`
     }
-    const cands = candidates(this.routing, modelName, this.cooling)
+    // The newest reading, before the chain is walked (#384). The tick judges it
+    // too, and this is the start path a human typed: it must not spawn into a
+    // window the last tick had not yet seen.
+    this.judgeReadings()
+    // The named model steps over a PREDICTED hold and never over a landed cap
+    // (#384): the operator has read the same bars and wants the last of that
+    // window spent here.
+    const cands = candidates(this.routing, modelName, this.cooling, { named: namedModel(labels, model) })
     if (!cands.length) {
       // exhaustion BEFORE the claim — never claim what cannot be spawned.
       // Returns null when #exhausted's latched notify fired (so a confirm
@@ -1541,6 +1628,11 @@ export class Dispatcher {
         return `❌ could not read ${theRepo}#${ticket} (${e.message}) — nothing was spawned`
       }
       const labels = (issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name))
+
+      // The newest reading, before the pairing is resolved (#384). A reviewer is
+      // a spawn like any other, so it steps over a held provider the same way —
+      // and `resolveReviewer` reads the same store `candidates` reads.
+      this.judgeReadings()
 
       let useModel
       let sameProvider
@@ -5549,6 +5641,10 @@ export class Dispatcher {
     // #138: the liveness sweep rides the dispatch tick — dead agents stop
     // lying on every surface before anything new is dispatched.
     await this.livenessSweep().catch((e) => this.log('liveness sweep failed:', e.message))
+    // #384: the hold rides this tick for the reason the sweep does — it is not a
+    // dispatch, and the box holds the same way whether auto-dispatch is on or
+    // off. So it runs ABOVE the gate below.
+    this.judgeReadings()
     if (!this.config.dispatch.auto_dispatch) return
     const max = this.config.dispatch.max_concurrent
     const liveCount = () => this.agents.size + this.inFlight.size

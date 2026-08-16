@@ -96,6 +96,9 @@ async function waitFor(cond, ms = 8000) {
 function makeDispatcher(deps = {}, {
   watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING,
   skills = null, stopNudgeBudget = 3,
+  // The account readings the pre-emptive hold judges (#384). None by default:
+  // a box with no reading holds nothing, which is every test but its own.
+  readings = () => [],
   askReview = async () => ({ text: 'approve', status: 'answered' }),
   identityProxy = { listening: true },
   // Discarded by default. A test that asserts on a boot line passes a collector,
@@ -229,6 +232,7 @@ function makeDispatcher(deps = {}, {
     askReview,
     cancelEscalation: (id, opts) => { cancelled.push({ id, ...opts }); return { ok: true } },
     log,
+    readings,
     dataDir: path.join(tmp, 'data'),
     daemonPort: 4271,
     deps: { ...base, ...deps },
@@ -1465,6 +1469,154 @@ describe('exactly one notify per exhaustion window (B7/R5)', () => {
     assert.match(reply, /start never dispatches over an anomaly/)
     assert.deepEqual(confirms, [])
     assert.equal(notifies.filter((n) => /cooling/.test(n.message)).length, 0, 'a refusal never reaches #dispatch, so the latch never fires')
+  })
+})
+
+// The pre-emptive hold (#384, decided on #339). The reactive path waits for an
+// agent to hit the wall; this one reads the account bars and holds the provider
+// before that happens. Same store, so every start path already steps over it —
+// what is tested here is what WRITES and CLEARS the entry, and that a hold and a
+// landed cap are told apart everywhere the difference matters.
+describe('a hot reading cools the provider before the limit lands (#384)', () => {
+  // Two providers, so a held one has somewhere to fall to.
+  const TWO = {
+    defaults: { untyped: 'sonnet' },
+    models: {
+      sonnet: { provider: 'anthropic', harness: 'claude' },
+      gpt: { provider: 'openai', harness: 'claude' },
+    },
+    fallbacks: { sonnet: ['gpt'] },
+    harnesses: ROUTING.harnesses,
+  }
+  const ahead = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString()
+  const reading = (pct, { provider = 'anthropic', label = '5h', at = ahead(90) } = {}) => (
+    [{ provider, from: 'account', session: null, windows: [{ label, pct, elapsedPct: 40, resetsAt: at }] }]
+  )
+
+  test('a window at COOL_PCT holds the provider, and says so once', () => {
+    let pct = 92
+    const d = makeDispatcher({}, { routing: TWO, readings: () => reading(pct) })
+
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true, 'the chain steps over a held provider')
+    assert.equal(d.cooling.isCool('gpt', 'openai'), false, 'the hold is per provider')
+    const held = events.filter((e) => e.type === 'provider_precooling')
+    assert.equal(held.length, 1)
+    assert.equal(held[0].provider, 'anthropic')
+    assert.equal(held[0].window, '5h')
+    assert.equal(held[0].pct, 92)
+    assert.ok(Date.parse(held[0].reset_at) > Date.now(), 'the lift time is the window reset')
+    assert.notEqual(held[0].type, 'provider_cooling')
+
+    // The reading refreshes every ten minutes and says the same thing. The
+    // hold stands, and the feed does not repeat itself.
+    pct = 94
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true)
+    assert.equal(events.filter((e) => e.type === 'provider_precooling').length, 1)
+  })
+
+  test('the hold stands through the hysteresis band and lifts under it', () => {
+    let pct = 91
+    const d = makeDispatcher({}, { routing: TWO, readings: () => reading(pct) })
+
+    d.judgeReadings()
+    pct = 87 // below COOL_PCT, above WARM_PCT: still held
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true, 'a hold hovering on the threshold must not flap')
+    assert.equal(events.filter((e) => e.type === 'provider_precooling_lifted').length, 0)
+
+    pct = 84
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), false)
+    const lifted = events.filter((e) => e.type === 'provider_precooling_lifted')
+    assert.equal(lifted.length, 1)
+    assert.equal(lifted[0].provider, 'anthropic')
+    assert.equal(lifted[0].pct, 84)
+  })
+
+  test('a window that rolled lifts the hold, whatever the old number said', () => {
+    // What `accountWindows` hands over once the reset passes: a fresh window at
+    // 0%, marked `fresh`. Nothing else has to notice the roll.
+    let windows = reading(96)
+    const d = makeDispatcher({}, { routing: TWO, readings: () => windows })
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true)
+
+    windows = [{ provider: 'anthropic', from: 'account', session: null, windows: [{ label: '5h', pct: 0, elapsedPct: 2, resetsAt: ahead(300), fresh: true }] }]
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), false)
+    assert.ok(events.some((e) => e.type === 'provider_precooling_lifted'))
+  })
+
+  test('a provider with no reading is never held, and a reading curia cannot take holds nothing', () => {
+    const d = makeDispatcher({}, { routing: TWO, readings: () => reading(97) })
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('gpt', 'openai'), false, 'openai states no window here, so it says nothing rather than zero')
+
+    const blind = makeDispatcher({}, {
+      routing: TWO,
+      readings: () => { throw new Error('the probe is refused') },
+    })
+    blind.judgeReadings()
+    assert.deepEqual(blind.preCoolings(), [])
+    assert.equal(events.filter((e) => e.type === 'provider_precooling').length, 1, 'the first dispatcher wrote that one')
+  })
+
+  test('a landed cap outranks the hold, and the hold never clears it', () => {
+    let pct = 93
+    const d = makeDispatcher({}, { routing: TWO, readings: () => reading(pct) })
+    d.judgeReadings()
+    assert.deepEqual(d.preCoolings().map((h) => h.provider), ['anthropic'])
+
+    // The wall the reading was walking towards. #handleLimit writes the landed
+    // entry over the prediction.
+    const landed = new Date(Date.now() + 5 * 3600_000)
+    d.cooling.coolProvider('anthropic', landed)
+    assert.deepEqual(d.preCoolings(), [], 'a measured cap is not a guess, and no surface calls it one')
+
+    // The reading falls away, and the landed cap stands until its own reset.
+    pct = 3
+    d.judgeReadings()
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), true)
+    assert.equal(d.cooling.earliestReset().getTime(), landed.getTime())
+    assert.equal(events.filter((e) => e.type === 'provider_precooling_lifted').length, 0,
+      'nothing was lifted: the entry standing there was never a prediction')
+  })
+
+  test('a start on a held provider takes the other lane, and a named model takes the held one', async () => {
+    const d = makeDispatcher({}, { routing: TWO, readings: () => reading(93) })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    const spawned = events.filter((e) => e.type === 'agent_spawned')
+    assert.equal(spawned.length, 1)
+    assert.equal(spawned[0].model, 'gpt', 'the chain steps over the hold exactly as it does for a landed cap')
+
+    // The deliberate last-10% burn: the operator has read the same bars.
+    const named = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, number: 43, labels: [{ name: 'model:sonnet' }] }),
+    }, { routing: TWO, readings: () => reading(93) })
+    await named.start('43', { repo: 'o/r', by: 'test' })
+    const second = events.filter((e) => e.type === 'agent_spawned').at(-1)
+    assert.equal(second.model, 'sonnet', 'a `model:` label steps over a PREDICTED entry')
+  })
+
+  test('a named model never steps over a landed cap', async () => {
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'model:sonnet' }] }),
+    }, { routing: TWO })
+    d.cooling.coolProvider('anthropic', new Date(Date.now() + 3600_000))
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    const spawned = events.filter((e) => e.type === 'agent_spawned')
+    assert.equal(spawned.at(-1).model, 'gpt', 'the label is not a way past a cap that already landed')
+  })
+
+  test('the boot seed takes landed caps only — a hold curia did not measure never binds', () => {
+    fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'), [
+      { ts: new Date().toISOString(), type: 'provider_precooling', provider: 'anthropic', window: '5h', pct: 96, reset_at: new Date(Date.now() + 3600_000).toISOString() },
+    ].map((l) => JSON.stringify(l)).join('\n') + '\n')
+    const d = makeDispatcher({}, { routing: TWO })
+    assert.equal(d.cooling.isCool('sonnet', 'anthropic'), false,
+      'the reading that wrote it is gone, so the guess it carried does not bind this process')
   })
 })
 

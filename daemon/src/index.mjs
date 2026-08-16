@@ -790,6 +790,10 @@ const dispatcher = new Dispatcher({
   },
   log,
   cooling: new Cooling(),
+  // What the pre-emptive hold judges (#384): one reading per provider, the same
+  // one the dashboard's provider strip draws. A provider missing from this list
+  // has no reading at all, and is never held.
+  readings: providerReadings,
   dataDir: DATA,
   daemonPort: PORT,
   channelName: CHANNEL,
@@ -1571,7 +1575,12 @@ const wireEscalation = (r) => ({
 // the first live agent on it is the evidence, and the reading names where it
 // came from. A provider with no probe and no agent says NOTHING rather than
 // zero: an unmeasured window and an unspent one are not the same fact.
-function providerUsage() {
+//
+// TWO READERS take it (#384). The strip draws it, and the pre-emptive hold
+// judges it — so the reading is taken once, in the meters' own camelCase, and
+// the wire shape is composed from it below. A hold that read its own copy could
+// name a percentage the bar beside it contradicts.
+function providerReadings() {
   const out = new Map()
   const account = accountUsage.windows()
   if (account) out.set('anthropic', { provider: 'anthropic', from: 'account', session: null, windows: account })
@@ -1582,7 +1591,12 @@ function providerUsage() {
     if (!windows) continue
     out.set(provider, { provider, from: 'transcript', session: w.session, windows })
   }
-  return [...out.values()].map((p) => ({ ...p, windows: p.windows.map(wireWindow) }))
+  return [...out.values()]
+}
+
+// The same reading on the wire, in the snake_case `/overview` speaks.
+function providerUsage() {
+  return providerReadings().map((p) => ({ ...p, windows: p.windows.map(wireWindow) }))
 }
 
 // ---- the settings screen's two daemon reads (#265) ---------------------------
@@ -1711,6 +1725,10 @@ async function overview() {
     bridge: health?.state ?? 'down',
     bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
     usage: providerUsage(),
+    // The pre-emptive holds standing now (#384). The strip above says how full
+    // a window is; this says curia has STOPPED dispatching on it, which is a
+    // different fact and gets its own banner.
+    pre_cooling: dispatcher.preCoolings(),
     // The credential warnings still standing (#380). Discord states each one
     // once, at its instant, and this is where it STAYS until the operator mints
     // the token — the half a Discord line cannot do, because a message scrolls
