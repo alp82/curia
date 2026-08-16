@@ -1,0 +1,22 @@
+{
+  "name": "s7-lint-toolerror-sonnet",
+  "carriage": "tool-error",
+  "policy": "lint",
+  "model": "sonnet",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "accepted_on_call": 2,
+  "distinct_prompts": 2,
+  "tool_result_is_error": [
+    false,
+    true,
+    false
+  ],
+  "num_turns": 4,
+  "cost_usd": 0.14173619999999998,
+  "result_subtype": "success",
+  "final_text": "The `ask_human` call was accepted after a voice-rule rewrite (I had to expand contractions and split an over-length sentence). The tool's response was:\n\n> ACCEPTED. The human reads it now.\n\nIt did not return an actual \"3\" or \"5\" answer from the operator — just confirmation that the question passed validation and is now visible to them.",
+  "stderr": ""
+}

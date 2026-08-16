@@ -1,0 +1,22 @@
+{
+  "name": "smoke",
+  "carriage": "tool-error",
+  "policy": "until:1",
+  "model": "haiku",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "accepted_on_call": 2,
+  "distinct_prompts": 2,
+  "tool_result_is_error": [
+    false,
+    true,
+    false
+  ],
+  "num_turns": 4,
+  "cost_usd": 0.04483380000000001,
+  "result_subtype": "success",
+  "final_text": "The prompt was accepted. The system is now asking the operator to decide whether the cap should be 3 or 5 attempts for agent message rewrites. Waiting for their response.",
+  "stderr": ""
+}

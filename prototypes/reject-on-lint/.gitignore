@@ -1,0 +1,6 @@
+# The raw transcripts and the raw codex request bodies are large and they
+# regenerate on a re-run. The counted evidence (summary.json, calls.jsonl) is
+# committed.
+out/*/stream.jsonl
+out/*/requests/
+out/*/codex.log

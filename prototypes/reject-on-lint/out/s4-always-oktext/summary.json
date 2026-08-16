@@ -1,0 +1,24 @@
+{
+  "name": "s4-always-oktext",
+  "carriage": "ok-text",
+  "policy": "always",
+  "model": "opus",
+  "exit_code": 0,
+  "tool_calls": 4,
+  "rejected": 4,
+  "accepted": 0,
+  "accepted_on_call": null,
+  "distinct_prompts": 4,
+  "tool_result_is_error": [
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "num_turns": 6,
+  "cost_usd": 0.15072050000000004,
+  "result_subtype": "success",
+  "final_text": "I asked, but the question never reached the operator. The `ask_human` tool rejected all four attempts, so there is no operator answer to report.\n\n**What the tool said back:**\n\n1. **Attempt 1** — rejected on two specific rules: `remove the em-dash. Write two sentences, or use a normal dash. Found 2.` and `split this sentence. It has 26 words and the cap is 20`.\n2. **Attempt 2** (em-dashes removed, sentences split under 20 words) — rejected: `the wording is still not plain enough. Say it in shorter words.`\n3. **Attempt 3** (plainer: \"redo\", \"turned down\", \"burns less time\") — rejected with the identical message.\n4. **Attempt 4** (plainer still: \"said no to\", \"wastes less time\", \"no help from us\") — rejected with the identical message.\n\nThe first rejection was actionable and I fixed both items. The last three returned the same sentence with no threshold, no offending word, and no example, and the wording got measurably shorter each time with no change in the verdict. I stopped there rather than keep guessing, since the loop showed no sign of converging.\n\nTwo things you may want to know:\n\n- The question itself is unanswered. If you want it put to the operator, the fastest path is for you to tell me which words the linter objects to, or to send it through a channel that isn't behind this filter.\n- There's a fitting irony worth flagging: this tool enforces a rewrite loop with no cap of its own, which is a live argument for the very setting the question is about.",
+  "stderr": ""
+}

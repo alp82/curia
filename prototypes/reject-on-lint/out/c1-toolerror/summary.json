@@ -1,0 +1,36 @@
+{
+  "name": "c1-toolerror",
+  "carriage": "tool-error",
+  "exit_code": 0,
+  "requests": 3,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "tool_names": [],
+  "rejection_carried_in": [
+    {
+      "request": 2,
+      "item_type": "custom_tool_call_output"
+    },
+    {
+      "request": 3,
+      "item_type": "custom_tool_call_output"
+    }
+  ],
+  "rejection_item": {
+    "type": "custom_tool_call_output",
+    "id": "ctco_01a00ae6-c9e6-7b41-ae0b-2aed3feb7af0",
+    "call_id": "call_1",
+    "output": [
+      {
+        "type": "input_text",
+        "text": "Script completed\nWall time 0.0 seconds\nOutput:\n"
+      },
+      {
+        "type": "input_text",
+        "text": "tool returned: {\"content\":[{\"type\":\"text\",\"text\":\"REJECTED: the prompt fails the voice rules.\\n1. In headline: remove the em-dash. Write two sentences, or use a normal dash. Found 1.\\n2. In prompt: remove the semicolon. Write two sentences. Found 1.\\n3. In prompt: expand every contraction: We're, it's.\\n4. In prompt: split this sentence. It has 40 words and the cap is 20: \\\"We're deciding the rewrite cap and it's a real tradeoff; a cap of 3 ends a stuck loop soon\\\"\\nRewrite the prompt yourself and call ask_human again. Keep every option and every constraint.\"}],\"isError\":true}"
+      }
+    ]
+  },
+  "codex_log_tail": "WARNING: proceeding, even though we could not create PATH aliases: Refusing to create helper binaries under temporary dir \"/tmp\" (codex_home: AbsolutePathBuf(\"/tmp/reject-on-lint/c1-toolerror/codex\"))\nReading additional input from stdin...\nOpenAI Codex v0.146.0\n--------\nworkdir: /tmp/reject-on-lint/c1-toolerror/cwd\nmodel: gpt-5.6-sol\nprovider: fake\napproval: never\nsandbox: danger-full-access\nreasoning effort: none\nreasoning summaries: none\nsession id: 01a00ae6-c84f-7720-8183-7f5db39c724b\n--------\nuser\nUse the lintcheck ask_human tool to ask the operator whether the rewrite cap should be 3 or 5.\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (failed)\nmcp: lintcheck/ask_human started\nmcp: lintcheck/ask_human (completed)\ncodex\nstub turn 3: done\ntokens used\n6\nstub turn 3: done\n"
+}

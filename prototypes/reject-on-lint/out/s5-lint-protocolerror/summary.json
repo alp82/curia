@@ -1,0 +1,24 @@
+{
+  "name": "s5-lint-protocolerror",
+  "carriage": "protocol-error",
+  "policy": "lint",
+  "model": "opus",
+  "exit_code": 0,
+  "tool_calls": 2,
+  "rejected": 1,
+  "accepted": 1,
+  "accepted_on_call": 2,
+  "distinct_prompts": 2,
+  "tool_result_is_error": [
+    false,
+    true,
+    false,
+    true,
+    true
+  ],
+  "num_turns": 6,
+  "cost_usd": 0.1433555,
+  "result_subtype": "success",
+  "final_text": "I asked the operator via the lintcheck `ask_human` tool.\n\n**First attempt was rejected** by the tool's voice linter (MCP error -32602), for three reasons: em-dashes in the prompt (2 found), an unexpanded contraction (`it's`), and a 21-word bullet that exceeded the 20-word sentence cap.\n\n**Second attempt, accepted:**\n\n- Headline: `Rewrite cap for rejected messages: 3 or 5?`\n- Prompt: explained that curia limits rewrites after a rejection, then listed both options with one consequence each — cap of 3 (a stuck agent stops burning turns sooner, so failing loops end faster) and cap of 5 (the agent gets more room to fix its own text) — and closed by asking which they want.\n\n**What the tool said back:** `ACCEPTED. The human reads it now.`\n\nThat is the tool's full response. It confirms delivery only; the operator has not yet returned an answer, so I do not have their choice between 3 and 5.\n\nOne note: I tried to save a memory about the linter's rules (no em-dashes, no contractions, 20-word sentence cap) so future prompts pass on the first call, but the `Write` tool is not enabled in this context, so nothing was persisted.",
+  "stderr": ""
+}

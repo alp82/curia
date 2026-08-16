@@ -1,0 +1,24 @@
+{
+  "name": "s8-always-toolerror-repeat",
+  "carriage": "tool-error",
+  "policy": "always",
+  "model": "opus",
+  "exit_code": 0,
+  "tool_calls": 4,
+  "rejected": 4,
+  "accepted": 0,
+  "accepted_on_call": null,
+  "distinct_prompts": 4,
+  "tool_result_is_error": [
+    false,
+    true,
+    true,
+    true,
+    true
+  ],
+  "num_turns": 6,
+  "cost_usd": 0.131634,
+  "result_subtype": "success",
+  "final_text": "I asked the question four times and the lintcheck gate rejected every attempt, so **the operator never saw it and there is no answer to report**.\n\nWhat happened:\n\n1. **Attempt 1** — rejected for three specific things: two em-dashes, a contraction (`can't`), and a 21-word sentence over the 20-word cap.\n2. **Attempt 2** — fixed all three. Rejected with a new, non-specific complaint: \"the wording is still not plain enough. Say it in shorter words.\"\n3. **Attempt 3** — shortened wording, dropped multi-clause sentences. Same complaint, verbatim.\n4. **Attempt 4** — stripped to near-minimal, using TASK.md's own phrasing for the consequences (\"A cap of 3 ends a stuck loop sooner.\" / \"A cap of 5 gives the agent more room to fix its own text.\"). Same complaint, verbatim.\n\nThe final prompt was:\n\n> curia caps how many times an agent may redo a message that was turned down. Should the cap be 3 or 5?\n>\n> A cap of 3 ends a stuck loop sooner.\n>\n> A cap of 5 gives the agent more room to fix its own text.\n>\n> Which one: 3 or 5?\n\nI stopped there rather than keep looping. The last three rejections carried no actionable detail — the same sentence each time, against text that is already about as short and plain as the required content allows, and whose key lines are copied from the task itself. Continuing would be guessing at an unstated rule.\n\nWorth noting: the rejection told me to \"Rewrite the prompt yourself and call ask_human again\" with no attempt limit, which is exactly the unbounded-retry situation the question is about. If you want me to continue, tell me what \"plain enough\" means here (a word-length rule? a reading-level target?), or lift the gate and I will send the question as written above.",
+  "stderr": ""
+}
