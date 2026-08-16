@@ -629,7 +629,7 @@ A gzipped `.dump` of the journal, under `daemon/data/backups/`. The daemon write
 _Avoid_: snapshot, archive.
 
 **Journal file**:
-`daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotated, so it only grew. A historical term since the migration. Name it only where the migration is discussed, and never as a synonym for the journal. The migration leaves it on disk, unwritten, as the floor a rollback lands on ([#323](https://github.com/alp82/curia/issues/323)). [#427](https://github.com/alp82/curia/issues/427) deletes it once the journal is checked on the box.
+`daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotated, so it only grew. A historical term since the migration. Name it only where the migration is discussed, and never as a synonym for the journal. The migration left it on disk, unwritten, as the floor a rollback landed on ([#323](https://github.com/alp82/curia/issues/323)). [#427](https://github.com/alp82/curia/issues/427) deleted it from the box, so no such file remains. A rollback regenerates it from `body` by [the daemon README recipe](daemon/README.md#the-rollback).
 
 **Reduction**:
 The daemon's in-memory state, rebuilt from the journal at boot and kept current by every append after it. Run every journal event in order through one function, and what you hold at the end is the reduction. That function is the reducer, and it runs on every event alike, at boot and on every append. The boot act is a **rebuild**, never a replay. Replay names sending a killed turn's message again.
@@ -685,7 +685,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 ## State homes
 
 - **GitHub**: ticket state, labels, claims, sub-issue parentage, map bodies, branches, pull requests. The source of truth.
-- **Journal** (`daemon/data/events.db`): every durable curia event, in a `node:sqlite` database ([ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md)). The daemon converted at its first boot on [#407](https://github.com/alp82/curia/issues/407), and it left `daemon/data/events.jsonl` on disk for the rollback ([#323](https://github.com/alp82/curia/issues/323)). A daily gzipped `.dump` under `daemon/data/backups/` bounds what the journal itself can lose, and fourteen are kept ([#357](https://github.com/alp82/curia/issues/357), shipped at [#436](https://github.com/alp82/curia/issues/436)). That copy is a backup and never a second state home.
+- **Journal** (`daemon/data/events.db`): every durable curia event, in a `node:sqlite` database ([ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md)). The daemon converted at its first boot on [#407](https://github.com/alp82/curia/issues/407), and it left `daemon/data/events.jsonl` on disk for the rollback ([#323](https://github.com/alp82/curia/issues/323)). [#427](https://github.com/alp82/curia/issues/427) deleted that file, so a rollback regenerates it from `body`. A daily gzipped `.dump` under `daemon/data/backups/` bounds what the journal itself can lose, and fourteen are kept ([#357](https://github.com/alp82/curia/issues/357), shipped at [#436](https://github.com/alp82/curia/issues/436)). That copy is a backup and never a second state home.
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
