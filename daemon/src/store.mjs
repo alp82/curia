@@ -656,6 +656,39 @@ export class EscalationStore {
       .sort((a, b) => String(a.opened_at).localeCompare(String(b.opened_at)))
   }
 
+  // The inherited exchange (#374): every question a human has ANSWERED on this
+  // session, oldest first, shaped for the spawn prompt.
+  //
+  // A builder session is `curia-<n>` for every dispatch on that ticket, so this
+  // one key already spans the whole history — the dead agent, the one before it,
+  // and the resumed one about to read them. That is why the push needs no new
+  // event and no epoch boundary: the store holds the answers already, and
+  // `resume` was simply never asking.
+  //
+  // ANSWERED only. A cancelled, lapsed or superseded record holds no answer, so
+  // it is not a parameter of anything — the fresh agent should ask that question
+  // again, and it will.
+  //
+  // Every kind rides along, the review gate included. A gate rejection is the
+  // operator's own instruction, and today it dies with the agent that read it.
+  // The size bound in `writePrompt` is what keeps a long history readable.
+  //
+  // The shape is deliberately not the record: the prompt has no business with
+  // `payload_hash` or `discord`, and attachments travel as a COUNT because the
+  // images themselves reach an agent as tool-result content (#34), never as
+  // paths in a file.
+  answeredExchangeFor(agent) {
+    return this.escalationsForAgent(agent)
+      .filter((r) => r.status === 'answered')
+      .map((r) => ({
+        id: r.id,
+        kind: r.kind,
+        prompt: r.prompt ?? '',
+        answer: r.answer ?? '',
+        attachments: (r.attachments ?? []).length,
+      }))
+  }
+
   get(id) {
     return this.escalations.get(id)
   }

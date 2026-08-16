@@ -197,7 +197,7 @@ _Avoid_: app token (that name is the JWT the daemon signs, and a JWT mints insta
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
 
 **Resume**:
-A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree and the model of the last spawn, which the journal states. It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
+A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree, the model of the last spawn, which the journal states, and the inherited exchange (#374). It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
 
 **Cancel**:
 The one act that ends a running agent. It kills the session, removes the worktree and releases the GitHub claim. It closes every open question of that agent, and the ticket goes back to the frontier. The word has one place: `cancel <n>` in the command channel. No button on a question ends anything.
@@ -238,7 +238,7 @@ The skill set curia symlinks into every agent's config dir, so an agent resolves
 The bounds, the tools and the ending: what holds for every turn of a ticket, not procedure. Procedure lives in the installed skills. They ride the CLI's global-memory file in the agent's config dir, because both harnesses load that file as instructions and a user message goes stale (#340).
 
 **Spawn prompt**:
-The parameters of one dispatch: the ticket, the map, the worktree, the ports, and the line that invokes the skill. It states no bound and no procedure, and it points at the standing orders.
+The parameters of one dispatch: the ticket, the map, the worktree, the ports, the inherited exchange, and the line that invokes the skill. It states no bound and no procedure, and it points at the standing orders.
 
 **Bounds**:
 The hard limits in the standing orders. Read anything. Write only inside the worktree, the ticket, and the map subtree. No browser. Never answer for the human. A failed call is not an answer, and silence is not an answer.
@@ -341,6 +341,10 @@ A re-asked question closes the older record and routes late answers to the live 
 **Recorded answer**:
 An answer a human gave to a question no live call could receive. `settle` finds no resolver, so the daemon parks question and answer on the agent's note queue (#139). A question re-asked word for word takes that answer back at once, while the note is still unread, and no second card opens (#369). The note leaves with the answer, so one fact is said once. The tool result names the record, the person and the moment, so the agent knows the answer is a recorded one. At the review gate the same rule needs the diff digest to match, or a fresh gate opens.
 _Avoid_: replay, cached answer.
+
+**Inherited exchange**:
+Every question a human has answered on a ticket, written into the next dispatch's spawn prompt (#374). A prior answer is a parameter of this dispatch, so it lands in the prompt's parameters and never in the standing orders. The key is the session, which is `curia-<n>` for the ticket's whole life, so the push reaches every dispatch the ticket has had. It carries the question and the answer whole, and every kind, the review gate included. A cancelled, lapsed or superseded record holds no answer and does not appear. The block is capped, the newest survive, and the prompt says the words are recorded rather than fresh. It cures the re-ask a `resume` caused. The recorded answer cures the re-ask inside one dispatch, and the two never meet.
+_Avoid_: history, prior context.
 
 **Stale question**:
 An escalation still open when its own agent reports a result (#336). The result closes it, because nothing can read an answer to it any more. Reconcile runs the same rule over the journal, and it runs the ending a Stop hook deferred to such a record. Silence closes nothing: only the agent's own result or its next call does.
