@@ -827,6 +827,20 @@ describe('CommandRouter grown verbs (#81)', () => {
     assert.match(quiet, /is held before the limit/, 'an idle box is the case this line exists for')
   })
 
+  // #444: the second line in `status` that is not about an agent. A ticket the
+  // auto loop steps over explains a box with a frontier and nothing running.
+  test('status names a ticket the auto loop steps over, and the act that clears it', async () => {
+    const box = {
+      config: WATCH,
+      dispatchHolds: () => [{ ticket: '444', repo: 'alp82/curia', failures: 2 }],
+      status: async () => ({ agents: [], untracked: [], recent: [] }),
+    }
+    const reply = await new CommandRouter({ dispatcher: box, attach: {}, log: () => {} }).handle('status', 'u')
+    assert.match(reply, /alp82\/curia#444 died at the spawn 2 times, so auto-dispatch steps over it/)
+    assert.match(reply, /`start 444` dispatches it again and clears the count/)
+    assert.deepEqual(lintReply(reply), [], 'the step-over speaks the signal set like every other line')
+  })
+
   test('router replies conform to the messaging standard (#95)', async () => {
     const dispatcher = {
       config: WATCH,
