@@ -38,7 +38,7 @@ import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mj
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
-import { REVIEW_KIND } from './lifecycle.mjs'
+import { REVIEW_KIND, RESULT_KIND } from './lifecycle.mjs'
 import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
@@ -64,12 +64,15 @@ import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } f
 import { TimelineSurface } from './timeline.mjs'
 import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness } from './transcript.mjs'
-import { promptTitle, elapsedLabel, speakerName } from './messaging.mjs'
+import { promptTitle, elapsedLabel, speakerName, smallPrint } from './messaging.mjs'
 import {
   TYPED_FLOOR, isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
+  lintResult, resultFloorFaults,
 } from './lint.mjs'
-import { composeCard, composeReviewBody, optionLabels, derivedRecommended } from './card.mjs'
-import { LintGate } from './lintgate.mjs'
+import {
+  composeCard, composeReviewBody, composeResultReport, optionLabels, derivedRecommended,
+} from './card.mjs'
+import { LintGate, flaggedResultText } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
 import { AccountUsage, ModelWindows, agentMeters, ctxOnWire, consoleConversationsOnWire } from './usage.mjs'
@@ -1503,14 +1506,58 @@ function buildMcpServer(agent, ticket) {
   // after 300s of silence (#34).
   server.tool(
     'report_result',
-    'Deliver the structured resolution for the ticket. Call exactly once, when the work is done and you have run the resolve protocol from your standing orders. curia verifies the resolution, repairs anything missing, and pushes your branch as a pull request; the reply tells you what it did.',
+    'Deliver the structured resolution for the ticket. Call exactly once, when the work is done and you have run the resolve protocol from your standing orders. curia verifies the resolution, repairs anything missing, and pushes your branch as a pull request; the reply tells you what it did.'
+    + ' `headline` says what the work came to in one line, and it leads the report the thread reads.'
+    + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule, and the refusal names the rule and quotes the text. Rewrite the named field and call again.',
     {
+      // The two MACHINE fields keep their zod types. They are not prose, no
+      // grade reads them, and an agent that loses one to -32602 is still held
+      // at the ending by the Stop hook, which is the backstop a question never
+      // had (#438). `summary` moves off zod for the reason the gate's did.
       ticket: z.string(),
       status: z.enum(['resolved', 'blocked', 'aborted']),
-      summary: z.string(),
+      // #419, ADR-0019: the typed fields. `summary` is Grade B block prose, and
+      // the headline, the detail and the visual are what #415's card-4 shape
+      // gives an ending report.
+      summary: z.string().optional().describe('What the work came to, in plain words, at most 600 characters. The thread reads this, and curia records it on the ticket.'),
+      headline: z.string().optional().describe('What the work came to, in one line, at most 150 characters. No markdown and no link.'),
+      detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
+      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      // ADR-0019 rule 3: a free record. No surface renders it and no lint reads
+      // it, so it stays the one field an agent may shape for itself.
       details: z.record(z.string(), z.any()).optional(),
     },
     async (result, extra) => {
+      // The lint gate, BEFORE the park and before anything persists (#419). A
+      // refused report has reported nothing: no journal line, no results file
+      // and no word in the thread, so the agent rewrites and calls again.
+      // Linting after the cross-check park would make an agent wait hours for a
+      // rejection it could have read at once.
+      //
+      // The cross-check REVIEWER is exempt. Its `report_result` summary is the
+      // VERDICT, which ADR-0019 lists as a surface of its own with its own
+      // fields, and #421 types it. Holding a verdict to the report's shape here
+      // would half-type a surface another ticket owns, and a verdict runs to as
+      // many findings as the diff earns.
+      let flags = null
+      let flagNote = null
+      if (!dispatcher.isReviewerSession(agent)) {
+        const floor = resultFloorFaults(result)
+        const verdict = lintGate.judge({
+          agent, kind: RESULT_KIND, faults: [...floor, ...lintResult(result)],
+          schema: floor.length > 0, prompt: result.summary ?? null, payload: result,
+          // A report always carries something a human can read: the status. So
+          // the cap always ends in a flagged send, and the dead end a textless
+          // question gets has no counterpart here. An ending that reaches the
+          // thread flagged beats an ending that reaches it never.
+          hasText: true,
+        })
+        if (verdict.reject) return { content: [{ type: 'text', text: verdict.reject }] }
+        flags = verdict.flags ?? null
+        // The gate's own flagged line speaks of a card and of an operator about
+        // to answer. A report has neither, so the report says its own words.
+        flagNote = flags ? flaggedResultText(flags) : null
+      }
       // #258: a cross-check still reading PARKS this call, exactly as it parks
       // the gate. The keepalive starts first, because the park lasts as long as
       // a reviewer takes and the client aborts an MCP call after 300s of silence
@@ -1541,6 +1588,10 @@ function buildMcpServer(agent, ticket) {
       const disagrees = reported !== null && reported !== bound
       const rec = reduction.journal('result', {
         agent, ...result, ticket: bound, ...(disagrees ? { reported_ticket: reported } : {}),
+        // A flagged send rides the record too (#419). The escalation record has
+        // carried `lint_flags` since #418, and the report is the other text the
+        // lint can let through unfixed.
+        ...(flags ? { lint_flags: flags } : {}),
       })
       fs.writeFileSync(path.join(DATA, 'results', `${agent}.json`), JSON.stringify(rec, null, 2))
       // Route by that same bound ticket: an agent-supplied id may be
@@ -1552,14 +1603,30 @@ function buildMcpServer(agent, ticket) {
       // unfurl — the receipt that follows wraps every url in <>. A summary that
       // already names the link keeps its own wording; two copies of one link in
       // one message is the same defect at a smaller scale.
+      // #419: `composeResultReport` lays the report out. The agent writes the
+      // parts and curia lays them out, which is the same rule the card follows
+      // (ADR-0002 at the level of one message).
       if (bridge) {
         const pr = dispatcher.pullRequestUrlFor(agent)
-        const tail = pr && !result.summary.includes(pr) ? `\n🔗 ${pr}` : ''
-        bridge.notify(bound, `✅ reports **${result.status}**: ${result.summary}${tail}`, { as: speaker }).catch(() => {})
+        const tail = pr && !String(result.summary ?? '').includes(pr) ? `\n🔗 ${pr}` : ''
+        bridge.notify(bound, `${composeResultReport(result.status, result)}${tail}`, { as: speaker }).catch(() => {})
+        // A flagged send is CURIA's fact about the agent's text, so it is curia
+        // that says it (ADR-0013). It rides a second message in the bot voice,
+        // under the report it is about, rather than inside the agent's own.
+        if (flags?.length) {
+          bridge.notify(bound, smallPrint([
+            `⚠️ curia sent this report after ${flags.length} lint fault(s) the agent did not fix:`,
+            ...flags,
+          ].join('\n'))).catch(() => {})
+        }
       }
       const stopKeepAlive = startKeepAlive(extra, `${agent}/result`)
       try {
-        return { content: [{ type: 'text', text: await dispatcher.onResult(agent, result) }, ...drainNotes()] }
+        const text = await dispatcher.onResult(agent, result)
+        // The flagged line rides the result the agent is already waiting on
+        // (#416), so nothing about the send is silent.
+        const note = flagNote ? [{ type: 'text', text: flagNote }] : []
+        return { content: [...note, { type: 'text', text }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }

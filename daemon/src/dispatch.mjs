@@ -52,7 +52,7 @@ import {
   verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
-import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, dutyLines } from './lifecycle.mjs'
+import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, RESULT_KIND, dutyLines } from './lifecycle.mjs'
 import { CONFIRM_KIND, CROSS_CHECK_LABEL, VERDICT_LABEL } from './reduction.mjs'
 import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
@@ -81,6 +81,11 @@ const SESSION_RE = new RegExp(`^curia-(\\d+|${CHAT_HANDLE_RE.source.replace(/^\^
 // wider list explicitly.
 const REVIEW_SESSION_RE = /^curia-review-(\d+)$/
 export const reviewSessionFor = (n) => `curia-review-${n}`
+
+// Which tool a lint rejection came from (#418, #419). The gate keeps its own
+// kind and so does the ending report, and every other kind is an `ask_human`.
+// The Stop hook names the tool, because the model has to make the call again.
+const TOOL_FOR_KIND = { [REVIEW_KIND]: 'request_review', [RESULT_KIND]: 'report_result' }
 
 // The label a CHARTING dispatch needs (#160): `map curia#<n>` on a map's own
 // issue spawns an agent that updates the map, not one that resolves a ticket
@@ -1915,6 +1920,15 @@ export class Dispatcher {
     return REVIEW_SESSION_RE.test(String(agentName ?? ''))
   }
 
+  // The same predicate, readable from outside, and journalling nothing (#419).
+  // `toolRefusal` answers the same question but writes a refusal line, which is
+  // wrong for a caller that only wants to know which SHAPE a call carries. The
+  // report lint asks it: a reviewer's `report_result` summary is the verdict,
+  // and #421 types that surface.
+  isReviewerSession(agentName) {
+    return this.#isReviewer(agentName)
+  }
+
   // The refusal a reviewer gets for every tool but `notify` and `report_result`.
   // Returns null for anyone else, so a caller can put one line in front of a
   // tool and change nothing for a builder. index.mjs uses it for `ask_human`
@@ -3450,8 +3464,10 @@ export class Dispatcher {
       return {
         decision: 'block',
         reason: [
-          `curia REFUSED your last \`${held.kind === REVIEW_KIND ? 'request_review' : 'ask_human'}\` call, and you did not read the refusal.`,
-          'Nothing was asked and nobody saw it. These are the faults:',
+          `curia REFUSED your last \`${TOOL_FOR_KIND[held.kind] ?? 'ask_human'}\` call, and you did not read the refusal.`,
+          held.kind === RESULT_KIND
+            ? 'This ticket has reported nothing and nobody saw it. These are the faults:'
+            : 'Nothing was asked and nobody saw it. These are the faults:',
           '',
           ...held.faults.map((f) => `• ${f}`),
           '',
@@ -3459,10 +3475,12 @@ export class Dispatcher {
         ].join('\n'),
       }
     }
-    // The review gate is a step of the ENDING, so the checklist below already
-    // holds an agent that never opened one. Only `ask_human` has no such step,
-    // which is the hole this send exists to close.
-    if (held.kind === REVIEW_KIND || !this.deps.sendFlagged) {
+    // The review gate and the ending report are both STEPS OF THE ENDING, so the
+    // checklist below already holds an agent that never completed one. Only
+    // `ask_human` has no such step, which is the hole this send exists to close.
+    // A report is also the wrong thing to send this way: `sendFlagged` opens an
+    // ESCALATION, and a report asks nobody anything (#419).
+    if (held.kind === REVIEW_KIND || held.kind === RESULT_KIND || !this.deps.sendFlagged) {
       this.reduction.clearLintRejections(agentName, held.kind)
       return null
     }

@@ -1944,7 +1944,10 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '- `request_review` — the one gate, and it judges the FINDINGS. curia shows the human the pull',
     '  request and the map, and blocks until they approve or reject. **You never write a link yourself.**',
     '  A rejection comes back as their own words: fix, commit, `open_pull_request` again, ask again.',
-    '- `report_result` — exactly once, at the very end. Its summary becomes curia\'s comment on the map.',
+    // #419, ADR-0019: the report is typed too. The headline is the line the
+    // thread reads first, and the map pointer takes it as the gist.
+    '- `report_result` — exactly once, at the very end. `headline` says what the session came to in one',
+    '  line, and `summary` says what you charted. Both become curia\'s comment on the map.',
     '- `publish_preview` belongs to a ticket dispatch. A research note is read as a diff, so there is',
     '  nothing here to preview.',
   ] : [
@@ -1965,7 +1968,8 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  curia composes all three from its own records, which is what makes them evidence rather than your',
     '  account of your own work. If the preview link points at the wrong page, fix it where it is made —',
     '  call `publish_preview` again with the right path — not by pasting a URL into your summary.',
-    '- `report_result` — exactly once, at the very end.',
+    '- `report_result` — exactly once, at the very end. `headline` says what the work came to in one',
+    '  line, and `summary` says what changed. curia lints both, and it lays the report out itself.',
   ]
 
   // #165, ADR-0010: the gate's third button. The builder is told this at spawn

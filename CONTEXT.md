@@ -340,6 +340,10 @@ _Avoid_: strict lint, soft lint.
 The optional code-block table or ASCII diagram on a card. At most 42 columns by 20 lines, which is the phone limit from #414. That sits under `CODE_BLOCK_LIMIT`, so a typed visual passes the block cap the lint already ships (#432). curia writes the fence, never the agent. A visual earns its space by removing prose (#415).
 _Avoid_: diagram, figure.
 
+**Ending report**:
+What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a verdict instead, and #421 types that surface.
+_Avoid_: final summary, result message.
+
 **Lint gate**:
 The voice check on agent prose that reaches a human, and the rejection that enforces it (#416, #438). The daemon lints against `daemon/assets/voice.md` and refuses the call with the lint message. The agent rewrites its own text and calls again. The daemon never rewrites it. Three rejections is the cap, and the daemon counts them, because an agent miscounts its own. See [ADR-0005](docs/adr/0005-escalation-contract.md).
 _Avoid_: voice gate, prose check.

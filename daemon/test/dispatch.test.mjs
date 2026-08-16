@@ -4006,6 +4006,44 @@ describe('the Stop hook enforces the ending (#54 item 4)', () => {
     assert.match(decision.reason, /request_review/, 'the ordinary checklist asks for the gate instead')
   })
 
+  test('the reviewer is nameable without writing a refusal line (#419)', () => {
+    // The report lint asks which SHAPE a call carries. `toolRefusal` answers the
+    // same question and journals a refusal, which is the wrong record for it.
+    const d = makeDispatcher({})
+    assert.equal(d.isReviewerSession('curia-review-42'), true)
+    assert.equal(d.isReviewerSession('curia-42'), false)
+    assert.ok(!typesOf().includes('reviewer_tool_refused'))
+  })
+
+  test('a rejected REPORT falls through the same way, and opens no card (#419)', async () => {
+    // `sendFlagged` opens an escalation, and a report asks nobody anything. The
+    // ending checklist already holds an agent that has not reported.
+    journalTo([{ type: 'dispatch_claimed', ticket: '42', repo: 'o/r', agent: 'curia-42' }])
+    const sent = []
+    const d = makeDispatcher({
+      lintRejection: () => rejected({ kind: 'report-result', stop_blocks: 1 }),
+      sendFlagged: (agent, h) => { sent.push(h); return { id: 'esc-9' } },
+    })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(sent.length, 0, 'a report is never sent as a question')
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /report_result/, 'the ordinary checklist asks for the report instead')
+  })
+
+  test('the first block on a rejected report names report_result and says nothing reported (#419)', async () => {
+    const d = makeDispatcher({ lintRejection: () => rejected({ kind: 'report-result' }) })
+    liveAgent(d)
+
+    const decision = await d.onStopHook('curia-42', {})
+
+    assert.equal(decision.decision, 'block')
+    assert.match(decision.reason, /curia REFUSED your last `report_result` call/)
+    assert.match(decision.reason, /This ticket has reported nothing/)
+  })
+
   test('#47 stays first: a turn that ends on an open escalation is a block, never a stop-block', async () => {
     const d = makeDispatcher({ hasSession: async () => true })
     liveAgent(d)

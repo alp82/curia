@@ -7,6 +7,7 @@ import {
   CAPS, VISUAL_COLUMNS, VISUAL_LINES, SENTENCE_WORDS,
   gradeA, gradeB, lintVisual, unfence, isTyped, floorFaults, lintAskHuman,
   lintRequestReview, reviewFloorFaults, hasText,
+  isTypedResult, lintResult, resultFloorFaults,
 } from '../src/lint.mjs'
 
 const names = (faults) => faults.join(' | ')
@@ -278,5 +279,63 @@ describe('lintRequestReview', () => {
     assert.match(names(reviewFloorFaults({ headline: 'h' })), /charting: missing/)
     assert.deepEqual(reviewFloorFaults({ summary: 's', charting: 'none' }), [],
       'only the headline waits for the flip, because only the headline is new')
+  })
+})
+
+describe('lintResult: the ending report (#419)', () => {
+  const REPORT = {
+    ticket: '419',
+    status: 'resolved',
+    headline: 'The ending report is typed, and the lint reads its named fields.',
+    summary: 'The report takes a headline, a summary, a detail and a visual. Curia lays them out.',
+    detail: 'The lint module is daemon/src/lint.mjs and the composer is daemon/src/card.mjs.',
+    visual: 'headline  one line, 150\nsummary   block prose, 600',
+  }
+
+  test('a typed report passes every grade', () => {
+    assert.deepEqual(lintResult(REPORT), [])
+  })
+
+  test('the headline is grade A, so a link in it is refused', () => {
+    assert.match(names(lintResult({ ...REPORT, headline: 'see https://example.com' })), /headline: a link/)
+  })
+
+  test('the summary is grade B, so it keeps its sentences and loses its em-dash', () => {
+    assert.deepEqual(lintResult({ summary: 'One thing changed. Then a second thing changed.' }), [])
+    assert.match(names(lintResult({ summary: 'One thing changed — and then another.' })), /summary: an em-dash/)
+  })
+
+  test('a summary over the block cap is refused rather than cut', () => {
+    const faults = lintResult({ summary: 'x'.repeat(CAPS.block + 1) })
+    assert.match(names(faults), new RegExp(`summary: 601 characters over the ${CAPS.block} cap`))
+    assert.match(names(faults), /never cuts it/)
+  })
+
+  test('the visual keeps its geometry check and no grade', () => {
+    assert.match(names(lintResult({ visual: 'x'.repeat(VISUAL_COLUMNS + 1) })), /visual: 43 columns/)
+    assert.deepEqual(lintResult({ visual: 'a; b — c' }), [], 'a diagram is not prose')
+  })
+
+  test('`details` is a free record: ADR-0019 rule 3, and no lint reads it', () => {
+    assert.deepEqual(lintResult({ ...REPORT, details: { note: "it's a machine field — and it stays one" } }), [])
+  })
+
+  test('the floor is the summary now, and the headline waits for the flip', () => {
+    assert.deepEqual(resultFloorFaults({ summary: 's' }), [],
+      'only the headline waits for #422, because only the headline is new')
+    assert.match(names(resultFloorFaults({ headline: 'h' })), /summary: missing/)
+    assert.match(names(resultFloorFaults({ summary: 's' }, { typedFloor: true })), /headline: missing/)
+    assert.deepEqual(resultFloorFaults({ headline: 'h', summary: 's' }, { typedFloor: true }), [])
+  })
+
+  test('isTypedResult reads the SHAPE, and a bare summary is the old one', () => {
+    assert.equal(isTypedResult({ summary: 'what changed' }), false)
+    assert.equal(isTypedResult({ headline: 'h' }), true)
+    assert.equal(isTypedResult({ detail: 'd' }), true)
+    assert.equal(isTypedResult({ visual: 'v' }), true)
+  })
+
+  test('a report carrying a summary has text, so the cap ends in a flagged send', () => {
+    assert.equal(hasText({ status: 'resolved', summary: 'what changed' }), true)
   })
 })
