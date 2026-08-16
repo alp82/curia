@@ -143,6 +143,7 @@ export class Reduction {
     this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
     this.lintRejects = new Map() // `<agent>|<kind>` -> the rejections the lint gate still holds (#418)
+    this.backupAlarm = null // the journal-backup failure that still stands, or null (#436)
     this.seq = 0
     this.noteSeq = 0
     this.rebuild()
@@ -281,6 +282,13 @@ export class Reduction {
     // The key is composed here rather than carried, so one rule decides it: an
     // expiry belongs to the TOKEN and a reach failure to the token and the repo
     // together (ADR-0013, and see tokenwatch.mjs rule 3).
+    // The journal backup's standing alarm (#436). A reduction for the reason the
+    // credential warnings above are one: the alarm must not be re-said at every
+    // boot, and a deploy happens between the failure and the operator acting on
+    // it. A dump that lands clears it, because the fact it stated is gone.
+    if (ev.type === 'journal_backup_failed') this.backupAlarm = { ...ev, at: ev.ts ?? null }
+    if (ev.type === 'journal_backup') this.backupAlarm = null
+
     if (ev.type === 'token_warned' || ev.type === 'token_cleared') {
       const key = ev.fault === 'expiring'
         ? `${ev.holder}:${ev.key}`
@@ -1173,6 +1181,12 @@ export class Reduction {
   tokenWarning(key) {
     const w = this.tokenWarnings.get(key)
     return w ? { ...w } : null
+  }
+
+  // The journal-backup failure that still stands, or null (#436). The backup
+  // reads this to decide whether a failure is news, and a boot inherits it.
+  standingBackupAlarm() {
+    return this.backupAlarm ? { ...this.backupAlarm } : null
   }
 
   // The pull request an agent's CURRENT dispatch pushed, or null (#289). This

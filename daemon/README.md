@@ -404,14 +404,17 @@ A roll-forward after this converts again, from a file that by then also holds th
 
 ### The backup
 
-**Decided and not built.** [The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it, and [ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md) records it. The journal is curia's own local brain, and this dump is what bounds the loss.
+[The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it, [ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md) records it, and [#436](https://github.com/alp82/curia/issues/436) shipped it in `src/backup.mjs`. The journal is curia's own local brain, and this dump is what bounds the loss.
 
-The daemon takes the backup itself. It spawns `sqlite3 events.db .dump` on a second read-only connection, gzips the portable SQL text, and writes `data/backups/events-<UTC stamp>.sql.gz`.
+The daemon takes the backup itself. It spawns `sqlite3 -readonly events.db .dump` on a second read-only connection, gzips the portable SQL text, and writes `data/backups/events-<UTC stamp>.sql.gz`. The stamp is UTC seconds with the colons folded to hyphens, so the names sort in write order as plain text.
 
 - **Daily, and it survives a restart.** The daemon checks at boot and every hour. It dumps when the newest dump is 24 hours old or older. A plain 24-hour timer would not survive a deploy, because a deploy restarts the daemon and rearms the timer.
 - **Fourteen kept.** The newest fourteen stay, and the daemon deletes the rest. One dump is about 250 KB at the volume the box wrote on 2026-08-13, so the whole set is about 3.5 MB.
 - **On the box only.** The dump bounds a corrupt journal and a bad Node upgrade. It does not survive the loss of the box. An off-box copy is a separate effort.
-- **The channel is the alarm.** A failed dump reaches it. A newest dump over 48 hours old reaches it too, so silence never stands in for a timer that failed to arm. A success journals one event and says nothing, so an ordinary day carries no noise. The dashboard shows none of this, because its container does not mount `daemon/data`.
+- **The channel is the alarm.** A failed dump reaches it. A dump that lands after the newest one passed 48 hours reaches it too, and it states the age it repaired, so silence never stands in for a check that stopped running. A success journals one event and says nothing, so an ordinary day carries no noise. The dashboard shows none of this, because its container does not mount `daemon/data`.
+- **One line per fact.** A failure line carries the reason and the age of the newest dump together. The alarm stands in the journal as `journal_backup_failed` and a landed dump clears it, so a deploy repeats nothing. A dump that keeps failing says one line when it starts failing, and one more when the newest dump crosses 48 hours.
+- **A half dump is no dump.** The daemon writes `<name>.sql.gz.part` and renames it into place. A dump killed halfway leaves nothing the retention can count. A shell that exits 0 with no SQL behind it is a failure, because an empty file in the set would push a real dump out.
+- **The boot line.** The daemon journals `journal_opened` with `process.version` and `process.versions.sqlite` each time it opens the journal, so the record states which engine wrote its rows. Read it with `select ts,body from events where type='journal_opened' order by id desc limit 5`.
 
 #### The restore
 
