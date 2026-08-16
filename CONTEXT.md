@@ -568,7 +568,7 @@ Decided and not built: the journal becomes a `node:sqlite` database at `daemon/d
 `daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotates, so it only grows. A historical term after the migration. Name it only where the migration is discussed, and never as a synonym for the journal.
 
 **Reduction**:
-The daemon's in-memory state, folded from the journal at boot and kept current by every append after it. Replay every journal event in order through one function, and what you hold at the end is the reduction. That function is the reducer.
+The daemon's in-memory state, rebuilt from the journal at boot and kept current by every append after it. Run every journal event in order through one function, and what you hold at the end is the reduction. That function is the reducer, and it runs on every event alike, at boot and on every append. The boot act is a **rebuild**, never a replay. Replay names sending a killed turn's message again.
 
 It holds the open escalations, the agent notes, the ticket-to-thread bindings and the console conversations. It also holds the event tail, the outcomes, the pull requests and the armed limit resumes. It is a disposable cache and never a state home. A surface that answers about the recent past reads it, and never the journal.
 
@@ -578,6 +578,8 @@ _Avoid_: store, state, projection (#358).
 Curia writes one name for one thing, so "store" names nothing in this domain. It survives as an ordinary English word only, as in the shared credential store of [ADR-0007](docs/adr/0007-shared-credential-store.md). The class `EscalationStore` in `daemon/src/store.mjs` holds the reduction today, and `logEvent` is how the daemon journals an event.
 
 Decided and not built: `EscalationStore` becomes `Reduction` in `daemon/src/reduction.mjs`, the journal's own module becomes `Journal` in `daemon/src/journal.mjs`, and `logEvent` becomes `journal`. The rename lands with the journal build (#316).
+
+Decided and not built: the rebuild survives the move to `node:sqlite`, and it reads the journal instead of the file. Three fields could be queries. Every other field folds many rows into an object no row holds, and the reducer runs on every append anyway, so a query at boot would state each rule twice. The rebuild reads `select id, body from events where id > ? order by id limit 1000`, page by page. It orders by `id` and never by the stamp, because stamps tie. It reads `body`, which is verbatim, so it is the last reader that runs the [#184](https://github.com/alp82/curia/issues/184) translation. `EscalationStore._replay` becomes `Reduction#rebuild`. The boot stays proportional to the whole history: about 44 ms today and about 2.4 seconds at 250,000 events, and the medium moves neither number. See [The boot replay (#322)](https://github.com/alp82/curia/issues/322) and [the prototype](prototypes/boot-replay/README.md).
 
 **State home**:
 The one durable place a fact lives. GitHub holds ticket truth. The journal holds curia's events. Everything in memory is a disposable cache.

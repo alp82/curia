@@ -16,9 +16,14 @@ line through `_apply`. That one pass fills all 24 in-memory reductions. It is th
 proportional to the whole history that [the schema ticket (#321)](https://github.com/alp82/curia/issues/321)
 did not remove.
 
-With the journal on `node:sqlite`, two answers are possible. The replay disappears, because each
-reduction becomes a query. Or the replay survives and reads the journal instead. This prototype
+With the journal on `node:sqlite`, two answers are possible. The pass disappears, because each
+reduction becomes a query. Or the pass survives and reads the journal instead. This prototype
 measures both, and a third answer between them.
+
+**A note on the name.** #322 is titled "The boot replay", and this directory follows the ticket. The
+ticket then ruled that the boot act is a **rebuild**, because `CONTEXT.md` already gives "replay" to
+[#388](https://github.com/alp82/curia/issues/388): sending a killed turn's message again. So the
+prose below says rebuild, and `_replay` appears only where it names today's code.
 
 ## The reduction has two halves
 
@@ -95,7 +100,7 @@ threads, 26 console conversations and 2 turns a restart killed.
 **The medium is the small part.** Reading is about 30 percent of the boot, `JSON.parse` is about
 another 30, and the fold itself is the rest. Reading rows costs about what reading the file costs.
 So moving the journal to `node:sqlite` neither pays for the boot nor charges for it. The boot
-replay is the one cost #316 does not remove, and the ticket should say so plainly.
+rebuild is the one cost #316 does not remove, and the ticket should say so plainly.
 
 **Read the rows in pages.** `iterate()` pays a step across the JavaScript-to-SQLite edge per row and
 runs 10 to 25 percent slower than the file. One `all()` is the fastest read and holds the whole
@@ -117,6 +122,6 @@ restart. `checkTypeList` in `reduce.mjs` catches the switch half of that drift a
 carrying 58 distinct millisecond stamps, up to 53 on one. The fold is order-dependent, so a stamp
 cannot order it.
 
-**The replay is the last reader of `normalizeEvent`.** #321 put the #184 translation at the write
-edge, so every query reads normalized columns. The replay reads `body`, which is verbatim, so it
+**The rebuild is the last reader of `normalizeEvent`.** #321 put the #184 translation at the write
+edge, so every query reads normalized columns. The rebuild reads `body`, which is verbatim, so it
 still translates every line it folds.

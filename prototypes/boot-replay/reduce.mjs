@@ -1,8 +1,8 @@
 // The three ways to fill the reduction at boot, and one way to compare them.
 //
-// The daemon builds every in-memory reduction with one fold: `_replay` reads
+// The daemon builds every in-memory reduction with one pass: `_replay` reads
 // `events.jsonl` whole and hands each line to `_apply`. This module holds that
-// fold, the same fold reading the journal instead, and a narrowed variant that
+// pass, the same pass reading the journal instead, and a narrowed variant that
 // scans only the types the reducer acts on and answers the rest with queries.
 //
 // Nothing here is a proposal. It exists so #322 can measure what each costs and
@@ -60,7 +60,7 @@ function feedShape(ev) {
   return { ...ev, diff: { ...totals, list_on_the_record: list.length } }
 }
 
-// A reducer with nothing in it. The store replays its own file in the
+// A reducer with nothing in it. The store rebuilds from its own file in the
 // constructor, so an empty directory is how you get a blank one.
 function blank(dir) {
   fs.mkdirSync(dir, { recursive: true })
@@ -82,7 +82,7 @@ export function bootFromFile(dir, file) {
 
 // The same fold, reading the journal. `body` is verbatim, so the fold still
 // parses JSON and still runs `normalizeEvent` — the columns are normalized at
-// the write edge, but the replay does not read the columns.
+// the write edge, but the rebuild does not read the columns.
 export function bootFromJournal(dir, db) {
   const r = blank(dir)
   for (const row of db.prepare('select body from events order by id').iterate()) {

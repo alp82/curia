@@ -56,7 +56,7 @@ export function enrich(lines, { seed = 11, legacyFraction = 0.2 } = {}) {
 
   const legacyUntil = Math.floor(lines.length * legacyFraction)
   // An injected event takes the stamp of the line it follows. Stamps tie in the
-  // real journal — #321 measured 53 events on one millisecond — and the replay
+  // real journal. #321 measured 53 events on one millisecond, and the rebuild
   // orders by write position, never by stamp.
   const emit = (ev, ts, i) => out.push(JSON.stringify({ ts, ...(i < legacyUntil ? toLegacy(ev) : ev) }))
 
