@@ -18,7 +18,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
-  viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
+  repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch, pullRequestDiff,
@@ -191,7 +191,7 @@ export function discordTime(date) {
 }
 
 const DEFAULT_DEPS = {
-  viewerLogin, repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
+  repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey,
   createPrivateClone, removeWorkspace, removeConfigDir, removeCredentials,
   createReviewCheckout, writeReviewPrompt,
@@ -428,6 +428,20 @@ export class Dispatcher {
     // is a millisecond in which a `start` typed two seconds after a deploy
     // spawns a container into a cap curia already measured.
     this.#seedCooling()
+  }
+
+  // Who a claim assigns (#390, ADR-0018).
+  //
+  // It used to be `gh api user` — the daemon's own login, read off the host
+  // `gh` config. The daemon calls GitHub as `curia-sh[bot]` now, and GitHub does
+  // not let an App be an issue assignee, so the name comes out of the config
+  // instead. `loadCuriaConfig` refuses a boot without it, which is why nothing
+  // here has a fallback and nothing here can fail.
+  //
+  // Read fresh on every call rather than kept: a watch reload re-reads the
+  // config in place, and a claim must use the name the file says now.
+  claimLogin() {
+    return this.config.dispatch.claim_login
   }
 
   // The caps a previous process measured (#377). Cooling holds for hours and a
@@ -1067,7 +1081,7 @@ export class Dispatcher {
       return `❌ unknown harness \`${harnessName}\` — configured harnesses: ${Object.keys(this.routing.harnesses).join(', ')}`
     }
 
-    const login = await this.deps.viewerLogin()
+    const login = this.claimLogin()
     // NO DISPATCH CLAIMS A MAP (#221). #160 claimed it to serialise the body
     // edits; the operator ruled the claim wrong, because a claim's whole meaning
     // is "off the frontier" and a map is never on one — so on a map it said
@@ -2558,14 +2572,11 @@ export class Dispatcher {
     }
     let released = false
     let failure = null
-    const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
-    if (login) {
-      try {
-        await this.deps.unclaim(agent.repo, agent.ticket, login)
-        released = true
-      } catch (e) {
-        failure = e.message
-      }
+    try {
+      await this.deps.unclaim(agent.repo, agent.ticket, this.claimLogin())
+      released = true
+    } catch (e) {
+      failure = e.message
     }
     // the session is dead and the record is being dropped, so nothing later
     // will collect the host OAuth credential copy — take it now; the rest of
@@ -2574,7 +2585,7 @@ export class Dispatcher {
     if (released) {
       this.reduction.journal('dispatch_unclaimed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason })
     } else {
-      this.reduction.journal('unclaim_failed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason, error: failure ?? 'no viewer login' })
+      this.reduction.journal('unclaim_failed', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason, error: failure ?? 'the unclaim did not run' })
     }
     return released
   }
@@ -3702,7 +3713,7 @@ export class Dispatcher {
 
   async #resolveTicket(agentName, repo, ticket, result, w) {
     const wtPath = w?.wtPath ?? worktreePathFor(this.root, repo, ticket)
-    const login = await this.deps.viewerLogin().catch(() => null)
+    const login = this.claimLogin()
     const out = await resolveAndLand({
       repo, ticket, agent: agentName, result, login,
       wtPath: fs.existsSync(wtPath) ? wtPath : null,
@@ -4656,15 +4667,12 @@ export class Dispatcher {
     if (w) {
       await this.deps.removeWorkspace(w.wtPath).catch((e) => this.log(`workspace removal for ${session} failed:`, e.message))
       if (!charting) {
-        const login = await this.deps.viewerLogin().catch((e) => { failure = e.message; return null })
-        if (login) {
-          try {
-            await this.deps.unclaim(w.repo, ticket, login)
-            released = true
-          } catch (e) {
-            failure = e.message
-            this.log(`unclaim ${w.repo}#${ticket} failed:`, e.message)
-          }
+        try {
+          await this.deps.unclaim(w.repo, ticket, this.claimLogin())
+          released = true
+        } catch (e) {
+          failure = e.message
+          this.log(`unclaim ${w.repo}#${ticket} failed:`, e.message)
         }
       }
     }
@@ -4675,7 +4683,7 @@ export class Dispatcher {
       if (released) {
         this.reduction.journal('dispatch_unclaimed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown' })
       } else {
-        this.reduction.journal('unclaim_failed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown', error: failure ?? 'no viewer login' })
+        this.reduction.journal('unclaim_failed', { repo: w.repo, ticket, agent: session, reason: 'cancelled', by: by ?? 'unknown', error: failure ?? 'the unclaim did not run' })
       }
     }
     // status's recent-cancelled view reads this event; the unclaim events
@@ -5004,14 +5012,17 @@ export class Dispatcher {
       await this.#reconcileSessions(ctx)
       await this.#reconcileDeadClaims(ctx)
     } else if (!ctx.login) {
-      // No confirmed viewer identity ⇒ NO positive evidence about who owns
-      // what. Both passes below decide ownership by comparing assignees to
-      // `login`; with a null login every live agent looks unowned and the
-      // orphan sweep would kill its session AND `git worktree remove --force`
-      // its uncommitted output — on nothing worse than a transient
-      // `gh api user` failure. A failed identity read is a failed pass.
+      // No claim login ⇒ NO positive evidence about who owns what. Both passes
+      // below decide ownership by comparing assignees to `login`. With a null
+      // login every live agent looks unowned, and the orphan sweep would kill
+      // its session AND force-remove its uncommitted output.
+      //
+      // #390 moved that name off `gh api user` and onto `dispatch.claim_login`,
+      // which `loadCuriaConfig` refuses a boot without — so this is no longer a
+      // transient failure and should never be reachable. The guard stays,
+      // because what it prevents is destruction and what it costs is a branch.
       this.reduction.journal('reconcile_identity_unknown', { boot })
-      this.log('reconcile: no gh viewer identity this pass — skipping session adoption, orphan sweep and dead-claim release')
+      this.log('reconcile: no claim login this pass — skipping session adoption, orphan sweep and dead-claim release')
     } else {
       // Same rule for the tmux read: an indeterminate session list (wedged
       // server, foreign socket, tmux missing, the 5 s timeout) is NOT "no
@@ -5149,7 +5160,7 @@ export class Dispatcher {
     // collisions share an epoch.)
     const epochs = this.reduction.questions.epochs() // ticket -> { repo }
 
-    const login = await this.deps.viewerLogin().catch(() => null)
+    const login = this.claimLogin()
     // sessions: array on positive evidence (a real listing, or a confirmed
     // "no server"); null when the read failed and the list is indeterminate
     let sessions = null
@@ -5521,12 +5532,12 @@ export class Dispatcher {
   // the shape of *awaiting review* — an agent whose box rebooted while a human
   // sat on the gate. An open pull request from `curia/<n>` says the work is
   // real and waiting on a person, so the claim is not dead and re-dispatch is
-  // not the answer. Positive evidence only: an unreadable viewer identity,
-  // issue or pull-request state THROWS, and the caller skips the pass — the
-  // same rule the rest of reconcile runs on. A failed unclaim throws too;
-  // nothing here journals dispatch_unclaimed, so reconcile keeps retrying.
+  // not the answer. Positive evidence only: an unreadable issue or
+  // pull-request state THROWS, and the caller skips the pass — the same rule
+  // the rest of reconcile runs on. A failed unclaim throws too; nothing here
+  // journals dispatch_unclaimed, so reconcile keeps retrying.
   async #settleDeadClaim({ repo, ticket, session, login = null, getIssue = null }) {
-    const viewer = login ?? await this.deps.viewerLogin()
+    const viewer = login ?? this.claimLogin()
     const issue = getIssue
       ? await getIssue(repo, ticket)
       : await this.deps.fetchIssue(repo, ticket).catch((e) => {

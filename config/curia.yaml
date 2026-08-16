@@ -11,6 +11,10 @@ watch:
 
 dispatch:
   auto_dispatch: false # shipped OFF (settled answer 1)
+  # #390, ADR-0018: who a claim assigns. The daemon calls GitHub as
+  # `curia-sh[bot]` now, and GitHub does not let an App be an issue assignee —
+  # so the claim names a real user, and this is the one place that says which.
+  claim_login: alp82
   # #54 item 8: an agent awaiting review holds its slot on purpose — that is the
   # backpressure that beats a pile of unreviewed PRs — so this is a RESOURCE
   # number now: ~0.3-0.5 GB per agent plus ~0.3 GB per preview dev server

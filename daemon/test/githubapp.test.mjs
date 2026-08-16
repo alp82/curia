@@ -283,6 +283,23 @@ describe('the minter (#352)', () => {
     await assert.rejects(m.tokenFor('nobody', 'write'), /not installed on nobody/)
   })
 
+  // #390: the daemon fires many calls per owner at once — one reconcile pass
+  // reads the maps, the map frontier and the flat frontier for every watched
+  // repo. Each would find a cold cache and mint its own token.
+  test('concurrent callers share one mint instead of each starting their own', async () => {
+    const { m, fetchImpl } = minter([installs, mint('ghs_1', NOW + HOUR)])
+    const all = await Promise.all(Array.from({ length: 5 }, () => m.tokenFor('alp82', 'write')))
+    assert.deepEqual(all, Array(5).fill('ghs_1'))
+    assert.equal(fetchImpl.calls.length, 2, 'the install list, then ONE mint')
+  })
+
+  // A stall must not be remembered as an answer: the next caller starts fresh.
+  test('a failed mint is not held against the next caller', async () => {
+    const { m } = minter([installs, { status: 500, body: { message: 'boom' } }, mint('ghs_1', NOW + HOUR)])
+    await assert.rejects(m.tokenFor('alp82', 'write'), /HTTP 500/)
+    assert.equal(await m.tokenFor('alp82', 'write'), 'ghs_1')
+  })
+
   test('forget drops the tokens and the install list together', async () => {
     const { m, fetchImpl } = minter([installs, mint('ghs_1', NOW + HOUR), installs, mint('ghs_2', NOW + HOUR)])
     assert.equal(await m.tokenFor('alp82', 'write'), 'ghs_1')

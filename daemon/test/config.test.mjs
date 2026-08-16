@@ -36,7 +36,9 @@ function fixtureSkills() {
 }
 
 // Base config with every other section valid, so a failure names the skills.
-function writeConfig(extraYaml, attachExtra = '') {
+// `claimLogin` (#390) takes a raw yaml value, or null to leave the key out
+// entirely — the two shapes the claim-login cases below drive.
+function writeConfig(extraYaml, attachExtra = '', claimLogin = 'alp82') {
   const extra = extraYaml === OMIT_SKILLS ? '' : (extraYaml ?? '')
   // A config that names no skills root reads the HOST's home directory, and
   // the answer differs on the operator's box, in an agent container, and on a
@@ -52,6 +54,7 @@ function writeConfig(extraYaml, attachExtra = '') {
     '  max_concurrent: 2',
     '  poll_interval_s: 60',
     `  workspace_root: ${path.join(tmp, 'work')}`,
+    ...(claimLogin === null ? [] : [`  claim_login: ${claimLogin}`]),
     '  ready_timeout_s: 45',
     '  confirm_ttl_h: 4',
     'attach:',
@@ -191,6 +194,48 @@ describe('the Stop-hook nudge budget (#54 item 4)', () => {
     const file = writeConfig(`skills:\n  root: ${root}\n  install: []`)
     fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('  confirm_ttl_h: 4', '  confirm_ttl_h: 4\n  stop_nudge_budget: 5'))
     assert.equal(loadCuriaConfig(file).dispatch.stop_nudge_budget, 5)
+  })
+})
+
+// ---- who a claim assigns (#390, ADR-0018) -------------------------------------
+
+describe('dispatch.claim_login (#390)', () => {
+  // Its own fixture: the describe above tears its tmp dir down.
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-claim-'))
+    root = path.join(tmp, 'host-skills')
+    fs.mkdirSync(root, { recursive: true })
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  const skills = () => `skills:\n  root: ${root}\n  install: []`
+
+  test('a stated login is taken as given', () => {
+    assert.equal(loadCuriaConfig(writeConfig(skills())).dispatch.claim_login, 'alp82')
+  })
+
+  // REQUIRED, and with no default. The daemon calls GitHub as the bot now, and
+  // GitHub does not let an App be an assignee — so every other source for this
+  // name is a guess, and a guess claims tickets in a stranger's name.
+  test('an omitted login refuses the boot', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(skills(), '', null)),
+      /dispatch\.claim_login must be a GitHub login/,
+    )
+  })
+
+  test('a login GitHub could not issue refuses the boot', () => {
+    for (const bad of ['-alp82', 'alp82-', 'al p82', 'alp82/curia', '7']) {
+      assert.throws(
+        () => loadCuriaConfig(writeConfig(skills(), '', bad)),
+        /dispatch\.claim_login must be a GitHub login/,
+        `"${bad}" was accepted, and it would fail every claim with a 422`,
+      )
+    }
+  })
+
+  test('a hyphen inside a login is legal — GitHub issues those', () => {
+    assert.equal(loadCuriaConfig(writeConfig(skills(), '', 'curia-sh')).dispatch.claim_login, 'curia-sh')
   })
 })
 

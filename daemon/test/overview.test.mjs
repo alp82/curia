@@ -92,6 +92,7 @@ describe('GET /overview (index.mjs, real boot)', () => {
       '  max_concurrent: 3',
       '  poll_interval_s: 60',
       `  workspace_root: ${path.join(tmp, 'work')}`,
+      '  claim_login: alp82',
       '  ready_timeout_s: 5',
       '  confirm_ttl_h: 1',
       'attach:',
@@ -471,7 +472,7 @@ describe('the recent past, answered without the file (#289)', () => {
         watch: [],
         dispatch: {
           auto_dispatch: false, max_concurrent: 1, poll_interval_s: 60,
-          workspace_root: path.join(dir, 'work'), ready_timeout_s: 5, stop_nudge_budget: 3,
+          workspace_root: path.join(dir, 'work'), ready_timeout_s: 5, stop_nudge_budget: 3, claim_login: 'me',
         },
         attach: { ttyd_port: 7681, serve_port: 8443 },
         identity: { allow: ['tester@example.com'], proxy_port: 7682 },
@@ -677,7 +678,7 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
       watch: [{ repo: 'o/r', mode: 'map' }],
       dispatch: {
         auto_dispatch: false, max_concurrent: 1, poll_interval_s: 60,
-        workspace_root: path.join(tmp, 'work'), ready_timeout_s: 5, stop_nudge_budget: 3,
+        workspace_root: path.join(tmp, 'work'), ready_timeout_s: 5, stop_nudge_budget: 3, claim_login: 'me',
       },
       attach: { ttyd_port: 7681, serve_port: 8443 },
       identity: { allow: ['tester@example.com'], proxy_port: 7682 },
@@ -692,7 +693,6 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
       log: () => {},
       dataDir: path.join(tmp, 'data'),
       deps: {
-        viewerLogin: async () => null, // reconcile skips its sweeps; the frontier is not one of them
         listSessions: async () => [],
         hasSession: async () => false,
         repoMaps: async () => [{ number: 9, title: 'the map', state: 'open', labels: [] }],

@@ -233,7 +233,7 @@ An agent used to reach GitHub through the host's `~/.config/gh/hosts.yml` login,
 
 The permissions are **Contents**, **Issues** and **Pull requests** read/write, plus **Commit statuses** read so `gh pr checks` answers. Nothing else. The rule is grant content, never execution or persistence: Secrets, Variables, Webhooks, Workflows, Environments and Actions-write each hand a compromised agent either a way to run code or a way to keep reach after it dies.
 
-The daemon is deliberately **not** on this token. Its own `gh` keeps the host login, because it must reach every watched repo, and a repo added to `curia.yaml` but left off a token would break dispatch with no signal. A bare `GH_TOKEN` in `.env.daemon` would re-authenticate the daemon too, silently, by sitting in its environment.
+The daemon is deliberately **not** on this token. It has its own, minted per owner from the app key — see [the daemon's own GitHub authority](#the-daemons-own-github-authority-390) below. A bare `GH_TOKEN` in `.env.daemon` would still be wrong, and for the reason it always was: it would re-authenticate every child at once, silently, by sitting in the daemon's environment.
 
 The value is read at boot, so a quoted or padded token refuses the boot instead of reaching an agent as a 401 mid-resolve. Boot also asks GitHub once per watched repo, with the token that repo's agent would get, and warns when the token cannot reach it or expires within 14 days. An expired token does not degrade to the host login. It fails every `gh` call, so the warning is the whole defense.
 
@@ -262,6 +262,24 @@ The shape this section predicted is the shape that shipped: a per-agent `gh` con
 **The teardown is the config dir's.** `removeCredentials` takes the directory, so every ending collects it — including the two that keep the workspace for a post-mortem, and the reconcile sweep that finds a config dir whose session is gone.
 
 **A mint that fails falls back**, loudly, to `CURIA_AGENT_GH_TOKEN_<OWNER>`. A box with no app, an owner the app is not installed on, and a GitHub that could not be reached all read the same way. Refusing the dispatch would take a working boundary out ahead of its replacement, which is the one thing ADR-0018 says not to do.
+
+## The daemon's own GitHub authority (#390)
+
+The daemon reaches GitHub as a `gh` child process, and every one of those children used to run with no token — so it inherited `~/.config/gh` and did its work as the operator. [ADR-0018](../docs/adr/0018-the-daemon-is-a-github-app.md) calls that the last of four hand-made secrets, and the one that makes the review gate impossible: GitHub refuses a self-approval, so a pull request authored by the operator can never be approved by the operator.
+
+**The repo picks the owner.** Nearly every call the daemon makes names a repo, and a repo names an owner. `daemongh.mjs` mints that owner's write token and puts it in the environment of the one child that needs it. So the frontier reads, the claims, the comments, the closes, the clones, the pull requests and the branch pushes all run as `curia-sh[bot]`.
+
+**`GH_TOKEN`, not a config dir.** An agent gets a `gh` config dir because a container mounts a directory and cannot be handed a live value (#389). The daemon spawns its own children, so it has no such boundary — and `gh` reads `GH_TOKEN` before it reads any config file. The value never enters the daemon's own environment, which is what keeps the deploy sibling and a dev session on the host login.
+
+One thing to watch on a new box: `~/.config/gh` must already be MIGRATED. A `hosts.yml` in the pre-multi-account shape makes `gh` run a migration that calls `GET /user`, which an installation token answers 403 (#389 measured that inside a container). Any interactive `gh` command by the operator migrates the file once and for good, so a box whose login is in use is already past it.
+
+**Two calls keep the host login**, and both are the settings screen's repo picker: `viewerLogin()` and `gh api user/repos`. Neither names a repo, both ask an account-wide question about a person, and an installation token answers neither. `test/daemongh.test.mjs` reads `github.mjs` and refuses any other unrouted call, because a call that forgets its repo runs as the operator again and nothing else would say so.
+
+**The claim assigns a person.** A claim is an issue assignee and GitHub does not let an App be one. So the daemon calls as the bot and assigns `dispatch.claim_login` from `config/curia.yaml`. The key is required, with no default, and the boot refuses a config without it: every other source for that name is a guess, and a guess claims tickets in a stranger's name.
+
+**A mint that fails falls back**, loudly, to the host login. A box with no app, an owner the app is not installed on, and a GitHub that could not be reached all read the same way — the same rule the agents got at #389, applied to their daemon.
+
+**What the host login still holds on the daemon**: dev sessions, the deploy sibling, and the gate approval. An app cannot approve for a human, and an app-minted approval on an app-authored pull request is a self-approval again.
 
 ## The overseer's GitHub authority (#313)
 

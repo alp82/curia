@@ -378,6 +378,7 @@ function curiaConfigWith(sandboxOver, dir) {
     '  max_concurrent: 6',
     '  poll_interval_s: 60',
     `  workspace_root: ${path.join(dir, 'work')}`,
+    '  claim_login: alp82',
     '  ready_timeout_s: 45',
     'attach: {ttyd_port: 7681, serve_port: 8443}',
     'identity: {allow: [a@b.c], proxy_port: 7682}',
@@ -465,7 +466,6 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
   const events = []
   const double = journalDouble(path.join(tmp, 'data'))
   const base = {
-    viewerLogin: async () => 'me',
     fetchIssue: async () => ({ ...ISSUE }),
     claim: async () => {},
     unclaim: async () => {},
@@ -504,7 +504,7 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
       watch: [{ repo: 'o/r', mode: 'auto' }],
       dispatch: {
         auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60,
-        workspace_root: root, ready_timeout_s: 1, stop_nudge_budget: 3,
+        workspace_root: root, ready_timeout_s: 1, stop_nudge_budget: 3, claim_login: 'me',
       },
       attach: { ttyd_port: 7681, serve_port: 8443 },
       identity: { allow: ['a@b.c'], proxy_port: 7682 },

@@ -53,6 +53,7 @@ import {
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
+import { setDaemonTokenSource } from './daemongh.mjs'
 import { TokenWatch, TOKEN_EXPIRY_WARN_DAYS } from './tokenwatch.mjs'
 import {
   probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName,
@@ -278,10 +279,34 @@ if (!appMinter) {
     for (const { id, owner } of installs) log(`GitHub App installed on ${owner} (installation ${id})`)
     const seen = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
     for (const owner of WATCHED_OWNERS) {
-      if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — install it there before that owner's holders cut over (docs/github-app.md)`)
+      if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — every daemon call on that owner falls back to the host gh login, and its pull requests stay operator-authored (docs/github-app.md)`)
     }
   }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — no holder mints yet, so nothing is broken by it`))
 }
+
+// #390: the DAEMON cuts over. Every `gh` child it spawns for a named repo now
+// carries that owner's minted write token, so the frontier reads, the claims,
+// the pull requests and the branch pushes all run as `curia-sh[bot]`.
+//
+// One source, wired once. Nothing else in the daemon holds the minter, and the
+// modules that shell out (github.mjs, workspace.mjs) ask by repo and never know
+// an app exists.
+//
+// NULL IS THE FALLBACK SIGNAL, never a refusal — the rule #389 wrote for the
+// agents, applied to their daemon. A box with no app, an owner the app is not
+// installed on, and a GitHub that could not be reached all read the same, and
+// the call then runs on the host `gh` login exactly as it did before. It is
+// LOUD rather than silent: the log names the owner, once per failure.
+setDaemonTokenSource(async (owner) => {
+  if (!appMinter) return null
+  try {
+    return await appMinter.tokenFor(owner, 'write')
+  } catch (e) {
+    log(`could not mint the daemon's GitHub token for ${owner} (${e.message}) — this call falls back to the host gh login`)
+    return null
+  }
+})
+log(`claims assign ${curiaConfig.dispatch.claim_login} (dispatch.claim_login) — a GitHub App cannot be an issue assignee`)
 
 // Opening this opens the journal, and on the first boot after #407 it converts
 // the journal file into the database. `log` is a hoisted function declaration,
