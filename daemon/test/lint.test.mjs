@@ -1,0 +1,258 @@
+// Tests for src/lint.mjs (#418): the two grades ADR-0019 locks, the geometry
+// check that is not a grade, the caps, and the mandatory floor per surface.
+
+import { test, describe } from 'node:test'
+import assert from 'node:assert/strict'
+import {
+  CAPS, VISUAL_COLUMNS, VISUAL_LINES, SENTENCE_WORDS,
+  gradeA, gradeB, lintVisual, unfence, isTyped, floorFaults, lintAskHuman,
+  lintRequestReview, reviewFloorFaults,
+} from '../src/lint.mjs'
+
+const names = (faults) => faults.join(' | ')
+
+describe('grade A: inline decision text', () => {
+  test('a plain one-line field passes', () => {
+    assert.deepEqual(gradeA('headline', 'Re-arm cooling at boot, and from what source?', CAPS.headline), [])
+  })
+
+  test('the cap refuses rather than truncates', () => {
+    const faults = gradeA('headline', 'x'.repeat(CAPS.headline + 1), CAPS.headline)
+    assert.match(names(faults), /151 characters over the 150 cap/)
+    assert.match(names(faults), /never cuts it/)
+  })
+
+  test('a field exactly at the cap passes', () => {
+    assert.deepEqual(gradeA('headline', 'x'.repeat(CAPS.headline), CAPS.headline), [])
+  })
+
+  test('a newline is a fault: grade A is one line', () => {
+    assert.match(names(gradeA('detail', 'one\ntwo', CAPS.detail)), /a newline/)
+  })
+
+  test('markdown structure is refused, marker by marker', () => {
+    assert.match(names(gradeA('headline', '## a heading', CAPS.headline)), /heading marker/)
+    assert.match(names(gradeA('headline', '| a | b |', CAPS.headline)), /markdown table row/)
+    assert.match(names(gradeA('headline', '> quoted', CAPS.headline)), /blockquote/)
+    assert.match(names(gradeA('headline', '```js', CAPS.headline)), /code fence/)
+    assert.match(names(gradeA('headline', '- an item', CAPS.headline)), /list marker/)
+    assert.match(names(gradeA('headline', '1. an item', CAPS.headline)), /list marker/)
+  })
+
+  test('a link is refused, because curia composes every link it renders', () => {
+    assert.match(names(gradeA('headline', 'see https://example.com', CAPS.headline)), /a link/)
+    assert.match(names(gradeA('headline', 'see [the page](/x)', CAPS.headline)), /a link/)
+  })
+
+  test('a hyphen in a word is not a list marker', () => {
+    assert.deepEqual(gradeA('headline', 'the reject-on-lint gate holds', CAPS.headline), [])
+  })
+})
+
+describe('the word rules both grades share', () => {
+  test('a semicolon is a fault', () => {
+    assert.match(names(gradeA('headline', 'this holds; that does not', CAPS.headline)), /a semicolon/)
+    assert.match(names(gradeB('summary', 'this holds; that does not')), /a semicolon/)
+  })
+
+  test('an em-dash is a fault and a normal dash is not', () => {
+    assert.match(names(gradeA('headline', 'this holds — that does not', CAPS.headline)), /an em-dash/)
+    assert.deepEqual(gradeA('headline', 'this holds - that does not', CAPS.headline), [])
+  })
+
+  test('a contraction is named and quoted', () => {
+    assert.deepEqual(gradeA('headline', 'it is not there', CAPS.headline), [])
+    assert.match(names(gradeA('headline', "it's not there", CAPS.headline)), /the contraction "it's"/)
+    assert.match(names(gradeA('headline', 'curia doesn’t read it', CAPS.headline)), /the contraction "doesn’t"/)
+  })
+
+  test('a possessive is NOT a contraction: the whole reason the list is fixed', () => {
+    assert.deepEqual(gradeA('headline', "the agent's own worktree stays", CAPS.headline), [])
+    assert.deepEqual(gradeB('summary', "The daemon reads the record's payload."), [])
+  })
+
+  test('a marketing adjective is a fault', () => {
+    assert.match(names(gradeB('summary', 'A robust and seamless gate.')), /the marketing adjective "robust"/)
+    assert.match(names(gradeB('summary', 'A robust and seamless gate.')), /the marketing adjective "seamless"/)
+  })
+})
+
+describe('grade B: block prose', () => {
+  test('several short sentences pass', () => {
+    assert.deepEqual(gradeB('summary', 'The daemon lints a named field. The agent rewrites its own text.'), [])
+  })
+
+  test('a sentence over the word cap is refused and quoted', () => {
+    const long = `${new Array(SENTENCE_WORDS + 1).fill('word').join(' ')}.`
+    assert.match(names(gradeB('summary', long)), new RegExp(`a sentence of ${SENTENCE_WORDS + 1} words`))
+  })
+
+  test('a sentence exactly at the word cap passes', () => {
+    assert.deepEqual(gradeB('summary', `${new Array(SENTENCE_WORDS).fill('word').join(' ')}.`), [])
+  })
+
+  test('the block cap refuses', () => {
+    assert.match(names(gradeB('charting', 'a. '.repeat(CAPS.block))), new RegExp(`over the ${CAPS.block} cap`))
+  })
+
+  test('a heading and a bare table are refused, and a fenced table is not (#432)', () => {
+    assert.match(names(gradeB('summary', '# a heading')), /heading/)
+    assert.match(names(gradeB('summary', '| a | b |')), /table/)
+    assert.deepEqual(gradeB('summary', '```\n| a | b |\n```'), [])
+  })
+
+  test('a fenced block is not counted as a sentence', () => {
+    const rows = `\`\`\`\n${new Array(SENTENCE_WORDS + 5).fill('col').join(' ')}\n\`\`\``
+    assert.deepEqual(gradeB('summary', rows), [])
+  })
+
+  test('an emoji outside the signal set is refused', () => {
+    assert.match(names(gradeB('summary', 'shipped 🚀')), /emoji outside the signal set/)
+  })
+})
+
+describe('the visual: geometry, never words', () => {
+  test('rows inside the box pass', () => {
+    assert.deepEqual(lintVisual('09:00  cap lands\n13:02  deploy'), [])
+  })
+
+  test('a row over the column cap is refused', () => {
+    assert.match(names(lintVisual('x'.repeat(VISUAL_COLUMNS + 1))), new RegExp(`${VISUAL_COLUMNS + 1} columns over the ${VISUAL_COLUMNS} cap`))
+  })
+
+  test('a visual over the line cap is refused', () => {
+    const tall = new Array(VISUAL_LINES + 1).fill('row').join('\n')
+    assert.match(names(lintVisual(tall)), new RegExp(`${VISUAL_LINES + 1} lines over the ${VISUAL_LINES} cap`))
+  })
+
+  test('a visual the agent fenced itself is measured on its rows', () => {
+    assert.deepEqual(lintVisual('```\nshort row\n```'), [])
+    assert.equal(unfence('```\nshort row\n```'), 'short row')
+    assert.equal(unfence('short row'), 'short row')
+  })
+
+  test('a fence inside the rows is refused: it would close the fence curia writes', () => {
+    assert.match(names(lintVisual('row one\n```\nrow two')), /a code fence inside the rows/)
+  })
+
+  test('the visual takes no grade: a semicolon in a diagram passes', () => {
+    assert.deepEqual(lintVisual('a; b; c'), [])
+  })
+
+  test('the geometry cap keeps a visual under the code-block cap', () => {
+    assert.ok(VISUAL_COLUMNS * VISUAL_LINES < 1000)
+  })
+})
+
+describe('isTyped', () => {
+  test('an untyped call is not typed by its prompt or its images', () => {
+    assert.equal(isTyped({ prompt: 'what now?', images: ['/workspace/a.png'] }), false)
+  })
+
+  test('any prose field types the call', () => {
+    assert.equal(isTyped({ headline: 'a decision' }), true)
+    assert.equal(isTyped({ questions: [{ text: 'one?' }] }), true)
+    assert.equal(isTyped({ options: [{ label: 'A', consequence: 'x' }] }), true)
+    assert.equal(isTyped({ detail: 'a fact' }), true)
+  })
+
+  test('a bare string option is the old shape, so it does not type the call', () => {
+    assert.equal(isTyped({ options: ['A', 'B'] }), false)
+  })
+})
+
+describe('the mandatory floor', () => {
+  test('every kind owes a headline', () => {
+    assert.match(names(floorFaults('free-text', { questions: [{ text: 'one?' }] })), /headline: missing/)
+  })
+
+  test('a round owes its questions', () => {
+    assert.match(names(floorFaults('free-text', { headline: 'h' })), /questions: missing/)
+    assert.match(names(floorFaults('free-text', { headline: 'h', questions: [{}] })), /questions\[0\]\.text: missing/)
+  })
+
+  test('a choice owes one consequence per option: the floor #415 proved', () => {
+    const faults = floorFaults('choice', { headline: 'h', options: [{ label: 'A' }, { label: 'B', consequence: 'x' }] })
+    assert.match(names(faults), /options\[0\]\.consequence: missing/)
+    assert.doesNotMatch(names(faults), /options\[1\]/)
+  })
+
+  test('a choice of one is not a choice', () => {
+    assert.match(names(floorFaults('choice', { headline: 'h', options: [{ label: 'A', consequence: 'x' }] })), /two options or more/)
+  })
+
+  test('approve-reject takes no options, or exactly two', () => {
+    assert.deepEqual(floorFaults('approve-reject', { headline: 'h' }), [])
+    assert.match(names(floorFaults('approve-reject', { headline: 'h', options: [{ consequence: 'x' }] })), /exactly two/)
+    assert.deepEqual(floorFaults('approve-reject', { headline: 'h', options: [{ consequence: 'x' }, { consequence: 'y' }] }), [])
+  })
+
+  test('preview-review owes its preview url', () => {
+    assert.match(names(floorFaults('preview-review', { headline: 'h' })), /preview_url: missing/)
+  })
+})
+
+describe('lintAskHuman', () => {
+  test('a card that keeps every rule passes', () => {
+    const faults = lintAskHuman('choice', {
+      headline: 'A restart forgets every cooling. Re-arm it at boot, and from what?',
+      options: [
+        { label: 'From the journal.', consequence: 'A guessed reset can hold at most 55 minutes too long.' },
+        { label: 'From a fresh reading.', consequence: 'It answers "am I near the cap", not "did I hit one".' },
+      ],
+      detail: 'The daemon has journalled provider_cooling with reset_at since #175.',
+      visual: '09:00  cap lands\n13:02  deploy',
+    })
+    assert.deepEqual(faults, [])
+  })
+
+  test('the fault names the field it is in', () => {
+    const faults = lintAskHuman('choice', {
+      headline: 'fine',
+      options: [{ label: 'A', consequence: 'this holds; that does not' }],
+    })
+    assert.match(names(faults), /options\[0\]\.consequence: a semicolon/)
+  })
+
+  test('an option label over 80 is refused, because a select menu carries 80 whole', () => {
+    const faults = lintAskHuman('choice', { headline: 'fine', options: [{ label: 'x'.repeat(81), consequence: 'y' }] })
+    assert.match(names(faults), new RegExp(`options\\[0\\]\\.label: 81 characters over the ${CAPS.option} cap`))
+  })
+
+  test('an example is block prose, so it keeps its sentences', () => {
+    assert.deepEqual(lintAskHuman('choice', {
+      headline: 'fine',
+      options: [{ label: 'A', consequence: 'y', example: 'The boot reading says 41% used. The 09:00 cap is invisible.' }],
+    }), [])
+  })
+
+  test('a round lints every question and every recommendation', () => {
+    const faults = lintAskHuman('free-text', {
+      headline: 'fine',
+      questions: [{ text: 'is it right?', recommendation: "yes, it's right" }],
+    })
+    assert.match(names(faults), /questions\[0\]\.recommendation: the contraction/)
+  })
+})
+
+describe('lintRequestReview', () => {
+  test('the gate prose is grade B and the headline is grade A', () => {
+    assert.deepEqual(lintRequestReview({
+      headline: 'Typed ask_human and request_review, with the lint gate.',
+      summary: 'The daemon lints a named field. A cap refuses rather than cuts.',
+      charting: 'none',
+    }), [])
+  })
+
+  test('a long gate sentence is refused', () => {
+    const long = `${new Array(SENTENCE_WORDS + 2).fill('word').join(' ')}.`
+    assert.match(names(lintRequestReview({ headline: 'h', summary: long, charting: 'none' })), /summary: a sentence/)
+  })
+
+  test('the gate floor is the headline, the summary and the charting', () => {
+    assert.deepEqual(reviewFloorFaults({ headline: 'h', summary: 's', charting: 'none' }), [])
+    assert.match(names(reviewFloorFaults({})), /headline: missing/)
+    assert.match(names(reviewFloorFaults({})), /summary: missing/)
+    assert.match(names(reviewFloorFaults({})), /charting: missing/)
+  })
+})

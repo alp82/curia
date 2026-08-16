@@ -2693,7 +2693,7 @@ export class Dispatcher {
   // preview from the registry that allocated it, the pull request from GitHub,
   // the ticket from the spawn binding. #40 recorded the alternative as a live
   // limit: an agent can hand ask_human any `preview_url` string it likes.
-  async requestReview(agentName, { summary = '', charting = '' } = {}) {
+  async requestReview(agentName, { summary = '', charting = '', body = '' } = {}) {
     // #164: the reviewer is what a gate ASKS ABOUT, never what opens one. A
     // reviewer at the gate would put its own reading in front of the operator as
     // if it were the work, on a ticket it is not building.
@@ -2781,7 +2781,7 @@ export class Dispatcher {
     if (!digest) this.log(`review gate for ${repo}#${ticket}: the diff could not be counted (${digestError})`)
 
     const { text } = reviewGateText({
-      repo, ticket: map ?? ticket, title, summary, charting, links, mapDispatch,
+      repo, ticket: map ?? ticket, title, summary, charting, links, mapDispatch, body,
       digestLine: digestLine(digest, digestError),
     })
     this.reduction.journal('review_requested', {
@@ -3337,6 +3337,55 @@ export class Dispatcher {
   // #47 stays FIRST and unchanged: a turn that ends with an escalation still open
   // is an agent blocked on a human, not an agent that finished — and blocking
   // THAT stop would spin an agent whose next move is not its own to make.
+  // The two stops one rejected call gets (#418, ADR-0005 as #438 amended it).
+  //
+  // The FIRST hands the rejection back and refuses the stop. The SECOND sends
+  // the text itself, flagged, and lets the agent stop. The three-rejection cap
+  // can never fire on codex by itself: an agent that lost its rejection has no
+  // reason to call again, so without this the question would reach nobody.
+  //
+  // ADR-0005 named `stop_hook_active` as the key for "the second stop". #447
+  // then measured that flag STICKY rather than per-question. It is false on the
+  // first stop of a SESSION and true on every stop after it, so a rejection
+  // arriving late in a session would be flagged and sent on its very first
+  // block. The decision is unchanged and the count moved daemon-side, which is
+  // what #447 says a design needing a count must do.
+  //
+  // Returns a Stop-hook answer, or null to fall through to the ending checks.
+  async #holdForRejection(agentName, held) {
+    if ((held.stop_blocks ?? 0) < 1) {
+      this.reduction.journalLintStopBlock(agentName, held.kind)
+      this.log(`stop hook ${agentName}: holding on a rejected ${held.kind} call — ${held.faults.length} lint fault(s)`)
+      return {
+        decision: 'block',
+        reason: [
+          `curia REFUSED your last \`${held.kind === REVIEW_KIND ? 'request_review' : 'ask_human'}\` call, and you did not read the refusal.`,
+          'Nothing was asked and nobody saw it. These are the faults:',
+          '',
+          ...held.faults.map((f) => `• ${f}`),
+          '',
+          'Rewrite the named fields and make the call again. Keep every option and every constraint.',
+        ].join('\n'),
+      }
+    }
+    // The review gate is a step of the ENDING, so the checklist below already
+    // holds an agent that never opened one. Only `ask_human` has no such step,
+    // which is the hole this send exists to close.
+    if (held.kind === REVIEW_KIND || !this.deps.sendFlagged) {
+      this.reduction.clearLintRejections(agentName, held.kind)
+      return null
+    }
+    const sent = await this.deps.sendFlagged(agentName, held)
+    this.reduction.journal('lint_flagged_send', {
+      agent: agentName, kind: held.kind, id: sent?.id ?? null, faults: held.faults,
+    })
+    const ticket = this.agents.get(agentName)?.ticket
+    if (ticket != null) {
+      this.notify(ticket, `⚠️ \`${agentName}\` ended a turn holding a question curia refused ${held.count} time(s) on the lint. curia sent the text as it stands — the faults are on the card, under the question.`)
+    }
+    return { allow: true, terminal: false }
+  }
+
   async onStopHook(agentName, { stopHookActive = false } = {}) {
     // #194's backstop, FIRST and before the nudge. An agent that got here having
     // never sent an `/mcp` request has no way to satisfy any item of the ending
@@ -3356,6 +3405,24 @@ export class Dispatcher {
     if (block.blocked) {
       this.#recordHumanBlock(agentName, block.open, { crossCheck: block.crossCheck })
       return { allow: true, terminal: false }
+    }
+
+    // The lint gate's catch (#418, ADR-0005 as #438 amended it).
+    //
+    // On codex a rejection is the `exec` script's RETURN VALUE and it never
+    // throws, not even the JSON-RPC error. A script that ignores the value
+    // leaves codex reporting `Script completed` to the model. So an agent whose
+    // call curia refused can believe the question went out and come here to end
+    // its turn. This is the one lever that is a guarantee rather than prose: the
+    // hook fires, codex refuses the stop, and the rejection reaches the model as
+    // a user message it cannot discard.
+    //
+    // It sits UNDER #47. An agent already blocked on a human is not spinning on
+    // anything, and its rejection waits for the turn after the answer.
+    const held = this.deps.lintRejection?.(agentName)
+    if (held) {
+      const decision = await this.#holdForRejection(agentName, held)
+      if (decision) return decision
     }
 
     const state = await this.#endingState(agentName)

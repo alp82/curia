@@ -114,6 +114,24 @@ describe('the review gate payload', () => {
     assert.ok(text.includes('x'.repeat(4000)), 'nothing may be cut from the charting the gate exists to judge')
     assert.doesNotMatch(text, /did not fit/)
   })
+
+  // #418, ADR-0019: the gate takes the typed fields too. The HEADING stays
+  // curia's, because what the operator is being asked is curia's to state
+  // (#297). The headline under it is what the agent did.
+  test('the typed body sits under curia\'s heading, above the summary', () => {
+    const { text } = reviewGateText({
+      ...base,
+      body: '**Typed ask_human and request_review.**\n\nDetails: ||The lint is daemon/src/lint.mjs.||',
+    })
+    assert.match(text, /\*\*Is o\/r#42 done\?\*\* — a ticket\n\n\*\*Typed ask_human and request_review\.\*\*/)
+    assert.ok(text.indexOf('Typed ask_human') < text.indexOf('**What the agent did**'))
+    assert.match(text, /Details: \|\|The lint is daemon\/src\/lint\.mjs\.\|\|/)
+  })
+
+  test('an untyped gate is byte-for-byte what it was before the typed fields', () => {
+    assert.equal(reviewGateText({ ...base, body: '' }).text, reviewGateText(base).text)
+    assert.equal(reviewGateText({ ...base, body: '   ' }).text, reviewGateText(base).text)
+  })
 })
 
 describe('classifying the answer', () => {

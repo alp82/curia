@@ -137,6 +137,7 @@ export class Reduction {
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
     this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
+    this.lintRejects = new Map() // `<agent>|<kind>` -> the rejections the lint gate still holds (#418)
     this.seq = 0
     this.noteSeq = 0
     this.rebuild()
@@ -298,6 +299,18 @@ export class Reduction {
           id: ev.id, agent: ev.agent, ticket: ev.ticket, kind: ev.kind,
           prompt: ev.prompt, options: ev.options, preview_url: ev.preview_url,
           recommended: ev.recommended ?? false,
+          // The typed payload (#418, ADR-0019). Null on an untyped call, which
+          // is every call until the flip (#422) and every call written before
+          // this ticket. `prompt` is composed FROM this payload when it is
+          // present (card.mjs), so the record still carries one readable
+          // question for the timeline, the console and the inherited exchange
+          // — and the bridge reads the payload for the parts only a component
+          // can render.
+          payload: ev.payload ?? null,
+          // The lint faults a flagged send carried out anyway (ADR-0005: three
+          // rejections, then the text goes as it stands). The card shows them
+          // beside the text that failed them.
+          lint_flags: ev.lint_flags ?? null,
           // The diff digest (#355). Counted once when the review gate opened
           // and stored HERE, so Discord and the console state the same numbers,
           // no poll re-counts anything, and the digest survives the agent dying
@@ -308,6 +321,40 @@ export class Reduction {
           action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
           discord: null, successor: null, agent_died: false,
         })
+        // A record that opened is a call that got through, so the lint gate's
+        // ledger for this call site starts fresh (#418). A flagged send opens a
+        // record too, and clearing there is right: the question reached the
+        // operator, which is the only thing the count was protecting.
+        this.lintRejects.delete(`${ev.agent}|${ev.kind}`)
+        break
+      }
+      // The lint gate's ledger (#418, ADR-0005). The daemon counts, because an
+      // agent miscounts its own rejections — and it counts HERE rather than in
+      // memory, because the restart that kills a blocked call must not also
+      // reset the count that was holding its author to three attempts.
+      case 'lint_rejected': {
+        const key = `${ev.agent}|${ev.kind}`
+        const prev = this.lintRejects.get(key)
+        this.lintRejects.set(key, {
+          agent: ev.agent, kind: ev.kind, count: (prev?.count ?? 0) + 1,
+          faults: ev.faults ?? [], schema: Boolean(ev.schema),
+          prompt: ev.prompt ?? null, payload: ev.payload ?? null,
+          stop_blocks: prev?.stop_blocks ?? 0, at: ev.ts ?? null,
+        })
+        break
+      }
+      // The Stop hook's own count (#418). ADR-0005 says curia sends the text
+      // itself at the SECOND stop block for one rejected call, and it named
+      // `stop_hook_active` as the key. #447 then measured that flag STICKY
+      // rather than per-question, so the count lives here instead. The decision
+      // is unchanged: the second block sends.
+      case 'lint_stop_blocked': {
+        const held = this.lintRejects.get(`${ev.agent}|${ev.kind}`)
+        if (held) held.stop_blocks = (held.stop_blocks ?? 0) + 1
+        break
+      }
+      case 'lint_cleared': {
+        this.lintRejects.delete(`${ev.agent}|${ev.kind}`)
         break
       }
       case 'escalation_agent_died': {
@@ -583,7 +630,7 @@ export class Reduction {
   // whatever its wording, so at most one set of live buttons ever points at a
   // given agent. The two keys never cross: a confirm is an operator's record
   // and belongs to no agent's call.
-  open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id, diff, diff_error }) {
+  open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id, diff, diff_error, payload, lint_flags }) {
     const payload_hash = Reduction.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
@@ -603,13 +650,44 @@ export class Reduction {
     // a superseded record held the same question its successor asks. Nothing
     // decides on it, so a round re-asked with `recommended` flipped (#285)
     // supersedes its own record either way.
-    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload_hash, action, origin_thread_id, diff, diff_error })
+    // The hash still reads the composed `prompt`, not the payload, and that is
+    // deliberate. The composer is deterministic, so one typed payload makes one
+    // prompt — and an untyped call and a typed one that say the same words hash
+    // the same, which is the right answer for the #369 replay.
+    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload, lint_flags, payload_hash, action, origin_thread_id, diff, diff_error })
     for (const r of superseded_all) this._append({ type: 'esc_supersede', id: r.id, successor: id })
     return { record: this.escalations.get(id), superseded: superseded_all[0] ?? null, superseded_all }
   }
 
   attachRender(id, discord) {
     this._append({ type: 'esc_render', id, ...discord })
+  }
+
+  // ---- the lint gate's ledger (#418) -----------------------------------------
+
+  lintRejections(agent, kind) {
+    return this.lintRejects.get(`${agent}|${kind}`)?.count ?? 0
+  }
+
+  journalLintRejection({ agent, kind, faults, schema, prompt, payload }) {
+    return this._append({ type: 'lint_rejected', agent, kind, faults, schema, prompt, payload })
+  }
+
+  clearLintRejections(agent, kind) {
+    if (!this.lintRejects.has(`${agent}|${kind}`)) return null
+    return this._append({ type: 'lint_cleared', agent, kind })
+  }
+
+  // The newest rejection this agent has not answered for, across every kind.
+  // The Stop hook reads it: an agent that lost its rejection believes the
+  // question went out, and this is what tells the hook otherwise.
+  pendingLintRejection(agent) {
+    const held = [...this.lintRejects.values()].filter((r) => r.agent === agent)
+    return held.sort((a, b) => String(a.at).localeCompare(String(b.at))).at(-1) ?? null
+  }
+
+  journalLintStopBlock(agent, kind) {
+    return this._append({ type: 'lint_stop_blocked', agent, kind })
   }
 
   // Follow the successor chain from a possibly-dead id to the live record.
