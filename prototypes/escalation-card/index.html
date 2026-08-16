@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#415 — The card</title>
+<style>
+  :root {
+    --bg: #16181d;
+    --card: #1e2128;
+    --line: #2f333d;
+    --ink: #e3e6ea;
+    --dim: #98a0ad;
+    --pick: #57f287;
+    --drop: #ed4245;
+    --open: #fee75c;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0 0 4rem;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header {
+    padding: 1.6rem 1.1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg));
+  }
+  header h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header .tag {
+    display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--pick); letter-spacing: .04em;
+  }
+  header p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2 {
+    margin: 2.2rem 0 .8rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700;
+  }
+  .subject {
+    margin: 1.2rem 0 0; padding: .8rem .95rem; border-radius: 9px;
+    background: var(--card); border: 1px solid var(--line); font-size: .9rem;
+  }
+  .subject b { color: var(--ink); }
+  .subject p { margin: .3rem 0; color: var(--dim); }
+  .subject a { color: #7fb2ff; }
+  .v {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: .95rem 1rem 1.1rem; margin: 0 0 .85rem;
+    border-left: 4px solid var(--line);
+  }
+  .v.pick { border-left-color: var(--pick); }
+  .v.drop { border-left-color: var(--drop); }
+  .v.part { border-left-color: var(--open); }
+  .v.open { border-left-color: var(--open); }
+  .v h3 {
+    margin: 0 0 .1rem; font-size: 1.02rem; display: flex; gap: .5rem;
+    align-items: baseline; flex-wrap: wrap;
+  }
+  .v h3 .n { color: var(--dim); font: 600 .8rem/1 var(--mono); }
+  .verdict {
+    display: inline-block; margin: .45rem .4rem .6rem 0; padding: .22rem .55rem;
+    border-radius: 5px; font: 700 .72rem/1.3 var(--mono); letter-spacing: .04em;
+  }
+  .pick .verdict { background: rgba(87,242,135,.13); color: var(--pick); }
+  .drop .verdict { background: rgba(237,66,69,.13); color: var(--drop); }
+  .part .verdict { background: rgba(254,231,92,.13); color: var(--open); }
+  .open .verdict { background: rgba(254,231,92,.13); color: var(--open); }
+  .v p { margin: .45rem 0; font-size: .93rem; }
+  .v p.look { color: var(--dim); }
+  .swatch { margin: .7rem 0 .2rem; }
+  .swatch > b {
+    display: block; font: 700 .68rem/1 var(--mono); letter-spacing: .1em;
+    text-transform: uppercase; color: var(--dim); margin: 0 0 .35rem;
+  }
+  /* The Discord facsimile. It is a record of the mock, not the render test:
+     the thread is where the operator judged these. */
+  .discord {
+    background: #313338; border: 1px solid var(--line); border-radius: 8px;
+    padding: .7rem .8rem; font-size: .9rem; line-height: 1.42; color: #dbdee1;
+    overflow-wrap: anywhere;
+  }
+  .discord + .discord { margin-top: .4rem; }
+  .discord .who { display: flex; align-items: center; gap: .45rem; margin: 0 0 .35rem; }
+  .discord .who i {
+    width: 1.1rem; height: 1.1rem; border-radius: 50%; background: #5865f2;
+    display: inline-block; flex: 0 0 auto;
+  }
+  .discord .who span { font-weight: 600; font-size: .82rem; color: #f2f3f5; }
+  .discord .who em { font-style: normal; font-size: .66rem; color: #fff; background: #5865f2;
+    border-radius: 3px; padding: .05rem .22rem; }
+  .discord .sm { color: #949ba4; font-size: .78rem; }
+  .discord pre {
+    background: #2b2d31; border: 1px solid #1e1f22; border-radius: 4px;
+    padding: .5rem .6rem; margin: .4rem 0; overflow-x: auto;
+    font: .74rem/1.45 var(--mono); color: #dbdee1;
+  }
+  .discord code {
+    background: #2b2d31; border-radius: 3px; padding: .1rem .25rem;
+    font: .82em var(--mono);
+  }
+  .discord .spoiler {
+    background: #1e1f22; color: transparent; border-radius: 3px; cursor: pointer;
+    padding: 0 .15rem;
+  }
+  .discord .spoiler.shown { background: rgba(78,80,88,.4); color: inherit; }
+  pre.src {
+    margin: .4rem 0 0; padding: .7rem .8rem; overflow-x: auto;
+    background: #12141a; border: 1px solid var(--line); border-radius: 7px;
+    font: .76rem/1.5 var(--mono); color: #cdd3db; white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  details { margin: .6rem 0 0; }
+  details summary {
+    cursor: pointer; color: var(--dim); font: 600 .78rem/1 var(--mono);
+    letter-spacing: .04em; padding: .25rem 0;
+  }
+  .meta { margin: .6rem 0 0; padding-top: .55rem; border-top: 1px solid var(--line); }
+  .meta div { display: flex; gap: .5rem; font-size: .83rem; margin: .22rem 0; }
+  .meta b { color: var(--dim); font-weight: 600; flex: 0 0 6.2rem; }
+  code.k { font: .84em var(--mono); background: #12141a; padding: .1rem .3rem; border-radius: 4px; }
+  footer { margin: 2.5rem 1.1rem 0; padding-top: 1rem; border-top: 1px solid var(--line); color: var(--dim); font-size: .85rem; max-width: 48rem; }
+  footer ul { padding-left: 1.1rem; }
+  footer li { margin: .35rem 0; }
+  footer b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="tag">alp82/curia#415</span>
+  <h1>The card</h1>
+  <p>One real past escalation, mocked four ways, then three Details affordances on the same card.
+     Every mock went into the #415 thread through <code class="k">notify</code>, so the operator judged
+     it on a phone, in the surface it will really be read in. This page holds the exact source per
+     mock and the verdict the operator gave. Card 4 won, and the Details question split into two
+     typed fields.</p>
+  <div class="subject" id="subject"></div>
+</header>
+
+<main id="mocks"></main>
+
+<footer id="foot"></footer>
+
+<script>
+const VARIANTS = [{"kind":"card","n":1,"name":"Today's card","adds":"The control. One prose block, no headline, no options, no example, no visual.","source":"-# rehearsal #415 · card 1 of 4 · today's shape\n**[esc-1]** `curia-377` asks (*free-text*):\nCooling is in memory and never persisted (settled answer 6). A 5-hour window outlives a deploy, so today the next start spawns a container, walks into the cap, and cools again from a fresh reading. #346 needed the arm to survive a restart and made it a store reduction, and the cooling itself was left alone because the resume fires after the window rolls. The journal already carries `provider_cooling` and `model_cooling` with `reset_at` and `reset_source`, so the evidence for a boot re-arm is written. Should cooling be re-armed at boot, and from what source? A fresh account reading answers a different question, which is #339's trigger and not this one, so I recommend the journal.\n\n_Reply in this thread to answer._","look":"The decision is in the second half of a paragraph. The options are never listed, so the operator has to build them from the prose. This is the shape that produced the anti-example on the map.","verdict":{"pick":"drop","label":"NOT PICKED","why":"The control. The decision sits in the second half of a paragraph and the options are never listed, so the operator has to build them from the prose."}},{"kind":"card","n":2,"name":"Headline and options with consequences","adds":"A one-line headline, then one option per line with the consequence under it.","source":"-# rehearsal #415 · card 2 of 4 · headline + consequences\n**[esc-1]** `curia-377` asks (*choice*):\n\n**A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?**\n\nCooling lives in memory only. A deploy inside a 5-hour window clears it. The next start then spends a container on a cap curia already measured.\n\n**A. From the journal.** Re-read the caps curia already landed.\n↳ curia waits at the next start and spends no container. A guessed reset can hold at most 55 minutes too long.\n\n**B. From a fresh account reading.** Ask the provider at boot.\n↳ This answers \"am I near the cap\", not \"did I hit one\". It can hold the frontier on a reading that already rolled. It costs one API call per boot.\n\n**C. Leave it in memory.** A restart clears cooling.\n↳ Every deploy inside a window costs one container. This is the behavior today.\n\nRecommendation: **A**.","look":"The headline carries the whole decision in one line. Each option states its own cost, so nothing has to be inferred from the prose above it.","verdict":{"pick":"part","label":"THE MANDATORY FLOOR","why":"Its three fields become the mandatory floor of card 4: a headline, the options, and one consequence per option. An agent may not drop any of them."}},{"kind":"card","n":3,"name":"Plus an example per option","adds":"Card 2, and one concrete example under each consequence.","source":"-# rehearsal #415 · card 3 of 4 · + an example per option\n**[esc-1]** `curia-377` asks (*choice*):\n\n**A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?**\n\nCooling lives in memory only. A deploy inside a 5-hour window clears it. The next start then spends a container on a cap curia already measured.\n\n**A. From the journal.** Re-read the caps curia already landed.\n↳ A guessed reset can hold at most 55 minutes too long.\n› You deploy at 13:02. `start curia#390` at 13:03 answers \"opus cools until 14:20\", and no container starts.\n\n**B. From a fresh account reading.** Ask the provider at boot.\n↳ It answers \"am I near the cap\", not \"did I hit one\". One API call per boot.\n› The boot reading says 41% used, so curia starts the ticket. The cap that landed at 09:00 is invisible, and the container dies on it.\n\n**C. Leave it in memory.** A restart clears cooling.\n↳ Every deploy inside a window costs one container.\n› `start curia#390` clones a worktree, starts a container, and the first turn dies on the cap.\n\nRecommendation: **A**.","look":"B's example is the one that earns its line: it names the failure the consequence only gestures at. C's example restates its own consequence in longer words. That is what a mandatory example field produces when the option has nothing left to show.","verdict":{"pick":"part","label":"ITS EXAMPLE IS A JUDGMENT FIELD","why":"The example survives, but as a judgment field, not a required one per option. Option C's example is the evidence: it restates its own consequence in longer words, which is what a mandatory field produces when the option has nothing left to show."}},{"kind":"card","n":4,"name":"Plus a visual","adds":"Card 3, and one width-capped ASCII timeline. The visual replaces the intro paragraph.","source":"-# rehearsal #415 · card 4 of 4 · + a visual\n**[esc-1]** `curia-377` asks (*choice*):\n\n**A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?**\n\n```\n09:00  cap lands, cooling until 14:20\n13:02  deploy ......... memory wiped\n13:03  start curia#390\n        A journal -> waits, no container\n        B reading -> starts, dies at cap\n        C memory  -> starts, dies at cap\n```\n\n**A. From the journal.** Re-read the caps curia already landed.\n↳ A guessed reset can hold at most 55 minutes too long.\n› `start` at 13:03 answers \"opus cools until 14:20\".\n\n**B. From a fresh account reading.** Ask the provider at boot.\n↳ It answers \"am I near the cap\", not \"did I hit one\". One API call per boot.\n› The boot reading says 41% used, so the 09:00 cap is invisible.\n\n**C. Leave it in memory.** A restart clears cooling.\n↳ Every deploy inside a window costs one container.\n› 13:03 clones a worktree and the first turn dies on the cap.\n\nRecommendation: **A**.","look":"The diagram carries the three outcomes side by side, so the intro paragraph and half of every example come out. A visual earns its space by removing prose, not by sitting beside it. Width is 42 columns, the cap #414 set.","verdict":{"pick":"pick","label":"PICKED - THE TARGET SHAPE","why":"The operator picked this shape. The example and the visual inside it stay agent judgment, so a card that needs neither is still card 4."}},{"kind":"details","n":5,"name":"Details as a spoiler","adds":"The evidence rides the same message, hidden behind a tap.","messages":1,"source":"-# rehearsal #415 · details 1 of 3 · spoiler\n**[esc-1]** `curia-377` asks (*choice*): **A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?** (A journal / B fresh reading / C leave it)\n\nDetails: ||`#handleLimit` has journalled `model_cooling` and `provider_cooling` with `reset_at` and `reset_source` since #175, so this reads events curia already writes. #346 made the limit resume a store reduction and left cooling alone. #339 decides cooling BEFORE a cap lands, which is a different trigger and a different ticket.||","look":"One message, one tap, no button and no second post. #414 already proved the render. The cost is that a long detail block still lives inside the card, so the card grows even while it looks short.","verdict":{"pick":"part","label":"KEPT AS THE SHORT FIELD","why":"Kept, but as one of two typed fields rather than the whole answer. A short detail renders as a spoiler in the card. It carries facts, and it takes a character cap, because this 334-character block put a paragraph of argument back inside the card."}},{"kind":"details","n":6,"name":"Details as a follow-up small print","adds":"The card posts, then a second message carries the evidence in small print.","messages":2,"source":"-# rehearsal #415 · details 2 of 3 · follow-up small print\n**[esc-1]** `curia-377` asks (*choice*): **A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?** (A journal / B fresh reading / C leave it)","followUp":"-# Details: #175 already journals model_cooling and provider_cooling with reset_at, so this reads events curia writes today. #346 left cooling alone. #339 is the before-the-cap trigger.","look":"The card stays short, and the evidence never has to be opened. #414 caps small print at ONE line, so this affordance also caps the detail length. Two stacked small-print lines read as one mangled line on a phone.","verdict":{"pick":"drop","label":"NOT PICKED","why":"Dropped. It costs a second message, and #414 caps small print at one line, so the affordance caps the detail length rather than the agent judging it."}},{"kind":"details","n":7,"name":"Details as a timeline link","adds":"The card carries a pointer. The evidence stays on the timeline.","messages":1,"source":"-# rehearsal #415 · details 3 of 3 · timeline link\n**[esc-1]** `curia-377` asks (*choice*): **A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?** (A journal / B fresh reading / C leave it)\n\nDetails: the agent's own timeline, `/timeline/curia-377`. curia composes the real link.","look":"The card cannot grow, whatever the agent wants to say. The cost is a trip out of Discord, and the timeline shows the agent's turns, not a written argument for this decision.","verdict":{"pick":"pick","label":"PICKED - THE DETAILS FIELD","why":"The operator picked this. It carries the reasoning behind the decision, and the card cannot grow whatever the agent wants to say. curia composes the link from its own records, so this field is a flag the daemon renders, never text the agent writes."}}]
+const SUBJECT = {"ticket":"alp82/curia#377","url":"https://github.com/alp82/curia/issues/377","title":"Cooling dies with the daemon","question":"Is rate-limit cooling re-armed at boot, and from what source?","answer":"The journal, and only the journal. Landed caps only, armed in the store constructor."}
+const DECISIONS = [{"q":"Which card shape wins?","a":"Card 4. A headline, the options with one consequence each, an example where it earns its line, and a width-capped visual."},{"q":"Are examples mandatory per kind, or agent judgment?","a":"Agent judgment. The mandatory floor is the headline, the options, and one consequence per option. The example and the visual are judgment fields. The rehearsal shows both costs of forcing them: option C's example restates its own consequence, and card 4 came out SHORTER than card 3, because a visual that earns its place replaces prose instead of sitting beside it."},{"q":"Which Details affordance wins?","a":"Two typed fields, not one affordance. A short detail renders as a spoiler inside the card. The timeline link is the second field, and curia composes it from its own records, so the agent never writes it. The agent judges which field carries what, under two rules: a character cap on the spoiler, and facts in the spoiler with the reasoning on the timeline. 200 characters is this prototype's proposal for the cap. ADR #417 locks the number. The follow-up small print is dropped, because #414 caps it at one line."}]
+const CLASS = { pick: 'pick', drop: 'drop', part: 'part' }
+
+const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// A small Discord facsimile. It covers only the forms #414 kept: fences, inline
+// code, bold, italic, spoilers and small print. It is a record of the mock, and
+// it never stands in for the thread the operator actually judged.
+function discord(text) {
+  const fences = []
+  let s = esc(text).replace(/```\n([\s\S]*?)```/g, (_, body) => {
+    fences.push(body.replace(/\n$/, ''))
+    return ' FENCE' + (fences.length - 1) + ' '
+  })
+  s = s
+    .replace(/\|\|([\s\S]+?)\|\|/g, '<span class="spoiler" onclick="this.classList.toggle(\'shown\')">$1</span>')
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|\s)_([^_]+)_/g, '$1<i>$2</i>')
+  const lines = s.split('\n').map((line) => {
+    const m = /^-# (.*)$/.exec(line)
+    return m ? '<div class="sm">' + m[1] + '</div>' : line
+  })
+  s = lines.join('\n')
+    .replace(/ FENCE(\d+) /g, (_, i) => '<pre>' + fences[Number(i)] + '</pre>')
+  return s.replace(/\n/g, '<br>')
+}
+
+function speaker() {
+  return '<div class="who"><i></i><span>curia-377</span><em>APP</em></div>'
+}
+
+function verdictTag(v) {
+  if (!v) return '<span class="verdict">NOT YET JUDGED</span>'
+  return '<span class="verdict">' + esc(v.label) + '</span>'
+}
+
+function render() {
+  document.getElementById('subject').innerHTML =
+    '<p><b>The subject:</b> <a href="' + SUBJECT.url + '">' + esc(SUBJECT.ticket) + ' — ' + esc(SUBJECT.title) + '</a></p>' +
+    '<p><b>It asked:</b> ' + esc(SUBJECT.question) + '</p>' +
+    '<p><b>It answered:</b> ' + esc(SUBJECT.answer) + '</p>' +
+    '<p>Map #413 quotes this escalation’s prose as the anti-example that started the effort, so it is the fairest card to rebuild.</p>'
+
+  const main = document.getElementById('mocks')
+  let group = null
+  VARIANTS.forEach((v) => {
+    const g = v.kind === 'card' ? 'Card shape — four mocks of one escalation' : 'The Details affordance — three ways on one card'
+    if (g !== group) {
+      group = g
+      const h = document.createElement('h2')
+      h.textContent = group
+      main.appendChild(h)
+    }
+    const el = document.createElement('section')
+    el.className = 'v ' + (v.verdict ? CLASS[v.verdict.pick] : 'open')
+    const bodies = [v.source].concat(v.followUp ? [v.followUp] : [])
+    const facsimile = bodies.map((b) => '<div class="discord">' + speaker() + discord(b) + '</div>').join('')
+    el.innerHTML =
+      '<h3><span class="n">' + String(v.n).padStart(2, '0') + '</span>' + esc(v.name) + '</h3>' +
+      verdictTag(v.verdict) +
+      '<p>' + esc(v.adds) + '</p>' +
+      '<div class="swatch"><b>As Discord renders it</b>' + facsimile + '</div>' +
+      '<p class="look">' + esc(v.look) + '</p>' +
+      (v.verdict ? '<p><b>Verdict.</b> ' + esc(v.verdict.why) + '</p>' : '') +
+      '<details><summary>▸ the exact source sent to the thread</summary>' +
+        bodies.map((b) => '<pre class="src">' + esc(b) + '</pre>').join('') +
+      '</details>' +
+      '<div class="meta">' +
+        '<div><b>Messages</b><span>' + (bodies.length) + '</span></div>' +
+        '<div><b>Characters</b><span>' + bodies.map((b) => b.length).join(' + ') +
+          ' (Discord chunks at 1600)</span></div>' +
+      '</div>'
+    main.appendChild(el)
+  })
+
+  document.getElementById('foot').innerHTML =
+    '<p><b>What this ticket decides.</b></p><ul>' +
+    DECISIONS.map((d) => '<li><b>' + esc(d.q) + '</b> ' + esc(d.a) + '</li>').join('') +
+    '</ul>' +
+    '<p>The thread is the render evidence. This page holds the exact source per mock, so a later ' +
+    'ticket reproduces any row without a screenshot.</p>'
+}
+render()
+</script>
+
+</body>
+</html>
