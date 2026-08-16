@@ -77,7 +77,7 @@ The same shape as run 2, with the outage cut to 20 seconds so the agent outlives
 
 ## What this does not measure
 
-- **The codex harness.** An agent container carries no codex credential, so this probe cannot run there. Codex bounds one tool call at 24 hours (`CODEX_TOOL_TIMEOUT_S`), and nothing on record says its client survives a transport drop the way this one does. That reading needs a dev session or a codex-lane dispatch.
+- **The codex harness**, which [#371](https://github.com/alp82/curia/issues/371) then measured in [tool-channel-mid-session-codex.md](tool-channel-mid-session-codex.md). It needed no dev session and no credential: its probe stands in for the MODEL as well as the daemon, which is the step this one did not take. The reading differs on the call in flight. Codex is never told the transport dropped, and only `CODEX_TOOL_TIMEOUT_S` ends the call, so the two minutes below are up to 24 hours there. The rest matches: the tools come back by themselves, with no handshake.
 - **A daemon that never comes back.** The agent's Stop hook rides curl to the same dead port, so its turn ends with nothing told to anyone. Section 5 of the #56 record is the only account of that state.
 - **The live daemon on the box.** The stand-in has no keepalive, so this says nothing about a call that is held for hours and answered.
 - **The pane.** A headless agent has no composer and no keystroke channel, so the note interrupt was not exercised.

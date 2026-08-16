@@ -102,8 +102,11 @@ CURIA_AGENT_GH_TOKEN_<OWNER>=<a fine-grained GitHub PAT>
 - `DISCORD_ALLOWED_USERS` is the whole access check. Everyone on it can send agents at your repos.
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` is what an agent uses to reach GitHub. Without it the agent inherits your own `gh` login, which is your whole account. Mint one [fine-grained PAT](https://github.com/settings/personal-access-tokens/new) per resource owner you watch, with **Contents**, **Issues** and **Pull requests** read/write plus **Commit statuses** read. Put the owner in the key, uppercased: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`.
 
-Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271),
-`OVERSEER_MODEL`, `OVERSEER_FALLBACK_MODEL`.
+Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271).
+
+The overseer takes no model variable. It runs in its own container since the
+cutover (#315), on `claude-sonnet-5` with no fallback, and the model is
+`OVERSEER_CONTAINER_MODEL` in `daemon/src/overseerturn.mjs`.
 
 Run one daemon per bot token.
 

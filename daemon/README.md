@@ -1,6 +1,6 @@
 # curia daemon
 
-The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): agent-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)) + the overseer session host ([#92](https://github.com/alp82/curia/issues/92)). Agent-host-agnostic — agents connect over streamable-HTTP MCP regardless of how they were spawned (#29).
+The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): agent-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)) + the client for the overseer container ([#92](https://github.com/alp82/curia/issues/92), which moved out of this process on [#315](https://github.com/alp82/curia/issues/315)). Agent-host-agnostic — agents connect over streamable-HTTP MCP regardless of how they were spawned (#29).
 
 ## Setup
 
@@ -10,7 +10,7 @@ This section is the operator's box. To set curia up on your own machine, read th
 The daemon expects these on the box before the first boot:
 
 - **Node 22+** with npm. The daemon is one Node process (`npm install`, then `npm start`).
-- **Claude Code, logged in.** Agents and the overseer share the host credential store at `~/.claude` (#53/#92). They have no login of their own. If the host is logged out, every agent and every overseer turn fails.
+- **Claude Code, logged in.** Agents share the host credential store at `~/.claude` (#53). They have no login of their own. If the host is logged out, every agent fails. The overseer container is the one exception: it mounts no `~/.claude` and runs each turn on the model credential in `.env.overseer` (#327).
 - **`gh`, authenticated** for every watched repo. The daemon claims, comments, and closes tickets through it.
 - **`tmux`** — the agent host. Under compose (#260) the server lives in the `tmux` service and the daemon is a client over `CURIA_TMUX_SOCKET`. Unset, the default socket serves a dev box.
 - **`ttyd` on port 7681** for the browser terminal. The compose `ttyd` service runs it. The daemon health-checks the port and does not spawn ttyd.
@@ -24,7 +24,7 @@ The daemon expects these on the box before the first boot:
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` — the scoped GitHub token an agent gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. See [the agent's GitHub authority](#the-agents-github-authority-155) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
 - The overseer's own tokens are **not** in this file. They live in `.env.overseer` beside it, one `CURIA_OVERSEER_GH_TOKEN_<OWNER>` per resource owner, read-only (#313). That second file is the boundary: the overseer service loads it whole and never loads `.env`. See [the overseer's GitHub authority](#the-overseers-github-authority-313) below.
-- `OVERSEER_MODEL` (default `claude-haiku-4-5`) and `OVERSEER_FALLBACK_MODEL` (default `claude-sonnet-5`) — the overseer session models (#92).
+- The overseer takes **no model variable here**. It runs in its own container since the cutover (#315), on `claude-sonnet-5` with no fallback, and the model is `OVERSEER_CONTAINER_MODEL` in `src/overseerturn.mjs`. `OVERSEER_MODEL` and `OVERSEER_FALLBACK_MODEL` died with the in-daemon host.
 
 Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml` (watch list, dispatch settings — `auto_dispatch` ships `false` — attach ports, preview range, agent skill set) and `../config/routing.yaml` (label-only model routing, fallback chains, harness command templates). Override the directory with `CURIA_CONFIG_DIR`.
 
@@ -56,7 +56,6 @@ Two of these routes are the AGENT's, and since #159 they are gated: `/mcp` and `
 
 - `POST /mcp?agent=<name>&ticket=<n>` — MCP tools `ask_human` (blocking), `notify`, `report_result`, `publish_preview` (#40, `path` since #68), `open_pull_request` and `request_review` (#54). Ticket binding rides the spawn URL (#11). `ask_human` and `notify` also take `images: [<path>]` (#34).
 - `POST /overseer/mcp?turn=<id>` — the eight verb tools, for the model in the overseer container (#314). The daemon composes the canonical text from the validated arguments and posts it to the same `/command` seam, so the container reaches eight verbs and never the router. The secret in the header opens ONE live turn; it is minted per turn and forgotten when the turn ends.
-- `POST /overseer/turn {key, prompt}` — run one turn on the overseer CONTAINER and answer with what it said (#314). Loopback only, and it is the one door onto the container until #315 moves the operator's own two — the Discord bridge and the Chat screen still speak to the in-daemon host.
 - `GET /state` — open escalations + bridge status.
 - `GET /overview` — the dashboard's whole read of the daemon (#262, per [#249](https://github.com/alp82/curia/issues/249)). It carries the live agents with their context meter and their last contact (#370), open escalations, the review gate with its pull request and its diff digest (#355), bridge health, one usage reading per provider with its stated reset, the last 100 journal events, and the two-level frontier under the instant reconcile computed it. Each section is nullable on its own. An unreadable fleet says so, and costs the page nothing else. The journal file itself never crosses. Its tail does.
 - `GET /diff?esc=<id>|agent=<name>[&file=<i>]` — the diff digest and, on demand, one file's hunks (#355, building [#343](https://github.com/alp82/curia/issues/343)). A review gate answers from the digest counted when it opened, so it costs no read. An agent answers a fresh count of its worktree, committed and uncommitted work together. `file` is a place in that digest's own ranked list, never a path: the caller names a gate or an agent, and the daemon resolves the worktree itself. A worktree that is gone falls back to `gh pr diff` when the pull request is known. This is the one console read that is not the poll.
@@ -128,15 +127,15 @@ curia posts that question as the **second** pull-request comment, under the verd
 
 A cross-check that produces **no** verdict — the reviewer died, its respawn failed, it was cancelled — releases the builder back to the gate with that fact. Every one of those paths goes through `#releaseClaim`, `#reviewerDone` or `#teardownReviewer`, and each settles the wait: a builder parked forever on an agent that is already gone is the one failure a cross-check must never cause.
 
-## Overseer sessions (#92/#93/#94/#95)
+## Overseer conversations (#92/#93/#94/#95, cut over on #315)
 
-Every `#curia` thread is a persistent overseer session. A top-level prose message opens a thread and a fresh session. A later message in any thread revives its session with full memory. Slash commands stay deterministic and never touch the model.
+Every `#curia` thread is one persistent conversation with the overseer, and the browser holds many of its own ([ADR-0016](../docs/adr/0016-the-conversation-key.md)). A top-level prose message opens a thread and a fresh conversation. A later message in any thread revives it with full memory. Slash commands stay deterministic and never touch the model.
 
-The host (`overseer.mjs`) runs one Agent SDK `query()` per operator message, `OVERSEER_MODEL` first with one no-side-effect retry on `OVERSEER_FALLBACK_MODEL` (a failed turn that already made a tool call goes to the operator instead — a replay could double a dispatch). The thread→session map is a reduction over the journal, so a daemon restart loses no conversation. The session home lives under `data/overseer/` and holds no checkout.
+The turn runs in the overseer container, not in this process. `overseerclient.mjs` is the daemon's whole reach into it, and the section below says how the turn crosses. The daemon keeps the conversation state. The key-to-session-id map is a reduction over the journal, so a daemon restart loses no conversation. The old in-daemon host, `overseer.mjs`, is deleted, and with it the Haiku-first model pick and its Sonnet retry.
 
-Containment is the tool surface: the session's only tools are the eight verbs as in-process MCP tools (`review` is not one: the operator's surface for it is the gate button), and each tool posts canonical verb text through `gate.command` — the same seam the slash verbs and REST use, journalled and routed identically. The session has no shell, no files, and no process handles. It never answers an escalation or a review gate (the never-list in its system prompt).
+The container is the containment ([ADR-0014](../docs/adr/0014-the-overseer-in-its-own-container.md)), and `overseerclient.mjs` carries that comment at its head. The model holds a reading shell and a read-only GitHub token in there, so a tool list is no longer the whole boundary. What still holds is the seam. The model's only curia tools are the eight verbs, served over the daemon's own MCP side channel, and each call composes canonical verb text in the daemon and posts it to `gate.command`. That is the same seam the slash verbs and REST use, journalled and routed the same way. `review` is not one of the eight, because the operator's surface for it is the gate button. The model never answers an escalation or a review gate, which is the never-list in its standing orders (#328).
 
-An interpreted `cancel`/`cancel all` does not execute: the daemon posts a ✅/❌ button confirm (#94) — instance-bound, no expiry clock, lapsing the moment the agent exits, a newer confirm superseding an older one. The confirm renders where the operator typed the command, and in the command channel when the command carried no thread (#218): it is addressed to the operator, not to the ticket conversation. Each target's ticket thread gets a pointer to the buttons. Every other kind, the review gate included, keeps the ticket thread. The button executes through the daemon, never through the model. Outcomes that resolve between turns come back to the session as journalled notes on its next revival, so its memory stays honest.
+An interpreted `cancel`/`cancel all` does not execute: the daemon posts a ✅/❌ button confirm (#94) — instance-bound, no expiry clock, lapsing the moment the agent exits, a newer confirm superseding an older one. The confirm renders where the operator typed the command, and in the command channel when the command carried no thread (#218): it is addressed to the operator, not to the ticket conversation. Each target's ticket thread gets a pointer to the buttons. Every other kind, the review gate included, keeps the ticket thread. The button executes through the daemon, never through the model. Outcomes that resolve between turns come back to the conversation as journalled notes on its next revival, so its memory stays honest.
 
 Each turn posts exactly two messages (#95): one small-print progress line, edited in place as tool calls land, and one short answer. `messaging.mjs` holds the standard — the seven signal emoji, `<>`-wrapped links, "N more" clamps — and its lint runs in the tests. Ticket↔thread bindings (#93) route an agent's escalations into the thread that started it, rename the thread to a display-only `🎫 <ticket> · <type>` — the `wayfinder:` type replaces the old thread name — and release on terminal states plus a reconcile sweep. A release swaps `🎫` for `✅` and keeps the rest, so a finished ticket still reads as itself in the thread list.
 
@@ -144,9 +143,9 @@ The build was verified live by the full-loop rehearsal — `docs/live-checks/96-
 
 ### The same turn, in the container (#314)
 
-The overseer is moving into its own container (ADR-0014), and the turn crosses that boundary in two hops. The daemon posts one message to the container on `POST /turn`, and the container streams events back as NDJSON: the session id it stated, the checkout verdict, then the answer. The model's verb tools reach the daemon the other way, over `/overseer/mcp`, so the daemon still composes every canonical text and posts it to `gate.command`. The confirm on `cancel`, the interpreted flag, the journal and the thread binding are all unchanged, because that seam is unchanged.
+The overseer runs in its own container (ADR-0014), and the turn crosses that boundary in two hops. The daemon posts one message to the container on `POST /turn`, and the container streams events back as NDJSON: the session id it stated, the checkout verdict, then the answer. The model's verb tools reach the daemon the other way, over `/overseer/mcp`, so the daemon still composes every canonical text and posts it to `gate.command`. The confirm on `cancel`, the interpreted flag, the journal and the thread binding are all unchanged, because that seam is unchanged.
 
-The transport for the verbs is MCP rather than a route that takes canonical text, and that is the containment: a text route would hand the container the whole router, and a tool call hands it eight verbs with validated arguments. `overseerverbs.mjs` holds the one catalogue both transports publish.
+The transport for the verbs is MCP rather than a route that takes canonical text, and that is what keeps the seam narrow: a text route would hand the container the whole router, and a tool call hands it eight verbs with validated arguments. `overseerverbs.mjs` holds the one catalogue both transports publish.
 
 What each side owns: the daemon keeps the conversation (`store.overseerSession`), the one-turn-at-a-time rule, the operator notes and every effect. The container keeps the model, the shell, the checkouts and its own two directories under `<workspace_root>/cfg/curia-overseer`. The container holds no conversation, so a deploy that recreates it loses none.
 
@@ -160,7 +159,7 @@ The message lives in the journal: `overseer_turn_started` carries it and `overse
 
 It sends the message again only for a turn that crossed the seam zero times. Three more things hold it: a message curia already sent again once, a conversation that has spoken since the boot, and a message over fifteen minutes old. Every held message leaves one line naming what that turn ran. A Discord conversation reads it in its thread. A browser conversation has no thread, so it reads it on its row in the Chat picker until it takes its next turn.
 
-**Nothing routes to it yet.** #315 is the cutover, and it is one swap at two doors: the bridge's `overseerTurn` and the Chat screen's `driverFor`. Until then `POST /overseer/turn` is how the container is soaked.
+**Both surfaces route here since #315.** The cutover was one swap at two doors: the bridge's `overseerTurn` and the Chat screen's `driverFor`. The soak door `POST /overseer/turn` is gone with it, and real operator chat took its place.
 
 ## The per-agent status line (#108 item 8, #146)
 
@@ -328,6 +327,124 @@ Two facts make this work.
 
 - **A read-only reader opens a hot WAL.** Measured for #320: a writer killed mid-write left a `-wal` and a `-shm` behind, and a read-only connection then read every committed row back. It fails only when the data directory is not writable and no `-shm` file exists. Curia's data directory is writable, so a crash does not lock the operator out.
 - **The columns carry today's spelling, and `body` carries the line as written.** [#184](https://github.com/alp82/curia/issues/184) renamed the worker to the agent, and older lines still spell it `"worker"`. The schema normalizes on the way in, so `where agent='curia-170'` finds those lines too.
+
+### The migration to the database
+
+**Decided and not built.** [The migration (#323)](https://github.com/alp82/curia/issues/323) rules how the journal file becomes `data/events.db`.
+
+**The daemon converts at first boot.** It finds `events.db` absent, reads the journal file whole, and inserts every line in one transaction. It builds `events.db.migrating`, checks that the row count matches the line count, and renames the file into place. It accepts exactly what `_replay` accepts today, and it stops the boot on anything else. The measured cost is 298 ms for the 4,282 events the box held on 2026-08-13 ([#321](https://github.com/alp82/curia/issues/321), `prototypes/journal-schema/results.json`).
+
+A conversion that fails needs no hand. The daemon crash-loops, the self-deploy health check fails, and the box resets to the previous ref. That daemon still finds a whole journal file.
+
+**The journal file stays where it is.** The migration does not rename it and does not delete it. `git reset --hard` never touches it, because `daemon/data/` is git-ignored. So the automatic rollback finds the exact path the previous daemon looks for, and a rename would hand that daemon an empty reduction. The daemon never writes the file again. A follow-up ticket deletes it once the journal is checked on the box.
+
+**Take the migration deploy at zero live agents, with auto-dispatch off.** No agent is then mid-turn while the write path changes under it, and the window below carries only the daemon's own boot lines.
+
+#### The rollback
+
+Two rollbacks, and they differ.
+
+**The automatic one.** The self-deploy health check fails inside about 190 seconds and resets the checkout. Nothing to do by hand. The old daemon reads the journal file and comes up. `events.db` stays on disk and nothing reads it. The loss is what the new daemon journaled inside that window, which went to the database alone. The box wrote about 404 events per day on 2026-08-13, so that window holds under one ordinary event.
+
+**The deliberate one**, hours or days later. Regenerate the file first. `body` holds the line curia wrote, byte for byte, so one query reproduces the file exactly. The #321 prototype checked that at 4,282 lines and at 60,000.
+
+1. Stop the daemon. A live writer makes the regenerated file stale as it is written.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml stop daemon
+   ```
+
+2. Regenerate the journal file from the database. `-T` keeps the redirect on bytes rather than on a terminal.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm -T --no-deps daemon \
+     sqlite3 -readonly -noheader -list /home/alp/curia/daemon/data/events.db \
+     'select body from events order by id' > /home/alp/curia/daemon/data/events.jsonl
+   ```
+
+3. Move the database aside. Take `events.db`, `events.db-wal`, `events.db-shm`, and an `events.db.migrating` if a failed conversion left one.
+
+4. Deploy the previous ref.
+
+A roll-forward after this converts again, from a file that by then also holds the old daemon's own appends.
+
+### The backup
+
+**Decided and not built.** [The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it, and [ADR-0017](../docs/adr/0017-the-journal-is-a-queryable-store.md) records it. The journal is curia's own local brain, and this dump is what bounds the loss.
+
+The daemon takes the backup itself. It spawns `sqlite3 events.db .dump` on a second read-only connection, gzips the portable SQL text, and writes `data/backups/events-<UTC stamp>.sql.gz`.
+
+- **Daily, and it survives a restart.** The daemon checks at boot and every hour. It dumps when the newest dump is 24 hours old or older. A plain 24-hour timer would not survive a deploy, because a deploy restarts the daemon and rearms the timer.
+- **Fourteen kept.** The newest fourteen stay, and the daemon deletes the rest. One dump is about 250 KB at the volume the box wrote on 2026-08-13, so the whole set is about 3.5 MB.
+- **On the box only.** The dump bounds a corrupt journal and a bad Node upgrade. It does not survive the loss of the box. An off-box copy is a separate effort.
+- **The channel is the alarm.** A failed dump reaches it. A newest dump over 48 hours old reaches it too, so silence never stands in for a timer that failed to arm. A success journals one event and says nothing, so an ordinary day carries no noise. The dashboard shows none of this, because its container does not mount `daemon/data`.
+
+#### The restore
+
+A restore is rare and destructive, and a human picks which dump. So there is no verb and no button.
+
+1. Stop the daemon. A live daemon keeps writing the database you are about to replace.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml stop daemon
+   ```
+
+2. Move the live database aside. Take `events.db`, `events.db-wal` and `events.db-shm`.
+
+3. Rebuild the journal from the dump. Name the dump you picked in place of `<dump>`.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm -T --no-deps daemon \
+     bash -c 'zcat /home/alp/curia/daemon/data/backups/<dump>.sql.gz | sqlite3 /home/alp/curia/daemon/data/events.db'
+   ```
+
+4. Start the daemon.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml start daemon
+   ```
+
+The daemon sets `journal_mode` and `synchronous` when it opens the journal, so the restored file takes WAL at that boot. It also finds `events.db` present, so the migration does not run again. The loss is every event curia journaled after that dump.
+
+### The Node pin
+
+**Decided and not built.** [The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it. [The daemon image takes Node 24 and sqlite3 (#409)](https://github.com/alp82/curia/issues/409) applies the first value. The journal sits on `node:sqlite`, which Node marks Stability 1.2, and a patch update can change the API, the defaults and the bundled SQLite engine.
+
+One Node patch version runs every curia image. It is committed in two places, and it carries no default anywhere.
+
+- `deploy/compose.yaml` passes `NODE_VERSION` to the daemon, the dashboard and the overseer from one anchor.
+- `config/curia.yaml` holds `sandbox.node_version` for the agent image, beside the other pins. It rides the image content address, so a bump names a tag the box does not have and the daemon rebuilds.
+- The three Dockerfiles take `ARG NODE_VERSION` with no default. A build that forgets the arg then fails. This is the rule the agent Dockerfile already states for every other version it carries.
+- `daemon/package.json` states `engines.node`. It is a warning and not a wall, because a daemon that refuses to install is worse than the stack trace it prevents.
+
+The agent image belongs in that set. It ran `FROM node:lts-slim` and served Node 24.19.0 while the daemon ran 22.17.1. The daemon suite runs in the agent image, so the suite that must prove an upgrade ran on a Node nobody pinned.
+
+#### Upgrading Node
+
+Curia bumps Node only for a reason. A Node security release that touches what curia runs, or a `node:sqlite` fix curia needs. Curia does not bump on a calendar, because a scheduled bump is a floating pin with extra steps.
+
+Three gates, in this order.
+
+1. Move both pins in one commit. Then run the daemon suite under the new Node, and read it green.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml build daemon
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm --no-deps daemon \
+     bash -c 'npm install --no-fund --no-audit && npm test'
+   ```
+
+2. Read the box's live journal under the new image. The suite builds a fresh database, so it cannot catch an engine that refuses the file the box already holds.
+
+   ```sh
+   docker compose -f /home/alp/curia/deploy/compose.yaml run --rm --no-deps daemon \
+     sqlite3 -readonly -box /home/alp/curia/daemon/data/events.db \
+     'pragma integrity_check' \
+     'select ts,type,ticket from events order by id desc limit 1'
+   ```
+
+3. Deploy. The self-deploy health check is the last gate, and it resets the box on a daemon that fails to come up.
+
+The daemon journals `process.version` and `process.versions.sqlite` at boot, so the journal states which engine wrote its rows. A bad upgrade that reaches the box anyway is a restore, and the recipe is above.
 
 ## Blocking for hours (#34)
 
