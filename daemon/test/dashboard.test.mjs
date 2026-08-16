@@ -416,6 +416,8 @@ describe('the settings write and the restart (#265)', () => {
   let daemon
   let daemonCalls
   let cfgDir
+  let reloadAnswer
+  let overviewAnswer
   const ALLOW = ['alp@example.com']
   const SERVE_PORT = 8445
   const ORIGIN = 'https://box.tail1234.ts.net:8445'
@@ -445,10 +447,15 @@ describe('the settings write and the restart (#265)', () => {
     // A stand-in daemon on loopback, so the restart and the repo list are
     // proved to CROSS the wire rather than being taken on this side of it.
     daemonCalls = []
+    // What the stand-in daemon answers `POST /reload` with. A test that cares
+    // about one outcome sets this; the ordinary answer is the applied one.
+    reloadAnswer = { ok: true, applied: ['dispatch.max_concurrent'], loaded_at: new Date().toISOString() }
+    overviewAnswer = async () => ({ daemon: { port: 4271 }, agents: [] })
     daemon = http.createServer((r, res) => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
       res.writeHead(200, { 'content-type': 'application/json' })
       if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
+      if (r.url === '/reload') return res.end(JSON.stringify(reloadAnswer))
       res.end(JSON.stringify({ ok: true, exit_code: 75 }))
     })
     await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
@@ -464,7 +471,7 @@ describe('the settings write and the restart (#265)', () => {
       routingFile: path.join(cfgDir, 'routing.yaml'),
       log: () => {},
       deps: {
-        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        fetchOverview: () => overviewAnswer(),
         assertServe: async () => {},
         serveOff: async () => {},
         tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
@@ -571,6 +578,103 @@ describe('the settings write and the restart (#265)', () => {
     })
     assert.equal(res.status, 409)
     assert.match(res.text, /does not write/)
+  })
+
+  // ---- the apply (#362) ----------------------------------------------------
+  //
+  // A save applies. What is worth pinning is the seam: the sidecar asks the
+  // daemon, the daemon's own answer rides back with the save, and a daemon that
+  // cannot be asked is not a failed save — the file is written either way.
+
+  const save = (body) => req(surface.port, '/api/settings', { method: 'POST', headers: writes(), body })
+  const reloadCalls = () => daemonCalls.filter((c) => c.url === '/reload')
+
+  test('a save that landed asks the daemon to apply it, and the answer rides back', async () => {
+    const res = await save({ dispatch: { max_concurrent: 4 } })
+    assert.equal(res.status, 200)
+    const body = JSON.parse(res.text)
+    assert.deepEqual(reloadCalls(), [{ method: 'POST', url: '/reload', origin: null }])
+    assert.equal(body.reload.ok, true)
+    assert.deepEqual(body.reload.applied, ['dispatch.max_concurrent'])
+  })
+
+  test('a save that wrote nothing asks for nothing — the file did not move', async () => {
+    const res = await save({ dispatch: { max_concurrent: 2 } })
+    assert.equal(JSON.parse(res.text).written.length, 0)
+    assert.equal(JSON.parse(res.text).reload, null)
+    assert.deepEqual(reloadCalls(), [], 'there is nothing to apply')
+  })
+
+  test('a reload the daemon declines rides back as the decline, and the save still landed', async () => {
+    reloadAnswer = {
+      ok: false,
+      reason: 'restart-needed',
+      file: 'curia.yaml',
+      key: 'sandbox.image',
+      error: 'curia.yaml `sandbox.image` changed, and that key is not one a reload applies — restart the daemon to take it',
+    }
+    const res = await save({ dispatch: { max_concurrent: 4 } })
+    assert.equal(res.status, 200, 'the save is not the thing that failed')
+    const body = JSON.parse(res.text)
+    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.equal(body.reload.reason, 'restart-needed')
+    assert.match(body.reload.error, /sandbox\.image/)
+  })
+
+  test('a daemon that is not answering is not a failed save: the file is written, and it takes it at boot', async () => {
+    await new Promise((done) => daemon.close(done))
+    const res = await save({ dispatch: { max_concurrent: 4 } })
+    assert.equal(res.status, 200)
+    const body = JSON.parse(res.text)
+    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.equal(body.reload.reason, 'daemon-down')
+    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.local.yaml'), 'utf8'), /max_concurrent: 4/)
+  })
+
+  // ---- the one guard the save owes (#362) ----------------------------------
+
+  // A watched repo removed while an agent runs on it drops out of reconcile,
+  // and nothing covers that agent's claim any more. The save refuses and names
+  // the agent — the operator cancels it or waits, and neither is a thing a
+  // settings screen may decide for them.
+  const twoRepos = () => {
+    const file = path.join(cfgDir, 'curia.yaml')
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('  - repo: o/r # the one with the map', '  - repo: o/r # the one with the map\n  - repo: o/other'))
+  }
+
+  test('removing a repo an agent is running on is refused, and the agent is named', async () => {
+    twoRepos()
+    overviewAnswer = async () => ({ daemon: { port: 4271 }, agents: [{ session: 'curia-362', repo: 'o/other' }] })
+    const res = await save({ watch: [{ repo: 'o/r', mode: 'auto' }] })
+    assert.equal(res.status, 409)
+    assert.match(res.text, /o\/other cannot leave the watch list while curia-362 runs on it/)
+    assert.ok(!fs.existsSync(path.join(cfgDir, 'curia.local.yaml')), 'nothing was written')
+  })
+
+  test('the same removal lands when no agent is on that repo', async () => {
+    twoRepos()
+    overviewAnswer = async () => ({ daemon: { port: 4271 }, agents: [{ session: 'curia-9', repo: 'o/r' }] })
+    const res = await save({ watch: [{ repo: 'o/r', mode: 'auto' }] })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text).settings.watch, [{ repo: 'o/r', mode: 'auto' }])
+  })
+
+  // The evidence is the daemon's fleet, and a daemon that cannot be asked
+  // leaves the guard unrun. Refusing there would take away the one thing this
+  // sidecar exists for: fixing the config while the daemon is down.
+  test('a fleet curia cannot read does not block the removal', async () => {
+    twoRepos()
+    overviewAnswer = async () => { throw new Error('the daemon did not answer /overview within 4s') }
+    const res = await save({ watch: [{ repo: 'o/r', mode: 'auto' }] })
+    assert.equal(res.status, 200)
+  })
+
+  test('a save that adds a repo asks the fleet nothing — only a removal owes this guard', async () => {
+    let asked = 0
+    overviewAnswer = async () => { asked++; return { daemon: { port: 4271 }, agents: [] } }
+    const res = await save({ watch: [{ repo: 'o/r', mode: 'auto' }, { repo: 'o/other', mode: 'auto' }] })
+    assert.equal(res.status, 200)
+    assert.equal(asked, 0)
   })
 
   // ---- the restart ---------------------------------------------------------

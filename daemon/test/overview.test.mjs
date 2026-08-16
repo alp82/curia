@@ -159,8 +159,19 @@ describe('GET /overview (index.mjs, real boot)', () => {
     assert.match(o.at, /^\d{4}-\d{2}-\d{2}T/, 'the payload dates itself')
     assert.deepEqual(o.daemon, {
       port, uptime_s: o.daemon.uptime_s, auto_dispatch: false, max_concurrent: 3,
+      config: o.daemon.config,
     })
     assert.ok(Number.isFinite(o.daemon.uptime_s))
+    // The six reloadable settings this daemon is RUNNING, stamped (#362). The
+    // console compares them against the file it read, which is what lets a save
+    // say "applied" about something curia measured.
+    assert.match(o.daemon.config.loaded_at, /^\d{4}-\d{2}-\d{2}T/)
+    assert.deepEqual(o.daemon.config.dispatch, { auto_dispatch: false, max_concurrent: 3, poll_interval_s: 60 })
+    assert.deepEqual(o.daemon.config.watch, [{ repo: 'example/fixture', mode: 'ready-for-agent' }])
+    assert.deepEqual(o.daemon.config.routing, {
+      defaults: [{ type: 'untyped', model: 'sonnet' }],
+      models: [{ name: 'sonnet', active: true }],
+    })
     for (const key of ['agents', 'untracked', 'recent', 'escalations', 'review_gate', 'usage', 'events']) {
       assert.ok(Array.isArray(o[key]), `${key} is a list`)
     }

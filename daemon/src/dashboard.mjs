@@ -233,6 +233,19 @@ export const ANSWER_REFUSAL = {
 // reading as this process failing.
 const refuse = (msg) => Object.assign(new Error(msg), { refusal: true })
 
+// What the box's own log says about the apply that followed a save (#362). The
+// page says the same three things to the operator, in its banner.
+function reloadLine(reload) {
+  if (!reload) return 'nothing to apply'
+  if (reload.ok) {
+    return reload.applied?.length
+      ? `the daemon applied ${reload.applied.join(', ')}`
+      : 'the daemon was already running what the file says'
+  }
+  if (reload.reason === 'daemon-down') return `the daemon could not be asked to apply it (${reload.error}) — it reads the file at its next boot`
+  return `the daemon declined to apply it: ${reload.error}`
+}
+
 function field(value, re, what) {
   const s = String(value ?? '').trim()
   if (!re.test(s)) throw refuse(`"${s}" is not ${what}`)
@@ -591,6 +604,54 @@ export class DashboardSurface {
     })
   }
 
+  // The apply (#362). The daemon holds the running config, so it is the one
+  // process that can take a new one — this file only asks, and hands back
+  // whatever it answers. A daemon that is not there is not a failure of the
+  // save: the file is written, and the daemon reads it at its next boot.
+  async #reload(by) {
+    try {
+      const out = await this.#daemon({ method: 'POST', path: '/reload', body: { by } })
+      // The next page read must be a fresh one. The marker on the settings
+      // screen compares the daemon's own six against the file, and a snapshot
+      // taken before the reload would say they disagree for a whole interval
+      // after they stopped.
+      this.snapshotAt = 0
+      return out
+    } catch (e) {
+      return { ok: false, reason: 'daemon-down', error: e.message }
+    }
+  }
+
+  // The one guard the save owes (#362). A repo removed from the watch list
+  // while an agent runs on it drops out of reconcile, and that agent's claim
+  // stops being covered — nothing releases it, and no surface counts it. So the
+  // save refuses and names the agent. A restart would do the same to that
+  // agent, which is why this guard is owed whether the apply is hot or not.
+  //
+  // The evidence is the DAEMON's fleet, read fresh: an agent spawned inside the
+  // last poll interval is exactly the one this exists for. A daemon that cannot
+  // be asked leaves the guard unrun, and the save goes through — refusing there
+  // would take away the one thing the sidecar exists for, which is fixing the
+  // config from the page while the daemon is down.
+  async #guardWatchRemoval(patch) {
+    if (!Array.isArray(patch?.watch)) return
+    const before = readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }).watch
+    const kept = new Set(patch.watch.map((w) => String(w?.repo ?? '')))
+    const removed = before.map((w) => w.repo).filter((repo) => !kept.has(repo))
+    if (!removed.length) return
+    this.snapshotAt = 0
+    await this.refresh()
+    const agents = this.snapshot?.agents
+    if (this.error || !agents) {
+      this.log(`dashboard: could not ask the daemon whether an agent runs on ${removed.join(', ')} — saving the removal unchecked`)
+      return
+    }
+    const held = agents.filter((a) => removed.includes(a.repo))
+    if (!held.length) return
+    const names = held.map((a) => a.session).join(', ')
+    throw refuse(`${held[0].repo} cannot leave the watch list while ${names} runs on it — curia would stop covering that agent's claim. Cancel it, or wait for it to finish.`)
+  }
+
   // The command seam (#33 step 9), reached with text this file composed. Every
   // verb that has a word in the operator's own catalogue goes through it rather
   // than around it, so a press from the console journals the same `command`
@@ -653,11 +714,19 @@ export class DashboardSurface {
         return this.#write(res, async () => {
           if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
           const patch = await this.#body(req)
+          await this.#guardWatchRemoval(patch)
           const out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+          // The save APPLIES (#362). The daemon re-reads both files and takes
+          // the six settings this screen writes, so the restart stops being
+          // phase two of every save. A save that wrote nothing asks for
+          // nothing: the file did not move, so there is nothing to reload.
+          const reload = out.written.length
+            ? await this.#reload(String(req.headers[LOGIN_HEADER] ?? '') || 'dashboard')
+            : null
           this.log(out.written.length
-            ? `dashboard: saved ${out.written.join(' and ')} — the daemon runs the old config until it restarts`
+            ? `dashboard: saved ${out.written.join(' and ')} — ${reloadLine(reload)}`
             : 'dashboard: the save changed nothing')
-          return { ...out, settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }) }
+          return { ...out, reload, settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }) }
         })
       }
       // The restart (#249 item 6). The sidecar orders it and the daemon does

@@ -454,7 +454,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters, the open escalations, the review gate, bridge health, the usage windows, the journal tail, and the frontier snapshot. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters, the open escalations, the review gate, bridge health, the usage windows, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.
@@ -488,10 +488,10 @@ The operator's Tailscale login, taken from the header the sidecar's identity che
 The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env.daemon`.
 
 **Settings screen**:
-The one dashboard screen that writes. Three sections, Routing first, then Projects and Dispatch. It reads `curia.yaml` and `routing.yaml` off disk on arrival, never from the poll snapshot, and posts back only what the operator changed.
+The one dashboard screen that writes. Four sections, Routing first, then Projects, Dispatch and Maintenance. It reads `curia.yaml` and `routing.yaml` off disk, never from the poll snapshot, and posts back only what the operator changed.
 
 **Settings save**:
-The write itself. The sidecar edits the override file through the yaml document API, so every hand comment survives. It validates the candidate as a layer over the tracked file, with the daemon's own loaders, and renames it into place only after every candidate passes. A refused save answers the loader's own message and leaves every file as it was.
+The write itself. The sidecar edits the override file through the yaml document API, so every hand comment survives. It validates the candidate as a layer over the tracked file, with the daemon's own loaders, and renames it into place only after every candidate passes. A refused save answers the loader's own message and leaves every file as it was. It refuses one thing of its own: the removal of a watched repo while an agent runs on it, named. That repo would drop out of reconcile, and nothing would cover the agent's claim.
 
 **Base config**:
 `config/curia.yaml` and `config/routing.yaml`. Git tracks both. They carry the shipped answer to every key. A ticket that adds a key adds it here, so the box gets that key with the code that needs it.
@@ -502,11 +502,17 @@ The write itself. The sidecar edits the override file through the yaml document 
 **A clean checkout**:
 What `git status` on the box says on an ordinary day, and the reason the override exists. A save leaves the checkout clean, so a dirty tree means one thing: somebody hand-edited a tracked file there. The `deploy` verb refuses a dirty tree and names the files, because a fast-forward would refuse it later and the rollback would discard it.
 
-**Two-phase save banner**:
-The settings screen's banner, at the top. Phase one saves the file. Phase two says the daemon still runs the config it booted with, and makes the restart the loud button. A save and an apply are two acts, and the banner never lets one look like the other.
+**Save banner**:
+The settings screen's banner, at the top. It carries one button, Save, and states what the daemon did with the save. Applied is one sentence and no button. Declined names the key that needs a restart and carries the restart. A daemon that is not answering carries no button, because a restart is not the mitigation for a process that is already down.
+
+**Live reload**:
+`POST /reload` on the daemon. It re-reads both config files with the daemon's own loaders and applies the six settings the settings screen writes: `dispatch.auto_dispatch`, `dispatch.max_concurrent`, `dispatch.poll_interval_s`, `watch`, `routing.defaults.<type>` and `routing.models.<name>.active`. That set is closed. What a browser cannot write, a browser cannot apply. A reload is total or it is nothing: a file the loaders refuse applies nothing and answers their message, and a file that moved any other key applies nothing and names that key. The save starts it — the sidecar asks after a write that landed — and the daemon journals what moved. A daemon that is down misses nothing, because boot reads the file.
 
 **Restart**:
-`POST /restart` on the daemon. It journals the order, answers, and exits 75. The supervisor respawns it, because a nonzero exit is what `restart: on-failure` acts on. Agent panes live in the tmux container, so they survive it. The sidecar orders the restart and never takes it.
+`POST /restart` on the daemon. It journals the order, answers, and exits 75. The supervisor respawns it, because a nonzero exit is what `restart: on-failure` acts on. Agent panes live in the tmux container, so they survive it. The sidecar orders the restart and never takes it. It is a rare act about a hand edit since the live reload: it lives in the Maintenance section, and it is what applies every key outside the closed set.
+
+**Maintenance section**:
+The fourth section of the settings screen, reading last. One line says whether the daemon runs the files, read from the six values `GET /overview` reports and the instant it read them. One restart button sits beside it, red only while the daemon and the files disagree. The Settings nav item carries a marker for the same disagreement, so a stale daemon is visible without opening the section.
 
 **Model switch**:
 `active: false` on a model in `routing.yaml`, behind the settings screen's "n of m models active". The entry keeps its provider, harness, id and comments, and leaves the dispatch vocabulary: no `defaults` row and no `review` row may name it, a fallback chain steps over it, and a `model:<x>` label naming it is refused. An absent key means on.
