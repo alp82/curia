@@ -1,6 +1,6 @@
 # curia daemon
 
-The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): agent-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)) + the overseer session host ([#92](https://github.com/alp82/curia/issues/92)). Agent-host-agnostic — agents connect over streamable-HTTP MCP regardless of how they were spawned (#29).
+The always-on daemon from map decision [#9](https://github.com/alp82/curia/issues/9): agent-facing MCP surface + Discord bridge module + durable escalation record ([#31](https://github.com/alp82/curia/issues/31)) + the dispatch loop ([#33](https://github.com/alp82/curia/issues/33)) + the client for the overseer container ([#92](https://github.com/alp82/curia/issues/92), which moved out of this process on [#315](https://github.com/alp82/curia/issues/315)). Agent-host-agnostic — agents connect over streamable-HTTP MCP regardless of how they were spawned (#29).
 
 ## Setup
 
@@ -10,7 +10,7 @@ This section is the operator's box. To set curia up on your own machine, read th
 The daemon expects these on the box before the first boot:
 
 - **Node 22+** with npm. The daemon is one Node process (`npm install`, then `npm start`).
-- **Claude Code, logged in.** Agents and the overseer share the host credential store at `~/.claude` (#53/#92). They have no login of their own. If the host is logged out, every agent and every overseer turn fails.
+- **Claude Code, logged in.** Agents share the host credential store at `~/.claude` (#53). They have no login of their own. If the host is logged out, every agent fails. The overseer container is the one exception: it mounts no `~/.claude` and runs each turn on the model credential in `.env.overseer` (#327).
 - **`gh`, authenticated** for every watched repo. The daemon claims, comments, and closes tickets through it.
 - **`tmux`** — the agent host. Under compose (#260) the server lives in the `tmux` service and the daemon is a client over `CURIA_TMUX_SOCKET`. Unset, the default socket serves a dev box.
 - **`ttyd` on port 7681** for the browser terminal. The compose `ttyd` service runs it. The daemon health-checks the port and does not spawn ttyd.
@@ -24,7 +24,7 @@ The daemon expects these on the box before the first boot:
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` — the scoped GitHub token an agent gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. See [the agent's GitHub authority](#the-agents-github-authority-155) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
 - The overseer's own tokens are **not** in this file. They live in `.env.overseer` beside it, one `CURIA_OVERSEER_GH_TOKEN_<OWNER>` per resource owner, read-only (#313). That second file is the boundary: the overseer service loads it whole and never loads `.env`. See [the overseer's GitHub authority](#the-overseers-github-authority-313) below.
-- `OVERSEER_MODEL` (default `claude-haiku-4-5`) and `OVERSEER_FALLBACK_MODEL` (default `claude-sonnet-5`) — the overseer session models (#92).
+- The overseer's model is **not** an env var here. It is `claude-sonnet-5` in the container's own code, with no fallback (#314). `OVERSEER_MODEL` and `OVERSEER_FALLBACK_MODEL` died with the in-daemon host (#315), and nothing reads either name.
 
 Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml` (watch list, dispatch settings — `auto_dispatch` ships `false` — attach ports, preview range, agent skill set) and `../config/routing.yaml` (label-only model routing, fallback chains, harness command templates). Override the directory with `CURIA_CONFIG_DIR`.
 
@@ -56,7 +56,6 @@ Two of these routes are the AGENT's, and since #159 they are gated: `/mcp` and `
 
 - `POST /mcp?agent=<name>&ticket=<n>` — MCP tools `ask_human` (blocking), `notify`, `report_result`, `publish_preview` (#40, `path` since #68), `open_pull_request` and `request_review` (#54). Ticket binding rides the spawn URL (#11). `ask_human` and `notify` also take `images: [<path>]` (#34).
 - `POST /overseer/mcp?turn=<id>` — the eight verb tools, for the model in the overseer container (#314). The daemon composes the canonical text from the validated arguments and posts it to the same `/command` seam, so the container reaches eight verbs and never the router. The secret in the header opens ONE live turn; it is minted per turn and forgotten when the turn ends.
-- `POST /overseer/turn {key, prompt}` — run one turn on the overseer CONTAINER and answer with what it said (#314). Loopback only, and it is the one door onto the container until #315 moves the operator's own two — the Discord bridge and the Chat screen still speak to the in-daemon host.
 - `GET /state` — open escalations + bridge status.
 - `GET /overview` — the dashboard's whole read of the daemon (#262, per [#249](https://github.com/alp82/curia/issues/249)). It carries the live agents with their context meter and their last contact (#370), open escalations, the review gate with its pull request and its diff digest (#355), bridge health, one usage reading per provider with its stated reset, the last 100 journal events, and the two-level frontier under the instant reconcile computed it. Each section is nullable on its own. An unreadable fleet says so, and costs the page nothing else. The journal file itself never crosses. Its tail does.
 - `GET /diff?esc=<id>|agent=<name>[&file=<i>]` — the diff digest and, on demand, one file's hunks (#355, building [#343](https://github.com/alp82/curia/issues/343)). A review gate answers from the digest counted when it opened, so it costs no read. An agent answers a fresh count of its worktree, committed and uncommitted work together. `file` is a place in that digest's own ranked list, never a path: the caller names a gate or an agent, and the daemon resolves the worktree itself. A worktree that is gone falls back to `gh pr diff` when the pull request is known. This is the one console read that is not the poll.
@@ -130,11 +129,11 @@ A cross-check that produces **no** verdict — the reviewer died, its respawn fa
 
 ## Overseer sessions (#92/#93/#94/#95)
 
-Every `#curia` thread is a persistent overseer session. A top-level prose message opens a thread and a fresh session. A later message in any thread revives its session with full memory. Slash commands stay deterministic and never touch the model.
+Every `#curia` thread is a persistent overseer session, and so is every browser conversation on the Chat screen ([ADR-0016](../docs/adr/0016-the-conversation-key.md)). A top-level prose message opens a thread and a fresh session. A later message in any thread revives its session with full memory. Slash commands stay deterministic and never touch the model.
 
-The host (`overseer.mjs`) runs one Agent SDK `query()` per operator message, `OVERSEER_MODEL` first with one no-side-effect retry on `OVERSEER_FALLBACK_MODEL` (a failed turn that already made a tool call goes to the operator instead — a replay could double a dispatch). The thread→session map is a reduction over the journal, so a daemon restart loses no conversation. The session home lives under `data/overseer/` and holds no checkout.
+**The model runs in the overseer container**, and `overseerclient.mjs` is the daemon's whole reach into it (#315). One operator message is one turn there. The daemon keeps the conversation: the conversation-key→session map is a reduction over the journal, so a restart loses no conversation. The container keeps the model, the shell and the checkouts, and its home is `<workspace_root>/cfg/curia-overseer/home`. There is no second model attempt, because there is no fallback. See [the same turn, in the container](#the-same-turn-in-the-container-314) below.
 
-Containment is the tool surface: the session's only tools are the eight verbs as in-process MCP tools (`review` is not one: the operator's surface for it is the gate button), and each tool posts canonical verb text through `gate.command` — the same seam the slash verbs and REST use, journalled and routed identically. The session has no shell, no files, and no process handles. It never answers an escalation or a review gate (the never-list in its system prompt).
+**Containment is the container**, as [ADR-0014](../docs/adr/0014-the-overseer-in-its-own-container.md) decides, and `overseerclient.mjs` carries that comment at its head. The model holds a shell, so a tool list is no longer the control. The controls are the container itself, the read-only GitHub token (#313), and the one way back in: the eight verbs over the daemon's own MCP side channel. `review` is not one of them — the operator's surface for it is the gate button. A verb call composes canonical text in the DAEMON and posts it to `gate.command`, the same seam the slash verbs and REST use, journalled and routed identically. So the container reaches eight verbs and never the router. It never answers an escalation or a review gate (the never-list in its standing orders, #328).
 
 An interpreted `cancel`/`cancel all` does not execute: the daemon posts a ✅/❌ button confirm (#94) — instance-bound, no expiry clock, lapsing the moment the agent exits, a newer confirm superseding an older one. The confirm renders where the operator typed the command, and in the command channel when the command carried no thread (#218): it is addressed to the operator, not to the ticket conversation. Each target's ticket thread gets a pointer to the buttons. Every other kind, the review gate included, keeps the ticket thread. The button executes through the daemon, never through the model. Outcomes that resolve between turns come back to the session as journalled notes on its next revival, so its memory stays honest.
 
@@ -144,13 +143,15 @@ The build was verified live by the full-loop rehearsal — `docs/live-checks/96-
 
 ### The same turn, in the container (#314)
 
-The overseer is moving into its own container (ADR-0014), and the turn crosses that boundary in two hops. The daemon posts one message to the container on `POST /turn`, and the container streams events back as NDJSON: the session id it stated, the checkout verdict, then the answer. The model's verb tools reach the daemon the other way, over `/overseer/mcp`, so the daemon still composes every canonical text and posts it to `gate.command`. The confirm on `cancel`, the interpreted flag, the journal and the thread binding are all unchanged, because that seam is unchanged.
+The overseer runs in its own container (ADR-0014, cut over on #315), and the turn crosses that boundary in two hops. The daemon posts one message to the container on `POST /turn`, and the container streams events back as NDJSON: the session id it stated, the checkout verdict, then the answer. The model's verb tools reach the daemon the other way, over `/overseer/mcp`, so the daemon still composes every canonical text and posts it to `gate.command`. The confirm on `cancel`, the interpreted flag, the journal and the thread binding are all unchanged, because that seam is unchanged.
 
-The transport for the verbs is MCP rather than a route that takes canonical text, and that is the containment: a text route would hand the container the whole router, and a tool call hands it eight verbs with validated arguments. `overseerverbs.mjs` holds the one catalogue both transports publish.
+The transport for the verbs is MCP rather than a route that takes canonical text, and that is what keeps the container off the router: a text route would hand it the whole router, and a tool call hands it eight verbs with validated arguments. `overseerverbs.mjs` holds the one catalogue both transports publish.
 
 What each side owns: the daemon keeps the conversation (`store.overseerSession`), the one-turn-at-a-time rule, the operator notes and every effect. The container keeps the model, the shell, the checkouts and its own two directories under `<workspace_root>/cfg/curia-overseer`. The container holds no conversation, so a deploy that recreates it loses none.
 
 The model there is `claude-sonnet-5` and there is no fallback: Sonnet IS the model, where the in-daemon host tried Haiku first. A turn the container never answers is a failure the operator reads.
+
+**Both doors route here.** #315 was the cutover, and it was one swap at two of them: the bridge's `overseerTurn` and the Chat screen's `driverFor`. The soak door `POST /overseer/turn` is gone, because real operator chat is the soak.
 
 ### The turn a restart killed (#388)
 
@@ -159,8 +160,6 @@ The routine deploy recreates the daemon and the overseer together, so both halve
 The message lives in the journal: `overseer_turn_started` carries it and `overseer_turn_ended` closes it, so whatever is open at a boot is what the restart killed. The seam crossings ride the `command` event the daemon already writes, which now carries the conversation key — the in-memory tally dies with the process holding it. The pass reads that list once, before the listener binds, and waits for the container health check.
 
 It sends the message again only for a turn that crossed the seam zero times. Three more things hold it: a message curia already sent again once, a conversation that has spoken since the boot, and a message over fifteen minutes old. Every held message leaves one line naming what that turn ran. A Discord conversation reads it in its thread. A browser conversation has no thread, so it reads it on its row in the Chat picker until it takes its next turn.
-
-**Nothing routes to it yet.** #315 is the cutover, and it is one swap at two doors: the bridge's `overseerTurn` and the Chat screen's `driverFor`. Until then `POST /overseer/turn` is how the container is soaked.
 
 ## The per-agent status line (#108 item 8, #146)
 
