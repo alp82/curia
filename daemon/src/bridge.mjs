@@ -31,26 +31,31 @@ import { CONFIRM_KIND } from './store.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
 
-const MAX_BUTTON_OPTIONS = 23 // 25 buttons max, minus cancel; keep rows tidy
-
-// The long-choice surface (#431, on the #413 map). Above the button cap a
-// `choice` card used to drop its buttons, print a numbered list and ask for a
-// typed reply — the worst answer surface the daemon has on a phone (#414). A
-// string select menu takes that case back to one tap.
+// The `choice` surface, in three bands (#431, on the #413 map).
 //
-// The numbers are Discord's, not ours. One menu holds 25 options, and a message
-// holds five component rows. Four rows carry menus and the fifth stays free for
-// the surface link buttons (#108 item 22) that ride every card, so the menu
-// reaches 100 options. A list longer than that keeps the numbered list, because
-// a card that silently drops option 101 is worse than a card that scrolls.
+// It used to be two. Buttons held up to 23 options, and above that the card
+// dropped its buttons, printed a numbered list and asked for a typed reply.
+// #414 named that list the worst answer surface the daemon has on a phone, and
+// it could not judge the alternative, because the bridge built buttons and link
+// buttons only. A string select menu is that alternative, and it takes the case
+// back to a tap.
+//
+// The operator set both edges on #431:
+//
+//  - buttons keep 2 to 4 options. Five buttons fill a row, and a card that
+//    wraps into a wall of blurple is what the menu exists to stop;
+//  - one menu holds 5 to 25 options. Twenty-five is Discord's cap on a string
+//    select, and the operator wants no more than that on a card: past 25 the
+//    list has stopped being a choice a human makes by reading it;
+//  - past 25 the numbered list stays. It is the surface of last resort, and it
+//    loses nothing, which a menu that silently dropped option 26 would.
+const MAX_BUTTON_OPTIONS = 4
 export const MAX_SELECT_OPTIONS = 25
-export const MAX_SELECT_MENUS = 4
-export const MAX_SELECT_TOTAL = MAX_SELECT_OPTIONS * MAX_SELECT_MENUS
 
 // One select option shows a 100-char label and a 100-char description under it.
 // An option longer than the label spills its tail into the description, so 200
 // chars ride the menu whole. Past that the menu clips, and the body keeps the
-// numbered list beside it — an option never loses its words to this component.
+// numbered list beside it. An option never loses its words to this component.
 const SELECT_LABEL = 100
 const SELECT_DESC = 100
 
@@ -58,7 +63,7 @@ const SELECT_DESC = 100
 // unclipped. Two separate questions: the first picks the component, the second
 // picks whether the numbered list stays under it.
 export const selectFits = (options) => options.length > MAX_BUTTON_OPTIONS
-  && options.length <= MAX_SELECT_TOTAL
+  && options.length <= MAX_SELECT_OPTIONS
 export const selectClips = (options) => options.some((o) => String(o).length > SELECT_LABEL + SELECT_DESC)
 
 // The option payload. `value` is the index into `record.options`, the same key
@@ -69,21 +74,6 @@ export function selectOption(text, idx) {
   const tail = s.slice(SELECT_LABEL)
   if (tail) option.description = tail.length > SELECT_DESC ? `${tail.slice(0, SELECT_DESC - 1)}…` : tail
   return option
-}
-
-// Where each menu starts. One menu says "Pick one"; several say which stretch
-// of the list each one holds, because a phone shows one closed menu at a time
-// and an unlabeled stack of four says nothing about where option 40 lives.
-export function selectPages(options) {
-  const pages = []
-  for (let start = 0; start < options.length; start += MAX_SELECT_OPTIONS) {
-    const slice = options.slice(start, start + MAX_SELECT_OPTIONS)
-    const placeholder = options.length > MAX_SELECT_OPTIONS
-      ? `Pick one — options ${start + 1}-${start + slice.length}`
-      : 'Pick one'
-    pages.push({ start, slice, placeholder })
-  }
-  return pages
 }
 
 // The round's one-tap answer (#285, ADR-0005). It rides `free-text` and it is
@@ -1159,22 +1149,18 @@ export class DiscordBridge {
           .setLabel(label.slice(0, 80)).setStyle(ButtonStyle.Primary))
       })
     }
-    // Above the button cap the same options ride select menus (#431). Buttons
-    // stay the short-list surface: a button is one tap and a menu is two, so
-    // the menu earns the card only where the buttons cannot fit on it.
+    // Above the button cap the same options ride one select menu (#431).
     //
     // A menu owns its whole row, so any half-filled row is flushed first. A
     // choice card carries no other button, so that row is empty here today.
     if (record.kind === 'choice' && selectFits(record.options ?? [])) {
       if (row.components.length) { rows.push(row); row = new ActionRowBuilder() }
-      for (const page of selectPages(record.options)) {
-        rows.push(new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId(`esc|${record.id}|sel|${page.start}`)
-            .setPlaceholder(page.placeholder)
-            .addOptions(page.slice.map((text, i) => selectOption(text, page.start + i))),
-        ))
-      }
+      rows.push(new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`esc|${record.id}|sel`)
+          .setPlaceholder('Pick one')
+          .addOptions(record.options.map(selectOption)),
+      ))
     }
     // The round's one tap (#285). It is the ONLY button a free-text card ever
     // gets, and the agent asks for it by promising every question in the prompt

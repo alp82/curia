@@ -150,12 +150,13 @@
     Does a Discord select menu read better than a numbered list on a phone?
     Pick an option count below. The same <code>choice</code> card is drawn twice:
     as the daemon draws it today, and as this branch draws it.
+    Every menu here opens on one tap and answers on one more.
   </p>
 </header>
 
 <main>
   <h2>How many options</h2>
-  <p class="lede">The button cap is 23. The menu reaches 100. Both edges are in the row.</p>
+  <p class="lede">Buttons hold 4. The menu holds 25. Both edges are in the row.</p>
   <div class="picker" id="picker"></div>
 
   <section class="pane before">
@@ -169,22 +170,23 @@
   </section>
 
   <h2>The rule</h2>
+  <p class="lede">Three bands. The operator set both edges on #431.</p>
   <table>
     <tr><th>Options</th><th>Surface</th><th>Why</th></tr>
     <tr>
-      <td><code>2-23</code></td>
+      <td><code>2-4</code></td>
       <td>Buttons</td>
-      <td>A button is one tap and a menu is two. Buttons keep the short list.</td>
+      <td>Five buttons fill a row. A card that wraps into a wall of blurple is what the menu stops.</td>
     </tr>
     <tr>
-      <td><code>24-100</code></td>
+      <td><code>5-25</code></td>
       <td>Select menu</td>
-      <td>25 options per menu, four menu rows. The fifth row keeps the preview, timeline and terminal links.</td>
+      <td>25 is Discord's cap on one menu. It is also as many options as a person picks by reading.</td>
     </tr>
     <tr>
-      <td><code>101+</code></td>
+      <td><code>26+</code></td>
       <td>Numbered list</td>
-      <td>The menu cannot hold them. A card that drops option 101 in silence is worse than a card that scrolls.</td>
+      <td>The menu cannot hold them. A card that drops option 26 in silence is worse than a card that scrolls.</td>
     </tr>
   </table>
 
@@ -197,7 +199,7 @@
     <li>
       <b>Past 200 characters the menu clips.</b>
       Then the numbered list stays under it and carries the full words. The menu carries the tap.
-      Pick the 24-option count to see that card.
+      Pick the third count to see that card.
     </li>
     <li>
       <b>The typed number still answers.</b>
@@ -220,9 +222,9 @@
 // The daemon's numbers, restated here so the page cannot drift from the rule
 // it draws. Changing one here changes nothing in the bridge — read
 // daemon/src/bridge.mjs for the truth.
-const MAX_BUTTON_OPTIONS = 23
+const OLD_BUTTON_CAP = 23        // what main does today
+const MAX_BUTTON_OPTIONS = 4     // what this branch does
 const MAX_SELECT_OPTIONS = 25
-const MAX_SELECT_TOTAL = 100
 const SELECT_LABEL = 100
 const SELECT_DESC = 100
 
@@ -247,17 +249,17 @@ const LONG = 'The overseer service holds the shell, so the module that owns this
   + 'other context to hand.'
 
 const COUNTS = [
-  { n: 23, note: 'buttons' },
-  { n: 24, note: 'one long' },
-  { n: 30, note: 'one menu' },
-  { n: 60, note: 'three' },
-  { n: 101, note: 'past it' },
+  { n: 4, note: 'buttons' },
+  { n: 5, note: 'the menu' },
+  { n: 8, long: true, note: 'a long one' },
+  { n: 25, note: 'the cap' },
+  { n: 26, note: 'past it' },
 ]
 
-const optionsFor = (n) => {
+const optionsFor = ({ n, long }) => {
   const out = []
   for (let i = 0; i < n; i++) out.push(MODULES[i % MODULES.length])
-  if (n === 24) out[23] = LONG
+  if (long) out[n - 1] = LONG
   return out
 }
 
@@ -281,11 +283,11 @@ const linkRow = '<div class="row"><button class="btn link">🔗 preview</button>
   + '<button class="btn link">timeline</button>'
   + '<button class="btn link">terminal</button></div>'
 
-// The card as main draws it: buttons under the cap, a numbered list over it.
+// The card as main draws it: buttons up to 23, a numbered list over that.
 function drawBefore(options) {
-  if (options.length <= MAX_BUTTON_OPTIONS) {
+  if (options.length <= OLD_BUTTON_CAP) {
     return head + prompt + buttonRow(options) + linkRow
-      + '<p class="taps">One tap. <b>' + options.length + ' buttons.</b></p>'
+      + '<p class="taps">One tap, and <b>' + options.length + ' buttons</b> to read through.</p>'
   }
   return head + prompt + numbered(options)
     + '<p class="hint">Reply in this thread with a number.</p>' + linkRow
@@ -297,12 +299,12 @@ function drawBefore(options) {
 function drawAfter(options) {
   if (options.length <= MAX_BUTTON_OPTIONS) {
     return head + prompt + buttonRow(options) + linkRow
-      + '<p class="taps">Unchanged. <b>The menu takes only what the buttons cannot fit.</b></p>'
+      + '<p class="taps">Unchanged. <b>Four buttons fit one row.</b></p>'
   }
-  if (options.length > MAX_SELECT_TOTAL) {
+  if (options.length > MAX_SELECT_OPTIONS) {
     return head + prompt + numbered(options)
       + '<p class="hint">Reply in this thread with a number.</p>' + linkRow
-      + '<p class="taps">Past the menu reach. <b>The list stays, whole.</b></p>'
+      + '<p class="taps">Past the menu cap. <b>The list stays, whole.</b></p>'
   }
   const clips = options.some((o) => o.length > SELECT_LABEL + SELECT_DESC)
   let html = head + prompt
@@ -312,22 +314,16 @@ function drawAfter(options) {
   } else {
     html += '<p class="hint">Pick from the menu below.</p>'
   }
-  for (let start = 0; start < options.length; start += MAX_SELECT_OPTIONS) {
-    const slice = options.slice(start, start + MAX_SELECT_OPTIONS)
-    const label = options.length > MAX_SELECT_OPTIONS
-      ? `Pick one — options ${start + 1}-${start + slice.length}`
-      : 'Pick one'
-    html += `<div class="menu" data-menu><button aria-expanded="false" data-toggle>`
-      + `<span>${esc(label)}</span><span class="caret">▾</span></button><div class="list">`
-      + slice.map((o, i) => {
-        const main = o.slice(0, SELECT_LABEL)
-        let tail = o.slice(SELECT_LABEL)
-        if (tail.length > SELECT_DESC) tail = tail.slice(0, SELECT_DESC - 1) + '…'
-        return `<button data-pick="${esc(o)}">${esc(main)}`
-          + (tail ? `<em>${esc(tail)}</em>` : '') + '</button>'
-      }).join('')
-      + '</div></div>'
-  }
+  html += '<div class="menu" data-menu><button aria-expanded="false" data-toggle>'
+    + '<span>Pick one</span><span class="caret">▾</span></button><div class="list">'
+    + options.map((o) => {
+      const main = o.slice(0, SELECT_LABEL)
+      let tail = o.slice(SELECT_LABEL)
+      if (tail.length > SELECT_DESC) tail = tail.slice(0, SELECT_DESC - 1) + '…'
+      return `<button data-pick="${esc(o)}">${esc(main)}`
+        + (tail ? `<em>${esc(tail)}</em>` : '') + '</button>'
+    }).join('')
+    + '</div></div>'
   html += linkRow
   html += '<p class="taps">Tap the menu, tap the option. <b>Two taps, no typing.</b></p>'
   html += '<div class="picked" hidden data-picked></div>'
@@ -338,20 +334,20 @@ const before = document.getElementById('before')
 const after = document.getElementById('after')
 const picker = document.getElementById('picker')
 
-function render(n) {
-  const options = optionsFor(n)
+function render(i) {
+  const options = optionsFor(COUNTS[i])
   before.innerHTML = drawBefore(options)
   after.innerHTML = drawAfter(options)
   for (const b of picker.querySelectorAll('button')) {
-    b.setAttribute('aria-pressed', String(Number(b.dataset.n) === n))
+    b.setAttribute('aria-pressed', String(Number(b.dataset.i) === i))
   }
 }
 
-picker.innerHTML = COUNTS.map((c) =>
-  `<button data-n="${c.n}" aria-pressed="false">${c.n}<small>${c.note}</small></button>`).join('')
+picker.innerHTML = COUNTS.map((c, i) =>
+  `<button data-i="${i}" aria-pressed="false">${c.n}<small>${c.note}</small></button>`).join('')
 picker.addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-n]')
-  if (b) render(Number(b.dataset.n))
+  const b = e.target.closest('button[data-i]')
+  if (b) render(Number(b.dataset.i))
 })
 
 // One tap opens a menu, one tap answers it. No double-click anywhere on this
@@ -374,7 +370,7 @@ after.addEventListener('click', (e) => {
   out.textContent = '✅ answered via select menu: ' + pick.dataset.pick.slice(0, 80)
 })
 
-render(30)
+render(1)
 </script>
 </body>
 </html>

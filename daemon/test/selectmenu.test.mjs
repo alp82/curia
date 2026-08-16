@@ -1,43 +1,39 @@
-// The long-choice select menu (#431, on the #413 map).
+// The `choice` select menu (#431, on the #413 map).
 //
-// Above `MAX_BUTTON_OPTIONS` a `choice` card used to drop its buttons, print a
-// numbered list and ask for a typed reply. #414 named that the worst answer
+// The card used to have two bands: buttons up to 23 options, and above that a
+// numbered list with a typed reply. #414 named that list the worst answer
 // surface the daemon has on a phone, and it could not judge the alternative,
 // because the bridge built buttons and link buttons only.
 //
-// The shape settled here:
-//   - buttons keep the short list. A button is one tap and a menu is two, so
-//     the menu takes only the case the buttons cannot fit;
-//   - one menu holds 25 options and four rows carry menus, so the menu reaches
-//     100. The fifth row stays free for the surface link buttons;
-//   - past 100 options the numbered list comes back, because a card that drops
-//     option 101 in silence is worse than a card that scrolls;
-//   - a pick answers through the same path a button press takes.
+// The operator set three bands on #431:
+//   - 2 to 4 options stay buttons. Five buttons fill a row;
+//   - 5 to 25 options are one select menu. Twenty-five is Discord's cap on a
+//     string select, and the operator wants no more than that on a card;
+//   - past 25 the numbered list stays, whole. It loses nothing, which a menu
+//     that dropped option 26 in silence would.
+//
+// A pick answers through the same path a button press takes.
 
 import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import {
-  DiscordBridge, MAX_SELECT_OPTIONS, MAX_SELECT_TOTAL, selectOption, selectPages,
-} from '../src/bridge.mjs'
+import { DiscordBridge, MAX_SELECT_OPTIONS, selectOption } from '../src/bridge.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-select-test-'))
 
 const rowsOf = (components) => components.map((row) => row.toJSON().components)
-const menusOf = (components) => rowsOf(components)
-  .flat()
-  .filter((c) => c.type === 3) // ComponentType.StringSelect
+const menusOf = (components) => rowsOf(components).flat().filter((c) => c.type === 3)
+const buttonsOf = (components) => rowsOf(components).flat().filter((c) => c.type === 2)
 
-const opts = (n, text = (i) => `option ${i + 1}`) => Array.from({ length: n }, (_, i) => text(i))
+const opts = (n) => Array.from({ length: n }, (_, i) => `option ${i + 1}`)
 
-describe('a long choice card answers through a select menu (#431)', () => {
-  let bridge, sent, thread, answered
+describe('a choice card picks its surface by option count (#431)', () => {
+  let bridge, sent, thread
 
   beforeEach(() => {
     sent = []
-    answered = []
     thread = {
       id: 't-431',
       name: '🎫 431 · prototype',
@@ -59,23 +55,24 @@ describe('a long choice card answers through a select menu (#431)', () => {
     return sent.at(-1)
   }
 
-  test('at the button cap the card still uses buttons', async () => {
-    const msg = await render(opts(23))
-    assert.equal(menusOf(msg.components).length, 0, 'a list the buttons fit gets no menu')
-    assert.equal(rowsOf(msg.components).flat().filter((c) => c.type === 2).length, 23)
+  test('four options stay four buttons', async () => {
+    const msg = await render(opts(4))
+    assert.equal(menusOf(msg.components).length, 0, 'the buttons fit on one row')
+    assert.equal(buttonsOf(msg.components).length, 4)
   })
 
-  test('one option past the cap turns the list into one menu', async () => {
-    const msg = await render(opts(24))
+  test('the fifth option turns the card into one menu', async () => {
+    const msg = await render(opts(5))
     const menus = menusOf(msg.components)
     assert.equal(menus.length, 1)
-    assert.equal(menus[0].options.length, 24)
+    assert.equal(menus[0].options.length, 5)
     assert.equal(menus[0].placeholder, 'Pick one')
-    assert.equal(menus[0].custom_id, 'esc|esc-1|sel|0')
+    assert.equal(menus[0].custom_id, 'esc|esc-1|sel')
+    assert.equal(buttonsOf(msg.components).length, 0, 'no card carries both surfaces')
   })
 
   test('the numbered list goes away when the menu carries every option', async () => {
-    const msg = await render(opts(30))
+    const msg = await render(opts(12))
     assert.doesNotMatch(msg.content, /\*\*1\.\*\*/, 'the list would say what the menu already shows')
     assert.match(msg.content, /Pick from the menu below\./)
     assert.doesNotMatch(msg.content, /with a number/, 'no numbers are printed, so none are offered')
@@ -84,42 +81,45 @@ describe('a long choice card answers through a select menu (#431)', () => {
   test('a long option keeps the numbered list beside the menu', async () => {
     // The menu shows 100 chars of label and 100 of description. An option past
     // both is clipped, so the full text must stay somewhere on the card.
-    const msg = await render([...opts(23), 'x'.repeat(250)])
+    const msg = await render([...opts(5), 'x'.repeat(250)])
     assert.equal(menusOf(msg.components).length, 1, 'the menu still carries the taps')
-    assert.match(msg.content, /\*\*24\.\*\*/, 'and the list carries the words')
+    assert.match(msg.content, /\*\*6\.\*\*/, 'and the list carries the words')
     assert.match(msg.content, /or reply with a number/)
   })
 
-  test('the menus page across four rows and label their stretch', async () => {
-    const msg = await render(opts(60))
+  test('twenty-five options are still one menu and one row', async () => {
+    const msg = await render(opts(MAX_SELECT_OPTIONS))
     const menus = menusOf(msg.components)
-    assert.equal(menus.length, 3)
-    assert.deepEqual(menus.map((m) => m.options.length), [25, 25, 10])
-    assert.deepEqual(menus.map((m) => m.placeholder), [
-      'Pick one — options 1-25', 'Pick one — options 26-50', 'Pick one — options 51-60',
-    ])
+    assert.equal(menus.length, 1)
+    assert.equal(menus[0].options.length, 25)
   })
 
-  test('the link row survives a full stack of menus', async () => {
+  test('the link row rides beside the menu', async () => {
     bridge.handlers.previewUrl = () => 'https://example.test/p'
-    const msg = await render(opts(MAX_SELECT_TOTAL))
-    assert.equal(menusOf(msg.components).length, 4)
-    assert.equal(msg.components.length, 5, 'four menu rows plus the link row')
-    const links = rowsOf(msg.components).at(-1)
-    assert.deepEqual(links.map((c) => c.label), ['🔗 preview'])
+    const msg = await render(opts(MAX_SELECT_OPTIONS))
+    assert.equal(msg.components.length, 2, 'the menu row and the link row')
+    assert.deepEqual(rowsOf(msg.components).at(-1).map((c) => c.label), ['🔗 preview'])
   })
 
-  test('past the menu reach the numbered list comes back whole', async () => {
-    const msg = await render(opts(MAX_SELECT_TOTAL + 1))
+  test('past the menu cap the numbered list comes back whole', async () => {
+    const msg = await render(opts(MAX_SELECT_OPTIONS + 1))
     assert.equal(menusOf(msg.components).length, 0, 'no menu may hide the options it cannot hold')
-    assert.match(msg.content, /\*\*101\.\*\* option 101/)
+    assert.match(msg.content, /\*\*26\.\*\* option 26/)
     assert.match(msg.content, /Reply in this thread with a number\./)
   })
 
   test('the value on every option is its index into the record', async () => {
-    const msg = await render(opts(40))
+    const msg = await render(opts(20))
     const values = menusOf(msg.components).flatMap((m) => m.options).map((o) => o.value)
-    assert.deepEqual(values, Array.from({ length: 40 }, (_, i) => String(i)))
+    assert.deepEqual(values, Array.from({ length: 20 }, (_, i) => String(i)))
+  })
+
+  test('two options that read the same still answer apart', async () => {
+    // Discord refuses a menu with a repeated value. The index is the value, so
+    // a duplicated label costs nothing.
+    const msg = await render(['keep', 'drop', 'keep', 'hold', 'keep'])
+    const options = menusOf(msg.components)[0].options
+    assert.deepEqual(options.map((o) => o.value), ['0', '1', '2', '3', '4'])
   })
 })
 
@@ -135,7 +135,7 @@ describe('a pick answers the record (#431)', () => {
       allowedUsers: ['u1'],
       dataDir: tmp(),
       handlers: {
-        get: () => ({ id: 'esc-1', kind: 'choice', options: opts(40) }),
+        get: () => ({ id: 'esc-1', kind: 'choice', options: opts(20) }),
         answer: (id, payload) => { answered.push({ id, ...payload }); return { ok: true } },
       },
       log: () => {},
@@ -148,7 +148,7 @@ describe('a pick answers the record (#431)', () => {
     isStringSelectMenu: () => true,
     isChatInputCommand: () => false,
     isRepliable: () => true,
-    customId: 'esc|esc-1|sel|25',
+    customId: 'esc|esc-1|sel',
     values,
     user: { id: 'u1' },
     deferUpdate: async () => { deferred++ },
@@ -156,8 +156,8 @@ describe('a pick answers the record (#431)', () => {
   })
 
   test('the picked index resolves to the option text', async () => {
-    await pick(['27'])
-    assert.equal(answered.at(-1).answer, 'option 28')
+    await pick(['17'])
+    assert.equal(answered.at(-1).answer, 'option 18')
     assert.equal(answered.at(-1).by, 'u1')
   })
 
@@ -174,7 +174,7 @@ describe('a pick answers the record (#431)', () => {
   })
 })
 
-describe('the pure pieces (#431)', () => {
+describe('the option payload (#431)', () => {
   test('a short option is one label and no description', () => {
     assert.deepEqual(selectOption('navy', 7), { label: 'navy', value: '7' })
   })
@@ -187,13 +187,7 @@ describe('the pure pieces (#431)', () => {
 
   test('an option past both fields is marked as clipped', () => {
     const o = selectOption('c'.repeat(400), 0)
-    assert.equal(o.description.length, MAX_SELECT_OPTIONS * 4)
+    assert.equal(o.description.length, 100)
     assert.match(o.description, /…$/, 'the reader must see that words are missing')
-  })
-
-  test('the pages tile the list with no gap and no overlap', () => {
-    const pages = selectPages(opts(60))
-    assert.deepEqual(pages.map((p) => p.start), [0, 25, 50])
-    assert.deepEqual(pages.flatMap((p) => p.slice), opts(60))
   })
 })
