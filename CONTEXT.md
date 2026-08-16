@@ -310,6 +310,18 @@ The blocking tool an agent calls to ask a question. Kinds: free-text, choice, ap
 The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#285). It holds every question whose answer does not depend on another question still open. The agent numbers them and gives each a recommended answer, and the `recommended` flag puts a ✅ All as recommended button on the card. One question is a round of one. A question the operator leaves unanswered returns in the next round, and it is never taken as recommended.
 _Avoid_: batch.
 
+**Lint gate**:
+The voice check on agent prose that reaches a human, and the rejection that enforces it (#416, #438). The daemon lints against `daemon/assets/voice.md` and refuses the call with the lint message. The agent rewrites its own text and calls again. The daemon never rewrites it. Three rejections is the cap, and the daemon counts them, because an agent miscounts its own. See [ADR-0005](docs/adr/0005-escalation-contract.md).
+_Avoid_: voice gate, prose check.
+
+**Flagged send**:
+What the lint gate does at the cap (#416). curia takes the fourth text as it stands, sends it, and shows the operator which rule it broke. The tool result says the text went out flagged and tells the agent not to call again. A flagged send is a delivered question, so it is never a failure to report.
+_Avoid_: fallback, degraded send.
+
+**Stop-hook catch**:
+The lever that makes a rejection unmissable on codex (#438). On codex 0.146.0 a tool call sits inside the `exec` script, so a rejection is only a return value and it never throws. An agent that threw the value away believes its question went out and moves to end its turn. The Stop hook fires there, refuses the stop with `{decision:"block", reason}`, and hands back the lint message. At the second stop block curia sends the flagged text itself, so an agent that never calls again still delivers its question. The tool description and the memory-file line reach the model earlier, and both are prose that can be ignored. This one is the guarantee.
+_Avoid_: hook fallback.
+
 **Review gate**:
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records.
 
