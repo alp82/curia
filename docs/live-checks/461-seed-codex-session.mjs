@@ -33,6 +33,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const SELF = fileURLToPath(import.meta.url)
@@ -47,8 +48,11 @@ if (!fs.existsSync(auth)) {
 
 let seedConfigDir, YAML
 try {
-  ;({ seedConfigDir } = await import(path.join(REPO, 'daemon/src/workspace.mjs')))
-  YAML = (await import(path.join(REPO, 'daemon/node_modules/yaml/dist/index.js'))).default
+  const workspace = path.join(REPO, 'daemon/src/workspace.mjs')
+  ;({ seedConfigDir } = await import(workspace))
+  // Resolved the way the daemon itself resolves it, rather than by reaching
+  // into `node_modules` at a path that a package layout is free to change.
+  YAML = (await import(createRequire(workspace).resolve('yaml'))).default
 } catch (err) {
   console.error(`Cannot load the daemon: ${err.message}`)
   console.error('Run `npm install` in daemon/ and try again.')
