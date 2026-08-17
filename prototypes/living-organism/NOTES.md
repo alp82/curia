@@ -1,6 +1,7 @@
 # The living-organism experiment
 
 Prototype for [Try the living-organism prompt as a landing-page experiment](https://github.com/alp82/curia/issues/363),
+continued by [Take the living-organism run further, on a second model](https://github.com/alp82/curia/issues/508),
 on the map [The curia landing page](https://github.com/alp82/curia/issues/109).
 
 This directory is throwaway code. It answers one question. It is not the live page.
@@ -21,15 +22,20 @@ operator runs that one with a different model.
 
 ## What it is
 
-One self-contained HTML file, `index.html`. It holds the locked-in variant and the record of what
-was tried. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
+One self-contained HTML file, `index.html`. It holds the locked baseline and the candidates of the
+open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 
 | Key | Name | State |
 |---|---|---|
-| `descent` | You move the ticket | **Locked in.** Your ticket holds still, the page runs under it, and its state changes as each stage passes. |
-| `live` | The live page | The current https://curia.sh page, the reference the verdict is measured against. |
-| `grow` | The run grows | Not chosen. Adds growing traffic and repo lanes as the reader descends. |
-| `lanes` | Many repos, one queue | Not chosen. Three repos converging, with no pinned ticket. |
+| `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
+| `braid` | Three lines, one queue | #508 candidate. Three repo lines run in parallel and join into the one queue just above the reader's ticket. |
+| `tree` | The map births tickets | #508 candidate. The map card is pinned at the top, and every ticket comes out of it. |
+| `acts` | The run grows in acts | #508 candidate. One ticket, then more tickets, then a second repo line, then a third, as the reader descends. |
+| `stack` | The queue drains | #508 candidate. The queue is a visible pile at the top, and it sends one ticket at a time down the line. |
+| `trail` | The line remembers | #508 candidate. The line behind the reader's ticket keeps the color of every stage it has passed. |
+
+The variants of #363 (`live`, `grow`, `lanes`, `descent`) and of #508 round 1 (`story`, `cards`)
+were removed on the operator's order at round 2. Git history keeps them.
 
 All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
@@ -62,6 +68,20 @@ The lesson is recorded here because it cost four rounds: each round rebuilt the 
 of making one small change to the thing already approved. An iteration the operator cannot compare
 against the last one is not an iteration. A follow-up prototype takes the direction on, run by a
 different model.
+
+## The #508 rounds
+
+**Round 1.** Two candidates stood beside `descent`, one change each: `story` retold the growth
+with a silent start, and `cards` enlarged the reader's card and named its stage on it. The operator
+took the bigger card as the new baseline with one fix: left-aligned instead of cut off at the left
+edge. The growth story was too weak, multiple repos had no visible evidence, and the map to ticket
+hierarchy was missing. The order: use the bigger card as the baseline, remove the rest, and build
+five variations that explore different storytelling techniques. That order supersedes the round 4
+rule against rebuilding the set, for this round only.
+
+**Round 2.** The set is the locked `base` plus five techniques: `braid`, `tree`, `acts`, `stack`
+and `trail`. The reader's card is now this ticket, #508, and the map card of `tree` is the real
+map 109, words the page copy already carries.
 
 ## The rule the variations share
 

@@ -6,15 +6,21 @@
   THROWAWAY PROTOTYPE. Not the live page. Not served from docs/.
   One self-contained file: no build step, no CDN, no npm, no webfont, no image.
 
-  Variants on one route, switchable with ?variant= and the bottom bar:
-    descent — LOCKED IN at #363 round 4: your ticket holds still, the page
-              runs under it, and its state changes as each stage passes
-    story   — descent + the growth story: one ticket at the top, more
-              tickets after the first stage, a second repo near merged
-    cards   — descent + a bigger reader's card that names its stage
-    live    — the current https://curia.sh page, the reference
-    grow    — not chosen at #363: growth with three repos and early traffic
-    lanes   — not chosen at #363: three repos converging, no pinned ticket
+  The baseline is locked (#363 round 4, #508 round 1): the vertical run,
+  the reader's own ticket held still as a big left-aligned card, and its
+  state changing as each stage passes. #508 round 2 rebuilt the variant
+  set on the operator's order: the baseline plus five storytelling
+  techniques, switchable with ?variant= and the bottom bar:
+
+    base  — the locked baseline alone, no traffic
+    braid — three repo lines run in parallel and join into the one queue
+    tree  — the map card is pinned at the top and every ticket is born from it
+    acts  — the run grows in acts: one ticket, more tickets, more repo lines
+    stack — the queue is a visible pile that sends tickets down the line
+    trail — the line keeps the color of every stage the ticket has passed
+
+  The variants cut at #363 (live, grow, lanes) and at #508 round 1
+  (descent, story, cards) live on in git history and in NOTES.md.
 
   Every variant renders the SAME copy from the CONTENT object below, so the
   comparison is presentation only. The prompt changes the presentation, not
@@ -43,7 +49,7 @@
     margin: 0;
     padding-top: var(--chrome);
     font: 1rem/1.6 var(--sans);
-    background: #0b0d10;
+    background: #08090c;
     color: #e6e8ec;
     overflow-x: hidden;
   }
@@ -118,69 +124,6 @@
   }
 
   /* ================================================================
-     VARIANT "live" — the current page, reproduced as the baseline.
-     Class names match docs/index.html so the CSS stays comparable.
-     ================================================================ */
-  body[data-variant="live"] { background: #0e1013; }
-  .v-live {
-    --bg: #0e1013; --panel: #14171c; --line: #262b33;
-    --text: #e6e8ec; --dim: #969ba5;
-    color: var(--text);
-  }
-  .v-live .wrap { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem; }
-  .v-live a { color: var(--accent); }
-  .v-live code, .v-live .mono { font-family: var(--mono); font-size: 0.86em; }
-  .v-live header.top { padding: 2.25rem 0 0; }
-  .v-live .wordmark { font-family: var(--mono); font-size: 0.95rem; letter-spacing: 0.02em; }
-  .v-live .wordmark b { color: var(--accent); font-weight: 600; }
-  .v-live .wordmark span { color: var(--dim); }
-  .v-live h1 {
-    font-size: clamp(1.45rem, 7.6vw, 3rem); line-height: 1.12;
-    letter-spacing: -0.02em; margin: 1.5rem 0 0; font-weight: 620;
-  }
-  .v-live .lede { font-size: 1.08rem; color: #c9ced6; margin: 1.1rem 0 0; max-width: 34rem; }
-  .v-live .facts { font-family: var(--mono); font-size: 0.78rem; color: var(--dim); margin: 1.4rem 0 0; line-height: 2; }
-  .v-live .links { margin: 1.6rem 0 0; font-size: 0.95rem; }
-  .v-live .links a { margin-right: 1.4rem; }
-  .v-live section { padding: 3.25rem 0 0; }
-  .v-live .rule { height: 1px; background: var(--line); margin: 3.25rem 0 0; }
-  .v-live h2 {
-    font-size: 0.76rem; font-family: var(--mono); font-weight: 500;
-    text-transform: uppercase; letter-spacing: 0.14em; color: var(--dim); margin: 0 0 1.75rem;
-  }
-  .v-live h3 { font-size: 1.22rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; font-weight: 600; }
-  .v-live p { margin: 0 0 0.85rem; }
-  .v-live .claim { margin: 0 0 2.5rem; }
-  .v-live .claim:last-child { margin-bottom: 0; }
-  .v-live .claim p { color: #c9ced6; max-width: 36rem; }
-  .v-live .claim .under {
-    font-family: var(--mono); font-size: 0.76rem; color: var(--dim);
-    border-left: 2px solid var(--line); padding-left: 0.85rem; margin-top: 0.9rem;
-  }
-  .v-live .frames { display: grid; gap: 1.5rem 0.9rem; grid-template-columns: 1fr 1fr; }
-  .v-live .frame figure { margin: 0; }
-  .v-live .box {
-    background: var(--panel); border: 1px dashed var(--line); border-radius: 6px;
-    aspect-ratio: 9 / 16; display: flex; align-items: center; justify-content: center;
-    color: #4a515c; font-family: var(--mono); font-size: 0.7rem;
-    width: 100%; padding: 0; cursor: zoom-in;
-  }
-  .v-live .box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .v-live .frame figcaption { font-size: 0.82rem; color: var(--dim); margin-top: 0.5rem; line-height: 1.45; }
-  .v-live .frame .n { color: var(--accent); font-family: var(--mono); }
-  .v-live .shotnote { color: var(--dim); font-size: 0.85rem; margin-top: 1.4rem; }
-  .v-live .trail { margin-top: 1.1rem; }
-  .v-live .stats {
-    font-family: var(--mono); font-size: 0.76rem; color: var(--dim); line-height: 1.9;
-    margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem;
-  }
-  .v-live .honest { border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem 1.35rem; }
-  .v-live .honest ul { margin: 0; padding-left: 1.1rem; }
-  .v-live .honest li { margin: 0 0 0.7rem; color: #c9ced6; }
-  .v-live .honest li:last-child { margin-bottom: 0; }
-  .v-live .honest li b { color: var(--text); font-weight: 600; }
-
-  /* ================================================================
      Shared guide document. Same words in every variant; each variant
      restyles it. The pitch above it is what the variants disagree on.
      ================================================================ */
@@ -208,48 +151,16 @@
   .guide td code { overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.86em; }
   .guide .readmore { font-size: 0.9rem; }
 
-  /* live-variant skin for the shared guide */
-  .v-live .guide pre { background: var(--panel); border: 1px solid var(--line); }
-  .v-live .guide pre code { color: #cfd5de; }
-  .v-live .guide .step p { color: #c9ced6; }
-  .v-live .guide .need { border: 1px solid var(--line); color: #c9ced6; }
-  .v-live .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .v-live .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
-  .v-live .guide td { border-top: 1px solid var(--line); color: #c9ced6; }
-  .v-live .guide .readmore { color: var(--dim); }
-  .v-live footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
-  .v-live .under, .v-live .stats, .v-live .facts { overflow-wrap: break-word; }
-
-  @media (max-width: 30rem) {
-    .v-live .wrap { padding: 0 1rem; }
-    .v-live header.top { padding-top: 1.75rem; }
-    .v-live section { padding-top: 2.5rem; }
-    .v-live .rule { margin-top: 2.5rem; }
-    .v-live h2 { margin-bottom: 1.35rem; }
-    .v-live .lede { font-size: 1.02rem; }
-    .v-live .claim { margin-bottom: 2rem; }
-    .v-live .honest { padding: 1.25rem 1.1rem; }
-    .v-live .honest ul { padding-left: 1rem; }
-    .v-live .honest li { margin-bottom: 0.6rem; }
-    .v-live .guide .need { padding: 0.9rem 1rem; margin-bottom: 1.75rem; }
-    .v-live .guide .step { margin-bottom: 1.6rem; }
-    .v-live .frames { gap: 1.25rem 0.7rem; }
-    .v-live .frame figcaption { font-size: 0.78rem; }
-    .v-live .guide details.full > summary { padding: 1.2rem 0; }
-    .v-live footer { padding: 2.5rem 0 3rem; }
-  }
-
   /* ================================================================
-     THE VERTICAL RUN — the layout all three variations share.
-     The gutter holds the spine and the ticket chips. A stage name sits
-     on the same line as its node, so a chip parked on the node reads
-     its state straight off the label beside it.
+     THE VERTICAL RUN — the layout every variation shares.
+     The gutter holds the spine and the ticket cards. A stage name sits
+     on the same line as its node, so a card parked on the node reads
+     its state straight off the label beside it. The gutter is wide
+     enough for the left-aligned reader's card, so no phone cuts it off.
      ================================================================ */
-  body[data-variant="stream"], body[data-variant="lanes"], body[data-variant="descent"],
-  body[data-variant="story"], body[data-variant="cards"] { background: #08090c; }
   .v-run { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
   .v-run a { color: var(--accent); }
-  .v-run .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.1rem 0 4.75rem; }
+  .v-run .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.1rem 0 6.5rem; }
   .v-run .q-hero { padding: 3.5rem 0 3rem; }
   .v-run .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
   .v-run .q-mark b { color: var(--accent); font-weight: 600; }
@@ -340,7 +251,7 @@
   .v-run .guide .readmore { color: var(--dim); }
   .v-run footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
   @media (min-width: 40rem) {
-    .v-run .q-wrap { padding-left: 7rem; padding-right: 1.25rem; }
+    .v-run .q-wrap { padding-left: 10rem; padding-right: 1.25rem; }
   }
 
   /* ================================================================
@@ -867,91 +778,39 @@ function scrollProgress() {
 }
 
 /* ==================================================================
-   8. VARIANT "live" — the baseline. Same words, same structure, same
-   CSS as https://curia.sh today. Nothing here is new work.
-   ================================================================== */
-
-function mountLive(root) {
-  root.className = 'v-live';
-  function wrap(kids) { return h('div', { class: 'wrap' }, kids); }
-  function rule() { return h('div', { class: 'wrap' }, [h('div', { class: 'rule' })]); }
-
-  var head = h('header', { class: 'top' }, [wrap([
-    h('div', { class: 'wordmark' }, [
-      h('b', { text: CONTENT.wordmark }),
-      document.createTextNode(' '),
-      h('span', { text: '— ' + CONTENT.kicker })
-    ]),
-    h('h1', { html: CONTENT.headline[0] + '<br>' + CONTENT.headline[1] }),
-    h('p', { class: 'lede', text: CONTENT.lede }),
-    h('div', { class: 'facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }),
-    h('div', { class: 'links' }, [
-      h('a', { href: CONTENT.cta.href, text: CONTENT.cta.label }),
-      h('a', { href: CONTENT.source.href, text: CONTENT.source.label })
-    ])
-  ])]);
-
-  var claims = h('div', {});
-  CONTENT.claims.forEach(function (c) {
-    claims.appendChild(h('div', { class: 'claim' }, [
-      h('h3', { text: c.title }),
-      h('p', { text: c.body }),
-      h('div', { class: 'under', html: c.under.join('<br>') })
-    ]));
-  });
-  var s1 = h('section', {}, [wrap([h('h2', { text: CONTENT.claimsHeading }), claims])]);
-
-  var frames = h('div', { class: 'frames' });
-  CONTENT.frames.forEach(function (cap, i) {
-    frames.appendChild(h('div', { class: 'frame' }, [h('figure', {}, [
-      frameButton('box', i),
-      h('figcaption', {}, [h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)])
-    ])]));
-  });
-  var s2 = h('section', {}, [wrap([
-    h('h2', { text: CONTENT.proofHeading }), frames,
-    h('p', { class: 'shotnote', text: CONTENT.shotnote }),
-    trailNode('trail'), statsNode('stats')
-  ])]);
-
-  var s3 = h('section', {}, [wrap([h('h2', { text: CONTENT.honestHeading }), honestList('honest')])]);
-  var s4 = h('section', { id: 'setup' }, [wrap([h('h2', { text: CONTENT.guideHeading }), guideNode()])]);
-  var foot = h('footer', {}, [h('div', { class: 'wrap', html: CONTENT.footer })]);
-
-  root.appendChild(frag([head, rule(), s1, rule(), s2, rule(), s3, rule(), s4, foot]));
-  return { destroy: function () {} };
-}
-
-/* ==================================================================
    10. THE VERTICAL RUN
-   Operator, round 2: the vertical line carries the story while
-   scrolling, and the story should evolve from top to bottom.
-   Operator, round 3: "you move the ticket is a good start, lets
-   iterate from here", plus "story could start with one repo one
-   ticket, more tickets, then second repo, etc", plus "ticket cards
-   can be a bit bigger and have colorful state indicators", and
-   "intuitive understanding is the goal".
+   The locked baseline (#363 round 4, #508 round 1): the vertical line
+   carries the story, the reader's own ticket holds still as a big
+   left-aligned card, and its state changes as each stage passes it.
 
-     grow    — the run grows as you descend: one repo and one ticket,
-               then more tickets, then a second repo, then a third
-     descent — the same pinned ticket, without the growth
-     lanes   — three repos converging, without the pinned ticket
+   #508 round 1 verdict: bigger card in, but left-aligned instead of
+   cut off at the left edge. The growth story was too weak, multiple
+   repos had no visible evidence, and the map -> ticket hierarchy was
+   missing. Round 2 rebuilds the set on the operator's order: the
+   baseline plus five storytelling techniques, one per variation.
 
-   curia#508 iterates from descent, one change per variation:
-
-     story   — descent + the growth story, retold: the hero holds only
-               your ticket, companions appear after the first stage,
-               and a single second repo folds in at merged. The rejected
-               grow ran traffic from the top and reached three repos.
-     cards   — descent + a bigger reader's card that names its stage in
-               the stage color. Nothing else moves.
+     base  — the baseline alone. No traffic.
+     braid — three repo lines run in parallel from the first screen and
+             join into the one queue just above the reader's ticket.
+     tree  — the map card sits pinned at the top and every ticket is
+             born from it. The hierarchy is the picture.
+     acts  — the run grows in acts as the reader descends: one ticket,
+             then more tickets, then a second repo line, then a third.
+     stack — the queue is a visible pile at the top. It sends one
+             ticket at a time down the line.
+     trail — the line behind the reader's ticket keeps the color of
+             every stage it has passed. The journey paints itself.
 
    Every variation shares the page, the four stages and real numbers.
    ================================================================== */
 
 /* Real tickets from this map. A card that reaches merged is a ticket
-   curia really did merge. */
+   curia really did merge. The reader's own card is THIS ticket, and
+   the map card is the real map both belong to. The words "map 109"
+   already sit in the page copy, so the label adds no vocabulary. */
 var SPINE_TICKETS = ['110', '111', '112', '113', '114', '115', '117', '137', '363'];
+var MY_TICKET = '508';
+var MAP_ID = 'map 109';
 
 /* One color per state, so the state reads before the word does. Merged
    lands on the page's own accent, because merged is the good end. */
@@ -974,17 +833,21 @@ function startSpine(canvas, heads, mode, onStage) {
   }
 
   var narrow = function () { return window.innerWidth < 640; };
-  var spineX = function () { return narrow() ? 26 : 52; };
+  var spineX = function () { return narrow() ? 20 : 52; };
+  /* Repo lines sit this far from the queue, wide enough to read apart. */
+  var laneGap = function () { return narrow() ? 13 : 22; };
 
   var nodes = heads.map(function (hd) {
     return { el: hd.el, stage: hd.stage, y: 0, ty: 0, vy: 0, on: 0, onT: 0, hit: 0, pulse: 0, hot: false };
   });
   var cards = [], spawnAt = 0, seq = 0, raf = 0, last = 0, clock = 0;
-  var laneShown = 1;
-  /* The ticket the reader moves. It holds still and the page runs under it. */
-  var solo = (mode !== 'lanes')
-    ? { id: SPINE_TICKETS[SPINE_TICKETS.length - 1], at: 0, pop: 0 }
-    : null;
+  var laneShown = (mode === 'braid') ? 3 : 1;
+  /* The reader's ticket. It holds still and the page runs under it. */
+  var solo = { id: MY_TICKET, at: 0, pop: 0 };
+  /* The visible queue of the stack mode. Index 0 leaves first. */
+  var pile = [];
+  if (mode === 'stack') while (pile.length < 4) pile.push(SPINE_TICKETS[seq++]);
+  function pileY(i) { return 84 + (3 - i) * 27; }
 
   function layout() {
     var vh = window.innerHeight;
@@ -1008,47 +871,105 @@ function startSpine(canvas, heads, mode, onStage) {
     ctx.closePath();
   }
 
-  /* A ticket card: a dark chip with a colored state dot and its number.
-     Bigger than round 2, per the operator, and the dot is the state.
-     The cards mode goes further on the reader's own card: bigger again,
-     and the stage name sits on the card in the stage color, so the card
-     itself says what state it is in. */
-  function drawCard(x, y, id, st, a, swell, mine) {
-    var big = mine && mode === 'cards';
+  /* A companion ticket: a small chip whose dot sits on its line, with
+     the box extending right so the left page edge never cuts it. */
+  function drawChip(lx, y, id, st, a, swell) {
     var label = '#' + id;
-    var word = big ? CONTENT.stages[Math.min(st, 3)] : '';
-    var fs = big ? 14 : mine ? 12 : 11;
-    ctx.font = '600 ' + fs + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
     var tw = ctx.measureText(label).width;
-    var ww = big ? ctx.measureText(word).width : 0;
-    var w = tw + (big ? ww + 40 : 24) + swell * 3;
-    var hgt = (big ? 34 : mine ? 25 : 21) + swell * 2;
-    var rx = x - w / 2, ry = y - hgt / 2;
+    var w = 16 + tw + 9 + swell * 3;
+    var hgt = 22 + swell * 2;
+    var rx = lx - 8, ry = y - hgt / 2;
 
-    roundRect(rx, ry, w, hgt, 5);
+    roundRect(rx, ry, w, hgt, 6);
     ctx.fillStyle = 'rgba(10,13,17,' + (0.94 * a).toFixed(3) + ')';
     ctx.fill();
-    ctx.strokeStyle = state(st, ((mine ? 0.95 : 0.7) + swell * 0.3) * a);
-    ctx.lineWidth = mine ? 1.4 : 1;
+    ctx.strokeStyle = state(st, (0.7 + swell * 0.3) * a);
+    ctx.lineWidth = 1;
     ctx.stroke();
 
     if (swell > 0.02) {
-      ctx.beginPath(); ctx.arc(x, y, w * 0.62 + swell * 8, 0, 6.2832);
+      ctx.beginPath(); ctx.arc(lx, y, w * 0.6 + swell * 8, 0, 6.2832);
       ctx.fillStyle = state(st, (0.10 * swell * a).toFixed(3));
       ctx.fill();
     }
 
-    var dx = rx + (big ? 11 : 9);
-    ctx.beginPath(); ctx.arc(dx, y, big ? 5 : mine ? 4 : 3.4, 0, 6.2832);
+    ctx.beginPath(); ctx.arc(lx, y, 3.4, 0, 6.2832);
     ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
     ctx.fill();
-
-    ctx.fillStyle = 'rgba(226,233,241,' + (0.95 * a).toFixed(3) + ')';
+    ctx.fillStyle = 'rgba(226,233,241,' + (0.92 * a).toFixed(3) + ')';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, dx + (big ? 9 : 8), y + 0.5);
-    if (big) {
-      ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
-      ctx.fillText(word, dx + 9 + tw + 9, y + 0.5);
+    ctx.fillText(label, lx + 8, y + 0.5);
+  }
+
+  /* The reader's card, locked at #508 round 1: bigger than a chip,
+     left-aligned so no phone cuts it off, and it names its stage in
+     the stage color. The spine passes through its dot. */
+  function drawMine(y, st, pop) {
+    var sx = spineX();
+    var label = '#' + solo.id;
+    var word = CONTENT.stages[Math.min(st, 3)];
+    ctx.font = '700 13px ui-monospace, SFMono-Regular, Menlo, monospace';
+    var tw = ctx.measureText(label).width;
+    ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    var ww = ctx.measureText(word).width;
+    var w = (sx - 5) + 10 + Math.max(tw, ww) + 12 + pop * 3;
+    var hgt = 46 + pop * 3;
+    var ry = y - hgt / 2;
+
+    if (pop > 0.02) {
+      ctx.beginPath(); ctx.arc(sx, y, 30 + pop * 12, 0, 6.2832);
+      ctx.fillStyle = state(st, (0.12 * pop).toFixed(3));
+      ctx.fill();
+    }
+    roundRect(5, ry, w, hgt, 9);
+    ctx.fillStyle = 'rgba(10,13,17,0.95)';
+    ctx.fill();
+    ctx.strokeStyle = state(st, (0.9 + pop * 0.1).toFixed(3));
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(sx, y, 5, 0, 6.2832);
+    ctx.fillStyle = state(st, 0.95);
+    ctx.fill();
+
+    var tx = sx + 10;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = '700 13px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = 'rgba(226,233,241,0.96)';
+    ctx.fillText(label, tx, y - 9);
+    ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = state(st, 0.95);
+    ctx.fillText(word, tx, y + 10);
+  }
+
+  /* The map card of the tree mode: pinned at the top, on the line,
+     so every ticket visibly comes out of the map. */
+  function drawMapCard() {
+    var sx = spineX();
+    var y = 56;
+    ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
+    var tw = ctx.measureText(MAP_ID).width;
+    var w = (sx - 5) + 10 + tw + 12;
+    roundRect(5, y - 15, w, 30, 8);
+    ctx.fillStyle = 'rgba(10,13,17,0.95)';
+    ctx.fill();
+    ctx.strokeStyle = accent(0.75);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(sx, y, 4, 0, 6.2832);
+    ctx.fillStyle = accent(0.9);
+    ctx.fill();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(226,233,241,0.95)';
+    ctx.fillText(MAP_ID, sx + 10, y + 0.5);
+  }
+
+  /* The pile of the stack mode: the queue, visible, waiting its turn.
+     The chip nearest the run leaves next, so the queue reads downward. */
+  function drawPile() {
+    for (var i = pile.length - 1; i >= 0; i--) {
+      drawChip(spineX(), pileY(i), pile[i], 0, 0.9 - i * 0.12, 0);
     }
   }
 
@@ -1066,14 +987,30 @@ function startSpine(canvas, heads, mode, onStage) {
        which is what round 2 lost and round 3 keeps. */
     var flashScale = clamp(1 - window.scrollY / (vh * 1.6), 0.34, 1);
 
+    /* The reader's card and the join point both hold still on screen. */
+    var cy = H * 0.46;
+    var conv = cy - 64;
+
     /* How far down the run the reader has come. It drives the growth. */
     var phase = 0;
     for (var k = 0; k < nodes.length; k++) if (nodes[k].y <= vh * 0.55) phase = k + 1;
-    var laneWant = (mode === 'lanes') ? 3
-      : (mode === 'grow') ? (phase >= 3 ? 3 : phase >= 2 ? 2 : 1)
-      : (mode === 'story') ? (phase >= 4 ? 2 : 1)
+    var laneWant = (mode === 'braid') ? 3
+      : (mode === 'acts') ? (phase >= 3 ? 3 : phase >= 2 ? 2 : 1)
       : 1;
     laneShown = lerp(laneShown, laneWant, 0.05);
+
+    /* The stages the reader's ticket has passed. */
+    var reached = 0;
+    for (var m = 0; m < nodes.length; m++) if (nodes[m].y <= cy + 2) reached = m + 1;
+    if (reached !== solo.at) {
+      if (reached > solo.at) {
+        nodes[Math.min(reached - 1, nodes.length - 1)].pulse = 1;
+        solo.pop = 1;
+        if (onStage) onStage(reached - 1);
+      }
+      solo.at = reached;
+    }
+    solo.pop *= 0.9;
 
     /* Ambience: a column of light on the spine that never leaves. */
     var grad = ctx.createLinearGradient(sx - 30, 0, sx + 30, 0);
@@ -1087,20 +1024,36 @@ function startSpine(canvas, heads, mode, onStage) {
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
 
-    /* Repo lanes, above the first stage, folding into the one queue. */
-    var y0 = nodes.length ? nodes[0].y : 0;
-    var laneOff = [0, -17, 17];
-    if (y0 > 0 && laneShown > 1.02) {
+    /* Repo lines. They join the queue just above the reader's card, so
+       the join stays on screen wherever the reader is. */
+    if (laneShown > 1.02) {
       for (var li = 1; li < 3; li++) {
         var open = clamp(laneShown - li, 0, 1);
         if (open <= 0.01) continue;
-        ctx.strokeStyle = accent((0.13 * open + 0.04 * breath * open).toFixed(3));
+        var lx = sx + (li === 1 ? -1 : 1) * laneGap() * open;
+        ctx.strokeStyle = accent((0.16 * open + 0.05 * breath * open).toFixed(3));
         ctx.beginPath();
-        ctx.moveTo(sx + laneOff[li] * open, 0);
-        ctx.lineTo(sx + laneOff[li] * open, Math.max(0, y0 - 100));
-        ctx.quadraticCurveTo(sx + laneOff[li] * open, y0, sx, y0);
+        ctx.moveTo(lx, 0);
+        ctx.lineTo(lx, conv - 44);
+        ctx.quadraticCurveTo(lx, conv, sx, conv);
         ctx.stroke();
       }
+    }
+
+    /* The trail mode paints the line with the story so far: each span
+       the ticket has crossed keeps the color of the stage it ended at. */
+    if (mode === 'trail') {
+      ctx.lineWidth = 3;
+      for (var t2 = 0; t2 < reached; t2++) {
+        var top2 = t2 === 0 ? -20 : nodes[t2 - 1].y;
+        ctx.strokeStyle = state(t2, 0.8);
+        ctx.beginPath(); ctx.moveTo(sx, top2); ctx.lineTo(sx, nodes[t2].y); ctx.stroke();
+      }
+      if (reached > 0) {
+        ctx.strokeStyle = state(Math.min(reached, 3), 0.8);
+        ctx.beginPath(); ctx.moveTo(sx, nodes[reached - 1].y); ctx.lineTo(sx, cy - 28); ctx.stroke();
+      }
+      ctx.lineWidth = 1;
     }
 
     nodes.forEach(function (n) {
@@ -1124,23 +1077,36 @@ function startSpine(canvas, heads, mode, onStage) {
       ctx.fill();
     });
 
-    /* Traffic. It thickens as the run grows, so the page gets busier the
-       further the reader goes, which is the point the headline makes.
-       The story mode starts silent: one repo, one ticket — yours — and the
-       first companion appears only after the first stage has passed. */
-    var traffic = mode === 'grow' || mode === 'lanes' || (mode === 'story' && phase >= 1);
-    if (Motion.on && traffic) {
-      var gap = (mode === 'lanes') ? 2200
-        : (mode === 'story') ? Math.max(1400, 4200 - phase * 700)
-        : Math.max(900, 3200 - phase * 620);
-      if (ts > spawnAt) {
-        spawnAt = ts + gap + Math.random() * gap * 0.6;
-        cards.push({
-          id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length],
-          y: -26, v: 150 + Math.random() * 60, hold: 0, at: 0, fade: 1, pop: 0,
-          lane: seq % Math.max(1, Math.round(laneShown))
-        });
+    if (mode === 'tree') drawMapCard();
+    if (mode === 'stack') drawPile();
+
+    /* Traffic. Each mode tells its story with a different flow: the
+       braid runs three lines from the start, the tree births tickets
+       from the map card, the acts thicken with depth, the stack drains
+       its visible pile, and the trail stays sparse so the paint reads. */
+    var gap = (mode === 'braid') ? 1700
+      : (mode === 'tree') ? 1900
+      : (mode === 'acts') ? (phase >= 1 ? Math.max(1200, 3800 - phase * 800) : 0)
+      : (mode === 'stack') ? 2600
+      : (mode === 'trail') ? 4800
+      : 0;
+    if (Motion.on && gap && ts > spawnAt) {
+      spawnAt = ts + gap + Math.random() * gap * 0.5;
+      var lane = (mode === 'braid') ? (1 + seq) % 3
+        : (mode === 'acts') ? seq % clamp(Math.round(laneShown), 1, 3)
+        : 0;
+      var startY = (mode === 'tree') ? 76 : (mode === 'stack') ? pileY(0) : -26;
+      var id = SPINE_TICKETS[seq % SPINE_TICKETS.length];
+      if (mode === 'stack' && pile.length) {
+        id = pile.shift();
+        pile.push(SPINE_TICKETS[seq % SPINE_TICKETS.length]);
       }
+      seq++;
+      cards.push({
+        id: id, y: startY, v: 150 + Math.random() * 60,
+        hold: 0, at: 0, fade: 1, lane: lane,
+        pop: (mode === 'tree' || mode === 'stack') ? 1 : 0
+      });
     }
     for (var i = cards.length - 1; i >= 0; i--) {
       var c = cards[i];
@@ -1149,6 +1115,7 @@ function startSpine(canvas, heads, mode, onStage) {
         c.y += c.v * dt;
         for (var j = 0; j < nodes.length; j++) {
           if (j < c.at || nodes[j].y <= 0) continue;
+          if (c.lane > 0 && c.y < conv - 10) break;
           if (Math.abs(c.y - nodes[j].y) < 9) {
             c.at = j + 1; c.hold = 0.9; c.pop = 1;
             nodes[j].pulse = 1;
@@ -1162,30 +1129,16 @@ function startSpine(canvas, heads, mode, onStage) {
       if (c.fade <= 0 || c.y > H + 44) { cards.splice(i, 1); continue; }
 
       var cx = sx;
-      if (c.at === 0 && y0 > 0 && c.lane > 0) {
-        var t = clamp((y0 - c.y) / 100, 0, 1);
-        cx = sx + laneOff[c.lane] * t * clamp(laneShown - c.lane, 0, 1);
+      if (c.lane > 0) {
+        var t = clamp((conv - c.y) / 90, 0, 1);
+        cx = sx + (c.lane === 1 ? -1 : 1) * laneGap() * t * clamp(laneShown - c.lane, 0, 1);
       }
-      drawCard(cx, c.y, c.id, c.at, c.fade, c.pop, false);
+      drawChip(cx, c.y, c.id, c.at, c.fade, c.pop);
     }
     if (cards.length > 16) cards.splice(0, cards.length - 16);
 
-    if (solo) {
-      /* The reader's own ticket. It holds still and the stages come to it. */
-      var y = H * 0.46;
-      var reached = 0;
-      for (var m = 0; m < nodes.length; m++) if (nodes[m].y <= y + 2) reached = m + 1;
-      if (reached !== solo.at) {
-        if (reached > solo.at) {
-          nodes[Math.min(reached - 1, nodes.length - 1)].pulse = 1;
-          solo.pop = 1;
-          if (onStage) onStage(reached - 1);
-        }
-        solo.at = reached;
-      }
-      solo.pop *= 0.9;
-      drawCard(sx, y, solo.id, solo.at, 1, solo.pop, true);
-    }
+    /* The reader's own ticket, drawn last so nothing covers it. */
+    drawMine(cy, solo.at, solo.pop);
   }
 
   size(); layout();
@@ -1307,16 +1260,16 @@ function makeRun(mode) {
    the operator sends back "the header from B with the spine from C".
    ================================================================== */
 
-/* descent is the locked-in base from #363. story and cards are the #508
-   candidates, each one change away from it. The rest stay as the record
-   of what was tried, which is what a prototype is for. */
+/* base is the locked baseline. The five others each explore one
+   storytelling technique on top of it (#508 round 2). The cut variants
+   live on in git history and in NOTES.md. */
 var VARIANTS = [
-  { key: 'descent', name: 'You move the ticket', note: 'LOCKED IN at #363', mount: makeRun('descent') },
-  { key: 'story', name: 'The run fills', note: '#508 candidate', mount: makeRun('story') },
-  { key: 'cards', name: 'Bigger ticket card', note: '#508 candidate', mount: makeRun('cards') },
-  { key: 'live', name: 'The live page', note: 'the page as it is today', mount: mountLive },
-  { key: 'grow', name: 'The run grows', note: 'not chosen', mount: makeRun('grow') },
-  { key: 'lanes', name: 'Many repos, one queue', note: 'not chosen', mount: makeRun('lanes') }
+  { key: 'base', name: 'You move the ticket', note: 'the locked baseline', mount: makeRun('base') },
+  { key: 'braid', name: 'Three lines, one queue', note: '#508 candidate', mount: makeRun('braid') },
+  { key: 'tree', name: 'The map births tickets', note: '#508 candidate', mount: makeRun('tree') },
+  { key: 'acts', name: 'The run grows in acts', note: '#508 candidate', mount: makeRun('acts') },
+  { key: 'stack', name: 'The queue drains', note: '#508 candidate', mount: makeRun('stack') },
+  { key: 'trail', name: 'The line remembers', note: '#508 candidate', mount: makeRun('trail') }
 ];
 
 var main = document.getElementById('main');
@@ -1326,7 +1279,7 @@ var current = null, at = 0;
 
 function indexFromUrl() {
   var m = /[?&]variant=([^&]+)/.exec(location.search);
-  var key = m ? decodeURIComponent(m[1]) : 'descent';
+  var key = m ? decodeURIComponent(m[1]) : 'base';
   for (var i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return i;
   return 0;
 }
