@@ -102,7 +102,7 @@ What it buys is enforcement. Since [#391](https://github.com/alp82/curia/issues/
 
 Run it only on a daemon that carries the #391 code. Turned on earlier it blocks every curia pull request behind an approval nobody posts.
 
-**This box protects `alp82/curia` and nothing else**, settled on [#391](https://github.com/alp82/curia/issues/391). It takes almost every dispatch. The other three watched repos keep the standing orders as their only guard, and each one takes the same command whenever you want it.
+**This box protects NOTHING**, decided on [#479](https://github.com/alp82/curia/issues/479). The operator ruled the rule out on every watched repo, `alp82/curia` included. So the standing orders are the only guard on all four, and GitHub refuses no merge of curia's. [The live check](live-checks/391-gate-approval.md) section 4 carries the reading. The command above stays here, and any repo takes it whenever you want it.
 
 Run this once per protected repo, with your own `gh` login:
 
