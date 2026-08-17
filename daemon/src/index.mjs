@@ -2472,12 +2472,17 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     // Same containment as the MCP path: /escalate is loopback-only, but it must
     // not be the softer way to hand the bridge an arbitrary file.
     const { files } = outboundFiles(agent, body.images ?? body.files)
+    // `?wait` is what makes this call a blocked one, so it is also what the
+    // record says about itself (#489). Without it the caller has its answer
+    // already — the id — and the boot sweep must not read this record as an
+    // agent parked in a call.
+    const waits = Boolean(url.searchParams.get('wait'))
     const { record, answered } = openEscalation({
       agent, ticket: body.ticket ?? 'unknown',
       kind: body.kind ?? 'approve-reject', prompt: body.prompt ?? '(no prompt)',
-      options: body.options, preview_url: body.preview_url, files,
+      options: body.options, preview_url: body.preview_url, files, awaited: waits,
     })
-    if (url.searchParams.get('wait')) {
+    if (waits) {
       const { text, attachments } = await answered
       return json(200, { id: record.id, answer: text, attachments })
     }

@@ -7,6 +7,8 @@
 //   3. the deaths — a REAL daemon, a REAL blocked `ask_human` over the MCP
 //      transport an agent uses, and the two deaths a test can stage: the restart
 //      order and a deploy's SIGTERM
+//   4. the death that says nothing — a real SIGKILL, and the journal left saying
+//      so, which is the gate on the boot sweep (#489)
 //
 // Layer 3 is the one that matters, and it is the reason this file boots the
 // shipped code rather than an extraction. The claim is about a tool result
@@ -22,7 +24,10 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GOODBYE_WAIT_S, questionGoodbye, parkGoodbye, sayGoodbye } from '../src/goodbye.mjs'
+import {
+  GOODBYE_WAIT_S, questionGoodbye, parkGoodbye, sayGoodbye,
+  deathWasSilent, DAEMON_BOOT, DAEMON_GOODBYE,
+} from '../src/goodbye.mjs'
 import { installCrashGuard } from '../src/health.mjs'
 import { TOKEN_HEADER, mintAgentToken } from '../src/agenttoken.mjs'
 import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
@@ -417,5 +422,64 @@ describe('a deploy SIGTERM says the same goodbye (#458, real boot)', () => {
     assert.equal(said.length, 1)
     assert.equal(said[0].reason, 'sigterm')
     assert.equal(said[0].woken, 1)
+  })
+})
+
+// ---- 4. the death that says nothing (#489, the boot sweep's gate) -------------
+//
+// The sweep presses Escape in an agent's pane, and #457 measured what that costs
+// when the call is really live: the human's answer is lost in silence. So the
+// gate has to be evidence rather than a guess. It is two journal lines — one per
+// process at its start, one at its end when the daemon can speak — and the LAST
+// of the two says how the last daemon died.
+//
+// A real SIGKILL is the only honest way to prove the negative half, and this is
+// the same fixture the two deaths above use.
+
+describe('a SIGKILL leaves the journal saying nobody was told (#489, real boot)', () => {
+  let held
+
+  const lifecycle = () => journalEvents(held.dataDir)
+    .filter((e) => e.type === DAEMON_BOOT || e.type === DAEMON_GOODBYE)
+    .map((e) => e.type)
+
+  before(async () => {
+    held = await daemonHoldingAQuestion('curia-panesweep-')
+    // The blocked call never returns from a SIGKILL, and an unread rejection
+    // must not fail this suite for the death it is here to stage.
+    held.asked.catch(() => {})
+  })
+
+  after(() => {
+    if (held?.child && held.child.exitCode === null) held.child.kill('SIGKILL')
+    fs.rmSync(held.tmp, { recursive: true, force: true })
+  })
+
+  test('a live daemon has written its boot line, and nothing has said goodbye yet', () => {
+    assert.deepEqual(lifecycle(), [DAEMON_BOOT])
+    assert.equal(deathWasSilent(lifecycle().at(-1)), true)
+  })
+
+  test('the record a blocked call holds says a call is waiting on it', async () => {
+    const state = JSON.parse((await request(held.port, 'GET', '/state')).body)
+    assert.equal(state.open_escalations[0].awaited, true, 'the boot sweep asks the record this')
+  })
+
+  test('an escalate with no ?wait opens a record no call is blocked on', async () => {
+    await request(held.port, 'POST', '/escalate', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'synthetic', ticket: '998', kind: 'free-text', prompt: 'nobody waits on this' }),
+    })
+    const state = JSON.parse((await request(held.port, 'GET', '/state')).body)
+    const record = state.open_escalations.find((r) => String(r.ticket) === '998')
+    assert.equal(record.awaited, false, 'the caller already has its answer — the id')
+  })
+
+  test('the KILL writes no goodbye, so the last line stays the boot one', async () => {
+    held.child.kill('SIGKILL')
+    await new Promise((done) => held.child.once('close', done))
+
+    assert.deepEqual(lifecycle(), [DAEMON_BOOT], 'this is the death #458 cannot cover')
+    assert.equal(deathWasSilent(lifecycle().at(-1)), true, 'the next boot sweeps')
   })
 })
