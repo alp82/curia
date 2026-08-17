@@ -28,20 +28,20 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `epic` | The story on one screen | #508 candidate. The opening tells everything at once: map cards feed the lines, buds branch along the ride, the relay story runs below. |
-| `chapters` | Maps open and close | #508 candidate. Each map owns a stretch of the ride, opens with its card on its line, closes with a burst, and two maps overlap at a handoff. |
-| `hud` | A map of the ride | #508 candidate. A tiny map of the whole ride sits pinned at the top of the gutter, with the reader's position moving on it. |
-| `harvest` | Merged work piles up | #508 candidate. Every companion that reaches merged lands on a growing pile at the bottom of the gutter. |
-| `flags` | Open maps fly at the top | #508 candidate. The maps that are open right now fly at the top of the gutter, and a closed map leaves the pole. |
+| `atlas` | Maps as hubs and spokes | #508 candidate. Each map card hangs center stage with its tickets on spokes, and the lines fall out of the hubs into the queue. |
+| `chart` | The map is a tree | #508 candidate. map 109 with its children indented under it, and the rows detach one by one and ride the queue as you scroll. |
+| `wide` | The overview lies sideways | #508 candidate. A horizontal line runs through all four stages with the maps feeding it from above, then the ride turns vertical. |
+| `weave` | The line weaves the page | #508 candidate. The line runs side to side down the whole page, and a map card holds the center of the screen at every turn. |
+| `grand` | Grand central stations | #508 candidate. The line detours to the center at every stage, into a full-width band where the map card and a bigger station sit. |
 
-Every round 5 candidate shares the mix the operator kept: the combined opening with the title
-fully readable at the bottom of the first screen, three map cards feeding three bright lines,
-typed two-row companions, and the three-row reader's card.
+Every round 6 candidate keeps what is locked: typed two-row companions, the three-row reader's
+card, the four stages, and the title fully readable at the bottom of the first screen.
 
 The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
 of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`), of round 3 (`flood`, `metro`, `dock`,
-`palm`, `swell`) and of round 4 (`voyage`, `relay`, `kinds`, `poster`, `grove`) were removed on
-the operator's orders. Git history keeps them.
+`palm`, `swell`), of round 4 (`voyage`, `relay`, `kinds`, `poster`, `grove`) and of round 5
+(`epic`, `chapters`, `hud`, `harvest`, `flags`) were removed on the operator's orders. Git
+history keeps them.
 
 All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
@@ -112,7 +112,15 @@ fully readable at the bottom of the first screen.
 **Round 5.** The kept mix became the shared frame: typed two-row companions, the three-row
 reader's card, wider and brighter lines, dashed map cards that never read as tickets, and a
 compressed opening stage above the title. Five identities beside `base`: `epic`, `chapters`,
-`hud`, `harvest` and `flags`.
+`hud`, `harvest` and `flags`. The verdict: the map visualization did not make sense, and the
+maps must be more central.
+
+**Round 6.** The maps hold the center, five ways: `atlas` hangs them as hubs with their tickets
+on spokes, `chart` draws map 109 as a real indented tree that drains into the queue, `wide` lays
+the overview sideways before the ride turns vertical, `weave` runs the line side to side with a
+map card centered at every turn, and `grand` detours the line into a full-width map band at
+every stage. The line, the stations, the companions and the reader's card all ride one shared
+path function now, so a candidate can put the line anywhere on the screen.
 
 ## The rule the variations share
 
