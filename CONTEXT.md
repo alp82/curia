@@ -619,7 +619,7 @@ What the dashboard shows while the daemon does not answer. The page keeps the la
 `dashboard.poll_interval_s`, the age at which the sidecar re-reads the overview. It is a ceiling, not a clock: the sidecar reads only when a page asks and the snapshot is older than this. A browser asks while its tab is visible and stops when it is hidden. So a forgotten tab costs nothing, and many open tabs still cost one read. One read costs no journal read at all: what the overview says about the recent past is reduced in memory as events are written, so the price of a poll does not rise with the history.
 
 **Status line**:
-One Discord message per agent, written by the daemon, that says what the agent is doing now. A state change reposts it at the thread bottom. Everything else edits it in place.
+One Discord message per agent, written by the daemon, that says what the agent is doing now. It carries a state icon and the meters. It names no session, because the thread already says which ticket this is, and the `working` state is the icon alone. It sits at the bottom of the thread. A state change reposts it there, and so does every other post the bridge makes into that thread. The bridge reports each post, keyed by the thread it lands in. The line's own post reports nothing, so a move never triggers itself. The meter tick edits in place (#480).
 
 **Meter**:
 A number the status line carries beside the state: the model name, its reasoning effort, the context percent, and the account usage bars. Each meter has its own source and drops alone when that source is silent. Meters drop from the tail when the line runs out of columns. The model is the exception: the escalation title is cut to keep it.

@@ -589,6 +589,40 @@ describe('StatusLine', () => {
       await l.settle()
       assert.deepEqual(removals, [], 'no delete against a message that never existed')
     })
+
+    // The thread binding keys by string; a journal event may carry the number.
+    test('the number and the string are one ticket', async () => {
+      line.onEvent({ type: 'agent_ready', agent: 'curia-1', ticket: 1, model: 'opus', ts: 'T' })
+      await drain()
+      line.bump('1')
+      await drain()
+      assert.equal(posts.length, 2, 'the string report moves the line the number drew')
+    })
+
+    // A burst is the normal case: a receipt beside a card, a breadcrumb beside
+    // a rename. One move puts the line under all of them, and each extra one
+    // spends a delete and a post against the rate limit real messages need.
+    test('a burst of reports costs one move', async () => {
+      line.onEvent({ type: 'agent_ready', agent: 'curia-1', ticket: '1', model: 'opus', ts: 'T' })
+      await drain()
+      line.bump('1')
+      line.bump('1')
+      line.bump('1')
+      await drain()
+      assert.equal(posts.length, 2, 'one repost, not three')
+      assert.deepEqual(removals, ['m1'])
+    })
+
+    test('a report after the move earns its own move', async () => {
+      line.onEvent({ type: 'agent_ready', agent: 'curia-1', ticket: '1', model: 'opus', ts: 'T' })
+      await drain()
+      line.bump('1')
+      await drain()
+      line.bump('1')
+      await drain()
+      assert.equal(posts.length, 3)
+      assert.deepEqual(removals, ['m1', 'm2'])
+    })
   })
 
   test('the reduction append hook delivers live events and stays silent on replay', async () => {
