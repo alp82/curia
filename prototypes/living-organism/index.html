@@ -8,20 +8,19 @@
 
   The baseline is locked (#363 round 4, #508 round 1): the vertical run,
   the reader's own ticket held still as a big left-aligned card, and its
-  state changing as each stage passes. #508 round 4 explores the chosen
-  dock + metro combination: every candidate opens full screen with three
-  lines joining the one queue through labeled stations, then docks into
-  the gutter. Switch with ?variant= and the bottom bar:
+  state changing as each stage passes. #508 round 5 keeps the operator's
+  mix — typed big cards, visible parallel lines, clear maps, a rich
+  opening above a fully readable title — and tries five identities.
+  Switch with ?variant= and the bottom bar:
 
-    base   — the locked baseline alone, no traffic, no stage
-    voyage — the pure combination, with ticket buds along the ride
-    relay  — the lines finish one after the other as maps complete,
-             and a new one opens along the ride
-    kinds  — tickets ride as their wayfinder type: research, prototype,
-             grilling
-    poster — the cards go big
-    grove  — every line carries its map card, and ticket buds branch
-             off below it
+    base     — the locked baseline alone, no traffic, no stage
+    epic     — the opening tells everything at once, buds line the ride
+    chapters — each map owns a stretch of the ride and closes with a
+               burst, and two maps overlap at every handoff
+    hud      — a tiny map of the ride pinned at the top, with the
+               reader's position moving on it
+    harvest  — merged companions land on a growing pile
+    flags    — the open maps fly at the top of the gutter
 
   The variants of earlier rounds live on in git history and in NOTES.md.
 
@@ -256,9 +255,10 @@
   @media (min-width: 40rem) {
     .v-run .q-wrap { padding-left: 10rem; padding-right: 1.25rem; }
   }
-  /* The dock mode opens with a full-screen stage before the copy.
-     Without motion there is no stage, so the gap collapses. */
-  .m-dock .q-hero { padding-top: 92vh; }
+  /* The combined modes open with a stage on the first screen, and the
+     title sits fully readable at the bottom of the viewport (#508
+     round 4). Without motion there is no stage, so the gap collapses. */
+  .m-dock .q-hero { padding-top: 62vh; }
   body.nomotion .m-dock .q-hero { padding-top: 3.5rem; }
 
   /* ================================================================
@@ -790,24 +790,28 @@ function scrollProgress() {
    carries the story, the reader's own ticket holds still as a big
    left-aligned card, and its state changes as each stage passes it.
 
-   #508 round 3 verdict: the dock and metro combination is the
-   direction. The line connections were a bit off, the arcs in general
-   stay. Round 4 explores the combined experience: every candidate
-   opens full screen with three lines joining the one queue through
-   the labeled stages, then docks into the gutter as the copy arrives.
-   The joins ease in and out now, so no connection kinks.
+   #508 round 4 verdict: kinds is awesome, poster folds in, relay
+   makes sense but the parallel repos were almost invisible, the maps
+   must be clearer and show several at once as the story moves, the
+   hero can show much more, and the title must sit fully readable at
+   the bottom of the first screen. Round 5 folds all of that into the
+   shared frame: typed two-row companions, a three-row reader's card,
+   wider brighter lines, dashed map cards, a compressed opening stage
+   above the title. Five identities on top:
 
-     base   — the locked baseline alone. No traffic, no stage.
-     voyage — the pure combination, with ticket buds along the ride.
-     relay  — the lines finish one after the other as maps complete,
-              and a new one opens along the ride.
-     kinds  — the tickets ride as their wayfinder type: research,
-              prototype, grilling. The reader's card says prototype,
-              which #508 really is.
-     poster — the cards go big: two-row companions, a three-row
-              reader's card.
-     grove  — every line carries its map card, and ticket buds branch
-              off below each one. The real maps: 109, 99, 90.
+     base     — the locked baseline alone. No traffic, no stage.
+     epic     — the opening tells everything at once: map cards feed
+                the lines, buds branch along the whole ride, and the
+                relay story runs below.
+     chapters — each map owns a stretch of the ride. It opens with its
+                card on its line and closes with a burst, and two maps
+                overlap at every handoff.
+     hud      — a tiny map of the whole ride sits pinned at the top of
+                the gutter, with the reader's position moving on it.
+     harvest  — every companion that reaches merged lands on a growing
+                pile at the bottom of the gutter.
+     flags    — the maps that are open right now fly at the top of the
+                gutter, and a closed map leaves the pole.
 
    Every variation shares the page, the four stages and real numbers.
    ================================================================== */
@@ -839,15 +843,17 @@ function startSpine(canvas, heads, mode, onStage) {
 
   var narrow = function () { return window.innerWidth < 640; };
   var spineX = function () { return narrow() ? 20 : 52; };
-  /* Repo lines sit this far from the queue, wide enough to read apart. */
-  var laneGap = function () { return narrow() ? 13 : 22; };
+  /* Repo lines sit this far from the queue, wide enough to read apart
+     (#508 round 4: the parallel repos were almost invisible). */
+  var laneGap = function () { return narrow() ? 15 : 24; };
   function ease(t) { return t * t * (3 - 2 * t); }
   function smooth(a, b, v) { return ease(clamp((v - a) / (b - a), 0, 1)); }
 
-  /* Every round 4 candidate is the dock + metro combination. base is
-     the locked baseline and stays plain. */
+  /* Every round 5 candidate shares the mix the operator kept: the
+     combined opening, typed cards, big cards, the relay story and
+     visible maps. base is the locked baseline and stays plain. */
   var combined = mode !== 'base';
-  var hasPageLanes = mode === 'relay' || mode === 'grove';
+  var hasPageLanes = combined;
   var TYPE_WORDS = ['research', 'prototype', 'grilling'];
   var MAP_LABELS = ['map 109', 'map 99', 'map 90'];
 
@@ -857,9 +863,11 @@ function startSpine(canvas, heads, mode, onStage) {
   var cards = [], spawnAt = 0, seq = 0, raf = 0, last = 0, clock = 0;
   /* The reader's ticket. It holds still and the page runs under it. */
   var solo = { id: MY_TICKET, at: 0, pop: 0 };
-  /* The stations of the opening stage, and the relay life of each line. */
+  /* The stations of the opening stage, and the life of each line. */
   var demoPulse = [0, 0, 0, 0];
-  var laneLife = [1, 1, 1], laneBurst = [0, 0, 0], lastPhase = 0;
+  var laneLife = [1, 1, 1], prevLife = [1, 1, 1], laneBurst = [0, 0, 0], lastPhase = 0;
+  /* harvest: merged tickets land on a pile instead of vanishing. */
+  var pileCount = 0, mergeBurst = 0;
   /* Geometry shared between the frame and laneX, set every frame. */
   var dockP = 1, sxNow = 0, convNow = 0, vhNow = 0;
 
@@ -885,24 +893,20 @@ function startSpine(canvas, heads, mode, onStage) {
     ctx.closePath();
   }
 
-  /* A companion ticket: a chip whose dot sits on its line, with the
-     box extending right so the left page edge never cuts it. In kinds
-     mode it says its wayfinder type instead of a number, so no real
-     ticket gets a type this page cannot verify. In poster mode it
-     grows into a two-row card with its stage word. */
+  /* A companion ticket: a card whose dot sits on its line. Round 4
+     folded kinds and poster in: every companion says its wayfinder
+     type and its stage, and no companion carries a ticket number,
+     because the page cannot verify a type for every real number. */
   function drawChip(lx, y, c) {
-    var label = (mode === 'kinds' && c.word) ? c.word : '#' + c.id;
-    var sub = (mode === 'poster') ? CONTENT.stages[Math.min(c.at, 3)] : null;
+    var label = c.word;
+    var sub = CONTENT.stages[Math.min(c.at, 3)];
     var a = c.fade, swell = c.pop, st = c.at;
-    var fs = (mode === 'poster') ? 12 : 11;
-    ctx.font = '600 ' + fs + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
     var tw = ctx.measureText(label).width;
-    if (sub) {
-      ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      tw = Math.max(tw, ctx.measureText(sub).width);
-    }
+    ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    tw = Math.max(tw, ctx.measureText(sub).width);
     var w = 16 + tw + 9 + swell * 3;
-    var hgt = (sub ? 38 : 22) + swell * 2;
+    var hgt = 36 + swell * 2;
     var rx = lx - 8, ry = y - hgt / 2;
 
     roundRect(rx, ry, w, hgt, 6);
@@ -922,14 +926,36 @@ function startSpine(canvas, heads, mode, onStage) {
     ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
     ctx.fill();
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.font = '600 ' + fs + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
     ctx.fillStyle = 'rgba(226,233,241,' + (0.92 * a).toFixed(3) + ')';
-    ctx.fillText(label, lx + 8, y + (sub ? -7.5 : 0.5));
-    if (sub) {
-      ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.fillStyle = state(st, (0.9 * a).toFixed(3));
-      ctx.fillText(sub, lx + 8, y + 9.5);
-    }
+    ctx.fillText(label, lx + 8, y - 7.5);
+    ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.fillStyle = state(st, (0.9 * a).toFixed(3));
+    ctx.fillText(sub, lx + 8, y + 9.5);
+  }
+
+  /* A map card: dashed accent border and the word map, so a map never
+     reads as a ticket. The three labels are this repo's real maps. */
+  function drawMapChip(x, y, label, a) {
+    if (a <= 0.02) return;
+    ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+    var tw = ctx.measureText(label).width;
+    var w = 16 + tw + 10;
+    roundRect(x - 8, y - 13, w, 26, 7);
+    ctx.fillStyle = 'rgba(10,13,17,' + (0.94 * a).toFixed(3) + ')';
+    ctx.fill();
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = accent((0.85 * a).toFixed(3));
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 6.2832);
+    ctx.fillStyle = accent((0.9 * a).toFixed(3));
+    ctx.fill();
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(226,233,241,' + (0.92 * a).toFixed(3) + ')';
+    ctx.fillText(label, x + 8, y + 0.5);
   }
 
   /* The reader's card, locked at #508 round 1: bigger than a chip,
@@ -941,8 +967,8 @@ function startSpine(canvas, heads, mode, onStage) {
     if (alpha <= 0.01) return;
     var label = '#' + solo.id;
     var word = CONTENT.stages[Math.min(st, 3)];
-    var kind = (mode === 'kinds' || mode === 'poster') ? 'prototype' : null;
-    var big = mode === 'poster';
+    var kind = combined ? 'prototype' : null;
+    var big = combined;
     ctx.globalAlpha = alpha;
     ctx.font = '700 ' + (big ? 15 : 13) + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
     var tw = ctx.measureText(label).width;
@@ -997,7 +1023,7 @@ function startSpine(canvas, heads, mode, onStage) {
     var offStage = (l === 1 ? -1 : 1) * W * 0.2;
     var offG = laneGap() * l;
     var off = lerp(offStage, offG, dockP);
-    var x = sxNow + off * (1 - smooth(0, vhNow * 0.3, docY));
+    var x = sxNow + off * (1 - smooth(vhNow * 0.08, vhNow * 0.22, docY));
     if (hasPageLanes) {
       var em = smooth(vhNow * 1.05, vhNow * 1.4, docY);
       var jf = smooth(convNow - 70, convNow, vy);
@@ -1050,17 +1076,24 @@ function startSpine(canvas, heads, mode, onStage) {
     var phase = 0;
     for (var k = 0; k < nodes.length; k++) if (nodes[k].y <= vh * 0.55) phase = k + 1;
 
-    /* relay: the lines finish one after the other as their maps
-       complete, and a new one opens along the ride. A burst ring marks
-       each event, so the growth is seen, not inferred. */
-    if (mode === 'relay') {
-      if (phase !== lastPhase) {
-        if (phase === 2) laneBurst[1] = 1;
-        if (phase >= 3 && lastPhase < 3) { laneBurst[2] = 1; laneBurst[1] = 1; }
-        lastPhase = phase;
-      }
+    /* The life of each line. epic and flags run the relay story: maps
+       finish one after the other, and a new one opens along the ride.
+       chapters ties each map to a stretch of the ride, with overlaps,
+       so two maps show at every handoff. A burst ring marks a close. */
+    if (mode === 'epic' || mode === 'flags') {
       laneLife[1] = lerp(laneLife[1], (phase >= 3) ? 1 : (phase >= 2 ? 0 : 1), 0.04);
       laneLife[2] = lerp(laneLife[2], (phase >= 3) ? 0 : 1, 0.04);
+    } else if (mode === 'chapters') {
+      for (var ch = 0; ch < 3; ch++) {
+        var chStart = vh * 0.95 + ch * 1250;
+        var chAlive = (ch === 0 ? 1 : smooth(chStart - 350, chStart, window.scrollY))
+          * (ch === 2 ? 1 : (1 - smooth(chStart + 1600, chStart + 1950, window.scrollY)));
+        laneLife[ch] = Math.max(1 - dockP, chAlive);
+      }
+    }
+    for (var pl = 0; pl < 3; pl++) {
+      if (prevLife[pl] >= 0.5 && laneLife[pl] < 0.5) laneBurst[pl] = 1;
+      prevLife[pl] = laneLife[pl];
     }
 
     /* The stages the reader's ticket has passed. */
@@ -1088,14 +1121,13 @@ function startSpine(canvas, heads, mode, onStage) {
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
 
-    /* The two side lines, drawn along their whole visible path. Once
-       they have joined for good and no page lanes exist, they sit on
-       the spine and need no strokes of their own. */
-    if (combined && (hasPageLanes || window.scrollY < vh * 0.5)) {
+    /* The two side lines, drawn along their whole visible path, bright
+       enough to read as parallel repos (#508 round 4). */
+    if (combined) {
       for (var li = 1; li < 3; li++) {
         var lifeA = laneLife[li];
         if (lifeA > 0.03) {
-          ctx.strokeStyle = accent((0.17 * lifeA + 0.05 * breath * lifeA).toFixed(3));
+          ctx.strokeStyle = accent((0.30 * lifeA + 0.06 * breath * lifeA).toFixed(3));
           ctx.beginPath();
           var started = false;
           for (var vy = -8; vy <= H + 8; vy += 12) {
@@ -1114,12 +1146,17 @@ function startSpine(canvas, heads, mode, onStage) {
       }
     }
 
-    /* The opening stage: four labeled stations play the whole run on
-       the first screen, before the copy arrives. The labels reuse the
-       page's own stage words and fade as the stage docks. */
+    /* The opening stage: the three map cards feed three lines, and
+       four labeled stations play the whole run above the title. The
+       labels reuse the page's own stage words and fade as the stage
+       docks. */
     if (combined) {
+      for (var hm = 0; hm < 3; hm++) {
+        var hy = vh * 0.05 + 6 - window.scrollY;
+        if (hy > -30) drawMapChip(laneX(hm, hy), hy, MAP_LABELS[hm], Math.max(laneLife[hm], 1 - dockP));
+      }
       for (var di = 0; di < 4; di++) {
-        var dvy = vh * (0.38 + 0.155 * di) + 20 - window.scrollY;
+        var dvy = vh * (0.26 + 0.10 * di) + 20 - window.scrollY;
         if (dvy < -40 || dvy > H + 40) continue;
         demoPulse[di] *= 0.94;
         var dglow = 0.14 + demoPulse[di] * 0.2;
@@ -1136,31 +1173,59 @@ function startSpine(canvas, heads, mode, onStage) {
       }
     }
 
-    /* The buds, and in grove mode the map card of every line. */
-    if (combined && mode !== 'relay') {
-      if (mode === 'grove') {
-        for (var gl = 0; gl < 3; gl++) {
-          var ringDoc = vh * 1.2 + gl * 560;
-          var rvy = ringDoc - window.scrollY;
-          if (rvy < -220 || rvy > H + 80) continue;
-          var rx2 = laneX(gl, rvy);
-          ctx.beginPath(); ctx.arc(rx2, rvy, 7, 0, 6.2832);
-          ctx.strokeStyle = accent(0.8);
-          ctx.stroke();
-          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-          ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-          ctx.fillStyle = accent(0.85);
-          ctx.fillText(MAP_LABELS[gl], rx2 + 12, rvy);
-          drawBud(laneX(gl, rvy + 30), rvy + 30, 1);
-          drawBud(laneX(gl, rvy + 120), rvy + 120, 0.8);
-        }
-      } else {
-        for (var bk = 0; bk < 6; bk++) {
-          var bvy = vh * 1.25 + bk * 430 - window.scrollY;
-          if (bvy > -70 && bvy < H + 70) drawBud(sx, bvy, 1);
-        }
+    /* What each candidate adds on the ride. */
+    if (mode === 'epic') {
+      for (var bk = 0; bk < 6; bk++) {
+        var bvy = vh * 1.1 + bk * 430 - window.scrollY;
+        if (bvy > -70 && bvy < H + 70) drawBud(laneX(bk % 3, bvy), bvy, laneLife[bk % 3]);
+      }
+    } else if (mode === 'chapters') {
+      for (var cm = 0; cm < 3; cm++) {
+        var cvy = vh * 0.95 + cm * 1250 + 90 - window.scrollY;
+        if (cvy > -40 && cvy < H + 40) drawMapChip(laneX(cm, cvy), cvy, MAP_LABELS[cm], laneLife[cm]);
+      }
+    } else if (mode === 'hud') {
+      /* The ride map: three tiny lines, the four station dots and the
+         reader's moving position, pinned under the yellow bar. */
+      var hy0 = 42, hh = 74;
+      ctx.strokeStyle = accent(0.5);
+      for (var hl = 0; hl < 3; hl++) {
+        ctx.beginPath();
+        ctx.moveTo(16 + hl * 10, hy0 + 6);
+        ctx.lineTo(16 + hl * 10, hy0 + hh - 6);
+        ctx.stroke();
+      }
+      for (var hs = 0; hs < 4; hs++) {
+        ctx.beginPath(); ctx.arc(16, hy0 + 14 + hs * ((hh - 28) / 3), 2.4, 0, 6.2832);
+        ctx.fillStyle = state(hs, 0.9);
+        ctx.fill();
+      }
+      var prog = scrollProgress();
+      ctx.beginPath(); ctx.arc(16, hy0 + 8 + prog * (hh - 16), 4, 0, 6.2832);
+      ctx.fillStyle = accent(1);
+      ctx.fill();
+    } else if (mode === 'flags') {
+      /* The maps that are open right now fly at the top of the gutter,
+         and a closed map leaves the pole. */
+      var fy0 = 46;
+      for (var fl = 0; fl < 3; fl++) {
+        if (laneLife[fl] > 0.03) drawMapChip(16, fy0, MAP_LABELS[fl], laneLife[fl]);
+        fy0 += 30 * Math.max(laneLife[fl], 0.15);
+      }
+    } else if (mode === 'harvest') {
+      /* Merged work piles up: the payoff of every state change. */
+      for (var pk = 0; pk < Math.min(pileCount, 8); pk++) {
+        roundRect(6, H - 96 - pk * 11, 44, 9, 3);
+        ctx.fillStyle = 'rgba(125,211,160,' + (0.5 - pk * 0.05).toFixed(3) + ')';
+        ctx.fill();
+      }
+      if (mergeBurst > 0.02) {
+        ctx.beginPath(); ctx.arc(28, H - 96, 8 + (1 - mergeBurst) * 26, 0, 6.2832);
+        ctx.strokeStyle = accent((0.5 * mergeBurst).toFixed(3));
+        ctx.stroke();
       }
     }
+    mergeBurst *= 0.95;
 
     nodes.forEach(function (n) {
       var stiff = 120, damp = 18;
@@ -1183,26 +1248,24 @@ function startSpine(canvas, heads, mode, onStage) {
       ctx.fill();
     });
 
-    /* Traffic. Three lines feed the one queue from the first screen.
-       poster runs slower because its cards are big, and relay spawns
-       only on lines that are still alive. */
+    /* Traffic. Three lines feed the one queue from the first screen,
+       and a line without a living map spawns nothing. */
     var gap = !combined ? 0
-      : (mode === 'poster') ? 2600
-      : (mode === 'kinds' || mode === 'grove') ? 1800
-      : 1500;
+      : (mode === 'epic') ? 1400
+      : (mode === 'harvest') ? 1500
+      : 1700;
     if (Motion.on && gap && ts > spawnAt) {
       spawnAt = ts + gap + Math.random() * gap * 0.5;
       var lane = seq % 3;
-      if (mode === 'relay') {
-        var tries = 0;
-        while (laneLife[lane] < 0.6 && tries++ < 3) lane = (lane + 1) % 3;
-      }
-      var startY = -26, pop0 = 0;
-      if (mode === 'grove') {
-        /* A ticket is born at its line's map card when that card is on
-           screen, so the hierarchy moves. */
-        var ringVy = vh * 1.2 + lane * 560 - window.scrollY;
-        if (ringVy > -20 && ringVy < H * 0.5) { startY = ringVy; pop0 = 1; }
+      var tries = 0;
+      while (laneLife[lane] < 0.6 && tries++ < 3) lane = (lane + 1) % 3;
+      /* A ticket is born at its map card when that card is on screen,
+         so the hierarchy moves. */
+      var startY = Math.max(-26, vh * 0.05 + 22 - window.scrollY);
+      var pop0 = startY > -26 ? 1 : 0;
+      if (mode === 'chapters') {
+        var chVy = vh * 0.95 + lane * 1250 + 90 - window.scrollY;
+        if (chVy > -20 && chVy < H * 0.5) { startY = chVy + 16; pop0 = 1; }
       }
       seq++;
       cards.push({
@@ -1220,7 +1283,7 @@ function startSpine(canvas, heads, mode, onStage) {
         /* The opening stations advance a chip like real stages do. */
         if (combined) {
           for (var dj = 0; dj < 4; dj++) {
-            var djy = vh * (0.38 + 0.155 * dj) + 20 - window.scrollY;
+            var djy = vh * (0.26 + 0.10 * dj) + 20 - window.scrollY;
             if (dj < c.at || djy <= 0) continue;
             if (Math.abs(laneX(c.lane, c.y) - sx) > 3) break;
             if (Math.abs(c.y - djy) < 9) { c.at = dj + 1; c.hold = 0.7; c.pop = 1; demoPulse[dj] = 1; break; }
@@ -1239,7 +1302,10 @@ function startSpine(canvas, heads, mode, onStage) {
       }
       c.pop *= 0.9;
       if (c.at >= nodes.length && c.hold <= 0) c.fade -= dt * 1.1;
-      if (c.fade <= 0 || c.y > H + 44) { cards.splice(i, 1); continue; }
+      if (c.fade <= 0 || c.y > H + 44) {
+        if (mode === 'harvest' && c.fade <= 0 && c.at >= nodes.length) { pileCount++; mergeBurst = 1; }
+        cards.splice(i, 1); continue;
+      }
 
       drawChip(laneX(c.lane, c.y), c.y, c);
     }
@@ -1374,16 +1440,17 @@ function makeRun(mode) {
    the operator sends back "the header from B with the spine from C".
    ================================================================== */
 
-/* base is the locked baseline. The five others are the round 4 set:
-   the dock + metro combination, explored in five directions. The cut
-   variants live on in git history and in NOTES.md. */
+/* base is the locked baseline. The five others are the round 5 set:
+   the kept mix of typed big cards, visible parallel lines and clear
+   maps, in five identities. The cut variants live on in git history
+   and in NOTES.md. */
 var VARIANTS = [
   { key: 'base', name: 'You move the ticket', note: 'the locked baseline', mount: makeRun('base') },
-  { key: 'voyage', name: 'Three lines, one voyage', note: '#508 candidate', mount: makeRun('voyage') },
-  { key: 'relay', name: 'Maps finish, one opens', note: '#508 candidate', mount: makeRun('relay') },
-  { key: 'kinds', name: 'Tickets say their kind', note: '#508 candidate', mount: makeRun('kinds') },
-  { key: 'poster', name: 'The cards go big', note: '#508 candidate', mount: makeRun('poster') },
-  { key: 'grove', name: 'Every line carries its map', note: '#508 candidate', mount: makeRun('grove') }
+  { key: 'epic', name: 'The story on one screen', note: '#508 candidate', mount: makeRun('epic') },
+  { key: 'chapters', name: 'Maps open and close', note: '#508 candidate', mount: makeRun('chapters') },
+  { key: 'hud', name: 'A map of the ride', note: '#508 candidate', mount: makeRun('hud') },
+  { key: 'harvest', name: 'Merged work piles up', note: '#508 candidate', mount: makeRun('harvest') },
+  { key: 'flags', name: 'Open maps fly at the top', note: '#508 candidate', mount: makeRun('flags') }
 ];
 
 var main = document.getElementById('main');

@@ -28,18 +28,20 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `voyage` | Three lines, one voyage | #508 candidate. The pure dock + metro combination: the full-screen opening, the eased joins, ticket buds along the ride. |
-| `relay` | Maps finish, one opens | #508 candidate. The lines finish one after the other as their maps complete, and a new one opens along the ride. |
-| `kinds` | Tickets say their kind | #508 candidate. Companions ride as their wayfinder type: research, prototype, grilling. The reader's card says prototype. |
-| `poster` | The cards go big | #508 candidate. Two-row companions and a three-row reader's card. |
-| `grove` | Every line carries its map | #508 candidate. A map card on every line, with ticket buds branching off below it. The real maps: 109, 99, 90. |
+| `epic` | The story on one screen | #508 candidate. The opening tells everything at once: map cards feed the lines, buds branch along the ride, the relay story runs below. |
+| `chapters` | Maps open and close | #508 candidate. Each map owns a stretch of the ride, opens with its card on its line, closes with a burst, and two maps overlap at a handoff. |
+| `hud` | A map of the ride | #508 candidate. A tiny map of the whole ride sits pinned at the top of the gutter, with the reader's position moving on it. |
+| `harvest` | Merged work piles up | #508 candidate. Every companion that reaches merged lands on a growing pile at the bottom of the gutter. |
+| `flags` | Open maps fly at the top | #508 candidate. The maps that are open right now fly at the top of the gutter, and a closed map leaves the pole. |
 
-Every round 4 candidate shares the combined opening: three lines join the one queue through the
-four labeled stations on the first screen, then the scene docks into the left gutter.
+Every round 5 candidate shares the mix the operator kept: the combined opening with the title
+fully readable at the bottom of the first screen, three map cards feeding three bright lines,
+typed two-row companions, and the three-row reader's card.
 
 The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
-of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`) and of round 3 (`flood`, `metro`, `dock`,
-`palm`, `swell`) were removed on the operator's orders. Git history keeps them.
+of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`), of round 3 (`flood`, `metro`, `dock`,
+`palm`, `swell`) and of round 4 (`voyage`, `relay`, `kinds`, `poster`, `grove`) were removed on
+the operator's orders. Git history keeps them.
 
 All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
@@ -102,7 +104,15 @@ the fixed-copy rule, for canvas labels only.
 `kinds`, `poster` and `grove`. All open full screen and dock into the gutter, and every join
 eases in and out, which answers the connection note. In `kinds` the companions carry a type word
 instead of a number, because the page cannot verify a type for every real ticket number. The
-reader's card says prototype, which #508 really is.
+reader's card says prototype, which #508 really is. The verdict: `kinds` is awesome, `poster`
+folds in, `relay` makes sense but the parallel repos were almost invisible. Wanted next: clearer
+maps with several visible at once as the story moves, a hero that shows more, and the title
+fully readable at the bottom of the first screen.
+
+**Round 5.** The kept mix became the shared frame: typed two-row companions, the three-row
+reader's card, wider and brighter lines, dashed map cards that never read as tickets, and a
+compressed opening stage above the title. Five identities beside `base`: `epic`, `chapters`,
+`hud`, `harvest` and `flags`.
 
 ## The rule the variations share
 
