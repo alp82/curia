@@ -1,15 +1,20 @@
 <!doctype html>
 <!--
-  curia#363 — Try the living-organism prompt as a landing-page experiment.
+  curia#508 — Take the living-organism run further, on a second model.
+  Continues curia#363, which locked in the vertical run and the descent variant.
 
   THROWAWAY PROTOTYPE. Not the live page. Not served from docs/.
   One self-contained file: no build step, no CDN, no npm, no webfont, no image.
 
-  Four variants on one route, switchable with ?variant= and the bottom bar:
-    live        — the current https://curia.sh page, the baseline to beat
-    bloodstream — cinematic WebGL field, scroll drives the scene
-    queue       — the page rebuilt as a living pipeline with a spine
-    vitals      — the calm page with one organism gesture done well
+  Variants on one route, switchable with ?variant= and the bottom bar:
+    descent — LOCKED IN at #363 round 4: your ticket holds still, the page
+              runs under it, and its state changes as each stage passes
+    story   — descent + the growth story: one ticket at the top, more
+              tickets after the first stage, a second repo near merged
+    cards   — descent + a bigger reader's card that names its stage
+    live    — the current https://curia.sh page, the reference
+    grow    — not chosen at #363: growth with three repos and early traffic
+    lanes   — not chosen at #363: three repos converging, no pinned ticket
 
   Every variant renders the SAME copy from the CONTENT object below, so the
   comparison is presentation only. The prompt changes the presentation, not
@@ -21,7 +26,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>curia#363 — living-organism experiment</title>
+<title>curia#508 — living-organism experiment</title>
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0b0d10">
 <style>
@@ -240,7 +245,8 @@
      on the same line as its node, so a chip parked on the node reads
      its state straight off the label beside it.
      ================================================================ */
-  body[data-variant="stream"], body[data-variant="lanes"], body[data-variant="descent"] { background: #08090c; }
+  body[data-variant="stream"], body[data-variant="lanes"], body[data-variant="descent"],
+  body[data-variant="story"], body[data-variant="cards"] { background: #08090c; }
   .v-run { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
   .v-run a { color: var(--accent); }
   .v-run .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.1rem 0 4.75rem; }
@@ -394,7 +400,7 @@
 <a class="skip" href="#main">Skip to content</a>
 
 <div class="protohead">
-  <b>curia#363</b>
+  <b>curia#508</b>
   <span>living-organism experiment &middot; prototype, not the live page</span>
 </div>
 
@@ -931,6 +937,15 @@ function mountLive(root) {
      descent — the same pinned ticket, without the growth
      lanes   — three repos converging, without the pinned ticket
 
+   curia#508 iterates from descent, one change per variation:
+
+     story   — descent + the growth story, retold: the hero holds only
+               your ticket, companions appear after the first stage,
+               and a single second repo folds in at merged. The rejected
+               grow ran traffic from the top and reached three repos.
+     cards   — descent + a bigger reader's card that names its stage in
+               the stage color. Nothing else moves.
+
    Every variation shares the page, the four stages and real numbers.
    ================================================================== */
 
@@ -967,7 +982,7 @@ function startSpine(canvas, heads, mode, onStage) {
   var cards = [], spawnAt = 0, seq = 0, raf = 0, last = 0, clock = 0;
   var laneShown = 1;
   /* The ticket the reader moves. It holds still and the page runs under it. */
-  var solo = (mode === 'grow' || mode === 'descent')
+  var solo = (mode !== 'lanes')
     ? { id: SPINE_TICKETS[SPINE_TICKETS.length - 1], at: 0, pop: 0 }
     : null;
 
@@ -994,14 +1009,20 @@ function startSpine(canvas, heads, mode, onStage) {
   }
 
   /* A ticket card: a dark chip with a colored state dot and its number.
-     Bigger than round 2, per the operator, and the dot is the state. */
+     Bigger than round 2, per the operator, and the dot is the state.
+     The cards mode goes further on the reader's own card: bigger again,
+     and the stage name sits on the card in the stage color, so the card
+     itself says what state it is in. */
   function drawCard(x, y, id, st, a, swell, mine) {
+    var big = mine && mode === 'cards';
     var label = '#' + id;
-    var fs = mine ? 12 : 11;
+    var word = big ? CONTENT.stages[Math.min(st, 3)] : '';
+    var fs = big ? 14 : mine ? 12 : 11;
     ctx.font = '600 ' + fs + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
     var tw = ctx.measureText(label).width;
-    var w = tw + 24 + swell * 3;
-    var hgt = (mine ? 25 : 21) + swell * 2;
+    var ww = big ? ctx.measureText(word).width : 0;
+    var w = tw + (big ? ww + 40 : 24) + swell * 3;
+    var hgt = (big ? 34 : mine ? 25 : 21) + swell * 2;
     var rx = x - w / 2, ry = y - hgt / 2;
 
     roundRect(rx, ry, w, hgt, 5);
@@ -1017,14 +1038,18 @@ function startSpine(canvas, heads, mode, onStage) {
       ctx.fill();
     }
 
-    var dx = rx + 9;
-    ctx.beginPath(); ctx.arc(dx, y, mine ? 4 : 3.4, 0, 6.2832);
+    var dx = rx + (big ? 11 : 9);
+    ctx.beginPath(); ctx.arc(dx, y, big ? 5 : mine ? 4 : 3.4, 0, 6.2832);
     ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
     ctx.fill();
 
     ctx.fillStyle = 'rgba(226,233,241,' + (0.95 * a).toFixed(3) + ')';
     ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, dx + 8, y + 0.5);
+    ctx.fillText(label, dx + (big ? 9 : 8), y + 0.5);
+    if (big) {
+      ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
+      ctx.fillText(word, dx + 9 + tw + 9, y + 0.5);
+    }
   }
 
   function frame(ts) {
@@ -1046,6 +1071,7 @@ function startSpine(canvas, heads, mode, onStage) {
     for (var k = 0; k < nodes.length; k++) if (nodes[k].y <= vh * 0.55) phase = k + 1;
     var laneWant = (mode === 'lanes') ? 3
       : (mode === 'grow') ? (phase >= 3 ? 3 : phase >= 2 ? 2 : 1)
+      : (mode === 'story') ? (phase >= 4 ? 2 : 1)
       : 1;
     laneShown = lerp(laneShown, laneWant, 0.05);
 
@@ -1099,9 +1125,14 @@ function startSpine(canvas, heads, mode, onStage) {
     });
 
     /* Traffic. It thickens as the run grows, so the page gets busier the
-       further the reader goes, which is the point the headline makes. */
-    if (Motion.on && mode !== 'descent') {
-      var gap = (mode === 'lanes') ? 2200 : Math.max(900, 3200 - phase * 620);
+       further the reader goes, which is the point the headline makes.
+       The story mode starts silent: one repo, one ticket — yours — and the
+       first companion appears only after the first stage has passed. */
+    var traffic = mode === 'grow' || mode === 'lanes' || (mode === 'story' && phase >= 1);
+    if (Motion.on && traffic) {
+      var gap = (mode === 'lanes') ? 2200
+        : (mode === 'story') ? Math.max(1400, 4200 - phase * 700)
+        : Math.max(900, 3200 - phase * 620);
       if (ts > spawnAt) {
         spawnAt = ts + gap + Math.random() * gap * 0.6;
         cards.push({
@@ -1276,10 +1307,13 @@ function makeRun(mode) {
    the operator sends back "the header from B with the spine from C".
    ================================================================== */
 
-/* descent is the locked-in answer for this ticket. The rest stay as the
-   record of what was tried, which is what a prototype is for. */
+/* descent is the locked-in base from #363. story and cards are the #508
+   candidates, each one change away from it. The rest stay as the record
+   of what was tried, which is what a prototype is for. */
 var VARIANTS = [
-  { key: 'descent', name: 'You move the ticket', note: 'LOCKED IN', mount: makeRun('descent') },
+  { key: 'descent', name: 'You move the ticket', note: 'LOCKED IN at #363', mount: makeRun('descent') },
+  { key: 'story', name: 'The run fills', note: '#508 candidate', mount: makeRun('story') },
+  { key: 'cards', name: 'Bigger ticket card', note: '#508 candidate', mount: makeRun('cards') },
   { key: 'live', name: 'The live page', note: 'the page as it is today', mount: mountLive },
   { key: 'grow', name: 'The run grows', note: 'not chosen', mount: makeRun('grow') },
   { key: 'lanes', name: 'Many repos, one queue', note: 'not chosen', mount: makeRun('lanes') }
