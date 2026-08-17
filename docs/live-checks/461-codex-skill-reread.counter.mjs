@@ -89,6 +89,12 @@ function targetsOf(text) {
 // per read (999 for the pointer, 12,299 for the whole wayfinder skill) and the
 // point of measuring it again here is that a REAL model may read a file in part.
 // A `sed -n '1,40p'` is still a read, and it is not the same price as a `cat`.
+//
+// This is the whole CALL's output, and a real model batches. The #461 session
+// read the wayfinder skill and an output-style file in one `sed && sed`, so the
+// 15,167 characters it returned are both files and not the skill's price. So the
+// number is an UPPER BOUND per file, exact only when the call read one file. The
+// report says so under the table rather than leaving the column to be misread.
 function outputChars(payload) {
   const out = payload.output
   if (typeof out === 'string') return out.length
@@ -176,11 +182,14 @@ function report(count) {
     out.push('No skill file was read on any turn.')
     return out.join('\n')
   }
-  out.push('| skill | pointer reads | on turns | pointer chars | skill reads | on turns | skill chars |')
+  out.push('| skill | pointer reads | on turns | pointer call chars | skill reads | on turns | skill call chars |')
   out.push('|---|---|---|---|---|---|---|')
   for (const r of rows) {
     out.push(`| ${r.skill} | ${r.pointerReads} | ${r.pointerTurns}/${count.turns} | ${r.pointerChars} | ${r.skillReads} | ${r.skillTurns}/${count.turns} | ${r.skillChars} |`)
   }
+  out.push('')
+  out.push('The char columns are the whole CALL output, so they are an upper bound per file.')
+  out.push('A call that reads three files charges all three to each of them.')
   out.push('')
   out.push(`Read-once rule: **${holds ? 'holds' : 'BEATEN'}** — no file was read twice.`.replace('— no file was read twice.', holds ? '— no file was read twice.' : '— a file was read more than once.'))
   out.push('')
