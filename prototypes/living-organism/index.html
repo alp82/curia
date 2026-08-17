@@ -1276,11 +1276,13 @@ function makeRun(mode) {
    the operator sends back "the header from B with the spine from C".
    ================================================================== */
 
+/* descent is the locked-in answer for this ticket. The rest stay as the
+   record of what was tried, which is what a prototype is for. */
 var VARIANTS = [
-  { key: 'grow', name: 'The run grows', note: 'one repo, then three', mount: makeRun('grow') },
-  { key: 'descent', name: 'You move the ticket', note: 'round 2, for comparison', mount: makeRun('descent') },
-  { key: 'lanes', name: 'Many repos, one queue', note: 'lanes without your ticket', mount: makeRun('lanes') },
-  { key: 'live', name: 'The live page', note: 'the page as it is today', mount: mountLive }
+  { key: 'descent', name: 'You move the ticket', note: 'LOCKED IN', mount: makeRun('descent') },
+  { key: 'live', name: 'The live page', note: 'the page as it is today', mount: mountLive },
+  { key: 'grow', name: 'The run grows', note: 'not chosen', mount: makeRun('grow') },
+  { key: 'lanes', name: 'Many repos, one queue', note: 'not chosen', mount: makeRun('lanes') }
 ];
 
 var main = document.getElementById('main');
@@ -1290,7 +1292,7 @@ var current = null, at = 0;
 
 function indexFromUrl() {
   var m = /[?&]variant=([^&]+)/.exec(location.search);
-  var key = m ? decodeURIComponent(m[1]) : 'grow';
+  var key = m ? decodeURIComponent(m[1]) : 'descent';
   for (var i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return i;
   return 0;
 }

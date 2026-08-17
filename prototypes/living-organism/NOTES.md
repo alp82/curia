@@ -5,19 +5,33 @@ on the map [The curia landing page](https://github.com/alp82/curia/issues/109).
 
 This directory is throwaway code. It answers one question. It is not the live page.
 
+## The verdict
+
+**The vertical run wins the direction, and `descent` is the locked-in variant.**
+The operator locked it in at round 4, and it is the default the link opens on.
+
+The living-organism prompt does not beat the live page as written. What survives it is one idea:
+a vertical line down the left that carries the story while the reader scrolls, with the reader's
+own ticket riding it and changing state as the stages pass. The spectacle the prompt asks for did
+not survive contact with the brief. The WebGL page, the rail across the top and the restrained
+page were all cut by the operator across rounds 1 and 2.
+
+Nothing here goes to the live page yet. A follow-up prototype carries the direction on, and the
+operator runs that one with a different model.
+
 ## What it is
 
-One self-contained HTML file, `index.html`. It holds the vertical run and three variations of it.
-Switch them with the bar at the bottom, with the left and right arrow keys, or with `?variant=`.
+One self-contained HTML file, `index.html`. It holds the locked-in variant and the record of what
+was tried. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 
-| Key | Name | How the story moves |
+| Key | Name | State |
 |---|---|---|
-| `grow` | The run grows | Your ticket holds still and the page runs under it. The run grows as you descend: one repo and one ticket, then more tickets, then a second repo, then a third. |
-| `descent` | You move the ticket | The same pinned ticket, without the growth. Round 2, kept for comparison. |
-| `lanes` | Many repos, one queue | Three repos converging, without a pinned ticket. |
-| `live` | The live page | The current https://curia.sh page. Kept as the reference the verdict is measured against. |
+| `descent` | You move the ticket | **Locked in.** Your ticket holds still, the page runs under it, and its state changes as each stage passes. |
+| `live` | The live page | The current https://curia.sh page, the reference the verdict is measured against. |
+| `grow` | The run grows | Not chosen. Adds growing traffic and repo lanes as the reader descends. |
+| `lanes` | Many repos, one queue | Not chosen. Three repos converging, with no pinned ticket. |
 
-All three variations share one page, four stages and the same real ticket numbers.
+All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
 A stage name sits on the same line as its node, so a card parked on the node reads its state
 straight off the label beside it. A key above the claims spells the four colors out once.
@@ -30,39 +44,24 @@ python3 -m http.server 9006 --bind 0.0.0.0 --directory prototypes/living-organis
 
 ## The rounds
 
-### Round 1
+**Round 1.** The operator picked the vertical spine over the WebGL page and the restrained page.
+The dots needed meaning, so each took a real ticket number and each station a real stage name.
+The green flashed, because a station switched color in one step and an arrival set the glow to full
+in one frame. Both ease now, and the spring is clamped.
 
-The operator picked the vertical spine over the WebGL page and the restrained page.
-The dots needed meaning, so each one took a real ticket number and each station took a real stage
-name. The green flashed, because a station switched color in one step and an arrival set the glow
-to full in one frame. Both ease now, and the spring is clamped.
+**Round 2.** The green went missing: the round 1 fix took the steady green down with the flash,
+because one value was doing two jobs. They are separate now. The spine and every node keep a
+constant green, and only the arrival pulse scales down with depth. Tickets became cards. The
+vertical line won, because it carries the story while scrolling.
 
-### Round 2
+**Round 3.** The operator asked to iterate from `descent`, fold in multiple repos, grow the story
+from one repo and one ticket, enlarge the cards and color the states. That produced `grow`.
 
-**The green went missing.** The round 1 fix took the steady green down with the flash, because one
-value was doing two jobs. The two are separate now. The spine, its column of light and every node
-keep a constant green that does not answer to scroll depth. Only the arrival pulse scales down as
-the reader descends. So the ambience stays and the flash stays tame.
-
-**Tickets needed state transitions.** A ticket is drawn as a ticket, a card carrying its number.
-
-**The vertical line won**, because it carries the story while scrolling. The rail across the top,
-the WebGL page and the restrained page are all removed.
-
-### Round 3
-
-**The run grows as you descend.** The operator asked the story to start with one repo and one
-ticket, then more tickets, then a second repo. The reader's depth drives it. Past the first stage
-the traffic thickens, past the second a second repo lane opens, past the third a third opens.
-The lanes fold into the one queue at `takeable`, which is what the headline claims.
-
-**The cards got bigger, and the state got a color.** Each card carries a colored dot and its
-number. Each stage carries the same color on its own dot. A key above the claims names all four,
-so no dot needs guessing. The color never carries the state alone: the stage word sits beside every
-dot as DOM text, so a reader who cannot separate the hues still gets the state.
-
-**Your ticket rides along.** The pinned card from round 2 stays, drawn larger than the traffic
-around it, and its state changes as the stages pass it.
+**Round 4.** The operator rejected the round 3 result and locked in `descent`.
+The lesson is recorded here because it cost four rounds: each round rebuilt the variant set instead
+of making one small change to the thing already approved. An iteration the operator cannot compare
+against the last one is not an iteration. A follow-up prototype takes the direction on, run by a
+different model.
 
 ## The rule the variations share
 
