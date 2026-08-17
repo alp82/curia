@@ -28,15 +28,18 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `flood` | The mess finds the line | #508 candidate. The reader's scattered tickets drift over the hero, and the first scroll snaps every one onto the single line. |
-| `metro` | Branch lines join the queue | #508 candidate. A transit map: branch lines fan wide over the hero, bud ticket branches at junctions, and join the one queue. |
-| `dock` | The run docks to the page | #508 candidate. The run plays full screen with labeled stations before the copy arrives, then docks into the left gutter. |
-| `palm` | Your ticket rides your phone | #508 candidate. The reader's ticket sits inside a drawn phone, and every stage flies in and commits with a tap ripple. |
-| `swell` | The run grows in acts | #508 candidate. New repo lines slam in with a spring and a flash, and traffic ramps from silence to a rush. |
+| `voyage` | Three lines, one voyage | #508 candidate. The pure dock + metro combination: the full-screen opening, the eased joins, ticket buds along the ride. |
+| `relay` | Maps finish, one opens | #508 candidate. The lines finish one after the other as their maps complete, and a new one opens along the ride. |
+| `kinds` | Tickets say their kind | #508 candidate. Companions ride as their wayfinder type: research, prototype, grilling. The reader's card says prototype. |
+| `poster` | The cards go big | #508 candidate. Two-row companions and a three-row reader's card. |
+| `grove` | Every line carries its map | #508 candidate. A map card on every line, with ticket buds branching off below it. The real maps: 109, 99, 90. |
 
-The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`) and
-of #508 round 2 (`braid`, `tree`, `acts`, `stack`, `trail`) were removed on the operator's orders.
-Git history keeps them.
+Every round 4 candidate shares the combined opening: three lines join the one queue through the
+four labeled stations on the first screen, then the scene docks into the left gutter.
+
+The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
+of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`) and of round 3 (`flood`, `metro`, `dock`,
+`palm`, `swell`) were removed on the operator's orders. Git history keeps them.
 
 All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
@@ -89,7 +92,17 @@ the scroll experience, and instant intuitive understanding of what curia does an
 **Round 3.** Five distinct scroll experiences beside `base`: `flood`, `metro`, `dock`, `palm` and
 `swell`. Each absorbs a surviving element: `metro` carries the branches of `braid` and the
 hierarchy of `tree`, and `swell` retells `acts` with drama. `flood` and `dock` are new bets on
-the opening screen, and `palm` bets on the phone as the story.
+the opening screen, and `palm` bets on the phone as the story. The verdict: the dock and metro
+combination is the direction. The line connections were a bit off, and the arcs stay. Wanted
+next: the maps-finish-and-a-new-one-opens story, bigger ticket cards, and an experiment with the
+wayfinder words research, prototype and grilling. That last order is an operator exception to
+the fixed-copy rule, for canvas labels only.
+
+**Round 4.** Five directions of the combined experience beside `base`: `voyage`, `relay`,
+`kinds`, `poster` and `grove`. All open full screen and dock into the gutter, and every join
+eases in and out, which answers the connection note. In `kinds` the companions carry a type word
+instead of a number, because the page cannot verify a type for every real ticket number. The
+reader's card says prototype, which #508 really is.
 
 ## The rule the variations share
 
