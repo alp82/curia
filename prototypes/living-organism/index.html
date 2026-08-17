@@ -1,0 +1,1934 @@
+<!doctype html>
+<!--
+  curia#363 — Try the living-organism prompt as a landing-page experiment.
+
+  THROWAWAY PROTOTYPE. Not the live page. Not served from docs/.
+  One self-contained file: no build step, no CDN, no npm, no webfont, no image.
+
+  Four variants on one route, switchable with ?variant= and the bottom bar:
+    live        — the current https://curia.sh page, the baseline to beat
+    bloodstream — cinematic WebGL field, scroll drives the scene
+    queue       — the page rebuilt as a living pipeline with a spine
+    vitals      — the calm page with one organism gesture done well
+
+  Every variant renders the SAME copy from the CONTENT object below, so the
+  comparison is presentation only. The prompt changes the presentation, not
+  the claims (docs/landing-page/positioning.md).
+
+  Sound is off until you turn it on. Motion honors prefers-reduced-motion.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>curia#363 — living-organism experiment</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b0d10">
+<style>
+  :root {
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --accent: #7dd3a0;
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --chrome: 1.75rem;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    padding-top: var(--chrome);
+    font: 1rem/1.6 var(--sans);
+    background: #0b0d10;
+    color: #e6e8ec;
+    overflow-x: hidden;
+  }
+  main { position: relative; z-index: 1; }
+  img, canvas { max-width: 100%; }
+
+  /* ================================================================
+     PROTOTYPE CHROME — deliberately not part of any design below.
+     ================================================================ */
+  .skip {
+    position: fixed; left: 0.5rem; top: calc(var(--chrome) + 0.5rem); z-index: 60;
+    background: #ffd66b; color: #111; padding: 0.5rem 0.8rem; border-radius: 6px;
+    font: 600 0.85rem var(--sans); text-decoration: none;
+    transform: translateY(-250%);
+  }
+  .skip:focus { transform: none; }
+
+  .protohead {
+    position: fixed; inset: 0 0 auto 0; z-index: 50; height: var(--chrome);
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0 0.7rem;
+    background: #ffd66b; color: #1a1206;
+    font: 600 0.7rem/1 var(--mono);
+    letter-spacing: 0.01em;
+    white-space: nowrap; overflow: hidden;
+  }
+  .protohead b { font-weight: 700; }
+  .protohead span { opacity: 0.72; overflow: hidden; text-overflow: ellipsis; }
+
+  .switch {
+    position: fixed; z-index: 50;
+    left: 50%; transform: translateX(-50%);
+    bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 0.25rem;
+    padding: 0.3rem;
+    background: #f2f4f7; color: #14171c;
+    border-radius: 999px;
+    box-shadow: 0 6px 28px #000000aa, 0 0 0 1px #ffffff30;
+    font-family: var(--mono);
+    max-width: calc(100vw - 1rem);
+  }
+  .switch button {
+    border: 0; background: none; color: inherit; cursor: pointer;
+    font-family: inherit; font-size: 0.8rem;
+    border-radius: 999px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .switch .arrow { width: 2rem; height: 2rem; font-size: 1rem; }
+  .switch .arrow:hover { background: #00000012; }
+  .switch .arrow:active { transform: scale(0.94); }
+  .switch .label {
+    padding: 0 0.55rem; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; line-height: 1.25;
+  }
+  .switch .label .k { font-size: 0.62rem; opacity: 0.55; letter-spacing: 0.06em; text-transform: uppercase; }
+  .switch .label .n { font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+  .switch .toggle {
+    width: 2rem; height: 2rem; font-size: 0.9rem;
+    background: #00000010;
+  }
+  .switch .toggle[aria-pressed="true"] { background: #14171c; color: #f2f4f7; }
+  .switch .sep { width: 1px; height: 1.5rem; background: #00000018; flex: none; margin: 0 0.15rem; }
+  .switch button:focus-visible, .protohead a:focus-visible { outline: 2px solid #2f6bff; outline-offset: 2px; }
+
+  /* Every variant needs room to scroll past the floating bar. */
+  main { padding-bottom: 5.5rem; }
+
+  /* Decorative full-screen layers sit behind the content of a variant. */
+  .layer {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    width: 100%; height: 100%;
+  }
+
+  /* ================================================================
+     VARIANT "live" — the current page, reproduced as the baseline.
+     Class names match docs/index.html so the CSS stays comparable.
+     ================================================================ */
+  body[data-variant="live"] { background: #0e1013; }
+  .v-live {
+    --bg: #0e1013; --panel: #14171c; --line: #262b33;
+    --text: #e6e8ec; --dim: #969ba5;
+    color: var(--text);
+  }
+  .v-live .wrap { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem; }
+  .v-live a { color: var(--accent); }
+  .v-live code, .v-live .mono { font-family: var(--mono); font-size: 0.86em; }
+  .v-live header.top { padding: 2.25rem 0 0; }
+  .v-live .wordmark { font-family: var(--mono); font-size: 0.95rem; letter-spacing: 0.02em; }
+  .v-live .wordmark b { color: var(--accent); font-weight: 600; }
+  .v-live .wordmark span { color: var(--dim); }
+  .v-live h1 {
+    font-size: clamp(1.45rem, 7.6vw, 3rem); line-height: 1.12;
+    letter-spacing: -0.02em; margin: 1.5rem 0 0; font-weight: 620;
+  }
+  .v-live .lede { font-size: 1.08rem; color: #c9ced6; margin: 1.1rem 0 0; max-width: 34rem; }
+  .v-live .facts { font-family: var(--mono); font-size: 0.78rem; color: var(--dim); margin: 1.4rem 0 0; line-height: 2; }
+  .v-live .links { margin: 1.6rem 0 0; font-size: 0.95rem; }
+  .v-live .links a { margin-right: 1.4rem; }
+  .v-live section { padding: 3.25rem 0 0; }
+  .v-live .rule { height: 1px; background: var(--line); margin: 3.25rem 0 0; }
+  .v-live h2 {
+    font-size: 0.76rem; font-family: var(--mono); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--dim); margin: 0 0 1.75rem;
+  }
+  .v-live h3 { font-size: 1.22rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; font-weight: 600; }
+  .v-live p { margin: 0 0 0.85rem; }
+  .v-live .claim { margin: 0 0 2.5rem; }
+  .v-live .claim:last-child { margin-bottom: 0; }
+  .v-live .claim p { color: #c9ced6; max-width: 36rem; }
+  .v-live .claim .under {
+    font-family: var(--mono); font-size: 0.76rem; color: var(--dim);
+    border-left: 2px solid var(--line); padding-left: 0.85rem; margin-top: 0.9rem;
+  }
+  .v-live .frames { display: grid; gap: 1.5rem 0.9rem; grid-template-columns: 1fr 1fr; }
+  .v-live .frame figure { margin: 0; }
+  .v-live .box {
+    background: var(--panel); border: 1px dashed var(--line); border-radius: 6px;
+    aspect-ratio: 9 / 16; display: flex; align-items: center; justify-content: center;
+    color: #4a515c; font-family: var(--mono); font-size: 0.7rem;
+    width: 100%; padding: 0; cursor: zoom-in;
+  }
+  .v-live .box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .v-live .frame figcaption { font-size: 0.82rem; color: var(--dim); margin-top: 0.5rem; line-height: 1.45; }
+  .v-live .frame .n { color: var(--accent); font-family: var(--mono); }
+  .v-live .shotnote { color: var(--dim); font-size: 0.85rem; margin-top: 1.4rem; }
+  .v-live .trail { margin-top: 1.1rem; }
+  .v-live .stats {
+    font-family: var(--mono); font-size: 0.76rem; color: var(--dim); line-height: 1.9;
+    margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem;
+  }
+  .v-live .honest { border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem 1.35rem; }
+  .v-live .honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-live .honest li { margin: 0 0 0.7rem; color: #c9ced6; }
+  .v-live .honest li:last-child { margin-bottom: 0; }
+  .v-live .honest li b { color: var(--text); font-weight: 600; }
+
+  /* ================================================================
+     Shared guide document. Same words in every variant; each variant
+     restyles it. The pitch above it is what the variants disagree on.
+     ================================================================ */
+  .guide .step { margin: 0 0 2rem; }
+  .guide .step h3 { font-size: 1.02rem; margin: 0 0 0.5rem; font-weight: 600; }
+  .guide .step h3 .num { font-family: var(--mono); opacity: 0.6; margin-right: 0.5rem; font-size: 0.9em; }
+  .guide .step p { font-size: 0.95rem; }
+  .guide pre { border-radius: 6px; padding: 0.8rem 0.9rem; overflow-x: auto; margin: 0.7rem 0; }
+  .guide pre code { font-family: var(--mono); font-size: 0.8rem; }
+  .guide .warn { color: #f0c987; }
+  .guide .need { border-radius: 8px; padding: 1rem 1.15rem; font-size: 0.95rem; margin: 0 0 2.25rem; }
+  .guide details.full { padding: 0.25rem 0; margin: 0.5rem 0 1.75rem; }
+  .guide details.full > summary {
+    cursor: pointer; padding: 1.1rem 0; font-family: var(--mono); font-size: 0.82rem;
+    color: var(--accent); list-style: none;
+  }
+  .guide details.full > summary::-webkit-details-marker { display: none; }
+  .guide details.full > summary::before { content: "+ "; }
+  .guide details.full[open] > summary::before { content: "\2212 "; }
+  .guide details.full .step h3 { font-size: 0.98rem; }
+  .guide .tabletitle { font-size: 0.98rem; margin: 2.25rem 0 0.75rem; }
+  .guide table { width: 100%; border-collapse: collapse; font-size: 0.85rem; table-layout: fixed; }
+  .guide td { padding: 0.6rem 0.6rem 0.6rem 0; vertical-align: top; }
+  .guide td:first-child { width: 45%; }
+  .guide td code { overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.86em; }
+  .guide .readmore { font-size: 0.9rem; }
+
+  /* live-variant skin for the shared guide */
+  .v-live .guide pre { background: var(--panel); border: 1px solid var(--line); }
+  .v-live .guide pre code { color: #cfd5de; }
+  .v-live .guide .step p { color: #c9ced6; }
+  .v-live .guide .need { border: 1px solid var(--line); color: #c9ced6; }
+  .v-live .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-live .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-live .guide td { border-top: 1px solid var(--line); color: #c9ced6; }
+  .v-live .guide .readmore { color: var(--dim); }
+  .v-live footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+  .v-live .under, .v-live .stats, .v-live .facts { overflow-wrap: break-word; }
+
+  @media (max-width: 30rem) {
+    .v-live .wrap { padding: 0 1rem; }
+    .v-live header.top { padding-top: 1.75rem; }
+    .v-live section { padding-top: 2.5rem; }
+    .v-live .rule { margin-top: 2.5rem; }
+    .v-live h2 { margin-bottom: 1.35rem; }
+    .v-live .lede { font-size: 1.02rem; }
+    .v-live .claim { margin-bottom: 2rem; }
+    .v-live .honest { padding: 1.25rem 1.1rem; }
+    .v-live .honest ul { padding-left: 1rem; }
+    .v-live .honest li { margin-bottom: 0.6rem; }
+    .v-live .guide .need { padding: 0.9rem 1rem; margin-bottom: 1.75rem; }
+    .v-live .guide .step { margin-bottom: 1.6rem; }
+    .v-live .frames { gap: 1.25rem 0.7rem; }
+    .v-live .frame figcaption { font-size: 0.78rem; }
+    .v-live .guide details.full > summary { padding: 1.2rem 0; }
+    .v-live footer { padding: 2.5rem 0 3rem; }
+  }
+
+  /* ================================================================
+     VARIANT "bloodstream" — WebGL field behind spatial typography.
+     ================================================================ */
+  body[data-variant="bloodstream"] { background: #06070a; }
+  .v-blood { --line: #ffffff1f; --dim: #98a0ad; color: #eef1f5; }
+  .v-blood .bl-wrap { max-width: 48rem; margin: 0 auto; padding: 0 1.5rem; }
+  .v-blood a { color: var(--accent); }
+  .v-blood .bl-scrim {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background:
+      radial-gradient(120% 60% at 50% 0%, #06070a00 30%, #06070ac9 100%),
+      linear-gradient(#06070a99, #06070a55 40%, #06070aee);
+  }
+  .v-blood .bl-hero {
+    min-height: calc(100svh - var(--chrome));
+    display: flex; flex-direction: column; justify-content: center;
+    padding: 3rem 0 4rem;
+  }
+  .v-blood .bl-mark {
+    font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.22em;
+    text-transform: uppercase; color: var(--accent);
+  }
+  .v-blood h1 {
+    font-size: clamp(2rem, 11vw, 5rem);
+    line-height: 0.98; letter-spacing: -0.045em; font-weight: 600;
+    margin: 1.25rem 0 0; text-wrap: balance;
+    max-width: 42.5rem;
+  }
+  .v-blood h1 .ln { display: block; }
+  .v-blood h1 .w { display: inline-block; will-change: transform; }
+  .v-blood .bl-lede {
+    font-size: clamp(1.02rem, 3.6vw, 1.25rem); color: #c3cbd6;
+    margin: 1.6rem 0 0; max-width: 32rem; text-wrap: pretty;
+  }
+  .v-blood .bl-facts {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--dim);
+    margin: 2rem 0 0; line-height: 2.1;
+  }
+  .v-blood .bl-links { margin: 2rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .v-blood .bl-cta {
+    display: inline-block; text-decoration: none; font-size: 1rem; font-weight: 600;
+    padding: 0.75rem 1.15rem; border-radius: 999px;
+    background: var(--accent); color: #06231a;
+    transition: transform 0.7s var(--ease), box-shadow 0.7s var(--ease);
+  }
+  .v-blood .bl-cta:hover { transform: translateY(-2px); box-shadow: 0 10px 30px #7dd3a038; }
+  .v-blood .bl-cta:active { transform: translateY(1px) scale(0.985); }
+  .v-blood .bl-cta.ghost { background: none; color: #eef1f5; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-blood section { padding: 4.5rem 0; position: relative; }
+  .v-blood h2 {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.2em; color: var(--dim); margin: 0 0 2rem;
+  }
+  /* Spatial typography: the claims are stacked cards that lift on entry. */
+  .v-blood .bl-claim {
+    padding: 1.6rem 1.5rem; border-radius: 18px; margin: 0 0 1.1rem;
+    background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  }
+  .v-blood .bl-claim h3 {
+    font-size: clamp(1.35rem, 5.4vw, 1.9rem); margin: 0 0 0.6rem;
+    letter-spacing: -0.025em; font-weight: 600; text-wrap: balance;
+  }
+  .v-blood .bl-claim p { color: #c3cbd6; margin: 0; text-wrap: pretty; }
+  .v-blood .bl-claim .under {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--dim);
+    margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--line);
+    line-height: 1.9; overflow-wrap: break-word;
+  }
+  /* The one large-type moment, revealed word by word on scroll. */
+  .v-blood .bl-say {
+    font-size: clamp(1.9rem, 8.2vw, 3.6rem); line-height: 1.1; letter-spacing: -0.035em;
+    font-weight: 600; max-width: 42.5rem; margin: 0; text-wrap: balance;
+  }
+  .v-blood .bl-say .w { transition: color 0.9s var(--ease), opacity 0.9s var(--ease); color: #ffffff30; }
+  .v-blood .bl-say .w.lit { color: #eef1f5; }
+  .v-blood .bl-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem 0.9rem; }
+  .v-blood .bl-box {
+    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 14px;
+    background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
+    color: #6b7482; font-family: var(--mono); font-size: 0.7rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: transform 0.7s var(--ease), background 0.7s var(--ease);
+  }
+  .v-blood .bl-box:hover { transform: translateY(-4px); background: #ffffff0d; }
+  .v-blood .bl-box:active { transform: scale(0.985); }
+  .v-blood .bl-cap { font-size: 0.8rem; color: var(--dim); margin-top: 0.5rem; line-height: 1.45; }
+  .v-blood .bl-cap .n { color: var(--accent); font-family: var(--mono); }
+  .v-blood .bl-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.5rem; }
+  .v-blood .bl-stats {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
+    margin-top: 1.25rem; padding-top: 1.15rem; border-top: 1px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .v-blood .bl-honest {
+    border-radius: 18px; padding: 1.6rem 1.5rem;
+    background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .v-blood .bl-honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-blood .bl-honest li { margin: 0 0 0.75rem; color: #c3cbd6; }
+  .v-blood .bl-honest li:last-child { margin: 0; }
+  .v-blood .bl-honest li b { color: #eef1f5; font-weight: 600; }
+  .v-blood .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-blood .guide pre code { color: #cfd5de; }
+  .v-blood .guide .step p { color: #c3cbd6; }
+  .v-blood .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c3cbd6; }
+  .v-blood .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-blood .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-blood .guide td { border-top: 1px solid var(--line); color: #c3cbd6; }
+  .v-blood .guide .readmore { color: var(--dim); }
+  .v-blood footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+
+  /* ================================================================
+     VARIANT "queue" — the page rebuilt around a living pipeline spine.
+     ================================================================ */
+  body[data-variant="queue"] { background: #08090c; }
+  .v-queue { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
+  .v-queue a { color: var(--accent); }
+  .v-queue .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.25rem 0 4.25rem; position: relative; }
+  .v-queue .q-hero { padding: 3.5rem 0 3rem; }
+  .v-queue .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
+  .v-queue .q-mark b { color: var(--accent); font-weight: 600; }
+  .v-queue h1 {
+    font-size: clamp(1.7rem, 8.4vw, 3.4rem); line-height: 1.06; letter-spacing: -0.035em;
+    font-weight: 620; margin: 1.15rem 0 0; text-wrap: balance;
+  }
+  .v-queue .q-lede { font-size: 1.06rem; color: #c1c8d3; margin: 1.15rem 0 0; max-width: 33rem; text-wrap: pretty; }
+  .v-queue .q-facts { font-family: var(--mono); font-size: 0.74rem; color: var(--dim); margin: 1.5rem 0 0; line-height: 2; }
+  .v-queue .q-links { margin: 1.75rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .v-queue .q-cta {
+    text-decoration: none; font-weight: 600; font-size: 0.98rem;
+    padding: 0.7rem 1.1rem; border-radius: 10px;
+    background: var(--accent); color: #06231a;
+    transition: transform 0.7s var(--ease);
+  }
+  .v-queue .q-cta:active { transform: scale(0.98); }
+  .v-queue .q-cta.ghost { background: none; color: #e9ecf1; box-shadow: inset 0 0 0 1px var(--line); }
+
+  /* A station is a card hanging off the spine. */
+  .v-queue .q-station { position: relative; padding: 2.5rem 0; }
+  .v-queue .q-tag {
+    position: absolute; left: -3rem; top: 2.5rem;
+    font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--dim);
+    writing-mode: vertical-rl; text-orientation: mixed;
+  }
+  .v-queue .q-card {
+    border-radius: 14px; padding: 1.4rem 1.35rem;
+    background: #ffffff07; box-shadow: inset 0 0 0 1px var(--line);
+    transition: transform 0.8s var(--ease), background 0.8s var(--ease);
+  }
+  .v-queue .q-card h3 { font-size: 1.28rem; margin: 0 0 0.55rem; letter-spacing: -0.02em; font-weight: 600; }
+  .v-queue .q-card p { color: #c1c8d3; margin: 0; text-wrap: pretty; }
+  .v-queue .q-card .under {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--dim); line-height: 1.9;
+    margin-top: 0.95rem; padding-top: 0.85rem; border-top: 1px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .v-queue h2 {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.16em; color: var(--dim); margin: 0 0 1.5rem;
+  }
+  .v-queue .q-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.15rem 0.85rem; }
+  .v-queue .q-box {
+    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 10px;
+    background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
+    color: #666e7c; font-family: var(--mono); font-size: 0.68rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .v-queue .q-box:active { transform: scale(0.985); }
+  .v-queue .q-cap { font-size: 0.79rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.45; }
+  .v-queue .q-cap .n { color: var(--accent); font-family: var(--mono); }
+  .v-queue .q-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.3rem; }
+  .v-queue .q-stats {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
+    margin-top: 1.15rem; padding-top: 1.05rem; border-top: 1px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .v-queue .q-honest { border-radius: 14px; padding: 1.4rem 1.35rem; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-queue .q-honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-queue .q-honest li { margin: 0 0 0.7rem; color: #c1c8d3; }
+  .v-queue .q-honest li:last-child { margin: 0; }
+  .v-queue .q-honest li b { color: #e9ecf1; font-weight: 600; }
+  .v-queue .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-queue .guide pre code { color: #cfd5de; }
+  .v-queue .guide .step p { color: #c1c8d3; }
+  .v-queue .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c1c8d3; }
+  .v-queue .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-queue .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-queue .guide td { border-top: 1px solid var(--line); color: #c1c8d3; }
+  .v-queue .guide .readmore { color: var(--dim); }
+  .v-queue footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+  @media (min-width: 46rem) {
+    .v-queue .q-wrap { padding-left: 6rem; }
+    .v-queue .q-tag { left: -4.25rem; }
+  }
+
+  /* ================================================================
+     VARIANT "vitals" — the calm page, alive in exactly one place.
+     ================================================================ */
+  body[data-variant="vitals"] { background: #0d0f12; }
+  .v-vitals { --line: #262b33; --dim: #969ba5; color: #e6e8ec; }
+  .v-vitals a { color: var(--accent); }
+  .v-vitals .vt-wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem 0 3.25rem; }
+  .v-vitals .vt-hero { padding: 3rem 0 0; }
+  .v-vitals .vt-mark { font-family: var(--mono); font-size: 0.92rem; }
+  .v-vitals .vt-mark b { color: var(--accent); font-weight: 600; }
+  .v-vitals .vt-mark span { color: var(--dim); }
+  .v-vitals h1 {
+    font-size: clamp(1.5rem, 7.8vw, 3.1rem); line-height: 1.1; letter-spacing: -0.025em;
+    font-weight: 620; margin: 1.5rem 0 0;
+  }
+  .v-vitals h1 .ln { display: block; }
+  .v-vitals h1 .ch { display: inline-block; will-change: transform; }
+  .v-vitals .vt-lede { font-size: 1.07rem; color: #c9ced6; margin: 1.1rem 0 0; max-width: 33rem; text-wrap: pretty; }
+  .v-vitals .vt-facts { font-family: var(--mono); font-size: 0.77rem; color: var(--dim); margin: 1.4rem 0 0; line-height: 2; }
+  .v-vitals .vt-links { margin: 1.6rem 0 0; font-size: 0.95rem; }
+  .v-vitals .vt-links a { margin-right: 1.4rem; }
+  .v-vitals section { padding: 3.25rem 0 0; }
+  .v-vitals .vt-rule { height: 1px; background: var(--line); margin: 3.25rem 0 0; }
+  .v-vitals h2 {
+    font-family: var(--mono); font-size: 0.76rem; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.14em; color: var(--dim); margin: 0 0 1.75rem;
+  }
+  .v-vitals .vt-claim { margin: 0 0 2.5rem; }
+  .v-vitals .vt-claim:last-child { margin-bottom: 0; }
+  .v-vitals .vt-claim h3 { font-size: 1.22rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; font-weight: 600; }
+  .v-vitals .vt-claim p { color: #c9ced6; max-width: 36rem; margin: 0; text-wrap: pretty; }
+  .v-vitals .vt-claim .under {
+    font-family: var(--mono); font-size: 0.76rem; color: var(--dim);
+    border-left: 2px solid var(--line); padding-left: 0.85rem; margin-top: 0.9rem;
+    line-height: 1.9; overflow-wrap: break-word;
+  }
+  .v-vitals .vt-say {
+    font-size: clamp(1.6rem, 7.4vw, 3rem); line-height: 1.14; letter-spacing: -0.03em;
+    font-weight: 600; max-width: 36rem; margin: 0; text-wrap: balance;
+  }
+  .v-vitals .vt-say .w { transition: color 1s var(--ease); color: #e6e8ec4d; }
+  .v-vitals .vt-say .w.lit { color: #e6e8ec; }
+  .v-vitals .vt-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem 0.9rem; }
+  .v-vitals .vt-box {
+    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 6px;
+    background: #14171c; border: 1px dashed var(--line);
+    color: #4a515c; font-family: var(--mono); font-size: 0.7rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .v-vitals .vt-box:active { transform: scale(0.985); }
+  .v-vitals .vt-cap { font-size: 0.82rem; color: var(--dim); margin-top: 0.5rem; line-height: 1.45; }
+  .v-vitals .vt-cap .n { color: var(--accent); font-family: var(--mono); }
+  .v-vitals .vt-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.4rem; }
+  .v-vitals .vt-stats {
+    font-family: var(--mono); font-size: 0.76rem; color: var(--dim); line-height: 1.9;
+    margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem;
+    overflow-wrap: break-word;
+  }
+  .v-vitals .vt-honest { border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem 1.35rem; }
+  .v-vitals .vt-honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-vitals .vt-honest li { margin: 0 0 0.7rem; color: #c9ced6; }
+  .v-vitals .vt-honest li:last-child { margin: 0; }
+  .v-vitals .vt-honest li b { color: #e6e8ec; font-weight: 600; }
+  .v-vitals .guide pre { background: #14171c; border: 1px solid var(--line); }
+  .v-vitals .guide pre code { color: #cfd5de; }
+  .v-vitals .guide .step p { color: #c9ced6; }
+  .v-vitals .guide .need { border: 1px solid var(--line); color: #c9ced6; }
+  .v-vitals .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-vitals .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-vitals .guide td { border-top: 1px solid var(--line); color: #c9ced6; }
+  .v-vitals .guide .readmore { color: var(--dim); }
+  .v-vitals footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+  @media (max-width: 30rem) {
+    .v-vitals .vt-wrap { padding-left: 2.75rem; padding-right: 1rem; }
+    .v-vitals section { padding-top: 2.5rem; }
+    .v-vitals .vt-rule { margin-top: 2.5rem; }
+  }
+
+  /* ================================================================
+     Scroll reveal, used by the three experiment variants.
+     ================================================================ */
+  .rv { opacity: 0; transform: translateY(2.5rem); filter: blur(6px); }
+  .rv.in {
+    opacity: 1; transform: none; filter: none;
+    transition: opacity 0.9s var(--ease), transform 0.9s var(--ease), filter 0.9s var(--ease);
+  }
+
+  /* ================================================================
+     Lightbox — shared by every variant, same behavior as the live page.
+     ================================================================ */
+  .lightbox {
+    position: fixed; inset: 0; background: #05060898;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    display: none; flex-direction: column; z-index: 55;
+  }
+  .lightbox[open] { display: flex; }
+  .lb-stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 1rem; min-height: 0; }
+  .lb-shot {
+    background: #14171c; border: 1px dashed #262b33; border-radius: 8px;
+    height: 100%; aspect-ratio: 9 / 16; max-width: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: #4a515c; font-family: var(--mono); font-size: 0.8rem;
+  }
+  .lb-bar {
+    display: flex; align-items: center; gap: 1rem; justify-content: space-between;
+    padding: 0.9rem 1.25rem calc(1.6rem + env(safe-area-inset-bottom));
+    color: #969ba5; font-size: 0.85rem;
+  }
+  .lb-cap { flex: 1; text-align: center; line-height: 1.4; }
+  .lb-bar button {
+    background: none; border: 1px solid #262b33; color: #e6e8ec;
+    border-radius: 999px; width: 2.6rem; height: 2.6rem; font-size: 1.1rem; cursor: pointer; flex: none;
+  }
+  .lb-close {
+    align-self: flex-end; background: none; border: 0; color: #969ba5;
+    font-family: var(--mono); font-size: 0.85rem; cursor: pointer;
+    padding: calc(1rem + var(--chrome)) 1.25rem 1rem;
+  }
+  .lb-count { font-family: var(--mono); font-size: 0.75rem; }
+
+  /* Nothing moves for a reader who asked for no motion. */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .rv { opacity: 1; transform: none; filter: none; }
+    * { animation-duration: 0.001ms !important; }
+  }
+  body.nomotion .rv { opacity: 1; transform: none; filter: none; }
+  body.nomotion .layer { display: none; }
+  body.nomotion .bl-say .w, body.nomotion .vt-say .w { color: inherit; }
+</style>
+</head>
+<body data-variant="live">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="protohead">
+  <b>curia#363</b>
+  <span>living-organism experiment &middot; prototype, not the live page</span>
+</div>
+
+<main id="main" tabindex="-1"></main>
+
+<nav class="switch" aria-label="Prototype variant switcher">
+  <button class="arrow" type="button" data-step="-1" aria-label="Previous variant">&larr;</button>
+  <span class="label"><span class="k" id="sw-k"></span><span class="n" id="sw-n"></span></span>
+  <button class="arrow" type="button" data-step="1" aria-label="Next variant">&rarr;</button>
+  <span class="sep"></span>
+  <button class="toggle" type="button" id="sw-sound" aria-pressed="false" aria-label="Sound, off" title="Sound">&#9834;</button>
+  <button class="toggle" type="button" id="sw-motion" aria-pressed="true" aria-label="Motion, on" title="Motion">&#9678;</button>
+</nav>
+
+<div class="lightbox" id="lb" role="dialog" aria-modal="true" aria-label="Proof frames">
+  <button class="lb-close" type="button" data-lb-close>close &times;</button>
+  <div class="lb-stage"><div class="lb-shot" id="lb-shot">frame 1</div></div>
+  <div class="lb-bar">
+    <button type="button" data-lb-step="-1" aria-label="Previous frame">&larr;</button>
+    <div class="lb-cap"><span id="lb-cap"></span><br><span class="lb-count" id="lb-count"></span></div>
+    <button type="button" data-lb-step="1" aria-label="Next frame">&rarr;</button>
+  </div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ==================================================================
+   1. CONTENT
+   One copy of every word, rendered by all four variants. The claims,
+   the proof, the honesty block and the guide are the approved page
+   text (docs/landing-page/positioning.md, docs/index.html). A variant
+   may re-arrange these strings. It may not rewrite them.
+   ================================================================== */
+
+var CONTENT = {
+  wordmark: 'curia',
+  kicker: 'self-hosted agent dispatcher',
+  headline: ['Many repos, one queue,', 'driven from a phone.'],
+  lede: 'You already run coding agents every day. Curia reads what is takeable across every repo ' +
+        'you watch, sends an agent at it, and brings every question, every preview and every ' +
+        'approval to the device in your hand.',
+  facts: [
+    'Your box · your subscription · your keys',
+    'GitHub issues in · merged pull requests out'
+  ],
+  cta: { label: 'Set it up', href: '#setup' },
+  source: { label: 'Source', href: 'https://github.com/alp82/curia' },
+
+  claimsHeading: 'What it gives you',
+  claims: [
+    {
+      station: 'the queue',
+      title: 'Your tracker is the queue',
+      body: 'GitHub issues hold every ticket, every claim and every dependency edge. Curia reads ' +
+            'what is takeable across every watched repo, in dependency order, and picks the model ' +
+            'for each ticket from a label. There is no second app, and no board to keep in sync.',
+      under: ['3 repos watched today · label decides the model · blocked and claimed tickets drop out']
+    },
+    {
+      station: 'the seat',
+      title: 'Any device is a full seat',
+      body: 'Nine verbs over Discord, one thread per ticket. Questions arrive with buttons. ' +
+            'Results arrive as HTTPS links on your tailnet. You can attach to a live agent’s ' +
+            'terminal from a phone and from a desktop at the same time, and neither one is the ' +
+            'lesser seat.',
+      under: [
+        'tickets · next · start 42 · status · attach 42 · resume 42 · cancel 42 · map 109 · review 42',
+        '~0.5 GB per agent measured · four at once on one small box'
+      ]
+    },
+    {
+      station: 'the gate',
+      title: 'An agent cannot finish by talking',
+      body: 'Every ticket ends the same way: commit, pull request, live preview, your approval, ' +
+            'merge. A rejection comes back in your own words and turns into new commits on the ' +
+            'same pull request. A stop hook refuses an agent that tries to quit early.',
+      under: ['resolved means merged · nothing lands without you']
+    }
+  ],
+
+  /* The one large-type moment. Claim 3, which is the line that keeps the
+     page out of the agent-swarm genre. Approved copy, not new copy. */
+  say: 'An agent cannot finish by talking. Nothing lands without you.',
+
+  proofHeading: 'One ticket, done',
+  frames: [
+    'The ticket goes out from a Discord thread.',
+    'The agent asks. You answer in the thread.',
+    'The preview link, open on the phone.',
+    'The review gate. Approved.'
+  ],
+  shotnote: 'Four phone screenshots of one real ticket, on a repo that is not this one. Tap one to read it.',
+  trail: {
+    text: 'This page was planned, decided and written by curia agents. Each one ended at a review gate, and none of them merged itself. ',
+    link: { label: 'Read the merged pull requests', href: 'https://github.com/alp82/curia/pulls?q=is%3Apr+is%3Amerged' }
+  },
+  stats: [
+    'From GitHub, since the first commit on 21 Jul 2026 — 33 merged agent pull requests · 175 issues closed · 3 repos watched.',
+    'From the daemon journal, since 1 Aug 2026 — 62 agents spawned · 88 questions asked · 31 review gates answered.',
+    'Counted 5 Aug 2026.'
+  ],
+
+  honestHeading: 'What you are getting into',
+  honest: [
+    ['Curia is fifteen days old.', ' First commit 21 July 2026.'],
+    ['One person runs it.', ' You would be the second.'],
+    ['Setup is manual and takes an evening.', ' Node, tmux, Tailscale, a Discord bot, a harness, a GitHub repo. It gets simpler. There is no package yet.'],
+    ['Tailscale and Discord are required.', ' There is no web UI.'],
+    ['Agents use your own harness login.', ' An agent can do what you can do with it.']
+  ],
+
+  guideHeading: 'Set it up',
+  need: 'a Linux box that stays on · Node 22 or newer · tmux · ttyd · a Tailscale account · a Discord server you control · Claude Code or Codex CLI, logged in · an evening.',
+
+  steps5: [
+    { t: 'Tailscale on the box and on your phone',
+      body: [
+        { p: 'Turn on HTTPS certificates for your tailnet, then let the daemon publish links without root.' },
+        { code: 'tailscale set --operator=$USER' },
+        { p: 'Every attach link and every preview link is a Tailscale link. Skip this and none of them work.' }
+      ] },
+    { t: 'Log in, as the user that runs the daemon',
+      body: [
+        { code: 'gh auth login && gh auth setup-git\nclaude' },
+        { p: 'Agents use this harness login and this GitHub account. The account needs write access to every repo you watch.' }
+      ] },
+    { t: 'A Discord bot',
+      body: [
+        { html: 'Create an application, add a bot, copy the token. Turn on <b>message content intent</b> — without it your replies arrive empty and no question is ever answered. Invite the bot to your server with the <code>bot</code> and <code>applications.commands</code> scopes. It creates the <code>#curia</code> channel itself on first boot.' }
+      ] },
+    { t: 'The code, and two files',
+      body: [
+        { code: 'git clone https://github.com/alp82/curia.git\ncd curia/daemon && npm install' },
+        { html: '<code>daemon/.env</code> takes the bot token, your Discord user id, and <code>TTYD_BIN</code>. <code>config/curia.yaml</code> takes the repos you watch and a <code>workspace_root</code> curia can own.' },
+        { html: '<span class="warn">Both files ship pointing at another person’s home directory.</span> Change them, or attach is dead and worktrees land in the wrong place.' }
+      ] },
+    { t: 'Run it',
+      body: [
+        { code: 'npm start' },
+        { html: 'A good boot logs <code>[bridge] ready</code>. Send a message in <code>#curia</code>: a thread opens and answers you. Then <code>tickets</code>, <code>start 42</code>, <code>status</code>, <code>attach 42</code>.' }
+      ] }
+  ],
+
+  steps13: [
+    { t: 'The box', body: [{ p: 'Linux, always on. Node 22 or newer, tmux, ttyd, Tailscale. About 0.5 GB per running agent.' }] },
+    { t: 'Tailscale', body: [{ html: 'Install it on the box and on your phone. Turn on HTTPS certificates for your tailnet in the admin console. Then run <code>tailscale set --operator=$USER</code>.' }] },
+    { t: 'GitHub', body: [{ code: 'gh auth login\ngh auth setup-git' }] },
+    { t: 'Your harness', body: [{ html: 'Log in as the user that runs the daemon. Log out and every agent fails. Codex CLI is optional: install it only for the <code>gpt</code> entry in <code>config/routing.yaml</code>.' }] },
+    { t: 'The Discord bot', body: [{ html: 'Create an application. Add a bot and copy the token — Discord shows it once. Turn on message content intent. In <b>OAuth2 &rarr; URL Generator</b> take the <code>bot</code> and <code>applications.commands</code> scopes, and these permissions: Manage Channels, Manage Webhooks, Send Messages, Create Public Threads, Send Messages in Threads, Read Message History, Embed Links, Attach Files. Open the URL and add the bot. Then turn on Developer Mode and copy your own user id.' }] },
+    { t: 'The code', body: [{ code: 'git clone https://github.com/alp82/curia.git\ncd curia/daemon\nnpm install' }] },
+    { t: '<code>daemon/.env</code>',
+      body: [
+        { code: 'DISCORD_BOT_TOKEN=<the bot token>\nDISCORD_ALLOWED_USERS=<your Discord user id>\nTTYD_BIN=/home/<you>/.local/bin/ttyd' },
+        { html: '<code>DISCORD_ALLOWED_USERS</code> is the whole access check. Everyone on it can send agents at your repos. <code>TTYD_BIN</code> defaults to <code>/home/alp/.local/bin/ttyd</code>: leave it and attach is dead. Optional: <code>CURIA_GUILD_ID</code>, <code>CURIA_CHANNEL</code>, <code>PORT</code>. Run one daemon per bot token.' }
+      ] },
+    { t: '<code>config/curia.yaml</code>',
+      body: [
+        { code: 'watch:\n  - repo: you/your-repo\n\ndispatch:\n  workspace_root: /home/<you>/curia-work' },
+        { html: '<code>workspace_root</code> is where curia keeps its own clones and worktrees. Do not point it at a checkout you work in. <code>auto_dispatch</code> is <code>false</code>, so nothing starts without you. The ports work as they ship, and the daemon names any clash at boot.' }
+      ] },
+    { t: 'The skills',
+      body: [
+        { html: 'The nine skills in <code>skills.install</code> are not in this repo. They come from the public <code>mattpocock/skills</code> collection, installed into <code>~/.claude/skills</code>. The daemon refuses to boot if one is missing, and names the path it looked for. Install them, cut the list down, or turn them off with an empty list — not a missing key.' },
+        { code: 'skills:\n  install: []' }
+      ] },
+    { t: '<code>config/routing.yaml</code>', body: [{ html: 'Maps a ticket label to a model, and a model to a CLI. Without Codex, delete the <code>gpt</code> model, the <code>codex</code> harness, and every <code>gpt</code> under <code>defaults</code> and <code>fallbacks</code>.' }] },
+    { t: 'The repos you watch', body: [{ html: '<b>Flat:</b> label an issue <code>ready-for-agent</code>. Curia takes open, unassigned, unblocked issues. <b>Map:</b> the repo needs a <code>wayfinder:map</code> issue with child issues, and a <code>docs/agents/issue-tracker.md</code> file. Dispatch refuses without that file. Blocking uses GitHub’s own issue dependencies.' }] },
+    { t: 'Run it',
+      body: [
+        { code: 'cd daemon\nnpm start' },
+        { html: 'A good boot logs <code>[bridge] ready: guild=&lt;your guild&gt; channel=#curia</code>. Send a normal message in <code>#curia</code>: a thread opens and answers you. The commands work as Discord slash commands or as plain English in a thread — <code>tickets</code>, <code>start 42</code>, <code>status</code>, <code>attach 42</code>, <code>resume 42</code>, <code>cancel 42</code>.' }
+      ] },
+    { t: 'Keep it running', body: [{ html: '<code>deploy/curia.service</code> is a systemd unit. Replace the user and the paths, and keep the <code>PATH=</code> line: systemd’s default path does not find <code>gh</code>, <code>tmux</code>, <code>tailscale</code> or <code>ttyd</code> under <code>~/.local/bin</code>. Restarting is safe. <code>daemon/data/events.jsonl</code> is the record, and everything else is rebuilt from GitHub, tmux and Tailscale on boot. Open questions keep their Discord buttons across a restart.' }] }
+  ],
+
+  failTitle: 'If it does not start',
+  failures: [
+    ['<code>bad config config/curia.yaml: ...</code>', 'The key it names. Config is checked before anything starts.'],
+    ['<code>skills.install names "x", but ... does not exist</code>', 'Step 9.'],
+    ['<code>preview range ... contains attach.serve_port</code>', 'Move one of the ports.'],
+    ['<code>attach index ... does not exist</code>', '<code>npm run build-attach-index --prefix daemon</code>'],
+    ['<code>bot is in no guild</code>', 'The invite did not finish, or <code>CURIA_GUILD_ID</code> is wrong.'],
+    ['The bridge refuses to start', '<code>DISCORD_ALLOWED_USERS</code> is empty.'],
+    ['Replies in a thread do nothing', 'The message content intent is off.'],
+    ['<code>spawned ttyd ... but no listener came up</code>', '<code>TTYD_BIN</code> points at nothing.'],
+    ['No attach or preview links ever appear', 'Tailscale HTTPS certificates are off, or <code>--operator</code> was never set.']
+  ],
+  readmore: 'The config reference and the design records live in the <a href="https://github.com/alp82/curia#setup">README</a> and <a href="https://github.com/alp82/curia/tree/main/docs/adr">docs/adr</a>.',
+  footer: 'curia · <a href="https://github.com/alp82/curia">github.com/alp82/curia</a> · self-hosted, one box, no service to sign up for.'
+};
+
+/* ==================================================================
+   2. SMALL HELPERS
+   ================================================================== */
+
+function h(tag, attrs, kids) {
+  var n = document.createElement(tag);
+  if (attrs) {
+    for (var k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'html') n.innerHTML = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else if (k.slice(0, 4) === 'data' || k === 'role' || k.slice(0, 5) === 'aria-') n.setAttribute(k, attrs[k]);
+      else n.setAttribute(k, attrs[k]);
+    }
+  }
+  (kids || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+function frag(kids) {
+  var f = document.createDocumentFragment();
+  kids.forEach(function (c) { if (c) f.appendChild(c); });
+  return f;
+}
+function words(s) { return s.split(/(\s+)/); }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+/* ==================================================================
+   3. MOTION AND SOUND
+   Motion follows prefers-reduced-motion, and the bar can override it.
+   Sound is OFF until the operator turns it on: the ticket requires it,
+   and a browser needs the gesture anyway.
+   ================================================================== */
+
+var prefersStill = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var Motion = {
+  on: !prefersStill,
+  set: function (v) {
+    Motion.on = v;
+    document.body.classList.toggle('nomotion', !v);
+  }
+};
+
+var Sound = {
+  on: false, ctx: null, master: null, drone: null, droneFilter: null,
+  enable: function () {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    if (!Sound.ctx) {
+      Sound.ctx = new AC();
+      Sound.master = Sound.ctx.createGain();
+      Sound.master.gain.value = 0;
+      Sound.master.connect(Sound.ctx.destination);
+    }
+    if (Sound.ctx.state === 'suspended') Sound.ctx.resume();
+    Sound.on = true;
+    Sound.master.gain.cancelScheduledValues(Sound.ctx.currentTime);
+    Sound.master.gain.linearRampToValueAtTime(0.5, Sound.ctx.currentTime + 0.6);
+    return true;
+  },
+  disable: function () {
+    Sound.on = false;
+    if (Sound.ctx && Sound.master) {
+      Sound.master.gain.cancelScheduledValues(Sound.ctx.currentTime);
+      Sound.master.gain.linearRampToValueAtTime(0, Sound.ctx.currentTime + 0.35);
+    }
+  },
+  /* One short synthesized note. No audio file, so the page stays self-contained. */
+  tone: function (freq, dur, type, vol) {
+    if (!Sound.on || !Sound.ctx) return;
+    var t = Sound.ctx.currentTime;
+    var o = Sound.ctx.createOscillator();
+    var g = Sound.ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol == null ? 0.14 : vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.35));
+    o.connect(g); g.connect(Sound.master);
+    o.start(t); o.stop(t + (dur || 0.35) + 0.05);
+  },
+  /* A low bed the scroll position filters. Only the WebGL variant asks for it. */
+  startDrone: function () {
+    if (!Sound.ctx || Sound.drone) return;
+    var o = Sound.ctx.createOscillator();
+    var o2 = Sound.ctx.createOscillator();
+    var f = Sound.ctx.createBiquadFilter();
+    var g = Sound.ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = 55;
+    o2.type = 'sine'; o2.frequency.value = 82.5;
+    f.type = 'lowpass'; f.frequency.value = 220; f.Q.value = 6;
+    g.gain.value = 0.07;
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(Sound.master);
+    o.start(); o2.start();
+    Sound.drone = [o, o2]; Sound.droneFilter = f;
+  },
+  stopDrone: function () {
+    if (!Sound.drone) return;
+    Sound.drone.forEach(function (o) { try { o.stop(); } catch (e) {} });
+    Sound.drone = null; Sound.droneFilter = null;
+  },
+  filterTo: function (hz) {
+    if (Sound.droneFilter && Sound.ctx) {
+      Sound.droneFilter.frequency.setTargetAtTime(hz, Sound.ctx.currentTime, 0.4);
+    }
+  }
+};
+
+/* ==================================================================
+   4. REVEAL
+   IntersectionObserver, never a scroll listener (B7 of the design skill).
+   ================================================================== */
+
+function makeRevealer() {
+  var obs = null;
+  if (window.IntersectionObserver) {
+    obs = new window.IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); obs.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+  }
+  return {
+    add: function (node, delay) {
+      if (!Motion.on || !obs) { node.classList.add('in'); return node; }
+      node.classList.add('rv');
+      if (delay) node.style.transitionDelay = delay + 'ms';
+      obs.observe(node);
+      return node;
+    },
+    stop: function () { if (obs) obs.disconnect(); }
+  };
+}
+
+/* Word-by-word reveal for the one large-type section (B11), one observer
+   per word so nothing rides on a scroll handler. */
+function litWords(el, onLit) {
+  if (!Motion.on || !window.IntersectionObserver) {
+    el.querySelectorAll('.w').forEach(function (w) { w.classList.add('lit'); });
+    return { stop: function () {} };
+  }
+  var n = 0;
+  var obs = new window.IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      var w = e.target;
+      obs.unobserve(w);
+      var d = (n++) * 55;
+      setTimeout(function () {
+        w.classList.add('lit');
+        if (onLit) onLit(n);
+      }, d);
+    });
+  }, { rootMargin: '0px 0px -35% 0px', threshold: 0.5 });
+  el.querySelectorAll('.w').forEach(function (w) { obs.observe(w); });
+  return { stop: function () { obs.disconnect(); } };
+}
+
+function sayNode(tagClass, text) {
+  var p = h('p', { class: tagClass });
+  words(text).forEach(function (tok) {
+    if (/^\s+$/.test(tok)) { p.appendChild(document.createTextNode(tok)); return; }
+    p.appendChild(h('span', { class: 'w', text: tok }));
+  });
+  return p;
+}
+
+/* ==================================================================
+   5. SHARED BLOCKS
+   The guide is one document in every variant. Only its skin changes.
+   ================================================================== */
+
+function stepNode(step, i) {
+  var kids = [h('h3', {}, [h('span', { class: 'num', text: String(i + 1) }), h('span', { html: step.t })])];
+  step.body.forEach(function (b) {
+    if (b.code) kids.push(h('pre', {}, [h('code', { text: b.code })]));
+    else kids.push(h('p', { html: b.html || b.p }));
+  });
+  return h('div', { class: 'step' }, kids);
+}
+
+function guideNode() {
+  var full = h('details', { class: 'full' }, [h('summary', { text: 'The complete setup, thirteen steps' })]);
+  CONTENT.steps13.forEach(function (s, i) { full.appendChild(stepNode(s, i)); });
+  full.appendChild(h('h3', { class: 'tabletitle', text: CONTENT.failTitle }));
+  var table = h('table', {});
+  CONTENT.failures.forEach(function (row) {
+    table.appendChild(h('tr', {}, [h('td', { html: row[0] }), h('td', { html: row[1] })]));
+  });
+  full.appendChild(table);
+
+  var kids = [h('p', { class: 'need', html: '<b>What you need:</b> ' + CONTENT.need })];
+  CONTENT.steps5.forEach(function (s, i) { kids.push(stepNode(s, i)); });
+  kids.push(full);
+  kids.push(h('p', { class: 'readmore', html: CONTENT.readmore }));
+  return h('div', { class: 'guide' }, kids);
+}
+
+function honestList(cls) {
+  var ul = h('ul', {});
+  CONTENT.honest.forEach(function (it) {
+    ul.appendChild(h('li', {}, [h('b', { text: it[0] }), document.createTextNode(it[1])]));
+  });
+  return h('div', { class: cls }, [ul]);
+}
+
+function statsNode(cls) {
+  var d = h('div', { class: cls });
+  CONTENT.stats.forEach(function (s, i) {
+    d.appendChild(document.createTextNode(s));
+    if (i < CONTENT.stats.length - 1) d.appendChild(h('br'));
+  });
+  return d;
+}
+
+function trailNode(cls) {
+  return h('p', { class: cls }, [
+    document.createTextNode(CONTENT.trail.text),
+    h('a', { href: CONTENT.trail.link.href, text: CONTENT.trail.link.label }),
+    document.createTextNode('.')
+  ]);
+}
+
+/* ==================================================================
+   6. LIGHTBOX — same behavior in all four variants.
+   ================================================================== */
+
+var LB = (function () {
+  var lb = document.getElementById('lb');
+  var shot = document.getElementById('lb-shot');
+  var cap = document.getElementById('lb-cap');
+  var count = document.getElementById('lb-count');
+  var at = 0;
+  function draw() {
+    shot.textContent = 'frame ' + (at + 1);
+    cap.textContent = CONTENT.frames[at];
+    count.textContent = (at + 1) + ' / ' + CONTENT.frames.length;
+  }
+  function open(i) { at = i; draw(); lb.setAttribute('open', ''); document.body.style.overflow = 'hidden'; }
+  function close() { lb.removeAttribute('open'); document.body.style.overflow = ''; }
+  function step(d) { at = (at + d + CONTENT.frames.length) % CONTENT.frames.length; draw(); Sound.tone(560, 0.12, 'sine', 0.05); }
+  lb.querySelectorAll('[data-lb-step]').forEach(function (b) {
+    b.addEventListener('click', function () { step(Number(b.getAttribute('data-lb-step'))); });
+  });
+  lb.querySelector('[data-lb-close]').addEventListener('click', close);
+  lb.addEventListener('click', function (e) {
+    if (e.target === lb || e.target.className === 'lb-stage') close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!lb.hasAttribute('open')) return;
+    if (e.key === 'Escape') close();
+    if (e.key === 'ArrowRight') step(1);
+    if (e.key === 'ArrowLeft') step(-1);
+  });
+  var x0 = null;
+  lb.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  lb.addEventListener('touchend', function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 45) step(dx < 0 ? 1 : -1);
+    x0 = null;
+  }, { passive: true });
+  return { open: open, close: close };
+})();
+
+function frameButton(cls, i) {
+  var b = h('button', { class: cls, type: 'button', text: 'frame ' + (i + 1) });
+  b.addEventListener('click', function () { LB.open(i); });
+  return b;
+}
+
+/* ==================================================================
+   7. A SHARED POINTER
+   One source of truth for cursor and touch, so a variant never needs
+   its own listener set. Values are in 0..1 screen space.
+   ================================================================== */
+
+var Pointer = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, active: 0, down: false };
+(function () {
+  function set(x, y) {
+    Pointer.tx = x / window.innerWidth;
+    Pointer.ty = y / window.innerHeight;
+    Pointer.active = 1;
+  }
+  window.addEventListener('pointermove', function (e) { set(e.clientX, e.clientY); }, { passive: true });
+  window.addEventListener('pointerdown', function (e) { set(e.clientX, e.clientY); Pointer.down = true; }, { passive: true });
+  window.addEventListener('pointerup', function () { Pointer.down = false; }, { passive: true });
+  window.addEventListener('pointerleave', function () { Pointer.active = 0; }, { passive: true });
+  window.addEventListener('touchmove', function (e) {
+    if (e.touches[0]) set(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+})();
+function pointerStep() {
+  /* A spring, so the field lags the finger instead of snapping to it. */
+  Pointer.x = lerp(Pointer.x, Pointer.tx, 0.08);
+  Pointer.y = lerp(Pointer.y, Pointer.ty, 0.08);
+}
+
+function scrollProgress() {
+  var max = document.documentElement.scrollHeight - window.innerHeight;
+  return max > 0 ? clamp(window.scrollY / max, 0, 1) : 0;
+}
+
+/* ==================================================================
+   8. VARIANT "live" — the baseline. Same words, same structure, same
+   CSS as https://curia.sh today. Nothing here is new work.
+   ================================================================== */
+
+function mountLive(root) {
+  root.className = 'v-live';
+  function wrap(kids) { return h('div', { class: 'wrap' }, kids); }
+  function rule() { return h('div', { class: 'wrap' }, [h('div', { class: 'rule' })]); }
+
+  var head = h('header', { class: 'top' }, [wrap([
+    h('div', { class: 'wordmark' }, [
+      h('b', { text: CONTENT.wordmark }),
+      document.createTextNode(' '),
+      h('span', { text: '— ' + CONTENT.kicker })
+    ]),
+    h('h1', { html: CONTENT.headline[0] + '<br>' + CONTENT.headline[1] }),
+    h('p', { class: 'lede', text: CONTENT.lede }),
+    h('div', { class: 'facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }),
+    h('div', { class: 'links' }, [
+      h('a', { href: CONTENT.cta.href, text: CONTENT.cta.label }),
+      h('a', { href: CONTENT.source.href, text: CONTENT.source.label })
+    ])
+  ])]);
+
+  var claims = h('div', {});
+  CONTENT.claims.forEach(function (c) {
+    claims.appendChild(h('div', { class: 'claim' }, [
+      h('h3', { text: c.title }),
+      h('p', { text: c.body }),
+      h('div', { class: 'under', html: c.under.join('<br>') })
+    ]));
+  });
+  var s1 = h('section', {}, [wrap([h('h2', { text: CONTENT.claimsHeading }), claims])]);
+
+  var frames = h('div', { class: 'frames' });
+  CONTENT.frames.forEach(function (cap, i) {
+    frames.appendChild(h('div', { class: 'frame' }, [h('figure', {}, [
+      frameButton('box', i),
+      h('figcaption', {}, [h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)])
+    ])]));
+  });
+  var s2 = h('section', {}, [wrap([
+    h('h2', { text: CONTENT.proofHeading }), frames,
+    h('p', { class: 'shotnote', text: CONTENT.shotnote }),
+    trailNode('trail'), statsNode('stats')
+  ])]);
+
+  var s3 = h('section', {}, [wrap([h('h2', { text: CONTENT.honestHeading }), honestList('honest')])]);
+  var s4 = h('section', { id: 'setup' }, [wrap([h('h2', { text: CONTENT.guideHeading }), guideNode()])]);
+  var foot = h('footer', {}, [h('div', { class: 'wrap', html: CONTENT.footer })]);
+
+  root.appendChild(frag([head, rule(), s1, rule(), s2, rule(), s3, rule(), s4, foot]));
+  return { destroy: function () {} };
+}
+
+/* ==================================================================
+   9. VARIANT "bloodstream"
+   A WebGL field behind the whole page. Scroll drives one phase uniform
+   that morphs the field between scenes, so the transitions belong to
+   the same organism rather than to five separate widgets. The pointer
+   is a pressure source. Text sits over a scrim so contrast survives.
+   ================================================================== */
+
+var FRAG_SRC = [
+  'precision mediump float;',
+  'uniform vec2 u_res;',
+  'uniform float u_time;',
+  'uniform float u_phase;',
+  'uniform vec2 u_ptr;',
+  'uniform float u_ptrOn;',
+  'uniform float u_pulse;',
+  '',
+  'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }',
+  'float noise(vec2 p){',
+  '  vec2 i = floor(p); vec2 f = fract(p);',
+  '  f = f * f * (3.0 - 2.0 * f);',
+  '  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),',
+  '             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);',
+  '}',
+  'float fbm(vec2 p){',
+  '  float a = 0.5; float s = 0.0;',
+  '  for (int i = 0; i < 4; i++){ s += a * noise(p); p *= 2.03; a *= 0.5; }',
+  '  return s;',
+  '}',
+  '',
+  'void main(){',
+  '  vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / u_res.y;',
+  '  float t = u_time * 0.055;',
+  '',
+  '  // The pointer is a soft pressure source in the field.',
+  '  vec2 pd = uv - u_ptr;',
+  '  float press = u_ptrOn * 0.9 / (dot(pd, pd) * 26.0 + 1.0);',
+  '',
+  '  // Two rounds of domain warping give the field its slow, muscular drift.',
+  '  float sc = mix(1.35, 2.35, u_phase);',
+  '  vec2 q = vec2(fbm(uv * sc + t), fbm(uv * sc + vec2(4.7, 1.3) - t * 0.8));',
+  '  vec2 r = vec2(fbm(uv * sc + 2.1 * q + vec2(1.7, 9.2) + t * 0.6 + press),',
+  '                fbm(uv * sc + 2.1 * q + vec2(8.3, 2.8) - t * 0.45));',
+  '  float f = fbm(uv * sc + 2.6 * r + press * 1.6);',
+  '',
+  '  // Iso-contours read as membranes. The phase slides them, which is what',
+  '  // makes one scene become the next instead of cutting to it.',
+  '  float bands = mix(7.0, 13.0, u_phase);',
+  '  float cells = abs(sin(f * bands + u_phase * 6.2831 + t * 1.6 + u_pulse * 1.2));',
+  '  float veins = smoothstep(0.62, 0.02, cells);',
+  '  float deep = smoothstep(0.15, 0.95, f);',
+  '',
+  '  // Three dark palettes, blended by the same phase.',
+  '  vec3 cA = vec3(0.035, 0.052, 0.070);',
+  '  vec3 cB = vec3(0.055, 0.075, 0.070);',
+  '  vec3 cC = vec3(0.070, 0.055, 0.062);',
+  '  vec3 base = mix(mix(cA, cB, smoothstep(0.0, 0.55, u_phase)), cC, smoothstep(0.55, 1.0, u_phase));',
+  '  vec3 glow = mix(vec3(0.49, 0.83, 0.63), vec3(0.42, 0.66, 0.90), u_phase);',
+  '',
+  '  vec3 col = base + base * deep * 0.5;',
+  '  col += glow * veins * (0.30 + 0.16 * press + 0.10 * u_pulse);',
+  '  col += glow * pow(press, 2.0) * 0.14;',
+  '',
+  '  // Vignette, then a hard ceiling on brightness so body text stays legible.',
+  '  float vig = smoothstep(1.35, 0.15, length(uv));',
+  '  col *= mix(0.55, 1.0, vig);',
+  '  col = min(col, vec3(0.34));',
+  '',
+  '  gl_FragColor = vec4(col, 1.0);',
+  '}'
+].join('\n');
+
+var VERT_SRC = [
+  'attribute vec2 a_p;',
+  'void main(){ gl_Position = vec4(a_p, 0.0, 1.0); }'
+].join('\n');
+
+function startField(canvas) {
+  var gl = null;
+  try {
+    gl = canvas.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'low-power' })
+      || canvas.getContext('experimental-webgl', { antialias: false, alpha: false });
+  } catch (e) { gl = null; }
+  if (!gl) return null;
+
+  function sh(type, src) {
+    var s = gl.createShader(type);
+    gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { return null; }
+    return s;
+  }
+  var vs = sh(gl.VERTEX_SHADER, VERT_SRC);
+  var fs = sh(gl.FRAGMENT_SHADER, FRAG_SRC);
+  if (!vs || !fs) return null;
+  var prog = gl.createProgram();
+  gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
+  gl.useProgram(prog);
+
+  var buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  var loc = gl.getAttribLocation(prog, 'a_p');
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+
+  var uRes = gl.getUniformLocation(prog, 'u_res');
+  var uTime = gl.getUniformLocation(prog, 'u_time');
+  var uPhase = gl.getUniformLocation(prog, 'u_phase');
+  var uPtr = gl.getUniformLocation(prog, 'u_ptr');
+  var uPtrOn = gl.getUniformLocation(prog, 'u_ptrOn');
+  var uPulse = gl.getUniformLocation(prog, 'u_pulse');
+
+  /* A phone renders this at well under one device pixel per pixel. The
+     field is low frequency, so the loss does not show, and the battery
+     cost drops with the pixel count. */
+  var small = Math.min(window.innerWidth, window.innerHeight) < 620;
+  var scale = Math.min(window.devicePixelRatio || 1, small ? 1.0 : 1.5) * (small ? 0.7 : 0.85);
+
+  function size() {
+    var w = Math.max(2, Math.round(canvas.clientWidth * scale));
+    var hgt = Math.max(2, Math.round(canvas.clientHeight * scale));
+    if (canvas.width !== w || canvas.height !== hgt) {
+      canvas.width = w; canvas.height = hgt;
+      gl.viewport(0, 0, w, hgt);
+    }
+  }
+
+  var raf = 0, t0 = 0, phase = 0, pulse = 0, tick = 0;
+  function draw(ts) {
+    raf = requestAnimationFrame(draw);
+    if (!t0) t0 = ts;
+    if (document.hidden) return;
+    size();
+    pointerStep();
+    phase = lerp(phase, scrollProgress(), 0.06);
+    pulse *= 0.94;
+    gl.uniform2f(uRes, canvas.width, canvas.height);
+    gl.uniform1f(uTime, (ts - t0) / 1000);
+    gl.uniform1f(uPhase, phase);
+    /* Pointer into the shader's aspect-corrected space. */
+    var ar = canvas.clientWidth / Math.max(1, canvas.clientHeight);
+    gl.uniform2f(uPtr, (Pointer.x - 0.5) * ar, (0.5 - Pointer.y));
+    gl.uniform1f(uPtrOn, Pointer.active);
+    gl.uniform1f(uPulse, pulse);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    /* Retuning the filter every frame would schedule sixty ramps a second. */
+    if (Sound.on && (tick++ % 12) === 0) Sound.filterTo(180 + phase * 900);
+  }
+
+  if (Motion.on) raf = requestAnimationFrame(draw);
+  else { size(); gl.uniform2f(uRes, canvas.width, canvas.height); gl.uniform1f(uTime, 8);
+         gl.uniform1f(uPhase, 0.3); gl.uniform2f(uPtr, 0, 0); gl.uniform1f(uPtrOn, 0);
+         gl.uniform1f(uPulse, 0); gl.drawArrays(gl.TRIANGLES, 0, 3); }
+
+  return {
+    pulse: function () { pulse = 1; },
+    destroy: function () { running = false; cancelAnimationFrame(raf); }
+  };
+}
+
+function mountBloodstream(root) {
+  root.className = 'v-blood';
+  var canvas = h('canvas', { class: 'layer', 'aria-hidden': 'true' });
+  var scrim = h('div', { class: 'bl-scrim', 'aria-hidden': 'true' });
+  document.body.insertBefore(canvas, document.getElementById('main'));
+  document.body.insertBefore(scrim, document.getElementById('main'));
+
+  var field = startField(canvas);
+  if (!field) {
+    /* No WebGL. Say so rather than showing an empty black page. */
+    canvas.remove();
+    scrim.style.background = 'radial-gradient(120% 70% at 50% 0%, #12321f 0%, #06070a 70%)';
+  }
+  if (Sound.on) Sound.startDrone();
+
+  var rv = makeRevealer();
+  function wrap(kids) { return h('div', { class: 'bl-wrap' }, kids); }
+
+  /* Spatial typography: the headline is per-word so it can be revealed and
+     nudged as a set of objects rather than as one block of text. */
+  var hero = h('h1', {});
+  CONTENT.headline.forEach(function (line, li) {
+    var ln = h('span', { class: 'ln' });
+    words(line).forEach(function (tok) {
+      if (/^\s+$/.test(tok)) { ln.appendChild(document.createTextNode(tok)); return; }
+      ln.appendChild(h('span', { class: 'w', text: tok }));
+    });
+    hero.appendChild(ln);
+    if (li === 0) hero.appendChild(document.createTextNode(' '));
+  });
+
+  var head = h('section', { class: 'bl-hero' }, [wrap([
+    rv.add(h('div', { class: 'bl-mark', text: CONTENT.wordmark + ' · ' + CONTENT.kicker }), 0),
+    rv.add(hero, 60),
+    rv.add(h('p', { class: 'bl-lede', text: CONTENT.lede }), 160),
+    rv.add(h('div', { class: 'bl-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 240),
+    rv.add(h('div', { class: 'bl-links' }, [
+      h('a', { class: 'bl-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
+      h('a', { class: 'bl-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
+    ]), 320)
+  ])]);
+
+  var claims = h('div', {});
+  CONTENT.claims.forEach(function (c, i) {
+    claims.appendChild(rv.add(h('div', { class: 'bl-claim' }, [
+      h('h3', { text: c.title }),
+      h('p', { text: c.body }),
+      h('div', { class: 'under', html: c.under.join('<br>') })
+    ]), i * 90));
+  });
+  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading })), claims])]);
+
+  var say = sayNode('bl-say', CONTENT.say);
+  var s15 = h('section', {}, [wrap([say])]);
+
+  var frames = h('div', { class: 'bl-frames' });
+  CONTENT.frames.forEach(function (cap, i) {
+    frames.appendChild(h('figure', { style: 'margin:0' }, [
+      frameButton('bl-box', i),
+      h('figcaption', { class: 'bl-cap' }, [
+        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
+      ])
+    ]));
+  });
+  var s2 = h('section', {}, [wrap([
+    rv.add(h('h2', { text: CONTENT.proofHeading })),
+    rv.add(frames, 80),
+    rv.add(h('p', { class: 'bl-note', text: CONTENT.shotnote }), 140),
+    rv.add(trailNode('bl-note'), 180),
+    rv.add(statsNode('bl-stats'), 220)
+  ])]);
+
+  var s3 = h('section', {}, [wrap([
+    rv.add(h('h2', { text: CONTENT.honestHeading })),
+    rv.add(honestList('bl-honest'), 60)
+  ])]);
+  var s4 = h('section', { id: 'setup' }, [wrap([
+    rv.add(h('h2', { text: CONTENT.guideHeading })),
+    rv.add(guideNode(), 60)
+  ])]);
+  var foot = h('footer', {}, [h('div', { class: 'bl-wrap', html: CONTENT.footer })]);
+
+  root.appendChild(frag([head, s1, s15, s2, s3, s4, foot]));
+
+  /* Scene transitions: entering a section pulses the field and, if the
+     operator turned sound on, plays one note of a fixed scale. */
+  var scale = [220, 261.63, 329.63, 392, 493.88, 587.33];
+  var sceneObs = null;
+  if (window.IntersectionObserver && Motion.on) {
+    var n = 0;
+    sceneObs = new window.IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        if (field) field.pulse();
+        Sound.tone(scale[n++ % scale.length], 1.1, 'triangle', 0.07);
+      });
+    }, { threshold: 0.35 });
+    [s1, s15, s2, s3, s4].forEach(function (s) { sceneObs.observe(s); });
+  }
+
+  var lit = litWords(say, function () { Sound.tone(880, 0.09, 'sine', 0.03); });
+
+  /* The headline words lean away from the pointer. Cheap, and it makes the
+     first screen answer the cursor without a physics engine. */
+  var hw = [].slice.call(hero.querySelectorAll('.w'));
+  var raf = 0;
+  function lean() {
+    raf = requestAnimationFrame(lean);
+    if (document.hidden || !Motion.on) return;
+    var dx = (Pointer.x - 0.5), dy = (Pointer.y - 0.5);
+    hw.forEach(function (w, i) {
+      var k = 1 + (i % 3) * 0.6;
+      w.style.transform = 'translate3d(' + (-dx * 9 * k).toFixed(2) + 'px,' +
+        (-dy * 5 * k).toFixed(2) + 'px,0)';
+    });
+  }
+  if (Motion.on) raf = requestAnimationFrame(lean);
+
+  return {
+    destroy: function () {
+      cancelAnimationFrame(raf);
+      if (field) field.destroy();
+      if (sceneObs) sceneObs.disconnect();
+      rv.stop(); lit.stop();
+      Sound.stopDrone();
+      canvas.remove(); scrim.remove();
+    },
+    onSound: function (on) { if (on) Sound.startDrone(); else Sound.stopDrone(); }
+  };
+}
+
+/* ==================================================================
+   10. VARIANT "queue"
+   A different information architecture, not a different skin. The page
+   has a spine: a live pipeline running down the left, with the content
+   hanging off it as stations. Tickets travel the spine while you read,
+   and they stop at the station you are reading. What the page animates
+   is what the product does, which is the only version of this prompt
+   that does not read as decoration.
+   ================================================================== */
+
+function startSpine(canvas, anchors, onMerge) {
+  var ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0;
+
+  function size() {
+    var w = canvas.clientWidth, hgt = canvas.clientHeight;
+    if (W !== w || H !== hgt) {
+      W = w; H = hgt;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(hgt * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
+
+  var spineX = function () { return window.innerWidth < 736 ? 24 : 48; };
+
+  /* Stations are springs. They sit at the vertical center of their
+     section, so the spine tracks the document rather than the clock. */
+  var nodes = anchors.map(function (a) {
+    return { el: a.el, label: a.label, y: 0, x: 0, vx: 0, vy: 0, hit: 0, on: 0 };
+  });
+  var tickets = [];
+  var spawnAt = 0;
+
+  function layout() {
+    var sx = spineX();
+    nodes.forEach(function (n) {
+      var r = n.el.getBoundingClientRect();
+      n.ty = r.top + Math.min(r.height * 0.5, 120);
+      n.tx = sx;
+      /* on = 1 when this station is the one being read */
+      n.on = (r.top < window.innerHeight * 0.6 && r.bottom > window.innerHeight * 0.25) ? 1 : 0;
+    });
+  }
+
+  var raf = 0, last = 0;
+  function frame(ts) {
+    raf = requestAnimationFrame(frame);
+    if (document.hidden) return;
+    var dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
+    last = ts;
+    size(); layout(); pointerStep();
+    ctx.clearRect(0, 0, W, H);
+
+    var sx = spineX();
+    var px = Pointer.x * window.innerWidth, py = Pointer.y * window.innerHeight;
+
+    /* The spine itself. */
+    ctx.strokeStyle = '#ffffff14';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
+
+    /* Stations: spring toward their anchor, pushed by the pointer. */
+    nodes.forEach(function (n) {
+      var dx = n.tx - n.x, dy = n.ty - n.y;
+      n.vx += dx * 26 * dt; n.vy += dy * 26 * dt;
+      var pdx = n.x - px, pdy = n.y - py;
+      var d2 = pdx * pdx + pdy * pdy;
+      if (d2 < 26000 && Pointer.active) {
+        var f = (1 - d2 / 26000) * 900;
+        var d = Math.sqrt(d2) || 1;
+        n.vx += (pdx / d) * f * dt; n.vy += (pdy / d) * f * dt;
+      }
+      n.vx *= 0.86; n.vy *= 0.86;
+      n.x += n.vx * dt * 8; n.y += n.vy * dt * 8;
+      n.hit *= 0.93;
+
+      var r = 4 + n.on * 2 + n.hit * 5;
+      ctx.beginPath(); ctx.arc(n.x, n.y, r + 8 + n.hit * 12, 0, 6.2832);
+      ctx.fillStyle = 'rgba(125,211,160,' + (0.05 + n.on * 0.05 + n.hit * 0.12).toFixed(3) + ')';
+      ctx.fill();
+      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 6.2832);
+      ctx.fillStyle = n.on ? '#7dd3a0' : '#4a5560';
+      ctx.fill();
+    });
+
+    /* Tickets flow down the spine and pause at each station: the queue,
+       in dependency order, doing the thing the copy beside it claims. */
+    if (Motion.on && ts > spawnAt) {
+      spawnAt = ts + 1400 + Math.random() * 2200;
+      tickets.push({ y: -20, v: 46 + Math.random() * 26, hold: 0, at: 0, wob: Math.random() * 6.28 });
+    }
+    for (var i = tickets.length - 1; i >= 0; i--) {
+      var t = tickets[i];
+      if (t.hold > 0) { t.hold -= dt; }
+      else {
+        t.y += t.v * dt * 3.2;
+        for (var j = 0; j < nodes.length; j++) {
+          if (j >= t.at && Math.abs(t.y - nodes[j].y) < 6 && nodes[j].y > 0) {
+            t.at = j + 1; t.hold = 0.55; nodes[j].hit = 1;
+            if (j === nodes.length - 1 && onMerge) onMerge();
+            break;
+          }
+        }
+      }
+      if (t.y > H + 30) { tickets.splice(i, 1); continue; }
+      t.wob += dt * 2.4;
+      var wx = sx + Math.sin(t.wob) * 2.2;
+      var a = t.hold > 0 ? 0.95 : 0.6;
+      ctx.beginPath(); ctx.arc(wx, t.y, t.hold > 0 ? 3.4 : 2.4, 0, 6.2832);
+      ctx.fillStyle = 'rgba(125,211,160,' + a + ')';
+      ctx.fill();
+      if (t.hold > 0) {
+        ctx.beginPath(); ctx.arc(wx, t.y, 10 - t.hold * 6, 0, 6.2832);
+        ctx.strokeStyle = 'rgba(125,211,160,' + (t.hold * 0.5).toFixed(3) + ')';
+        ctx.lineWidth = 1; ctx.stroke();
+      }
+    }
+    if (tickets.length > 24) tickets.splice(0, tickets.length - 24);
+  }
+
+  size(); layout();
+  nodes.forEach(function (n) { n.x = spineX(); n.y = n.ty; });
+  if (Motion.on) raf = requestAnimationFrame(frame);
+  else { requestAnimationFrame(function (ts) { frame(ts); cancelAnimationFrame(raf); }); }
+
+  return { destroy: function () { cancelAnimationFrame(raf); } };
+}
+
+function mountQueue(root) {
+  root.className = 'v-queue';
+  var canvas = h('canvas', { class: 'layer', 'aria-hidden': 'true' });
+  document.body.insertBefore(canvas, document.getElementById('main'));
+
+  var rv = makeRevealer();
+  function wrap(kids) { return h('div', { class: 'q-wrap' }, kids); }
+
+  var head = h('section', { class: 'q-hero' }, [wrap([
+    rv.add(h('div', { class: 'q-mark' }, [
+      h('b', { text: CONTENT.wordmark }),
+      document.createTextNode(' — ' + CONTENT.kicker)
+    ])),
+    rv.add(h('h1', { html: CONTENT.headline[0] + ' ' + CONTENT.headline[1] }), 60),
+    rv.add(h('p', { class: 'q-lede', text: CONTENT.lede }), 120),
+    rv.add(h('div', { class: 'q-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
+    rv.add(h('div', { class: 'q-links' }, [
+      h('a', { class: 'q-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
+      h('a', { class: 'q-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
+    ]), 240)
+  ])]);
+
+  var stations = [];
+  var sections = [];
+  CONTENT.claims.forEach(function (c) {
+    var st = h('div', { class: 'q-station' }, [
+      h('span', { class: 'q-tag', text: c.station }),
+      rv.add(h('div', { class: 'q-card' }, [
+        h('h3', { text: c.title }),
+        h('p', { text: c.body }),
+        h('div', { class: 'under', html: c.under.join('<br>') })
+      ]))
+    ]);
+    stations.push(st);
+  });
+  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading }))].concat(stations))]);
+
+  var frames = h('div', { class: 'q-frames' });
+  CONTENT.frames.forEach(function (cap, i) {
+    frames.appendChild(h('figure', { style: 'margin:0' }, [
+      frameButton('q-box', i),
+      h('figcaption', { class: 'q-cap' }, [
+        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
+      ])
+    ]));
+  });
+  var proofStation = h('div', { class: 'q-station' }, [
+    h('span', { class: 'q-tag', text: 'the run' }),
+    rv.add(frames),
+    rv.add(h('p', { class: 'q-note', text: CONTENT.shotnote }), 80),
+    rv.add(trailNode('q-note'), 120),
+    rv.add(statsNode('q-stats'), 160)
+  ]);
+  var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proofStation])]);
+
+  var honestStation = h('div', { class: 'q-station' }, [
+    h('span', { class: 'q-tag', text: 'the cost' }),
+    rv.add(honestList('q-honest'))
+  ]);
+  var s3 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.honestHeading })), honestStation])]);
+
+  var guideStation = h('div', { class: 'q-station' }, [
+    h('span', { class: 'q-tag', text: 'your turn' }),
+    rv.add(guideNode())
+  ]);
+  var s4 = h('section', { id: 'setup' }, [wrap([rv.add(h('h2', { text: CONTENT.guideHeading })), guideStation])]);
+
+  var foot = h('footer', {}, [h('div', { class: 'q-wrap', html: CONTENT.footer })]);
+  root.appendChild(frag([head, s1, s2, s3, s4, foot]));
+
+  var anchors = stations.map(function (s, i) { return { el: s, label: CONTENT.claims[i].station }; });
+  anchors.push({ el: proofStation, label: 'the run' });
+  anchors.push({ el: honestStation, label: 'the cost' });
+  anchors.push({ el: guideStation, label: 'your turn' });
+
+  var spine = startSpine(canvas, anchors, function () {
+    Sound.tone(392, 0.5, 'triangle', 0.06);
+  });
+
+  return {
+    destroy: function () {
+      if (spine) spine.destroy();
+      rv.stop();
+      canvas.remove();
+    }
+  };
+}
+
+/* ==================================================================
+   11. VARIANT "vitals"
+   The restrained answer. The live page's calm and its hierarchy, plus
+   exactly one living gesture: a hairline trace down the left margin
+   that breathes at rest and reacts to how fast you scroll. The headline
+   letters carry a small independent spring. Everything else is the
+   design skill's motion and accessibility advice applied plainly.
+   ================================================================== */
+
+function startTrace(canvas) {
+  var ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0, pts = [], raf = 0, last = 0, phase = 0;
+  var lastScroll = window.scrollY, vel = 0, beat = 0, beatAt = 0;
+
+  function size() {
+    var w = canvas.clientWidth, hgt = canvas.clientHeight;
+    if (W !== w || H !== hgt) {
+      W = w; H = hgt;
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      pts = [];
+    }
+  }
+
+  function frame(ts) {
+    raf = requestAnimationFrame(frame);
+    if (document.hidden) return;
+    var dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
+    last = ts;
+    size();
+
+    var sy = window.scrollY;
+    vel = lerp(vel, Math.min(1, Math.abs(sy - lastScroll) / 24), 0.16);
+    lastScroll = sy;
+    phase += dt * (0.7 + vel * 2.2);
+
+    /* At rest it breathes. Moving, it spikes: the page has a pulse and the
+       pulse is the reader's own scrolling. */
+    if (ts > beatAt) { beatAt = ts + (1500 - vel * 700); beat = 1; }
+    beat *= 0.92;
+
+    var x = W * 0.5;
+    var amp = W * 0.34;
+    var y = H + 1;
+    var wave = Math.sin(phase * 2.1) * 0.35 + Math.sin(phase * 0.7) * 0.2;
+    pts.unshift(x + (wave * (0.25 + vel) + beat * beat * 0.9) * amp);
+    var maxPts = Math.ceil(H / 2) + 4;
+    if (pts.length > maxPts) pts.length = maxPts;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.beginPath();
+    for (var i = 0; i < pts.length; i++) {
+      var py = i * 2;
+      if (i === 0) ctx.moveTo(pts[i], py); else ctx.lineTo(pts[i], py);
+    }
+    ctx.strokeStyle = 'rgba(125,211,160,0.55)';
+    ctx.lineWidth = 1.25;
+    ctx.stroke();
+
+    ctx.beginPath(); ctx.arc(pts[0], 0, 2 + beat * 2.5, 0, 6.2832);
+    ctx.fillStyle = 'rgba(125,211,160,' + (0.55 + beat * 0.45).toFixed(3) + ')';
+    ctx.fill();
+  }
+
+  size();
+  if (Motion.on) raf = requestAnimationFrame(frame);
+  return { destroy: function () { cancelAnimationFrame(raf); } };
+}
+
+function mountVitals(root) {
+  root.className = 'v-vitals';
+  var rail = h('canvas', {
+    class: 'layer', 'aria-hidden': 'true',
+    style: 'width:2.75rem;left:0;right:auto;opacity:0.9'
+  });
+  document.body.insertBefore(rail, document.getElementById('main'));
+  var trace = startTrace(rail);
+
+  var rv = makeRevealer();
+  function wrap(kids) { return h('div', { class: 'vt-wrap' }, kids); }
+  function rule() { return h('div', { class: 'vt-wrap' }, [h('div', { class: 'vt-rule' })]); }
+
+  /* Per-letter spans are what gives the headline its own small physics.
+     Split that far, a screen reader can spell the line out instead of
+     reading it, so the heading carries the plain sentence as its label
+     and the pieces are hidden from the accessibility tree. */
+  var heroText = CONTENT.headline.join(' ');
+  var hero = h('h1', { 'aria-label': heroText });
+  CONTENT.headline.forEach(function (line) {
+    var ln = h('span', { class: 'ln', 'aria-hidden': 'true' });
+    line.split('').forEach(function (ch) {
+      if (ch === ' ') { ln.appendChild(document.createTextNode(' ')); return; }
+      ln.appendChild(h('span', { class: 'ch', text: ch }));
+    });
+    hero.appendChild(ln);
+  });
+
+  var head = h('header', { class: 'vt-hero' }, [wrap([
+    rv.add(h('div', { class: 'vt-mark' }, [
+      h('b', { text: CONTENT.wordmark }), document.createTextNode(' '),
+      h('span', { text: '— ' + CONTENT.kicker })
+    ])),
+    rv.add(hero, 50),
+    rv.add(h('p', { class: 'vt-lede', text: CONTENT.lede }), 120),
+    rv.add(h('div', { class: 'vt-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
+    rv.add(h('div', { class: 'vt-links' }, [
+      h('a', { href: CONTENT.cta.href, text: CONTENT.cta.label }),
+      h('a', { href: CONTENT.source.href, text: CONTENT.source.label })
+    ]), 240)
+  ])]);
+
+  var claims = h('div', {});
+  CONTENT.claims.forEach(function (c, i) {
+    claims.appendChild(rv.add(h('div', { class: 'vt-claim' }, [
+      h('h3', { text: c.title }),
+      h('p', { text: c.body }),
+      h('div', { class: 'under', html: c.under.join('<br>') })
+    ]), i * 80));
+  });
+  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading })), claims])]);
+
+  var say = sayNode('vt-say', CONTENT.say);
+  var s15 = h('section', {}, [wrap([say])]);
+
+  var frames = h('div', { class: 'vt-frames' });
+  CONTENT.frames.forEach(function (cap, i) {
+    frames.appendChild(h('figure', { style: 'margin:0' }, [
+      frameButton('vt-box', i),
+      h('figcaption', { class: 'vt-cap' }, [
+        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
+      ])
+    ]));
+  });
+  var s2 = h('section', {}, [wrap([
+    rv.add(h('h2', { text: CONTENT.proofHeading })),
+    rv.add(frames, 60),
+    rv.add(h('p', { class: 'vt-note', text: CONTENT.shotnote }), 100),
+    rv.add(trailNode('vt-note'), 140),
+    rv.add(statsNode('vt-stats'), 180)
+  ])]);
+
+  var s3 = h('section', {}, [wrap([
+    rv.add(h('h2', { text: CONTENT.honestHeading })), rv.add(honestList('vt-honest'), 60)
+  ])]);
+  var s4 = h('section', { id: 'setup' }, [wrap([
+    rv.add(h('h2', { text: CONTENT.guideHeading })), rv.add(guideNode(), 60)
+  ])]);
+  var foot = h('footer', {}, [h('div', { class: 'vt-wrap', html: CONTENT.footer })]);
+
+  root.appendChild(frag([head, rule(), s1, s15, rule(), s2, rule(), s3, rule(), s4, foot]));
+
+  var lit = litWords(say, function () { Sound.tone(659.25, 0.16, 'sine', 0.035); });
+
+  var chs = [].slice.call(hero.querySelectorAll('.ch'));
+  var raf = 0;
+  function letters() {
+    raf = requestAnimationFrame(letters);
+    if (document.hidden || !Motion.on) return;
+    var dx = Pointer.x - 0.5, dy = Pointer.y - 0.5;
+    for (var i = 0; i < chs.length; i++) {
+      var k = Math.sin(i * 1.7) * 0.5 + 0.6;
+      chs[i].style.transform = 'translate3d(' + (dx * 5 * k).toFixed(2) + 'px,' +
+        (dy * 3 * k).toFixed(2) + 'px,0)';
+    }
+  }
+  if (Motion.on) raf = requestAnimationFrame(letters);
+
+  return {
+    destroy: function () {
+      cancelAnimationFrame(raf);
+      if (trace) trace.destroy();
+      rv.stop(); lit.stop();
+      rail.remove();
+    }
+  };
+}
+
+/* ==================================================================
+   12. THE SWITCHER
+   ?variant= keeps a choice shareable and reload stable, which is how
+   the operator sends back "the header from B with the spine from C".
+   ================================================================== */
+
+var VARIANTS = [
+  { key: 'live', name: 'The live page', note: 'baseline', mount: mountLive },
+  { key: 'bloodstream', name: 'Bloodstream', note: 'WebGL field', mount: mountBloodstream },
+  { key: 'queue', name: 'The queue, alive', note: 'pipeline spine', mount: mountQueue },
+  { key: 'vitals', name: 'Vital signs', note: 'restrained', mount: mountVitals }
+];
+
+var main = document.getElementById('main');
+var swK = document.getElementById('sw-k');
+var swN = document.getElementById('sw-n');
+var current = null, at = 0;
+
+function indexFromUrl() {
+  var m = /[?&]variant=([^&]+)/.exec(location.search);
+  var key = m ? decodeURIComponent(m[1]) : 'live';
+  for (var i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return i;
+  return 0;
+}
+
+/* A reveal that never fires leaves the page blank, and nobody working this
+   ticket has a browser to catch that. Two nets, and neither one cancels the
+   scroll reveal for a reader whose browser is behaving. */
+function reveal(nodes) {
+  nodes.forEach(function (n) {
+    n.style.transitionDelay = '0ms';
+    n.classList.add('in');
+    n.classList.add('lit');
+  });
+}
+function revealEverything() {
+  reveal([].slice.call(document.querySelectorAll('.rv, .bl-say .w, .vt-say .w')));
+}
+/* Net 1: any uncaught error shows the whole page at once. */
+window.addEventListener('error', revealEverything);
+/* Net 2: anything still hidden two seconds after mount, while it sits on
+   screen, was missed rather than not reached yet. */
+function revealStuck() {
+  var vh = window.innerHeight;
+  reveal([].slice.call(document.querySelectorAll('.rv:not(.in)')).filter(function (n) {
+    var r = n.getBoundingClientRect();
+    return r.top < vh && r.bottom > 0;
+  }));
+}
+var failsafe = 0;
+
+function show(i, push) {
+  clearTimeout(failsafe);
+  if (current && current.destroy) {
+    try { current.destroy(); } catch (e) {}
+  }
+  main.innerHTML = '';
+  at = (i + VARIANTS.length) % VARIANTS.length;
+  var v = VARIANTS[at];
+  document.body.setAttribute('data-variant', v.key);
+  swK.textContent = (at + 1) + ' / ' + VARIANTS.length + ' · ' + v.note;
+  swN.textContent = v.name;
+  window.scrollTo(0, 0);
+  try {
+    current = v.mount(main) || {};
+  } catch (e) {
+    current = {};
+    revealEverything();
+    throw e;
+  }
+  failsafe = setTimeout(revealStuck, 2000);
+  if (push !== false) {
+    try { history.replaceState(null, '', '?variant=' + v.key); } catch (e) {}
+  }
+}
+
+document.querySelectorAll('.switch [data-step]').forEach(function (b) {
+  b.addEventListener('click', function () { show(at + Number(b.getAttribute('data-step'))); });
+});
+
+document.addEventListener('keydown', function (e) {
+  var t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (document.getElementById('lb').hasAttribute('open')) return;
+  if (e.key === 'ArrowRight') show(at + 1);
+  if (e.key === 'ArrowLeft') show(at - 1);
+});
+
+var soundBtn = document.getElementById('sw-sound');
+soundBtn.addEventListener('click', function () {
+  if (Sound.on) {
+    Sound.disable();
+    soundBtn.setAttribute('aria-pressed', 'false');
+    soundBtn.setAttribute('aria-label', 'Sound, off');
+    if (current && current.onSound) current.onSound(false);
+  } else {
+    if (!Sound.enable()) return;
+    soundBtn.setAttribute('aria-pressed', 'true');
+    soundBtn.setAttribute('aria-label', 'Sound, on');
+    if (current && current.onSound) current.onSound(true);
+    Sound.tone(523.25, 0.3, 'sine', 0.08);
+  }
+});
+
+var motionBtn = document.getElementById('sw-motion');
+motionBtn.setAttribute('aria-pressed', String(Motion.on));
+motionBtn.setAttribute('aria-label', Motion.on ? 'Motion, on' : 'Motion, off');
+Motion.set(Motion.on);
+motionBtn.addEventListener('click', function () {
+  Motion.set(!Motion.on);
+  motionBtn.setAttribute('aria-pressed', String(Motion.on));
+  motionBtn.setAttribute('aria-label', Motion.on ? 'Motion, on' : 'Motion, off');
+  show(at, false);
+});
+
+show(indexFromUrl(), false);
+
+})();
+</script>
+
+</body>
+</html>
