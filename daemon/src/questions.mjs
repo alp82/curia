@@ -37,6 +37,7 @@
 // is the fallback, exactly as the read was.
 
 import { normalizeEvent } from './journal.mjs'
+import { DAEMON_BOOT, DAEMON_GOODBYE } from './goodbye.mjs'
 
 // The event types each question names. One list per rule, so a type joins a
 // question here and nowhere else.
@@ -45,6 +46,7 @@ const REPORTED_TYPES = ['result', 'ticket_resolved']
 const CLOSED_TYPES = ['result', 'lifecycle_closed', 'dispatch_unclaimed']
 const ENDING_CARRIERS = ['ticket_resolved', 'nonclean_noted', 'charting_finished']
 const EPOCH_TYPES = ['dispatch_claimed', 'agent_spawned']
+const LIFECYCLE_TYPES = [DAEMON_BOOT, DAEMON_GOODBYE]
 
 const list = (types) => types.map((t) => `'${t}'`).join(', ')
 
@@ -174,6 +176,15 @@ select (select ts from events where agent = :a and type = 'result'
        exists(select 1 from events where agent = :a and type = 'agent_blocked_on_human'
                and id > coalesce((select max(id) from events where agent = :a
                                    and type = 'result' and id > ${LAST_SPAWN}), 0)) as deferred`.trim(),
+
+  // 16 — the boot sweep's gate (#489): how did the LAST daemon die? One line
+  // per process at its start and at most one at its end, so the last of the two
+  // answers it. Read before this process writes its own boot line, or the
+  // answer is always `daemon_boot` and always this one.
+  lastLifecycle: `
+select type from events
+ where type in (${list(LIFECYCLE_TYPES)})
+ order by id desc limit 1`.trim(),
 }
 
 export class Questions {
@@ -279,5 +290,11 @@ export class Questions {
     const row = this.#one('lastResult', { a: agent })
     const at = row?.at ?? null
     return { at, deferred: at ? Boolean(row.deferred) : false }
+  }
+
+  // The type of the last daemon lifecycle line, or null for a journal that
+  // carries neither. `deathWasSilent` in goodbye.mjs reads it.
+  lastLifecycle() {
+    return this.#one('lastLifecycle')?.type ?? null
   }
 }

@@ -32,7 +32,7 @@ import { Reduction, CONFIRM_KIND, noteDisposition } from './reduction.mjs'
 import { JOURNAL } from './journal.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
-import { sayGoodbye, questionGoodbye } from './goodbye.mjs'
+import { sayGoodbye, questionGoodbye, deathWasSilent, DAEMON_BOOT } from './goodbye.mjs'
 import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
@@ -332,6 +332,25 @@ reduction.journal('journal_opened', {
 })
 log(`[journal] ${JOURNAL} open on Node ${process.version}, SQLite ${process.versions.sqlite ?? 'unknown'}`)
 
+// How the LAST daemon died (#489), read before this one says it is alive —
+// after the boot line below, the answer is always this process's own.
+//
+// The two lines together make a death readable: every process writes one at its
+// start, and a death it can see writes a goodbye at its end. So a boot line with
+// no goodbye after it is a daemon that was killed with no chance to speak, which
+// is the one death the boot sweep exists for. Nothing else reads this.
+const lastDeathWasSilent = (() => {
+  try {
+    return deathWasSilent(reduction.questions.lastLifecycle())
+  } catch (e) {
+    // An unreadable journal is not evidence of a silent death, and the safe
+    // direction here is the one that presses no key.
+    log(`could not read how the last daemon died (${e.message}) — the boot sweep is skipped this boot`)
+    return false
+  }
+})()
+reduction.journal(DAEMON_BOOT, { pid: process.pid })
+
 // Per-agent status line (#108 item 8): one Discord message per agent
 // thread, edited in place through the journal's own lifecycle events. With
 // the bridge down, post returns null and the next transition retries.
@@ -554,7 +573,9 @@ async function renderEscalation(record, files = []) {
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
 function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files, diff, diff_error, payload, lint_flags, awaited = true }) {
-  const { record, superseded_all } = reduction.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error, payload, lint_flags })
+  // `awaited` rides onto the RECORD (#489): the boot sweep asks it whether a
+  // call was ever blocked here, and a flagged send opens a record no call holds.
+  const { record, superseded_all } = reduction.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error, payload, lint_flags, awaited })
   log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
   // Every corpse this agent left, not just the newest (#336): a card left
   // rendered keeps asking a question nothing can receive an answer for.
@@ -2451,12 +2472,17 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     // Same containment as the MCP path: /escalate is loopback-only, but it must
     // not be the softer way to hand the bridge an arbitrary file.
     const { files } = outboundFiles(agent, body.images ?? body.files)
+    // `?wait` is what makes this call a blocked one, so it is also what the
+    // record says about itself (#489). Without it the caller has its answer
+    // already — the id — and the boot sweep must not read this record as an
+    // agent parked in a call.
+    const waits = Boolean(url.searchParams.get('wait'))
     const { record, answered } = openEscalation({
       agent, ticket: body.ticket ?? 'unknown',
       kind: body.kind ?? 'approve-reject', prompt: body.prompt ?? '(no prompt)',
-      options: body.options, preview_url: body.preview_url, files,
+      options: body.options, preview_url: body.preview_url, files, awaited: waits,
     })
-    if (url.searchParams.get('wait')) {
+    if (waits) {
       const { text, attachments } = await answered
       return json(200, { id: record.id, answer: text, attachments })
     }
@@ -2715,6 +2741,14 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     .then(() => {
       log('boot reconcile done')
       dispatcher.startAutoLoop()
+      // The boot sweep (#489), AFTER the reconcile that adopted the panes: the
+      // sweep asks each record's agent for its harness and its last contact, and
+      // before adoption there is no agent to ask. A failure costs the parked
+      // agents nothing they did not already have.
+      return dispatcher.sweepStrandedPanes({
+        silent: lastDeathWasSilent,
+        hasResolver: (id) => pending.has(id),
+      }).catch((e) => log(`the boot sweep failed: ${e.message}`))
     })
     .catch((e) => log(`boot reconcile failed: ${e.message} — POST /reconcile to retry`))
 })

@@ -361,6 +361,16 @@ export class Reduction {
           // with its worktree. Null on every other kind, and null with a reason
           // on a gate curia could not count.
           diff: ev.diff ?? null, diff_error: ev.diff_error ?? null,
+          // Was a CALL blocked on this record when it opened (#489)? True for
+          // an `ask_human` and for the review gate, false for the flagged send
+          // (#418), whose own call already returned the rejection, and false for
+          // a confirm, which nothing waits on. The boot sweep is the one reader:
+          // it presses Escape, and an agent that is working rather than parked
+          // must never be interrupted by it.
+          //
+          // NULL is a record written before this field existed. It reads as "not
+          // known to be awaited", which is the direction that presses no key.
+          awaited: ev.awaited ?? null,
           payload_hash: ev.payload_hash, status: 'open', opened_at: ev.ts,
           action: ev.action ?? null, origin_thread_id: ev.origin_thread_id ?? null,
           discord: null, successor: null, agent_died: false,
@@ -674,7 +684,7 @@ export class Reduction {
   // whatever its wording, so at most one set of live buttons ever points at a
   // given agent. The two keys never cross: a confirm is an operator's record
   // and belongs to no agent's call.
-  open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id, diff, diff_error, payload, lint_flags }) {
+  open({ agent, ticket, kind, prompt, options, preview_url, recommended, action, origin_thread_id, diff, diff_error, payload, lint_flags, awaited = null }) {
     const payload_hash = Reduction.payloadHash({ kind, prompt, options, preview_url })
     const id = `esc-${++this.seq}`
     const sharesInstance = (r) => (r.action?.targets ?? [])
@@ -698,7 +708,7 @@ export class Reduction {
     // deliberate. The composer is deterministic, so one typed payload makes one
     // prompt — and an untyped call and a typed one that say the same words hash
     // the same, which is the right answer for the #369 replay.
-    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload, lint_flags, payload_hash, action, origin_thread_id, diff, diff_error })
+    this._append({ type: 'esc_open', id, agent, ticket, kind, prompt, options, preview_url, recommended, payload, lint_flags, payload_hash, action, origin_thread_id, diff, diff_error, awaited })
     for (const r of superseded_all) this._append({ type: 'esc_supersede', id: r.id, successor: id })
     return { record: this.escalations.get(id), superseded: superseded_all[0] ?? null, superseded_all }
   }
