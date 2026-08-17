@@ -240,12 +240,18 @@ function request(port, method, urlPath, { headers = {}, body = null } = {}) {
 // per-agent token in the header, and the answer arriving as an SSE frame
 // whenever the daemon decides to send it. The promise settles when the frame
 // carrying this call's id lands — which is the whole measurement.
-function askHuman(port, { agent, ticket, token, prompt, id = 1 }) {
+// TYPED, because the flip refuses anything else (#422). A call carrying the
+// retired `prompt` field opens no card at all, so a fixture that sent one would
+// wait forever for an escalation that was refused before it existed.
+function askHuman(port, { agent, ticket, token, headline, id = 1 }) {
   const body = JSON.stringify({
     jsonrpc: '2.0',
     id,
     method: 'tools/call',
-    params: { name: 'ask_human', arguments: { prompt } },
+    params: {
+      name: 'ask_human',
+      arguments: { kind: 'free-text', headline, questions: [{ text: headline }] },
+    },
   })
   return new Promise((resolve, reject) => {
     const req = http.request({
@@ -315,7 +321,7 @@ async function daemonHoldingAQuestion(prefix) {
   // does not know — and this fixture's agent is one no tmux ever ran.
   await waitFor('boot reconcile', async () => /boot reconcile (done|failed)/.test(watch.log()))
   const token = mintAgentToken(dataDir, 'curia-999')
-  const asked = askHuman(port, { agent: 'curia-999', ticket: '999', token, prompt: 'is this call still open?' })
+  const asked = askHuman(port, { agent: 'curia-999', ticket: '999', token, headline: 'Is this call still open?' })
   await waitFor('the escalation to open', async () => {
     const state = JSON.parse((await request(port, 'GET', '/state')).body)
     return state.open_escalations.length === 1

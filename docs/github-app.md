@@ -140,7 +140,7 @@ An agent never runs this. The minted token holds no **Administration** permissio
 
 ## What is NOT on this list yet
 
-**The agents have cut over.** [#389](https://github.com/alp82/curia/issues/389) moved them: an agent gets a per-agent `gh` config dir the daemon rewrites, and it commits, pushes and merges as `curia-sh[bot]`. `CURIA_AGENT_GH_TOKEN_*` stays as the fallback for an owner the app is not installed on, and retires once the box has run a dispatch on the minted path. See [the live check](live-checks/389-agent-minted-token.md).
+**The agents have cut over.** [#389](https://github.com/alp82/curia/issues/389) moved them: an agent gets a per-agent `gh` config dir the daemon rewrites, and it commits, pushes and merges as `curia-sh[bot]`. `CURIA_AGENT_GH_TOKEN_*` is retired ([#466](https://github.com/alp82/curia/issues/466)). Delete any key left in `daemon/.env.daemon`, and revoke the PAT. **A dispatch now needs this app**: a mint that fails refuses the dispatch and releases the ticket, because an agent with no GitHub credential cannot read its own ticket. So install it on every owner you watch, and grant it every watched repo. See [the live check](live-checks/389-agent-minted-token.md).
 
 **The daemon has cut over.** [#390](https://github.com/alp82/curia/issues/390) moved it: every `gh` child the daemon spawns for a named repo carries that owner's minted write token, so the frontier reads, the claims, the clones, the pull requests and the branch pushes run as `curia-sh[bot]`. Two things came with it. `config/curia.yaml` gains a required `dispatch.claim_login`, because GitHub does not let an App be an issue assignee. And the host `gh` login keeps exactly three jobs: dev sessions, the deploy sibling, and the gate approval.
 
@@ -148,13 +148,14 @@ An agent never runs this. The minted token holds no **Administration** permissio
 
 **The gate is a real approval.** [#391](https://github.com/alp82/curia/issues/391) made the ✅ press post `gh pr review --approve` on the agent's pull request, under the host login and never under a minted token. GitHub refuses a self-approval, so the approval is the operator's own or it is nothing. A press whose approval call fails does not read as approved anywhere: the agent is told not to merge and not to resolve, the thread carries the reason, and the journal keeps the press beside the failure. Branch protection is step 7 above.
 
-**Every holder is on the app.** What is left of the host `gh` login is the three jobs above. Each `CURIA_*_GH_TOKEN_*` key that remains is a fallback or dead paper, and each one says so where it is read.
+**Every holder is on the app, and every PAT is retired.** What is left of the host `gh` login is the three jobs above. No `CURIA_*_GH_TOKEN_*` key is read by anything, and boot names each one it finds so the operator can delete the line and revoke the token.
 
 ## If something is wrong
 
 - **The boot says the JWT was refused (401).** The app id and the key file belong to different apps, or the box clock is wrong.
 - **The Install App page does not list `getalfredo`.** The app is set to **Only on this account**. An organization is a different account. Set **Where can this GitHub App be installed?** to **Any account** on the **General** page, then reload the Install App page.
-- **The boot lists no installation for a watched owner.** Step 4 was not run for that owner.
+- **The boot lists no installation for a watched owner.** Step 4 was not run for that owner. Every dispatch to it is refused until it is.
+- **`#curia` says curia cannot reach a watched repo.** The installation covers the owner but not that repo. Open the installation's **Repository access** and grant it, or set **All repositories**. The watch re-reads every six hours and says when it comes good.
 - **A mint answers 422.** The app grants less than curia asked for. Fix the level on the app's **Permissions & events** page, then accept the new grant on EACH installation — GitHub holds a widened permission until the installation approves it.
 - **The key is lost.** Generate a second one on the **General** page and delete the old one. The app id does not change, and no installation has to be redone.
 - **A ticket thread says GitHub refused the approval as a self-approval.** The app is not installed on that owner, so the daemon fell back to the host login and opened the pull request as you. Run step 4 for that owner. Nothing else broke: the press stood, and the thread holds the record of it.

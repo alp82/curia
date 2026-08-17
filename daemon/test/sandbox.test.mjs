@@ -498,6 +498,9 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     listContainers: async () => [],
     allocatePorts: async () => [9000, 9001, 9002],
     containerPorts: async () => [],
+    // #389: every spawn authors the worktree as the bot, so every spawn reaches
+    // git. Inert here — the identity is dispatch.test.mjs's subject.
+    setGitIdentity: async () => {},
   }
   const d = new Dispatcher({
     config: {
@@ -520,6 +523,12 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     log: (...a) => log.push(a.join(' ')),
     dataDir: path.join(tmp, 'data'),
     daemonPort: 4271,
+    // #466: a dispatch takes a minted GitHub credential or it is refused, so
+    // every spawn here needs a minter. It reaches no GitHub.
+    minter: {
+      tokenFor: async () => 'ghs_test',
+      botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
+    },
     deps: { ...base, ...deps },
   })
   d.identityProxy = { listening: true }
@@ -624,13 +633,16 @@ describe('a sandboxed dispatch (#156)', () => {
     assert.match(settings.hooks.Stop[0].hooks[0].command, new RegExp(GUEST_DAEMON_HOST))
   })
 
-  test('the env file holds the credential and the scoped token, and the pane holds neither', async () => {
+  test('the env file holds the model credential and the pane holds none', async () => {
     const { d, spawns } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
     const env = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'container.env'), 'utf8')
     assert.match(env, /ANTHROPIC_API_KEY=sk-test/)
     assert.match(env, /CLAUDE_CONFIG_DIR=\/cfg/)
     assert.match(env, /HOME=\/home\/agent/)
+    // The GitHub credential is a PATH here and a file over there (#389, #466).
+    assert.match(env, /GH_CONFIG_DIR=\/cfg\/gh/)
+    assert.doesNotMatch(env, /GH_TOKEN=/)
     assert.ok(!spawns[0].shellCmd.includes('sk-test'), 'the credential reached the command line')
   })
 

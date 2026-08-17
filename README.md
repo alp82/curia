@@ -96,12 +96,13 @@ npm install
 ```
 DISCORD_BOT_TOKEN=<the bot token>
 DISCORD_ALLOWED_USERS=<your Discord user id>
-CURIA_AGENT_GH_TOKEN_<OWNER>=<a fine-grained GitHub PAT>
+CURIA_GH_APP_ID=<the app id>
+CURIA_GH_APP_KEY_FILE=.curia-app.pem
 ```
 
 - `DISCORD_ALLOWED_USERS` is the whole access check. Everyone on it can send agents at your repos.
-- `CURIA_AGENT_GH_TOKEN_<OWNER>` is what an agent uses to reach GitHub when this box has no GitHub App. Without either, the agent inherits your own `gh` login, which is your whole account. Mint one [fine-grained PAT](https://github.com/settings/personal-access-tokens/new) per resource owner you watch, with **Contents**, **Issues** and **Pull requests** read/write plus **Commit statuses** read. Put the owner in the key, uppercased: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`.
-- **Set up the app instead, and this key is only a fallback.** An agent then mints its own one-hour token per ticket, and nothing you make by hand expires. See [docs/github-app.md](docs/github-app.md).
+- **The GitHub App is how curia reaches GitHub, and a dispatch needs it.** Create one app under your own account, install it on each owner you watch, and grant it the repos. An agent then mints its own one-hour token per ticket, commits as your app's bot, and nothing you make by hand expires. See [docs/github-app.md](docs/github-app.md).
+- A mint that fails refuses the dispatch and releases the ticket. There is no PAT behind it: `CURIA_AGENT_GH_TOKEN_*` retired on [#466](https://github.com/alp82/curia/issues/466), and a key still in the file is a live token with no job.
 
 Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271).
 

@@ -1028,6 +1028,12 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       fallbacks: {},
       harnesses: { claude: { template: 'claude "$(cat {prompt_file})"', readyRe: /⏵⏵/ } },
     },
+    // #466: a dispatch takes a minted GitHub credential or it is refused, so
+    // every spawn here needs a minter. It reaches no GitHub.
+    minter: {
+      tokenFor: async () => 'ghs_test',
+      botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
+    },
     reduction: {
       journal: (type, data) => ({ type, ...data }),
       // Nothing here reads the journal back, so the dispatcher's questions see

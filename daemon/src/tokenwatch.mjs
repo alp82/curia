@@ -1,10 +1,10 @@
 // The credential watch (#380).
 //
-// The daemon has probed every watched repo's GitHub token since #155, and it
-// learned two things per repo: whether the token reaches it, and how many days
-// are left on the token. Both went to `log()`, at boot, where nobody reads
-// them. A token that dies takes every agent's first `gh` call with it, so the
-// one fact the operator must act on was the one written where they never look.
+// The daemon has measured what its GitHub credential reaches since #155, once
+// per watched repo. That reading went to `log()`, at boot, where nobody reads
+// it. A repo curia cannot reach takes every agent it dispatches there with it,
+// so the one fact the operator must act on was the one written where they never
+// look.
 //
 // #345 refused a scheduler and named this need a WATCH rather than a clock:
 // one event, at its own instant, stated where the operator reads. That is what
@@ -21,17 +21,13 @@
 //      was put up and turned down: an escalation has an agent and an answer,
 //      and this has neither.
 //
-//   2. A STEP LADDER, NOT A REPEAT. The line is said once at each step the
-//      reading crosses — 14 days, 7, 3, 1, and expired. The journal remembers
-//      what was already said, so a deploy repeats nothing and a restart
-//      inherits the ladder. Without this the warning would be re-said on every
-//      boot, which is how a warning teaches its reader to skip it.
+//   2. SAID ONCE, NOT AT EVERY PASS. The journal remembers what was already
+//      said, so a deploy repeats nothing and a restart inherits the warning.
+//      Without this the line would be re-said every six hours, which is how a
+//      warning teaches its reader to skip it.
 //
-//   3. THE EXPIRY KEYS ON THE TOKEN, THE REACH KEYS ON THE REPO. One token
-//      covers every repo of an owner, so an expiry warned per repo would say
-//      one fact as many times as the watch list is long (ADR-0013). Reach is
-//      the other way round: the same token reads one repo and fails another,
-//      because the repository list lives on GitHub.
+//   3. THE READING KEYS ON THE REPO. The same installation covers one repo and
+//      misses another, because the grant lives on GitHub rather than on the box.
 //
 //   4. A LINE THAT DID NOT REACH DISCORD IS NOT SAID. The boot probe can run
 //      before the bridge is up, and the bridge can be down for hours. So the
@@ -39,61 +35,33 @@
 //      pass and by `flush()` at bridge start. The journal still holds it, so
 //      the console shows it either way.
 //
-// What this does NOT survive is stated rather than hidden. The expiry half is a
-// PAT-only fact and it dies holder by holder as #389, #390 and #392 cut over to
-// the GitHub App (#338, ADR-0018): a minted installation token lives one hour
-// and the daemon refreshes it, so its expiry is nothing an operator can act on
-// and curia must never warn about one. No branch in the code says so, because
-// after a cutover the probe finds no PAT to read. The REACH half survives for
-// every holder and for the installation itself — a repo watched but left off
-// the installation answers 404 exactly as a PAT missing it does.
+// THE EXPIRY HALF IS GONE (#466). This watch used to read a second fact per
+// repo: how many days were left on the PAT that reached it, said once at each
+// step of a ladder. #389, #390 and #392 cut every holder over to the GitHub App
+// (#338, ADR-0018), and #466 retired the last PAT with it. An installation token
+// lives one hour, the daemon refreshes it, and GitHub states no expiry header
+// for one at all — measured on the box. So there is no expiry left to read
+// anywhere in curia, and a ladder nothing can climb is not kept for a holder
+// that might come back.
 //
-// #389 cut the agents over and KEPT their key as the fallback, so the probe
-// still finds that PAT and still warns on it. That is correct rather than a
-// leftover: an owner the app is not installed on reaches GitHub with the PAT
-// alone, so the PAT dying still takes every dispatch to that owner with it. The
-// warning stops when the key retires, and it stops the same way — by there
-// being nothing to read.
+// WHAT REPLACED THE REACH PROBE. A PAT was measured by reading the repo with it,
+// and that read had a hole: every fine-grained PAT reads public repositories, so
+// a public repo left off the token answered 200. A minted token has the same
+// hole and it is wider — an installation token reads every public repository on
+// GitHub, including one on an owner the app was never installed on. So the
+// question is put to the installation instead: which repositories does it cover?
+// That answers for private and public alike, and it is one call per owner.
 
-import { tokenExpiryDays } from './github.mjs'
-
-// The ladder. Descending, and 0 is the expired step rather than a day count.
-// Kept as a list because the rule is "the tightest step the reading has
-// crossed", and a list states that where four comparisons would hide it.
-export const TOKEN_STEPS = [14, 7, 3, 1, 0]
-
-// The widest step is also the threshold: a reading above it is healthy and
-// says nothing. One name for one thing — the old `TOKEN_EXPIRY_WARN_DAYS` in
-// index.mjs was this number.
-export const TOKEN_EXPIRY_WARN_DAYS = TOKEN_STEPS[0]
-
-// Six hours, so a one-day step gets four chances to be seen rather than one.
-// One HTTP request per repo per holder, which is what makes this cheap enough
-// to state as an interval instead of arming a timer per instant. Arming the
-// next step instant was put up and turned down: it cannot see a token revoked
-// by hand, and a revoked token is the failure that arrives with no warning at
-// all.
+// Six hours, so a reading gets four chances a day to be seen. One mint and one
+// HTTP request per watched owner, which is what makes this cheap enough to
+// state as an interval. Arming a timer per instant was put up and turned down:
+// it cannot see a grant an operator narrowed by hand, and that is the failure
+// that arrives with no warning at all.
 export const PROBE_INTERVAL_MS = 6 * 60 * 60 * 1000
 
-// The tightest step a day count has crossed, or null when the reading is
-// healthy. `days` is already floored by `tokenExpiryDays`, and a token with no
-// expiry at all reads null there and never reaches this.
-export function expiryStep(days) {
-  if (days === null || days === undefined) return null
-  // The steps descend, so the last one the reading is still inside is the
-  // tightest one it has crossed.
-  let crossed = null
-  for (const step of TOKEN_STEPS) {
-    if (days > step) break
-    crossed = step
-  }
-  return crossed
-}
-
-// Rule 3. The expiry is a property of the TOKEN and the reach is a property of
-// the pair, so they cannot share a key.
-export function warningKey({ fault, holder, key, repo }) {
-  return fault === 'expiring' ? `${holder}:${key}` : `${holder}:${key}:${repo}`
+// Rule 3.
+export function warningKey({ holder, key, repo }) {
+  return `${holder}:${key}:${repo}`
 }
 
 // Rule 2 and rule 4, in one predicate. `entry` is the last `token_warned` this
@@ -102,31 +70,25 @@ export function shouldSay(entry, reading) {
   if (!entry) return true
   if (!entry.said) return true // rule 4: it was measured, not said
   if (entry.fault !== reading.fault) return true
-  if (reading.fault === 'expiring') return reading.step < entry.step
   return entry.message !== reading.message
 }
 
 // One probe answer becomes one reading, or null when the credential is well.
-// The caller hands over what `probeRepoToken` returned plus who holds it.
+// The caller hands over what it measured plus who holds it.
 //
 // `unmeasured` is the third answer and it is not a fault: GitHub being slow or
-// down says nothing about the token. It reads as null here, so nothing is said
+// down says nothing about the grant. It reads as null here, so nothing is said
 // — and `keysOf` below is what stops it being read as good news either.
-export function readingOf({ holder, key, repo, where, refusal, ok, unmeasured, message, expiresAt }) {
-  if (unmeasured) return null
-  if (!ok) {
-    return { fault: 'unreachable', holder, key, repo, where, refusal, message: message ?? 'HTTP error' }
-  }
-  const days = tokenExpiryDays(expiresAt)
-  const step = expiryStep(days)
-  if (step === null) return null
-  return { fault: 'expiring', holder, key, repo, where, refusal, days, expires_at: expiresAt ?? null, step }
+//
+// `fix` is the act that ends the warning, and the caller writes it because the
+// caller knows which credential it measured.
+export function readingOf({ holder, key, repo, refusal, fix, ok, unmeasured, message }) {
+  if (unmeasured || ok) return null
+  return { fault: 'unreachable', holder, key, repo, refusal, fix, message: message ?? 'GitHub gave no reason' }
 }
 
-// Rule 3 again, at the point it bites: the probe answers once per repo, and a
-// token that covers four repos would otherwise carry four identical expiry
-// readings into the pass. The FIRST one per token wins, because they are the
-// same measurement of the same token.
+// One reading per key, whatever the pass measured twice. The FIRST one wins,
+// because two readings on one key are the same measurement of the same grant.
 export function dedupe(readings) {
   const seen = new Set()
   const out = []
@@ -140,22 +102,12 @@ export function dedupe(readings) {
   return out
 }
 
-// Both keys one probe answer could ever hold, whatever it measured. A pass
-// clears a standing warning by NOT re-measuring it, so an answer that measured
-// nothing must still protect its own keys — otherwise one slow GitHub call
-// posts a ✅ for a token that is still dying.
+// The key one probe answer holds, whatever it measured. A pass clears a
+// standing warning by NOT re-measuring it, so an answer that measured nothing
+// must still protect its own key — otherwise one slow GitHub call posts a ✅ for
+// a repo the app still cannot reach.
 export function keysOf({ holder, key, repo }) {
-  return [`${holder}:${key}`, `${holder}:${key}:${repo}`]
-}
-
-// An instant a phone can read, as a DATE rather than a clock time: an expiry is
-// days away, so `discordTime`'s time-of-day form would state the least useful
-// half of it. `:R` beside it answers the question the operator actually has.
-export function expiryInstant(raw) {
-  const t = Date.parse(String(raw ?? '').replace(' UTC', 'Z').replace(' ', 'T'))
-  if (Number.isNaN(t)) return null
-  const s = Math.floor(t / 1000)
-  return `<t:${s}:D> (<t:${s}:R>)`
+  return [warningKey({ holder, key, repo })]
 }
 
 // ---- the lines --------------------------------------------------------------
@@ -165,19 +117,14 @@ export function expiryInstant(raw) {
 // reader cannot act on is a log line with an emoji on it.
 
 export function warningLine(r) {
-  if (r.fault === 'unreachable') {
-    return `${'⚠️'} \`${r.key}\` cannot reach ${r.repo} (${r.message}). ${r.refusal}. The repository list lives on GitHub, so add ${r.repo} to the token there, or mint a new one into \`${r.where}\`.`
-  }
-  const when = expiryInstant(r.expires_at)
-  const head = r.days <= 0
-    ? `\`${r.key}\` has EXPIRED${when ? `, on ${when}` : ''}.`
-    : `\`${r.key}\` expires in ${r.days} day${r.days === 1 ? '' : 's'}${when ? `, on ${when}` : ''}.`
-  return `${'⚠️'} ${head} ${r.refusal}. Mint a new token and put it in \`${r.where}\`.`
+  return `${'⚠️'} curia cannot reach ${r.repo} (${r.message}). ${r.refusal}. ${r.fix}`
 }
 
+// One line, because there is one fault left. A warning the journal kept from
+// before #466 clears through here too, and it reads right: whatever curia could
+// not reach, it reaches now.
 export function clearedLine(entry) {
-  if (entry.fault === 'unreachable') return `${'✅'} \`${entry.key}\` reaches ${entry.repo} again.`
-  return `${'✅'} \`${entry.key}\` is renewed. It is more than ${TOKEN_EXPIRY_WARN_DAYS} days from expiry.`
+  return `${'✅'} curia reaches ${entry.repo} again.`
 }
 
 // ---- the watch --------------------------------------------------------------
@@ -198,7 +145,7 @@ export class TokenWatch {
   }
 
   // One measurement, and whatever it makes curia say. It never throws: a
-  // network failure is a fact about the network rather than about the token,
+  // network failure is a fact about the network rather than about the grant,
   // which is the rule the boot probe has held since #155.
   async pass() {
     let answers
@@ -217,8 +164,8 @@ export class TokenWatch {
       for (const k of keysOf(a)) standing.add(k)
     }
 
-    // The clear comes FIRST, so an operator who minted a token overnight reads
-    // the ✅ above whatever else this pass says. It is journalled whether or not
+    // The clear comes FIRST, so an operator who repaired an installation
+    // overnight reads the ✅ above whatever else this pass says. It is journalled whether or not
     // the words landed: the console must not keep showing a warning curia has
     // measured away, and a lost ✅ costs nothing a warning does not.
     for (const entry of this.entries()) {

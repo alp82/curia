@@ -1,6 +1,11 @@
-// The credential watch (#380). What is pinned here is the LADDER and the
-// dedupe, because those are the two rules that decide whether the operator
-// reads a warning once, four times, or never.
+// The credential watch (#380, re-based by #466). What is pinned here is the
+// KEY RULE and the news rule, because those are the two that decide whether the
+// operator reads a warning once, four times, or never.
+//
+// The expiry ladder used to be the third, and it went with the last PAT (#466).
+// A minted installation token carries no expiry anyone can act on, and GitHub
+// states none for one, so the watch reads exactly one fault now: a watched repo
+// the app installation does not cover.
 //
 // The watch itself is driven with a fake probe and a fake announce, so a whole
 // pass runs with no network, no Discord and no timer.
@@ -8,27 +13,22 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  TOKEN_STEPS, TOKEN_EXPIRY_WARN_DAYS, PROBE_INTERVAL_MS,
-  expiryStep, warningKey, keysOf, shouldSay, readingOf, dedupe,
-  expiryInstant, warningLine, clearedLine, TokenWatch,
+  PROBE_INTERVAL_MS, warningKey, keysOf, shouldSay, readingOf, dedupe,
+  warningLine, clearedLine, TokenWatch,
 } from '../src/tokenwatch.mjs'
 
-const AGENT = {
-  holder: 'agent',
-  key: 'GH_TOKEN_ALP82',
+const APP = {
+  holder: 'app',
+  key: 'alp82',
   repo: 'alp82/curia',
-  where: 'daemon/.env.daemon',
-  refusal: 'an agent on it will fail at its first gh call',
+  refusal: 'no agent can be dispatched to it',
+  fix: 'Grant the repo to curia\'s app installation on GitHub (docs/github-app.md).',
 }
 
-// GitHub's own instant format, which `Date.parse` does not accept unaided. The
-// extra hour is what keeps `tokenExpiryDays`'s floor on the day this helper
-// names: the format carries no milliseconds, so an exact N days lands a moment
-// SHORT of N and floors to N-1.
-const inDays = (n) => new Date(Date.now() + n * 86_400_000 + 3_600_000)
-  .toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC')
+const missing = (over = {}) => ({ ...APP, ok: false, message: 'the app installation does not grant it', ...over })
 
-// A reduction stand-in: the reduction `reduction.mjs` builds, with the same key rule.
+// A reduction stand-in: the reduction `reduction.mjs` builds, with the same key
+// rule — including the `expiring` arm it keeps for rows written before #466.
 function fakeReduction() {
   const map = new Map()
   return {
@@ -61,226 +61,148 @@ function watchOver(reduction, { answers, bridge = true }) {
   return { watch, said }
 }
 
-describe('the expiry ladder', () => {
-  test('the steps are 14, 7, 3, 1 and expired, and 14 is the threshold', () => {
-    assert.deepEqual(TOKEN_STEPS, [14, 7, 3, 1, 0])
-    assert.equal(TOKEN_EXPIRY_WARN_DAYS, 14)
-  })
-
-  test('a reading above the threshold says nothing at all', () => {
-    assert.equal(expiryStep(15), null)
-    assert.equal(expiryStep(366), null)
-    // A token with no expiry reads null from tokenExpiryDays and never lands here.
-    assert.equal(expiryStep(null), null)
-    assert.equal(expiryStep(undefined), null)
-  })
-
-  test('each reading takes the TIGHTEST step it has crossed', () => {
-    assert.equal(expiryStep(14), 14)
-    assert.equal(expiryStep(8), 14)
-    assert.equal(expiryStep(7), 7)
-    assert.equal(expiryStep(4), 7)
-    assert.equal(expiryStep(3), 3)
-    assert.equal(expiryStep(2), 3)
-    assert.equal(expiryStep(1), 1)
-  })
-
-  test('an expired token is its own step, and so is one long dead', () => {
-    assert.equal(expiryStep(0), 0)
-    assert.equal(expiryStep(-1), 0)
-    assert.equal(expiryStep(-400), 0)
-  })
-})
-
 describe('what a warning is keyed on', () => {
-  test('an expiry belongs to the token, so the watch list cannot repeat it', () => {
-    const a = warningKey({ fault: 'expiring', holder: 'agent', key: 'K', repo: 'o/one' })
-    const b = warningKey({ fault: 'expiring', holder: 'agent', key: 'K', repo: 'o/two' })
-    assert.equal(a, b)
-  })
-
-  test('a reach failure belongs to the token AND the repo', () => {
-    const a = warningKey({ fault: 'unreachable', holder: 'agent', key: 'K', repo: 'o/one' })
-    const b = warningKey({ fault: 'unreachable', holder: 'agent', key: 'K', repo: 'o/two' })
+  test('a reading belongs to the credential AND the repo', () => {
+    const a = warningKey({ holder: 'app', key: 'o', repo: 'o/one' })
+    const b = warningKey({ holder: 'app', key: 'o', repo: 'o/two' })
     assert.notEqual(a, b)
   })
 
-  test('the two holders never share a key, even on the same repo', () => {
-    const a = warningKey({ fault: 'expiring', holder: 'agent', key: 'K', repo: 'o/one' })
-    const b = warningKey({ fault: 'expiring', holder: 'overseer', key: 'K', repo: 'o/one' })
+  test('two holders never share a key, even on the same repo', () => {
+    const a = warningKey({ holder: 'app', key: 'K', repo: 'o/one' })
+    const b = warningKey({ holder: 'overseer', key: 'K', repo: 'o/one' })
     assert.notEqual(a, b)
   })
 
-  test('one probe answer protects both of its possible keys', () => {
-    assert.deepEqual(keysOf({ holder: 'agent', key: 'K', repo: 'o/one' }), ['agent:K', 'agent:K:o/one'])
+  test('one probe answer protects its own key', () => {
+    assert.deepEqual(keysOf({ holder: 'app', key: 'K', repo: 'o/one' }), ['app:K:o/one'])
   })
 
-  test('one token over four repos is ONE expiry reading', () => {
-    const answers = ['o/a', 'o/b', 'o/c', 'o/d'].map((repo) =>
-      readingOf({ ...AGENT, repo, ok: true, expiresAt: inDays(5) }))
-    assert.equal(answers.length, 4)
-    assert.equal(dedupe(answers).length, 1)
-  })
-
-  test('four repos that all refuse the same token are FOUR reach readings', () => {
-    const answers = ['o/a', 'o/b', 'o/c', 'o/d'].map((repo) =>
-      readingOf({ ...AGENT, repo, ok: false, message: 'HTTP 404: Not Found' }))
+  test('four repos left off one installation are FOUR readings', () => {
+    const answers = ['o/a', 'o/b', 'o/c', 'o/d'].map((repo) => readingOf(missing({ repo })))
     assert.equal(dedupe(answers).length, 4)
+  })
+
+  test('the same repo measured twice in a pass is ONE reading', () => {
+    assert.equal(dedupe([readingOf(missing()), readingOf(missing())]).length, 1)
   })
 })
 
 describe('what makes a reading news', () => {
-  const expiring = { fault: 'expiring', step: 7, message: null }
+  const reading = { fault: 'unreachable', message: 'the app installation does not grant it' }
 
   test('a key nobody has warned about is always news', () => {
-    assert.equal(shouldSay(null, expiring), true)
+    assert.equal(shouldSay(null, reading), true)
   })
 
-  test('the same step twice is not news — a deploy repeats nothing', () => {
-    assert.equal(shouldSay({ ...expiring, said: true }, expiring), false)
-  })
-
-  test('a tighter step IS news, and a looser one is not', () => {
-    const entry = { ...expiring, said: true }
-    assert.equal(shouldSay(entry, { ...expiring, step: 3 }), true)
-    assert.equal(shouldSay(entry, { ...expiring, step: 14 }), false)
+  test('the same reading twice is not news — a deploy repeats nothing', () => {
+    assert.equal(shouldSay({ ...reading, said: true }, reading), false)
   })
 
   test('a reading measured but never said is news again', () => {
-    assert.equal(shouldSay({ ...expiring, said: false }, expiring), true)
+    assert.equal(shouldSay({ ...reading, said: false }, reading), true)
   })
 
-  test('a token that stops reaching a repo is news even at the same step', () => {
-    const entry = { ...expiring, said: true }
-    assert.equal(shouldSay(entry, { fault: 'unreachable', message: 'HTTP 404' }), true)
+  test('a reach failure re-says itself when the reason changes', () => {
+    const entry = { ...reading, said: true }
+    assert.equal(shouldSay(entry, { ...reading, message: 'HTTP 401: Bad credentials' }), true)
   })
 
-  test('a reach failure re-says itself only when the refusal changes', () => {
-    const entry = { fault: 'unreachable', message: 'HTTP 404: Not Found', said: true }
-    assert.equal(shouldSay(entry, { fault: 'unreachable', message: 'HTTP 404: Not Found' }), false)
-    assert.equal(shouldSay(entry, { fault: 'unreachable', message: 'HTTP 401: Bad credentials' }), true)
+  // The journal outlives the shape it was written in. A row from before #466
+  // carries a fault this watch no longer measures, and the pass that meets it
+  // must treat it as news rather than as a match.
+  test('a fault from an older shape is news', () => {
+    assert.equal(shouldSay({ fault: 'expiring', step: 7, said: true }, reading), true)
   })
 })
 
 describe('the reading a probe answer becomes', () => {
-  test('a healthy token far from expiry is no reading at all', () => {
-    assert.equal(readingOf({ ...AGENT, ok: true, expiresAt: inDays(90) }), null)
+  test('a repo the installation covers is no reading at all', () => {
+    assert.equal(readingOf({ ...APP, ok: true }), null)
   })
 
-  test('a token with no expiry header is no reading either', () => {
-    assert.equal(readingOf({ ...AGENT, ok: true, expiresAt: null }), null)
-  })
-
-  test('a refusal is a reach reading, carrying GitHub\'s own words', () => {
-    const r = readingOf({ ...AGENT, ok: false, message: 'HTTP 404: Not Found' })
+  test('a repo it does not cover is a reading, carrying the reason', () => {
+    const r = readingOf(missing())
     assert.equal(r.fault, 'unreachable')
-    assert.equal(r.message, 'HTTP 404: Not Found')
+    assert.equal(r.repo, 'alp82/curia')
+    assert.equal(r.message, 'the app installation does not grant it')
+  })
+
+  test('a reading with no reason still states one', () => {
+    assert.match(readingOf(missing({ message: null })).message, /no reason/)
   })
 
   test('a network failure is NOT a reading — it says nothing either way', () => {
-    assert.equal(readingOf({ ...AGENT, unmeasured: true }), null)
+    assert.equal(readingOf({ ...APP, unmeasured: true }), null)
   })
 })
 
 describe('the words the operator reads', () => {
-  test('an expiry names the days, the instant and the act', () => {
-    const r = readingOf({ ...AGENT, ok: true, expiresAt: inDays(6) })
-    const line = warningLine(r)
-    assert.match(line, /GH_TOKEN_ALP82/)
-    assert.match(line, /expires in 6 days/)
-    assert.match(line, /<t:\d+:D>/) // a date a phone renders in its own timezone
-    assert.match(line, /Mint a new token/)
-    assert.match(line, /daemon\/\.env\.daemon/)
-  })
-
-  test('one day is not "1 days"', () => {
-    const r = readingOf({ ...AGENT, ok: true, expiresAt: inDays(1) })
-    assert.match(warningLine(r), /expires in 1 day\b/)
-  })
-
-  test('a dead token says it is dead rather than counting down past zero', () => {
-    const r = readingOf({ ...AGENT, ok: true, expiresAt: inDays(-3) })
-    assert.match(warningLine(r), /has EXPIRED/)
-    assert.doesNotMatch(warningLine(r), /expires in -/)
-  })
-
-  test('a reach failure names the repo and where the token lives', () => {
-    const r = readingOf({ ...AGENT, ok: false, message: 'HTTP 404: Not Found' })
-    const line = warningLine(r)
+  test('a warning names the repo, the reason, the cost and the act', () => {
+    const line = warningLine(readingOf(missing()))
     assert.match(line, /cannot reach alp82\/curia/)
-    assert.match(line, /HTTP 404: Not Found/)
-    assert.match(line, /an agent on it will fail at its first gh call/)
+    assert.match(line, /the app installation does not grant it/)
+    assert.match(line, /no agent can be dispatched to it/)
+    assert.match(line, /app installation on GitHub/)
   })
 
-  test('a clear says which fact came good', () => {
-    assert.match(clearedLine({ fault: 'expiring', key: 'K' }), /renewed/)
-    assert.match(clearedLine({ fault: 'unreachable', key: 'K', repo: 'o/a' }), /reaches o\/a again/)
-  })
-
-  test('an unreadable instant leaves the sentence standing', () => {
-    assert.equal(expiryInstant('not a date'), null)
-    assert.equal(expiryInstant(undefined), null)
-    const line = warningLine({ fault: 'expiring', key: 'K', days: 5, expires_at: 'not a date', where: 'w', refusal: 'r' })
-    assert.match(line, /expires in 5 days\./)
+  test('a clear names the repo that came good', () => {
+    assert.match(clearedLine({ key: 'alp82', repo: 'o/a' }), /reaches o\/a again/)
   })
 })
 
 describe('a pass over a whole watch list', () => {
-  test('the interval is six hours, so a one-day step gets four chances', () => {
+  test('the interval is six hours, so a reading gets four chances a day', () => {
     assert.equal(PROBE_INTERVAL_MS, 6 * 60 * 60 * 1000)
   })
 
-  test('one warning, then silence, then a tighter step speaks again', async () => {
+  test('one warning, then silence, then a changed reason speaks again', async () => {
     const reduction = fakeReduction()
-    let days = 10
-    const { watch, said } = watchOver(reduction, {
-      answers: () => [{ ...AGENT, ok: true, expiresAt: inDays(days) }],
-    })
+    let answer = missing()
+    const { watch, said } = watchOver(reduction, { answers: () => [answer] })
 
     await watch.pass()
     assert.equal(said.length, 1)
-    assert.match(said[0], /expires in 10 days/)
+    assert.match(said[0], /does not grant it/)
 
-    // Two more passes at the same step — a deploy, and six hours later.
+    // Two more passes on the same reading — a deploy, and six hours later.
     await watch.pass()
     await watch.pass()
     assert.equal(said.length, 1)
 
-    days = 2
+    answer = missing({ message: 'HTTP 401: Bad credentials' })
     await watch.pass()
     assert.equal(said.length, 2)
-    assert.match(said[1], /expires in 2 days/)
+    assert.match(said[1], /401/)
   })
 
-  test('a renewed token clears the standing warning and says so once', async () => {
+  test('a repaired installation clears the standing warning and says so once', async () => {
     const reduction = fakeReduction()
-    let days = 3
-    const { watch, said } = watchOver(reduction, {
-      answers: () => [{ ...AGENT, ok: true, expiresAt: inDays(days) }],
-    })
+    let answer = missing()
+    const { watch, said } = watchOver(reduction, { answers: () => [answer] })
     await watch.pass()
     assert.equal(reduction.map.size, 1)
 
-    days = 90
+    answer = { ...APP, ok: true }
     await watch.pass()
     assert.equal(reduction.map.size, 0)
-    assert.match(said[1], /renewed/)
+    assert.match(said[1], /reaches alp82\/curia again/)
 
-    // And the ladder is re-armed: the next token to get near speaks from 14.
+    // And it is re-armed: the next pass over a healthy grant says nothing.
     await watch.pass()
     assert.equal(said.length, 2)
   })
 
   test('a probe curia could not take clears nothing', async () => {
     const reduction = fakeReduction()
-    let answers = [{ ...AGENT, ok: true, expiresAt: inDays(3) }]
+    let answers = [missing()]
     const { watch, said } = watchOver(reduction, { answers: () => answers })
     await watch.pass()
     assert.equal(reduction.map.size, 1)
 
-    // GitHub was slow. That is a fact about the network, and the token is still
-    // three days from dying.
-    answers = [{ ...AGENT, unmeasured: true }]
+    // GitHub was slow. That is a fact about the network, and the repo is still
+    // off the installation.
+    answers = [{ ...APP, unmeasured: true }]
     await watch.pass()
     assert.equal(reduction.map.size, 1)
     assert.equal(said.length, 1) // no ✅, and no repeat of the ⚠️
@@ -288,7 +210,7 @@ describe('a pass over a whole watch list', () => {
 
   test('a probe that throws leaves every standing warning alone', async () => {
     const reduction = fakeReduction()
-    let answers = () => [{ ...AGENT, ok: true, expiresAt: inDays(3) }]
+    let answers = () => [missing()]
     const { watch } = watchOver(reduction, { answers: () => answers() })
     await watch.pass()
     answers = () => { throw new Error('getaddrinfo ENOTFOUND api.github.com') }
@@ -298,7 +220,7 @@ describe('a pass over a whole watch list', () => {
 
   test('a warning measured with no bridge is not said, and lands at bridge start', async () => {
     const reduction = fakeReduction()
-    const answers = [{ ...AGENT, ok: true, expiresAt: inDays(4) }]
+    const answers = [missing()]
 
     // Boot: the probe runs before the bridge is up.
     const dark = watchOver(reduction, { answers, bridge: false })
@@ -326,20 +248,34 @@ describe('a pass over a whole watch list', () => {
     assert.equal([...reduction.map.values()][0].said, true)
   })
 
-  test('both holders warn separately about the same repo', async () => {
+  test('two owners warn separately about their own repos', async () => {
     const reduction = fakeReduction()
-    const overseer = {
-      holder: 'overseer', key: 'OVERSEER_GH_TOKEN_ALP82', repo: 'alp82/curia',
-      where: 'daemon/.env.overseer', refusal: 'the overseer cannot read it',
-    }
     const { watch, said } = watchOver(reduction, {
       answers: [
-        { ...AGENT, ok: true, expiresAt: inDays(5) },
-        { ...overseer, ok: true, expiresAt: inDays(5) },
+        missing(),
+        missing({ key: 'getalfredo', repo: 'getalfredo/landing-page' }),
       ],
     })
     await watch.pass()
     assert.equal(said.length, 2)
     assert.equal(reduction.map.size, 2)
+  })
+
+  // The retirement leaves rows in a journal that was written before it. The
+  // first pass after the deploy must clear one rather than carry it forever on
+  // the dashboard's Needs-you list.
+  test('a warning from the retired expiry half clears on the first pass', async () => {
+    const reduction = fakeReduction()
+    reduction.journal('token_warned', {
+      fault: 'expiring', holder: 'agent', key: 'CURIA_AGENT_GH_TOKEN_ALP82',
+      repo: 'alp82/curia', days: 3, step: 3, said: true,
+    })
+    assert.equal(reduction.map.size, 1)
+
+    const { watch, said } = watchOver(reduction, { answers: [{ ...APP, ok: true }] })
+    await watch.pass()
+    assert.equal(reduction.map.size, 0)
+    assert.equal(said.length, 1)
+    assert.match(said[0], /reaches alp82\/curia again/)
   })
 })

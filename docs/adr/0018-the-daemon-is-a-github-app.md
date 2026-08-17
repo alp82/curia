@@ -1,6 +1,6 @@
 # ADR-0018: The daemon is a GitHub App
 
-**Status**: accepted (2026-08). Built. The minting core shipped with this ADR, and every holder cut over on its own ticket: the agents on [#389](https://github.com/alp82/curia/issues/389), the daemon's own `gh` on [#390](https://github.com/alp82/curia/issues/390), the overseer on [#392](https://github.com/alp82/curia/issues/392). The gate approval and branch protection followed on [#391](https://github.com/alp82/curia/issues/391).
+**Status**: accepted (2026-08). Built. The minting core shipped with this ADR, and every holder cut over on its own ticket: the agents on [#389](https://github.com/alp82/curia/issues/389), the daemon's own `gh` on [#390](https://github.com/alp82/curia/issues/390), the overseer on [#392](https://github.com/alp82/curia/issues/392). The gate approval and branch protection followed on [#391](https://github.com/alp82/curia/issues/391). The last PAT retired on [#466](https://github.com/alp82/curia/issues/466), which is where this ADR is fully built.
 **Provenance**: [A GitHub App replaces the PAT (#338)](https://github.com/alp82/curia/issues/338), [The daemon becomes a GitHub App: one key, minted tokens (#352)](https://github.com/alp82/curia/issues/352)
 
 ## Context
@@ -44,10 +44,13 @@ Five costs come out of that shape.
 
 - **No PAT comes out ahead of its replacement.** The minting core ships first and swaps no holder. Each holder cuts over on its own ticket, provable live on the box, and its PAT retires only after that.
 
+- **A mint that fails refuses the dispatch.** Amended on [#466](https://github.com/alp82/curia/issues/466), which retired the last PAT after the box had run its dispatches on the minted path. That PAT was the agents' own. While that key stood, a failed mint fell back to it. Nothing stands behind it now, and an agent with no GitHub credential cannot read the ticket it was dispatched for, let alone commit, push or merge. So the dispatch is refused at spawn and the claim is released, rather than a whole session burned to fail at the first `gh` call. The app is required to dispatch an agent, and that is the price of the retirement.
+
 ## Consequences
 
 - **The hour is the price.** A PAT was set once and stayed good for a year. An installation token dies inside a long ticket, so every holder gains a refresh path, and the daemon gains a duty it did not have.
-- **The private key never expires**, so nothing here is a calendar item any more. The 366-day cap stops mattering.
+- **The private key never expires**, so nothing here is a calendar item any more. The 366-day cap stops mattering. With the last PAT gone (#466) there is no expiry left for curia to watch at all, and the expiry half of the credential watch (#380) retired with it.
+- **The reach half of that watch changed source.** It read a repo with the PAT that reached it, which could never see a PUBLIC repo left off the grant. An installation token has the same hole and a wider one: it reads every public repository on GitHub. So the watch asks the installation which repositories it covers, which answers for private and public alike.
 - **Attribution becomes honest.** A push the daemon performs for an agent reads as `curia-sh[bot]`.
 - **The gate becomes a real GitHub approval**, which is what makes branch protection usable at all.
 - **`.env.overseer` retired as a token file** with [#392](https://github.com/alp82/curia/issues/392). What is left in it is the model credential, which is the one host secret ADR-0014 lets into that container. The overseer reads one file per owner out of a read-only mount the daemon writes, so the container asks for nothing and holds nothing from its own boot.

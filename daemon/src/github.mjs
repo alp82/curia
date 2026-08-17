@@ -217,57 +217,19 @@ export async function deleteRemoteBranch(repo, branch) {
   }
 }
 
-// ---- the boot probe for a scoped token (#155, #313) -------------------------
+// ---- the boot probe for a scoped token (#155, #313) — RETIRED by #466 --------
 //
-// A token's repository list is edited on GitHub, not in an env file, so a repo
-// added to the watch list and forgotten on the token leaves no trace here. This
-// asks GitHub at boot instead, once per watched repo, with the token that repo
-// would actually be read with. It serves both holders: the agent's read-write
-// token (#155) and the overseer's read-only one (#313).
+// `probeRepoToken` and `tokenExpiryDays` lived here. They read one repo with the
+// PAT that repo would be reached with, and they read the expiry header off the
+// same answer. Both holders they served are gone: the overseer's PAT retired on
+// #392 and the agents' on #466, so nothing on the box holds a token with an
+// expiry or a hand-made repository list.
 //
-// What it CAN catch: a private repo missing from the token's selection (404), an
-// org policy refusal (403 carrying its own reason), a revoked or expired token
-// (401), and a token whose expiry is close.
-//
-// What it CANNOT catch, measured on the box: a PUBLIC repo missing from the
-// selection. Every fine-grained PAT reads public repositories, and the repo
-// payload's `permissions` object describes the underlying USER rather than the
-// token grant — the getalfredo token reports `push: true` on alp82/curia, which
-// it cannot possibly write. So a read probe says yes there, and the miss surfaces
-// at the agent's first write instead. A write probe was rejected: there is no
-// harmless write.
-//
-// fetch rather than `gh`, because the answer is in a HEADER and `gh api -i`
-// would mean parsing a child process's stdout to get it.
-export async function probeRepoToken(repo, token, { fetchImpl = globalThis.fetch } = {}) {
-  const res = await fetchImpl(`https://api.github.com/repos/${repo}`, {
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: 'application/vnd.github+json',
-      'user-agent': 'curia',
-    },
-  })
-  const expiresAt = res.headers.get('github-authentication-token-expiration')
-  if (res.ok) return { ok: true, expiresAt }
-  let message = `HTTP ${res.status}`
-  try {
-    const body = await res.json()
-    if (body?.message) message = `HTTP ${res.status}: ${body.message}`
-  } catch { /* a non-JSON body leaves the status as the whole answer */ }
-  return { ok: false, status: res.status, message, expiresAt }
-}
-
-// Days left on a `Github-Authentication-Token-Expiration` header, or null when
-// the token never expires — the header is ABSENT in that case, which is how a
-// no-expiration token states itself.
-//
-// GitHub writes the instant as `2027-08-05 06:20:31 UTC`, which `Date.parse`
-// does not accept. Hence the fix-up rather than a bare parse.
-export function tokenExpiryDays(raw, now = Date.now()) {
-  if (!raw) return null
-  const t = Date.parse(String(raw).replace(' UTC', 'Z').replace(' ', 'T'))
-  return Number.isNaN(t) ? null : Math.floor((t - now) / 86_400_000)
-}
+// The reach question survives and it is asked elsewhere now. A token probe could
+// never see a PUBLIC repo missing from the grant, because every fine-grained PAT
+// and every installation token reads public repositories. So the watch asks the
+// installation which repos it covers instead — `listInstallationRepos` in
+// githubapp.mjs, and the note in tokenwatch.mjs.
 
 // ---- pure filter/selection surface (frontier.test.mjs) ----------------------
 

@@ -47,15 +47,15 @@ import { SelfDeploy } from './deploy.mjs'
 import { OverseerClient, OverseerTurns, serveVerbMcp } from './overseerclient.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
-import { assertGhTokens, ghTokenKeyFor, agentGhToken } from './workspace.mjs'
+import { retiredAgentTokenKeys } from './workspace.mjs'
 import { APP_ID_KEY, APP_KEY_FILE_KEY, minterFrom } from './githubapp.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
-import { probeRepoToken, tokenExpiryDays, viewerLogin, ghJSONL } from './github.mjs'
+import { viewerLogin, ghJSONL } from './github.mjs'
 import { setDaemonTokenSource } from './daemongh.mjs'
-import { TokenWatch, TOKEN_EXPIRY_WARN_DAYS } from './tokenwatch.mjs'
+import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
 import {
   probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName,
@@ -146,18 +146,19 @@ for (const name of ['curia.yaml', 'routing.yaml']) {
 // in curia.yaml itself, so a daemon with no pins refuses at load.
 const SANDBOXED_HARNESSES = Object.keys(routingConfig.harnesses)
 
-// #155: the agent's own GitHub authority — one scoped fine-grained PAT per
-// resource owner. Read at BOOT so a malformed value refuses the boot rather than
-// reaching an agent as a 401 in the middle of a resolve, and said out loud per
-// watched owner, because an owner with no token silently keeps the host's
-// account-wide login and that is the thing this ticket exists to end. The daemon
-// itself never uses these (see agentGhToken).
-//
 // Re-derived rather than fixed, because the watch list is reloadable (#362): a
 // repo added live must get the same per-owner reading a booted one gets, or it
-// looks watched here and fails at the first agent's first `gh` call.
+// looks watched here and refuses the first dispatch to it.
 let WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
-for (const { key, token } of assertGhTokens()) log(`agent GitHub token ${key} (…${token.slice(-4)})`)
+
+// #155 gave every agent a scoped fine-grained PAT per resource owner, read out
+// of this file at boot. #389 cut the agents over to the app and #466 retired the
+// key. A value still under it is a live read-write PAT with no job, so the boot
+// names it and asks for the same two acts #392 asks for on the overseer's own
+// retired key.
+for (const key of retiredAgentTokenKeys()) {
+  log(`WARNING: ${key} is in daemon/.env.daemon and nothing reads it — an agent mints its own token now (#466). Delete the key and revoke the token on GitHub`)
+}
 
 // #313 gave the overseer its own read-only PAT per owner, in a second env file.
 // #392 retired that: the daemon mints the overseer's token from the app and
@@ -181,111 +182,113 @@ log(overseerEnv.CLAUDE_CODE_OAUTH_TOKEN || overseerEnv.ANTHROPIC_API_KEY
   ? `overseer model credential present in daemon/${OVERSEER_ENV_FILE}`
   : `overseer model credential absent from daemon/${OVERSEER_ENV_FILE} — the container can run no turn without one`)
 
-// And the same tokens against GitHub itself, once per watched repo. A token's
-// repository list lives on GitHub rather than in an env file, so nothing local
-// can tell that a newly watched repo was left off it. Detached from the boot
-// chain on purpose: this is one network round-trip per repo, and GitHub being
-// slow or down must never hold up a daemon whose other duties do not need it.
-// See probeRepoToken for the one case it cannot see.
+// And the watch list against GitHub itself, once per watched owner. What a
+// credential reaches lives on GitHub rather than in an env file, so nothing
+// local can tell that a newly watched repo was left off it. Detached from the
+// boot chain on purpose: this is a network round-trip per owner, and GitHub
+// being slow or down must never hold up a daemon whose other duties do not need
+// it.
 //
-// ONE HOLDER IS LEFT HERE. The overseer's PAT retired with #392, and a minted
-// token has no expiry an operator can act on — the daemon refreshes it every
-// fifty minutes. So this measures the agents' fallback PAT and nothing else.
-// The overseer's reach is measured where it lives now: the container names an
-// owner it holds no token for, in the chat, once per turn.
+// ONE CREDENTIAL IS LEFT ON THE BOX (#466). Every holder mints from the app now,
+// so there is no PAT to probe and no expiry to count: the daemon refreshes a
+// minted token every fifty minutes, and GitHub states no expiry header for one
+// at all. What replaced the probe is the question the probe could never answer.
+// A token read of the repo says yes for every PUBLIC repo, whoever holds the
+// token — measured on the box, where an agent's own minted token read
+// `octocat/Hello-World`. So this asks the INSTALLATION what it covers, which
+// answers for private and public alike.
 //
 // #380 moved the JUDGEMENT out of here. This function now only measures, and
 // hands every answer to the credential watch, which decides what the operator
 // is told and where. The log lines stay, because the boot output is the one
 // place an operator reads a healthy credential — but a log line is no longer
 // the whole of what a dying one gets.
-const HOLDERS = [
-  {
-    holder: 'agent',
-    tokenFor: (repo) => agentGhToken(repo),
-    keyFor: ghTokenKeyFor,
-    refusal: 'an agent on it will fail at its first gh call',
-    where: 'daemon/.env.daemon',
-  },
-]
-
-async function probeWatchedTokens({ holder, tokenFor, keyFor, refusal, where }) {
-  const answers = await Promise.all(curiaConfig.watch.map(async ({ repo }) => {
-    const token = tokenFor(repo)
-    if (!token) return null
-    const key = keyFor(repo)
-    const at = { holder, key, repo, where, refusal }
-    try {
-      const { ok, message, expiresAt } = await probeRepoToken(repo, token)
-      if (!ok) {
-        log(`WARNING: ${key} cannot reach ${repo} (${message}) — ${refusal}`)
-        return { ...at, ok: false, message }
-      }
-      const days = tokenExpiryDays(expiresAt)
-      if (days === null) log(`${key} reaches ${repo}, and does not expire`)
-      else if (days <= TOKEN_EXPIRY_WARN_DAYS) log(`WARNING: ${key} expires in ${days} day(s), on ${expiresAt} — mint a new one before it dies`)
-      else log(`${key} reaches ${repo}, expires in ${days} days`)
-      return { ...at, ok: true, expiresAt }
-    } catch (e) {
-      // A network failure is a fact about the network, not about the token. It
-      // is not silence either: `unmeasured` is what stops the watch reading it
-      // as a credential that came good (#380).
-      log(`could not check the ${holder} token for ${repo} (${e.message}) — not treating that as a bad token`)
-      return { ...at, unmeasured: true }
-    }
-  }))
-  return answers.filter(Boolean)
+const APP_HOLDER = {
+  holder: 'app',
+  refusal: 'no agent can be dispatched to it',
+  fix: 'Grant the repo to curia\'s app installation on GitHub (docs/github-app.md).',
 }
 
-// Every reading one pass takes, across both holders. The watch calls this and
-// nothing else does.
-async function probeWatchedCredentials() {
-  const perHolder = await Promise.all(HOLDERS.map((h) => probeWatchedTokens(h)))
-  return perHolder.flat()
-}
-
-// Everything the boot says about the credentials behind the WATCH LIST, in one
-// function, because a reload runs it again (#362). A repo added from the
-// settings screen gets the same per-owner warning and the same GitHub probe a
-// booted one gets — without this, a live add looks watched and the failure
-// arrives as a 401 in the middle of the first agent's first `gh` call.
+// Every reading one pass takes. The watch calls this and nothing else does.
 //
-// The probe is still detached from the boot chain on purpose: it is one network
-// round-trip per repo per holder, and GitHub being slow or down must never hold
-// up a daemon whose other duties do not need it.
+// It is per OWNER, because an installation is per owner and states its whole
+// grant in one read. A box with no app measures nothing rather than warning per
+// repo: the boot already says the app is missing, once, and ADR-0018 is the one
+// place that says what to do about it.
+async function probeWatchedCredentials() {
+  if (!appMinter) return []
+  const owners = [...new Set(curiaConfig.watch.map(({ repo }) => repo.split('/')[0]))]
+  const perOwner = await Promise.all(owners.map(async (owner) => {
+    const repos = curiaConfig.watch.map((w) => w.repo).filter((r) => r.split('/')[0] === owner)
+    const at = { ...APP_HOLDER, key: owner }
+    let covered
+    try {
+      covered = new Set(await appMinter.reposFor(owner))
+    } catch (e) {
+      // A GitHub that could not answer is a fact about GitHub, not about the
+      // grant. It is not silence either: `unmeasured` is what stops the watch
+      // reading it as a credential that came good (#380).
+      log(`could not read what curia's app covers on ${owner} (${e.message}) — not treating that as a repo it cannot reach`)
+      return repos.map((repo) => ({ ...at, repo, unmeasured: true }))
+    }
+    return repos.map((repo) => {
+      const ok = covered.has(repo.toLowerCase())
+      if (ok) log(`curia's GitHub App covers ${repo}`)
+      else log(`WARNING: curia's GitHub App does not cover ${repo} — ${at.refusal}`)
+      return { ...at, repo, ok, message: ok ? null : 'the app installation does not grant it' }
+    })
+  }))
+  return perOwner.flat()
+}
+
+// Everything the boot says about the credential behind the WATCH LIST, in one
+// function, because a reload runs it again (#362). A repo added from the
+// settings screen gets the same GitHub reading a booted one gets — without this,
+// a live add looks watched and the failure arrives as a refused dispatch.
+//
+// The probe is still detached from the boot chain on purpose: it is a network
+// round-trip per owner, and GitHub being slow or down must never hold up a
+// daemon whose other duties do not need it.
 function checkWatchedCredentials() {
   WATCHED_OWNERS = new Set(curiaConfig.watch.map((w) => w.repo.split('/')[0]))
-  for (const owner of WATCHED_OWNERS) {
-    const key = ghTokenKeyFor(owner)
-    if (!agentGhToken(`${owner}/x`)) log(`WARNING: no ${key} — agents on ${owner}/* inherit the host gh login (account-wide)`)
-  }
+  checkAppInstallations()
   tokenWatch.pass().catch((e) => log(`the credential watch failed (${e.message})`))
 }
 
 // #352, building ADR-0018: the GitHub App that replaces every token above. It
-// SWAPS NO HOLDER YET — each one cuts over on its own ticket, and no PAT comes
-// out ahead of its replacement. So what the boot does here is prove the
-// operator's checklist worked and say so out loud.
+// EVERY HOLDER IS ON IT, and the last PAT retired with #466. So a box with no
+// app dispatches no agent: what the boot does here is prove the operator's
+// checklist worked and say so out loud.
 //
 // A HALF-configured app refuses the boot inside minterFrom, because an app id
 // with no key is a typo, and a typo that boots reaches a dispatch as a 401
-// nobody can place. NO app is a different thing and stays legal: the tokens
-// above are still the live credential.
+// nobody can place. NO app is a different thing and stays legal: a box can watch
+// and read before its operator finishes the checklist, and the refusal it gets
+// at the first dispatch names the step that was missed.
 const appMinter = minterFrom({ daemonRoot: ROOT, log })
 if (!appMinter) {
-  log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md)`)
+  log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
 } else {
   log(`GitHub App ${appMinter.appId}, key at ${appMinter.keyFile}`)
-  // Detached, for the same reason the token probes above are: this is a network
-  // round trip, and GitHub being slow must never hold up a boot whose other
-  // duties do not need it.
-  appMinter.installations().then((installs) => {
+}
+
+// The owner half of the same question the watch asks per repo. An installation
+// is per owner, and an owner with none is a different act to repair than a repo
+// left off one — so it is said here, by name, once per pass.
+//
+// Detached, for the same reason the watch's own probe is: this is a network
+// round trip, and GitHub being slow must never hold up a boot whose other duties
+// do not need it. Re-run on every reload (#362), because an owner added from the
+// settings screen must get the reading a booted one gets.
+function checkAppInstallations() {
+  if (!appMinter) return
+  appMinter.refreshInstallations().then((installs) => {
     for (const { id, owner } of installs) log(`GitHub App installed on ${owner} (installation ${id})`)
     const seen = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
     for (const owner of WATCHED_OWNERS) {
-      if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — every daemon call on that owner falls back to the host gh login, its pull requests stay operator-authored, and the overseer reads ${owner}/* with no credential at all (docs/github-app.md)`)
+      if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — no agent can be dispatched to it, every daemon call on it falls back to the host gh login, and the overseer reads ${owner}/* with no credential at all (docs/github-app.md)`)
     }
-  }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — no holder mints yet, so nothing is broken by it`))
+  }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — that is a fact about GitHub rather than about the install`))
 }
 
 // #390: the DAEMON cuts over. Every `gh` child it spawns for a named repo now

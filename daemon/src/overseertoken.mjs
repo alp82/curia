@@ -82,6 +82,10 @@ export function loadOverseerEnv(file) {
 // worth naming back. What this catches is the real accident —
 // `cp daemon/.env.daemon daemon/.env.overseer` — which hands the read-only
 // container every read-write token on the box.
+//
+// The agent prefix stays on this list after #466 retired it. Nothing reads that
+// key any more, but a value under it is still a live read-write PAT, and a copy
+// of an env file written before the retirement is exactly where one turns up.
 export function daemonOnlyKeys(env) {
   return Object.keys(env).filter((k) => k.startsWith(`${AGENT_TOKEN_KEY}_`) || k.startsWith('DISCORD_'))
 }

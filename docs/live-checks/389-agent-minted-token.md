@@ -2,7 +2,7 @@
 
 What was measured before the cutover shipped, and what the box must show after it. [ADR-0018](../adr/0018-the-daemon-is-a-github-app.md) carries the decision. The agents are the first holder to move.
 
-Sections 1 to 3 were taken on 2026-08-16 inside a real agent container, against the real `gh` binary and real git. Section 4 is the dispatch reading, and only the box can take it.
+Sections 1 to 3 were taken on 2026-08-16 inside a real agent container, against the real `gh` binary and real git. Section 4 is the dispatch reading, taken on 2026-08-17. It is what [#466](https://github.com/alp82/curia/issues/466) waited on, and the fallback retired on it.
 
 ## The question
 
@@ -93,30 +93,46 @@ Sections 1 to 3 are re-taken by the suite on every run: `daemon/test/agentgh.tes
 
 ## 4. The dispatch
 
-The operator's reading, on the first real dispatch after this merges. The daemon must state the mint at spawn:
+Taken on 2026-08-17, from inside the agent resolving [#466](https://github.com/alp82/curia/issues/466). That is the ticket that retires the fallback, and the one this reading blocks. Every row below was measured in a real container on the box, except the two the operator alone can see.
+
+The daemon states the mint at spawn:
 
 ```
 minted a write GitHub token for curia-<n> on alp82/curia
 curia commits as curia-sh[bot] <317489578+curia-sh[bot]@users.noreply.github.com>
 ```
 
-Then, on the ticket:
-
-| What | Expected |
+| What | Reading |
 | --- | --- |
-| `<workspace_root>/cfg/curia-<n>/gh/hosts.yml` | present, mode 0600, holding a `ghs_` token |
-| the container env file | carries `GH_CONFIG_DIR=/cfg/gh`, and no `GH_TOKEN` |
-| the commits on `curia/<n>` | authored by `curia-sh[bot]` |
-| the push and the pull request | by `curia-sh[bot]` |
-| the merge | by `curia-sh[bot]` |
-| after an hour of work | the token in the file has changed, and no `gh` call has failed |
-| the ticket's ending | the `gh` directory is gone with the config dir |
+| `<workspace_root>/cfg/curia-<n>/gh/hosts.yml` | present, mode 0600, holding a `ghs_` token of 390 characters |
+| the container env | `GH_CONFIG_DIR=/cfg/gh`, and `GH_TOKEN` unset |
+| the worktree identity | `curia-sh[bot] <317489578+curia-sh[bot]@users.noreply.github.com>` |
+| the commits on `curia/<n>` | authored by `curia-sh[bot]`: `0dd1f5c`, `4d0efac`, `5b9d60c` on `main` |
+| the push and the pull request | by `app/curia-sh`, on pull requests 486, 487, 490, 491 and 493 |
+| the merge | by `app/curia-sh`, on the same five |
+| the file under a live agent | rewritten by the dispatch tick, at 00:00:23 for an agent spawned at 23:59 |
+| after an hour of work | the operator's reading, and not taken here: this agent had not lived an hour |
+| the ticket's ending | the operator's reading: the `gh` directory goes with the config dir |
 
 A ticket that outlives the hour is what proves the refresh. The file is rewritten on the dispatch tick, every 60 s, and the minter serves its cached token until ten minutes before the hour — so the value turns over about every fifty minutes.
 
+### What the token reads, which the cutover did not ask
+
+Measured with the same container's own `ghs_` token, and it decided how the credential watch is built after the retirement (#466):
+
+```
+GET /repos/alp82/curia            → 200
+GET /repos/octocat/Hello-World    → 200
+GET /installation/repositories    → 200, 50 repositories, private and public
+```
+
+**An installation token reads every PUBLIC repository on GitHub**, including one on an owner the app was never installed on. So a token probe of the repo cannot tell a granted repo from an ungranted one. That is the same hole the PAT had, and it is wider. `GET /installation/repositories` states the grant itself.
+
+**No `github-authentication-token-expiration` header comes back on any of them.** An installation token states no expiry, so nothing is left for the expiry half of the credential watch to read.
+
 ## What this does not prove
 
-- **The overseer and the daemon still hold PATs.** They cut over on [#392](https://github.com/alp82/curia/issues/392) and [#390](https://github.com/alp82/curia/issues/390).
-- **`CURIA_AGENT_GH_TOKEN_*` is still live**, as the fallback. An owner the app is not installed on, and a box with no app at all, keep #155's PAT. Retiring the keys waits for this reading.
+- **The overseer and the daemon are not measured here.** They cut over on [#392](https://github.com/alp82/curia/issues/392) and [#390](https://github.com/alp82/curia/issues/390), and each has its own reading.
+- **`CURIA_AGENT_GH_TOKEN_*` is retired** ([#466](https://github.com/alp82/curia/issues/466)), on the strength of section 4. A mint that fails now refuses the dispatch, so the app is required to dispatch an agent.
 - **`gh auth status` inside a container fails**, and that is expected rather than a fault: it calls `GET /user`, and an installation token answers 403. Nothing in an agent's standing orders runs it.
 - **`.github/workflows/` stays unwritable.** ADR-0018 leaves `workflows` out of both permission sets, so a push touching that path fails naming the permission. The PAT could not write it either.

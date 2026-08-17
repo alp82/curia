@@ -166,6 +166,9 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     pushBranch: async () => { calls.push('pushBranch'); return 'abc1234' },
     hasUnpushedWork: async () => false,
     setPullRequestBody: async () => {},
+    // #389: a spawn authors the worktree as the bot, so it reaches git. Inert
+    // here — dispatch.test.mjs owns the identity itself.
+    setGitIdentity: async () => {},
     deleteRemoteBranch: async () => ({ deleted: true }),
   }
   const d = new Dispatcher({
@@ -176,6 +179,12 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     log: () => {},
     dataDir,
     daemonPort: 4271,
+    // #466: a dispatch takes a minted GitHub credential or it is refused, so
+    // every spawn here needs a minter. It reaches no GitHub.
+    minter: {
+      tokenFor: async () => 'ghs_test',
+      botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
+    },
     deps: { ...base, ...deps },
   })
   d.identityProxy = { listening: true }

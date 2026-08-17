@@ -74,7 +74,15 @@ afterEach(() => {
   restoreCredential()
 })
 
-function makeDispatcher(deps = {}, { routing = ROUTING, minter = null } = {}) {
+// #466: a dispatch takes a minted GitHub credential or it is refused, so every
+// spawn here needs a minter. It reaches no GitHub. The test that asserts on the
+// ROLE passes its own, and counts the calls.
+const workingMinter = () => ({
+  tokenFor: async () => 'ghs_test',
+  botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
+})
+
+function makeDispatcher(deps = {}, { routing = ROUTING, minter = workingMinter() } = {}) {
   const root = path.join(tmp, 'work')
   const config = {
     watch: [{ repo: 'o/r', mode: 'auto' }],
@@ -155,6 +163,9 @@ function makeDispatcher(deps = {}, { routing = ROUTING, minter = null } = {}) {
     pushBranch: async () => 'abc1234',
     hasUnpushedWork: async () => false,
     setPullRequestBody: async () => {},
+    // #389: a spawn authors the worktree as the bot, so it reaches git. Inert
+    // here — dispatch.test.mjs owns the identity itself.
+    setGitIdentity: async () => {},
     deleteRemoteBranch: async () => ({ deleted: true }),
   }
   const d = new Dispatcher({

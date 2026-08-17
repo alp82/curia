@@ -34,11 +34,11 @@ import {
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles,
-  pushBranch, hasUnpushedWork, agentEnv, ghTokenKeyFor, setGitIdentity,
+  pushBranch, hasUnpushedWork, agentEnv, setGitIdentity,
   untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
 // the agent's minted GitHub credential (#389, ADR-0018)
-import { GH_DIR, forgetGhCredentials, readGhCredentials, writeGhCredentials } from './agentgh.mjs'
+import { GH_DIR, forgetGhCredentials, ghConfigDirFor, readGhCredentials, writeGhCredentials } from './agentgh.mjs'
 // the overseer's minted read-only credential (#392, the same ADR)
 import {
   overseerTokensRootFor, readOverseerToken, writeOverseerToken, sweepOverseerTokens,
@@ -1396,12 +1396,16 @@ export class Dispatcher {
 
   // One minted token, or null.
   //
-  // NULL IS THE FALLBACK SIGNAL, never a refusal. A box with no app, an owner
-  // the app is not installed on, and a GitHub that could not be reached all read
-  // the same here, and the agent then gets #155's PAT as `GH_TOKEN`. Refusing
-  // the dispatch instead would take a working boundary out ahead of its
-  // replacement, which is the one thing ADR-0018 says not to do. It is LOUD
-  // rather than silent: the log names the owner and the key that carries it.
+  // NULL USED TO BE THE FALLBACK SIGNAL: a box with no app, an owner the app is
+  // not installed on and a GitHub that could not be reached all read the same
+  // here, and the agent then got #155's PAT as `GH_TOKEN`. #466 retired that PAT
+  // once the box had run its dispatches on the minted path, so null now means
+  // NO CREDENTIAL AT ALL, and what it costs depends on where it lands.
+  //
+  // At SPAWN it refuses the dispatch, in `#sandboxSpawn` below. On the REFRESH
+  // it costs nothing: the file the agent already holds is good for up to another
+  // hour, and the next tick is 60 s away. So the log line here states the mint
+  // and nothing else, and each caller says what it did about it.
   async #mintGhToken(repo, role, session) {
     if (!this.minter) return null
     const owner = String(repo ?? '').split('/')[0]
@@ -1409,7 +1413,7 @@ export class Dispatcher {
     try {
       return await this.minter.tokenFor(owner, role)
     } catch (e) {
-      this.log(`could not mint a ${role} GitHub token for ${owner} (${e.message}) — ${session} falls back to ${ghTokenKeyFor(repo) ?? 'the host gh login'}`)
+      this.log(`could not mint a ${role} GitHub token for ${owner} (${e.message}) — ${session} has no GitHub credential`)
       return null
     }
   }
@@ -1437,10 +1441,10 @@ export class Dispatcher {
   //
   // THE FILE IS THE EVIDENCE, which is what makes an adopted agent free. A
   // restarted daemon rebuilds its agent records with every spawn-time fact
-  // missing, and it does not have to learn which of them minted: an agent on the
-  // PAT has no credential file, and one on the app has the file its own spawn
-  // wrote. So this refreshes exactly what is already minted, and never puts a
-  // live token on disk for an agent whose `gh` reads `GH_TOKEN` instead.
+  // missing, and it asks the disk rather than its memory: an agent that spawned
+  // holds the file its own spawn wrote. So this refreshes exactly what is armed,
+  // and it writes no live token into a config dir whose agent is gone — the
+  // sweep that collects one of those runs on the same tick.
   //
   // It never throws. A pass that cannot mint leaves the last good file standing,
   // which is the right direction: that token is good for up to another hour, and
@@ -1584,26 +1588,40 @@ export class Dispatcher {
     // instead of into the container's environment — an installation token lives
     // one hour, so a value frozen at spawn dies inside a long ticket.
     //
-    // The forget on the fallback arm is not a tidy-up. A config dir is reused
-    // across dispatches and across the cross-harness respawn, so an arm that
-    // falls back to the PAT could otherwise leave the last arm's `hosts.yml`
-    // beside a `GH_TOKEN` that now beats it — a credential on disk nothing
-    // reads, and a refresh that would keep it live.
+    // A MINT THAT FAILS REFUSES THE DISPATCH (#466). #155's PAT stood behind
+    // this arm until the box had proved the minted path, and then it retired.
+    // Nothing stands behind it now: an agent with no GitHub credential cannot
+    // read the ticket it was dispatched for, let alone commit, push or merge, so
+    // it would burn a whole session to fail at its first `gh` call. Refusing
+    // here unclaims the ticket through `#dispatch`'s own catch, exactly as the
+    // side-channel assert above does, so the refusal costs nothing and says
+    // which act repairs it.
+    //
+    // The forget is not a tidy-up. A config dir is reused across dispatches and
+    // across the cross-harness respawn, so a refusal could otherwise leave the
+    // last dispatch's `hosts.yml` behind: a credential on disk nothing reads,
+    // which the refresh would then keep live.
     const role = this.#ghRoleFor(reviewer)
     const ghToken = await this.#mintGhToken(repo, role, session)
-    if (ghToken) {
-      writeGhCredentials(cfgDir, ghToken)
-      this.reduction.journal('agent_token_minted', { agent: session, ticket, repo, role })
-      this.log(`minted a ${role} GitHub token for ${session} on ${repo}`)
-      // And the commit says the same thing the push now does. A reviewer is
-      // skipped because it commits nothing at all: ADR-0010 gives it a detached
-      // head and no branch.
-      if (!reviewer) await this.#authorAsBot(wtPath, ghToken, session)
-    } else {
+    if (!ghToken) {
       forgetGhCredentials(cfgDir)
+      throw new Error(`refusing to start an agent for #${ticket}: curia could not mint a GitHub token for ${repo}. ${this.minter
+        ? `The app must be installed on ${repo.split('/')[0]} with that repo granted, and GitHub must answer`
+        : 'This box has no GitHub App set up (docs/github-app.md)'}. An agent with no GitHub credential cannot read its ticket, commit, push or merge`)
     }
+    writeGhCredentials(cfgDir, ghToken)
+    this.reduction.journal('agent_token_minted', { agent: session, ticket, repo, role })
+    this.log(`minted a ${role} GitHub token for ${session} on ${repo}`)
+    // And the commit says the same thing the push now does. A reviewer is
+    // skipped because it commits nothing at all: ADR-0010 gives it a detached
+    // head and no branch.
+    if (!reviewer) await this.#authorAsBot(wtPath, ghToken, session)
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
-      ...agentEnv(GUEST_CFG, harness, { repo, sandboxed: true, minted: Boolean(ghToken) }),
+      ...agentEnv(GUEST_CFG, harness, { sandboxed: true }),
+      // The PATH to the credential above, and no credential in it (#389). It is
+      // set here rather than inside `agentEnv`, because this is where the file
+      // it names gets written.
+      GH_CONFIG_DIR: ghConfigDirFor(GUEST_CFG),
       ...modelCredential(harness),
       // The container's own HOME. `--user <uid>` bypasses the image's USER, and
       // git and both CLIs write there; an unset HOME lands them in `/`, which
