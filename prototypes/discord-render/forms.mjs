@@ -117,32 +117,37 @@ then lines, then a hard slice. It never sees the fence.
   {
     group: 'Attachments',
     name: 'Absolute path from inside a container',
-    verdict: 'drop',
-    label: 'DROP — the path form is refused',
+    verdict: 'keep',
+    label: 'KEEP — both path forms work',
     what: 'The same image, named by the absolute path the agent itself sees.',
-    source: `images: ["/workspace/prototypes/discord-render/image-probe.png"]
-  -> refused: not a readable path inside this agent's workspace
+    source: `#414, before the fix:
+  images: ["/workspace/.../image-probe.png"]
+    -> refused: not a readable path inside
+       this agent's workspace
 
-images: ["prototypes/discord-render/image-probe.png"]
-  -> ok`,
-    why: 'The daemon resolved the path against its own host view of the worktree. A containerized agent calls that same directory `/workspace`, so its absolute path matched nothing and the file was dropped. The tool text said "local file paths inside your workspace", which pointed the agent straight at the failing form. FIXED IN #429: the daemon now maps an absolute `/workspace` path to its host root before it checks containment, so both forms work. This entry keeps the observation that found it. The live re-check belongs to the next rehearsal.',
-    how: 'live',
+#492, on the deployed daemon:
+  images: ["/workspace/.../image-probe.png"]
+    -> ok, and the image rendered in the thread`,
+    why: 'The daemon resolved the path against its own host view of the worktree. A containerized agent calls that same directory `/workspace`, so its absolute path matched nothing and the file was dropped. The tool text said "local file paths inside your workspace", which pointed the agent straight at the failing form. #429 taught the daemon to map an absolute `/workspace` path to its host root before it checks containment. #492 re-checked that live: the same file, by the same absolute path that #414 saw refused, passed the gate and reached the thread. The daemon returns a bare `ok` only when it refuses nothing, so the tool result is the proof that the path resolved, and the screenshot on the attachments entry below is the proof that the file arrived. The map never widened: a traversal or a symlink out is still refused.',
+    how: 'live — re-checked in #492 on the deployed daemon',
     code: 'daemon/src/attachments.mjs — containedIn(), fromGuest(); daemon/src/index.mjs — outboundFiles() supplies the guestRoot',
   },
   {
     group: 'Attachments',
-    name: '.patch and .md attachments',
-    verdict: 'hold',
-    label: 'BUILT IN #430 — needs a live re-check',
-    what: 'A diff or a note attached to a message, with the inline preview Discord gives a text file.',
-    source: `images: ["prototypes/discord-render/sample.patch", "CONTEXT.md"]
-
+    name: 'Text attachments (.patch, .diff, .md, .txt, .log)',
+    verdict: 'keep',
+    label: 'KEEP — Discord previews a diff by name',
+    what: 'A diff or a note attached to a message. Discord draws an inline preview above the file row, and it highlights a diff as a diff.',
+    image: 'IMAGE:attachment-preview.png',
+    source: `#414, before the allowlist widened:
   sample.patch: refused - not an image
     (allowed: .png, .jpg, .jpeg, .gif, .webp)
-  CONTEXT.md:   refused - not an image
-    (allowed: .png, .jpg, .jpeg, .gif, .webp)`,
-    why: 'A live call refused both files. The refusal names the extension, so the allowlist is the only blocker and containment is not involved. The form is worth having: a diff in the thread is the one artifact a review gate cannot fit in prose. It needs the allowlist widened first, and Discord gives a text file an inline preview once it arrives. BUILT IN #430: the allowlist now carries `.patch`, `.diff`, `.md`, `.txt` and `.log` beside the five image types, under a 1 MB cap. This entry keeps the observation that found it. The live re-check belongs to the next rehearsal, and it is the one that proves Discord previews a `.patch` by name.',
-    how: 'live — the refusal is the result',
+
+#492, on the deployed daemon:
+  images: [".../sample.patch", ".../sample.diff"]
+    -> ok, both previewed inline`,
+    why: 'A #414 call refused both files, and the refusal named the extension, so the allowlist was the only blocker. #430 widened it to `.patch`, `.diff`, `.md`, `.txt` and `.log` beside the five image types, under a 1 MB cap. #492 re-checked it live, and the screenshot is the operator\'s. Discord previews both extensions, and it treats them identically, so `.diff` is no second-class name. The preview shows about the first six lines with a chevron that expands the rest, and it syntax-highlights the diff grammar: the `@@` hunk header, the `---` and `+++` lines, the added and removed rows. Under the preview sits a file row with the name, a rounded size and buttons for raw view, expand and more. This is the affordance a review gate wants. A reader judges the shape of a change without leaving the thread, and the whole file is one tap away. Two limits the preview sets: it is a HEAD, so the first lines must carry the point, and the size is rounded up, so a 264-byte patch reads as 1 KB.',
+    how: 'live — re-checked in #492 on the deployed daemon',
     code: 'daemon/src/attachments.mjs — TEXT_MIME_BY_EXT, attachmentMimeFor(), MAX_TEXT_BYTES',
   },
   {
