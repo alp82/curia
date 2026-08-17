@@ -340,6 +340,151 @@ export function writeEnvFile(file, env) {
   return file
 }
 
+// ---- the kill guard (#385) -------------------------------------------------------
+
+// An agent's own kill can end its harness. The container shares one pid
+// namespace, one uid owns every process in it, and the harness sits at the top
+// of the agent's own ancestor chain — so `ps | grep | xargs kill` with a
+// pattern from the ticket text resolved pid 7 and SIGTERM'd the session
+// mid-ticket (curia-314). A harness-side guard covers single verbs; this one
+// covers the effect: any exec'd `kill`/`pkill` whose resolved target is an
+// ancestor of the killing process is aimed at the harness tree, and it is
+// refused with the reason, whatever verb carried it.
+//
+// Ignoring SIGTERM instead was measured and does not hold: the claude CLI
+// installs its own SIGTERM handler, which overrides an inherited SIG_IGN
+// disposition, and the process exits 143 anyway.
+//
+// Delivery is the /cfg mount, not the image: the image digest covers only the
+// Dockerfile bytes, so a COPYed script would drift silently, and a mounted
+// guard is testable in this suite with plain bash. Three files under
+// `<cfgDir>/bin`:
+//
+//   kill    — refuses a target pid (or process group) in its own ancestor set
+//   pkill   — resolves the pattern with pgrep FIRST and refuses on a collision
+//   bashenv.sh — sourced via BASH_ENV by every non-interactive bash: prepends
+//     /cfg/bin to PATH and shadows the `kill` BUILTIN with the guard
+//
+// `bash -lc` (the codex tool shell) reads /etc/profile instead of BASH_ENV, so
+// the agent image carries the same two lines in /etc/profile.d (Dockerfile).
+// The whole guard is a bound against accident, not against the agent: the
+// mount is writable and `command kill` bypasses a shell function. What it buys
+// is that the observed pattern-kill fails loudly instead of ending the session.
+//
+// A signal of 0 always passes: `kill -0` is the standard liveness probe, and
+// refusing it would break scripts that only ask.
+
+export const GUEST_GUARD_ENV = `${GUEST_CFG}/bin/bashenv.sh`
+
+const GUARD_ANCESTORS = `ancestors=" "
+p=$$
+while [ "\${p:-0}" -gt 0 ] 2>/dev/null; do
+  ancestors="\$ancestors\$p "
+  pp=""
+  while read -r k v _; do
+    if [ "\$k" = "PPid:" ]; then pp=\$v; break; fi
+  done < "/proc/\$p/status" || break
+  p=\$pp
+done 2>/dev/null`
+
+const GUARD_KILL = `#!/bin/bash
+# curia kill guard (#385) — see daemon/src/sandbox.mjs
+set -u
+real=/bin/kill
+[ -x "\$real" ] || real=/usr/bin/kill
+${GUARD_ANCESTORS}
+probe=false
+expect_sig=false
+opts_done=false
+targets=()
+for a in "\$@"; do
+  if \$expect_sig; then expect_sig=false; [ "\$a" = 0 ] && probe=true; continue; fi
+  if ! \$opts_done; then
+    case "\$a" in
+      --) opts_done=true; continue ;;
+      -l|-l*|-L|--list*|--table) exec "\$real" "\$@" ;;
+      -0) probe=true; continue ;;
+      -s|--signal) expect_sig=true; continue ;;
+      --signal=0) probe=true; continue ;;
+      -[0-9]*|-[A-Za-z]*|--*) continue ;;
+    esac
+  fi
+  targets+=("\$a")
+done
+if ! \$probe; then
+  for t in \${targets[@]+"\${targets[@]}"}; do
+    n=\${t#-}
+    case "\$n" in ''|*[!0-9]*) continue ;; esac
+    if [ "\$n" = 1 ]; then
+      echo "curia: refusing \\\`kill \$t\\\`: that reaches the container's init, and the agent harness dies with it — killing your own harness ends this session (#385)" >&2
+      exit 1
+    fi
+    case "\$ancestors" in *" \$n "*)
+      echo "curia: refusing \\\`kill \$t\\\`: pid \$n is this command's own ancestor — the agent harness process tree. Killing it ends this session (#385)" >&2
+      exit 1 ;;
+    esac
+  done
+fi
+exec "\$real" "\$@"
+`
+
+const GUARD_PKILL = `#!/bin/bash
+# curia pkill guard (#385) — see daemon/src/sandbox.mjs
+set -u
+real=/usr/bin/pkill
+pgrep_bin=/usr/bin/pgrep
+${GUARD_ANCESTORS}
+probe=false
+skip=false
+res=()
+for a in "\$@"; do
+  if \$skip; then skip=false; [ "\$a" = 0 ] && probe=true; continue; fi
+  case "\$a" in
+    --signal) skip=true; continue ;;
+    --signal=*) [ "\${a#--signal=}" = 0 ] && probe=true; continue ;;
+    -0) probe=true; continue ;;
+    -[0-9]*|-SIG[A-Z]*|-[A-Z]*) continue ;;
+  esac
+  res+=("\$a")
+done
+pids=\$("\$pgrep_bin" \${res[@]+"\${res[@]}"} 2>/dev/null) || exec "\$real" "\$@"
+if ! \$probe; then
+  for t in \$pids; do
+    case "\$ancestors" in *" \$t "*)
+      echo "curia: refusing this pkill: the pattern resolves to pid \$t, this command's own ancestor — the agent harness process tree. Killing it ends this session (#385). Narrow the pattern (a [b]racketed first letter keeps it out of your own command line) or name the pid." >&2
+      exit 1 ;;
+    esac
+  done
+fi
+exec "\$real" "\$@"
+`
+
+const GUARD_BASHENV = `# curia kill guard (#385) — sourced by every non-interactive bash (BASH_ENV).
+# Login shells read /etc/profile.d/curia-kill-guard.sh instead (agent image).
+if [ -d ${GUEST_CFG}/bin ]; then
+  case ":\$PATH:" in *":${GUEST_CFG}/bin:"*) ;; *) export PATH="${GUEST_CFG}/bin:\$PATH" ;; esac
+fi
+if [ -x ${GUEST_CFG}/bin/kill ]; then kill() { ${GUEST_CFG}/bin/kill "\$@"; }; fi
+`
+
+// Written on every dispatch, like the env file beside it: the config dir is
+// reused across dispatches and across the cross-harness respawn, and the guard
+// must be the current one, not whatever the last daemon version left.
+export function seedKillGuard(cfgDir) {
+  const bin = path.join(cfgDir, 'bin')
+  fs.mkdirSync(bin, { recursive: true })
+  for (const [name, content, mode] of [
+    ['kill', GUARD_KILL, 0o755],
+    ['pkill', GUARD_PKILL, 0o755],
+    ['bashenv.sh', GUARD_BASHENV, 0o644],
+  ]) {
+    const file = path.join(bin, name)
+    fs.writeFileSync(file, content, { mode })
+    fs.chmodSync(file, mode) // the mode applies only on create; the dir is reused
+  }
+  return bin
+}
+
 // ---- the command the pane runs ---------------------------------------------------
 
 // The `docker run` line, as one shell command for tmux.newSession.

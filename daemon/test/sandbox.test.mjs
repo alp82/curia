@@ -16,10 +16,12 @@ import path from 'node:path'
 
 import { Dispatcher } from '../src/dispatch.mjs'
 import { loadCuriaConfig, loadRoutingConfig } from '../src/config.mjs'
+import { spawn, spawnSync } from 'node:child_process'
+
 import {
-  GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, PORTS_PER_AGENT, PROBE_MARK, PROBE_PATH,
+  GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, GUEST_GUARD_ENV, PORTS_PER_AGENT, PROBE_MARK, PROBE_PATH,
   allocatePorts, containerPorts, dockerGateway, dockerRunCmd, modelCredential,
-  probeSideChannel, sourceAddressFor, stopContainer, writeEnvFile,
+  probeSideChannel, seedKillGuard, sourceAddressFor, stopContainer, writeEnvFile,
 } from '../src/sandbox.mjs'
 import { installSkills, seedConfigDir, agentEnv, writePrompt as realWritePrompt } from '../src/workspace.mjs'
 import { journalDouble } from './fixtures/journal.mjs'
@@ -106,6 +108,87 @@ describe('the docker run line (#156)', () => {
 
   test('the container runs as the uid that owns the mounts', () => {
     assert.match(line(), /--user 1000:1000/)
+  })
+})
+
+// ---- the kill guard (#385) -----------------------------------------------------
+
+// The guard scripts run under the REAL bash here, against this test process's
+// own ancestor chain — which is exactly the shape they exist for: the node
+// process running this suite stands in for the harness, and a guard that let a
+// refused signal through would kill the suite itself.
+describe('the kill guard (#385)', () => {
+  const guardBin = () => seedKillGuard(path.join(tmp, 'cfg', 'curia-9'))
+
+  // Runs the guard from INSIDE a child bash, the way an agent's tool command
+  // would: the guard's ancestors are then that bash and this node process.
+  const inWrapper = (script, bin) => spawnSync('bash', ['-c', script, '_', bin], { encoding: 'utf8' })
+
+  test('the seed writes two executable shims and the BASH_ENV file', () => {
+    const bin = guardBin()
+    for (const name of ['kill', 'pkill']) {
+      assert.ok(fs.statSync(path.join(bin, name)).mode & 0o100, `${name} must be executable`)
+    }
+    const env = fs.readFileSync(path.join(bin, 'bashenv.sh'), 'utf8')
+    assert.match(env, /PATH="\/cfg\/bin:\$PATH"/)
+    assert.match(env, /kill\(\) \{ \/cfg\/bin\/kill "\$@"; \}/)
+  })
+
+  test('a kill aimed at an ancestor is refused, whatever signal it carries', () => {
+    const bin = path.join(guardBin(), 'kill')
+    for (const argv of ['-TERM $PPID', '-9 $PPID', '$PPID', '-s KILL $PPID']) {
+      const r = inWrapper(`"$1" ${argv}`, bin)
+      assert.equal(r.status, 1, `\`kill ${argv}\` must be refused`)
+      assert.match(r.stderr, /own ancestor.*#385/s)
+    }
+  })
+
+  test('a kill aimed at pid 1 is refused — that is the container init', () => {
+    const r = inWrapper('"$1" -TERM 1', path.join(guardBin(), 'kill'))
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /init/)
+  })
+
+  test('signal 0 is a liveness probe and always passes', () => {
+    const bin = path.join(guardBin(), 'kill')
+    for (const argv of ['-0 $PPID', '-s 0 $PPID']) {
+      const r = inWrapper(`"$1" ${argv}`, bin)
+      assert.equal(r.status, 0, `\`kill ${argv}\` is a probe, not a signal`)
+    }
+  })
+
+  test('an ordinary kill of a non-ancestor passes through and lands', async () => {
+    const child = spawn('sleep', ['30'])
+    await new Promise((res) => setTimeout(res, 50))
+    const r = spawnSync(path.join(guardBin(), 'kill'), [String(child.pid)], { encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    const signal = await new Promise((res) => child.on('exit', (_c, s) => res(s)))
+    assert.equal(signal, 'SIGTERM')
+  })
+
+  test('a pkill whose pattern resolves to an ancestor is refused and says how to narrow it', () => {
+    // the nonce sits in the wrapper bash's own command line, which is the
+    // observed shape: the ticket text names the harness's prompt too
+    const r = inWrapper('"$1" -f guardnonce_c0ffee', path.join(guardBin(), 'pkill'))
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /resolves to pid \d+.*own ancestor/s)
+    assert.match(r.stderr, /racketed/)
+  })
+
+  test('a pkill that resolves only to a non-ancestor passes through and lands', async () => {
+    // assembled at runtime so the pattern text sits in NO ancestor's argv
+    const nonce = `${86000 + Math.floor(Math.random() * 999)}.31`
+    const child = spawn('sleep', [nonce])
+    await new Promise((res) => setTimeout(res, 50))
+    const r = spawnSync(path.join(guardBin(), 'pkill'), ['-f', `slee[p] ${nonce}`], { encoding: 'utf8' })
+    assert.equal(r.status, 0, r.stderr)
+    const signal = await new Promise((res) => child.on('exit', (_c, s) => res(s)))
+    assert.equal(signal, 'SIGTERM')
+  })
+
+  test('the BASH_ENV path the env file names is the file the seed writes', () => {
+    assert.equal(GUEST_GUARD_ENV, `${GUEST_CFG}/bin/bashenv.sh`)
+    assert.ok(fs.existsSync(path.join(guardBin(), 'bashenv.sh')))
   })
 })
 
@@ -648,6 +731,17 @@ describe('a sandboxed dispatch (#156)', () => {
     assert.match(env, /GH_CONFIG_DIR=\/cfg\/gh/)
     assert.doesNotMatch(env, /GH_TOKEN=/)
     assert.ok(!spawns[0].shellCmd.includes('sk-test'), 'the credential reached the command line')
+  })
+
+  test('the dispatch seeds the kill guard and points BASH_ENV at it (#385)', async () => {
+    const { d } = makeDispatcher()
+    await d.start('42', { repo: 'o/r' })
+    const cfg = path.join(tmp, 'work', 'cfg', 'curia-42')
+    const env = fs.readFileSync(path.join(cfg, 'container.env'), 'utf8')
+    assert.match(env, /BASH_ENV=\/cfg\/bin\/bashenv\.sh/)
+    for (const name of ['kill', 'pkill', 'bashenv.sh']) {
+      assert.ok(fs.existsSync(path.join(cfg, 'bin', name)), `${name} must be seeded beside the env file`)
+    }
   })
 
   test('the workspace is a private clone, never a worktree of a shared base', async () => {

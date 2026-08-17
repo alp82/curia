@@ -49,8 +49,8 @@ import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } fr
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { mintAgentToken, forgetAgentToken, sweepAgentTokens } from './agenttoken.mjs'
 import {
-  GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, ENV_FILE, PORTS_PER_AGENT,
-  allocatePorts, containerPorts, dockerRunCmd, listContainers, modelCredential, stopContainer,
+  GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, GUEST_GUARD_ENV, ENV_FILE, PORTS_PER_AGENT,
+  allocatePorts, containerPorts, dockerRunCmd, listContainers, modelCredential, seedKillGuard, stopContainer,
   writeEnvFile,
 } from './sandbox.mjs'
 import {
@@ -1616,6 +1616,10 @@ export class Dispatcher {
     // skipped because it commits nothing at all: ADR-0010 gives it a detached
     // head and no branch.
     if (!reviewer) await this.#authorAsBot(wtPath, ghToken, session)
+    // The kill guard (#385) rides the same mount as the env file: a signal the
+    // agent aims at its own harness process tree is refused inside the
+    // container, whatever verb resolved the pid.
+    seedKillGuard(cfgDir)
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
       ...agentEnv(GUEST_CFG, harness, { sandboxed: true }),
       // The PATH to the credential above, and no credential in it (#389). It is
@@ -1628,6 +1632,10 @@ export class Dispatcher {
       // the agent cannot write.
       HOME: '/home/agent',
       TERM: 'xterm-256color',
+      // Every non-interactive bash sources the kill guard's PATH prepend and
+      // builtin shadow (#385). Login shells read /etc/profile.d instead — the
+      // agent image carries the same lines there.
+      BASH_ENV: GUEST_GUARD_ENV,
     })
     const shellCmd = dockerRunCmd({
       name: session, ticket, image: image.ref, cfgDir, wtPath, envFile, spawnCmd, ports, sandbox,

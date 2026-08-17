@@ -135,6 +135,19 @@ RUN set -eux; \
     mkdir -p /cache/npm /cache/playwright-browsers /workspace; \
     chown -R agent:agent /cache /workspace
 
+# The kill guard's login-shell half (#385). The guard itself is written by the
+# daemon into the mounted config dir (`/cfg/bin`, see daemon/src/sandbox.mjs):
+# BASH_ENV covers every non-interactive bash, but `bash -lc` — the codex tool
+# shell — reads /etc/profile instead of BASH_ENV, so the same two lines land in
+# profile.d. Both are guarded on the mount, so the image still works with no
+# /cfg at all (the daemon's own test suite runs in here, #231/#409). Written
+# inline rather than COPYed, so the build context stays empty of content and
+# the guard rides the image digest with the rest of the Dockerfile.
+RUN printf '%s\n' \
+      'if [ -d /cfg/bin ]; then case ":$PATH:" in *":/cfg/bin:"*) ;; *) PATH="/cfg/bin:$PATH" ;; esac; fi' \
+      'if [ -x /cfg/bin/kill ]; then kill() { /cfg/bin/kill "$@"; }; fi' \
+      > /etc/profile.d/curia-kill-guard.sh
+
 # Both CLIs check for a newer self on start. The image IS the pin, and an
 # updated CLI inside a container that dies with its ticket is a download the
 # next agent repeats.
