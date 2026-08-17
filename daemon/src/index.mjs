@@ -349,6 +349,21 @@ const lastDeathWasSilent = (() => {
     return false
   }
 })()
+// Where that last life STARTED (#499), read in the same breath and for the same
+// reason: after the boot line below, the answer is this process's own. The
+// sweep's second set is rebuilt from the journal, and this id is what bounds it
+// to one lifetime — a cross-check park lives inside one process.
+const lastBootAt = (() => {
+  try {
+    return reduction.questions.lastBootAt()
+  } catch (e) {
+    // The sweep's first set stands: it reads records, which carry their own
+    // evidence. Only the parked builders are lost, and a cut of 0 would widen
+    // that set instead of narrowing it.
+    log(`could not read when the last daemon booted (${e.message}) — no parked builder is swept this boot`)
+    return Number.MAX_SAFE_INTEGER
+  }
+})()
 reduction.journal(DAEMON_BOOT, { pid: process.pid })
 
 // Per-agent status line (#108 item 8): one Discord message per agent
@@ -2741,13 +2756,16 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     .then(() => {
       log('boot reconcile done')
       dispatcher.startAutoLoop()
-      // The boot sweep (#489), AFTER the reconcile that adopted the panes: the
-      // sweep asks each record's agent for its harness and its last contact, and
-      // before adoption there is no agent to ask. A failure costs the parked
-      // agents nothing they did not already have.
+      // The boot sweep (#489, #499), AFTER the reconcile that adopted the panes:
+      // the sweep asks each stranded agent for its harness and its last contact,
+      // and before adoption there is no agent to ask. The reconcile also re-adopts
+      // the reviewers, which is what a parked builder's own ticket is read
+      // against. A failure costs the parked agents nothing they did not already
+      // have.
       return dispatcher.sweepStrandedPanes({
         silent: lastDeathWasSilent,
         hasResolver: (id) => pending.has(id),
+        since: lastBootAt,
       }).catch((e) => log(`the boot sweep failed: ${e.message}`))
     })
     .catch((e) => log(`boot reconcile failed: ${e.message} — POST /reconcile to retry`))

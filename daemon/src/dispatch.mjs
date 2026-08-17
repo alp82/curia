@@ -58,7 +58,7 @@ import {
   verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
-import { paneGoodbye, parkGoodbye } from './goodbye.mjs'
+import { paneGoodbye, parkGoodbye, parkPaneGoodbye } from './goodbye.mjs'
 import { composeVerdict } from './card.mjs'
 import { verdictGrade } from './lint.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, RESULT_KIND, NOTIFY_KIND, dutyLines } from './lifecycle.mjs'
@@ -5116,14 +5116,29 @@ export class Dispatcher {
   //      positive fact rather than a guess: an agent that made a call against
   //      this daemon is not sitting in a call that died with the last one.
   //
+  // All six hold for the parked builder below (#499), with two of them read off
+  // other evidence. Fact 2 is the park-opening line itself, which is written
+  // from inside the call that then parks and from nowhere else. Fact 3 is
+  // `reviewWaits`, which is where a park of THIS process would be. The park set
+  // carries one more, because its evidence is a journal rather than a record:
+  // the opener has to belong to the life that just ended. A park lives inside
+  // one process, so an older opener describes a call an earlier death already
+  // ended, and a key pressed for it would land on an agent doing something else.
+  //
   // One Escape per pane, whatever the record count: an agent is blocked inside
   // ONE call, and a second Escape would land on the turn the first one started.
   //
-  // The builder parked on a cross-check verdict is stranded the same way and is
-  // NOT here. That park leaves no durable record — `reviewWaits` dies with the
-  // process — so reviving it means rebuilding the park from the journal, which
-  // is its own decision.
-  async sweepStrandedPanes({ silent, hasResolver = () => false } = {}) {
+  // TWO SETS, ONE PASS (#499). The other agent a death strands is the builder
+  // parked on a cross-check verdict, and it is blocked in exactly the same
+  // sense: `#parkForVerdict` holds its `request_review` or its `report_result`
+  // while the reviewer reads. It has no open record — the gate press CLOSED
+  // that one — so its evidence is the journal instead (`#parkedBuilders`), and
+  // its words are `parkPaneGoodbye` rather than `paneGoodbye`.
+  //
+  // The two sets are disjoint by construction: an agent is inside ONE call. The
+  // `seen` set is what makes that structural rather than a claim, and it is the
+  // same set that gives one Escape per pane above.
+  async sweepStrandedPanes({ silent, hasResolver = () => false, since = 0 } = {}) {
     if (!silent) {
       this.reduction.journal('pane_sweep_skipped', { reason: 'the last daemon said goodbye' })
       return { swept: [] }
@@ -5136,9 +5151,31 @@ export class Dispatcher {
       const w = this.agents.get(record.agent)
       if (!w || w.harness !== 'codex' || w.mcpLastAt) continue
       seen.add(record.agent)
-      stranded.push({ record, agent: record.agent, ticket: w.ticket ?? String(record.ticket) })
+      stranded.push({
+        agent: record.agent, ticket: w.ticket ?? String(record.ticket), id: record.id,
+        text: paneGoodbye({ id: record.id }),
+      })
     }
-    this.reduction.journal('pane_sweep', { agents: stranded.map((s) => s.agent) })
+    for (const park of this.#parkedBuilders(since)) {
+      if (seen.has(park.agent)) continue
+      // Fact 3, on this set: no park of THIS process holds the ticket. At boot
+      // the map is empty, but this pass runs after a reconcile, and a builder
+      // that called `request_review` in between owns a live park here (#237's
+      // rejoin). `mcpLastAt` below says the same thing about the agent, and both
+      // are cheap.
+      if (this.reviewWaits.has(String(park.ticket))) continue
+      const w = this.agents.get(park.agent)
+      if (!w || w.harness !== 'codex' || w.mcpLastAt) continue
+      seen.add(park.agent)
+      stranded.push({
+        agent: park.agent, ticket: w.ticket ?? park.ticket, on: park.on,
+        text: parkPaneGoodbye(park),
+      })
+    }
+    this.reduction.journal('pane_sweep', {
+      agents: stranded.map((s) => s.agent),
+      parked: stranded.filter((s) => s.on).map((s) => s.agent),
+    })
     if (!stranded.length) {
       this.log('boot sweep: the last daemon died with no last word, and no codex agent was left parked')
       return { swept: [] }
@@ -5151,21 +5188,42 @@ export class Dispatcher {
     return { swept: stranded.filter((_, i) => done[i]).map((s) => s.agent) }
   }
 
+  // The builders the journal says a park still holds (#499). An unreadable
+  // journal answers with nothing, which presses no key — the same direction
+  // `lastDeathWasSilent` takes when it cannot read how the last daemon died.
+  #parkedBuilders(since) {
+    try {
+      return this.reduction.questions?.parkedBuilders?.(since) ?? []
+    } catch (e) {
+      this.log(`boot sweep: the parked builders could not be read (${e.message}) — no key is pressed for them`)
+      return []
+    }
+  }
+
   // One parked agent: the keystrokes, then the line that says what was done to
   // it. The operator pressed nothing here, so the thread has to state the act —
   // and it states the failure too, because a sweep that could not reach a pane
   // leaves an agent parked for a day and nothing else would say so.
-  async #wakeStrandedPane({ record, agent, ticket }) {
+  //
+  // `on` is set for a builder parked on a verdict and null for an open record,
+  // and the two say different things: one question is still open and unanswered,
+  // and the other has no question at all — a verdict waits instead.
+  async #wakeStrandedPane({ id = null, on = null, agent, ticket, text }) {
+    const held = on === 'ending' ? '`report_result`' : '`request_review`'
     try {
       await this.deps.sendKey(agent, 'Escape')
-      await this.deps.sendText(agent, paneGoodbye({ id: record.id }))
+      await this.deps.sendText(agent, text)
     } catch (e) {
-      this.reduction.journal('pane_sweep_failed', { agent, ticket, id: record.id, reason: e.message })
-      this.notify(ticket, `⚠️ \`${agent}\` is parked inside **${record.id}** after a death with no last word, and curia could NOT reach its pane — ${failureProse(e.message)}. It reads nothing until that call times out, a day out. To hand the question over: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`)
+      this.reduction.journal('pane_sweep_failed', { agent, ticket, id, on, reason: e.message })
+      this.notify(ticket, on
+        ? `⚠️ \`${agent}\` is parked on a cross-check verdict inside ${held} after a death with no last word, and curia could NOT reach its pane — ${failureProse(e.message)}. It reads nothing until that call times out, a day out. To hand the ticket over: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`
+        : `⚠️ \`${agent}\` is parked inside **${id}** after a death with no last word, and curia could NOT reach its pane — ${failureProse(e.message)}. It reads nothing until that call times out, a day out. To hand the question over: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`)
       return false
     }
-    this.reduction.journal('pane_sweep_delivered', { agent, ticket, id: record.id })
-    this.notify(ticket, `⚠️ curia died with no last word, and \`${agent}\` was left parked inside **${record.id}** with no way to be told. Curia pressed Escape in its pane and typed the news, so that codex agent asks the same question again by itself. Nothing was answered, and the card stands.`)
+    this.reduction.journal('pane_sweep_delivered', { agent, ticket, id, on })
+    this.notify(ticket, on
+      ? `⚠️ curia died with no last word, and \`${agent}\` was left parked on a cross-check verdict with no way to be told. Curia pressed Escape in its pane and typed the news, so that codex agent calls ${held} again by itself. Nothing was approved and nothing was rejected, and curia still holds the verdict.`
+      : `⚠️ curia died with no last word, and \`${agent}\` was left parked inside **${id}** with no way to be told. Curia pressed Escape in its pane and typed the news, so that codex agent asks the same question again by itself. Nothing was answered, and the card stands.`)
     return true
   }
 
