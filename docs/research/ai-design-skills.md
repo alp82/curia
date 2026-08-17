@@ -6,12 +6,13 @@ I also read curia's current worker installation code and landing-page rules.
 
 ## Verdict
 
-Do not add this repository to the map Notes or curia's default worker skills.
-Its one skill has useful checks, but its fixed sales funnel and visual rules conflict with settled decisions.
-
-Use selected parts as a reference for
+Use `landing-page-design` as a design input for
 [Try the living-organism prompt as a landing-page experiment](https://github.com/alp82/curia/issues/363).
-The experiment, positioning brief, and STE-flavored writing rules take priority over this reference.
+It supplies page structure, motion guidance, mobile checks, accessibility checks, and ship checks.
+
+The skill must not replace curia's approved pitch, proof, honesty block, or STE-flavored writing rules.
+The prototype can test its visual rules without changing the live page.
+The operator can then decide which parts improve the page.
 
 ## What the repository ships
 
@@ -26,7 +27,8 @@ The README calls this a collection, but the inventory lists only `landing-page-d
 It links a separate redesign repository as a companion, which this repository does not ship
 ([README lines 9-15](https://github.com/elayadesign/ai-design-skills/blob/1c1e97cb9878e236552c772092dda7adcdddbcb2/README.md#L9-L15)).
 The skill directs existing-site upgrades to that companion.
-This direction makes the shipped skill a poor fit for improvements to curia's current page.
+This direction limits its use for direct changes to curia's current page.
+Issue 363 builds a new page beside the current page, so the shipped skill fits that experiment.
 
 The skill has two parts. Part A covers intake, a fixed twelve-item page structure, conversion rules, copy, build order, and search metadata
 ([Part A](https://github.com/elayadesign/ai-design-skills/blob/1c1e97cb9878e236552c772092dda7adcdddbcb2/skills/landing-page-design/SKILL.md#L22-L142)).
@@ -125,6 +127,7 @@ The [positioning brief](../landing-page/positioning.md), [domain model](../../CO
 
 ## Fit with the living-organism experiment
 
+Issue 363 is the correct first use because it builds a new page beside the live page.
 The experiment can use the skill's section-by-section build order, concrete proof rule, and mobile checks.
 Its `IntersectionObserver` advice can also reduce scroll work
 ([motion rules](https://github.com/elayadesign/ai-design-skills/blob/1c1e97cb9878e236552c772092dda7adcdddbcb2/skills/landing-page-design/SKILL.md#L267-L295)).
@@ -132,19 +135,20 @@ Its `IntersectionObserver` advice can also reduce scroll work
 The skill does not cover WebGL, reactive physics, spatial typography, adaptive sound, scene transitions, or performance budgets.
 It also omits reduced-motion behavior.
 Its flat backgrounds, fixed fonts, fixed colors, and universal slow reveals can limit the requested experiment.
-Its Tailwind and Framer Motion examples do not permit new dependencies or a build step.
+Its Tailwind and Framer Motion examples sit outside the current no-build-step path.
 
-Use the skill as a checklist, not as the experiment's design authority.
+Use the complete skill as a design review, with the priority rules below.
 The ticket must keep sound off until the user enables it.
 The ticket must also keep the no-build-step rule and the approved claims
 ([experiment constraints](https://github.com/alp82/curia/issues/363)).
 
 ## Recommendation
 
-Do not name `landing-page-design` in the map Notes.
-Do not add the upstream skill unchanged to curia's default worker set.
+Use the pinned `landing-page-design` skill during issue 363.
+The prototype worker can read the pinned source from this note.
+This one use does not require a change to curia's default worker set.
 
-For the living-organism experiment, consult only these parts:
+Apply these parts directly:
 
 1. Use A4 for specific claims and nearby proof.
 2. Use A6 to keep each change small.
@@ -152,7 +156,12 @@ For the living-organism experiment, consult only these parts:
 4. Use B8 only for active voice, sentence-case headings, and its cliché list.
 5. Use B9 and B10 for accessibility, links, and metadata.
 
-Ignore the fixed funnel, fonts, palette, spacing, navigation, CTA, and mandatory tagline section.
+Treat Part B as one candidate visual system for the experiment.
+Keep each visual rule that supports the living-organism direction.
+Skip each visual rule that prevents WebGL, spatial type, reactive motion, or scene transitions.
+
+Do not restart the settled intake or replace the approved page order.
 Reject B8's instruction to invent names or figures.
-If curia later adopts the skill, make a reviewed fork with a narrow trigger.
-Keep its MIT notice and pin the fork to a commit.
+
+Do not name the skill in the map Notes before the prototype verdict.
+If the operator keeps its parts, add a narrow map note for later landing-page sessions.
