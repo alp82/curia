@@ -982,10 +982,14 @@ export class DiscordBridge {
       await thread.send(smallPrint(
         `🔗 dispatched from ${originName} — ${DiscordBridge.threadLink(this.guild.id, originThreadId)}`,
       )).catch(() => {})
+      this.#reportPost(thread)
       if (origin) {
         await origin.send(smallPrint(
           `🔗 ${DiscordBridge.labelName(ticket, type, repo)} continues in its own thread — ${DiscordBridge.threadLink(this.guild.id, thread.id)}`,
         )).catch(() => {})
+        // The origin is another ticket's thread, and its own agent's line just
+        // went under this breadcrumb (#480).
+        this.#reportPost(origin)
       }
     }
     return r
@@ -1019,6 +1023,10 @@ export class DiscordBridge {
       await to.send(smallPrint(
         `🔗 ${name} moved here from ${fromName} — ${DiscordBridge.threadLink(this.guild.id, fromThreadId)} holds what it said before.`,
       )).catch(() => {})
+      // The rebind already points this ticket here, so the report moves its
+      // line into the thread it now reports in, under this pointer (#480). The
+      // thread it left is unbound now, and its line is gone with the binding.
+      this.#reportPost(to)
     }
     return r
   }
@@ -1395,6 +1403,9 @@ export class DiscordBridge {
       const base = { username: as, avatarURL: this.#avatarFor(as), threadId: thread.id }
       for (const chunk of chunks.slice(0, -1)) await hook.send({ ...base, content: chunk })
       const msg = await hook.send({ ...base, content: chunks.at(-1), files })
+      // The agent's own words buried the line too (#480). The fallback below
+      // reports through #sendChunked, so only this branch says it here.
+      this.#reportPost(thread)
       // A grant that lands while the daemon runs heals here: the send path is
       // never disabled, so the next one simply works and says so (#143).
       if (this.speakers.ok === false) await this.#speakersBack()
@@ -1411,10 +1422,17 @@ export class DiscordBridge {
   // lost exactly the charting the gate existed to judge. Components and files
   // ride the LAST chunk, so buttons sit below everything they approve. Returns
   // the last message — the one edits and marks target.
+  //
+  // Every composed send routes through here, so this is where a post reports
+  // itself as one that buries a status line (#480) — one report for the whole
+  // run of chunks, not one per chunk. A path that reported for itself instead
+  // was a path the next one could forget.
   async #sendChunked(target, { content, components = [], files = [] }) {
     const chunks = chunkMessage(content)
     for (const chunk of chunks.slice(0, -1)) await target.send(chunk)
-    return target.send({ content: chunks.at(-1), components, files })
+    const msg = await target.send({ content: chunks.at(-1), components, files })
+    this.#reportPost(target)
+    return msg
   }
 
   // Render an escalation where #threadFor sends it; returns discord ids for the record.
@@ -1436,7 +1454,6 @@ export class DiscordBridge {
       files,
     })
     await this.#pointFromTicketThreads(record, thread).catch((e) => this.log(`confirm pointer for ${record.id} failed: ${e.message}`))
-    this.#reportPost(record.ticket)
     return { channelId: this.channel.id, threadId: thread.id, messageId: msg.id }
   }
 
@@ -1538,7 +1555,6 @@ export class DiscordBridge {
     const thread = await this.client.channels.fetch(record.discord.threadId).catch(() => null)
     if (!thread) return
     await this.#sendChunked(thread, { content: text })
-    this.#reportPost(record.ticket)
   }
 
   // The per-agent status line (#108 item 8): one message per agent thread,
@@ -1594,11 +1610,9 @@ export class DiscordBridge {
     if (as) {
       const tail = links.length ? `\n${links.map((l) => `🔗 ${l.label} ${l.url}`).join('\n')}` : ''
       await this.#sendAs(as, thread, { content: `${message}${tail}`, files })
-      this.#reportPost(ticket)
       return
     }
     await this.#sendChunked(thread, { content: message, files, components: DiscordBridge.linkRow(links) })
-    this.#reportPost(ticket)
   }
 
   // Every post into a ticket thread buries the agent's status line (#480), so
@@ -1606,7 +1620,17 @@ export class DiscordBridge {
   // thread bottom. Display only: a handler failure loses a reposition, never a
   // message. postStatus does NOT report — the status line's own post must not
   // trigger its own move.
-  #reportPost(ticket) {
+  //
+  // Keyed by the THREAD the message landed in, never by the ticket the caller
+  // had in hand. A confirm renders where the operator typed (#218), and its
+  // pointer lands in a third thread — a report by `record.ticket` there moved a
+  // line nothing buried and left the buried one where it was. The binding is
+  // the only thing that knows which ticket a thread carries, and a thread it
+  // does not name carries no live status line to move.
+  #reportPost(target) {
+    const threadId = typeof target === 'string' ? target : target?.id
+    if (!threadId) return
+    const ticket = this.bindings?.ticketOf?.(threadId)
     if (!ticket) return
     try {
       this.handlers.ticketPosted?.(ticket)
@@ -1741,6 +1765,10 @@ export class DiscordBridge {
         status: async (text) => {
           if (statusMsg) return statusMsg.edit(text.slice(0, 1900)).catch(() => {})
           statusMsg = await thread.send(text.slice(0, 1900)).catch(() => null)
+          // The turn's own status message is a post like any other where the
+          // overseer speaks in a ticket thread (#480). The edits after it are
+          // in place, so only the first send buries anything.
+          if (statusMsg) this.#reportPost(thread)
         },
       })
     } finally {
@@ -1821,7 +1849,7 @@ export class DiscordBridge {
         }
         // The operator's message and the receipt both landed under the status
         // line (#480) — move it back down.
-        this.#reportPost(this.bindings?.ticketOf?.(m.channel.id) ?? null)
+        this.#reportPost(m.channel)
         return
       }
       if (this.handlers.overseerTurn && m.content?.trim()) return this.#overseerTurn(m.channel, m.content)

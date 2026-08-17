@@ -191,11 +191,28 @@ export class StatusLine {
   // reported path — so a bump cannot trigger itself. The move is queued on the
   // agent's chain: a post still in flight finishes first, and a session with
   // no message yet has nothing to move.
+  //
+  // Reports arrive in bursts — a receipt beside a card, a breadcrumb beside a
+  // rename — and one move covers every post that landed before it ran. So a
+  // ticket with a move already queued queues no second one: the line ends at
+  // the bottom either way, and each extra move costs a delete and a post
+  // against the same Discord rate limit the real messages need.
+  //
+  // The ticket comes from the thread binding, which keys by string (#480),
+  // and a journal event may carry the number. One is not the other to `!==`.
   bump(ticket) {
     for (const [session, w] of this.agents) {
-      if (w.ticket !== ticket) continue
+      if (String(w.ticket) !== String(ticket)) continue
+      if (w.bumping) continue
+      w.bumping = true
       w.chain = w.chain
-        .then(() => (w.ids ? this.#apply(w, w.text, { move: true }) : null))
+        .then(() => {
+          // Cleared before the move, not after: a post that lands while the
+          // delete and the repost run buries the line again, and that one
+          // earns its own move.
+          w.bumping = false
+          return w.ids ? this.#apply(w, w.text, { move: true }) : null
+        })
         .catch((e) => this.log(`status line bump for ${session} failed: ${e.message}`))
     }
   }
@@ -416,7 +433,7 @@ export class StatusLine {
   #set(session, ticket, state, detail) {
     let w = this.agents.get(session)
     if (!w) {
-      w = { ticket, model: null, state, detail, text: null, ids: null, flag: null, chain: Promise.resolve() }
+      w = { ticket, model: null, state, detail, text: null, ids: null, flag: null, bumping: false, chain: Promise.resolve() }
       this.agents.set(session, w)
     }
     // #108 item 17: a state CHANGE repositions the line to the thread bottom
