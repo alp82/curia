@@ -568,6 +568,23 @@ function writeSecretFile(file, data) {
   fs.chmodSync(file, 0o600) // the mode applies only on create; a reused config dir already has one
 }
 
+// When the codex access token expires, in epoch milliseconds — or null when the
+// file does not answer the question. The token is a JWT, so the expiry is the
+// `exp` claim in its payload, read without verification: the daemon is not the
+// audience, it only needs the clock value the server stamped. Null on ANY
+// parse failure, on purpose: the #351 refusal below must stand on a measured
+// expiry, and a credential file this parser cannot read proves nothing about
+// the token's lifetime.
+function codexAccessTokenExpiry(authJson) {
+  try {
+    const token = JSON.parse(authJson)?.tokens?.access_token
+    const payload = JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8'))
+    return Number.isFinite(payload.exp) ? payload.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
 const HARNESS = {
   claude: {
     // The CLI's global-memory file, and the ONLY per-session channel either
@@ -762,6 +779,19 @@ const HARNESS = {
     // runs as uid 1000 and owns the file, so it could chmod it back. What it
     // buys is that an ordinary in-place refresh FAILS rather than silently
     // rotating the host away.
+    //
+    // AND THE COPY MUST NOT START EXPIRED (#351). The 0400 bit blocks the
+    // write-back, not the refresh: a refresh is a network call, and the server
+    // rotates the refresh token the moment it succeeds. A copy whose access
+    // token is already expired refreshes on first use, the rotated credential
+    // lives only in process memory, and the next re-read presents the old
+    // refresh token — which the server refuses as already used. That strands
+    // the agent AND the host store, because both hold the same spent token.
+    // So an expired host token refuses the dispatch here, loudly and before
+    // any claim work is lost. The bound this buys is one access-token
+    // lifetime: an agent that outlives a fresh token still dies on the same
+    // sequence, and only the API-key shape (ADR-0007's, for the claude lane)
+    // removes the lineage entirely.
     seed: (cfgDir, _wtPath, { sandboxed = false } = {}) => {
       const dest = path.join(cfgDir, 'auth.json')
       const host = path.join(os.homedir(), '.codex', 'auth.json')
@@ -773,7 +803,12 @@ const HARNESS = {
       if (!fs.existsSync(host)) {
         throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach the host store — run \`codex login\` on this box`)
       }
-      fs.copyFileSync(host, dest)
+      const raw = fs.readFileSync(host, 'utf8')
+      const expiry = codexAccessTokenExpiry(raw)
+      if (expiry !== null && expiry <= Date.now()) {
+        throw new Error(`refusing to seed the codex credential into the container: the host access token expired ${new Date(expiry).toISOString()}. A copy that starts expired refreshes at once, the server rotates the refresh token, and the read-only copy cannot store the rotation — that strands the host store too (#351) — run \`codex login\` on this box first`)
+      }
+      fs.writeFileSync(dest, raw)
       fs.chmodSync(dest, 0o400)
     },
 

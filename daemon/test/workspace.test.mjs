@@ -593,6 +593,63 @@ describe('the codex agent harness (#39)', () => {
     }))
   })
 
+  // #351: the 0400 bit blocks the write-back, not the refresh. A copy whose
+  // access token is already expired refreshes on first use, the server rotates
+  // the refresh token, and the rotation cannot land in the read-only file — so
+  // the agent AND the host store end on a spent token. The seed refuses that
+  // dispatch instead. The access token is a JWT, so the tests build one with a
+  // real `exp` claim and nothing else.
+  describe('an expired codex access token refuses the seed (#351)', () => {
+    const jwt = (payload) => `h.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.s`
+    const authWith = (accessToken) => JSON.stringify({ tokens: { access_token: accessToken, refresh_token: 'r' } })
+    const hostAuth = (home, content) => {
+      fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+      fs.writeFileSync(path.join(home, '.codex', 'auth.json'), content)
+    }
+    const nowS = Math.floor(Date.now() / 1000)
+
+    test('an expired token refuses the dispatch, naming the expiry and the remedy', () => withHome((home) => {
+      hostAuth(home, authWith(jwt({ exp: nowS - 3600 })))
+      const { cfgDir, wtPath } = dirs(25)
+      assert.throws(
+        () => seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true }),
+        /access token expired .*codex login/s,
+      )
+      assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), false, 'no copy lands on a refusal')
+    }))
+
+    test('a live token seeds as before', () => withHome((home) => {
+      const content = authWith(jwt({ exp: nowS + 3600 }))
+      hostAuth(home, content)
+      const { cfgDir, wtPath } = dirs(26)
+      seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true })
+      const dest = path.join(cfgDir, 'auth.json')
+      assert.equal(fs.readFileSync(dest, 'utf8'), content)
+      assert.equal(fs.lstatSync(dest).mode & 0o777, 0o400)
+    }))
+
+    test('a token this parser cannot read proves nothing — the seed proceeds', () => withHome((home) => {
+      hostAuth(home, authWith('not-a-jwt'))
+      const { cfgDir, wtPath } = dirs(27)
+      seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true })
+      assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), true)
+    }))
+
+    test('an exp claim that is not a number proves nothing either', () => withHome((home) => {
+      hostAuth(home, authWith(jwt({ exp: 'soon' })))
+      const { cfgDir, wtPath } = dirs(28)
+      seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true })
+      assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), true)
+    }))
+
+    test('the bare path never refuses — the host process refreshes its own store in place', () => withHome((home) => {
+      hostAuth(home, authWith(jwt({ exp: nowS - 3600 })))
+      const { cfgDir, wtPath } = dirs(29)
+      seedConfigDir(cfgDir, wtPath, null, 'codex')
+      assert.equal(fs.lstatSync(path.join(cfgDir, 'auth.json')).isSymbolicLink(), true)
+    }))
+  })
+
   // #171: CODEX_HOME does not bound skills. The pinned codex also reads
   // `$HOME/.agents/skills`, with no config key to turn the root off, so the
   // harness writes one disable entry per host skill the seed did not install.
