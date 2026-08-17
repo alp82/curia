@@ -533,6 +533,7 @@
     font-weight: 620; margin: 1.5rem 0 0;
   }
   .v-vitals h1 .ln { display: block; }
+  .v-vitals h1 .wd { display: inline-block; white-space: nowrap; }
   .v-vitals h1 .ch { display: inline-block; will-change: transform; }
   .v-vitals .vt-lede { font-size: 1.07rem; color: #c9ced6; margin: 1.1rem 0 0; max-width: 33rem; text-wrap: pretty; }
   .v-vitals .vt-facts { font-family: var(--mono); font-size: 0.77rem; color: var(--dim); margin: 1.4rem 0 0; line-height: 2; }
@@ -2046,9 +2047,15 @@ function mountVitals(root) {
   var hero = h('h1', { 'aria-label': heroText });
   CONTENT.headline.forEach(function (line) {
     var ln = h('span', { class: 'ln', 'aria-hidden': 'true' });
-    line.split('').forEach(function (ch) {
-      if (ch === ' ') { ln.appendChild(document.createTextNode(' ')); return; }
-      ln.appendChild(h('span', { class: 'ch', text: ch }));
+    /* Each letter is its own inline-block so it can move on its own. Left
+       loose, that gives the browser a break opportunity between every pair
+       of letters, and a 320px screen breaks words in half. Words are kept
+       whole by a nowrap box, so only the spaces can break. */
+    words(line).forEach(function (tok) {
+      if (/^\s+$/.test(tok)) { ln.appendChild(document.createTextNode(' ')); return; }
+      var wd = h('span', { class: 'wd' });
+      tok.split('').forEach(function (ch) { wd.appendChild(h('span', { class: 'ch', text: ch })); });
+      ln.appendChild(wd);
     });
     hero.appendChild(ln);
   });
