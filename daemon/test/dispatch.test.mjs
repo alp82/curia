@@ -5591,6 +5591,111 @@ describe('agent-liveness sweep (#138)', () => {
   })
 })
 
+// #386: the harness command dies, the pane survives as a bare bash shell, and
+// `tmux ls` keeps answering "live". The exit marker is already printed into
+// that pane; the sweep now reads it after readiness. Observed cost before
+// this: a thread silent for a day, an operator message typed into the dead
+// shell, and a `resume` refused with "already running".
+describe('a dead harness under a live pane is a death (#386)', () => {
+  const READY = '⏵⏵ bypass permissions on'
+  const deadPane = (marker, status = 143) => [
+    'some tool output',
+    `[curia] the harness command exited — ${marker} ${status}`,
+    'agent@curia-42:/workspace$',
+  ].join('\n')
+
+  // A dispatcher whose agent reaches the composer, and whose pane the test can
+  // flip to the dead shell afterwards. The session stays "live" in tmux the
+  // whole time — that is the #386 shape.
+  function makeStranded(deps = {}) {
+    // `live` flips at spawn: start() must see no session, the sweep must see
+    // one — the pane that outlives its harness answers `tmux ls` either way.
+    const state = { assigned: false, dead: false, live: false, marker: null, kills: [], removed: [] }
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: state.assigned ? [{ login: 'me' }] : [] }),
+      hasSession: async () => state.live,
+      newSession: async (opts) => { state.live = true; state.marker = opts.exitMarker },
+      capturePane: async () => (state.dead ? deadPane(state.marker) : READY),
+      killSession: async (name) => { state.kills.push(name) },
+      removeWorkspace: async (p) => { state.removed.push(p) },
+      ...deps,
+    })
+    return { d, state }
+  }
+  const readyAt = (d, session = 'curia-42') => waitFor(() => d.agents.get(session)?.state === 'ready')
+
+  test('the exit marker flips the agent to dead: journalled with the status, pane killed, worktree kept', async () => {
+    const { d, state } = makeStranded()
+    await d.start('42', { repo: 'o/r' })
+    await readyAt(d)
+    state.assigned = true
+    state.dead = true
+
+    await d.livenessSweep()
+
+    const died = events.find((e) => e.type === 'agent_died')
+    assert.ok(died, 'the death reaches the journal')
+    assert.equal(died.status, 143)
+    assert.ok(state.kills.includes('curia-42'), 'the dead shell is killed — it is an input surface, not an agent')
+    assert.deepEqual(state.removed, [], 'the worktree survives for the resume — cancel-then-resume lost it (#386)')
+    assert.ok(!d.agents.has('curia-42'), 'the record is dropped, so queued words refuse and `resume` is takeable')
+    const n = notifies.find((x) => /exited with status 143/.test(x.message))
+    assert.ok(n, 'the thread hears the death, not silence')
+    assert.match(n.message, /`resume 42`/)
+    assert.match(n.message, /some tool output/, 'the pane evidence rides the notify — the kill took the pane')
+  })
+
+  test('a live composer is left alone — the marker is the evidence, not the sweep pass', async () => {
+    const { d } = makeStranded()
+    await d.start('42', { repo: 'o/r' })
+    await readyAt(d)
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'agent_died'))
+    assert.ok(d.agents.has('curia-42'))
+  })
+
+  test('a session kept for post-mortem is not swept — that pane was promised to a human', async () => {
+    const { d, state } = makeStranded()
+    await d.start('42', { repo: 'o/r' })
+    await readyAt(d)
+    d.agents.get('curia-42').state = 'failed'
+    state.dead = true
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'agent_died'))
+    assert.deepEqual(state.kills, [], 'the kept session must survive the sweep')
+    assert.ok(d.agents.has('curia-42'))
+  })
+
+  test('a spawning agent belongs to the watchdog — the sweep does not race it', async () => {
+    const { d, state } = makeStranded({
+      // never reaches the composer: the pane shows the death from the start
+      capturePane: async () => (state.marker ? deadPane(state.marker) : ''),
+    })
+    await d.start('42', { repo: 'o/r' })
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'agent_died'), 'the pre-ready death is #169 material, not #386')
+  })
+
+  test('an unreadable pane proves nothing — the next pass asks again', async () => {
+    const { d, state } = makeStranded()
+    await d.start('42', { repo: 'o/r' })
+    await readyAt(d)
+    d.deps.capturePane = async () => { throw new Error('tmux wedged') }
+    state.dead = true
+
+    await d.livenessSweep()
+
+    assert.ok(!events.some((e) => e.type === 'agent_died'))
+    assert.ok(d.agents.has('curia-42'))
+  })
+})
+
 // The stranded-map watch (#485). An open, non-deferred map whose children are
 // all closed gets no dispatch ever again, so the frontier read is the one place
 // that can say so. The alarm is edge-triggered off the journal like the backup

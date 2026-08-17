@@ -5458,7 +5458,13 @@ export class Dispatcher {
       } catch {
         continue
       }
-      if (present) continue
+      if (present) {
+        // A live session is not yet a live agent (#386): the pane outlives the
+        // harness command, so a session that still answers may be a bare shell
+        // over a dead harness. The exit marker in the pane settles it.
+        await this.#sweepDeadHarness(w).catch((e) => this.log(`dead-harness sweep for ${w.session} failed:`, e.message))
+        continue
+      }
       // re-judge after the await: a teardown or replacement that started while
       // tmux was being asked makes this absence an ordered one after all
       if (this.agents.get(w.session) !== w || this.orderedKills.has(w.session)) continue
@@ -5466,8 +5472,57 @@ export class Dispatcher {
     }
   }
 
-  async #onAgentDied(w) {
+  // #386: the harness command dies, the pane survives as a bare bash shell,
+  // and every liveness read off `tmux ls` keeps saying "ready". The exit
+  // marker (#169) is already printed into that pane; before this sweep,
+  // nothing looked at it after readiness — the observed cost was a thread
+  // that went silent for a day, an operator message typed into the dead shell
+  // (which executed two of its words), and a `resume` that refused with
+  // "already running".
+  //
+  // On a hit the session is KILLED, not kept: the dead shell is an input the
+  // daemon would keep typing into, so removing it is what makes the queued-
+  // word refusal and the `resume` guard both come out right — and unlike the
+  // cancel-then-resume detour this leaves the worktree in place, so the
+  // resumed agent inherits the uncommitted work instead of losing it. The
+  // pane's evidence rides the notify as an excerpt before the kill takes it.
+  //
+  // Two states are somebody else's: 'spawning' belongs to the pre-ready
+  // watchdog (#169 reports the same marker there), and 'failed' is a session
+  // deliberately kept for post-mortem — sweeping it would break that promise.
+  // An adoption record carries no marker and is skipped by the first guard;
+  // its deaths still land through the session-gone half above.
+  async #sweepDeadHarness(w) {
+    if (!w.exitMarker) return
+    if (w.state === 'spawning' || w.state === 'failed') return
+    let pane
+    try {
+      pane = await this.deps.capturePane(w.session)
+    } catch {
+      return // an unreadable pane proves nothing — next pass asks again
+    }
+    const tail = paneTail(pane)
+    const status = parseExitMarker(tail, w.exitMarker)
+    if (status === null) return
+    // re-judge after the await, as the session-gone half does
+    if (this.agents.get(w.session) !== w || this.orderedKills.has(w.session)) return
+    const excerpt = paneExcerpt(tail, w.exitMarker)
+    await this.deps.killSession(w.session).catch((e) => this.log(`dead-shell kill for ${w.session} failed:`, e.message))
+    await this.#onAgentDied(w, { status, excerpt })
+  }
+
+  // `status`/`excerpt` arrive from the dead-harness half of the sweep (#386):
+  // the harness command's exit status off the pane marker, and the pane lines
+  // above it. The session-gone half has neither — the pane died with its
+  // evidence.
+  async #onAgentDied(w, { status = null, excerpt = '' } = {}) {
     const { session, ticket, repo } = w
+    // How the death reads in the thread: measured when the marker gave one,
+    // and the old wording when only the absence is known.
+    const cause = status !== null
+      ? `'s **${w.harness}** command exited with status ${status} and left the pane as a dead shell — curia killed it`
+      : ' is gone without a teardown order'
+    const tail = excerpt ? `\n\`\`\`\n${excerpt}\n\`\`\`` : ''
     // A dead session WITH a recorded result is a finishing agent whose Stop
     // hook never landed — the normal close, not a death. onAgentDone already
     // handles exactly that shape.
@@ -5480,15 +5535,17 @@ export class Dispatcher {
     // reviewer over this checkout.
     if (w.reviewer) {
       this.agents.delete(session)
-      this.reduction.journal('agent_died', { repo, ticket, agent: session, kind: 'reviewer' })
+      this.reduction.journal('agent_died', { repo, ticket, agent: session, kind: 'reviewer', ...(status !== null && { status }) })
       this.lapseConfirmsFor(session, `\`${session}\` died`)
       this.deps.removeCredentials(w.cfgDir ?? cfgDirFor(this.root, session))
       this.log(`liveness sweep: reviewer ${session} is gone with no teardown order`)
-      this.notify(ticket, `⚰️ \`${session}\` is gone without a teardown order and left NO verdict — nothing about #${ticket} changed. Ask for the cross-check again to start a fresh reviewer.`)
+      this.notify(ticket, status !== null
+        ? `⚰️ \`${session}\`${cause}. It left NO verdict — nothing about #${ticket} changed. Ask for the cross-check again to start a fresh reviewer.${tail}`
+        : `⚰️ \`${session}\` is gone without a teardown order and left NO verdict — nothing about #${ticket} changed. Ask for the cross-check again to start a fresh reviewer.`)
       return
     }
     this.agents.delete(session)
-    this.reduction.journal('agent_died', { repo, ticket, agent: session })
+    this.reduction.journal('agent_died', { repo, ticket, agent: session, ...(status !== null && { status }) })
     this.log(`liveness sweep: ${session} is gone with no teardown order`)
 
     // The surface half of item 19: the agent's open questions STAY open and
@@ -5541,7 +5598,7 @@ export class Dispatcher {
     const escLine = open.length
       ? ` ${open.length} open question(s) — ${open.map((r) => `**${r.id}**`).join(', ')} — stay answerable: an answer there is recorded and handed to the resumed agent.`
       : ''
-    this.notify(ticket, `⚰️ \`${session}\` is gone without a teardown order — ${claimLine}.${escLine} \`resume ${ticket}\` starts a fresh agent on the surviving worktree`)
+    this.notify(ticket, `⚰️ \`${session}\`${cause} — ${claimLine}.${escLine} \`resume ${ticket}\` starts a fresh agent on the surviving worktree${tail}`)
   }
 
   // ---- reconcile -----------------------------------------------------------------
