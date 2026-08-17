@@ -28,14 +28,15 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `braid` | Three lines, one queue | #508 candidate. Three repo lines run in parallel and join into the one queue just above the reader's ticket. |
-| `tree` | The map births tickets | #508 candidate. The map card is pinned at the top, and every ticket comes out of it. |
-| `acts` | The run grows in acts | #508 candidate. One ticket, then more tickets, then a second repo line, then a third, as the reader descends. |
-| `stack` | The queue drains | #508 candidate. The queue is a visible pile at the top, and it sends one ticket at a time down the line. |
-| `trail` | The line remembers | #508 candidate. The line behind the reader's ticket keeps the color of every stage it has passed. |
+| `flood` | The mess finds the line | #508 candidate. The reader's scattered tickets drift over the hero, and the first scroll snaps every one onto the single line. |
+| `metro` | Branch lines join the queue | #508 candidate. A transit map: branch lines fan wide over the hero, bud ticket branches at junctions, and join the one queue. |
+| `dock` | The run docks to the page | #508 candidate. The run plays full screen with labeled stations before the copy arrives, then docks into the left gutter. |
+| `palm` | Your ticket rides your phone | #508 candidate. The reader's ticket sits inside a drawn phone, and every stage flies in and commits with a tap ripple. |
+| `swell` | The run grows in acts | #508 candidate. New repo lines slam in with a spring and a flash, and traffic ramps from silence to a rush. |
 
-The variants of #363 (`live`, `grow`, `lanes`, `descent`) and of #508 round 1 (`story`, `cards`)
-were removed on the operator's order at round 2. Git history keeps them.
+The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`) and
+of #508 round 2 (`braid`, `tree`, `acts`, `stack`, `trail`) were removed on the operator's orders.
+Git history keeps them.
 
 All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
@@ -79,9 +80,16 @@ hierarchy was missing. The order: use the bigger card as the baseline, remove th
 five variations that explore different storytelling techniques. That order supersedes the round 4
 rule against rebuilding the set, for this round only.
 
-**Round 2.** The set is the locked `base` plus five techniques: `braid`, `tree`, `acts`, `stack`
-and `trail`. The reader's card is now this ticket, #508, and the map card of `tree` is the real
-map 109, words the page copy already carries.
+**Round 2.** The set was the locked `base` plus five one-layer techniques: `braid`, `tree`,
+`acts`, `stack` and `trail`. The reader's card became this ticket, #508. The operator found
+interesting elements in `braid`, `tree` and `acts`, and called the round too cowardly. The order:
+go bold, go wild, make the variations really distinct, and aim at storytelling, multi-branches,
+the scroll experience, and instant intuitive understanding of what curia does and why it matters.
+
+**Round 3.** Five distinct scroll experiences beside `base`: `flood`, `metro`, `dock`, `palm` and
+`swell`. Each absorbs a surviving element: `metro` carries the branches of `braid` and the
+hierarchy of `tree`, and `swell` retells `acts` with drama. `flood` and `dock` are new bets on
+the opening screen, and `palm` bets on the phone as the story.
 
 ## The rule the variations share
 
