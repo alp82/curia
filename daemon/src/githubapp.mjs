@@ -228,6 +228,35 @@ export async function listInstallations({ jwt, fetchImpl = globalThis.fetch } = 
   return (payload ?? []).map((i) => ({ id: i.id, owner: i.account?.login ?? null }))
 }
 
+// How many pages of repositories one installation may state. An installation
+// granted "all repositories" covers every repo the owner has, so this one CAN
+// be long where the installation list above cannot.
+export const MAX_REPO_PAGES = 20
+
+// Every repository one installation covers, as `owner/name`, read with that
+// installation's own token.
+//
+// This is the reach half of the credential watch (#466), and it is the one
+// question a probe against the repository cannot answer. An installation token
+// reads every PUBLIC repository on GitHub, so `GET /repos/<owner>/<name>`
+// answers 200 for a repo the app was never granted — measured on the box, where
+// an agent's own token read `octocat/Hello-World`. The installation states its
+// own grant, and it states it for private and public alike.
+//
+// A list longer than the cap THROWS rather than answering short. A short answer
+// would name a covered repo as uncovered, and the watch would ask the operator
+// to repair an installation that is already right.
+export async function listInstallationRepos({ token, fetchImpl = globalThis.fetch } = {}) {
+  const out = []
+  for (let page = 1; page <= MAX_REPO_PAGES; page += 1) {
+    const payload = await api(`/installation/repositories?per_page=100&page=${page}`, { jwt: token, fetchImpl })
+    const batch = payload?.repositories ?? []
+    for (const repo of batch) if (repo?.full_name) out.push(repo.full_name)
+    if (batch.length < 100) return out
+  }
+  throw new Error(`curia's app installation states more than ${MAX_REPO_PAGES * 100} repositories, which is more than this read pages through`)
+}
+
 // One installation token. `permissions` scopes it DOWN from what the
 // installation grants; `repositories` narrows it to named repos of that owner.
 //
@@ -353,6 +382,19 @@ export class TokenMinter {
     } finally {
       this.#minting.delete(cacheKey)
     }
+  }
+
+  // The repositories one owner's installation covers (#466), lowercased so the
+  // caller compares names rather than spellings — GitHub keeps the case an owner
+  // typed, and a watch list is hand-written.
+  //
+  // It mints a READ token, because the question is about the grant and never
+  // about writing. It throws when the app is not installed on that owner, which
+  // is `tokenFor`'s refusal and says the one thing the operator must act on.
+  async reposFor(owner) {
+    const token = await this.tokenFor(owner, 'read')
+    const repos = await listInstallationRepos({ token, fetchImpl: this.fetchImpl })
+    return repos.map((r) => r.toLowerCase())
   }
 
   // The app's own user, as GIT has to name it (#389).

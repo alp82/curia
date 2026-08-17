@@ -95,6 +95,14 @@ async function waitFor(cond, ms = 8000) {
   if (!cond()) throw new Error('waitFor: condition not reached in time')
 }
 
+// A minter shaped like the real one and reaching no GitHub. Every dispatch
+// takes a minted token or refuses (#466), so this is the default rather than a
+// fixture of the credential tests.
+const workingMinter = () => ({
+  tokenFor: async () => 'ghs_test',
+  botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
+})
+
 // Deps default to inert doubles; each test overrides only what it asserts on.
 function makeDispatcher(deps = {}, {
   watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING,
@@ -104,9 +112,10 @@ function makeDispatcher(deps = {}, {
   readings = () => [],
   askReview = async () => ({ text: 'approve', status: 'answered' }),
   identityProxy = { listening: true },
-  // #389: the GitHub App's minter. None by default — a box with no app keeps
-  // #155's PAT, which is every test but the cutover's own.
-  minter = null,
+  // #389, #466: the GitHub App's minter. Every dispatch mints a GitHub
+  // credential or refuses, so every test gets one that works. The two tests
+  // about a box that cannot mint pass their own — null, and one that throws.
+  minter = workingMinter(),
   // #390: who a claim assigns. `loadCuriaConfig` refuses a boot without it, so
   // every test gets one; the null case is its own test, and it pins that
   // reconcile skips rather than sweeps.
@@ -210,6 +219,9 @@ function makeDispatcher(deps = {}, {
     hasSession: async () => false,
     listSessions: async () => [],
     newSession: async () => {},
+    // #389: every spawn authors the worktree as the bot, so every spawn reaches
+    // git. Inert here; the test that asserts on the identity passes its own.
+    setGitIdentity: async () => {},
     capturePane: async () => '',
     killSession: async () => {},
     ...containerDeps(),
@@ -1458,17 +1470,6 @@ describe('the agent mints its GitHub token (#389)', () => {
     }
   }
 
-  // #155's key for owner `o`, set only where a test is about the fallback.
-  const withPat = (value = 'github_pat_11PAT') => {
-    const key = 'CURIA_AGENT_GH_TOKEN_O'
-    const had = Object.hasOwn(process.env, key)
-    const old = process.env[key]
-    process.env[key] = value
-    return () => {
-      if (had) process.env[key] = old
-      else delete process.env[key]
-    }
-  }
 
   test('the container gets a PATH and no secret, and the token is in the file', async () => {
     const minter = fakeMinter()
@@ -1525,52 +1526,49 @@ describe('the agent mints its GitHub token (#389)', () => {
     d.agents.delete('curia-42')
   })
 
-  test('no app on the box leaves every agent on the PAT, untouched', async () => {
-    const restore = withPat()
-    try {
-      const d = makeDispatcher()
-      await d.start('42', { repo: 'o/r', by: 'test' })
-      const env = envFileOf('curia-42')
-      assert.equal(env.GH_TOKEN, 'github_pat_11PAT')
-      assert.equal('GH_CONFIG_DIR' in env, false)
-      assert.equal(fs.existsSync(hostsOf('curia-42')), false)
-      d.agents.delete('curia-42')
-    } finally {
-      restore()
-    }
+  // #155's PAT stood behind a failed mint until #466 retired it. Nothing stands
+  // behind one now, and an agent with no GitHub credential cannot read the
+  // ticket it was dispatched for — so the dispatch is refused at spawn instead
+  // of burning a session to fail at the first `gh` call.
+  test('no app on the box refuses the dispatch and releases the claim', async () => {
+    let unclaimed = 0
+    const d = makeDispatcher({ unclaim: async () => { unclaimed += 1 } }, { minter: null })
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+
+    assert.match(reply, /no GitHub App/)
+    assert.match(reply, /claim released/)
+    assert.equal(unclaimed, 1)
+    assert.equal(d.agents.has('curia-42'), false)
+    assert.equal(fs.existsSync(hostsOf('curia-42')), false)
+    assert.ok(!events.some((e) => e.type === 'agent_spawned'), 'no agent ran')
   })
 
-  test('a mint that fails falls back to the PAT, and leaves no stale credential behind', async () => {
-    const restore = withPat()
-    try {
-      // The re-arm case, which is the one that bites: a config dir is reused
-      // across dispatches, `gh` prefers GH_TOKEN over hosts.yml, and a left-over
-      // file would be a credential on disk that nothing reads and the refresh
-      // would keep alive.
-      fs.mkdirSync(cfgOf('curia-42'), { recursive: true })
-      writeGhCredentials(cfgOf('curia-42'), 'ghs_fromlasttime')
-      const d = makeDispatcher({}, { minter: fakeMinter({ fail: true }) })
-      await d.start('42', { repo: 'o/r', by: 'test' })
+  test('a mint that fails refuses the dispatch, and leaves no stale credential behind', async () => {
+    // The re-arm case, which is the one that bites: a config dir is reused
+    // across dispatches and across the cross-harness respawn, so a left-over
+    // file would be a credential on disk that nothing reads and the refresh
+    // would keep alive.
+    fs.mkdirSync(cfgOf('curia-42'), { recursive: true })
+    writeGhCredentials(cfgOf('curia-42'), 'ghs_fromlasttime')
+    const d = makeDispatcher({}, { minter: fakeMinter({ fail: true }) })
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
 
-      const env = envFileOf('curia-42')
-      assert.equal(env.GH_TOKEN, 'github_pat_11PAT')
-      assert.equal('GH_CONFIG_DIR' in env, false)
-      assert.equal(fs.existsSync(hostsOf('curia-42')), false)
-      d.agents.delete('curia-42')
-    } finally {
-      restore()
-    }
+    assert.match(reply, /could not mint a GitHub token for o\/r/)
+    assert.match(reply, /must be installed on o/)
+    assert.equal(fs.existsSync(hostsOf('curia-42')), false, 'the last dispatch\'s token does not outlive the refusal')
+    assert.equal(d.agents.has('curia-42'), false)
   })
 
-  test('the refresh rewrites a live agent, and never arms one on the PAT', async () => {
+  test('the refresh rewrites a live agent, and arms no config dir that holds none', async () => {
     const minter = fakeMinter()
     const d = makeDispatcher({}, { minter })
     await d.start('42', { repo: 'o/r', by: 'test' })
     assert.equal(readGhCredentials(cfgOf('curia-42')), 'ghs_minted1')
 
-    // An agent that fell back: a record with a config dir and no file. The
-    // file's ABSENCE is what says it reads GH_TOKEN, and a refresh that wrote
-    // one would put a live token where nothing looks.
+    // A record with a config dir and no file: a refusal that swept it, or an
+    // ending mid-teardown. The file's ABSENCE is what says nothing is armed
+    // there, and a refresh that wrote one would put a live token where no agent
+    // reads it and no ending collects it.
     fs.mkdirSync(cfgOf('curia-99'), { recursive: true })
     d.agents.set('curia-99', {
       session: 'curia-99', ticket: '99', repo: 'o/r', cfgDir: cfgOf('curia-99'), state: 'ready',
@@ -1684,7 +1682,7 @@ describe('the overseer mints its read-only token (#392)', () => {
   })
 
   test('a box with no app writes nothing at all, rather than an empty file', async () => {
-    const d = makeDispatcher()
+    const d = makeDispatcher({}, { minter: null })
     await d.refreshOverseerCredentials()
     assert.equal(fs.existsSync(tokensDir()), false)
   })

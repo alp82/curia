@@ -23,7 +23,7 @@ import { parse as parseYaml } from 'yaml'
 import { execFileP } from './exec.mjs'
 import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
-import { forgetGhCredentials, ghConfigDirFor } from './agentgh.mjs'
+import { forgetGhCredentials } from './agentgh.mjs'
 // the daemon's own minted credential (#390, ADR-0018) — every clone, fetch and
 // push below reaches GitHub as `curia-sh[bot]` rather than as the operator
 import { daemonGhEnv } from './daemongh.mjs'
@@ -268,12 +268,13 @@ export async function createPrivateClone(root, repo, n, { identity = null } = {}
     maxBuffer: 16 * 1024 * 1024, timeout: CLONE_TIMEOUT_MS, env,
   })
   // gh follows the box's `git_protocol` setting, which may be ssh — and the
-  // container holds no ssh key by design. HTTPS with GH_TOKEN is the one way an
+  // container holds no ssh key by design. HTTPS with a token is the one way an
   // agent reaches the remote (#155).
   await git(wt, ['remote', 'set-url', 'origin', `https://github.com/${repo}.git`])
   // What the container pushes and fetches with. `gh` is in the image and
-  // `GH_TOKEN` is in its environment, so the helper resolves to the agent's
-  // own scoped token rather than to any account on the box.
+  // `GH_CONFIG_DIR` is in its environment, so the helper resolves to the token
+  // the daemon minted for this agent rather than to any account on the box
+  // (#389, #466).
   await git(wt, ['config', 'credential.helper', '!gh auth git-credential'])
   // The container HOME carries no gitconfig, so an unset identity would fail
   // the agent's first commit with "please tell me who you are". Copied from
@@ -444,107 +445,43 @@ export function hostStorageDir(harness = 'claude') {
   return harnessDef(harness).hostStore()
 }
 
-// ---- the agent's GitHub authority (#155) ------------------------------------
+// ---- the agent's GitHub authority (#155, retired by #466) -------------------
 //
-// An agent gets a scoped fine-grained PAT as `GH_TOKEN` instead of the host's
-// account-wide `~/.config/gh/hosts.yml` login. `gh` prefers `GH_TOKEN` over
-// `hosts.yml` natively, so every wayfinder operation an agent runs keeps working
-// with no code that knows the token exists.
+// An agent used to get a scoped fine-grained PAT as `GH_TOKEN`, one key per
+// resource owner. #389 cut the agents over to a token minted from the GitHub App
+// and KEPT the key as the fallback, because ADR-0018 says no PAT comes out ahead
+// of its replacement. The box then ran its dispatches on the minted path, so
+// #466 took the key out: the credential is minted, written to a file the
+// container mounts, and refreshed on the dispatch tick (agentgh.mjs).
 //
-// ONE TOKEN PER RESOURCE OWNER, because that is what a fine-grained PAT is: the
-// creation form has a single resource-owner dropdown, and curia's watch list
-// spans two owners (`alp82` and the `getalfredo` org). A single key would hand
-// every agent one owner's token and break the other owner's repos, so the key
-// carries the owner and the daemon picks by the ticket's own repo.
-//
-// The DAEMON is deliberately not on this token. Its own `gh` keeps the host
-// login, because it must reach every watched repo, and a repo added to
-// `curia.yaml` but left off a token would break dispatch with no signal. A bare
-// `GH_TOKEN` in `daemon/.env.daemon` would re-authenticate the daemon too,
-// silently, by sitting in its environment — hence a prefixed key.
-//
-// The key says AGENT where the rest of this file still says agent: it is
-// operator-facing config, and renaming it later would cost a coordinated edit of
-// every env file plus a restart. The code sweep is #184.
-//
-// Exported because the overseer's own keys are the same shape one prefix over
-// (#313), and the two prefixes have to be told apart in one place.
+// WHAT IS LEFT HERE IS THE NAME, and nothing reads a value under it. An env file
+// on a box that has been deployed to since #155 still carries those keys, and
+// each one is a live read-write PAT with no job. So the name survives to be
+// FOUND: the boot names a leftover key and asks for its deletion and its
+// revocation, the same two acts #392 asks for on the overseer's own retired key.
 export const AGENT_TOKEN_KEY = 'CURIA_AGENT_GH_TOKEN'
 
-// A GitHub token as GitHub writes one — `github_pat_…`, `ghp_…`, `gho_…`, and
-// the 2026 `ghs_…` installation tokens that carry `.` and `-` beside the word
-// characters. The value travels as `env K=V` in tmux argv (and as `-e` on the
-// container's command line later), so a stray quote or space from a hand-edited
-// env line has to be refused where it is read. `gh` answers a quoted token with
-// a plain 401, and nothing on the box would name the quote.
-const GH_TOKEN_RE = /^[A-Za-z0-9_.-]+$/
-
-// `alp82/curia` → `ALP82`. An owner is a GitHub login, so the only character to
-// fold is the hyphen. The overseer's keys are built from the same slug (#313).
-export function ownerSlug(repo) {
-  const owner = String(repo ?? '').split('/')[0]
-  if (!owner) return null
-  return owner.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+// #155's keys, still in `daemon/.env.daemon` after this retirement. The boot
+// names them, because a PAT nothing reads is reach nobody is watching.
+export function retiredAgentTokenKeys(env = process.env) {
+  return Object.keys(env).filter((k) => k.startsWith(`${AGENT_TOKEN_KEY}_`))
 }
 
-// `alp82/curia` → `CURIA_AGENT_GH_TOKEN_ALP82`.
-export function ghTokenKeyFor(repo) {
-  const slug = ownerSlug(repo)
-  return slug ? `${AGENT_TOKEN_KEY}_${slug}` : null
-}
-
-// `where` names the file in the refusal, because #313 puts the overseer's own
-// tokens in a second one and a message naming the wrong file sends the operator
-// to the wrong line.
-export function readGhToken(env, key, where = 'daemon/.env.daemon') {
-  const raw = env[key]
-  if (raw === undefined) return null
-  const token = raw.trim()
-  if (!token) return null
-  if (!GH_TOKEN_RE.test(token)) {
-    throw new Error(`bad ${key} in ${where}: a GitHub token is letters, digits, underscore, dot and dash only — drop the quotes and any trailing text`)
-  }
-  return token
-}
-
-// The token for one repo, or null. Null is the pre-#155 reach: the agent
-// inherits the host login, which is what an owner with no token yet must keep
-// getting, or watching a new owner would break every dispatch to it.
-export function agentGhToken(repo, env = process.env) {
-  const key = ghTokenKeyFor(repo)
-  return key ? readGhToken(env, key) : null
-}
-
-// Every token key the environment carries, read once so a malformed value
-// refuses the BOOT rather than reaching an agent as a 401 mid-resolve. Returns
-// the owners that are scoped, for the boot line.
-export function assertGhTokens(env = process.env) {
-  return Object.keys(env)
-    .filter((k) => k.startsWith(`${AGENT_TOKEN_KEY}_`))
-    .filter((k) => readGhToken(env, k) !== null)
-    .map((k) => ({ key: k, token: readGhToken(env, k) }))
-}
-
-// The whole per-agent env: config isolated, credentials shared, GitHub scoped.
+// The whole per-agent env: config isolated, credentials shared.
 //
 // `sandboxed` (#156) changes one thing and says so: a container cannot share
 // the host credential store, because the host HOME is what the boundary denies.
 // `cfgDir` is then the path INSIDE the container, and the model credential
 // rides the env file instead (sandbox.mjs).
 //
-// `minted` (#389) is the cutover, and the two arms are deliberately EXCLUSIVE.
-// A minted agent gets a PATH and no secret: `GH_CONFIG_DIR` names the directory
-// the daemon writes gh's own `hosts.yml` into and rewrites every tick, because
-// an installation token lives one hour and dies inside a long ticket. Everything
-// else keeps #155's `GH_TOKEN`, which is a PAT frozen for the agent's life. Both
-// at once would be a silent bug rather than a belt: `gh` prefers `GH_TOKEN` over
-// `hosts.yml`, so a leftover env value would beat the file the daemon refreshes
-// and the hour would come back.
-export function agentEnv(cfgDir, harness = 'claude', { repo = null, env = process.env, sandboxed = false, minted = false } = {}) {
-  const base = harnessDef(harness).env(cfgDir, { sandboxed })
-  if (minted) return { ...base, GH_CONFIG_DIR: ghConfigDirFor(cfgDir) }
-  const token = agentGhToken(repo, env)
-  return token ? { ...base, GH_TOKEN: token } : base
+// NO GITHUB CREDENTIAL COMES OUT OF HERE. It used to: #155's PAT rode this env
+// as `GH_TOKEN`, and #466 retired it. What an agent gets now is a PATH to a file
+// the daemon rewrites, and dispatch.mjs sets it beside the mint that fills the
+// file — one place that knows the credential, rather than two that must agree.
+// The overseer's own turn takes this same env and no GitHub value at all
+// (overseerturn.mjs), which is what that arm always wanted.
+export function agentEnv(cfgDir, harness = 'claude', { sandboxed = false } = {}) {
+  return harnessDef(harness).env(cfgDir, { sandboxed })
 }
 
 // TOML basic string. The values here are daemon-generated paths and a loopback

@@ -8,7 +8,7 @@ import path from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { parse as parseYaml } from 'yaml'
 import {
-  seedConfigDir, agentEnv, agentGhToken, ghTokenKeyFor, assertGhTokens, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
+  seedConfigDir, agentEnv, retiredAgentTokenKeys, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
   writeConnectionSettings, removeCredentials, untrustedProjectConfig, plantedSkills, MCP_SERVER_NAME,
   checkoutTicketBranch, remoteBranchExists, defaultBranchOf,
 } from '../src/workspace.mjs'
@@ -92,61 +92,47 @@ describe('per-agent config dir (#53)', () => {
     assert.ok(path.isAbsolute(env.CLAUDE_SECURESTORAGE_CONFIG_DIR))
   })
 
-  // #155: the agent's GitHub authority is a scoped PAT, not the host's
-  // account-wide `gh` login.
-  describe('the scoped agent PAT (#155)', () => {
+  // #155 gave the agent a scoped PAT as `GH_TOKEN`, and #466 retired it: an
+  // agent mints its own token now, and it reads a file rather than the
+  // environment (agentgh.mjs). What is left of the key is its NAME, and the
+  // boot uses it to find a value nothing reads.
+  describe('the retired agent PAT (#155, #466)', () => {
     const cfgDir = () => path.join(tmp, 'cfg', 'curia-3')
-    const env = {
-      CURIA_AGENT_GH_TOKEN_ALP82: 'github_pat_11ALP82',
-      CURIA_AGENT_GH_TOKEN_GETALFREDO: 'github_pat_11ORG',
-    }
 
-    test('the token reaches the agent as GH_TOKEN, on both harnesses', () => {
-      assert.equal(agentEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
-      assert.equal(agentEnv(cfgDir(), 'codex', { repo: 'alp82/curia', env }).GH_TOKEN, 'github_pat_11ALP82')
-      // the isolation it rides beside is untouched
-      assert.equal(agentEnv(cfgDir(), 'claude', { repo: 'alp82/curia', env }).CLAUDE_CONFIG_DIR, cfgDir())
-    })
-
-    // The reason the key carries an owner at all: a fine-grained PAT has one
-    // resource owner, and the watch list spans two.
-    test('each resource owner gets its own token', () => {
-      assert.equal(agentGhToken('alp82/alperortac.com', env), 'github_pat_11ALP82')
-      assert.equal(agentGhToken('getalfredo/landing-page', env), 'github_pat_11ORG')
-      assert.equal(ghTokenKeyFor('getalfredo/landing-page'), 'CURIA_AGENT_GH_TOKEN_GETALFREDO')
-      // a login's one foldable character
-      assert.equal(ghTokenKeyFor('some-org/repo'), 'CURIA_AGENT_GH_TOKEN_SOME_ORG')
-    })
-
-    test('an owner with no token leaves the agent on the inherited host login', () => {
-      // absent, empty and whitespace all mean "not configured" — an operator who
-      // commented the line out and one who blanked it get the same box
-      const blanks = { CURIA_AGENT_GH_TOKEN_EMPTY: '', CURIA_AGENT_GH_TOKEN_PAD: '   ' }
-      for (const repo of ['other/repo', 'empty/repo', 'pad/repo']) {
-        assert.equal('GH_TOKEN' in agentEnv(cfgDir(), 'claude', { repo, env: { ...env, ...blanks } }), false)
-        assert.equal(agentGhToken(repo, { ...env, ...blanks }), null)
+    test('no GitHub credential comes out of the agent env', () => {
+      const env = {
+        CURIA_AGENT_GH_TOKEN_ALP82: 'github_pat_11ALP82',
+        CURIA_AGENT_GH_TOKEN_GETALFREDO: 'github_pat_11ORG',
       }
-      // and a spawn with no repo at all — the overseer's reuse of agentEnv
-      assert.equal('GH_TOKEN' in agentEnv(cfgDir(), 'claude', { env }), false)
-    })
-
-    // The value travels as `env K=V` in tmux argv, and `gh` answers a quoted
-    // token with a bare 401 — so the refusal has to name the fault here.
-    test('a quoted or padded token refuses rather than reaching an agent', () => {
-      assert.equal(agentGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: ' github_pat_11ABC \n' }), 'github_pat_11ABC')
-      for (const bad of ['"github_pat_11ABC"', "'github_pat_11ABC'", 'github_pat_11ABC # the scoped one', 'gh p_11ABC']) {
-        assert.throws(() => agentGhToken('alp82/curia', { CURIA_AGENT_GH_TOKEN_ALP82: bad }), /CURIA_AGENT_GH_TOKEN_ALP82/)
+      // Even with the old keys still in the environment, and on both harnesses.
+      // A leftover `GH_TOKEN` would BEAT the file the daemon refreshes, and the
+      // one-hour expiry the cutover removed would come back.
+      for (const harness of ['claude', 'codex']) {
+        const agent = agentEnv(cfgDir(), harness, { sandboxed: true })
+        assert.equal('GH_TOKEN' in agent, false)
+        assert.equal('GITHUB_TOKEN' in agent, false)
+        for (const key of Object.keys(agent)) assert.ok(!key.startsWith('CURIA_AGENT_GH_TOKEN'))
       }
+      // the isolation it used to ride beside is untouched
+      assert.equal(agentEnv(cfgDir(), 'claude').CLAUDE_CONFIG_DIR, cfgDir())
     })
 
-    // Boot reads every key, so a typo in an owner curia is not dispatching to
-    // today still refuses the boot rather than waiting to bite.
-    test('boot reads every configured key and names the scoped owners', () => {
-      assert.deepEqual(assertGhTokens(env).map((t) => t.key),
+    test('boot finds a retired key so the operator can delete and revoke it', () => {
+      const env = {
+        CURIA_AGENT_GH_TOKEN_ALP82: 'github_pat_11ALP82',
+        CURIA_AGENT_GH_TOKEN_GETALFREDO: 'github_pat_11ORG',
+        PATH: '/usr/bin',
+      }
+      assert.deepEqual(retiredAgentTokenKeys(env),
         ['CURIA_AGENT_GH_TOKEN_ALP82', 'CURIA_AGENT_GH_TOKEN_GETALFREDO'])
-      assert.deepEqual(assertGhTokens({ PATH: '/usr/bin' }), [])
-      assert.throws(() => assertGhTokens({ ...env, CURIA_AGENT_GH_TOKEN_OTHER: '"quoted"' }),
-        /CURIA_AGENT_GH_TOKEN_OTHER/)
+      assert.deepEqual(retiredAgentTokenKeys({ PATH: '/usr/bin' }), [])
+      // A blanked line is still a line to delete, and it is not a token to
+      // revoke — the boot says both acts and the operator judges which apply.
+      assert.deepEqual(retiredAgentTokenKeys({ CURIA_AGENT_GH_TOKEN_EMPTY: '' }),
+        ['CURIA_AGENT_GH_TOKEN_EMPTY'])
+      // The overseer's own retired keys are a different prefix, and #392 names
+      // those. One name for one thing.
+      assert.deepEqual(retiredAgentTokenKeys({ CURIA_OVERSEER_GH_TOKEN_ALP82: 'x' }), [])
     })
   })
 
@@ -498,7 +484,7 @@ describe('the codex agent harness (#39)', () => {
 
   test('CODEX_HOME is the whole isolation, and no Claude variable leaks into it', () => {
     const { cfgDir } = dirs(1)
-    assert.deepEqual(agentEnv(cfgDir, 'codex', { env: {} }), { CODEX_HOME: cfgDir })
+    assert.deepEqual(agentEnv(cfgDir, 'codex'), { CODEX_HOME: cfgDir })
   })
 
   // The #53 property, reached by the opposite mechanism: codex FOLLOWS the link

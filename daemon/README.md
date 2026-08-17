@@ -21,7 +21,8 @@ The daemon expects these on the box before the first boot:
 
 - `DISCORD_BOT_TOKEN` — CuriaBot token. Omit to run REST-only (escalations stay answerable via `POST /answer`).
 - `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty. It is also the watcher list: every id on it is silently added as a member of each thread the daemon opens, so new tickets appear in the operator's thread list without a ping.
-- `CURIA_AGENT_GH_TOKEN_<OWNER>` — the FALLBACK GitHub token an agent gets as `GH_TOKEN` (#155). One key per resource owner, uppercased, hyphens folded to underscores: `alp82/curia` reads `CURIA_AGENT_GH_TOKEN_ALP82`. An agent mints its own token from the GitHub App since #389, and this key is what an owner the app is not installed on still gets. See [the agent's GitHub authority](#the-agents-github-authority-155-cut-over-by-389) below.
+- `CURIA_GH_APP_ID` and `CURIA_GH_APP_KEY_FILE` are the GitHub App every holder mints from ([ADR-0018](../docs/adr/0018-the-daemon-is-a-github-app.md)). The key is a FILE beside this one, at mode 0600. Half an app refuses the boot, and no app at all is legal on a box that dispatches nothing. The operator's own steps are [docs/github-app.md](../docs/github-app.md).
+- `CURIA_AGENT_GH_TOKEN_<OWNER>` is **retired** ([#466](https://github.com/alp82/curia/issues/466)). An agent mints its own token now, so a key still here is a live read-write PAT with no job, and boot names it: delete the line, then revoke the token on GitHub. See [the agent's GitHub authority](#the-agents-github-authority-155-cut-over-by-389-retired-by-466) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
 - The overseer's own tokens are **not** in this file, and since #392 they are in no env file at all. The daemon mints them and writes one file per owner under `<workspace_root>/overseer/tokens/`. `.env.overseer` beside this file keeps the model credential, and the overseer service loads that file and never this one. See [the overseer's GitHub authority](#the-overseers-github-authority-313-cut-over-by-392) below.
 - The overseer takes **no model variable here**. It runs in its own container since the cutover (#315), on `claude-sonnet-5` with no fallback, and the model is `OVERSEER_CONTAINER_MODEL` in `src/overseerturn.mjs`. `OVERSEER_MODEL` and `OVERSEER_FALLBACK_MODEL` died with the in-daemon host.
@@ -223,23 +224,15 @@ Lifecycle: the rule is withdrawn when the ticket ends — clean finish, result-l
 
 Verified live: refusals for all three curia surfaces and for a dead port; an agent that started its own dev server, published it, and had the page load **on the phone** over the tailnet; a second concurrent preview taking the next port; both sweep branches (kept while its session lives, withdrawn once nothing claims it) with the attach rule untouched throughout. Previews still carry the tailnet-membership-only posture: #151 gated the attach and timeline surfaces, and did not reach previews. An agent's dev server is published to the whole tailnet with no identity check.
 
-## The agent's GitHub authority (#155, cut over by #389)
+## The agent's GitHub authority (#155, cut over by #389, retired by #466)
 
-**An agent mints its token now.** [ADR-0018](../docs/adr/0018-the-daemon-is-a-github-app.md) replaced every PAT with one GitHub App, and the agents are the first holder to move. What the daemon hands an agent is a per-agent `gh` config dir it rewrites, and the container environment carries `GH_CONFIG_DIR` — a path, never a secret. The rest of this section is what the PAT did, and it stays because the PAT is still the fallback: a box with no app, or an owner the app is not installed on, keeps every word of it. See [the minted token](#the-minted-token-389) below.
+**An agent mints its token, and there is no PAT behind it.** [ADR-0018](../docs/adr/0018-the-daemon-is-a-github-app.md) replaced every hand-made PAT with one GitHub App. #389 moved the agents and KEPT `CURIA_AGENT_GH_TOKEN_<OWNER>` as the fallback, because no PAT comes out ahead of its replacement. The box then ran its dispatches on the minted path, and [#466](https://github.com/alp82/curia/issues/466) took the key out. What the daemon hands an agent is a per-agent `gh` config dir it rewrites. The container environment carries `GH_CONFIG_DIR`, which is a path and never a secret. See [the minted token](#the-minted-token-389) below.
 
-An agent used to reach GitHub through the host's `~/.config/gh/hosts.yml` login, which is the whole account: every repo, every scope. It then got a scoped fine-grained PAT as `GH_TOKEN`, which `gh` prefers over `hosts.yml` natively, so every wayfinder operation keeps working with no code that knows the token exists.
+**A GitHub App is now required to dispatch an agent.** That is what the retirement bought and what it costs. A mint that fails refuses the dispatch and releases the claim, because nothing stands behind it: an agent with no GitHub credential cannot read the ticket it was dispatched for, let alone commit, push or merge. The three causes read the same way, and the refusal names them: no app on this box, an app not installed on that owner, and a GitHub that did not answer.
 
-**One token per resource owner.** That is what a fine-grained PAT is: the creation form has a single resource-owner dropdown, and the watch list spans `alp82` and the `getalfredo` org. So the key carries the owner and the daemon picks by the ticket's own repo. An owner with no key keeps the inherited host login, and the daemon says so at boot with a `WARNING` naming the missing key.
+**A key left in `daemon/.env.daemon` is a live PAT with no job.** Boot names each one and asks for two acts: delete the line, and revoke the token on GitHub. That is the same pair #392 asks for on the overseer's own retired key.
 
-The permissions are **Contents**, **Issues** and **Pull requests** read/write, plus **Commit statuses** read so `gh pr checks` answers. Nothing else. The rule is grant content, never execution or persistence: Secrets, Variables, Webhooks, Workflows, Environments and Actions-write each hand a compromised agent either a way to run code or a way to keep reach after it dies.
-
-The daemon is deliberately **not** on this token. It has its own, minted per owner from the app key — see [the daemon's own GitHub authority](#the-daemons-own-github-authority-390) below. A bare `GH_TOKEN` in `.env.daemon` would still be wrong, and for the reason it always was: it would re-authenticate every child at once, silently, by sitting in the daemon's environment.
-
-The value is read at boot, so a quoted or padded token refuses the boot instead of reaching an agent as a 401 mid-resolve. Boot also asks GitHub once per watched repo, with the token that repo's agent would get, and warns when the token cannot reach it or expires within 14 days. An expired token does not degrade to the host login. It fails every `gh` call, so the warning is the whole defense.
-
-That probe has one blind spot, measured rather than assumed: **a public repo left off the token's selection cannot be detected by any read.** Every fine-grained PAT reads public repositories, and the repo payload's `permissions` object describes the underlying user rather than the token grant — the `getalfredo` token reports `push: true` on `alp82/curia`, which it cannot possibly write. A private repo outside the selection does answer 404, and that is the case the probe catches. There is no harmless write, so no write probe runs at boot.
-
-Note for org repos: an organization can cap fine-grained PAT lifetime, and `getalfredo` caps it at 366 days. So an org token cannot be permanent, and its expiry is a calendar item until the GitHub App lands. The full transcript is in [docs/live-checks/155-agent-github-token.md](../docs/live-checks/155-agent-github-token.md).
+What the PAT did is in [docs/live-checks/155-agent-github-token.md](../docs/live-checks/155-agent-github-token.md), which stands as the record of the boundary this replaced. One measurement from it still decides code here: **a public repo left off a token cannot be detected by any read.** Every fine-grained PAT reads public repositories, and so does an installation token. That was measured again on #466, where an agent's own minted token read `octocat/Hello-World`. So the credential watch stopped probing repos with a token and asks the installation what it covers instead ([the credential watch](#the-credential-watch-380)).
 
 ## The minted token (#389)
 
@@ -253,15 +246,15 @@ The shape this section predicted is the shape that shipped: a per-agent `gh` con
 
 **The refresh rides the dispatch tick**, every 60 s, above the `auto_dispatch` gate — a token dies in an hour whether or not this box dispatches anything new. The minter serves its cached token until ten minutes before the hour, so the value turns over about every fifty minutes and GitHub sees one call per owner in that time. Reconcile refreshes as well, so an agent adopted by a restarted daemon does not run on a token that expired while the daemon was down.
 
-**The file is the evidence.** An agent on the PAT has no credential file, and one on the app has the file its own spawn wrote. So the refresh needs no memory of which agent minted, and an adopted agent costs nothing to place.
+**The file is the evidence.** An agent that spawned holds the file its own spawn wrote, so the refresh asks the disk rather than its own memory. That is what makes an adopted agent free: a restarted daemon rebuilds its records with every spawn-time fact missing, and it arms exactly what is already armed.
 
 **A reviewer gets the READ set.** A cross-check reviewer reads a detached checkout, writes nothing, and curia posts its verdict for it (ADR-0010). One key and two sets is what the app bought.
 
-**The commits read as the bot.** An agent on the app commits as `curia-sh[bot]`, from the app's own slug and the bot user's id. An agent on the PAT keeps this box's git identity, because a PAT push by the operator with a bot author on it would say two different things about one commit.
+**The commits read as the bot.** An agent commits as `curia-sh[bot]`, from the app's own slug and the bot user's id. A GitHub that cannot state that identity does NOT refuse the dispatch: the agent keeps the box identity its clone was given, and the log says so. That is two network reads standing behind a name, and a name is not the credential.
 
 **The teardown is the config dir's.** `removeCredentials` takes the directory, so every ending collects it — including the two that keep the workspace for a post-mortem, and the reconcile sweep that finds a config dir whose session is gone.
 
-**A mint that fails falls back**, loudly, to `CURIA_AGENT_GH_TOKEN_<OWNER>`. A box with no app, an owner the app is not installed on, and a GitHub that could not be reached all read the same way. Refusing the dispatch would take a working boundary out ahead of its replacement, which is the one thing ADR-0018 says not to do.
+**A mint that fails REFUSES the dispatch** (#466), and the refusal names which of the three causes it was: no app on this box, an app not installed on that owner, or a GitHub that did not answer. It used to fall back to `CURIA_AGENT_GH_TOKEN_<OWNER>`, and that key retired once this path was proved on the box. Nothing stands behind it now, so an agent that started anyway would hold no credential at all: it could not read its own ticket, and it would burn a whole session to fail at its first `gh` call. The refusal unclaims the ticket, exactly as the side-channel assert does, so it costs nothing.
 
 ## The daemon's own GitHub authority (#390)
 
@@ -314,6 +307,16 @@ The permissions are **Contents**, **Issues**, **Pull requests** and **Commit sta
 `CURIA_OVERSEER_GH_TOKEN_<OWNER>` is retired. A key still sitting in `daemon/.env.overseer` is a live PAT with no job, so boot names it and asks for two acts: delete the key, and revoke the token on GitHub. What is left in that file is the model credential, which is the one host secret ADR-0014 lets into that container. The daemon parses that file and never loads it into its own environment. A bare token in the daemon environment would re-authenticate the daemon's own `gh`, which is the trap #155 named.
 
 The transcripts are [docs/live-checks/313-overseer-github-token.md](../docs/live-checks/313-overseer-github-token.md) for the routing and [docs/live-checks/392-overseer-minted-token.md](../docs/live-checks/392-overseer-minted-token.md) for the cutover.
+
+## The credential watch (#380, re-based by #466)
+
+The daemon measures the credential the WATCH LIST stands on, every six hours, and states what it finds in `#curia` once and on the dashboard's Needs-you list until it clears. `tokenwatch.mjs` holds the rules.
+
+**It reads one fact now: does the app installation cover this watched repo?** It used to read two facts per repo: whether a PAT reached it, and how many days were left on that PAT. Both died with the PATs. An installation token lives one hour, the daemon refreshes it, and GitHub states no expiry header for one at all, so there is no expiry any operator can act on.
+
+**It asks the installation, never the repo.** A token read of the repo cannot answer this: an installation token reads every public repository on GitHub, so `GET /repos/<owner>/<name>` says 200 for a repo the app was never granted. `GET /installation/repositories` states the grant itself, for private and public alike, and it costs one call per owner.
+
+**A GitHub that did not answer says nothing in either direction.** The reading is `unmeasured`, and it neither warns nor clears a warning that already stands.
 
 ## What an agent knows (#57)
 

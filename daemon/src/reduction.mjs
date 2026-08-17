@@ -304,9 +304,14 @@ export class Reduction {
     // acting on it. The write path adds nothing for this — `token_warned` and
     // `token_cleared` are the events the watch already states.
     //
-    // The key is composed here rather than carried, so one rule decides it: an
-    // expiry belongs to the TOKEN and a reach failure to the token and the repo
-    // together (ADR-0013, and see tokenwatch.mjs rule 3).
+    // The key is composed here rather than carried, so one rule decides it: a
+    // reach failure belongs to the credential and the repo together (ADR-0013,
+    // and see tokenwatch.mjs rule 3).
+    //
+    // The `expiring` arm is REPLAY, not a live shape. #466 retired the last PAT
+    // and the expiry half of the watch with it, so nothing writes that fault any
+    // more. A journal written before it still holds rows that do, and this is
+    // what lets the watch's next pass find one and clear it.
     // The journal backup's standing alarm (#436). A reduction for the reason the
     // credential warnings above are one: the alarm must not be re-said at every
     // boot, and a deploy happens between the failure and the operator acting on

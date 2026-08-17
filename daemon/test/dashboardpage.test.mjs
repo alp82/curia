@@ -230,41 +230,33 @@ describe('the read screens (#264)', () => {
     // The credential watch (#380). The warning used to be a boot log line, so
     // what these pin is that it now reaches a surface the operator reads and
     // STAYS there: a Discord line scrolls away, and a dying token does not.
-    test('a dying token joins the attention list, with the act that ends it', () => {
+    test('a repo the app cannot reach joins the attention list, with the act that ends it', () => {
       const t = text(page.screenHome(payload({
         token_warnings: [{
-          holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
+          holder: 'app', key: 'alp82', repo: 'alp82/aistack', fault: 'unreachable',
+          message: 'the app installation does not grant it', said: true,
+          refusal: 'no agent can be dispatched to it',
+          fix: 'Grant the repo to curia\'s app installation on GitHub (docs/github-app.md).',
+        }],
+      })))
+      assert.match(t, /cannot reach alp82\/aistack — the app installation does not grant it/)
+      assert.match(t, /no agent can be dispatched to it/)
+      assert.match(t, /Grant the repo to curia's app installation on GitHub/)
+    })
+
+    // The journal outlives the shape it was written in (#466). A row from the
+    // retired expiry half stands on this list until the next pass clears it,
+    // and it must render rather than throw at a field that is not there.
+    test('a warning from the retired expiry half renders rather than breaking the page', () => {
+      const t = text(page.screenHome(payload({
+        token_warnings: [{
+          holder: 'agent', key: 'CURIA_AGENT_GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
           days: 3, expires_at: '2026-08-19 06:20:31 UTC', step: 3, said: true,
           where: 'daemon/.env.daemon', refusal: 'an agent on it will fail at its first gh call',
         }],
       })))
-      assert.match(t, /GH_TOKEN_ALP82 expires in 3 days/)
+      assert.match(t, /cannot reach alp82\/curia/)
       assert.match(t, /an agent on it will fail at its first gh call/)
-      assert.match(t, /mint a new token into daemon\/\.env\.daemon/)
-    })
-
-    test('a token that cannot reach a repo names the repo and GitHub\'s own words', () => {
-      const t = text(page.screenHome(payload({
-        token_warnings: [{
-          holder: 'overseer', key: 'OVERSEER_GH_TOKEN_ALP82', repo: 'alp82/aistack', fault: 'unreachable',
-          message: 'HTTP 404: Not Found', said: true,
-          where: 'daemon/.env.overseer', refusal: 'the overseer cannot read it',
-        }],
-      })))
-      assert.match(t, /OVERSEER_GH_TOKEN_ALP82 cannot reach alp82\/aistack — HTTP 404: Not Found/)
-      assert.match(t, /add alp82\/aistack to the token on GitHub/)
-    })
-
-    test('an expired token says it is dead rather than counting past zero', () => {
-      const t = text(page.screenHome(payload({
-        token_warnings: [{
-          holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
-          days: -2, expires_at: '2026-08-14 06:20:31 UTC', step: 0, said: true,
-          where: 'daemon/.env.daemon', refusal: 'an agent on it will fail at its first gh call',
-        }],
-      })))
-      assert.match(t, /GH_TOKEN_ALP82 has expired/)
-      assert.doesNotMatch(t, /expires in -/)
     })
 
     test('a credential warning IS counted, because an operator act is what ends it', () => {
@@ -272,8 +264,8 @@ describe('the read screens (#264)', () => {
       // a window rolls on its own clock, and a token nobody mints stays dead.
       const one = payload({
         token_warnings: [{
-          holder: 'agent', key: 'GH_TOKEN_ALP82', repo: 'alp82/curia', fault: 'expiring',
-          days: 3, step: 3, said: true, where: 'daemon/.env.daemon', refusal: 'r',
+          holder: 'app', key: 'alp82', repo: 'alp82/curia', fault: 'unreachable',
+          message: 'the app installation does not grant it', said: true, refusal: 'r', fix: 'f',
         }],
       })
       assert.equal(page.needsYou(one.overview), 3)

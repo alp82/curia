@@ -11,7 +11,8 @@ import {
   APP_ID_KEY, APP_KEY_FILE_KEY, JWT_LIFETIME_S, JWT_BACKDATE_S, REFRESH_MARGIN_MS,
   WRITE_PERMISSIONS, READ_PERMISSIONS,
   appConfigFrom, readPrivateKey, keyFileIsPrivate, appJwt, permissionsFor,
-  listInstallations, mintInstallationToken, TokenMinter, minterFrom,
+  listInstallations, listInstallationRepos, mintInstallationToken, TokenMinter, minterFrom,
+  MAX_REPO_PAGES,
 } from '../src/githubapp.mjs'
 
 let dir
@@ -221,6 +222,54 @@ describe('the API calls (#352)', () => {
   })
 })
 
+// What the credential watch reads (#466). A token probe of the repo itself
+// cannot answer this: an installation token reads every PUBLIC repository on
+// GitHub, so `GET /repos/<owner>/<name>` says 200 for a repo the app was never
+// granted — measured on the box against `octocat/Hello-World`.
+describe('what one installation covers (#466)', () => {
+  const page = (names, total = names.length) => ({
+    status: 200,
+    body: { total_count: total, repositories: names.map((full_name) => ({ full_name })) },
+  })
+
+  test('the repos come back as owner/name, read with the installation token', async () => {
+    const fetchImpl = fakeFetch([page(['alp82/curia', 'alp82/aistack'])])
+    assert.deepEqual(await listInstallationRepos({ token: 'ghs_x', fetchImpl }),
+      ['alp82/curia', 'alp82/aistack'])
+    const { url, opts } = fetchImpl.calls[0]
+    assert.equal(url, 'https://api.github.com/installation/repositories?per_page=100&page=1')
+    // the installation's own token, never the app JWT: this route refuses one
+    assert.equal(opts.headers.authorization, 'Bearer ghs_x')
+  })
+
+  // An installation granted "all repositories" covers every repo the owner has,
+  // so this is the one app read that can run long.
+  test('a full page is followed by the next one, and a short page ends it', async () => {
+    const first = Array.from({ length: 100 }, (_, i) => `alp82/r${i}`)
+    const fetchImpl = fakeFetch([page(first, 101), page(['alp82/curia'], 101)])
+    const out = await listInstallationRepos({ token: 'ghs_x', fetchImpl })
+    assert.equal(out.length, 101)
+    assert.equal(out.at(-1), 'alp82/curia')
+    assert.equal(fetchImpl.calls.length, 2)
+    assert.match(fetchImpl.calls[1].url, /page=2/)
+  })
+
+  test('an empty installation reads as no repositories rather than as a failure', async () => {
+    const fetchImpl = fakeFetch([page([])])
+    assert.deepEqual(await listInstallationRepos({ token: 'ghs_x', fetchImpl }), [])
+  })
+
+  // A short answer would name a covered repo as uncovered, and the watch would
+  // ask the operator to repair an installation that is already right. So the
+  // cap throws, and the watch reads a throw as "measured nothing".
+  test('a list longer than the cap refuses rather than answering short', async () => {
+    const full = Array.from({ length: 100 }, (_, i) => `alp82/r${i}`)
+    const fetchImpl = fakeFetch(Array.from({ length: MAX_REPO_PAGES }, () => page(full, 9999)))
+    await assert.rejects(listInstallationRepos({ token: 'ghs_x', fetchImpl }), /more than/)
+    assert.equal(fetchImpl.calls.length, MAX_REPO_PAGES)
+  })
+})
+
 describe('the minter (#352)', () => {
   const NOW = 1_800_000_000_000
   const HOUR = 3_600_000
@@ -306,6 +355,26 @@ describe('the minter (#352)', () => {
     m.forget()
     assert.equal(await m.tokenFor('alp82', 'write'), 'ghs_2')
     assert.equal(fetchImpl.calls.length, 4)
+  })
+
+  // The watch asks per owner, and the question is about the grant rather than
+  // about writing — so the read set carries it (#466).
+  test('reposFor mints a READ token and lowercases what it answers', async () => {
+    const { m, fetchImpl } = minter([
+      installs,
+      mint('ghs_read', NOW + HOUR),
+      { status: 200, body: { repositories: [{ full_name: 'alp82/Curia' }, { full_name: 'alp82/AiStack' }] } },
+    ])
+    assert.deepEqual(await m.reposFor('alp82'), ['alp82/curia', 'alp82/aistack'])
+    assert.deepEqual(fetchImpl.calls[1].body, { permissions: { ...READ_PERMISSIONS } })
+    assert.equal(fetchImpl.calls[2].opts.headers.authorization, 'Bearer ghs_read')
+  })
+
+  // An owner the app is not installed on has no answer to give, and that
+  // refusal is the one thing the operator must act on.
+  test('reposFor on an owner with no installation refuses by name', async () => {
+    const { m } = minter([{ status: 200, body: [] }, { status: 200, body: [] }])
+    await assert.rejects(m.reposFor('stranger'), /not installed on stranger/)
   })
 })
 

@@ -1068,20 +1068,18 @@ function gateCard(r) {
 
 /* A credential warning (#380). It sits above the spent windows because it is
    the only item on this list nobody else will fix: a window rolls by itself,
-   and a token does not. The words are the daemon's own measurement — the days,
-   the instant and the act — so this composes no second account of them. */
+   and a grant does not. The words are the daemon's own measurement — what it
+   could not reach and the act that ends it — so this composes no second account
+   of them.
+
+   ONE FAULT SINCE #466: a repo the app installation does not cover. The expiry
+   half went with the last PAT. A warning the journal kept from before that reads
+   through this shape too, which is why the message and the act are read
+   defensively rather than assumed. */
 function tokenCard(w) {
-  const head = w.fault === "unreachable"
-    ? `cannot reach ${esc(w.repo)} — ${esc(w.message)}`
-    : (w.days <= 0
-      ? "has expired"
-      : `expires in ${esc(w.days)} day${w.days === 1 ? "" : "s"}`);
-  const act = w.fault === "unreachable"
-    ? `add ${esc(w.repo)} to the token on GitHub, or mint a new one into ${esc(w.where)}`
-    : `mint a new token into ${esc(w.where)}`;
   return `<div class="att-item token">
-    <span class="who">${esc(w.key)}</span>${head}
-    <div class="dim">${esc(w.refusal)} — ${act}</div></div>`;
+    <span class="who">${esc(w.key)}</span>cannot reach ${esc(w.repo)}${w.message ? ` — ${esc(w.message)}` : ""}
+    <div class="dim">${esc(w.refusal)}${w.fix ? ` — ${esc(w.fix)}` : ""}</div></div>`;
 }
 
 function attentionList(o) {
