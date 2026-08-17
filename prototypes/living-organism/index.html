@@ -235,365 +235,92 @@
   }
 
   /* ================================================================
-     VARIANT "bloodstream" — WebGL field behind spatial typography.
+     THE VERTICAL RUN — the layout all three variations share.
+     The gutter holds the spine and the ticket chips. A stage name sits
+     on the same line as its node, so a chip parked on the node reads
+     its state straight off the label beside it.
      ================================================================ */
-  body[data-variant="bloodstream"] { background: #06070a; }
-  .v-blood { --line: #ffffff1f; --dim: #98a0ad; color: #eef1f5; }
-  .v-blood .bl-wrap { max-width: 48rem; margin: 0 auto; padding: 0 1.5rem; }
-  .v-blood a { color: var(--accent); }
-  .v-blood .bl-scrim {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(120% 60% at 50% 0%, #06070a00 30%, #06070ac9 100%),
-      linear-gradient(#06070a99, #06070a55 40%, #06070aee);
-  }
-  .v-blood .bl-hero {
-    min-height: calc(100svh - var(--chrome));
-    display: flex; flex-direction: column; justify-content: center;
-    padding: 3rem 0 4rem;
-  }
-  .v-blood .bl-mark {
-    font-family: var(--mono); font-size: 0.78rem; letter-spacing: 0.22em;
-    text-transform: uppercase; color: var(--accent);
-  }
-  .v-blood h1 {
-    font-size: clamp(2rem, 11vw, 5rem);
-    line-height: 0.98; letter-spacing: -0.045em; font-weight: 600;
-    margin: 1.25rem 0 0; text-wrap: balance;
-    max-width: 42.5rem;
-  }
-  .v-blood h1 .ln { display: block; }
-  .v-blood h1 .w { display: inline-block; will-change: transform; }
-  .v-blood .bl-lede {
-    font-size: clamp(1.02rem, 3.6vw, 1.25rem); color: #c3cbd6;
-    margin: 1.6rem 0 0; max-width: 32rem; text-wrap: pretty;
-  }
-  .v-blood .bl-facts {
-    font-family: var(--mono); font-size: 0.74rem; color: var(--dim);
-    margin: 2rem 0 0; line-height: 2.1;
-  }
-  .v-blood .bl-links { margin: 2rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
-  .v-blood .bl-cta {
-    display: inline-block; text-decoration: none; font-size: 1rem; font-weight: 600;
-    padding: 0.75rem 1.15rem; border-radius: 999px;
-    background: var(--accent); color: #06231a;
-    transition: transform 0.7s var(--ease), box-shadow 0.7s var(--ease);
-  }
-  .v-blood .bl-cta:hover { transform: translateY(-2px); box-shadow: 0 10px 30px #7dd3a038; }
-  .v-blood .bl-cta:active { transform: translateY(1px) scale(0.985); }
-  .v-blood .bl-cta.ghost { background: none; color: #eef1f5; box-shadow: inset 0 0 0 1px var(--line); }
-  .v-blood section { padding: 4.5rem 0; position: relative; }
-  .v-blood h2 {
-    font-family: var(--mono); font-size: 0.72rem; font-weight: 500;
-    text-transform: uppercase; letter-spacing: 0.2em; color: var(--dim); margin: 0 0 2rem;
-  }
-  /* Spatial typography: the claims are stacked cards that lift on entry. */
-  .v-blood .bl-claim {
-    padding: 1.6rem 1.5rem; border-radius: 18px; margin: 0 0 1.1rem;
-    background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  }
-  .v-blood .bl-claim h3 {
-    font-size: clamp(1.35rem, 5.4vw, 1.9rem); margin: 0 0 0.6rem;
-    letter-spacing: -0.025em; font-weight: 600; text-wrap: balance;
-  }
-  .v-blood .bl-claim p { color: #c3cbd6; margin: 0; text-wrap: pretty; }
-  .v-blood .bl-claim .under {
-    font-family: var(--mono); font-size: 0.72rem; color: var(--dim);
-    margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--line);
-    line-height: 1.9; overflow-wrap: break-word;
-  }
-  /* The one large-type moment, revealed word by word on scroll. */
-  .v-blood .bl-say {
-    font-size: clamp(1.9rem, 8.2vw, 3.6rem); line-height: 1.1; letter-spacing: -0.035em;
-    font-weight: 600; max-width: 42.5rem; margin: 0; text-wrap: balance;
-  }
-  .v-blood .bl-say .w { transition: color 0.9s var(--ease), opacity 0.9s var(--ease); color: #ffffff30; }
-  .v-blood .bl-say .w.lit { color: #eef1f5; }
-  .v-blood .bl-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem 0.9rem; }
-  .v-blood .bl-box {
-    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 14px;
-    background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
-    color: #6b7482; font-family: var(--mono); font-size: 0.7rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: transform 0.7s var(--ease), background 0.7s var(--ease);
-  }
-  .v-blood .bl-box:hover { transform: translateY(-4px); background: #ffffff0d; }
-  .v-blood .bl-box:active { transform: scale(0.985); }
-  .v-blood .bl-cap { font-size: 0.8rem; color: var(--dim); margin-top: 0.5rem; line-height: 1.45; }
-  .v-blood .bl-cap .n { color: var(--accent); font-family: var(--mono); }
-  .v-blood .bl-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.5rem; }
-  .v-blood .bl-stats {
-    font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
-    margin-top: 1.25rem; padding-top: 1.15rem; border-top: 1px solid var(--line);
-    overflow-wrap: break-word;
-  }
-  .v-blood .bl-honest {
-    border-radius: 18px; padding: 1.6rem 1.5rem;
-    background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line);
-  }
-  .v-blood .bl-honest ul { margin: 0; padding-left: 1.1rem; }
-  .v-blood .bl-honest li { margin: 0 0 0.75rem; color: #c3cbd6; }
-  .v-blood .bl-honest li:last-child { margin: 0; }
-  .v-blood .bl-honest li b { color: #eef1f5; font-weight: 600; }
-  .v-blood .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
-  .v-blood .guide pre code { color: #cfd5de; }
-  .v-blood .guide .step p { color: #c3cbd6; }
-  .v-blood .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c3cbd6; }
-  .v-blood .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .v-blood .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
-  .v-blood .guide td { border-top: 1px solid var(--line); color: #c3cbd6; }
-  .v-blood .guide .readmore { color: var(--dim); }
-  .v-blood footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
-
-  /* ================================================================
-     VARIANT "queue" — the page rebuilt around a living pipeline spine.
-     ================================================================ */
-  body[data-variant="queue"] { background: #08090c; }
-  .v-queue { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
-  .v-queue a { color: var(--accent); }
-  .v-queue .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.25rem 0 4.25rem; position: relative; }
-  .v-queue .q-hero { padding: 3.5rem 0 3rem; }
-  .v-queue .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
-  .v-queue .q-mark b { color: var(--accent); font-weight: 600; }
-  .v-queue h1 {
-    font-size: clamp(1.7rem, 8.4vw, 3.4rem); line-height: 1.06; letter-spacing: -0.035em;
+  body[data-variant="stream"], body[data-variant="lanes"], body[data-variant="descent"] { background: #08090c; }
+  .v-run { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
+  .v-run a { color: var(--accent); }
+  .v-run .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.25rem 0 3.5rem; }
+  .v-run .q-hero { padding: 3.5rem 0 3rem; }
+  .v-run .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
+  .v-run .q-mark b { color: var(--accent); font-weight: 600; }
+  .v-run h1 {
+    font-size: clamp(1.7rem, 8.2vw, 3.4rem); line-height: 1.06; letter-spacing: -0.035em;
     font-weight: 620; margin: 1.15rem 0 0; text-wrap: balance;
   }
-  .v-queue .q-lede { font-size: 1.06rem; color: #c1c8d3; margin: 1.15rem 0 0; max-width: 33rem; text-wrap: pretty; }
-  .v-queue .q-facts { font-family: var(--mono); font-size: 0.74rem; color: var(--dim); margin: 1.5rem 0 0; line-height: 2; }
-  .v-queue .q-links { margin: 1.75rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
-  .v-queue .q-cta {
-    text-decoration: none; font-weight: 600; font-size: 0.98rem;
-    padding: 0.7rem 1.1rem; border-radius: 10px;
-    background: var(--accent); color: #06231a;
-    transition: transform 0.7s var(--ease);
-  }
-  .v-queue .q-cta:active { transform: scale(0.98); }
-  .v-queue .q-cta.ghost { background: none; color: #e9ecf1; box-shadow: inset 0 0 0 1px var(--line); }
-
-  /* A station is a card hanging off the spine. */
-  .v-queue .q-station { position: relative; padding: 2.5rem 0; }
-  .v-queue .q-tag {
-    position: absolute; left: -3rem; top: 2.5rem;
-    font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.1em;
-    text-transform: uppercase; color: var(--dim);
-    writing-mode: vertical-rl; text-orientation: mixed;
-  }
-  .v-queue .q-card {
-    border-radius: 14px; padding: 1.4rem 1.35rem;
-    background: #ffffff07; box-shadow: inset 0 0 0 1px var(--line);
-    transition: transform 0.8s var(--ease), background 0.8s var(--ease);
-  }
-  .v-queue .q-card h3 { font-size: 1.28rem; margin: 0 0 0.55rem; letter-spacing: -0.02em; font-weight: 600; }
-  .v-queue .q-card p { color: #c1c8d3; margin: 0; text-wrap: pretty; }
-  .v-queue .q-card .under {
-    font-family: var(--mono); font-size: 0.72rem; color: var(--dim); line-height: 1.9;
-    margin-top: 0.95rem; padding-top: 0.85rem; border-top: 1px solid var(--line);
-    overflow-wrap: break-word;
-  }
-  .v-queue h2 {
-    font-family: var(--mono); font-size: 0.72rem; font-weight: 500;
-    text-transform: uppercase; letter-spacing: 0.16em; color: var(--dim); margin: 0 0 1.5rem;
-  }
-  .v-queue .q-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.15rem 0.85rem; }
-  .v-queue .q-box {
-    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 10px;
-    background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
-    color: #666e7c; font-family: var(--mono); font-size: 0.68rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .v-queue .q-box:active { transform: scale(0.985); }
-  .v-queue .q-cap { font-size: 0.79rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.45; }
-  .v-queue .q-cap .n { color: var(--accent); font-family: var(--mono); }
-  .v-queue .q-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.3rem; }
-  .v-queue .q-legend { color: var(--dim); font-size: 0.79rem; margin-top: 0.9rem; font-family: var(--mono); }
-  .v-queue .q-stats {
-    font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
-    margin-top: 1.15rem; padding-top: 1.05rem; border-top: 1px solid var(--line);
-    overflow-wrap: break-word;
-  }
-  .v-queue .q-honest { border-radius: 14px; padding: 1.4rem 1.35rem; box-shadow: inset 0 0 0 1px var(--line); }
-  .v-queue .q-honest ul { margin: 0; padding-left: 1.1rem; }
-  .v-queue .q-honest li { margin: 0 0 0.7rem; color: #c1c8d3; }
-  .v-queue .q-honest li:last-child { margin: 0; }
-  .v-queue .q-honest li b { color: #e9ecf1; font-weight: 600; }
-  .v-queue .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
-  .v-queue .guide pre code { color: #cfd5de; }
-  .v-queue .guide .step p { color: #c1c8d3; }
-  .v-queue .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c1c8d3; }
-  .v-queue .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .v-queue .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
-  .v-queue .guide td { border-top: 1px solid var(--line); color: #c1c8d3; }
-  .v-queue .guide .readmore { color: var(--dim); }
-  .v-queue footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
-  @media (min-width: 46rem) {
-    .v-queue .q-wrap { padding-left: 6rem; }
-    .v-queue .q-tag { left: -4.25rem; }
-  }
-
-  /* ================================================================
-     VARIANT "flow" — the same pipeline idea as "queue", turned sideways.
-     The run is a rail pinned under the chrome, so it stays visible and it
-     uses the whole width of a phone instead of a left gutter.
-     ================================================================ */
-  body[data-variant="flow"] { background: #0a0b0e; }
-  .v-flow { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
-  .v-flow a { color: var(--accent); }
-  .v-flow .f-wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
-  .v-flow .f-rail {
-    position: fixed; z-index: 40; left: 0; right: 0; top: var(--chrome);
-    height: 3.1rem; pointer-events: none;
-    background: linear-gradient(#0a0b0eef, #0a0b0ec4 70%, #0a0b0e00);
-  }
-  .v-flow .f-rail canvas { display: block; width: 100%; height: 100%; }
-  .v-flow .f-hero { padding: 4.75rem 0 3rem; }
-  .v-flow section { padding: 3rem 0 0; }
-  .v-flow .f-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
-  .v-flow .f-mark b { color: var(--accent); font-weight: 600; }
-  .v-flow h1 {
-    font-size: clamp(1.7rem, 8.4vw, 3.3rem); line-height: 1.07; letter-spacing: -0.035em;
-    font-weight: 620; margin: 1.15rem 0 0; text-wrap: balance;
-  }
-  .v-flow .f-lede { font-size: 1.06rem; color: #c1c8d3; margin: 1.15rem 0 0; max-width: 33rem; text-wrap: pretty; }
-  .v-flow .f-facts { font-family: var(--mono); font-size: 0.74rem; color: var(--dim); margin: 1.5rem 0 0; line-height: 2; }
-  .v-flow .f-links { margin: 1.75rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
-  .v-flow .f-cta {
+  .v-run .q-lede { font-size: 1.06rem; color: #c1c8d3; margin: 1.15rem 0 0; max-width: 33rem; text-wrap: pretty; }
+  .v-run .q-facts { font-family: var(--mono); font-size: 0.74rem; color: var(--dim); margin: 1.5rem 0 0; line-height: 2; }
+  .v-run .q-links { margin: 1.75rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .v-run .q-cta {
     text-decoration: none; font-weight: 600; font-size: 0.98rem;
     padding: 0.7rem 1.1rem; border-radius: 10px; background: var(--accent); color: #06231a;
     transition: transform 0.7s var(--ease);
   }
-  .v-flow .f-cta:active { transform: scale(0.98); }
-  .v-flow .f-cta.ghost { background: none; color: #e9ecf1; box-shadow: inset 0 0 0 1px var(--line); }
-  /* The stage name introduces its section, instead of hiding in a margin. */
-  .v-flow .f-eyebrow {
-    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.18em;
-    text-transform: uppercase; color: var(--accent); margin: 0 0 0.6rem;
-  }
-  .v-flow h2 {
+  .v-run .q-cta:active { transform: scale(0.98); }
+  .v-run .q-cta.ghost { background: none; color: #e9ecf1; box-shadow: inset 0 0 0 1px var(--line); }
+
+  .v-run h2 {
     font-family: var(--mono); font-size: 0.72rem; font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.16em; color: var(--dim); margin: 0 0 1.6rem;
+    letter-spacing: 0.16em; color: var(--dim); margin: 0 0 1.5rem;
   }
-  .v-flow .f-claim { margin: 0 0 2.4rem; }
-  .v-flow .f-claim:last-child { margin-bottom: 0; }
-  .v-flow .f-claim h3 { font-size: 1.26rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; font-weight: 600; }
-  .v-flow .f-claim p { color: #c1c8d3; margin: 0; max-width: 36rem; text-wrap: pretty; }
-  .v-flow .f-claim .under {
+  .v-run .q-station { position: relative; padding: 0 0 2.5rem; }
+  /* The stage name. It brightens when the run reaches it, and that is the
+     state transition the reader is meant to see. */
+  .v-run .q-tag {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--dim);
+    margin: 0 0 0.75rem; padding: 0.15rem 0;
+    transition: color 0.6s var(--ease);
+  }
+  .v-run .q-tag.hot { color: var(--accent); }
+  .v-run .q-card {
+    border-radius: 14px; padding: 1.4rem 1.35rem;
+    background: #ffffff07; box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .v-run .q-card h3 { font-size: 1.28rem; margin: 0 0 0.55rem; letter-spacing: -0.02em; font-weight: 600; }
+  .v-run .q-card p { color: #c1c8d3; margin: 0; text-wrap: pretty; }
+  .v-run .q-card .under {
     font-family: var(--mono); font-size: 0.72rem; color: var(--dim); line-height: 1.9;
-    margin-top: 0.9rem; padding-left: 0.85rem; border-left: 2px solid var(--line);
+    margin-top: 0.95rem; padding-top: 0.85rem; border-top: 1px solid var(--line);
     overflow-wrap: break-word;
   }
-  .v-flow .f-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem 0.85rem; }
-  .v-flow .f-box {
+  .v-run .q-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.15rem 0.85rem; }
+  .v-run .q-box {
     width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 10px;
     background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
     color: #666e7c; font-family: var(--mono); font-size: 0.68rem; cursor: pointer;
     display: flex; align-items: center; justify-content: center;
   }
-  .v-flow .f-box:active { transform: scale(0.985); }
-  .v-flow .f-cap { font-size: 0.79rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.45; }
-  .v-flow .f-cap .n { color: var(--accent); font-family: var(--mono); }
-  .v-flow .f-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.3rem; }
-  .v-flow .f-legend { color: var(--dim); font-size: 0.79rem; margin-top: 0.9rem; font-family: var(--mono); }
-  .v-flow .f-stats {
+  .v-run .q-box:active { transform: scale(0.985); }
+  .v-run .q-cap { font-size: 0.79rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.45; }
+  .v-run .q-cap .n { color: var(--accent); font-family: var(--mono); }
+  .v-run .q-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.3rem; }
+  .v-run .q-legend { color: var(--dim); font-size: 0.79rem; margin-top: 0.9rem; font-family: var(--mono); }
+  .v-run .q-stats {
     font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
     margin-top: 1.15rem; padding-top: 1.05rem; border-top: 1px solid var(--line);
     overflow-wrap: break-word;
   }
-  .v-flow .f-honest { border-radius: 14px; padding: 1.4rem 1.35rem; box-shadow: inset 0 0 0 1px var(--line); }
-  .v-flow .f-honest ul { margin: 0; padding-left: 1.1rem; }
-  .v-flow .f-honest li { margin: 0 0 0.7rem; color: #c1c8d3; }
-  .v-flow .f-honest li:last-child { margin: 0; }
-  .v-flow .f-honest li b { color: #e9ecf1; font-weight: 600; }
-  .v-flow .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
-  .v-flow .guide pre code { color: #cfd5de; }
-  .v-flow .guide .step p { color: #c1c8d3; }
-  .v-flow .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c1c8d3; }
-  .v-flow .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .v-flow .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
-  .v-flow .guide td { border-top: 1px solid var(--line); color: #c1c8d3; }
-  .v-flow .guide .readmore { color: var(--dim); }
-  .v-flow footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
-  body.nomotion .v-flow .f-rail { display: none; }
-  body.nomotion .v-flow .f-hero { padding-top: 3rem; }
-
-  /* ================================================================
-     VARIANT "vitals" — the calm page, alive in exactly one place.
-     ================================================================ */
-  body[data-variant="vitals"] { background: #0d0f12; }
-  .v-vitals { --line: #262b33; --dim: #969ba5; color: #e6e8ec; }
-  .v-vitals a { color: var(--accent); }
-  .v-vitals .vt-wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem 0 3.25rem; }
-  .v-vitals .vt-hero { padding: 3rem 0 0; }
-  .v-vitals .vt-mark { font-family: var(--mono); font-size: 0.92rem; }
-  .v-vitals .vt-mark b { color: var(--accent); font-weight: 600; }
-  .v-vitals .vt-mark span { color: var(--dim); }
-  .v-vitals h1 {
-    font-size: clamp(1.5rem, 7.8vw, 3.1rem); line-height: 1.1; letter-spacing: -0.025em;
-    font-weight: 620; margin: 1.5rem 0 0;
-  }
-  .v-vitals h1 .ln { display: block; }
-  .v-vitals h1 .wd { display: inline-block; white-space: nowrap; }
-  .v-vitals h1 .ch { display: inline-block; will-change: transform; }
-  .v-vitals .vt-lede { font-size: 1.07rem; color: #c9ced6; margin: 1.1rem 0 0; max-width: 33rem; text-wrap: pretty; }
-  .v-vitals .vt-facts { font-family: var(--mono); font-size: 0.77rem; color: var(--dim); margin: 1.4rem 0 0; line-height: 2; }
-  .v-vitals .vt-links { margin: 1.6rem 0 0; font-size: 0.95rem; }
-  .v-vitals .vt-links a { margin-right: 1.4rem; }
-  .v-vitals section { padding: 3.25rem 0 0; }
-  .v-vitals .vt-rule { height: 1px; background: var(--line); margin: 3.25rem 0 0; }
-  .v-vitals h2 {
-    font-family: var(--mono); font-size: 0.76rem; font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.14em; color: var(--dim); margin: 0 0 1.75rem;
-  }
-  .v-vitals .vt-claim { margin: 0 0 2.5rem; }
-  .v-vitals .vt-claim:last-child { margin-bottom: 0; }
-  .v-vitals .vt-claim h3 { font-size: 1.22rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; font-weight: 600; }
-  .v-vitals .vt-claim p { color: #c9ced6; max-width: 36rem; margin: 0; text-wrap: pretty; }
-  .v-vitals .vt-claim .under {
-    font-family: var(--mono); font-size: 0.76rem; color: var(--dim);
-    border-left: 2px solid var(--line); padding-left: 0.85rem; margin-top: 0.9rem;
-    line-height: 1.9; overflow-wrap: break-word;
-  }
-  .v-vitals .vt-say {
-    font-size: clamp(1.6rem, 7.4vw, 3rem); line-height: 1.14; letter-spacing: -0.03em;
-    font-weight: 600; max-width: 36rem; margin: 0; text-wrap: balance;
-  }
-  .v-vitals .vt-say .w { transition: color 1s var(--ease); color: #e6e8ec4d; }
-  .v-vitals .vt-say .w.lit { color: #e6e8ec; }
-  .v-vitals .vt-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem 0.9rem; }
-  .v-vitals .vt-box {
-    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 6px;
-    background: #14171c; border: 1px dashed var(--line);
-    color: #4a515c; font-family: var(--mono); font-size: 0.7rem; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .v-vitals .vt-box:active { transform: scale(0.985); }
-  .v-vitals .vt-cap { font-size: 0.82rem; color: var(--dim); margin-top: 0.5rem; line-height: 1.45; }
-  .v-vitals .vt-cap .n { color: var(--accent); font-family: var(--mono); }
-  .v-vitals .vt-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.4rem; }
-  .v-vitals .vt-stats {
-    font-family: var(--mono); font-size: 0.76rem; color: var(--dim); line-height: 1.9;
-    margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem;
-    overflow-wrap: break-word;
-  }
-  .v-vitals .vt-honest { border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem 1.35rem; }
-  .v-vitals .vt-honest ul { margin: 0; padding-left: 1.1rem; }
-  .v-vitals .vt-honest li { margin: 0 0 0.7rem; color: #c9ced6; }
-  .v-vitals .vt-honest li:last-child { margin: 0; }
-  .v-vitals .vt-honest li b { color: #e6e8ec; font-weight: 600; }
-  .v-vitals .guide pre { background: #14171c; border: 1px solid var(--line); }
-  .v-vitals .guide pre code { color: #cfd5de; }
-  .v-vitals .guide .step p { color: #c9ced6; }
-  .v-vitals .guide .need { border: 1px solid var(--line); color: #c9ced6; }
-  .v-vitals .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-  .v-vitals .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
-  .v-vitals .guide td { border-top: 1px solid var(--line); color: #c9ced6; }
-  .v-vitals .guide .readmore { color: var(--dim); }
-  .v-vitals footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
-  @media (max-width: 30rem) {
-    .v-vitals .vt-wrap { padding-left: 2.75rem; padding-right: 1rem; }
-    .v-vitals section { padding-top: 2.5rem; }
-    .v-vitals .vt-rule { margin-top: 2.5rem; }
+  .v-run .q-honest { border-radius: 14px; padding: 1.4rem 1.35rem; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-run .q-honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-run .q-honest li { margin: 0 0 0.7rem; color: #c1c8d3; }
+  .v-run .q-honest li:last-child { margin: 0; }
+  .v-run .q-honest li b { color: #e9ecf1; font-weight: 600; }
+  .v-run section { padding: 3rem 0 0; }
+  .v-run .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-run .guide pre code { color: #cfd5de; }
+  .v-run .guide .step p { color: #c1c8d3; }
+  .v-run .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c1c8d3; }
+  .v-run .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-run .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-run .guide td { border-top: 1px solid var(--line); color: #c1c8d3; }
+  .v-run .guide .readmore { color: var(--dim); }
+  .v-run footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+  @media (min-width: 40rem) {
+    .v-run .q-wrap { padding-left: 5.5rem; }
   }
 
   /* ================================================================
@@ -646,7 +373,6 @@
   }
   body.nomotion .rv { opacity: 1; transform: none; filter: none; }
   body.nomotion .layer { display: none; }
-  body.nomotion .bl-say .w, body.nomotion .vt-say .w { color: inherit; }
 </style>
 </head>
 <body data-variant="live">
@@ -737,9 +463,6 @@ var CONTENT = {
     }
   ],
 
-  /* The one large-type moment. Claim 3, which is the line that keeps the
-     page out of the agent-swarm genre. Approved copy, not new copy. */
-  say: 'An agent cannot finish by talking. Nothing lands without you.',
 
   proofHeading: 'One ticket, done',
   frames: [
@@ -985,39 +708,6 @@ function makeRevealer() {
   };
 }
 
-/* Word-by-word reveal for the one large-type section (B11), one observer
-   per word so nothing rides on a scroll handler. */
-function litWords(el, onLit) {
-  if (!Motion.on || !window.IntersectionObserver) {
-    el.querySelectorAll('.w').forEach(function (w) { w.classList.add('lit'); });
-    return { stop: function () {} };
-  }
-  var n = 0;
-  var obs = new window.IntersectionObserver(function (entries) {
-    entries.forEach(function (e) {
-      if (!e.isIntersecting) return;
-      var w = e.target;
-      obs.unobserve(w);
-      var d = (n++) * 55;
-      setTimeout(function () {
-        w.classList.add('lit');
-        if (onLit) onLit(n);
-      }, d);
-    });
-  }, { rootMargin: '0px 0px -35% 0px', threshold: 0.5 });
-  el.querySelectorAll('.w').forEach(function (w) { obs.observe(w); });
-  return { stop: function () { obs.disconnect(); } };
-}
-
-function sayNode(tagClass, text) {
-  var p = h('p', { class: tagClass });
-  words(text).forEach(function (tok) {
-    if (/^\s+$/.test(tok)) { p.appendChild(document.createTextNode(tok)); return; }
-    p.appendChild(h('span', { class: 'w', text: tok }));
-  });
-  return p;
-}
-
 /* ==================================================================
    5. SHARED BLOCKS
    The guide is one document in every variant. Only its skin changes.
@@ -1211,315 +901,24 @@ function mountLive(root) {
 }
 
 /* ==================================================================
-   9. VARIANT "bloodstream"
-   A WebGL field behind the whole page. Scroll drives one phase uniform
-   that morphs the field between scenes, so the transitions belong to
-   the same organism rather than to five separate widgets. The pointer
-   is a pressure source. Text sits over a scrim so contrast survives.
+   10. THE VERTICAL RUN — one direction, three variations
+   Operator, round 2: "definitely the vertical line because it carries
+   the stories while scrolling. story should evolve from top to bottom."
+   So the left-hand spine is the baseline, and the three variations
+   differ in HOW the story moves down it.
+
+     stream  — tickets arrive on their own and work their way down
+     lanes   — three watched repos converge into the one queue
+     descent — one ticket, and your scrolling is what advances it
+
+   Every variation shares the page, the stages and the real numbers.
    ================================================================== */
 
-var FRAG_SRC = [
-  'precision mediump float;',
-  'uniform vec2 u_res;',
-  'uniform float u_time;',
-  'uniform float u_phase;',
-  'uniform vec2 u_ptr;',
-  'uniform float u_ptrOn;',
-  'uniform float u_pulse;',
-  '',
-  'float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }',
-  'float noise(vec2 p){',
-  '  vec2 i = floor(p); vec2 f = fract(p);',
-  '  f = f * f * (3.0 - 2.0 * f);',
-  '  return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),',
-  '             mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x), f.y);',
-  '}',
-  'float fbm(vec2 p){',
-  '  float a = 0.5; float s = 0.0;',
-  '  for (int i = 0; i < 4; i++){ s += a * noise(p); p *= 2.03; a *= 0.5; }',
-  '  return s;',
-  '}',
-  '',
-  'void main(){',
-  '  vec2 uv = (gl_FragCoord.xy - 0.5 * u_res) / u_res.y;',
-  '  float t = u_time * 0.055;',
-  '',
-  '  // The pointer is a soft pressure source in the field.',
-  '  vec2 pd = uv - u_ptr;',
-  '  float press = u_ptrOn * 0.9 / (dot(pd, pd) * 26.0 + 1.0);',
-  '',
-  '  // Two rounds of domain warping give the field its slow, muscular drift.',
-  '  float sc = mix(1.35, 2.35, u_phase);',
-  '  vec2 q = vec2(fbm(uv * sc + t), fbm(uv * sc + vec2(4.7, 1.3) - t * 0.8));',
-  '  vec2 r = vec2(fbm(uv * sc + 2.1 * q + vec2(1.7, 9.2) + t * 0.6 + press),',
-  '                fbm(uv * sc + 2.1 * q + vec2(8.3, 2.8) - t * 0.45));',
-  '  float f = fbm(uv * sc + 2.6 * r + press * 1.6);',
-  '',
-  '  // Iso-contours read as membranes. The phase slides them, which is what',
-  '  // makes one scene become the next instead of cutting to it.',
-  '  float bands = mix(7.0, 13.0, u_phase);',
-  '  float cells = abs(sin(f * bands + u_phase * 6.2831 + t * 1.6 + u_pulse * 1.2));',
-  '  float veins = smoothstep(0.62, 0.02, cells);',
-  '  float deep = smoothstep(0.15, 0.95, f);',
-  '',
-  '  // Three dark palettes, blended by the same phase.',
-  '  vec3 cA = vec3(0.035, 0.052, 0.070);',
-  '  vec3 cB = vec3(0.055, 0.075, 0.070);',
-  '  vec3 cC = vec3(0.070, 0.055, 0.062);',
-  '  vec3 base = mix(mix(cA, cB, smoothstep(0.0, 0.55, u_phase)), cC, smoothstep(0.55, 1.0, u_phase));',
-  '  vec3 glow = mix(vec3(0.49, 0.83, 0.63), vec3(0.42, 0.66, 0.90), u_phase);',
-  '',
-  '  vec3 col = base + base * deep * 0.5;',
-  '  col += glow * veins * (0.30 + 0.16 * press + 0.10 * u_pulse);',
-  '  col += glow * pow(press, 2.0) * 0.14;',
-  '',
-  '  // Vignette, then a hard ceiling on brightness so body text stays legible.',
-  '  float vig = smoothstep(1.35, 0.15, length(uv));',
-  '  col *= mix(0.55, 1.0, vig);',
-  '  col = min(col, vec3(0.34));',
-  '',
-  '  gl_FragColor = vec4(col, 1.0);',
-  '}'
-].join('\n');
-
-var VERT_SRC = [
-  'attribute vec2 a_p;',
-  'void main(){ gl_Position = vec4(a_p, 0.0, 1.0); }'
-].join('\n');
-
-function startField(canvas) {
-  var gl = null;
-  try {
-    gl = canvas.getContext('webgl', { antialias: false, alpha: false, powerPreference: 'low-power' })
-      || canvas.getContext('experimental-webgl', { antialias: false, alpha: false });
-  } catch (e) { gl = null; }
-  if (!gl) return null;
-
-  function sh(type, src) {
-    var s = gl.createShader(type);
-    gl.shaderSource(s, src); gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) { return null; }
-    return s;
-  }
-  var vs = sh(gl.VERTEX_SHADER, VERT_SRC);
-  var fs = sh(gl.FRAGMENT_SHADER, FRAG_SRC);
-  if (!vs || !fs) return null;
-  var prog = gl.createProgram();
-  gl.attachShader(prog, vs); gl.attachShader(prog, fs); gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return null;
-  gl.useProgram(prog);
-
-  var buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-  var loc = gl.getAttribLocation(prog, 'a_p');
-  gl.enableVertexAttribArray(loc);
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-
-  var uRes = gl.getUniformLocation(prog, 'u_res');
-  var uTime = gl.getUniformLocation(prog, 'u_time');
-  var uPhase = gl.getUniformLocation(prog, 'u_phase');
-  var uPtr = gl.getUniformLocation(prog, 'u_ptr');
-  var uPtrOn = gl.getUniformLocation(prog, 'u_ptrOn');
-  var uPulse = gl.getUniformLocation(prog, 'u_pulse');
-
-  /* A phone renders this at well under one device pixel per pixel. The
-     field is low frequency, so the loss does not show, and the battery
-     cost drops with the pixel count. */
-  var small = Math.min(window.innerWidth, window.innerHeight) < 620;
-  var scale = Math.min(window.devicePixelRatio || 1, small ? 1.0 : 1.5) * (small ? 0.7 : 0.85);
-
-  function size() {
-    var w = Math.max(2, Math.round(canvas.clientWidth * scale));
-    var hgt = Math.max(2, Math.round(canvas.clientHeight * scale));
-    if (canvas.width !== w || canvas.height !== hgt) {
-      canvas.width = w; canvas.height = hgt;
-      gl.viewport(0, 0, w, hgt);
-    }
-  }
-
-  var raf = 0, t0 = 0, phase = 0, pulse = 0, tick = 0;
-  function draw(ts) {
-    raf = requestAnimationFrame(draw);
-    if (!t0) t0 = ts;
-    if (document.hidden) return;
-    size();
-    pointerStep();
-    phase = lerp(phase, scrollProgress(), 0.06);
-    pulse *= 0.94;
-    gl.uniform2f(uRes, canvas.width, canvas.height);
-    gl.uniform1f(uTime, (ts - t0) / 1000);
-    gl.uniform1f(uPhase, phase);
-    /* Pointer into the shader's aspect-corrected space. */
-    var ar = canvas.clientWidth / Math.max(1, canvas.clientHeight);
-    gl.uniform2f(uPtr, (Pointer.x - 0.5) * ar, (0.5 - Pointer.y));
-    gl.uniform1f(uPtrOn, Pointer.active);
-    gl.uniform1f(uPulse, pulse);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    /* Retuning the filter every frame would schedule sixty ramps a second. */
-    if (Sound.on && (tick++ % 12) === 0) Sound.filterTo(180 + phase * 900);
-  }
-
-  if (Motion.on) raf = requestAnimationFrame(draw);
-  else { size(); gl.uniform2f(uRes, canvas.width, canvas.height); gl.uniform1f(uTime, 8);
-         gl.uniform1f(uPhase, 0.3); gl.uniform2f(uPtr, 0, 0); gl.uniform1f(uPtrOn, 0);
-         gl.uniform1f(uPulse, 0); gl.drawArrays(gl.TRIANGLES, 0, 3); }
-
-  return {
-    pulse: function () { pulse = 1; },
-    destroy: function () { running = false; cancelAnimationFrame(raf); }
-  };
-}
-
-function mountBloodstream(root) {
-  root.className = 'v-blood';
-  var canvas = h('canvas', { class: 'layer', 'aria-hidden': 'true' });
-  var scrim = h('div', { class: 'bl-scrim', 'aria-hidden': 'true' });
-  document.body.insertBefore(canvas, document.getElementById('main'));
-  document.body.insertBefore(scrim, document.getElementById('main'));
-
-  var field = startField(canvas);
-  if (!field) {
-    /* No WebGL. Say so rather than showing an empty black page. */
-    canvas.remove();
-    scrim.style.background = 'radial-gradient(120% 70% at 50% 0%, #12321f 0%, #06070a 70%)';
-  }
-  if (Sound.on) Sound.startDrone();
-
-  var rv = makeRevealer();
-  function wrap(kids) { return h('div', { class: 'bl-wrap' }, kids); }
-
-  /* Spatial typography: the headline is per-word so it can be revealed and
-     nudged as a set of objects rather than as one block of text. */
-  var hero = h('h1', {});
-  CONTENT.headline.forEach(function (line, li) {
-    var ln = h('span', { class: 'ln' });
-    words(line).forEach(function (tok) {
-      if (/^\s+$/.test(tok)) { ln.appendChild(document.createTextNode(tok)); return; }
-      ln.appendChild(h('span', { class: 'w', text: tok }));
-    });
-    hero.appendChild(ln);
-    if (li === 0) hero.appendChild(document.createTextNode(' '));
-  });
-
-  var head = h('section', { class: 'bl-hero' }, [wrap([
-    rv.add(h('div', { class: 'bl-mark', text: CONTENT.wordmark + ' · ' + CONTENT.kicker }), 0),
-    rv.add(hero, 60),
-    rv.add(h('p', { class: 'bl-lede', text: CONTENT.lede }), 160),
-    rv.add(h('div', { class: 'bl-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 240),
-    rv.add(h('div', { class: 'bl-links' }, [
-      h('a', { class: 'bl-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
-      h('a', { class: 'bl-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
-    ]), 320)
-  ])]);
-
-  var claims = h('div', {});
-  CONTENT.claims.forEach(function (c, i) {
-    claims.appendChild(rv.add(h('div', { class: 'bl-claim' }, [
-      h('h3', { text: c.title }),
-      h('p', { text: c.body }),
-      h('div', { class: 'under', html: c.under.join('<br>') })
-    ]), i * 90));
-  });
-  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading })), claims])]);
-
-  var say = sayNode('bl-say', CONTENT.say);
-  var s15 = h('section', {}, [wrap([say])]);
-
-  var frames = h('div', { class: 'bl-frames' });
-  CONTENT.frames.forEach(function (cap, i) {
-    frames.appendChild(h('figure', { style: 'margin:0' }, [
-      frameButton('bl-box', i),
-      h('figcaption', { class: 'bl-cap' }, [
-        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
-      ])
-    ]));
-  });
-  var s2 = h('section', {}, [wrap([
-    rv.add(h('h2', { text: CONTENT.proofHeading })),
-    rv.add(frames, 80),
-    rv.add(h('p', { class: 'bl-note', text: CONTENT.shotnote }), 140),
-    rv.add(trailNode('bl-note'), 180),
-    rv.add(statsNode('bl-stats'), 220)
-  ])]);
-
-  var s3 = h('section', {}, [wrap([
-    rv.add(h('h2', { text: CONTENT.honestHeading })),
-    rv.add(honestList('bl-honest'), 60)
-  ])]);
-  var s4 = h('section', { id: 'setup' }, [wrap([
-    rv.add(h('h2', { text: CONTENT.guideHeading })),
-    rv.add(guideNode(), 60)
-  ])]);
-  var foot = h('footer', {}, [h('div', { class: 'bl-wrap', html: CONTENT.footer })]);
-
-  root.appendChild(frag([head, s1, s15, s2, s3, s4, foot]));
-
-  /* Scene transitions: entering a section pulses the field and, if the
-     operator turned sound on, plays one note of a fixed scale. */
-  var scale = [220, 261.63, 329.63, 392, 493.88, 587.33];
-  var sceneObs = null;
-  if (window.IntersectionObserver && Motion.on) {
-    var n = 0;
-    sceneObs = new window.IntersectionObserver(function (entries) {
-      entries.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        if (field) field.pulse();
-        Sound.tone(scale[n++ % scale.length], 1.1, 'triangle', 0.07);
-      });
-    }, { threshold: 0.35 });
-    [s1, s15, s2, s3, s4].forEach(function (s) { sceneObs.observe(s); });
-  }
-
-  var lit = litWords(say, function () { Sound.tone(880, 0.09, 'sine', 0.03); });
-
-  /* The headline words lean away from the pointer. Cheap, and it makes the
-     first screen answer the cursor without a physics engine. */
-  var hw = [].slice.call(hero.querySelectorAll('.w'));
-  var raf = 0;
-  function lean() {
-    raf = requestAnimationFrame(lean);
-    if (document.hidden || !Motion.on) return;
-    var dx = (Pointer.x - 0.5), dy = (Pointer.y - 0.5);
-    hw.forEach(function (w, i) {
-      var k = 1 + (i % 3) * 0.6;
-      w.style.transform = 'translate3d(' + (-dx * 9 * k).toFixed(2) + 'px,' +
-        (-dy * 5 * k).toFixed(2) + 'px,0)';
-    });
-  }
-  if (Motion.on) raf = requestAnimationFrame(lean);
-
-  return {
-    destroy: function () {
-      cancelAnimationFrame(raf);
-      if (field) field.destroy();
-      if (sceneObs) sceneObs.disconnect();
-      rv.stop(); lit.stop();
-      Sound.stopDrone();
-      canvas.remove(); scrim.remove();
-    },
-    onSound: function (on) { if (on) Sound.startDrone(); else Sound.stopDrone(); }
-  };
-}
-
-/* ==================================================================
-   10. VARIANT "queue"
-   A different information architecture, not a different skin. The page
-   has a spine: a live pipeline running down the left, with the content
-   hanging off it as stations. Tickets travel the spine while you read,
-   and they stop at the station you are reading. What the page animates
-   is what the product does, which is the only version of this prompt
-   that does not read as decoration.
-   ================================================================== */
-
-/* The dots are not decoration. Each one carries a real ticket number from
-   this map, and it stops at each named stage of the run the page describes:
-   takeable, agent, gate, merged. A dot that reaches merged is a ticket that
-   really was merged. Operator, round 1: "would be nice if those dots and
-   target would have some kind of meaning in the given context". */
+/* Real tickets from this map. A chip that reaches merged is a ticket
+   curia really did merge. */
 var SPINE_TICKETS = ['110', '111', '112', '113', '114', '115', '117', '137', '363'];
 
-function startSpine(canvas, anchors, onMerge) {
+function startSpine(canvas, heads, mode, onStage) {
   var ctx = canvas.getContext('2d');
   if (!ctx) return null;
   var dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1529,614 +928,285 @@ function startSpine(canvas, anchors, onMerge) {
     var w = canvas.clientWidth, hgt = canvas.clientHeight;
     if (W !== w || H !== hgt) {
       W = w; H = hgt;
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(hgt * dpr);
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
   }
 
-  var narrow = function () { return window.innerWidth < 736; };
-  var spineX = function () { return narrow() ? 24 : 48; };
+  var narrow = function () { return window.innerWidth < 640; };
+  var spineX = function () { return narrow() ? 18 : 40; };
 
-  var nodes = anchors.map(function (a) {
-    return {
-      el: a.el, stage: a.stage || null,
-      x: 0, y: 0, tx: 0, ty: 0, vx: 0, vy: 0,
-      on: 0, onT: 0, hit: 0, pulse: 0
-    };
+  var nodes = heads.map(function (hd) {
+    return { el: hd.el, stage: hd.stage, y: 0, ty: 0, vy: 0, on: 0, onT: 0, hit: 0, pulse: 0, hot: false };
   });
-  var staged = nodes.filter(function (n) { return n.stage; });
-  var lastStage = staged[staged.length - 1];
-  var tickets = [], spawnAt = 0, seq = 0;
+  var chips = [], spawnAt = 0, seq = 0, raf = 0, last = 0, clock = 0;
+  /* descent carries exactly one ticket, and the reader moves it. */
+  var solo = (mode === 'descent')
+    ? { id: SPINE_TICKETS[SPINE_TICKETS.length - 1], at: -1, pop: 0 }
+    : null;
 
   function layout() {
-    var sx = spineX(), vh = window.innerHeight;
+    var vh = window.innerHeight;
     nodes.forEach(function (n) {
       var r = n.el.getBoundingClientRect();
-      n.ty = r.top + Math.min(r.height * 0.5, 120);
-      n.tx = sx;
-      n.onT = (r.top < vh * 0.62 && r.bottom > vh * 0.22) ? 1 : 0;
+      n.ty = r.top + r.height * 0.5;
+      n.onT = (r.top < vh * 0.6 && r.bottom > 0) ? 1 : 0;
     });
   }
 
-  /* Grey to accent, mixed by how "read" the station is. A binary swap here
-     is what read as a flash in round 1, so the value is eased instead. */
-  function nodeColor(on, a) {
-    var r = Math.round(lerp(74, 125, on));
-    var g = Math.round(lerp(85, 211, on));
-    var b = Math.round(lerp(96, 160, on));
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  function accent(a) { return 'rgba(125,211,160,' + a + ')'; }
+
+  function roundRect(x, y, w, hgt, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + hgt - r); ctx.quadraticCurveTo(x + w, y + hgt, x + w - r, y + hgt);
+    ctx.lineTo(x + r, y + hgt); ctx.quadraticCurveTo(x, y + hgt, x, y + hgt - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
   }
 
-  var raf = 0, last = 0;
+  /* A ticket, drawn as a ticket. Operator, round 2: "we can add simple
+     looking tickets with state transitions?" The chip carries the number,
+     and the stage it is parked at carries the state. */
+  function drawChip(x, y, id, a, swell) {
+    var label = '#' + id;
+    ctx.font = '600 9.5px ui-monospace, SFMono-Regular, Menlo, monospace';
+    var w = ctx.measureText(label).width + 9 + swell * 3;
+    var hgt = 14 + swell * 2;
+    roundRect(x - w / 2, y - hgt / 2, w, hgt, 3.5);
+    ctx.fillStyle = accent((0.16 + swell * 0.14) * a);
+    ctx.fill();
+    ctx.strokeStyle = accent((0.5 + swell * 0.35) * a);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(198,242,219,' + (0.96 * a).toFixed(3) + ')';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, x, y + 0.5);
+  }
+
+
   function frame(ts) {
     raf = requestAnimationFrame(frame);
     if (document.hidden) return;
-    /* Clamped so one slow frame cannot make the spring overshoot. */
     var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
-    last = ts;
+    last = ts; clock += dt;
     size(); layout(); pointerStep();
     ctx.clearRect(0, 0, W, H);
 
     var sx = spineX();
-    var px = Pointer.x * window.innerWidth, py = Pointer.y * window.innerHeight;
-    /* Operator, round 1: "the bright flash is too much, except for the hero
-       at the top, there it could stay". So brightness falls off with depth. */
-    var bright = clamp(1 - window.scrollY / (window.innerHeight * 1.6), 0.32, 1);
+    /* Round 2: "the green ambience is completely absent now, something
+       broke." Round 1 asked for a calmer flash, and that took the steady
+       green down with it. The ambience is constant from here on, and only
+       the transient part answers to depth. */
+    var breath = 0.5 + 0.5 * Math.sin(clock * 0.7);
+    var flashScale = clamp(1 - window.scrollY / (window.innerHeight * 1.6), 0.34, 1);
 
-    ctx.strokeStyle = '#ffffff12';
+    /* The spine, with a soft column of light around it that never leaves. */
+    var grad = ctx.createLinearGradient(sx - 26, 0, sx + 26, 0);
+    grad.addColorStop(0, accent(0));
+    grad.addColorStop(0.5, accent((0.055 + 0.02 * breath).toFixed(3)));
+    grad.addColorStop(1, accent(0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(sx - 26, 0, 52, H);
+
+    ctx.strokeStyle = accent((0.20 + 0.08 * breath).toFixed(3));
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
 
-    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textBaseline = 'middle';
+    if (mode === 'lanes' && nodes.length) {
+      /* Three repos, above the first stage, folding into the one queue.
+         The page says three repos watched today, so there are three. */
+      var y0 = nodes[0].y;
+      if (y0 > 0) {
+        ctx.strokeStyle = accent((0.14 + 0.05 * breath).toFixed(3));
+        [-1, 1].forEach(function (side) {
+          ctx.beginPath();
+          ctx.moveTo(sx + side * 13, 0);
+          ctx.lineTo(sx + side * 13, Math.max(0, y0 - 90));
+          ctx.quadraticCurveTo(sx + side * 13, y0, sx, y0);
+          ctx.stroke();
+        });
+      }
+    }
 
     nodes.forEach(function (n) {
-      /* A damped spring, stable at every dt we allow. */
       var stiff = 120, damp = 18;
-      n.vx += ((n.tx - n.x) * stiff - n.vx * damp) * dt;
       n.vy += ((n.ty - n.y) * stiff - n.vy * damp) * dt;
-      if (Pointer.active) {
-        var pdx = n.x - px, pdy = n.y - py, d2 = pdx * pdx + pdy * pdy;
-        if (d2 < 26000) {
-          var f = (1 - d2 / 26000) * 700, d = Math.sqrt(d2) || 1;
-          n.vx += (pdx / d) * f * dt; n.vy += (pdy / d) * f * dt;
-        }
-      }
-      n.x += n.vx * dt; n.y += n.vy * dt;
-
+      n.y += n.vy * dt;
       n.on = lerp(n.on, n.onT, 0.07);
-      n.pulse *= 0.94;                       // the target decays
-      n.hit = lerp(n.hit, n.pulse, 0.22);    // and the value chases it, so it swells
+      n.pulse *= 0.94;
+      n.hit = lerp(n.hit, n.pulse, 0.22);
 
-      if (!n.stage) return;
-      var glow = (0.035 + n.on * 0.04 + n.hit * 0.07) * bright;
-      ctx.beginPath(); ctx.arc(n.x, n.y, 11 + n.hit * 9, 0, 6.2832);
-      ctx.fillStyle = nodeColor(n.on, glow.toFixed(3));
+      /* The stage name is DOM text, so a screen reader still gets it and
+         the canvas never has to draw a label next to the body copy. */
+      var hot = n.on > 0.5 || n.hit > 0.12;
+      if (hot !== n.hot) { n.hot = hot; n.el.classList.toggle('hot', hot); }
+
+      var glow = 0.11 + n.on * 0.10 + n.hit * 0.12 * flashScale;
+      ctx.beginPath(); ctx.arc(sx, n.y, 10 + n.on * 2 + n.hit * 8, 0, 6.2832);
+      ctx.fillStyle = accent(glow.toFixed(3));
       ctx.fill();
-      ctx.beginPath(); ctx.arc(n.x, n.y, 3.5 + n.on * 1.2 + n.hit * 2, 0, 6.2832);
-      ctx.fillStyle = nodeColor(n.on, (0.5 + n.on * 0.45).toFixed(3));
+      ctx.beginPath(); ctx.arc(sx, n.y, 3.6 + n.on * 1.1 + n.hit * 1.8, 0, 6.2832);
+      ctx.fillStyle = accent((0.55 + n.on * 0.4).toFixed(3));
       ctx.fill();
     });
 
-    if (Motion.on && ts > spawnAt) {
-      spawnAt = ts + 2600 + Math.random() * 2600;
-      tickets.push({
-        id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length],
-        y: -20, v: 52 + Math.random() * 20, hold: 0, at: 0, fade: 1, wob: Math.random() * 6.28
-      });
-    }
-    for (var i = tickets.length - 1; i >= 0; i--) {
-      var t = tickets[i];
-      if (t.hold > 0) t.hold -= dt;
-      else {
-        t.y += t.v * dt * 3.2;
-        for (var j = 0; j < nodes.length; j++) {
-          var n2 = nodes[j];
-          if (!n2.stage || j < t.at || n2.y <= 0) continue;
-          if (Math.abs(t.y - n2.y) < 7) {
-            t.at = j + 1; t.hold = 0.85; n2.pulse = 1;
-            if (n2 === lastStage) { t.done = true; if (onMerge) onMerge(); }
-            break;
+    if (solo) {
+      /* descent: the chip holds still and the page moves under it, so
+         scrolling is what walks the ticket through its states. */
+      var y = H * 0.45;
+      var reached = -1;
+      for (var k = 0; k < nodes.length; k++) if (nodes[k].y <= y + 2) reached = k;
+      if (reached !== solo.at) {
+        if (reached > solo.at && reached >= 0) {
+          nodes[reached].pulse = 1;
+          solo.pop = 1;
+          if (onStage) onStage(reached, nodes.length);
+        }
+        solo.at = reached;
+      }
+      solo.pop *= 0.9;
+      drawChip(sx, y, solo.id, 1, solo.pop);
+    } else {
+      if (Motion.on && ts > spawnAt) {
+        spawnAt = ts + 2200 + Math.random() * 2200;
+        chips.push({
+          id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length],
+          y: -24, v: 150 + Math.random() * 60, hold: 0, at: 0, fade: 1, pop: 0,
+          lane: (seq % 3) - 1
+        });
+      }
+      for (var i = chips.length - 1; i >= 0; i--) {
+        var c = chips[i];
+        if (c.hold > 0) c.hold -= dt;
+        else {
+          c.y += c.v * dt;
+          for (var j = 0; j < nodes.length; j++) {
+            if (j < c.at || nodes[j].y <= 0) continue;
+            if (Math.abs(c.y - nodes[j].y) < 8) {
+              c.at = j + 1; c.hold = 1.0; c.pop = 1;
+              nodes[j].pulse = 1;
+              if (onStage) onStage(j, nodes.length);
+              break;
+            }
           }
         }
-      }
-      /* Past the last stage the ticket is merged, so it lets go. */
-      if (t.done && t.hold <= 0) t.fade -= dt * 1.2;
-      if (t.fade <= 0 || t.y > H + 30) { tickets.splice(i, 1); continue; }
+        c.pop *= 0.9;
+        if (c.at >= nodes.length && c.hold <= 0) c.fade -= dt * 1.1;
+        if (c.fade <= 0 || c.y > H + 40) { chips.splice(i, 1); continue; }
 
-      t.wob += dt * 2.2;
-      var wx = sx + Math.sin(t.wob) * 1.8;
-      var held = t.hold > 0;
-      var a = (held ? 0.9 : 0.55) * t.fade * bright;
-      ctx.beginPath(); ctx.arc(wx, t.y, held ? 3.2 : 2.2, 0, 6.2832);
-      ctx.fillStyle = 'rgba(125,211,160,' + a.toFixed(3) + ')';
-      ctx.fill();
-      /* The number only shows while the ticket sits at a stage, so the
-         spine stays quiet and the label is readable when it matters. */
-      if (held || t.done) {
-        var la = Math.min(1, t.hold / 0.5) * t.fade;
-        ctx.fillStyle = 'rgba(125,211,160,' + (0.85 * (t.done ? t.fade : la)).toFixed(3) + ')';
-        ctx.fillText('#' + t.id, wx + 8, t.y);
+        var cx = sx;
+        if (mode === 'lanes' && nodes.length && nodes[0].y > 0 && c.at === 0) {
+          /* Slide in from its own repo lane and merge into the queue. */
+          var t = clamp((nodes[0].y - c.y) / 90, 0, 1);
+          cx = sx + c.lane * 13 * t;
+        }
+        drawChip(cx, c.y, c.id, c.fade, c.pop);
       }
+      if (chips.length > 14) chips.splice(0, chips.length - 14);
     }
-    if (tickets.length > 16) tickets.splice(0, tickets.length - 16);
   }
 
   size(); layout();
-  nodes.forEach(function (n) { n.x = n.tx = spineX(); n.y = n.ty; n.on = n.onT; });
+  nodes.forEach(function (n) { n.y = n.ty; n.on = n.onT; });
   if (Motion.on) raf = requestAnimationFrame(frame);
   else { requestAnimationFrame(function (ts) { frame(ts); cancelAnimationFrame(raf); }); }
-
-  return { destroy: function () { cancelAnimationFrame(raf); } };
-}
-
-function mountQueue(root) {
-  root.className = 'v-queue';
-  var canvas = h('canvas', { class: 'layer', 'aria-hidden': 'true' });
-  document.body.insertBefore(canvas, document.getElementById('main'));
-
-  var rv = makeRevealer();
-  function wrap(kids) { return h('div', { class: 'q-wrap' }, kids); }
-
-  var head = h('section', { class: 'q-hero' }, [wrap([
-    rv.add(h('div', { class: 'q-mark' }, [
-      h('b', { text: CONTENT.wordmark }),
-      document.createTextNode(' — ' + CONTENT.kicker)
-    ])),
-    rv.add(h('h1', { html: CONTENT.headline[0] + ' ' + CONTENT.headline[1] }), 60),
-    rv.add(h('p', { class: 'q-lede', text: CONTENT.lede }), 120),
-    rv.add(h('div', { class: 'q-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
-    rv.add(h('div', { class: 'q-links' }, [
-      h('a', { class: 'q-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
-      h('a', { class: 'q-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
-    ]), 240)
-  ])]);
-
-  var stations = [];
-  var sections = [];
-  CONTENT.claims.forEach(function (c) {
-    var st = h('div', { class: 'q-station' }, [
-      h('span', { class: 'q-tag', text: c.station }),
-      rv.add(h('div', { class: 'q-card' }, [
-        h('h3', { text: c.title }),
-        h('p', { text: c.body }),
-        h('div', { class: 'under', html: c.under.join('<br>') })
-      ]))
-    ]);
-    stations.push(st);
-  });
-  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading }))].concat(stations))]);
-
-  var frames = h('div', { class: 'q-frames' });
-  CONTENT.frames.forEach(function (cap, i) {
-    frames.appendChild(h('figure', { style: 'margin:0' }, [
-      frameButton('q-box', i),
-      h('figcaption', { class: 'q-cap' }, [
-        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
-      ])
-    ]));
-  });
-  var proofStation = h('div', { class: 'q-station' }, [
-    h('span', { class: 'q-tag', text: 'merged' }),
-    rv.add(frames),
-    rv.add(h('p', { class: 'q-note', text: CONTENT.shotnote }), 80),
-    rv.add(trailNode('q-note'), 120),
-    rv.add(h('p', { class: 'q-legend', text: CONTENT.spineLegend }), 140),
-    rv.add(statsNode('q-stats'), 180)
-  ]);
-  var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proofStation])]);
-
-  /* No station below this point: the run ends at merged, and the page turns
-     to what it costs and how to set it up. The spine keeps going as a line. */
-  var honestStation = h('div', { class: 'q-station' }, [rv.add(honestList('q-honest'))]);
-  var s3 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.honestHeading })), honestStation])]);
-
-  var guideStation = h('div', { class: 'q-station' }, [rv.add(guideNode())]);
-  var s4 = h('section', { id: 'setup' }, [wrap([rv.add(h('h2', { text: CONTENT.guideHeading })), guideStation])]);
-
-  var foot = h('footer', {}, [h('div', { class: 'q-wrap', html: CONTENT.footer })]);
-  root.appendChild(frag([head, s1, s2, s3, s4, foot]));
-
-  var anchors = stations.map(function (s, i) { return { el: s, stage: CONTENT.claims[i].station }; });
-  anchors.push({ el: proofStation, stage: 'merged' });
-  anchors.push({ el: honestStation, stage: null });
-  anchors.push({ el: guideStation, stage: null });
-
-  var spine = startSpine(canvas, anchors, function () {
-    Sound.tone(392, 0.5, 'triangle', 0.06);
-  });
-
-  return {
-    destroy: function () {
-      if (spine) spine.destroy();
-      rv.stop();
-      canvas.remove();
-    }
-  };
-}
-
-/* ==================================================================
-   10b. VARIANT "flow"
-   The same run as "queue", turned sideways. The rail is pinned under the
-   chrome, so the stage a reader is in stays on screen, and the content
-   keeps the whole width of the phone. Same four stages, same real tickets.
-   ================================================================== */
-
-var FLOW_STAGES = ['takeable', 'agent', 'gate', 'merged'];
-
-function startRail(canvas, sections) {
-  var ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  var dpr = Math.min(window.devicePixelRatio || 1, 2);
-  var W = 0, H = 0;
-
-  function size() {
-    var w = canvas.clientWidth, hgt = canvas.clientHeight;
-    if (W !== w || H !== hgt) {
-      W = w; H = hgt;
-      canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
-  }
-
-  var stages = FLOW_STAGES.map(function (name) {
-    return { name: name, on: 0, onT: 0, hit: 0, pulse: 0, x: 0 };
-  });
-  var tickets = [], spawnAt = 0, seq = 0, raf = 0, last = 0;
-
-  function stageXs() {
-    var pad = Math.max(26, W * 0.09);
-    var span = W - pad * 2;
-    stages.forEach(function (s, i) { s.x = pad + (span * i) / (stages.length - 1); });
-  }
-
-  function currentStage() {
-    /* Whichever section owns the middle of the screen owns the rail. */
-    var mid = window.innerHeight * 0.42, best = -1;
-    sections.forEach(function (sec, i) {
-      if (sec.stage < 0) return;
-      var r = sec.el.getBoundingClientRect();
-      if (r.top <= mid && r.bottom >= 0) best = sec.stage;
-    });
-    return best;
-  }
-
-  function tint(on, a) {
-    var r = Math.round(lerp(74, 125, on)), g = Math.round(lerp(85, 211, on)), b = Math.round(lerp(96, 160, on));
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
-  }
-
-  function frame(ts) {
-    raf = requestAnimationFrame(frame);
-    if (document.hidden) return;
-    var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
-    last = ts;
-    size(); stageXs();
-    ctx.clearRect(0, 0, W, H);
-
-    var y = H * 0.42;
-    var cur = currentStage();
-    stages.forEach(function (s, i) { s.onT = (i === cur) ? 1 : 0; });
-
-    ctx.strokeStyle = '#ffffff16'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(stages[0].x, y); ctx.lineTo(stages[stages.length - 1].x, y); ctx.stroke();
-
-    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.textBaseline = 'top'; ctx.textAlign = 'center';
-
-    stages.forEach(function (s) {
-      s.on = lerp(s.on, s.onT, 0.08);
-      s.pulse *= 0.94;
-      s.hit = lerp(s.hit, s.pulse, 0.22);
-      ctx.beginPath(); ctx.arc(s.x, y, 8 + s.hit * 7, 0, 6.2832);
-      ctx.fillStyle = tint(s.on, (0.04 + s.on * 0.05 + s.hit * 0.07).toFixed(3));
-      ctx.fill();
-      ctx.beginPath(); ctx.arc(s.x, y, 3 + s.on * 1.2 + s.hit * 1.8, 0, 6.2832);
-      ctx.fillStyle = tint(s.on, (0.5 + s.on * 0.45).toFixed(3));
-      ctx.fill();
-      ctx.fillStyle = tint(s.on, (0.4 + s.on * 0.5).toFixed(3));
-      ctx.fillText(s.name, s.x, y + 10);
-    });
-
-    if (Motion.on && ts > spawnAt) {
-      spawnAt = ts + 2400 + Math.random() * 2400;
-      tickets.push({ id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length], t: 0, at: 0, hold: 0, fade: 1 });
-    }
-    ctx.textAlign = 'left';
-    for (var i = tickets.length - 1; i >= 0; i--) {
-      var tk = tickets[i];
-      var target = stages[Math.min(tk.at, stages.length - 1)].x;
-      if (tk.hold > 0) tk.hold -= dt;
-      else {
-        tk.t = lerp(tk.t, target, 1 - Math.pow(0.02, dt));
-        if (Math.abs(tk.t - target) < 1.5) {
-          tk.t = target; tk.hold = 0.8;
-          stages[Math.min(tk.at, stages.length - 1)].pulse = 1;
-          if (tk.at >= stages.length - 1) tk.done = true; else tk.at++;
-        }
-      }
-      if (tk.done && tk.hold <= 0) tk.fade -= dt * 1.1;
-      if (tk.fade <= 0) { tickets.splice(i, 1); continue; }
-      var held = tk.hold > 0;
-      ctx.beginPath(); ctx.arc(tk.t, y, held ? 3 : 2.2, 0, 6.2832);
-      ctx.fillStyle = 'rgba(125,211,160,' + ((held ? 0.9 : 0.55) * tk.fade).toFixed(3) + ')';
-      ctx.fill();
-      if (held || tk.done) {
-        ctx.fillStyle = 'rgba(125,211,160,' + (0.8 * tk.fade).toFixed(3) + ')';
-        ctx.fillText('#' + tk.id, tk.t + 7, y - 11);
-      }
-    }
-    if (tickets.length > 12) tickets.splice(0, tickets.length - 12);
-  }
-
-  size(); stageXs();
-  if (Motion.on) raf = requestAnimationFrame(frame);
-  else { requestAnimationFrame(function (ts) { frame(ts); cancelAnimationFrame(raf); }); }
-  return { destroy: function () { cancelAnimationFrame(raf); } };
-}
-
-function mountFlow(root) {
-  root.className = 'v-flow';
-  var railBox = h('div', { class: 'f-rail', 'aria-hidden': 'true' });
-  var railCanvas = h('canvas', {});
-  railBox.appendChild(railCanvas);
-  document.body.insertBefore(railBox, document.getElementById('main'));
-
-  var rv = makeRevealer();
-  function wrap(kids) { return h('div', { class: 'f-wrap' }, kids); }
-
-  var head = h('section', { class: 'f-hero' }, [wrap([
-    rv.add(h('div', { class: 'f-mark' }, [
-      h('b', { text: CONTENT.wordmark }), document.createTextNode(' — ' + CONTENT.kicker)
-    ])),
-    rv.add(h('h1', { html: CONTENT.headline[0] + ' ' + CONTENT.headline[1] }), 60),
-    rv.add(h('p', { class: 'f-lede', text: CONTENT.lede }), 120),
-    rv.add(h('div', { class: 'f-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
-    rv.add(h('div', { class: 'f-links' }, [
-      h('a', { class: 'f-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
-      h('a', { class: 'f-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
-    ]), 240)
-  ])]);
-
-  var claimEls = [];
-  var claims = h('div', {});
-  CONTENT.claims.forEach(function (c, i) {
-    var block = rv.add(h('div', { class: 'f-claim' }, [
-      h('p', { class: 'f-eyebrow', text: c.station }),
-      h('h3', { text: c.title }),
-      h('p', { text: c.body }),
-      h('div', { class: 'under', html: c.under.join('<br>') })
-    ]), i * 80);
-    claimEls.push(block);
-    claims.appendChild(block);
-  });
-  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading })), claims])]);
-
-  var frames = h('div', { class: 'f-frames' });
-  CONTENT.frames.forEach(function (cap, i) {
-    frames.appendChild(h('figure', { style: 'margin:0' }, [
-      frameButton('f-box', i),
-      h('figcaption', { class: 'f-cap' }, [
-        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
-      ])
-    ]));
-  });
-  var proof = h('div', {}, [
-    h('p', { class: 'f-eyebrow', text: 'merged' }),
-    rv.add(frames),
-    rv.add(h('p', { class: 'f-note', text: CONTENT.shotnote }), 80),
-    rv.add(trailNode('f-note'), 120),
-    rv.add(h('p', { class: 'f-legend', text: CONTENT.railLegend }), 140),
-    rv.add(statsNode('f-stats'), 180)
-  ]);
-  var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proof])]);
-
-  var s3 = h('section', {}, [wrap([
-    rv.add(h('h2', { text: CONTENT.honestHeading })), rv.add(honestList('f-honest'), 60)
-  ])]);
-  var s4 = h('section', { id: 'setup' }, [wrap([
-    rv.add(h('h2', { text: CONTENT.guideHeading })), rv.add(guideNode(), 60)
-  ])]);
-  var foot = h('footer', {}, [h('div', { class: 'f-wrap', html: CONTENT.footer })]);
-
-  root.appendChild(frag([head, s1, s2, s3, s4, foot]));
-
-  var sections = claimEls.map(function (el, i) { return { el: el, stage: i }; });
-  sections.push({ el: proof, stage: 3 });
-  var rail = startRail(railCanvas, sections);
-
-  return {
-    destroy: function () {
-      if (rail) rail.destroy();
-      rv.stop();
-      railBox.remove();
-    }
-  };
-}
-
-/* ==================================================================
-   11. VARIANT "vitals"
-   The restrained answer. The live page's calm and its hierarchy, plus
-   exactly one living gesture: a hairline trace down the left margin
-   that breathes at rest and reacts to how fast you scroll. The headline
-   letters carry a small independent spring. Everything else is the
-   design skill's motion and accessibility advice applied plainly.
-   ================================================================== */
-
-function startTrace(canvas) {
-  var ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-  var dpr = Math.min(window.devicePixelRatio || 1, 2);
-  var W = 0, H = 0, pts = [], raf = 0, last = 0, phase = 0;
-  var lastScroll = window.scrollY, vel = 0, beat = 0, beatAt = 0;
-
-  function size() {
-    var w = canvas.clientWidth, hgt = canvas.clientHeight;
-    if (W !== w || H !== hgt) {
-      W = w; H = hgt;
-      canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      pts = [];
-    }
-  }
-
-  function frame(ts) {
-    raf = requestAnimationFrame(frame);
-    if (document.hidden) return;
-    var dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
-    last = ts;
-    size();
-
-    var sy = window.scrollY;
-    vel = lerp(vel, Math.min(1, Math.abs(sy - lastScroll) / 24), 0.16);
-    lastScroll = sy;
-    phase += dt * (0.7 + vel * 2.2);
-
-    /* At rest it breathes. Moving, it spikes: the page has a pulse and the
-       pulse is the reader's own scrolling. */
-    if (ts > beatAt) { beatAt = ts + (1500 - vel * 700); beat = 1; }
-    beat *= 0.92;
-
-    var x = W * 0.5;
-    var amp = W * 0.34;
-    var y = H + 1;
-    var wave = Math.sin(phase * 2.1) * 0.35 + Math.sin(phase * 0.7) * 0.2;
-    pts.unshift(x + (wave * (0.25 + vel) + beat * beat * 0.9) * amp);
-    var maxPts = Math.ceil(H / 2) + 4;
-    if (pts.length > maxPts) pts.length = maxPts;
-
-    ctx.clearRect(0, 0, W, H);
-    ctx.beginPath();
-    for (var i = 0; i < pts.length; i++) {
-      var py = i * 2;
-      if (i === 0) ctx.moveTo(pts[i], py); else ctx.lineTo(pts[i], py);
-    }
-    ctx.strokeStyle = 'rgba(125,211,160,0.55)';
-    ctx.lineWidth = 1.25;
-    ctx.stroke();
-
-    ctx.beginPath(); ctx.arc(pts[0], 0, 2 + beat * 2.5, 0, 6.2832);
-    ctx.fillStyle = 'rgba(125,211,160,' + (0.55 + beat * 0.45).toFixed(3) + ')';
-    ctx.fill();
-  }
-
-  size();
-  if (Motion.on) raf = requestAnimationFrame(frame);
-  return { destroy: function () { cancelAnimationFrame(raf); } };
-}
-
-function mountVitals(root) {
-  root.className = 'v-vitals';
-  var rail = h('canvas', {
-    class: 'layer', 'aria-hidden': 'true',
-    style: 'width:2.75rem;left:0;right:auto;opacity:0.9'
-  });
-  document.body.insertBefore(rail, document.getElementById('main'));
-  var trace = startTrace(rail);
-
-  var rv = makeRevealer();
-  function wrap(kids) { return h('div', { class: 'vt-wrap' }, kids); }
-  function rule() { return h('div', { class: 'vt-wrap' }, [h('div', { class: 'vt-rule' })]); }
-
-  /* Per-letter spans are what gives the headline its own small physics.
-     Split that far, a screen reader can spell the line out instead of
-     reading it, so the heading carries the plain sentence as its label
-     and the pieces are hidden from the accessibility tree. */
-  var heroText = CONTENT.headline.join(' ');
-  var hero = h('h1', { 'aria-label': heroText });
-  CONTENT.headline.forEach(function (line) {
-    var ln = h('span', { class: 'ln', 'aria-hidden': 'true' });
-    /* Each letter is its own inline-block so it can move on its own. Left
-       loose, that gives the browser a break opportunity between every pair
-       of letters, and a 320px screen breaks words in half. Words are kept
-       whole by a nowrap box, so only the spaces can break. */
-    words(line).forEach(function (tok) {
-      if (/^\s+$/.test(tok)) { ln.appendChild(document.createTextNode(' ')); return; }
-      var wd = h('span', { class: 'wd' });
-      tok.split('').forEach(function (ch) { wd.appendChild(h('span', { class: 'ch', text: ch })); });
-      ln.appendChild(wd);
-    });
-    hero.appendChild(ln);
-  });
-
-  var head = h('header', { class: 'vt-hero' }, [wrap([
-    rv.add(h('div', { class: 'vt-mark' }, [
-      h('b', { text: CONTENT.wordmark }), document.createTextNode(' '),
-      h('span', { text: '— ' + CONTENT.kicker })
-    ])),
-    rv.add(hero, 50),
-    rv.add(h('p', { class: 'vt-lede', text: CONTENT.lede }), 120),
-    rv.add(h('div', { class: 'vt-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
-    rv.add(h('div', { class: 'vt-links' }, [
-      h('a', { href: CONTENT.cta.href, text: CONTENT.cta.label }),
-      h('a', { href: CONTENT.source.href, text: CONTENT.source.label })
-    ]), 240)
-  ])]);
-
-  var claims = h('div', {});
-  CONTENT.claims.forEach(function (c, i) {
-    claims.appendChild(rv.add(h('div', { class: 'vt-claim' }, [
-      h('h3', { text: c.title }),
-      h('p', { text: c.body }),
-      h('div', { class: 'under', html: c.under.join('<br>') })
-    ]), i * 80));
-  });
-  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading })), claims])]);
-
-  var say = sayNode('vt-say', CONTENT.say);
-  var s15 = h('section', {}, [wrap([say])]);
-
-  var frames = h('div', { class: 'vt-frames' });
-  CONTENT.frames.forEach(function (cap, i) {
-    frames.appendChild(h('figure', { style: 'margin:0' }, [
-      frameButton('vt-box', i),
-      h('figcaption', { class: 'vt-cap' }, [
-        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
-      ])
-    ]));
-  });
-  var s2 = h('section', {}, [wrap([
-    rv.add(h('h2', { text: CONTENT.proofHeading })),
-    rv.add(frames, 60),
-    rv.add(h('p', { class: 'vt-note', text: CONTENT.shotnote }), 100),
-    rv.add(trailNode('vt-note'), 140),
-    rv.add(statsNode('vt-stats'), 180)
-  ])]);
-
-  var s3 = h('section', {}, [wrap([
-    rv.add(h('h2', { text: CONTENT.honestHeading })), rv.add(honestList('vt-honest'), 60)
-  ])]);
-  var s4 = h('section', { id: 'setup' }, [wrap([
-    rv.add(h('h2', { text: CONTENT.guideHeading })), rv.add(guideNode(), 60)
-  ])]);
-  var foot = h('footer', {}, [h('div', { class: 'vt-wrap', html: CONTENT.footer })]);
-
-  root.appendChild(frag([head, rule(), s1, s15, rule(), s2, rule(), s3, rule(), s4, foot]));
-
-  var lit = litWords(say, function () { Sound.tone(659.25, 0.16, 'sine', 0.035); });
-
-  var chs = [].slice.call(hero.querySelectorAll('.ch'));
-  var raf = 0;
-  function letters() {
-    raf = requestAnimationFrame(letters);
-    if (document.hidden || !Motion.on) return;
-    var dx = Pointer.x - 0.5, dy = Pointer.y - 0.5;
-    for (var i = 0; i < chs.length; i++) {
-      var k = Math.sin(i * 1.7) * 0.5 + 0.6;
-      chs[i].style.transform = 'translate3d(' + (dx * 5 * k).toFixed(2) + 'px,' +
-        (dy * 3 * k).toFixed(2) + 'px,0)';
-    }
-  }
-  if (Motion.on) raf = requestAnimationFrame(letters);
 
   return {
     destroy: function () {
       cancelAnimationFrame(raf);
-      if (trace) trace.destroy();
-      rv.stop(); lit.stop();
-      rail.remove();
+      nodes.forEach(function (n) { n.el.classList.remove('hot'); });
     }
+  };
+}
+
+/* One page builder for all three variations. Only the spine mode differs,
+   which is the point: the operator picked the direction, not the layout. */
+function makeRun(mode) {
+  return function (root) {
+    root.className = 'v-run';
+    var canvas = h('canvas', { class: 'layer', 'aria-hidden': 'true' });
+    document.body.insertBefore(canvas, document.getElementById('main'));
+
+    var rv = makeRevealer();
+    function wrap(kids) { return h('div', { class: 'q-wrap' }, kids); }
+
+    var head = h('section', { class: 'q-hero' }, [wrap([
+      rv.add(h('div', { class: 'q-mark' }, [
+        h('b', { text: CONTENT.wordmark }), document.createTextNode(' — ' + CONTENT.kicker)
+      ])),
+      rv.add(h('h1', { html: CONTENT.headline[0] + ' ' + CONTENT.headline[1] }), 60),
+      rv.add(h('p', { class: 'q-lede', text: CONTENT.lede }), 120),
+      rv.add(h('div', { class: 'q-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
+      rv.add(h('div', { class: 'q-links' }, [
+        h('a', { class: 'q-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
+        h('a', { class: 'q-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
+      ]), 240)
+    ])]);
+
+    /* A stage is a row: the node in the gutter, its name on the same line,
+       and the claim underneath. The chip parks on the node, so the state
+       reads straight off the label beside it. */
+    var headEls = [];
+    function stage(name, kids) {
+      var hd = h('p', { class: 'q-tag', text: name });
+      headEls.push(hd);
+      return h('div', { class: 'q-station' }, [hd].concat(kids));
+    }
+
+    var stations = CONTENT.claims.map(function (c, i) {
+      return stage(c.station, [rv.add(h('div', { class: 'q-card' }, [
+        h('h3', { text: c.title }),
+        h('p', { text: c.body }),
+        h('div', { class: 'under', html: c.under.join('<br>') })
+      ]), i * 60)]);
+    });
+    var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading }))].concat(stations))]);
+
+    var frames = h('div', { class: 'q-frames' });
+    CONTENT.frames.forEach(function (cap, i) {
+      frames.appendChild(h('figure', { style: 'margin:0' }, [
+        frameButton('q-box', i),
+        h('figcaption', { class: 'q-cap' }, [
+          h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
+        ])
+      ]));
+    });
+    var proof = stage('merged', [
+      rv.add(frames),
+      rv.add(h('p', { class: 'q-note', text: CONTENT.shotnote }), 80),
+      rv.add(trailNode('q-note'), 120),
+      rv.add(h('p', { class: 'q-legend', text: CONTENT.spineLegend }), 140),
+      rv.add(statsNode('q-stats'), 180)
+    ]);
+    var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proof])]);
+
+    /* The run ends at merged. What follows is the cost and the setup, so
+       those sections carry no stage and the spine runs on as a plain line. */
+    var s3 = h('section', {}, [wrap([
+      rv.add(h('h2', { text: CONTENT.honestHeading })), rv.add(honestList('q-honest'), 60)
+    ])]);
+    var s4 = h('section', { id: 'setup' }, [wrap([
+      rv.add(h('h2', { text: CONTENT.guideHeading })), rv.add(guideNode(), 60)
+    ])]);
+    var foot = h('footer', {}, [h('div', { class: 'q-wrap', html: CONTENT.footer })]);
+
+    root.appendChild(frag([head, s1, s2, s3, s4, foot]));
+
+    var heads = headEls.map(function (el, i) { return { el: el, stage: i }; });
+    var notes = [220, 277.18, 329.63, 392];
+    var spine = startSpine(canvas, heads, mode, function (i) {
+      Sound.tone(notes[i % notes.length], 0.55, 'triangle', 0.06);
+    });
+
+    return {
+      destroy: function () {
+        if (spine) spine.destroy();
+        rv.stop();
+        canvas.remove();
+      }
+    };
   };
 }
 
@@ -2147,11 +1217,10 @@ function mountVitals(root) {
    ================================================================== */
 
 var VARIANTS = [
-  { key: 'live', name: 'The live page', note: 'baseline', mount: mountLive },
-  { key: 'bloodstream', name: 'Bloodstream', note: 'WebGL field', mount: mountBloodstream },
-  { key: 'queue', name: 'The queue, alive', note: 'pipeline spine', mount: mountQueue },
-  { key: 'flow', name: 'The run, on a rail', note: 'pipeline sideways', mount: mountFlow },
-  { key: 'vitals', name: 'Vital signs', note: 'restrained', mount: mountVitals }
+  { key: 'stream', name: 'Tickets arrive', note: 'the run, on its own', mount: makeRun('stream') },
+  { key: 'lanes', name: 'Many repos, one queue', note: 'three lanes converge', mount: makeRun('lanes') },
+  { key: 'descent', name: 'You move the ticket', note: 'scroll drives the run', mount: makeRun('descent') },
+  { key: 'live', name: 'The live page', note: 'the page as it is today', mount: mountLive }
 ];
 
 var main = document.getElementById('main');
@@ -2161,7 +1230,7 @@ var current = null, at = 0;
 
 function indexFromUrl() {
   var m = /[?&]variant=([^&]+)/.exec(location.search);
-  var key = m ? decodeURIComponent(m[1]) : 'live';
+  var key = m ? decodeURIComponent(m[1]) : 'stream';
   for (var i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return i;
   return 0;
 }
@@ -2177,7 +1246,7 @@ function reveal(nodes) {
   });
 }
 function revealEverything() {
-  reveal([].slice.call(document.querySelectorAll('.rv, .bl-say .w, .vt-say .w')));
+  reveal([].slice.call(document.querySelectorAll('.rv')));
 }
 /* Net 1: any uncaught error shows the whole page at once. */
 window.addEventListener('error', revealEverything);

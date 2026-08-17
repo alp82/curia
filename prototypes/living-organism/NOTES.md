@@ -7,38 +7,20 @@ This directory is throwaway code. It answers one question. It is not the live pa
 
 ## What it is
 
-One self-contained HTML file, `index.html`. It holds five variants of the page on one route.
+One self-contained HTML file, `index.html`. It holds the vertical run and three variations of it.
 Switch them with the bar at the bottom, with the left and right arrow keys, or with `?variant=`.
 
-| Key | Name | What it tries |
+| Key | Name | How the story moves |
 |---|---|---|
-| `live` | The live page | The current https://curia.sh page, as the baseline to beat. |
-| `bloodstream` | Bloodstream | A WebGL field behind the whole page. Scroll drives one phase value that morphs the field between scenes. The pointer is a pressure source. |
-| `queue` | The queue, alive | A different page structure. The run goes down the left as a spine, and the content hangs off it as stations. Real tickets stop at each stage. |
-| `flow` | The run, on a rail | The same run, turned sideways. The rail is pinned under the chrome, so the stage stays visible and the content keeps the whole width of a phone. |
-| `vitals` | Vital signs | The calm page, alive in one place. A hairline trace breathes in the left margin and reacts to scroll speed. The headline letters carry a small spring. |
+| `stream` | Tickets arrive | Tickets come on their own and work their way down the spine. |
+| `lanes` | Many repos, one queue | Three watched repos fold into the one queue at the first stage. It draws the headline. |
+| `descent` | You move the ticket | One ticket holds still and the page moves under it. Your scrolling advances its state. |
+| `live` | The live page | The current https://curia.sh page. Kept as the reference the verdict is measured against. |
 
-## Round 1, and what changed
-
-The operator picked `queue` and called it a good start for further variations.
-Three notes came back, and all three are answered.
-
-**The dots needed meaning.** The pipeline moved anonymous dots past anonymous targets.
-Now each dot carries a real ticket number from this map, and each station carries the name of a
-real stage: `takeable`, `agent`, `gate`, `merged`. A dot that reaches `merged` is a ticket that
-curia really did merge. The four stage words already appear in the page copy, so the labels add no
-new vocabulary. The run ends at `merged`, and the sections below it carry no station.
-
-**The green flashed while scrolling.** Two causes, both fixed. A station switched color from grey
-to accent as one step, and a ticket arrival set the glow to full in one frame. Both values now ease.
-The arrival swells over about four frames and then decays. The spring also ran under-damped at a
-long frame, so a slow frame could make a station overshoot. The step is clamped and damped now.
-
-**The flash was too bright below the hero.** Brightness now falls off with scroll depth. It stays
-full at the top and settles to about a third of that further down.
-
-`flow` answers the request for a further variation of the same direction.
-It keeps the stages and the real tickets, and it spends no width on a left gutter.
+All three variations share one page, four stages and the same real ticket numbers.
+The stages are `takeable`, `agent`, `gate` and `merged`.
+A stage name sits on the same line as its node, so a chip parked on the node reads its state
+straight off the label beside it.
 
 Run it:
 
@@ -46,30 +28,65 @@ Run it:
 python3 -m http.server 9006 --bind 0.0.0.0 --directory prototypes/living-organism
 ```
 
-## The rule the variants share
+## The rounds
 
-Every variant renders the same words from one `CONTENT` object at the top of the script.
+### Round 1
+
+The operator picked the vertical spine over the WebGL page and the restrained page.
+Three notes came back.
+
+**The dots needed meaning.** Each dot now carries a real ticket number from this map, and each
+station carries the name of a real stage. A chip that reaches `merged` is a ticket curia really
+did merge. The four stage words already appear in the page copy, so the labels add no new
+vocabulary.
+
+**The green flashed while scrolling.** A station switched color from grey to accent in one step,
+and a ticket arrival set the glow to full in one frame. Both values ease now. The spring also ran
+under-damped at a long frame, so the step is clamped.
+
+**The flash was too bright below the hero.** Brightness falls off with scroll depth.
+
+### Round 2
+
+**The green went missing.** Round 1 asked for a calmer flash, and the fix took the steady green
+down with it. That was one value doing two jobs. The two are separate now. The spine, its column
+of light and every node keep a constant green that no longer answers to scroll depth. Only the
+arrival pulse scales down as the reader descends. So the ambience stays and the flash stays tame.
+
+**Tickets needed state transitions.** A ticket is drawn as a ticket, a small chip carrying its
+number. It parks on a stage node, the stage label beside it lights, and the chip moves on. The
+state is the label it is parked at, which keeps the words in the DOM for a screen reader.
+
+**The vertical line won, because it carries the story while scrolling.** The rail across the top
+and the other two directions are removed. The remaining three are variations of the vertical run.
+
+The `live` baseline is kept, because the ticket asks whether the result beats the live page.
+Removing it would remove the thing the verdict is measured against.
+
+## The rule the variations share
+
+Every variation renders the same words from one `CONTENT` object at the top of the script.
 The prompt changes the presentation. It does not change the claims.
-A variant may re-order or re-weight the approved copy. It may not rewrite it.
+A variation may re-order or re-weight the approved copy. It may not rewrite it.
 
-Two additions are the only new sentences on the page, and the operator decides both:
+One addition is the only new sentence on the page, and the operator decides it:
 
-1. The large-type section reads `An agent cannot finish by talking. Nothing lands without you.`
-   Both halves come from claim 3 on the live page. This joins them into one sentence.
-   It appears in `bloodstream` and `vitals`.
-2. `queue` and `flow` name what the moving numbers are, in one line above the stats.
-   The words are `The numbers moving down the left are this page's own tickets.`
+- One line above the stats names what the moving numbers are.
+  The words are `The numbers moving down the left are this page's own tickets.`
 
 The stage labels `takeable`, `agent`, `gate` and `merged` are not new vocabulary.
 Each one already appears in the page copy, so the labels reuse the page's own words.
+
+The large-type line that joined claim 3 to its own under-line went out with the two variants that
+carried it. Say the word and it comes back.
 
 ## Findings
 
 ### The prompt did not force a build step
 
 This is the answer to the constraint from [#111](https://github.com/alp82/curia/issues/111).
-The whole experiment is one file of 88 KB with no build, no package and no CDN.
-The WebGL runs from GLSL source in the file. The sound is synthesized, so no audio file exists.
+The whole experiment is one file with no build, no package and no CDN.
+The run is drawn on a canvas from code in the file. The sound is synthesized, so no audio file exists.
 The three links in the page go to GitHub, and the page loads no remote resource.
 A build step buys nothing here, so `docs/` can keep the no-build-step decision if a part carries over.
 
@@ -80,14 +97,12 @@ The pinned `landing-page-design` skill is a design input, per
 
 Applied: B7 motion, with `IntersectionObserver` and one cubic-bezier curve everywhere.
 B9 focus and active states. B10 semantic HTML, a skip link, page metadata and alt text.
-B11, as the large-type section with word-by-word reveal.
 A4 for proof next to the claim it supports.
 
 Rejected, with the reason:
 
 - **B1 fonts.** Geist, Manrope and Poppins need a webfont request. That breaks the one-file rule and
   adds a network dependency. The page uses the system stack.
-- **B4, no gradients in backgrounds.** The prompt asks for a WebGL field. The rule forbids it.
 - **B1 and B2 fixed scales.** The live page uses `clamp()` so the headline fits a 320px screen.
   [Polish the live page](https://github.com/alp82/curia/issues/137) fixed that overflow. Fixed
   Tailwind steps would break it again.
@@ -100,7 +115,7 @@ Rejected, with the reason:
 
 The honesty block says `Curia is fifteen days old.` A worker counted that on 5 August 2026.
 The first commit is 2026-07-21, so the age is 27 days today, 17 August 2026.
-All five variants show the live wording, because a fair comparison needs identical copy.
+Every variation shows the live wording, because a fair comparison needs identical copy.
 The fix belongs to the live page, not to this experiment.
 
 ### Sound stays off, and a browser agrees
@@ -114,7 +129,7 @@ Two nets protect the reader, because nobody working this ticket has eyes on a ph
 An uncaught error reveals the whole page at once. Anything still hidden two seconds after mount,
 while it sits on screen, gives up and shows itself.
 Motion follows `prefers-reduced-motion`, and the bar can force it off.
-A device with no WebGL gets a flat background instead of a blank one.
+The run falls back to a plain line if a canvas cannot be had.
 
 ## How this was checked without a browser
 
@@ -123,18 +138,20 @@ It stubs the DOM with Node builtins alone, and it installs nothing.
 It proves the code runs. It cannot judge how the page looks, and the operator makes that call.
 
 The harness mounts each variant, runs the animation loops, fires every reveal, turns sound on and
-off, walks the switcher through all five variants, toggles motion and opens the lightbox.
+off, walks the switcher through every variation, toggles motion and opens the lightbox.
 It then reads the rendered text back and checks it.
 
-Checks that pass for all five variants:
+Checks that pass for every variation:
 
 - No banned word from `positioning.md` reaches the page.
 - Twenty-two required sentences appear word for word.
 - The guide contains no `just` and no `simply`.
-- Reduced motion and missing WebGL both mount and render the same copy.
+- Reduced motion and four screen widths all mount and render the same copy.
 
-One real defect came out of this. The `vitals` headline splits into one span per letter, so the
-letters can move on their own. A screen reader can spell such a heading out instead of reading it.
-The heading now carries the plain sentence as its label, and the pieces leave the accessibility tree.
+Two real defects came out of this, both on variants that no longer ship.
+A headline split into one span per letter can be spelled out by a screen reader instead of read.
+The same split also lets a 320px screen break a word in half, because every letter becomes a break
+opportunity. The fixes were a label on the heading and a nowrap box per word.
+Neither trap applies to the run, which splits no text.
 
 The harness lives in the session scratchpad, not in this repo. It is scaffolding, not a test suite.
