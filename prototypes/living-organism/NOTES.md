@@ -12,15 +12,15 @@ Switch them with the bar at the bottom, with the left and right arrow keys, or w
 
 | Key | Name | How the story moves |
 |---|---|---|
-| `stream` | Tickets arrive | Tickets come on their own and work their way down the spine. |
-| `lanes` | Many repos, one queue | Three watched repos fold into the one queue at the first stage. It draws the headline. |
-| `descent` | You move the ticket | One ticket holds still and the page moves under it. Your scrolling advances its state. |
+| `grow` | The run grows | Your ticket holds still and the page runs under it. The run grows as you descend: one repo and one ticket, then more tickets, then a second repo, then a third. |
+| `descent` | You move the ticket | The same pinned ticket, without the growth. Round 2, kept for comparison. |
+| `lanes` | Many repos, one queue | Three repos converging, without a pinned ticket. |
 | `live` | The live page | The current https://curia.sh page. Kept as the reference the verdict is measured against. |
 
 All three variations share one page, four stages and the same real ticket numbers.
-The stages are `takeable`, `agent`, `gate` and `merged`.
-A stage name sits on the same line as its node, so a chip parked on the node reads its state
-straight off the label beside it.
+The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
+A stage name sits on the same line as its node, so a card parked on the node reads its state
+straight off the label beside it. A key above the claims spells the four colors out once.
 
 Run it:
 
@@ -33,35 +33,36 @@ python3 -m http.server 9006 --bind 0.0.0.0 --directory prototypes/living-organis
 ### Round 1
 
 The operator picked the vertical spine over the WebGL page and the restrained page.
-Three notes came back.
-
-**The dots needed meaning.** Each dot now carries a real ticket number from this map, and each
-station carries the name of a real stage. A chip that reaches `merged` is a ticket curia really
-did merge. The four stage words already appear in the page copy, so the labels add no new
-vocabulary.
-
-**The green flashed while scrolling.** A station switched color from grey to accent in one step,
-and a ticket arrival set the glow to full in one frame. Both values ease now. The spring also ran
-under-damped at a long frame, so the step is clamped.
-
-**The flash was too bright below the hero.** Brightness falls off with scroll depth.
+The dots needed meaning, so each one took a real ticket number and each station took a real stage
+name. The green flashed, because a station switched color in one step and an arrival set the glow
+to full in one frame. Both ease now, and the spring is clamped.
 
 ### Round 2
 
-**The green went missing.** Round 1 asked for a calmer flash, and the fix took the steady green
-down with it. That was one value doing two jobs. The two are separate now. The spine, its column
-of light and every node keep a constant green that no longer answers to scroll depth. Only the
-arrival pulse scales down as the reader descends. So the ambience stays and the flash stays tame.
+**The green went missing.** The round 1 fix took the steady green down with the flash, because one
+value was doing two jobs. The two are separate now. The spine, its column of light and every node
+keep a constant green that does not answer to scroll depth. Only the arrival pulse scales down as
+the reader descends. So the ambience stays and the flash stays tame.
 
-**Tickets needed state transitions.** A ticket is drawn as a ticket, a small chip carrying its
-number. It parks on a stage node, the stage label beside it lights, and the chip moves on. The
-state is the label it is parked at, which keeps the words in the DOM for a screen reader.
+**Tickets needed state transitions.** A ticket is drawn as a ticket, a card carrying its number.
 
-**The vertical line won, because it carries the story while scrolling.** The rail across the top
-and the other two directions are removed. The remaining three are variations of the vertical run.
+**The vertical line won**, because it carries the story while scrolling. The rail across the top,
+the WebGL page and the restrained page are all removed.
 
-The `live` baseline is kept, because the ticket asks whether the result beats the live page.
-Removing it would remove the thing the verdict is measured against.
+### Round 3
+
+**The run grows as you descend.** The operator asked the story to start with one repo and one
+ticket, then more tickets, then a second repo. The reader's depth drives it. Past the first stage
+the traffic thickens, past the second a second repo lane opens, past the third a third opens.
+The lanes fold into the one queue at `takeable`, which is what the headline claims.
+
+**The cards got bigger, and the state got a color.** Each card carries a colored dot and its
+number. Each stage carries the same color on its own dot. A key above the claims names all four,
+so no dot needs guessing. The color never carries the state alone: the stage word sits beside every
+dot as DOM text, so a reader who cannot separate the hues still gets the state.
+
+**Your ticket rides along.** The pinned card from round 2 stays, drawn larger than the traffic
+around it, and its state changes as the stages pass it.
 
 ## The rule the variations share
 

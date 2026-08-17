@@ -243,7 +243,7 @@
   body[data-variant="stream"], body[data-variant="lanes"], body[data-variant="descent"] { background: #08090c; }
   .v-run { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
   .v-run a { color: var(--accent); }
-  .v-run .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.25rem 0 3.5rem; }
+  .v-run .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.1rem 0 4.75rem; }
   .v-run .q-hero { padding: 3.5rem 0 3rem; }
   .v-run .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
   .v-run .q-mark b { color: var(--accent); font-weight: 600; }
@@ -273,9 +273,23 @@
     font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.16em;
     text-transform: uppercase; color: var(--dim);
     margin: 0 0 0.75rem; padding: 0.15rem 0;
+    display: flex; align-items: center; gap: 0.45rem;
     transition: color 0.6s var(--ease);
   }
-  .v-run .q-tag.hot { color: var(--accent); }
+  .v-run .q-tag .q-dot {
+    width: 0.44rem; height: 0.44rem; border-radius: 999px; flex: none;
+    opacity: 0.55; transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+  }
+  .v-run .q-tag.hot { color: #e2e9f1; }
+  .v-run .q-tag.hot .q-dot { opacity: 1; transform: scale(1.35); }
+  /* The color code, spelled out once, so no dot needs guessing. */
+  .v-run .q-key {
+    display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem;
+    font-family: var(--mono); font-size: 0.68rem; color: var(--dim);
+    margin: 0 0 1.9rem;
+  }
+  .v-run .q-keyitem { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .v-run .q-keyitem i { width: 0.44rem; height: 0.44rem; border-radius: 999px; }
   .v-run .q-card {
     border-radius: 14px; padding: 1.4rem 1.35rem;
     background: #ffffff07; box-shadow: inset 0 0 0 1px var(--line);
@@ -320,7 +334,7 @@
   .v-run .guide .readmore { color: var(--dim); }
   .v-run footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
   @media (min-width: 40rem) {
-    .v-run .q-wrap { padding-left: 5.5rem; }
+    .v-run .q-wrap { padding-left: 7rem; padding-right: 1.25rem; }
   }
 
   /* ================================================================
@@ -431,6 +445,8 @@ var CONTENT = {
   cta: { label: 'Set it up', href: '#setup' },
   source: { label: 'Source', href: 'https://github.com/alp82/curia' },
 
+  /* The four stages of the run. Every word already appears in the page copy. */
+  stages: ['takeable', 'agent', 'gate', 'merged'],
   claimsHeading: 'What it gives you',
   claims: [
     {
@@ -901,22 +917,31 @@ function mountLive(root) {
 }
 
 /* ==================================================================
-   10. THE VERTICAL RUN — one direction, three variations
-   Operator, round 2: "definitely the vertical line because it carries
-   the stories while scrolling. story should evolve from top to bottom."
-   So the left-hand spine is the baseline, and the three variations
-   differ in HOW the story moves down it.
+   10. THE VERTICAL RUN
+   Operator, round 2: the vertical line carries the story while
+   scrolling, and the story should evolve from top to bottom.
+   Operator, round 3: "you move the ticket is a good start, lets
+   iterate from here", plus "story could start with one repo one
+   ticket, more tickets, then second repo, etc", plus "ticket cards
+   can be a bit bigger and have colorful state indicators", and
+   "intuitive understanding is the goal".
 
-     stream  — tickets arrive on their own and work their way down
-     lanes   — three watched repos converge into the one queue
-     descent — one ticket, and your scrolling is what advances it
+     grow    — the run grows as you descend: one repo and one ticket,
+               then more tickets, then a second repo, then a third
+     descent — the same pinned ticket, without the growth
+     lanes   — three repos converging, without the pinned ticket
 
-   Every variation shares the page, the stages and the real numbers.
+   Every variation shares the page, the four stages and real numbers.
    ================================================================== */
 
-/* Real tickets from this map. A chip that reaches merged is a ticket
+/* Real tickets from this map. A card that reaches merged is a ticket
    curia really did merge. */
 var SPINE_TICKETS = ['110', '111', '112', '113', '114', '115', '117', '137', '363'];
+
+/* One color per state, so the state reads before the word does. Merged
+   lands on the page's own accent, because merged is the good end. */
+var STATE_COLOR = ['#8b9bb0', '#e0ae4c', '#79a6f2', '#7dd3a0'];
+var STATE_RGB = ['139,155,176', '224,174,76', '121,166,242', '125,211,160'];
 
 function startSpine(canvas, heads, mode, onStage) {
   var ctx = canvas.getContext('2d');
@@ -934,15 +959,16 @@ function startSpine(canvas, heads, mode, onStage) {
   }
 
   var narrow = function () { return window.innerWidth < 640; };
-  var spineX = function () { return narrow() ? 18 : 40; };
+  var spineX = function () { return narrow() ? 26 : 52; };
 
   var nodes = heads.map(function (hd) {
     return { el: hd.el, stage: hd.stage, y: 0, ty: 0, vy: 0, on: 0, onT: 0, hit: 0, pulse: 0, hot: false };
   });
-  var chips = [], spawnAt = 0, seq = 0, raf = 0, last = 0, clock = 0;
-  /* descent carries exactly one ticket, and the reader moves it. */
-  var solo = (mode === 'descent')
-    ? { id: SPINE_TICKETS[SPINE_TICKETS.length - 1], at: -1, pop: 0 }
+  var cards = [], spawnAt = 0, seq = 0, raf = 0, last = 0, clock = 0;
+  var laneShown = 1;
+  /* The ticket the reader moves. It holds still and the page runs under it. */
+  var solo = (mode === 'grow' || mode === 'descent')
+    ? { id: SPINE_TICKETS[SPINE_TICKETS.length - 1], at: 0, pop: 0 }
     : null;
 
   function layout() {
@@ -955,6 +981,7 @@ function startSpine(canvas, heads, mode, onStage) {
   }
 
   function accent(a) { return 'rgba(125,211,160,' + a + ')'; }
+  function state(i, a) { return 'rgba(' + STATE_RGB[Math.min(i, 3)] + ',' + a + ')'; }
 
   function roundRect(x, y, w, hgt, r) {
     ctx.beginPath();
@@ -966,25 +993,39 @@ function startSpine(canvas, heads, mode, onStage) {
     ctx.closePath();
   }
 
-  /* A ticket, drawn as a ticket. Operator, round 2: "we can add simple
-     looking tickets with state transitions?" The chip carries the number,
-     and the stage it is parked at carries the state. */
-  function drawChip(x, y, id, a, swell) {
+  /* A ticket card: a dark chip with a colored state dot and its number.
+     Bigger than round 2, per the operator, and the dot is the state. */
+  function drawCard(x, y, id, st, a, swell, mine) {
     var label = '#' + id;
-    ctx.font = '600 9.5px ui-monospace, SFMono-Regular, Menlo, monospace';
-    var w = ctx.measureText(label).width + 9 + swell * 3;
-    var hgt = 14 + swell * 2;
-    roundRect(x - w / 2, y - hgt / 2, w, hgt, 3.5);
-    ctx.fillStyle = accent((0.16 + swell * 0.14) * a);
-    ctx.fill();
-    ctx.strokeStyle = accent((0.5 + swell * 0.35) * a);
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(198,242,219,' + (0.96 * a).toFixed(3) + ')';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(label, x, y + 0.5);
-  }
+    var fs = mine ? 12 : 11;
+    ctx.font = '600 ' + fs + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
+    var tw = ctx.measureText(label).width;
+    var w = tw + 24 + swell * 3;
+    var hgt = (mine ? 25 : 21) + swell * 2;
+    var rx = x - w / 2, ry = y - hgt / 2;
 
+    roundRect(rx, ry, w, hgt, 5);
+    ctx.fillStyle = 'rgba(10,13,17,' + (0.94 * a).toFixed(3) + ')';
+    ctx.fill();
+    ctx.strokeStyle = state(st, ((mine ? 0.95 : 0.7) + swell * 0.3) * a);
+    ctx.lineWidth = mine ? 1.4 : 1;
+    ctx.stroke();
+
+    if (swell > 0.02) {
+      ctx.beginPath(); ctx.arc(x, y, w * 0.62 + swell * 8, 0, 6.2832);
+      ctx.fillStyle = state(st, (0.10 * swell * a).toFixed(3));
+      ctx.fill();
+    }
+
+    var dx = rx + 9;
+    ctx.beginPath(); ctx.arc(dx, y, mine ? 4 : 3.4, 0, 6.2832);
+    ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(226,233,241,' + (0.95 * a).toFixed(3) + ')';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, dx + 8, y + 0.5);
+  }
 
   function frame(ts) {
     raf = requestAnimationFrame(frame);
@@ -994,39 +1035,45 @@ function startSpine(canvas, heads, mode, onStage) {
     size(); layout(); pointerStep();
     ctx.clearRect(0, 0, W, H);
 
-    var sx = spineX();
-    /* Round 2: "the green ambience is completely absent now, something
-       broke." Round 1 asked for a calmer flash, and that took the steady
-       green down with it. The ambience is constant from here on, and only
-       the transient part answers to depth. */
+    var sx = spineX(), vh = window.innerHeight;
     var breath = 0.5 + 0.5 * Math.sin(clock * 0.7);
-    var flashScale = clamp(1 - window.scrollY / (window.innerHeight * 1.6), 0.34, 1);
+    /* Only the transient answers to depth. The steady green does not,
+       which is what round 2 lost and round 3 keeps. */
+    var flashScale = clamp(1 - window.scrollY / (vh * 1.6), 0.34, 1);
 
-    /* The spine, with a soft column of light around it that never leaves. */
-    var grad = ctx.createLinearGradient(sx - 26, 0, sx + 26, 0);
+    /* How far down the run the reader has come. It drives the growth. */
+    var phase = 0;
+    for (var k = 0; k < nodes.length; k++) if (nodes[k].y <= vh * 0.55) phase = k + 1;
+    var laneWant = (mode === 'lanes') ? 3
+      : (mode === 'grow') ? (phase >= 3 ? 3 : phase >= 2 ? 2 : 1)
+      : 1;
+    laneShown = lerp(laneShown, laneWant, 0.05);
+
+    /* Ambience: a column of light on the spine that never leaves. */
+    var grad = ctx.createLinearGradient(sx - 30, 0, sx + 30, 0);
     grad.addColorStop(0, accent(0));
     grad.addColorStop(0.5, accent((0.055 + 0.02 * breath).toFixed(3)));
     grad.addColorStop(1, accent(0));
     ctx.fillStyle = grad;
-    ctx.fillRect(sx - 26, 0, 52, H);
+    ctx.fillRect(sx - 30, 0, 60, H);
 
     ctx.strokeStyle = accent((0.20 + 0.08 * breath).toFixed(3));
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
 
-    if (mode === 'lanes' && nodes.length) {
-      /* Three repos, above the first stage, folding into the one queue.
-         The page says three repos watched today, so there are three. */
-      var y0 = nodes[0].y;
-      if (y0 > 0) {
-        ctx.strokeStyle = accent((0.14 + 0.05 * breath).toFixed(3));
-        [-1, 1].forEach(function (side) {
-          ctx.beginPath();
-          ctx.moveTo(sx + side * 13, 0);
-          ctx.lineTo(sx + side * 13, Math.max(0, y0 - 90));
-          ctx.quadraticCurveTo(sx + side * 13, y0, sx, y0);
-          ctx.stroke();
-        });
+    /* Repo lanes, above the first stage, folding into the one queue. */
+    var y0 = nodes.length ? nodes[0].y : 0;
+    var laneOff = [0, -17, 17];
+    if (y0 > 0 && laneShown > 1.02) {
+      for (var li = 1; li < 3; li++) {
+        var open = clamp(laneShown - li, 0, 1);
+        if (open <= 0.01) continue;
+        ctx.strokeStyle = accent((0.13 * open + 0.04 * breath * open).toFixed(3));
+        ctx.beginPath();
+        ctx.moveTo(sx + laneOff[li] * open, 0);
+        ctx.lineTo(sx + laneOff[li] * open, Math.max(0, y0 - 100));
+        ctx.quadraticCurveTo(sx + laneOff[li] * open, y0, sx, y0);
+        ctx.stroke();
       }
     }
 
@@ -1038,73 +1085,75 @@ function startSpine(canvas, heads, mode, onStage) {
       n.pulse *= 0.94;
       n.hit = lerp(n.hit, n.pulse, 0.22);
 
-      /* The stage name is DOM text, so a screen reader still gets it and
-         the canvas never has to draw a label next to the body copy. */
       var hot = n.on > 0.5 || n.hit > 0.12;
       if (hot !== n.hot) { n.hot = hot; n.el.classList.toggle('hot', hot); }
 
+      var si = Math.min(n.stage, 3);
       var glow = 0.11 + n.on * 0.10 + n.hit * 0.12 * flashScale;
-      ctx.beginPath(); ctx.arc(sx, n.y, 10 + n.on * 2 + n.hit * 8, 0, 6.2832);
-      ctx.fillStyle = accent(glow.toFixed(3));
+      ctx.beginPath(); ctx.arc(sx, n.y, 11 + n.on * 2 + n.hit * 8, 0, 6.2832);
+      ctx.fillStyle = state(si, glow.toFixed(3));
       ctx.fill();
-      ctx.beginPath(); ctx.arc(sx, n.y, 3.6 + n.on * 1.1 + n.hit * 1.8, 0, 6.2832);
-      ctx.fillStyle = accent((0.55 + n.on * 0.4).toFixed(3));
+      ctx.beginPath(); ctx.arc(sx, n.y, 4 + n.on * 1.2 + n.hit * 1.8, 0, 6.2832);
+      ctx.fillStyle = state(si, (0.55 + n.on * 0.4).toFixed(3));
       ctx.fill();
     });
 
+    /* Traffic. It thickens as the run grows, so the page gets busier the
+       further the reader goes, which is the point the headline makes. */
+    if (Motion.on && mode !== 'descent') {
+      var gap = (mode === 'lanes') ? 2200 : Math.max(900, 3200 - phase * 620);
+      if (ts > spawnAt) {
+        spawnAt = ts + gap + Math.random() * gap * 0.6;
+        cards.push({
+          id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length],
+          y: -26, v: 150 + Math.random() * 60, hold: 0, at: 0, fade: 1, pop: 0,
+          lane: seq % Math.max(1, Math.round(laneShown))
+        });
+      }
+    }
+    for (var i = cards.length - 1; i >= 0; i--) {
+      var c = cards[i];
+      if (c.hold > 0) c.hold -= dt;
+      else {
+        c.y += c.v * dt;
+        for (var j = 0; j < nodes.length; j++) {
+          if (j < c.at || nodes[j].y <= 0) continue;
+          if (Math.abs(c.y - nodes[j].y) < 9) {
+            c.at = j + 1; c.hold = 0.9; c.pop = 1;
+            nodes[j].pulse = 1;
+            if (onStage) onStage(j);
+            break;
+          }
+        }
+      }
+      c.pop *= 0.9;
+      if (c.at >= nodes.length && c.hold <= 0) c.fade -= dt * 1.1;
+      if (c.fade <= 0 || c.y > H + 44) { cards.splice(i, 1); continue; }
+
+      var cx = sx;
+      if (c.at === 0 && y0 > 0 && c.lane > 0) {
+        var t = clamp((y0 - c.y) / 100, 0, 1);
+        cx = sx + laneOff[c.lane] * t * clamp(laneShown - c.lane, 0, 1);
+      }
+      drawCard(cx, c.y, c.id, c.at, c.fade, c.pop, false);
+    }
+    if (cards.length > 16) cards.splice(0, cards.length - 16);
+
     if (solo) {
-      /* descent: the chip holds still and the page moves under it, so
-         scrolling is what walks the ticket through its states. */
-      var y = H * 0.45;
-      var reached = -1;
-      for (var k = 0; k < nodes.length; k++) if (nodes[k].y <= y + 2) reached = k;
+      /* The reader's own ticket. It holds still and the stages come to it. */
+      var y = H * 0.46;
+      var reached = 0;
+      for (var m = 0; m < nodes.length; m++) if (nodes[m].y <= y + 2) reached = m + 1;
       if (reached !== solo.at) {
-        if (reached > solo.at && reached >= 0) {
-          nodes[reached].pulse = 1;
+        if (reached > solo.at) {
+          nodes[Math.min(reached - 1, nodes.length - 1)].pulse = 1;
           solo.pop = 1;
-          if (onStage) onStage(reached, nodes.length);
+          if (onStage) onStage(reached - 1);
         }
         solo.at = reached;
       }
       solo.pop *= 0.9;
-      drawChip(sx, y, solo.id, 1, solo.pop);
-    } else {
-      if (Motion.on && ts > spawnAt) {
-        spawnAt = ts + 2200 + Math.random() * 2200;
-        chips.push({
-          id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length],
-          y: -24, v: 150 + Math.random() * 60, hold: 0, at: 0, fade: 1, pop: 0,
-          lane: (seq % 3) - 1
-        });
-      }
-      for (var i = chips.length - 1; i >= 0; i--) {
-        var c = chips[i];
-        if (c.hold > 0) c.hold -= dt;
-        else {
-          c.y += c.v * dt;
-          for (var j = 0; j < nodes.length; j++) {
-            if (j < c.at || nodes[j].y <= 0) continue;
-            if (Math.abs(c.y - nodes[j].y) < 8) {
-              c.at = j + 1; c.hold = 1.0; c.pop = 1;
-              nodes[j].pulse = 1;
-              if (onStage) onStage(j, nodes.length);
-              break;
-            }
-          }
-        }
-        c.pop *= 0.9;
-        if (c.at >= nodes.length && c.hold <= 0) c.fade -= dt * 1.1;
-        if (c.fade <= 0 || c.y > H + 40) { chips.splice(i, 1); continue; }
-
-        var cx = sx;
-        if (mode === 'lanes' && nodes.length && nodes[0].y > 0 && c.at === 0) {
-          /* Slide in from its own repo lane and merge into the queue. */
-          var t = clamp((nodes[0].y - c.y) / 90, 0, 1);
-          cx = sx + c.lane * 13 * t;
-        }
-        drawChip(cx, c.y, c.id, c.fade, c.pop);
-      }
-      if (chips.length > 14) chips.splice(0, chips.length - 14);
+      drawCard(sx, y, solo.id, solo.at, 1, solo.pop, true);
     }
   }
 
@@ -1121,8 +1170,7 @@ function startSpine(canvas, heads, mode, onStage) {
   };
 }
 
-/* One page builder for all three variations. Only the spine mode differs,
-   which is the point: the operator picked the direction, not the layout. */
+/* One page builder for every variation. Only the spine mode differs. */
 function makeRun(mode) {
   return function (root) {
     root.className = 'v-run';
@@ -1145,12 +1193,22 @@ function makeRun(mode) {
       ]), 240)
     ])]);
 
-    /* A stage is a row: the node in the gutter, its name on the same line,
-       and the claim underneath. The chip parks on the node, so the state
-       reads straight off the label beside it. */
+    /* The color code, spelled out once. Intuitive understanding is the goal,
+       so the reader never has to guess what a colored dot means. */
+    var key = h('div', { class: 'q-key' });
+    CONTENT.stages.forEach(function (name, i) {
+      key.appendChild(h('span', { class: 'q-keyitem' }, [
+        h('i', { style: 'background:' + STATE_COLOR[i] }),
+        document.createTextNode(name)
+      ]));
+    });
+
     var headEls = [];
     function stage(name, kids) {
-      var hd = h('p', { class: 'q-tag', text: name });
+      var hd = h('p', { class: 'q-tag' }, [
+        h('i', { class: 'q-dot', style: 'background:' + STATE_COLOR[headEls.length] }),
+        document.createTextNode(name)
+      ]);
       headEls.push(hd);
       return h('div', { class: 'q-station' }, [hd].concat(kids));
     }
@@ -1162,7 +1220,9 @@ function makeRun(mode) {
         h('div', { class: 'under', html: c.under.join('<br>') })
       ]), i * 60)]);
     });
-    var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading }))].concat(stations))]);
+    var s1 = h('section', {}, [wrap(
+      [rv.add(h('h2', { text: CONTENT.claimsHeading })), rv.add(key, 40)].concat(stations)
+    )]);
 
     var frames = h('div', { class: 'q-frames' });
     CONTENT.frames.forEach(function (cap, i) {
@@ -1197,7 +1257,7 @@ function makeRun(mode) {
     var heads = headEls.map(function (el, i) { return { el: el, stage: i }; });
     var notes = [220, 277.18, 329.63, 392];
     var spine = startSpine(canvas, heads, mode, function (i) {
-      Sound.tone(notes[i % notes.length], 0.55, 'triangle', 0.06);
+      Sound.tone(notes[clamp(i, 0, 3) % notes.length], 0.55, 'triangle', 0.06);
     });
 
     return {
@@ -1217,9 +1277,9 @@ function makeRun(mode) {
    ================================================================== */
 
 var VARIANTS = [
-  { key: 'stream', name: 'Tickets arrive', note: 'the run, on its own', mount: makeRun('stream') },
-  { key: 'lanes', name: 'Many repos, one queue', note: 'three lanes converge', mount: makeRun('lanes') },
-  { key: 'descent', name: 'You move the ticket', note: 'scroll drives the run', mount: makeRun('descent') },
+  { key: 'grow', name: 'The run grows', note: 'one repo, then three', mount: makeRun('grow') },
+  { key: 'descent', name: 'You move the ticket', note: 'round 2, for comparison', mount: makeRun('descent') },
+  { key: 'lanes', name: 'Many repos, one queue', note: 'lanes without your ticket', mount: makeRun('lanes') },
   { key: 'live', name: 'The live page', note: 'the page as it is today', mount: mountLive }
 ];
 
@@ -1230,7 +1290,7 @@ var current = null, at = 0;
 
 function indexFromUrl() {
   var m = /[?&]variant=([^&]+)/.exec(location.search);
-  var key = m ? decodeURIComponent(m[1]) : 'stream';
+  var key = m ? decodeURIComponent(m[1]) : 'grow';
   for (var i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return i;
   return 0;
 }
