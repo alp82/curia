@@ -58,7 +58,7 @@ import {
   verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
-import { parkGoodbye } from './goodbye.mjs'
+import { paneGoodbye, parkGoodbye } from './goodbye.mjs'
 import { composeVerdict } from './card.mjs'
 import { verdictGrade } from './lint.mjs'
 import { outstanding, stopReason, reviewGateText, classifyReviewAnswer, REVIEW_KIND, RESULT_KIND, NOTIFY_KIND, dutyLines } from './lifecycle.mjs'
@@ -5067,6 +5067,99 @@ export class Dispatcher {
       return
     }
     this.reduction.journal('note_interrupt_delivered', { agent: session, ticket })
+  }
+
+  // ---- the boot sweep (#489, building #457's reading) -------------------------
+  //
+  // A SIGKILL is the one death the goodbye cannot cover: the daemon never gets
+  // to speak, so every blocked call dies in silence. A claude client aborts a
+  // dropped call about 120 s later and needs nothing from anyone. A codex client
+  // has no such watchdog: it sits inside the dead call until
+  // `CODEX_TOOL_TIMEOUT_S`, which curia sets to a day. That agent is PARKED —
+  // it holds its claim, its worktree and its slot, and it reads nothing.
+  //
+  // #457 measured the pane reaching such an agent in about three seconds, and
+  // this is that wire, driven at boot. It is the same two writes `#injectNote`
+  // makes, in the same order, over the same paced path: Escape frees the agent
+  // and says nothing, the words alone sit in the composer until the dead call
+  // returns, and only the pair works.
+  //
+  // FIVE FACTS, and every one of them has to hold before a key is pressed. The
+  // cost of getting it wrong is measured too (#457, run 2): Escape on a call
+  // that is truly live aborts it CLIENT-SIDE ONLY, so the daemon still writes
+  // the human's answer into a socket nobody reads, reports success, and closes
+  // the question as answered. That loss is silent on both ends.
+  //
+  //   1. The last daemon died with no last word. `deathWasSilent` is that
+  //      signal, and a goodbye skips the whole sweep: those calls already ended
+  //      with an error, and most of those agents are inside the 120-second sleep
+  //      the goodbye told them to take.
+  //   2. The record is open and no resolver holds it. At boot the resolver map
+  //      is empty, so every open record lost its own — but this pass runs after
+  //      a reconcile that reads GitHub, and a call arriving in between owns its
+  //      record. `hasResolver` is the caller's answer, because that map lives in
+  //      `index.mjs`.
+  //   3. A live pane is adopted under the record's agent name. That is the
+  //      evidence the pane is theirs, and it is the same evidence every other
+  //      pane write in this file stands on: reconcile adopted a live tmux
+  //      session of that exact name against an open, claimed issue.
+  //   4. The harness is codex. The claude lane aborts by itself (#341) and this
+  //      reading never covered it, so the sweep is codex only.
+  //   5. The agent has NOT spoken to this process. `mcpLastAt` (#194) is a
+  //      positive fact rather than a guess: an agent that made a call against
+  //      this daemon is not sitting in a call that died with the last one.
+  //
+  // One Escape per pane, whatever the record count: an agent is blocked inside
+  // ONE call, and a second Escape would land on the turn the first one started.
+  //
+  // The builder parked on a cross-check verdict is stranded the same way and is
+  // NOT here. That park leaves no durable record — `reviewWaits` dies with the
+  // process — so reviving it means rebuilding the park from the journal, which
+  // is its own decision.
+  async sweepStrandedPanes({ silent, hasResolver = () => false } = {}) {
+    if (!silent) {
+      this.reduction.journal('pane_sweep_skipped', { reason: 'the last daemon said goodbye' })
+      return { swept: [] }
+    }
+    const seen = new Set()
+    const stranded = []
+    for (const record of this.reduction.openEscalations()) {
+      if (seen.has(record.agent)) continue
+      if (hasResolver(record.id)) continue
+      const w = this.agents.get(record.agent)
+      if (!w || w.harness !== 'codex' || w.mcpLastAt) continue
+      seen.add(record.agent)
+      stranded.push({ record, agent: record.agent, ticket: w.ticket ?? String(record.ticket) })
+    }
+    this.reduction.journal('pane_sweep', { agents: stranded.map((s) => s.agent) })
+    if (!stranded.length) {
+      this.log('boot sweep: the last daemon died with no last word, and no codex agent was left parked')
+      return { swept: [] }
+    }
+    this.log(`boot sweep: ${stranded.length} parked codex agent(s) — ${stranded.map((s) => s.agent).join(', ')}`)
+    // Concurrent because the panes are independent, and `sendText` queues per
+    // pane (#223) — so the two writes of one agent stay in order whatever else
+    // is being written elsewhere.
+    const done = await Promise.all(stranded.map((s) => this.#wakeStrandedPane(s)))
+    return { swept: stranded.filter((_, i) => done[i]).map((s) => s.agent) }
+  }
+
+  // One parked agent: the keystrokes, then the line that says what was done to
+  // it. The operator pressed nothing here, so the thread has to state the act —
+  // and it states the failure too, because a sweep that could not reach a pane
+  // leaves an agent parked for a day and nothing else would say so.
+  async #wakeStrandedPane({ record, agent, ticket }) {
+    try {
+      await this.deps.sendKey(agent, 'Escape')
+      await this.deps.sendText(agent, paneGoodbye({ id: record.id }))
+    } catch (e) {
+      this.reduction.journal('pane_sweep_failed', { agent, ticket, id: record.id, reason: e.message })
+      this.notify(ticket, `⚠️ \`${agent}\` is parked inside **${record.id}** after a death with no last word, and curia could NOT reach its pane — ${failureProse(e.message)}. It reads nothing until that call times out, a day out. To hand the question over: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`)
+      return false
+    }
+    this.reduction.journal('pane_sweep_delivered', { agent, ticket, id: record.id })
+    this.notify(ticket, `⚠️ curia died with no last word, and \`${agent}\` was left parked inside **${record.id}** with no way to be told. Curia pressed Escape in its pane and typed the news, so that codex agent asks the same question again by itself. Nothing was answered, and the card stands.`)
+    return true
   }
 
   // The teardown a confirmed cancel runs — shared verbatim by cancel and

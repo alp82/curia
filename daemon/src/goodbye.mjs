@@ -33,8 +33,9 @@
 //   - The words say three things: curia is restarting, the question is NOT
 //     answered, and about how long to wait before asking again.
 //
-// A SIGKILL reaches nobody, and this file does not pretend otherwise. That case
-// is #457's, and `CODEX_TOOL_TIMEOUT_S` is still the only bound there.
+// A SIGKILL reaches nobody on the tool channel, and this file does not pretend
+// otherwise. #457 measured the second wire for that one death, and `paneGoodbye`
+// below is the word it carries: the same goodbye, said late, in the pane.
 
 // How long the wakened calls get to leave the socket before the process exits.
 // A blocked call is an open HTTP response, so the error has to be written and
@@ -42,6 +43,27 @@
 // a goodbye that hangs is a daemon that does not restart, and the whole point of
 // the drain is one round of the event loop with the sockets already writing.
 export const GOODBYE_DRAIN_MS = 250
+
+// The two lines a daemon writes about its own life. One per process at the
+// start, and at most one at the end — so the LAST of the two, read before this
+// process writes its own, says how the last daemon died (#489).
+export const DAEMON_BOOT = 'daemon_boot'
+export const DAEMON_GOODBYE = 'daemon_goodbye'
+
+// Did the last daemon die with no last word? That is the one death the boot
+// sweep exists for, and this is the signal that gates it.
+//
+// A goodbye means every blocked call already ended with an error, on both lanes
+// and before the process exited. Sweeping after one would press Escape on
+// agents that got their turn back minutes ago — most of them sitting in the
+// 120-second `sleep` the goodbye itself told them to take.
+//
+// `null` is a journal carrying neither line: a fresh box, or the first boot
+// after this shipped. It reads as silent, which costs nothing — the sweep then
+// walks a set filtered by four more facts, and an empty one is a no-op.
+export function deathWasSilent(lastLifecycle) {
+  return lastLifecycle !== DAEMON_GOODBYE
+}
 
 // What the agent is told to wait. It is #341's own second rung: the daemon is
 // usually back in seconds, but a deploy rebuilds an image, and a retry that
@@ -92,6 +114,38 @@ export function parkGoodbye(on = 'gate') {
   ].join('\n')
 }
 
+// What a codex agent the boot sweep frees is told (#489, on #457's reading).
+//
+// It is the same goodbye as `questionGoodbye`, and it says the same three
+// things. Everything else about it differs, because it arrives by another wire:
+//
+//   - The tense. A tool error is written by the daemon that is dying. This text
+//     is typed by the daemon that came BACK, so the death is past and the wait
+//     is over. There is nothing to wait for, and the agent asks again NOW.
+//   - The Escape. Codex tells the model "The user interrupted the previous turn
+//     on purpose" (#457, run 1). No user did. Curia did, and the second sentence
+//     says so — an agent that read that line as the operator stopping it would
+//     take its own question back rather than ask it again.
+//   - ONE line. The composer reads a newline as a submit, so a text with a line
+//     break is a half-sent message and a turn that starts on the half (#223).
+//     `#injectNote` collapses the operator's whitespace for the same reason.
+//
+// It arrives as a USER TURN rather than as a tool error, which is the whole
+// reason it cannot be `questionGoodbye`: that text says "this call died" about
+// the call it is the result of, and here there is no such call to point at.
+export function paneGoodbye({ id }) {
+  return [
+    '[curia, typed into your pane]',
+    'CURIA DIED WITHOUT WARNING, and the call you were blocked in died with it.',
+    'The interrupt you just saw is CURIA\'s own act: curia pressed Escape to free you from a call that was already dead.',
+    'No human stopped you, and nobody has answered you.',
+    `THIS IS NOT AN ANSWER: your question is still open on ${id}, the card is still in front of the operator, and curia recorded no answer for you.`,
+    'Never take these words for a reply, and never decide the question yourself because the call broke.',
+    'Make the same call again NOW, and do not wait first.',
+    'If the operator answered while curia was down, that answer comes back on the call you make.',
+  ].join(' ')
+}
+
 // Ref'd on purpose. An unref'd drain lets an empty event loop end the process
 // on its own, and a daemon that exits 0 stays down (`restart: on-failure`).
 const pause = (ms) => new Promise((done) => { setTimeout(done, ms) })
@@ -124,7 +178,7 @@ export async function sayGoodbye({ reason, wake, journal, log = () => {}, drainM
     woken += n
   }
   try {
-    journal?.('daemon_goodbye', { reason, woken, ...counts })
+    journal?.(DAEMON_GOODBYE, { reason, woken, ...counts })
   } catch (e) {
     log(`the goodbye could not be journalled (${e.message})`)
   }

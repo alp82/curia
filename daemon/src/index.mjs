@@ -32,7 +32,7 @@ import { Reduction, CONFIRM_KIND, noteDisposition } from './reduction.mjs'
 import { JOURNAL } from './journal.mjs'
 import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
-import { sayGoodbye, questionGoodbye } from './goodbye.mjs'
+import { sayGoodbye, questionGoodbye, deathWasSilent, DAEMON_BOOT } from './goodbye.mjs'
 import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
@@ -331,6 +331,25 @@ reduction.journal('journal_opened', {
   node: process.version, sqlite: process.versions.sqlite ?? null,
 })
 log(`[journal] ${JOURNAL} open on Node ${process.version}, SQLite ${process.versions.sqlite ?? 'unknown'}`)
+
+// How the LAST daemon died (#489), read before this one says it is alive —
+// after the boot line below, the answer is always this process's own.
+//
+// The two lines together make a death readable: every process writes one at its
+// start, and a death it can see writes a goodbye at its end. So a boot line with
+// no goodbye after it is a daemon that was killed with no chance to speak, which
+// is the one death the boot sweep exists for. Nothing else reads this.
+const lastDeathWasSilent = (() => {
+  try {
+    return deathWasSilent(reduction.questions.lastLifecycle())
+  } catch (e) {
+    // An unreadable journal is not evidence of a silent death, and the safe
+    // direction here is the one that presses no key.
+    log(`could not read how the last daemon died (${e.message}) — the boot sweep is skipped this boot`)
+    return false
+  }
+})()
+reduction.journal(DAEMON_BOOT, { pid: process.pid })
 
 // Per-agent status line (#108 item 8): one Discord message per agent
 // thread, edited in place through the journal's own lifecycle events. With
@@ -2715,6 +2734,14 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     .then(() => {
       log('boot reconcile done')
       dispatcher.startAutoLoop()
+      // The boot sweep (#489), AFTER the reconcile that adopted the panes: the
+      // sweep asks each record's agent for its harness and its last contact, and
+      // before adoption there is no agent to ask. A failure costs the parked
+      // agents nothing they did not already have.
+      return dispatcher.sweepStrandedPanes({
+        silent: lastDeathWasSilent,
+        hasResolver: (id) => pending.has(id),
+      }).catch((e) => log(`the boot sweep failed: ${e.message}`))
     })
     .catch((e) => log(`boot reconcile failed: ${e.message} — POST /reconcile to retry`))
 })
