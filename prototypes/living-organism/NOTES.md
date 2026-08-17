@@ -28,20 +28,23 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `atlas` | Maps as hubs and spokes | #508 candidate. Each map card hangs center stage with its tickets on spokes, and the lines fall out of the hubs into the queue. |
-| `chart` | The map is a tree | #508 candidate. map 109 with its children indented under it, and the rows detach one by one and ride the queue as you scroll. |
-| `wide` | The overview lies sideways | #508 candidate. A horizontal line runs through all four stages with the maps feeding it from above, then the ride turns vertical. |
-| `weave` | The line weaves the page | #508 candidate. The line runs side to side down the whole page, and a map card holds the center of the screen at every turn. |
-| `grand` | Grand central stations | #508 candidate. The line detours to the center at every stage, into a full-width band where the map card and a bigger station sit. |
+| `story` | The page is the journey | #508 candidate. The ride dictates the layout: maps with queues, one lane per map, the Discord thread, the harnesses, the gate, the merged stack. |
+| `stacks` | Queues and stacks | #508 candidate. The journey with fanned queues, and work waiting in a pile at the gate. |
+| `drift` | The journey sways | #508 candidate. The journey with a gentle sway in the line. |
 
-Every round 6 candidate keeps what is locked: typed two-row companions, the three-row reader's
-card, the four stages, and the title fully readable at the bottom of the first screen.
+Every round 7 candidate rebuilds the page around the journey: the copy narrows and spreads out,
+every stage gets a screen of scene space, tickets are mini GitHub-style rows, maps are larger
+session-holding cards, and the protagonist #508 is the same species as every ticket, marked only
+by a lit border. The hero states that curia is a wrapper for Matt Pocock's skills, on the
+operator's order at round 6.
 
 The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
 of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`), of round 3 (`flood`, `metro`, `dock`,
-`palm`, `swell`), of round 4 (`voyage`, `relay`, `kinds`, `poster`, `grove`) and of round 5
-(`epic`, `chapters`, `hud`, `harvest`, `flags`) were removed on the operator's orders. Git
-history keeps them.
+`palm`, `swell`), of round 4 (`voyage`, `relay`, `kinds`, `poster`, `grove`), of round 5
+(`epic`, `chapters`, `hud`, `harvest`, `flags`) and of round 6 (`atlas`, `chart`, `wide`,
+`weave`, `grand`) were removed on the operator's orders. Git history keeps them. The round 7
+keys `story` and `stacks` reuse round 1 and round 2 names for different things, and this table
+is the current meaning.
 
 All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
@@ -120,7 +123,19 @@ on spokes, `chart` draws map 109 as a real indented tree that drains into the qu
 the overview sideways before the ride turns vertical, `weave` runs the line side to side with a
 map card centered at every turn, and `grand` detours the line into a full-width map band at
 every stage. The line, the stations, the companions and the reader's card all ride one shared
-path function now, so a candidate can put the line anywhere on the screen.
+path function now, so a candidate can put the line anywhere on the screen. The verdict: `weave`
+has the potential and the parallel lanes are nice, `atlas` is too jumbled, `chart` is not
+understandable, `wide` confuses with its flip, and the pinned reader's card breaks the story by
+looking different from every other ticket. The order: tailor the whole page around the journey,
+with mini GitHub tickets, larger session-holding map cards, queues and stacks, one lane per map,
+scroll-revealed features, and a prominent line that curia is a wrapper for Matt Pocock's skills.
+
+**Round 7.** The page is the journey: the copy narrows and spreads out, every stage gets a
+screen of scene space, and the scroll reveals the story beat by beat. The protagonist is a mini
+ticket like every other, marked only by a lit border and the stage word beside it. Wireframe
+panels use only the page's own words: the Discord thread and its buttons, the preview line, the
+gate with its approve button, and the harness names Claude Code and Codex CLI from the guide.
+Three candidates beside `base`: `story`, `stacks` and `drift`.
 
 ## The rule the variations share
 
