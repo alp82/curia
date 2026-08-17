@@ -146,6 +146,36 @@ export function paneGoodbye({ id }) {
   ].join(' ')
 }
 
+// What a builder the boot sweep frees is told (#499, on the same wire as
+// `paneGoodbye`). It is `parkGoodbye` said late, in the pane, and it differs
+// from the question text above in the one way that matters: NOTHING IS OPEN.
+//
+// The gate press closed the record, so there is no card in front of the
+// operator and no question to ask again. What waits is a VERDICT: the reviewer
+// reads on in its own pane, and a verdict that landed is held on disk. So the
+// last two lines name the call to make and say what that call hands back —
+// the verdict if it has landed, and the park again if it has not.
+//
+// `on` says which call the builder was parked inside, exactly as `parkGoodbye`
+// takes it. Sending a builder back to a gate it has passed is the loop #48
+// refused, and the journal says which call it was (#499).
+//
+// ONE line, for the reason `paneGoodbye` is one line: the composer reads a
+// newline as a submit.
+export function parkPaneGoodbye({ on = 'gate' } = {}) {
+  const again = on === 'ending' ? '`report_result`' : '`request_review`'
+  return [
+    '[curia, typed into your pane]',
+    'CURIA DIED WITHOUT WARNING, and the call you were parked in died with it.',
+    'The interrupt you just saw is CURIA\'s own act: curia pressed Escape to free you from a call that was already dead.',
+    'No human stopped you.',
+    'THIS IS NOT A VERDICT: nothing was approved, nothing was rejected, and no question of yours is open.',
+    'The verdict is not lost: curia holds every verdict that lands, and the reviewer reads on in its own pane, which the daemon does not own.',
+    `Call ${again} again NOW, and do not wait first.`,
+    'That call hands you the verdict if it has landed, and it parks you back on the reviewer if it has not.',
+  ].join(' ')
+}
+
 // Ref'd on purpose. An unref'd drain lets an empty event loop end the process
 // on its own, and a daemon that exits 0 stays down (`restart: on-failure`).
 const pause = (ms) => new Promise((done) => { setTimeout(done, ms) })

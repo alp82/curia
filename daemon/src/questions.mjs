@@ -48,6 +48,14 @@ const ENDING_CARRIERS = ['ticket_resolved', 'nonclean_noted', 'charting_finished
 const EPOCH_TYPES = ['dispatch_claimed', 'agent_spawned']
 const LIFECYCLE_TYPES = [DAEMON_BOOT, DAEMON_GOODBYE]
 
+// The three lines that OPEN a cross-check park (#499). Each one is written from
+// inside the call that then parks, and from nowhere else: two by
+// `request_review` (the press and #237's rejoin) and one by `report_result`
+// (#258's ending hold). `reviewer_spawned` is deliberately not here — a
+// cross-check started from the thread spawns a reviewer while the builder works
+// on, so that line proves a reviewer and never a park.
+const PARK_OPEN_TYPES = ['cross_check_requested', 'cross_check_rejoined', 'result_parked']
+
 const list = (types) => types.map((t) => `'${t}'`).join(', ')
 
 // This ticket's latest dispatch, as one probe of `(ticket, epoch)`. 0 for a
@@ -73,7 +81,7 @@ select body from events
  where ${key} and type in (${list(types)})${extra}
  order by id desc limit 1`.trim()
 
-// The fifteen, as SQL. One entry per question, named for the answer and not for
+// The questions, as SQL. One entry per question, named for the answer and not for
 // the caller, because several callers ask the same one.
 const SQL = {
   // 1 — #epochScan: did this dispatch push a pull request?
@@ -185,6 +193,41 @@ select (select ts from events where agent = :a and type = 'result'
 select type from events
  where type in (${list(LIFECYCLE_TYPES)})
  order by id desc limit 1`.trim(),
+
+  // 17 — the boot sweep's cut (#499): where did the LAST daemon's life start?
+  // Read before this process writes its own boot line, exactly as question 16
+  // is. 0 for a journal that has never held one, which makes the cut the whole
+  // history.
+  lastBootAt: `
+select max(id) as id from events where type = '${DAEMON_BOOT}'`.trim(),
+
+  // 18 — the boot sweep's second set (#499): which builders were parked on a
+  // cross-check verdict when the last daemon died?
+  //
+  // A park leaves no durable record. `reviewWaits` dies with the process, so the
+  // park is rebuilt from the two lines that bracket it: one of `PARK_OPEN_TYPES`
+  // opens it, and `cross_check_returned` closes it.
+  //
+  // COUNTED rather than ordered, because the two lines do not always land in
+  // pairs. #237's rejoin journals its opener and then takes the wait from the
+  // older call, whose own `cross_check_returned` lands one microtask LATER —
+  // after the newer opener. Comparing the last of each would read that ticket as
+  // free. Counting reads it as parked, which is what it is.
+  //
+  // `:since` is the last daemon's boot id, so this counts one lifetime. A park
+  // lives inside one process, and an opener older than that describes a call an
+  // earlier death already ended.
+  parkedBuilders: `
+select e.body as body, e.type as type,
+       (select count(*) from events o
+         where o.ticket = e.ticket and o.type in (${list(PARK_OPEN_TYPES)}) and o.id > :since) as opened,
+       (select count(*) from events r
+         where r.ticket = e.ticket and r.type = 'cross_check_returned' and r.id > :since) as returned
+  from events e
+  join (select ticket, max(id) as id from events
+         where type in (${list(PARK_OPEN_TYPES)}) and id > :since and ticket is not null
+         group by ticket) last on last.id = e.id
+ order by e.ticket`.trim(),
 }
 
 export class Questions {
@@ -296,5 +339,35 @@ export class Questions {
   // carries neither. `deathWasSilent` in goodbye.mjs reads it.
   lastLifecycle() {
     return this.#one('lastLifecycle')?.type ?? null
+  }
+
+  // The id of the last `daemon_boot` line, or 0. Read at boot beside
+  // `lastLifecycle` and before this process writes its own, so the answer is the
+  // start of the life that just ended.
+  lastBootAt() {
+    return Number(this.#one('lastBootAt')?.id ?? 0)
+  }
+
+  // The builders a park still holds, one entry per ticket: `{ ticket, agent,
+  // repo, on }`. `on` is the call the builder is parked inside, in
+  // `parkGoodbye`'s own two words — `ending` for `report_result`, `gate` for
+  // `request_review`.
+  //
+  // A ticket whose openers and returns balance is NOT here: that builder had its
+  // call handed back, and the sweep presses no key for it.
+  parkedBuilders(since = 0) {
+    return this.#ask('parkedBuilders', { since: Number(since) || 0 })
+      .filter((row) => row.opened > row.returned)
+      .map((row) => {
+        const ev = normalizeEvent(JSON.parse(row.body))
+        return {
+          ticket: String(ev.ticket ?? ''),
+          agent: ev.agent ?? null,
+          repo: ev.repo ?? null,
+          on: row.type === 'result_parked' ? 'ending' : 'gate',
+        }
+      })
+      // An opener with no agent names nobody, and a keystroke needs a pane.
+      .filter((park) => park.agent && park.ticket)
   }
 }

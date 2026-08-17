@@ -7,11 +7,16 @@
 // measured the pane reaching that agent in about three seconds, and this is the
 // sweep built on that reading.
 //
-// Four layers, each tested where it lives:
+// #499 adds the OTHER agent that death strands: the builder parked on a
+// cross-check verdict. It is blocked in the same sense and has no open record,
+// so its evidence is the journal and its words say a verdict waits.
+//
+// Five layers, each tested where it lives:
 //   1. the words — one line, curia's own Escape, and never an answer
 //   2. the gate — a death that said goodbye presses no key at all
 //   3. the record — whether any call was ever blocked on it
 //   4. the set — which agents get keystrokes, and on what evidence
+//   5. the park — which builders the journal says a park still holds
 //
 // Layer 4 is where the cost of being wrong sits. #457 run 2 measured Escape on
 // a call that is truly live: the abort is client-side only, so the daemon writes
@@ -25,7 +30,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { Dispatcher } from '../src/dispatch.mjs'
 import { Reduction, CONFIRM_KIND } from '../src/reduction.mjs'
-import { paneGoodbye, deathWasSilent, DAEMON_BOOT, DAEMON_GOODBYE } from '../src/goodbye.mjs'
+import { paneGoodbye, parkPaneGoodbye, deathWasSilent, DAEMON_BOOT, DAEMON_GOODBYE } from '../src/goodbye.mjs'
 import { lintReply } from '../src/messaging.mjs'
 
 const dirs = []
@@ -65,6 +70,47 @@ describe('what a freed codex agent reads (#489)', () => {
     // The tool-channel goodbye names a 120-second sleep, because the daemon
     // that wrote it was about to die. This one is typed by the daemon that came
     // back, so the same wait would park the agent for no reason.
+    assert.match(text, /again NOW/)
+    assert.doesNotMatch(text, /sleep \d+/)
+  })
+})
+
+describe('what a freed parked builder reads (#499)', () => {
+  const text = parkPaneGoodbye({ on: 'gate' })
+
+  test('it is ONE line, because a composer reads a newline as a submit', () => {
+    assert.doesNotMatch(text, /\n/)
+  })
+
+  test("it says the Escape was curia's own act, not a human stopping the agent", () => {
+    assert.match(text, /CURIA's own act/)
+    assert.match(text, /No human stopped you/)
+  })
+
+  test('it never reads as a verdict, and it says nothing of its own is open', () => {
+    // The question text says a card is still in front of the operator. Here the
+    // gate press CLOSED that record, so the same words would name a card that
+    // does not exist.
+    assert.match(text, /THIS IS NOT A VERDICT/)
+    assert.match(text, /nothing was approved, nothing was rejected/)
+    assert.doesNotMatch(text, /THIS IS NOT AN ANSWER/)
+  })
+
+  test('it says the verdict is held rather than lost, and what the call hands back', () => {
+    assert.match(text, /The verdict is not lost/)
+    assert.match(text, /curia holds every verdict that lands/)
+    assert.match(text, /hands you the verdict if it has landed/)
+    assert.match(text, /parks you back on the reviewer if it has not/)
+  })
+
+  test('it names the call the builder was parked inside, and only that one', () => {
+    assert.match(text, /`request_review`/)
+    assert.doesNotMatch(text, /`report_result`/)
+    assert.match(parkPaneGoodbye({ on: 'ending' }), /`report_result`/)
+    assert.doesNotMatch(parkPaneGoodbye({ on: 'ending' }), /`request_review`/)
+  })
+
+  test('it says call again NOW — there is nothing left to wait for', () => {
     assert.match(text, /again NOW/)
     assert.doesNotMatch(text, /sleep \d+/)
   })
@@ -123,7 +169,7 @@ describe('a record carries whether any call was waiting on it (#489)', () => {
 // ---- 4. the set --------------------------------------------------------------
 
 describe('which agents the sweep touches (#489)', () => {
-  let writes, notifies, events, escalations, d
+  let writes, notifies, events, escalations, parks, d
 
   // A Dispatcher with the two pane writes captured and nothing else moving. The
   // sweep never spawns, claims or reads GitHub, so the doubles below are the
@@ -133,6 +179,7 @@ describe('which agents the sweep touches (#489)', () => {
     notifies = []
     events = []
     escalations = []
+    parks = []
     const root = tmpDir()
     return new Dispatcher({
       config: {
@@ -146,6 +193,7 @@ describe('which agents the sweep touches (#489)', () => {
       reduction: {
         journal: (type, detail) => { events.push({ type, ...detail }); return { type, ...detail } },
         openEscalations: () => escalations,
+        questions: { parkedBuilders: () => parks },
       },
       notify: (ticket, message) => notifies.push({ ticket, message }),
       log: () => {},
@@ -164,6 +212,13 @@ describe('which agents the sweep touches (#489)', () => {
     const record = { id: `esc-${escalations.length + 1}`, status: 'open', kind: 'free-text', agent: session, ticket, awaited: true }
     escalations.push(record)
     return record
+  }
+
+  // A builder the journal says is parked on a cross-check verdict (#499): the
+  // same adopted codex pane, and a park the journal rebuilt instead of a record.
+  const parkedOnVerdict = (session, ticket, { on = 'gate', harness = 'codex', mcpLastAt = null } = {}) => {
+    d.agents.set(session, { session, ticket, harness, mcpLastAt })
+    parks.push({ ticket, agent: session, repo: 'o/r', on })
   }
 
   beforeEach(() => { d = makeDispatcher() })
@@ -270,6 +325,112 @@ describe('which agents the sweep touches (#489)', () => {
     assert.deepEqual(lintReply(message), [])
   })
 
+  // ---- the second set: a builder parked on a cross-check verdict (#499) ------
+
+  test('a builder parked on a verdict gets Escape and THEN the park words', async () => {
+    parkedOnVerdict('curia-20', '20')
+    const out = await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(out.swept, ['curia-20'])
+    assert.equal(writes.length, 2)
+    assert.deepEqual(writes[0], { pane: 'curia-20', key: 'Escape' })
+    assert.equal(writes[1].body, parkPaneGoodbye({ on: 'gate' }))
+    assert.ok(events.some((e) => e.type === 'pane_sweep_delivered' && e.agent === 'curia-20' && e.on === 'gate'))
+  })
+
+  test('a builder parked inside report_result reads about report_result', async () => {
+    parkedOnVerdict('curia-21', '21', { on: 'ending' })
+    await d.sweepStrandedPanes({ silent: true })
+
+    // Sending a builder back to a gate it has passed is the loop #48 refused.
+    assert.equal(writes[1].body, parkPaneGoodbye({ on: 'ending' }))
+    assert.match(writes[1].body, /`report_result`/)
+    assert.doesNotMatch(writes[1].body, /`request_review`/)
+  })
+
+  test('a park THIS process holds is not swept, whatever the journal says', async () => {
+    parkedOnVerdict('curia-22', '22')
+    d.reviewWaits.set('22', { agent: 'curia-22', on: 'gate', resolve: () => {}, reject: () => {} })
+    await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(writes, [], 'the builder re-parked between the reconcile and this pass (#237)')
+  })
+
+  test('the claude lane and an agent that has spoken to this process keep their call', async () => {
+    parkedOnVerdict('curia-23', '23', { harness: 'claude' })
+    parkedOnVerdict('curia-24', '24', { mcpLastAt: Date.now() })
+    parks.push({ ticket: '25', agent: 'curia-25', repo: 'o/r', on: 'gate' })
+    await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(writes, [], 'and no pane was adopted for curia-25 at all')
+  })
+
+  test('a goodbye skips the parked builders too', async () => {
+    parkedOnVerdict('curia-26', '26')
+    const out = await d.sweepStrandedPanes({ silent: false })
+
+    assert.deepEqual(out.swept, [])
+    assert.deepEqual(writes, [])
+  })
+
+  test('an agent in both sets gets ONE Escape, and reads the record words', async () => {
+    // An agent is blocked inside ONE call, so the two sets never both hold it.
+    // The `seen` set is what makes that structural rather than a claim.
+    const record = park('curia-27', '27')
+    parkedOnVerdict('curia-27', '27')
+    await d.sweepStrandedPanes({ silent: true })
+
+    assert.equal(writes.filter((w) => w.key === 'Escape').length, 1)
+    assert.equal(writes[1].body, paneGoodbye({ id: record.id }))
+  })
+
+  test('the line says a verdict waits, names the call, and speaks the signal set', async () => {
+    parkedOnVerdict('curia-28', '28')
+    await d.sweepStrandedPanes({ silent: true })
+
+    const [{ message }] = notifies
+    assert.match(message, /curia-28/)
+    assert.match(message, /Escape/)
+    assert.match(message, /request_review/)
+    assert.match(message, /holds the verdict/)
+    assert.match(message, /Nothing was approved and nothing was rejected/)
+    assert.deepEqual(lintReply(message), [])
+  })
+
+  test('a park pane curia cannot reach says so, and names the hand-over', async () => {
+    parkedOnVerdict('curia-29', '29', { on: 'ending' })
+    d.deps.sendKey = async () => { throw new Error('no server running on /tmp/tmux-0/default') }
+    const out = await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(out.swept, [])
+    const failed = events.find((e) => e.type === 'pane_sweep_failed')
+    assert.equal(failed.on, 'ending')
+    const said = notifies.find((n) => n.ticket === '29').message
+    assert.match(said, /could NOT reach its pane/)
+    assert.match(said, /report_result/)
+    assert.match(said, /cancel 29/)
+    assert.deepEqual(lintReply(said), [])
+  })
+
+  test('the sweep journals which agents came from the park set', async () => {
+    park('curia-30', '30')
+    parkedOnVerdict('curia-31', '31')
+    await d.sweepStrandedPanes({ silent: true })
+
+    const sweep = events.find((e) => e.type === 'pane_sweep')
+    assert.deepEqual(sweep.agents.sort(), ['curia-30', 'curia-31'])
+    assert.deepEqual(sweep.parked, ['curia-31'])
+  })
+
+  test('a journal that cannot be read presses no key for a parked builder', async () => {
+    parkedOnVerdict('curia-32', '32')
+    d.reduction.questions.parkedBuilders = () => { throw new Error('events journal is unreadable: disk I/O error') }
+    const out = await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(out.swept, [])
+    assert.deepEqual(writes, [], 'doubt presses no key, and the record set stands on its own')
+  })
+
   test('a pane curia cannot reach says so, and the other agents are still swept', async () => {
     park('curia-16', '16')
     park('curia-17', '17')
@@ -286,5 +447,109 @@ describe('which agents the sweep touches (#489)', () => {
     assert.match(said, /could NOT reach its pane/)
     assert.match(said, /cancel 16/)
     assert.deepEqual(lintReply(said), [])
+  })
+})
+
+// ---- 5. the park, rebuilt from the journal (#499) ----------------------------
+//
+// `reviewWaits` dies with the process, so nothing durable says a builder was
+// parked. The journal is the only evidence, and these are the lines that carry
+// it: one of three openers, each written from inside the call that then parks,
+// and `cross_check_returned` when that call is handed back.
+
+describe('which builders the journal says a park still holds (#499)', () => {
+  const boot = (r) => { r.journal(DAEMON_BOOT, { pid: 1 }); return r.questions.lastBootAt() }
+
+  test('an opener with no return is a park, and it names the call', () => {
+    const r = new Reduction(tmpDir())
+    const since = boot(r)
+    r.journal('cross_check_requested', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+
+    assert.deepEqual(r.questions.parkedBuilders(since), [
+      { ticket: '42', agent: 'curia-42', repo: 'o/r', on: 'gate' },
+    ])
+  })
+
+  test('an opener whose call was handed back is no park at all', () => {
+    const r = new Reduction(tmpDir())
+    const since = boot(r)
+    r.journal('cross_check_requested', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    r.journal('cross_check_returned', { repo: 'o/r', ticket: '42', agent: 'curia-42', ok: true })
+
+    assert.deepEqual(r.questions.parkedBuilders(since), [], 'that builder read the verdict and worked on')
+  })
+
+  test('the ending hold is its own call, and the words have to say so', () => {
+    const r = new Reduction(tmpDir())
+    const since = boot(r)
+    r.journal('result_parked', { repo: 'o/r', ticket: '42', agent: 'curia-42', reason: 'cross-check in flight' })
+
+    assert.equal(r.questions.parkedBuilders(since)[0].on, 'ending')
+  })
+
+  test('a rejoin re-parks a ticket the last round already returned', () => {
+    const r = new Reduction(tmpDir())
+    const since = boot(r)
+    r.journal('cross_check_requested', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    r.journal('cross_check_returned', { repo: 'o/r', ticket: '42', agent: 'curia-42', ok: true })
+    r.journal('cross_check_rejoined', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+
+    assert.equal(r.questions.parkedBuilders(since).length, 1)
+    assert.equal(r.questions.parkedBuilders(since)[0].on, 'gate')
+  })
+
+  test('a return that lands AFTER the newer opener still leaves one park open', () => {
+    // #237's rejoin journals its opener, then takes the wait from the older
+    // call — whose own `cross_check_returned` lands one microtask later, after
+    // that opener. Comparing the last of each would read this ticket as free.
+    const r = new Reduction(tmpDir())
+    const since = boot(r)
+    r.journal('cross_check_requested', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    r.journal('cross_check_rejoined', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    r.journal('cross_check_returned', { repo: 'o/r', ticket: '42', agent: 'curia-42', ok: false, why: 'a newer call' })
+
+    assert.equal(r.questions.parkedBuilders(since).length, 1, 'two openers, one return, one builder still parked')
+  })
+
+  test('a park from an earlier life is not this death, so no key is pressed for it', () => {
+    const r = new Reduction(tmpDir())
+    r.journal(DAEMON_BOOT, { pid: 1 })
+    r.journal('cross_check_requested', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    const since = boot(r)
+
+    assert.deepEqual(r.questions.parkedBuilders(since), [], 'a park lives inside one process')
+  })
+
+  test('a reviewer spawned from the thread proves a reviewer and never a park', () => {
+    const r = new Reduction(tmpDir())
+    const since = boot(r)
+    r.journal('reviewer_spawned', { repo: 'o/r', ticket: '42', agent: 'curia-review-42' })
+
+    assert.deepEqual(r.questions.parkedBuilders(since), [], 'the builder works on until it asks for the gate')
+  })
+
+  test('every parked ticket answers once, whatever its opener count', () => {
+    const r = new Reduction(tmpDir())
+    const since = boot(r)
+    r.journal('cross_check_requested', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    r.journal('result_parked', { repo: 'o/r', ticket: '43', agent: 'curia-43', reason: 'cross-check in flight' })
+    r.journal('cross_check_rejoined', { repo: 'o/r', ticket: '43', agent: 'curia-43' })
+
+    const parked = r.questions.parkedBuilders(since)
+    assert.deepEqual(parked.map((p) => p.ticket), ['42', '43'])
+    assert.equal(parked[1].on, 'gate', 'the LAST opener says which call it sits in now')
+  })
+
+  test('the boot id is the last daemon\'s, read before this process writes its own', () => {
+    const r = new Reduction(tmpDir())
+    assert.equal(r.questions.lastBootAt(), 0, 'a journal that has never held a daemon')
+
+    r.journal(DAEMON_BOOT, { pid: 1 })
+    const first = r.questions.lastBootAt()
+    assert.ok(first > 0)
+
+    r.journal('cross_check_requested', { repo: 'o/r', ticket: '42', agent: 'curia-42' })
+    r.journal(DAEMON_BOOT, { pid: 2 })
+    assert.ok(r.questions.lastBootAt() > first, 'the second life starts after the first one ends')
   })
 })
