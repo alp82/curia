@@ -7,7 +7,7 @@ This directory is throwaway code. It answers one question. It is not the live pa
 
 ## What it is
 
-One self-contained HTML file, `index.html`. It holds four variants of the page on one route.
+One self-contained HTML file, `index.html`. It holds five variants of the page on one route.
 Switch them with the bar at the bottom, with the left and right arrow keys, or with `?variant=`.
 
 | Key | Name | What it tries |
@@ -100,7 +100,7 @@ Rejected, with the reason:
 
 The honesty block says `Curia is fifteen days old.` A worker counted that on 5 August 2026.
 The first commit is 2026-07-21, so the age is 27 days today, 17 August 2026.
-All four variants show the live wording, because a fair comparison needs identical copy.
+All five variants show the live wording, because a fair comparison needs identical copy.
 The fix belongs to the live page, not to this experiment.
 
 ### Sound stays off, and a browser agrees
@@ -123,10 +123,10 @@ It stubs the DOM with Node builtins alone, and it installs nothing.
 It proves the code runs. It cannot judge how the page looks, and the operator makes that call.
 
 The harness mounts each variant, runs the animation loops, fires every reveal, turns sound on and
-off, walks the switcher through all four variants, toggles motion and opens the lightbox.
+off, walks the switcher through all five variants, toggles motion and opens the lightbox.
 It then reads the rendered text back and checks it.
 
-Checks that pass for all four variants:
+Checks that pass for all five variants:
 
 - No banned word from `positioning.md` reaches the page.
 - Twenty-two required sentences appear word for word.
