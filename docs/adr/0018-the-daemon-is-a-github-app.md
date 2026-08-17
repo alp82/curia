@@ -40,7 +40,7 @@ Five costs come out of that shape.
 
 - **The agent keeps `gh pr merge`.** The merge is the one write to the remote an agent owns, in the standing orders, in the Stop hook and in [ADR-0008](0008-resolved-means-merged.md). Branch protection is satisfied by the operator's approval, so the bot's merge goes through and nothing about the ending changes.
 
-- **Branch protection turns on with the gate cutover, and not before.** One required review on the watched repos, turned on in the same act that starts posting the approval. Turned on earlier it blocks every curia pull request behind an approval nobody posts. Amended on [#391](https://github.com/alp82/curia/issues/391): the rule is the operator's own OPTIONAL act, per repo, and curia never requires a setting in a watched repo. Nothing in the daemon reads it. This box protects `alp82/curia` alone.
+- **Branch protection turns on with the gate cutover, and not before.** One required review on the watched repos, turned on in the same act that starts posting the approval. Turned on earlier it blocks every curia pull request behind an approval nobody posts. Amended on [#391](https://github.com/alp82/curia/issues/391): the rule is the operator's own OPTIONAL act, per repo, and curia never requires a setting in a watched repo. Nothing in the daemon reads it. Amended again on [#479](https://github.com/alp82/curia/issues/479): this box protects NO repo, because the operator ruled the rule out. The approval is posted either way, and the enforcement half of the pair is unproven by choice.
 
 - **No PAT comes out ahead of its replacement.** The minting core ships first and swaps no holder. Each holder cuts over on its own ticket, provable live on the box, and its PAT retires only after that.
 
