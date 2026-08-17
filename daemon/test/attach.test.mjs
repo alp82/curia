@@ -10,7 +10,7 @@ import os from 'node:os'
 import net from 'node:net'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import YAML from 'yaml'
+import { composeConfig, DEFAULT_REPO_ROOT } from './fixtures/compose.mjs'
 import {
   probeTtyd, WRAPPER_PATH, validSessionName,
   attachUrl, serveOff, DEFAULT_INDEX, CHROME_BASENAME, indexRefusal, readIndexStamp,
@@ -19,7 +19,10 @@ import {
 } from '../src/attach.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-const COMPOSE = YAML.parse(fs.readFileSync(path.join(REPO, 'deploy', 'compose.yaml'), 'utf8'))
+// Resolved the way compose resolves it, not raw: the paths in this argv are
+// `${CURIA_REPO_ROOT:-...}` since #473, and the pins below are about the file
+// ttyd serves rather than the spelling of a variable.
+const COMPOSE = composeConfig()
 const TTYD_CMD = COMPOSE.services.ttyd.command
 
 describe('the compose ttyd command (hardening pins, #260)', () => {
@@ -34,7 +37,7 @@ describe('the compose ttyd command (hardening pins, #260)', () => {
 
   test('serves the whitelisting wrapper by absolute path, as the last element', () => {
     assert.ok(TTYD_CMD.includes('-a'), '-a makes ?arg= pick the session — the wrapper whitelist is why that is safe')
-    assert.equal(TTYD_CMD.at(-1), '/home/alp/curia/daemon/bin/curia-attach.sh')
+    assert.equal(TTYD_CMD.at(-1), `${DEFAULT_REPO_ROOT}/daemon/bin/curia-attach.sh`)
   })
 
   test('#69: the renderer is dom — ttyd\'s default webgl renders a BLANK terminal in Vivaldi and Firefox', () => {
@@ -42,7 +45,7 @@ describe('the compose ttyd command (hardening pins, #260)', () => {
   })
 
   test('#70: the owned index is served — no flag can add the viewport meta ttyd 1.7.7 omits', () => {
-    assert.equal(TTYD_CMD[TTYD_CMD.indexOf('-I') + 1], '/home/alp/curia/daemon/assets/attach-index.html')
+    assert.equal(TTYD_CMD[TTYD_CMD.indexOf('-I') + 1], `${DEFAULT_REPO_ROOT}/daemon/assets/attach-index.html`)
   })
 
   test('ttyd is writable and the terminal stays inside the identity proxy: loopback, never a published port', () => {

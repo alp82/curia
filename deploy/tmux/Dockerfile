@@ -33,6 +33,10 @@ RUN mkdir -p /run/curia-tmux && chown 1000:1000 /run/curia-tmux
 
 # The services run as uid 1000, and tmux looks the user up for its default
 # shell — debian-slim has no uid 1000 entry, so give it one, homed where the
-# compose mounts sit.
-RUN useradd -u 1000 -d /home/alp -M -s /bin/bash curia \
-  && mkdir -p /home/alp && chown 1000:1000 /home/alp
+# compose mounts sit. That home is curia's own now, `home/` inside the workspace
+# root, and compose passes the same path it sets on the container (#473). The
+# workspace mount covers it here, so a pane agent reads the credential store the
+# daemon points it at. No default: an empty arg fails the `mkdir` below.
+ARG CURIA_HOME
+RUN useradd -u 1000 -d "$CURIA_HOME" -M -s /bin/bash curia \
+  && mkdir -p "$CURIA_HOME" && chown 1000:1000 "$CURIA_HOME"

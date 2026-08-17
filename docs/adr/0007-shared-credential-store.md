@@ -1,7 +1,7 @@
 # ADR-0007: Agents share the host credential store
 
-**Status**: accepted (2026-07), extended (2026-08), corrected (2026-08)
-**Provenance**: [Share the host credential file with agents instead of copying it (#53)](https://github.com/alp82/curia/issues/53), [Status line shows model, effort, context %, and the usage bars (#146)](https://github.com/alp82/curia/issues/146), [The account usage bars have no source on the deployment box (#162)](https://github.com/alp82/curia/issues/162)
+**Status**: accepted (2026-07), extended (2026-08), corrected (2026-08), relocated (2026-08)
+**Provenance**: [Share the host credential file with agents instead of copying it (#53)](https://github.com/alp82/curia/issues/53), [Status line shows model, effort, context %, and the usage bars (#146)](https://github.com/alp82/curia/issues/146), [The account usage bars have no source on the deployment box (#162)](https://github.com/alp82/curia/issues/162), [The compose mount paths stop being one box's paths (#473)](https://github.com/alp82/curia/issues/473)
 
 ## Context
 
@@ -66,3 +66,16 @@ That is the frozen-credential shape this ADR exists to avoid, accepted knowingly
 - **Nothing here writes a credential.** Rule 1 of the extension above is unchanged, and the container has no path back to the host store to rotate anything.
 
 The bare path keeps sharing the store. The two paths differ only while both exist.
+
+## Relocation: the store is curia's own, not the operator's (#473)
+
+Every word above says **host** store and means `~/.claude` of the user who runs the box. Under docker compose that is no longer where it is. `HOME` in every curia container is `home/` inside `dispatch.workspace_root`, so the store is `<workspace_root>/home/.claude`, and no container mounts a tree out of the operator's home. The compose file named one box's home directory on 34 lines, and a curia on another VPS had to reproduce it.
+
+**The decision itself is untouched.** One store, one refresh lineage, shared by every pane agent and read by the daemon under the three rules. What moved is which directory holds it, and `os.homedir()` is what reads it, so no code here changed. A sandboxed agent is still narrowed out by #156, for the same reason: it mounts no home of any kind.
+
+Two shared things stop being shared, and both were shared with the **operator**, never between agents:
+
+- **The endpoint budget.** Rule 3 of the extension, and consequence 4 of the correction, say the attempt stamp is a cooperative lock the operator's own `statusline.sh` writes too. It reads `~/.claude/cache` and the daemon now reads `<workspace_root>/home/.claude/cache`, so the two no longer throttle each other and neither keeps the other fresh. The rules still bind the daemon against itself, and the probe's ceiling is unchanged. To share it again, point `statusline.sh` at curia's home.
+- **The refresh lineage against a host `claude` session.** A pane agent rides curia's store, and an interactive session on the box rides the operator's. The #53 failure needs one lineage refreshed under another, and these two never touch, so neither can strand the other.
+
+This is what curia being agnostic to one installation costs here, and it is the price of the box's own home not being curia's business.

@@ -59,11 +59,12 @@ export function helperRunArgs({ repoRoot, dataDir, home, uid, gid, workRoot }) {
     '-v', `${dataDir}:${dataDir}`,
     // the workspace, so the script can pre-create the overseer's bind-mount
     // sources as uid 1000 — dockerd creates a missing source as root, and the
-    // overseer then cannot write its own trees (alp82/curia#474)
+    // overseer then cannot write its own trees (alp82/curia#474).
+    //
+    // It also carries HOME, which is `home/` inside this tree since #473: the
+    // `gh` auth that git's credential helper runs on and the git identity ride
+    // in with it, where they used to be two mounts out of the operator's home.
     '-v', `${workRoot}:${workRoot}`,
-    // git over https via gh's credential helper, same mounts the daemon has
-    '-v', `${home}/.config/gh:${home}/.config/gh`,
-    '-v', `${home}/.gitconfig:${home}/.gitconfig:ro`,
     'curia-daemon',
     // The sibling's own `git merge` rewrites self-deploy.sh in the checkout
     // while bash is executing it, and bash reads scripts incrementally — so
@@ -73,7 +74,10 @@ export function helperRunArgs({ repoRoot, dataDir, home, uid, gid, workRoot }) {
 }
 
 export class SelfDeploy {
-  constructor({ repoRoot, dataDir, workRoot, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? '/home/alp', dockerSocket = '/var/run/docker.sock' }) {
+  // `home` is curia's own HOME, and compose is what states it: `home/` inside
+  // the workspace root (#473). The fallback repeats that rule for a run outside
+  // compose, where nothing sets HOME — it names no box's home directory.
+  constructor({ repoRoot, dataDir, workRoot, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? path.join(workRoot, 'home'), dockerSocket = '/var/run/docker.sock' }) {
     this.repoRoot = repoRoot
     this.dataDir = dataDir
     this.workRoot = workRoot

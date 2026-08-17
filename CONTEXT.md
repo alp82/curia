@@ -705,8 +705,8 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
-- **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs, and the overseer's checkouts under `overseer/repos/`. Those last are a cache of origin and nothing else, so deleting one costs a re-clone and no work.
-- **Host credential stores** (`~/.claude`, `~/.codex`): the daemon's own. No container reaches them — a dispatched agent gets the model credential copied into its container environment, and the overseer container reads its own from `daemon/.env.overseer`.
+- **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs, the overseer's checkouts under `overseer/repos/`, and curia's own `HOME` under `home/`. The checkouts are a cache of origin and nothing else, so deleting one costs a re-clone and no work.
+- **Curia's credential stores** (`<workspace_root>/home/.claude`, `.codex`, `.config/gh`, `.gitconfig`): the daemon's own, and curia's rather than the operator's since [#473](https://github.com/alp82/curia/issues/473) — the compose stack reads no tree out of the box owner's home. No agent container reaches them: a dispatched agent gets the model credential copied into its container environment, and the overseer container reads its own from `daemon/.env.overseer`. See [ADR-0007](docs/adr/0007-shared-credential-store.md).
 - **docker**: the live agent containers and the two shared cache volumes.
 
 Everything else is a cache that reconcile can rebuild.

@@ -63,7 +63,15 @@ COPY --from=compose-bin /docker-compose /usr/local/libexec/docker/cli-plugins/do
 # uid 1000 from creating the socket.
 RUN mkdir -p /run/curia-tmux && chown 1000:1000 /run/curia-tmux
 
-# HOME is /home/alp (compose sets it; the mounts sit under it). The directory
-# itself must exist writable for uid 1000, or container-local writes beside
-# the mounts — the npm cache, shell state — fail with EACCES.
-RUN mkdir -p /home/alp && chown 1000:1000 /home/alp
+# HOME is `home/` inside the workspace root, and compose passes the same path
+# here that it sets on the container (#473). curia owns that tree rather than
+# the operator's home. The workspace mount covers it at run time, so what this
+# line makes is the fallback under the mount — but the directory must exist
+# writable for uid 1000 either way, or container-local writes beside the mounts
+# — the npm cache, shell state — fail with EACCES.
+#
+# No default, the rule the Node pin already follows: an empty arg makes
+# `mkdir -p ""` fail, so a build that forgets it stops here rather than baking a
+# home at a path nobody named.
+ARG CURIA_HOME
+RUN mkdir -p "$CURIA_HOME" && chown 1000:1000 "$CURIA_HOME"

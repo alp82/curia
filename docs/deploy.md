@@ -21,13 +21,26 @@ Curia runs under docker compose on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 
 **The overseer is the one service off the host network.** It holds a shell, and on the host network that shell reaches the daemon's loopback surface, ttyd, the identity proxy and the tailscaled socket. On the bridge it reaches none of them. It reaches the daemon at `host.docker.internal`, the way an agent container does, and the daemon reaches it on the published loopback port.
 
-Host trees mount into the containers at their identical paths (`/home/alp/curia`, `/home/alp/curia-work`, `~/.claude`, `~/.codex`, gh and git config). Host paths are data in this repo — `curia.yaml`, `workspace_root`, every composed `docker run -v` line — so no translation layer exists. The host docker socket and the host tailscaled socket bind-mount in: agent containers are siblings on host dockerd, and Serve state stays in host tailscaled.
+Host trees mount into the containers at their identical paths. Host paths are data in this repo — `curia.yaml`, `workspace_root`, every composed `docker run -v` line — so no translation layer exists. The host docker socket and the host tailscaled socket bind-mount in: agent containers are siblings on host dockerd, and Serve state stays in host tailscaled.
 
-`deploy/.env` (uncommitted, beside the compose file) holds one value:
+**The compose file names no path of this box** ([#473](https://github.com/alp82/curia/issues/473)). Two variables carry the roots, and both fall back to this box's answers, so this box states neither. A curia on another VPS writes them in its own `deploy/.env` and edits no committed file.
+
+**Curia runs on its own home, not the `alp` user's.** `HOME` in every container is `home/` inside the workspace root. The four trees the stack used to take out of `/home/alp` — `.claude`, `.codex`, `.config/gh`, `.gitconfig` — live in there now, and no mount reaches into the operator's home. The workspace mount carries it, so it needs no mount of its own.
+
+`deploy/.env` (uncommitted, beside the compose file) holds one value on this box:
 
 ```
 DOCKER_GID=<output of: getent group docker | cut -d: -f3>
 ```
+
+`DOCKER_GID` has no default: the docker group id differs per box, and a guess is a group that grants nothing or too much. The two roots do have defaults, and these are them:
+
+| Key | Default | What it is |
+| --- | --- | --- |
+| `CURIA_REPO_ROOT` | `/home/alp/curia` | The checkout |
+| `CURIA_WORKSPACE_ROOT` | `/home/alp/curia-work` | `dispatch.workspace_root`, and curia's `HOME` at `home/` inside it |
+
+`CURIA_WORKSPACE_ROOT` and `dispatch.workspace_root` are the same fact written twice, so compose hands the value back to every container that reads the config, and the daemon refuses to boot when the two disagree. That refusal exists because the failure is otherwise silent: the daemon writes its worktrees where no mount covers, they land inside the container, and the next recreate throws them away.
 
 ## Layout on the box
 
@@ -39,6 +52,7 @@ DOCKER_GID=<output of: getent group docker | cut -d: -f3>
 | Compose env | `/home/alp/curia/deploy/.env` (`DOCKER_GID`, never committed) |
 | Box settings | `/home/alp/curia/config/curia.local.yaml`, `routing.local.yaml` (never committed) |
 | Worktrees | `/home/alp/curia-work` |
+| Curia's HOME | `/home/alp/curia-work/home` (#473; the containers read no `/home/alp` tree) |
 | Skills | `/home/alp/curia/skills` (vendored in the checkout, #268) |
 | tmux socket | `/run/curia-tmux/default` inside the `tmux-sock` volume |
 | Claude Code | `/home/alp/.local/bin/claude` (host copy; agents run the containerized pin) |
@@ -92,6 +106,28 @@ Compose refuses a missing `env_file`, so a deploy that arrives first fails its h
 - The daemon reads this file for those two warnings, and never loads it into its own environment.
 - Boot warns when a key that belongs in `daemon/.env.daemon` turns up here. A copy of the wrong file is the accident this catches.
 
+## Curia's own home, and the one-time move into it
+
+**Do this on the box BEFORE you deploy [#473](https://github.com/alp82/curia/issues/473).** `HOME` moves from `/home/alp` to `/home/alp/curia-work/home`, and nothing copies the credentials for you. A deploy that lands first leaves the daemon with no `gh` auth, no git identity and no codex login, and every dispatch fails on the tracker call.
+
+```
+ssh alp@coinmatica.net 'W=~/curia-work; mkdir -p $W/home/.config
+  cp -a ~/.gitconfig $W/home/
+  cp -a ~/.claude ~/.codex $W/home/
+  cp -a ~/.config/gh $W/home/.config/'
+```
+
+Then deploy. The four trees are curia's own from that point, and the copies left in `/home/alp` are the operator's to keep or delete.
+
+**`tmux` and `ttyd` keep the old `HOME` until they are recreated**, because no deploy names them. Little rides on it: the daemon hands a pane every path it needs as an absolute one, and it writes each worktree's git identity itself. Recreate the pair at the next zero-agent window anyway, with the command under [Deploy](#deploy), so no container is left describing a home that is not curia's.
+
+Two things stop being shared, both on purpose:
+
+- The usage probe's attempt stamp, which the operator's own `statusline.sh` used to throttle against ([#146](https://github.com/alp82/curia/issues/146)). The two now read separate caches.
+- The claude credential a **pane** agent runs on ([#34](https://github.com/alp82/curia/issues/34), [#53](https://github.com/alp82/curia/issues/53)). It is one refresh lineage inside curia's home, and a host `claude` session on the box is another.
+
+The Discord bot token, the model credential and the GitHub App key are unaffected: they are env files under the checkout, and no home holds them.
+
 ## The overseer container's three host trees
 
 Docker creates a missing bind-mount source as **root**, and every curia container runs as uid 1000. So make all three trees before the first `up`. Without them the container cannot write its checkouts, and the daemon cannot write the tokens:
@@ -99,6 +135,8 @@ Docker creates a missing bind-mount source as **root**, and every curia containe
 ```
 ssh alp@coinmatica.net 'mkdir -p ~/curia-work/overseer/repos ~/curia-work/overseer/tokens ~/curia-work/cfg/curia-overseer'
 ```
+
+`bin/deploy.sh` and the self-deploy sibling make these on every deploy, along with `curia-work/home`, so this is the first-`up` step rather than a repeated one.
 
 All three mount at their identical paths inside. One mount line covers every watched repo, because the watch list changes and the compose file is static — the set of clones inside the tree moves with the config ([#312](https://github.com/alp82/curia/issues/312)).
 

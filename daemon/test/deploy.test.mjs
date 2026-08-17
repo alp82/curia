@@ -263,16 +263,28 @@ describe('the sibling script holds the deploy rule', () => {
 
 describe('helperRunArgs', () => {
   test('mounts what the sibling needs and nothing writable it does not', () => {
-    const args = helperRunArgs({ repoRoot: '/r', dataDir: '/r/daemon/data', home: '/h', uid: 1000, gid: 998, workRoot: '/w' })
+    const args = helperRunArgs({ repoRoot: '/r', dataDir: '/r/daemon/data', home: '/w/home', uid: 1000, gid: 998, workRoot: '/w' })
     const mounts = args.filter((a, i) => args[i - 1] === '-v')
     assert.deepEqual(mounts, [
       '/var/run/docker.sock:/var/run/docker.sock',
       '/r:/r',
       '/r/daemon/data:/r/daemon/data',
       '/w:/w',
-      '/h/.config/gh:/h/.config/gh',
-      '/h/.gitconfig:/h/.gitconfig:ro',
     ])
     assert.equal(args[args.indexOf('--group-add') + 1], '998')
+  })
+
+  // #473: the sibling used to take two mounts out of the operator's home for
+  // the `gh` auth and the git identity. HOME is inside the workspace now, so
+  // the tree it already mounts carries both, and no mount here names a home.
+  test('it reaches the gh auth and the git identity through the workspace mount', () => {
+    const args = helperRunArgs({ repoRoot: '/r', dataDir: '/r/daemon/data', home: '/w/home', uid: 1000, gid: 998, workRoot: '/w' })
+    assert.equal(args[args.indexOf('-e') + 1], 'HOME=/w/home')
+    const mounts = args.filter((a, i) => args[i - 1] === '-v')
+    assert.ok(mounts.some((m) => m.startsWith('/w:')), 'the workspace mount is what carries HOME')
+    for (const m of mounts) {
+      assert.ok(!m.includes('/.config/gh'), `${m} takes the auth out of a home directory`)
+      assert.ok(!m.includes('/.gitconfig'), `${m} takes the git identity out of a home directory`)
+    }
   })
 })

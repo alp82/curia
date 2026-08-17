@@ -72,19 +72,28 @@ RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_$
 COPY deploy/overseer/gh-shim.sh /usr/local/bin/gh
 RUN chmod 0755 /usr/local/bin/gh
 
+# THE BAKED DEPENDENCY TREE HAS TO SIT WHERE THE REPO MOUNTS (#473), the same
+# reason the dashboard image states. So this path is the variable the mounts
+# take, and it carries no default: an empty arg fails the chown below rather
+# than baking a tree the mounts miss.
+ARG CURIA_REPO_ROOT
 # Its own layer, keyed on the two pin files: a code-only deploy rebuilds this
 # image without re-running the install. The daemon's own pinned tree, not a
 # hand-listed subset — this process imports daemon modules, and a second pin
 # would be a second version of a module the two share.
-WORKDIR /home/alp/curia/daemon
+WORKDIR $CURIA_REPO_ROOT/daemon
 COPY daemon/package.json daemon/package-lock.json ./
 RUN npm ci --omit=dev --no-fund --no-audit --ignore-scripts \
-  && chown -R 1000:1000 /home/alp/curia
+  && chown -R 1000:1000 "$CURIA_REPO_ROOT"
 
-# HOME is /home/alp (compose sets it). The directory must exist writable for
-# uid 1000: the per-owner git config is written there at every start, and a
-# container-local write beside the mounts would otherwise fail with EACCES.
-RUN mkdir -p /home/alp && chown 1000:1000 /home/alp
+# HOME is `home/` inside the workspace root, and compose sets the same path it
+# passes here (#473). This container mounts three subtrees of the workspace and
+# never the tree itself, so the directory this line makes is the one the process
+# runs on. It must exist writable for uid 1000: the per-owner git config is
+# written there at every start, and a container-local write beside the mounts
+# would otherwise fail with EACCES.
+ARG CURIA_HOME
+RUN mkdir -p "$CURIA_HOME" && chown 1000:1000 "$CURIA_HOME"
 
 # The SDK checks for a newer self on start. The image is the pin, and this
 # container is recreated by a deploy, never by an update it decided itself.

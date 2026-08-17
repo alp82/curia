@@ -134,7 +134,8 @@ dispatch:
 ```
 
 `workspace_root` is where curia keeps its own clones and worktrees. It ships as `/home/alp/curia-work`.
-Do not point it at a checkout you work in.
+Do not point it at a checkout you work in. Under the compose stack it also holds curia's own `HOME`,
+at `home/` inside it, and `deploy/.env` states the same path a second time — see step 13.
 
 `auto_dispatch` is `false`, so nothing starts without you. The ports work as they ship; the daemon
 checks them at boot and names any clash.
@@ -220,10 +221,35 @@ three verbs above take it: `attach chat-1`, `cancel chat-1`, `resume chat-1`. `s
 ## 13. Keep it running
 
 `deploy/compose.yaml` is a docker compose stack: the daemon, the dashboard sidecar, a tmux service
-that holds the agent panes, ttyd for attach, and the overseer container. Replace the `/home/alp` paths
-with yours, write `deploy/.env` with your docker group id (`DOCKER_GID=$(getent group docker | cut -d: -f3)`),
-make the overseer's two trees (`mkdir -p ~/curia-work/overseer/repos ~/curia-work/cfg/curia-overseer`,
-or docker makes them owned by root), then:
+that holds the agent panes, ttyd for attach, and the overseer container. You edit no committed file.
+Write `deploy/.env` beside it, with your docker group id and the two roots the stack mounts:
+
+```
+DOCKER_GID=<output of: getent group docker | cut -d: -f3>
+CURIA_REPO_ROOT=/home/you/curia
+CURIA_WORKSPACE_ROOT=/home/you/curia-work
+```
+
+Both roots fall back to the paths of the box curia is written on, so a box that leaves them out
+mounts `/home/alp`. `CURIA_WORKSPACE_ROOT` must be the same path as `dispatch.workspace_root` from
+step 8. The daemon refuses to boot when the two disagree, because a workspace root nothing mounts is
+worktrees written inside a container and lost on the next deploy.
+
+**The stack runs on curia's own home, and never yours.** `HOME` in every container is
+`$CURIA_WORKSPACE_ROOT/home`, so no container reads your `~/.claude`, `~/.codex`, `~/.config/gh` or
+`~/.gitconfig`. Make the trees, and log in where curia reads them (docker makes a missing tree owned
+by root, which is why these come first):
+
+```
+export W=/home/you/curia-work
+mkdir -p $W/home $W/overseer/repos $W/cfg/curia-overseer
+HOME=$W/home gh auth login && HOME=$W/home gh auth setup-git
+HOME=$W/home git config --global user.name "you" && HOME=$W/home git config --global user.email "you@example.com"
+```
+
+Copying `~/.claude`, `~/.codex` and `~/.config/gh` into `$W/home` works too, and is what an existing
+install does. The model credential itself comes from `daemon/.env.daemon`, so a fresh install needs
+no `claude` login in that tree. Then:
 
 ```
 docker compose -f deploy/compose.yaml up -d --build
