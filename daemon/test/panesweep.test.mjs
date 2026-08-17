@@ -7,12 +7,13 @@
 // measured the pane reaching that agent in about three seconds, and this is the
 // sweep built on that reading.
 //
-// Three layers, each tested where it lives:
+// Four layers, each tested where it lives:
 //   1. the words — one line, curia's own Escape, and never an answer
 //   2. the gate — a death that said goodbye presses no key at all
-//   3. the set — which agents get keystrokes, and on what evidence
+//   3. the record — whether any call was ever blocked on it
+//   4. the set — which agents get keystrokes, and on what evidence
 //
-// Layer 3 is where the cost of being wrong sits. #457 run 2 measured Escape on
+// Layer 4 is where the cost of being wrong sits. #457 run 2 measured Escape on
 // a call that is truly live: the abort is client-side only, so the daemon writes
 // the human's answer into a socket nobody reads and closes the question as
 // answered. Every exclusion below is one shape of that loss.
@@ -23,7 +24,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { Dispatcher } from '../src/dispatch.mjs'
-import { Reduction } from '../src/reduction.mjs'
+import { Reduction, CONFIRM_KIND } from '../src/reduction.mjs'
 import { paneGoodbye, deathWasSilent, DAEMON_BOOT, DAEMON_GOODBYE } from '../src/goodbye.mjs'
 import { lintReply } from '../src/messaging.mjs'
 
@@ -98,7 +99,28 @@ describe('only a death with no last word opens the sweep (#489)', () => {
   })
 })
 
-// ---- 3. the set --------------------------------------------------------------
+// ---- 3. the record says whether a call was blocked on it ----------------------
+
+describe('a record carries whether any call was waiting on it (#489)', () => {
+  test('an ask_human is awaited, a flagged send is not, and a confirm is not', () => {
+    const r = new Reduction(tmpDir())
+    const asked = r.open({ agent: 'curia-7', ticket: '7', kind: 'free-text', prompt: 'q', awaited: true }).record
+    const flagged = r.open({ agent: 'curia-8', ticket: '8', kind: 'free-text', prompt: 'q', awaited: false }).record
+    const confirm = r.open({ agent: 'overseer', ticket: '9', kind: CONFIRM_KIND, prompt: 'q' }).record
+
+    assert.equal(asked.awaited, true)
+    assert.equal(flagged.awaited, false, 'the agent read that rejection and worked on (#418)')
+    assert.equal(confirm.awaited, null, 'a confirm is waited on by nobody (#94)')
+  })
+
+  test('it survives the restart, because the sweep reads it a whole process later', () => {
+    const dir = tmpDir()
+    const id = new Reduction(dir).open({ agent: 'curia-7', ticket: '7', kind: 'free-text', prompt: 'q', awaited: true }).record.id
+    assert.equal(new Reduction(dir).get(id).awaited, true)
+  })
+})
+
+// ---- 4. the set --------------------------------------------------------------
 
 describe('which agents the sweep touches (#489)', () => {
   let writes, notifies, events, escalations, d
@@ -139,7 +161,7 @@ describe('which agents the sweep touches (#489)', () => {
   // harness, and with no contact against this process.
   const park = (session, ticket, { harness = 'codex', mcpLastAt = null } = {}) => {
     d.agents.set(session, { session, ticket, harness, mcpLastAt })
-    const record = { id: `esc-${escalations.length + 1}`, status: 'open', kind: 'free-text', agent: session, ticket }
+    const record = { id: `esc-${escalations.length + 1}`, status: 'open', kind: 'free-text', agent: session, ticket, awaited: true }
     escalations.push(record)
     return record
   }
@@ -190,15 +212,33 @@ describe('which agents the sweep touches (#489)', () => {
   })
 
   test('a record whose agent no pane was adopted under is not swept', async () => {
-    escalations.push({ id: 'esc-1', status: 'open', agent: 'curia-11', ticket: '11' })
+    escalations.push({ id: 'esc-1', status: 'open', agent: 'curia-11', ticket: '11', awaited: true })
     await d.sweepStrandedPanes({ silent: true })
 
     assert.deepEqual(writes, [], 'no adopted session is no evidence the pane is theirs')
   })
 
+  test('a record no call was ever blocked on is not swept', async () => {
+    // The flagged send (#418): the agent's own call already returned the
+    // rejection, so that agent is WORKING. Escape would abort a live tool call.
+    d.agents.set('curia-18', { session: 'curia-18', ticket: '18', harness: 'codex', mcpLastAt: null })
+    escalations.push({ id: 'esc-1', status: 'open', agent: 'curia-18', ticket: '18', awaited: false })
+    await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(writes, [])
+  })
+
+  test('a record written before the field existed presses no key either', async () => {
+    d.agents.set('curia-19', { session: 'curia-19', ticket: '19', harness: 'codex', mcpLastAt: null })
+    escalations.push({ id: 'esc-1', status: 'open', agent: 'curia-19', ticket: '19', awaited: null })
+    await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(writes, [], 'null is not known to be awaited, and doubt presses no key')
+  })
+
   test('two open records on one agent get ONE Escape', async () => {
     park('curia-12', '12')
-    escalations.push({ id: 'esc-2', status: 'open', agent: 'curia-12', ticket: '12' })
+    escalations.push({ id: 'esc-2', status: 'open', agent: 'curia-12', ticket: '12', awaited: true })
     await d.sweepStrandedPanes({ silent: true })
 
     // A second Escape would land on the turn the first one started.

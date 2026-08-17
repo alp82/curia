@@ -5084,7 +5084,7 @@ export class Dispatcher {
   // and says nothing, the words alone sit in the composer until the dead call
   // returns, and only the pair works.
   //
-  // FIVE FACTS, and every one of them has to hold before a key is pressed. The
+  // SIX FACTS, and every one of them has to hold before a key is pressed. The
   // cost of getting it wrong is measured too (#457, run 2): Escape on a call
   // that is truly live aborts it CLIENT-SIDE ONLY, so the daemon still writes
   // the human's answer into a socket nobody reads, reports success, and closes
@@ -5094,18 +5094,25 @@ export class Dispatcher {
   //      signal, and a goodbye skips the whole sweep: those calls already ended
   //      with an error, and most of those agents are inside the 120-second sleep
   //      the goodbye told them to take.
-  //   2. The record is open and no resolver holds it. At boot the resolver map
-  //      is empty, so every open record lost its own — but this pass runs after
-  //      a reconcile that reads GitHub, and a call arriving in between owns its
-  //      record. `hasResolver` is the caller's answer, because that map lives in
+  //   2. A call was blocked on the record when it opened. `record.awaited` is
+  //      that fact (#489), and it is what separates a parked agent from a
+  //      WORKING one: the flagged send (#418) opens a record whose own call
+  //      already returned the rejection, and a confirm (#94) is waited on by
+  //      nobody at all. Escape into either of those aborts a live tool call of
+  //      an agent that was never stranded. A record from before this field
+  //      existed reads null, and null presses no key.
+  //   3. No resolver holds the record. At boot the resolver map is empty, so
+  //      every open record lost its own — but this pass runs after a reconcile
+  //      that reads GitHub, and a call arriving in between owns its record.
+  //      `hasResolver` is the caller's answer, because that map lives in
   //      `index.mjs`.
-  //   3. A live pane is adopted under the record's agent name. That is the
+  //   4. A live pane is adopted under the record's agent name. That is the
   //      evidence the pane is theirs, and it is the same evidence every other
   //      pane write in this file stands on: reconcile adopted a live tmux
   //      session of that exact name against an open, claimed issue.
-  //   4. The harness is codex. The claude lane aborts by itself (#341) and this
+  //   5. The harness is codex. The claude lane aborts by itself (#341) and this
   //      reading never covered it, so the sweep is codex only.
-  //   5. The agent has NOT spoken to this process. `mcpLastAt` (#194) is a
+  //   6. The agent has NOT spoken to this process. `mcpLastAt` (#194) is a
   //      positive fact rather than a guess: an agent that made a call against
   //      this daemon is not sitting in a call that died with the last one.
   //
@@ -5125,7 +5132,7 @@ export class Dispatcher {
     const stranded = []
     for (const record of this.reduction.openEscalations()) {
       if (seen.has(record.agent)) continue
-      if (hasResolver(record.id)) continue
+      if (record.awaited !== true || hasResolver(record.id)) continue
       const w = this.agents.get(record.agent)
       if (!w || w.harness !== 'codex' || w.mcpLastAt) continue
       seen.add(record.agent)

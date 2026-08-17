@@ -573,7 +573,9 @@ async function renderEscalation(record, files = []) {
 // Open + render + block until answered. Every ask_human and synthetic escalation
 // funnels through here.
 function openEscalation({ agent, ticket, kind, prompt, options, preview_url, recommended, files, diff, diff_error, payload, lint_flags, awaited = true }) {
-  const { record, superseded_all } = reduction.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error, payload, lint_flags })
+  // `awaited` rides onto the RECORD (#489): the boot sweep asks it whether a
+  // call was ever blocked here, and a flagged send opens a record no call holds.
+  const { record, superseded_all } = reduction.open({ agent, ticket, kind, prompt, options, preview_url, recommended, diff, diff_error, payload, lint_flags, awaited })
   log(`escalation ${record.id} open (${kind}) agent=${agent} ticket=${ticket}${superseded_all.length ? ` supersedes ${superseded_all.map((r) => r.id).join(', ')}` : ''}`)
   // Every corpse this agent left, not just the newest (#336): a card left
   // rendered keeps asking a question nothing can receive an answer for.
