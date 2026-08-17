@@ -108,9 +108,23 @@ console.log(`seeded ${cfgDir}`)
 console.log(`skills installed: ${install.join(', ')}`)
 console.log(`curia pointers:   ${pointers.join(', ')}`)
 console.log('')
+// The box that runs curia does not necessarily carry codex itself: every
+// dispatch runs it inside the agent image, so the host can have the credential
+// and no binary. `config/curia.yaml` pins the version, and npx runs that exact
+// one without installing anything.
+const version = parsed.sandbox?.codex_version ?? null
+const onPath = (process.env.PATH ?? '').split(path.delimiter)
+  .some((dir) => dir && fs.existsSync(path.join(dir, 'codex')))
+const runner = onPath ? 'codex' : `npx -y @openai/codex${version ? `@${version}` : ''}`
+
 console.log('Now run an interactive session and type about twenty prompts on a real task:')
 console.log('')
-console.log(`  CODEX_HOME=${cfgDir} codex`)
+console.log(`  CODEX_HOME=${cfgDir} ${runner}`)
+if (!onPath) {
+  console.log('')
+  console.log('There is no `codex` on PATH here, so that line runs the pinned version through npx.')
+  console.log('Curia runs codex inside the agent image, so a host with the credential and no binary is normal.')
+}
 console.log('')
 console.log('The task must be one the wayfinder skill matches, or the skill never triggers')
 console.log('and the count answers a question nobody asked.')
