@@ -14,8 +14,31 @@ Switch them with the bar at the bottom, with the left and right arrow keys, or w
 |---|---|---|
 | `live` | The live page | The current https://curia.sh page, as the baseline to beat. |
 | `bloodstream` | Bloodstream | A WebGL field behind the whole page. Scroll drives one phase value that morphs the field between scenes. The pointer is a pressure source. |
-| `queue` | The queue, alive | A different page structure. A live pipeline runs down the left, and the content hangs off it as stations. Tickets travel the spine and stop at the station you read. |
+| `queue` | The queue, alive | A different page structure. The run goes down the left as a spine, and the content hangs off it as stations. Real tickets stop at each stage. |
+| `flow` | The run, on a rail | The same run, turned sideways. The rail is pinned under the chrome, so the stage stays visible and the content keeps the whole width of a phone. |
 | `vitals` | Vital signs | The calm page, alive in one place. A hairline trace breathes in the left margin and reacts to scroll speed. The headline letters carry a small spring. |
+
+## Round 1, and what changed
+
+The operator picked `queue` and called it a good start for further variations.
+Three notes came back, and all three are answered.
+
+**The dots needed meaning.** The pipeline moved anonymous dots past anonymous targets.
+Now each dot carries a real ticket number from this map, and each station carries the name of a
+real stage: `takeable`, `agent`, `gate`, `merged`. A dot that reaches `merged` is a ticket that
+curia really did merge. The four stage words already appear in the page copy, so the labels add no
+new vocabulary. The run ends at `merged`, and the sections below it carry no station.
+
+**The green flashed while scrolling.** Two causes, both fixed. A station switched color from grey
+to accent as one step, and a ticket arrival set the glow to full in one frame. Both values now ease.
+The arrival swells over about four frames and then decays. The spring also ran under-damped at a
+long frame, so a slow frame could make a station overshoot. The step is clamped and damped now.
+
+**The flash was too bright below the hero.** Brightness now falls off with scroll depth. It stays
+full at the top and settles to about a third of that further down.
+
+`flow` answers the request for a further variation of the same direction.
+It keeps the stages and the real tickets, and it spends no width on a left gutter.
 
 Run it:
 
@@ -29,12 +52,16 @@ Every variant renders the same words from one `CONTENT` object at the top of the
 The prompt changes the presentation. It does not change the claims.
 A variant may re-order or re-weight the approved copy. It may not rewrite it.
 
-Two additions are the only new words on the page, and the operator decides both:
+Two additions are the only new sentences on the page, and the operator decides both:
 
 1. The large-type section reads `An agent cannot finish by talking. Nothing lands without you.`
    Both halves come from claim 3 on the live page. This joins them into one sentence.
-2. The `queue` variant labels its stations `the queue`, `the seat`, `the gate`, `the run`,
-   `the cost` and `your turn`. These are signposts, not claims.
+   It appears in `bloodstream` and `vitals`.
+2. `queue` and `flow` name what the moving numbers are, in one line above the stats.
+   The words are `The numbers moving down the left are this page's own tickets.`
+
+The stage labels `takeable`, `agent`, `gate` and `merged` are not new vocabulary.
+Each one already appears in the page copy, so the labels reuse the page's own words.
 
 ## Findings
 

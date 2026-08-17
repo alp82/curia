@@ -407,6 +407,7 @@
   .v-queue .q-cap { font-size: 0.79rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.45; }
   .v-queue .q-cap .n { color: var(--accent); font-family: var(--mono); }
   .v-queue .q-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.3rem; }
+  .v-queue .q-legend { color: var(--dim); font-size: 0.79rem; margin-top: 0.9rem; font-family: var(--mono); }
   .v-queue .q-stats {
     font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
     margin-top: 1.15rem; padding-top: 1.05rem; border-top: 1px solid var(--line);
@@ -430,6 +431,91 @@
     .v-queue .q-wrap { padding-left: 6rem; }
     .v-queue .q-tag { left: -4.25rem; }
   }
+
+  /* ================================================================
+     VARIANT "flow" — the same pipeline idea as "queue", turned sideways.
+     The run is a rail pinned under the chrome, so it stays visible and it
+     uses the whole width of a phone instead of a left gutter.
+     ================================================================ */
+  body[data-variant="flow"] { background: #0a0b0e; }
+  .v-flow { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
+  .v-flow a { color: var(--accent); }
+  .v-flow .f-wrap { max-width: 44rem; margin: 0 auto; padding: 0 1.25rem; }
+  .v-flow .f-rail {
+    position: fixed; z-index: 40; left: 0; right: 0; top: var(--chrome);
+    height: 3.1rem; pointer-events: none;
+    background: linear-gradient(#0a0b0eef, #0a0b0ec4 70%, #0a0b0e00);
+  }
+  .v-flow .f-rail canvas { display: block; width: 100%; height: 100%; }
+  .v-flow .f-hero { padding: 4.75rem 0 3rem; }
+  .v-flow section { padding: 3rem 0 0; }
+  .v-flow .f-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
+  .v-flow .f-mark b { color: var(--accent); font-weight: 600; }
+  .v-flow h1 {
+    font-size: clamp(1.7rem, 8.4vw, 3.3rem); line-height: 1.07; letter-spacing: -0.035em;
+    font-weight: 620; margin: 1.15rem 0 0; text-wrap: balance;
+  }
+  .v-flow .f-lede { font-size: 1.06rem; color: #c1c8d3; margin: 1.15rem 0 0; max-width: 33rem; text-wrap: pretty; }
+  .v-flow .f-facts { font-family: var(--mono); font-size: 0.74rem; color: var(--dim); margin: 1.5rem 0 0; line-height: 2; }
+  .v-flow .f-links { margin: 1.75rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .v-flow .f-cta {
+    text-decoration: none; font-weight: 600; font-size: 0.98rem;
+    padding: 0.7rem 1.1rem; border-radius: 10px; background: var(--accent); color: #06231a;
+    transition: transform 0.7s var(--ease);
+  }
+  .v-flow .f-cta:active { transform: scale(0.98); }
+  .v-flow .f-cta.ghost { background: none; color: #e9ecf1; box-shadow: inset 0 0 0 1px var(--line); }
+  /* The stage name introduces its section, instead of hiding in a margin. */
+  .v-flow .f-eyebrow {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--accent); margin: 0 0 0.6rem;
+  }
+  .v-flow h2 {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.16em; color: var(--dim); margin: 0 0 1.6rem;
+  }
+  .v-flow .f-claim { margin: 0 0 2.4rem; }
+  .v-flow .f-claim:last-child { margin-bottom: 0; }
+  .v-flow .f-claim h3 { font-size: 1.26rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; font-weight: 600; }
+  .v-flow .f-claim p { color: #c1c8d3; margin: 0; max-width: 36rem; text-wrap: pretty; }
+  .v-flow .f-claim .under {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--dim); line-height: 1.9;
+    margin-top: 0.9rem; padding-left: 0.85rem; border-left: 2px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .v-flow .f-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem 0.85rem; }
+  .v-flow .f-box {
+    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 10px;
+    background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
+    color: #666e7c; font-family: var(--mono); font-size: 0.68rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .v-flow .f-box:active { transform: scale(0.985); }
+  .v-flow .f-cap { font-size: 0.79rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.45; }
+  .v-flow .f-cap .n { color: var(--accent); font-family: var(--mono); }
+  .v-flow .f-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.3rem; }
+  .v-flow .f-legend { color: var(--dim); font-size: 0.79rem; margin-top: 0.9rem; font-family: var(--mono); }
+  .v-flow .f-stats {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
+    margin-top: 1.15rem; padding-top: 1.05rem; border-top: 1px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .v-flow .f-honest { border-radius: 14px; padding: 1.4rem 1.35rem; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-flow .f-honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-flow .f-honest li { margin: 0 0 0.7rem; color: #c1c8d3; }
+  .v-flow .f-honest li:last-child { margin: 0; }
+  .v-flow .f-honest li b { color: #e9ecf1; font-weight: 600; }
+  .v-flow .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-flow .guide pre code { color: #cfd5de; }
+  .v-flow .guide .step p { color: #c1c8d3; }
+  .v-flow .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c1c8d3; }
+  .v-flow .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-flow .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-flow .guide td { border-top: 1px solid var(--line); color: #c1c8d3; }
+  .v-flow .guide .readmore { color: var(--dim); }
+  .v-flow footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+  body.nomotion .v-flow .f-rail { display: none; }
+  body.nomotion .v-flow .f-hero { padding-top: 3rem; }
 
   /* ================================================================
      VARIANT "vitals" — the calm page, alive in exactly one place.
@@ -621,7 +707,7 @@ var CONTENT = {
   claimsHeading: 'What it gives you',
   claims: [
     {
-      station: 'the queue',
+      station: 'takeable',
       title: 'Your tracker is the queue',
       body: 'GitHub issues hold every ticket, every claim and every dependency edge. Curia reads ' +
             'what is takeable across every watched repo, in dependency order, and picks the model ' +
@@ -629,7 +715,7 @@ var CONTENT = {
       under: ['3 repos watched today · label decides the model · blocked and claimed tickets drop out']
     },
     {
-      station: 'the seat',
+      station: 'agent',
       title: 'Any device is a full seat',
       body: 'Nine verbs over Discord, one thread per ticket. Questions arrive with buttons. ' +
             'Results arrive as HTTPS links on your tailnet. You can attach to a live agent’s ' +
@@ -641,7 +727,7 @@ var CONTENT = {
       ]
     },
     {
-      station: 'the gate',
+      station: 'gate',
       title: 'An agent cannot finish by talking',
       body: 'Every ticket ends the same way: commit, pull request, live preview, your approval, ' +
             'merge. A rejection comes back in your own words and turns into new commits on the ' +
@@ -662,6 +748,9 @@ var CONTENT = {
     'The review gate. Approved.'
   ],
   shotnote: 'Four phone screenshots of one real ticket, on a repo that is not this one. Tap one to read it.',
+  /* Names what the dots on the spine are. The queue variant alone shows it. */
+  spineLegend: 'The numbers moving down the left are this page\u2019s own tickets.',
+  railLegend: 'The numbers moving along the rail are this page\u2019s own tickets.',
   trail: {
     text: 'This page was planned, decided and written by curia agents. Each one ended at a review gate, and none of them merged itself. ',
     link: { label: 'Read the merged pull requests', href: 'https://github.com/alp82/curia/pulls?q=is%3Apr+is%3Amerged' }
@@ -1422,6 +1511,13 @@ function mountBloodstream(root) {
    that does not read as decoration.
    ================================================================== */
 
+/* The dots are not decoration. Each one carries a real ticket number from
+   this map, and it stops at each named stage of the run the page describes:
+   takeable, agent, gate, merged. A dot that reaches merged is a ticket that
+   really was merged. Operator, round 1: "would be nice if those dots and
+   target would have some kind of meaning in the given context". */
+var SPINE_TICKETS = ['110', '111', '112', '113', '114', '115', '117', '137', '363'];
+
 function startSpine(canvas, anchors, onMerge) {
   var ctx = canvas.getContext('2d');
   if (!ctx) return null;
@@ -1438,105 +1534,136 @@ function startSpine(canvas, anchors, onMerge) {
     }
   }
 
-  var spineX = function () { return window.innerWidth < 736 ? 24 : 48; };
+  var narrow = function () { return window.innerWidth < 736; };
+  var spineX = function () { return narrow() ? 24 : 48; };
 
-  /* Stations are springs. They sit at the vertical center of their
-     section, so the spine tracks the document rather than the clock. */
   var nodes = anchors.map(function (a) {
-    return { el: a.el, label: a.label, y: 0, x: 0, vx: 0, vy: 0, hit: 0, on: 0 };
+    return {
+      el: a.el, stage: a.stage || null,
+      x: 0, y: 0, tx: 0, ty: 0, vx: 0, vy: 0,
+      on: 0, onT: 0, hit: 0, pulse: 0
+    };
   });
-  var tickets = [];
-  var spawnAt = 0;
+  var staged = nodes.filter(function (n) { return n.stage; });
+  var lastStage = staged[staged.length - 1];
+  var tickets = [], spawnAt = 0, seq = 0;
 
   function layout() {
-    var sx = spineX();
+    var sx = spineX(), vh = window.innerHeight;
     nodes.forEach(function (n) {
       var r = n.el.getBoundingClientRect();
       n.ty = r.top + Math.min(r.height * 0.5, 120);
       n.tx = sx;
-      /* on = 1 when this station is the one being read */
-      n.on = (r.top < window.innerHeight * 0.6 && r.bottom > window.innerHeight * 0.25) ? 1 : 0;
+      n.onT = (r.top < vh * 0.62 && r.bottom > vh * 0.22) ? 1 : 0;
     });
+  }
+
+  /* Grey to accent, mixed by how "read" the station is. A binary swap here
+     is what read as a flash in round 1, so the value is eased instead. */
+  function nodeColor(on, a) {
+    var r = Math.round(lerp(74, 125, on));
+    var g = Math.round(lerp(85, 211, on));
+    var b = Math.round(lerp(96, 160, on));
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
   }
 
   var raf = 0, last = 0;
   function frame(ts) {
     raf = requestAnimationFrame(frame);
     if (document.hidden) return;
-    var dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
+    /* Clamped so one slow frame cannot make the spring overshoot. */
+    var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
     last = ts;
     size(); layout(); pointerStep();
     ctx.clearRect(0, 0, W, H);
 
     var sx = spineX();
     var px = Pointer.x * window.innerWidth, py = Pointer.y * window.innerHeight;
+    /* Operator, round 1: "the bright flash is too much, except for the hero
+       at the top, there it could stay". So brightness falls off with depth. */
+    var bright = clamp(1 - window.scrollY / (window.innerHeight * 1.6), 0.32, 1);
 
-    /* The spine itself. */
-    ctx.strokeStyle = '#ffffff14';
+    ctx.strokeStyle = '#ffffff12';
     ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
 
-    /* Stations: spring toward their anchor, pushed by the pointer. */
-    nodes.forEach(function (n) {
-      var dx = n.tx - n.x, dy = n.ty - n.y;
-      n.vx += dx * 26 * dt; n.vy += dy * 26 * dt;
-      var pdx = n.x - px, pdy = n.y - py;
-      var d2 = pdx * pdx + pdy * pdy;
-      if (d2 < 26000 && Pointer.active) {
-        var f = (1 - d2 / 26000) * 900;
-        var d = Math.sqrt(d2) || 1;
-        n.vx += (pdx / d) * f * dt; n.vy += (pdy / d) * f * dt;
-      }
-      n.vx *= 0.86; n.vy *= 0.86;
-      n.x += n.vx * dt * 8; n.y += n.vy * dt * 8;
-      n.hit *= 0.93;
+    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textBaseline = 'middle';
 
-      var r = 4 + n.on * 2 + n.hit * 5;
-      ctx.beginPath(); ctx.arc(n.x, n.y, r + 8 + n.hit * 12, 0, 6.2832);
-      ctx.fillStyle = 'rgba(125,211,160,' + (0.05 + n.on * 0.05 + n.hit * 0.12).toFixed(3) + ')';
+    nodes.forEach(function (n) {
+      /* A damped spring, stable at every dt we allow. */
+      var stiff = 120, damp = 18;
+      n.vx += ((n.tx - n.x) * stiff - n.vx * damp) * dt;
+      n.vy += ((n.ty - n.y) * stiff - n.vy * damp) * dt;
+      if (Pointer.active) {
+        var pdx = n.x - px, pdy = n.y - py, d2 = pdx * pdx + pdy * pdy;
+        if (d2 < 26000) {
+          var f = (1 - d2 / 26000) * 700, d = Math.sqrt(d2) || 1;
+          n.vx += (pdx / d) * f * dt; n.vy += (pdy / d) * f * dt;
+        }
+      }
+      n.x += n.vx * dt; n.y += n.vy * dt;
+
+      n.on = lerp(n.on, n.onT, 0.07);
+      n.pulse *= 0.94;                       // the target decays
+      n.hit = lerp(n.hit, n.pulse, 0.22);    // and the value chases it, so it swells
+
+      if (!n.stage) return;
+      var glow = (0.035 + n.on * 0.04 + n.hit * 0.07) * bright;
+      ctx.beginPath(); ctx.arc(n.x, n.y, 11 + n.hit * 9, 0, 6.2832);
+      ctx.fillStyle = nodeColor(n.on, glow.toFixed(3));
       ctx.fill();
-      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 6.2832);
-      ctx.fillStyle = n.on ? '#7dd3a0' : '#4a5560';
+      ctx.beginPath(); ctx.arc(n.x, n.y, 3.5 + n.on * 1.2 + n.hit * 2, 0, 6.2832);
+      ctx.fillStyle = nodeColor(n.on, (0.5 + n.on * 0.45).toFixed(3));
       ctx.fill();
     });
 
-    /* Tickets flow down the spine and pause at each station: the queue,
-       in dependency order, doing the thing the copy beside it claims. */
     if (Motion.on && ts > spawnAt) {
-      spawnAt = ts + 1400 + Math.random() * 2200;
-      tickets.push({ y: -20, v: 46 + Math.random() * 26, hold: 0, at: 0, wob: Math.random() * 6.28 });
+      spawnAt = ts + 2600 + Math.random() * 2600;
+      tickets.push({
+        id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length],
+        y: -20, v: 52 + Math.random() * 20, hold: 0, at: 0, fade: 1, wob: Math.random() * 6.28
+      });
     }
     for (var i = tickets.length - 1; i >= 0; i--) {
       var t = tickets[i];
-      if (t.hold > 0) { t.hold -= dt; }
+      if (t.hold > 0) t.hold -= dt;
       else {
         t.y += t.v * dt * 3.2;
         for (var j = 0; j < nodes.length; j++) {
-          if (j >= t.at && Math.abs(t.y - nodes[j].y) < 6 && nodes[j].y > 0) {
-            t.at = j + 1; t.hold = 0.55; nodes[j].hit = 1;
-            if (j === nodes.length - 1 && onMerge) onMerge();
+          var n2 = nodes[j];
+          if (!n2.stage || j < t.at || n2.y <= 0) continue;
+          if (Math.abs(t.y - n2.y) < 7) {
+            t.at = j + 1; t.hold = 0.85; n2.pulse = 1;
+            if (n2 === lastStage) { t.done = true; if (onMerge) onMerge(); }
             break;
           }
         }
       }
-      if (t.y > H + 30) { tickets.splice(i, 1); continue; }
-      t.wob += dt * 2.4;
-      var wx = sx + Math.sin(t.wob) * 2.2;
-      var a = t.hold > 0 ? 0.95 : 0.6;
-      ctx.beginPath(); ctx.arc(wx, t.y, t.hold > 0 ? 3.4 : 2.4, 0, 6.2832);
-      ctx.fillStyle = 'rgba(125,211,160,' + a + ')';
+      /* Past the last stage the ticket is merged, so it lets go. */
+      if (t.done && t.hold <= 0) t.fade -= dt * 1.2;
+      if (t.fade <= 0 || t.y > H + 30) { tickets.splice(i, 1); continue; }
+
+      t.wob += dt * 2.2;
+      var wx = sx + Math.sin(t.wob) * 1.8;
+      var held = t.hold > 0;
+      var a = (held ? 0.9 : 0.55) * t.fade * bright;
+      ctx.beginPath(); ctx.arc(wx, t.y, held ? 3.2 : 2.2, 0, 6.2832);
+      ctx.fillStyle = 'rgba(125,211,160,' + a.toFixed(3) + ')';
       ctx.fill();
-      if (t.hold > 0) {
-        ctx.beginPath(); ctx.arc(wx, t.y, 10 - t.hold * 6, 0, 6.2832);
-        ctx.strokeStyle = 'rgba(125,211,160,' + (t.hold * 0.5).toFixed(3) + ')';
-        ctx.lineWidth = 1; ctx.stroke();
+      /* The number only shows while the ticket sits at a stage, so the
+         spine stays quiet and the label is readable when it matters. */
+      if (held || t.done) {
+        var la = Math.min(1, t.hold / 0.5) * t.fade;
+        ctx.fillStyle = 'rgba(125,211,160,' + (0.85 * (t.done ? t.fade : la)).toFixed(3) + ')';
+        ctx.fillText('#' + t.id, wx + 8, t.y);
       }
     }
-    if (tickets.length > 24) tickets.splice(0, tickets.length - 24);
+    if (tickets.length > 16) tickets.splice(0, tickets.length - 16);
   }
 
   size(); layout();
-  nodes.forEach(function (n) { n.x = spineX(); n.y = n.ty; });
+  nodes.forEach(function (n) { n.x = n.tx = spineX(); n.y = n.ty; n.on = n.onT; });
   if (Motion.on) raf = requestAnimationFrame(frame);
   else { requestAnimationFrame(function (ts) { frame(ts); cancelAnimationFrame(raf); }); }
 
@@ -1590,33 +1717,30 @@ function mountQueue(root) {
     ]));
   });
   var proofStation = h('div', { class: 'q-station' }, [
-    h('span', { class: 'q-tag', text: 'the run' }),
+    h('span', { class: 'q-tag', text: 'merged' }),
     rv.add(frames),
     rv.add(h('p', { class: 'q-note', text: CONTENT.shotnote }), 80),
     rv.add(trailNode('q-note'), 120),
-    rv.add(statsNode('q-stats'), 160)
+    rv.add(h('p', { class: 'q-legend', text: CONTENT.spineLegend }), 140),
+    rv.add(statsNode('q-stats'), 180)
   ]);
   var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proofStation])]);
 
-  var honestStation = h('div', { class: 'q-station' }, [
-    h('span', { class: 'q-tag', text: 'the cost' }),
-    rv.add(honestList('q-honest'))
-  ]);
+  /* No station below this point: the run ends at merged, and the page turns
+     to what it costs and how to set it up. The spine keeps going as a line. */
+  var honestStation = h('div', { class: 'q-station' }, [rv.add(honestList('q-honest'))]);
   var s3 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.honestHeading })), honestStation])]);
 
-  var guideStation = h('div', { class: 'q-station' }, [
-    h('span', { class: 'q-tag', text: 'your turn' }),
-    rv.add(guideNode())
-  ]);
+  var guideStation = h('div', { class: 'q-station' }, [rv.add(guideNode())]);
   var s4 = h('section', { id: 'setup' }, [wrap([rv.add(h('h2', { text: CONTENT.guideHeading })), guideStation])]);
 
   var foot = h('footer', {}, [h('div', { class: 'q-wrap', html: CONTENT.footer })]);
   root.appendChild(frag([head, s1, s2, s3, s4, foot]));
 
-  var anchors = stations.map(function (s, i) { return { el: s, label: CONTENT.claims[i].station }; });
-  anchors.push({ el: proofStation, label: 'the run' });
-  anchors.push({ el: honestStation, label: 'the cost' });
-  anchors.push({ el: guideStation, label: 'your turn' });
+  var anchors = stations.map(function (s, i) { return { el: s, stage: CONTENT.claims[i].station }; });
+  anchors.push({ el: proofStation, stage: 'merged' });
+  anchors.push({ el: honestStation, stage: null });
+  anchors.push({ el: guideStation, stage: null });
 
   var spine = startSpine(canvas, anchors, function () {
     Sound.tone(392, 0.5, 'triangle', 0.06);
@@ -1627,6 +1751,205 @@ function mountQueue(root) {
       if (spine) spine.destroy();
       rv.stop();
       canvas.remove();
+    }
+  };
+}
+
+/* ==================================================================
+   10b. VARIANT "flow"
+   The same run as "queue", turned sideways. The rail is pinned under the
+   chrome, so the stage a reader is in stays on screen, and the content
+   keeps the whole width of the phone. Same four stages, same real tickets.
+   ================================================================== */
+
+var FLOW_STAGES = ['takeable', 'agent', 'gate', 'merged'];
+
+function startRail(canvas, sections) {
+  var ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0;
+
+  function size() {
+    var w = canvas.clientWidth, hgt = canvas.clientHeight;
+    if (W !== w || H !== hgt) {
+      W = w; H = hgt;
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
+
+  var stages = FLOW_STAGES.map(function (name) {
+    return { name: name, on: 0, onT: 0, hit: 0, pulse: 0, x: 0 };
+  });
+  var tickets = [], spawnAt = 0, seq = 0, raf = 0, last = 0;
+
+  function stageXs() {
+    var pad = Math.max(26, W * 0.09);
+    var span = W - pad * 2;
+    stages.forEach(function (s, i) { s.x = pad + (span * i) / (stages.length - 1); });
+  }
+
+  function currentStage() {
+    /* Whichever section owns the middle of the screen owns the rail. */
+    var mid = window.innerHeight * 0.42, best = -1;
+    sections.forEach(function (sec, i) {
+      if (sec.stage < 0) return;
+      var r = sec.el.getBoundingClientRect();
+      if (r.top <= mid && r.bottom >= 0) best = sec.stage;
+    });
+    return best;
+  }
+
+  function tint(on, a) {
+    var r = Math.round(lerp(74, 125, on)), g = Math.round(lerp(85, 211, on)), b = Math.round(lerp(96, 160, on));
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+
+  function frame(ts) {
+    raf = requestAnimationFrame(frame);
+    if (document.hidden) return;
+    var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
+    last = ts;
+    size(); stageXs();
+    ctx.clearRect(0, 0, W, H);
+
+    var y = H * 0.42;
+    var cur = currentStage();
+    stages.forEach(function (s, i) { s.onT = (i === cur) ? 1 : 0; });
+
+    ctx.strokeStyle = '#ffffff16'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(stages[0].x, y); ctx.lineTo(stages[stages.length - 1].x, y); ctx.stroke();
+
+    ctx.font = '9px ui-monospace, SFMono-Regular, Menlo, monospace';
+    ctx.textBaseline = 'top'; ctx.textAlign = 'center';
+
+    stages.forEach(function (s) {
+      s.on = lerp(s.on, s.onT, 0.08);
+      s.pulse *= 0.94;
+      s.hit = lerp(s.hit, s.pulse, 0.22);
+      ctx.beginPath(); ctx.arc(s.x, y, 8 + s.hit * 7, 0, 6.2832);
+      ctx.fillStyle = tint(s.on, (0.04 + s.on * 0.05 + s.hit * 0.07).toFixed(3));
+      ctx.fill();
+      ctx.beginPath(); ctx.arc(s.x, y, 3 + s.on * 1.2 + s.hit * 1.8, 0, 6.2832);
+      ctx.fillStyle = tint(s.on, (0.5 + s.on * 0.45).toFixed(3));
+      ctx.fill();
+      ctx.fillStyle = tint(s.on, (0.4 + s.on * 0.5).toFixed(3));
+      ctx.fillText(s.name, s.x, y + 10);
+    });
+
+    if (Motion.on && ts > spawnAt) {
+      spawnAt = ts + 2400 + Math.random() * 2400;
+      tickets.push({ id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length], t: 0, at: 0, hold: 0, fade: 1 });
+    }
+    ctx.textAlign = 'left';
+    for (var i = tickets.length - 1; i >= 0; i--) {
+      var tk = tickets[i];
+      var target = stages[Math.min(tk.at, stages.length - 1)].x;
+      if (tk.hold > 0) tk.hold -= dt;
+      else {
+        tk.t = lerp(tk.t, target, 1 - Math.pow(0.02, dt));
+        if (Math.abs(tk.t - target) < 1.5) {
+          tk.t = target; tk.hold = 0.8;
+          stages[Math.min(tk.at, stages.length - 1)].pulse = 1;
+          if (tk.at >= stages.length - 1) tk.done = true; else tk.at++;
+        }
+      }
+      if (tk.done && tk.hold <= 0) tk.fade -= dt * 1.1;
+      if (tk.fade <= 0) { tickets.splice(i, 1); continue; }
+      var held = tk.hold > 0;
+      ctx.beginPath(); ctx.arc(tk.t, y, held ? 3 : 2.2, 0, 6.2832);
+      ctx.fillStyle = 'rgba(125,211,160,' + ((held ? 0.9 : 0.55) * tk.fade).toFixed(3) + ')';
+      ctx.fill();
+      if (held || tk.done) {
+        ctx.fillStyle = 'rgba(125,211,160,' + (0.8 * tk.fade).toFixed(3) + ')';
+        ctx.fillText('#' + tk.id, tk.t + 7, y - 11);
+      }
+    }
+    if (tickets.length > 12) tickets.splice(0, tickets.length - 12);
+  }
+
+  size(); stageXs();
+  if (Motion.on) raf = requestAnimationFrame(frame);
+  else { requestAnimationFrame(function (ts) { frame(ts); cancelAnimationFrame(raf); }); }
+  return { destroy: function () { cancelAnimationFrame(raf); } };
+}
+
+function mountFlow(root) {
+  root.className = 'v-flow';
+  var railBox = h('div', { class: 'f-rail', 'aria-hidden': 'true' });
+  var railCanvas = h('canvas', {});
+  railBox.appendChild(railCanvas);
+  document.body.insertBefore(railBox, document.getElementById('main'));
+
+  var rv = makeRevealer();
+  function wrap(kids) { return h('div', { class: 'f-wrap' }, kids); }
+
+  var head = h('section', { class: 'f-hero' }, [wrap([
+    rv.add(h('div', { class: 'f-mark' }, [
+      h('b', { text: CONTENT.wordmark }), document.createTextNode(' — ' + CONTENT.kicker)
+    ])),
+    rv.add(h('h1', { html: CONTENT.headline[0] + ' ' + CONTENT.headline[1] }), 60),
+    rv.add(h('p', { class: 'f-lede', text: CONTENT.lede }), 120),
+    rv.add(h('div', { class: 'f-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
+    rv.add(h('div', { class: 'f-links' }, [
+      h('a', { class: 'f-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
+      h('a', { class: 'f-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
+    ]), 240)
+  ])]);
+
+  var claimEls = [];
+  var claims = h('div', {});
+  CONTENT.claims.forEach(function (c, i) {
+    var block = rv.add(h('div', { class: 'f-claim' }, [
+      h('p', { class: 'f-eyebrow', text: c.station }),
+      h('h3', { text: c.title }),
+      h('p', { text: c.body }),
+      h('div', { class: 'under', html: c.under.join('<br>') })
+    ]), i * 80);
+    claimEls.push(block);
+    claims.appendChild(block);
+  });
+  var s1 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.claimsHeading })), claims])]);
+
+  var frames = h('div', { class: 'f-frames' });
+  CONTENT.frames.forEach(function (cap, i) {
+    frames.appendChild(h('figure', { style: 'margin:0' }, [
+      frameButton('f-box', i),
+      h('figcaption', { class: 'f-cap' }, [
+        h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
+      ])
+    ]));
+  });
+  var proof = h('div', {}, [
+    h('p', { class: 'f-eyebrow', text: 'merged' }),
+    rv.add(frames),
+    rv.add(h('p', { class: 'f-note', text: CONTENT.shotnote }), 80),
+    rv.add(trailNode('f-note'), 120),
+    rv.add(h('p', { class: 'f-legend', text: CONTENT.railLegend }), 140),
+    rv.add(statsNode('f-stats'), 180)
+  ]);
+  var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proof])]);
+
+  var s3 = h('section', {}, [wrap([
+    rv.add(h('h2', { text: CONTENT.honestHeading })), rv.add(honestList('f-honest'), 60)
+  ])]);
+  var s4 = h('section', { id: 'setup' }, [wrap([
+    rv.add(h('h2', { text: CONTENT.guideHeading })), rv.add(guideNode(), 60)
+  ])]);
+  var foot = h('footer', {}, [h('div', { class: 'f-wrap', html: CONTENT.footer })]);
+
+  root.appendChild(frag([head, s1, s2, s3, s4, foot]));
+
+  var sections = claimEls.map(function (el, i) { return { el: el, stage: i }; });
+  sections.push({ el: proof, stage: 3 });
+  var rail = startRail(railCanvas, sections);
+
+  return {
+    destroy: function () {
+      if (rail) rail.destroy();
+      rv.stop();
+      railBox.remove();
     }
   };
 }
@@ -1820,6 +2143,7 @@ var VARIANTS = [
   { key: 'live', name: 'The live page', note: 'baseline', mount: mountLive },
   { key: 'bloodstream', name: 'Bloodstream', note: 'WebGL field', mount: mountBloodstream },
   { key: 'queue', name: 'The queue, alive', note: 'pipeline spine', mount: mountQueue },
+  { key: 'flow', name: 'The run, on a rail', note: 'pipeline sideways', mount: mountFlow },
   { key: 'vitals', name: 'Vital signs', note: 'restrained', mount: mountVitals }
 ];
 
