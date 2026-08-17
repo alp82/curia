@@ -1,0 +1,1396 @@
+<!doctype html>
+<!--
+  curia#363 — Try the living-organism prompt as a landing-page experiment.
+
+  THROWAWAY PROTOTYPE. Not the live page. Not served from docs/.
+  One self-contained file: no build step, no CDN, no npm, no webfont, no image.
+
+  Four variants on one route, switchable with ?variant= and the bottom bar:
+    live        — the current https://curia.sh page, the baseline to beat
+    bloodstream — cinematic WebGL field, scroll drives the scene
+    queue       — the page rebuilt as a living pipeline with a spine
+    vitals      — the calm page with one organism gesture done well
+
+  Every variant renders the SAME copy from the CONTENT object below, so the
+  comparison is presentation only. The prompt changes the presentation, not
+  the claims (docs/landing-page/positioning.md).
+
+  Sound is off until you turn it on. Motion honors prefers-reduced-motion.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>curia#363 — living-organism experiment</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b0d10">
+<style>
+  :root {
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --accent: #7dd3a0;
+    --ease: cubic-bezier(0.32, 0.72, 0, 1);
+    --chrome: 1.75rem;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    padding-top: var(--chrome);
+    font: 1rem/1.6 var(--sans);
+    background: #0b0d10;
+    color: #e6e8ec;
+    overflow-x: hidden;
+  }
+  main { position: relative; z-index: 1; }
+  img, canvas { max-width: 100%; }
+
+  /* ================================================================
+     PROTOTYPE CHROME — deliberately not part of any design below.
+     ================================================================ */
+  .skip {
+    position: fixed; left: 0.5rem; top: calc(var(--chrome) + 0.5rem); z-index: 60;
+    background: #ffd66b; color: #111; padding: 0.5rem 0.8rem; border-radius: 6px;
+    font: 600 0.85rem var(--sans); text-decoration: none;
+    transform: translateY(-250%);
+  }
+  .skip:focus { transform: none; }
+
+  .protohead {
+    position: fixed; inset: 0 0 auto 0; z-index: 50; height: var(--chrome);
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0 0.7rem;
+    background: #ffd66b; color: #1a1206;
+    font: 600 0.7rem/1 var(--mono);
+    letter-spacing: 0.01em;
+    white-space: nowrap; overflow: hidden;
+  }
+  .protohead b { font-weight: 700; }
+  .protohead span { opacity: 0.72; overflow: hidden; text-overflow: ellipsis; }
+
+  .switch {
+    position: fixed; z-index: 50;
+    left: 50%; transform: translateX(-50%);
+    bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 0.25rem;
+    padding: 0.3rem;
+    background: #f2f4f7; color: #14171c;
+    border-radius: 999px;
+    box-shadow: 0 6px 28px #000000aa, 0 0 0 1px #ffffff30;
+    font-family: var(--mono);
+    max-width: calc(100vw - 1rem);
+  }
+  .switch button {
+    border: 0; background: none; color: inherit; cursor: pointer;
+    font-family: inherit; font-size: 0.8rem;
+    border-radius: 999px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .switch .arrow { width: 2rem; height: 2rem; font-size: 1rem; }
+  .switch .arrow:hover { background: #00000012; }
+  .switch .arrow:active { transform: scale(0.94); }
+  .switch .label {
+    padding: 0 0.55rem; min-width: 0;
+    display: flex; flex-direction: column; align-items: center; line-height: 1.25;
+  }
+  .switch .label .k { font-size: 0.62rem; opacity: 0.55; letter-spacing: 0.06em; text-transform: uppercase; }
+  .switch .label .n { font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+  .switch .toggle {
+    width: 2rem; height: 2rem; font-size: 0.9rem;
+    background: #00000010;
+  }
+  .switch .toggle[aria-pressed="true"] { background: #14171c; color: #f2f4f7; }
+  .switch .sep { width: 1px; height: 1.5rem; background: #00000018; flex: none; margin: 0 0.15rem; }
+  .switch button:focus-visible, .protohead a:focus-visible { outline: 2px solid #2f6bff; outline-offset: 2px; }
+
+  /* Every variant needs room to scroll past the floating bar. */
+  main { padding-bottom: 5.5rem; }
+
+  /* Decorative full-screen layers sit behind the content of a variant. */
+  .layer {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    width: 100%; height: 100%;
+  }
+
+  /* ================================================================
+     VARIANT "live" — the current page, reproduced as the baseline.
+     Class names match docs/index.html so the CSS stays comparable.
+     ================================================================ */
+  body[data-variant="live"] { background: #0e1013; }
+  .v-live {
+    --bg: #0e1013; --panel: #14171c; --line: #262b33;
+    --text: #e6e8ec; --dim: #969ba5;
+    color: var(--text);
+  }
+  .v-live .wrap { max-width: 46rem; margin: 0 auto; padding: 0 1.25rem; }
+  .v-live a { color: var(--accent); }
+  .v-live code, .v-live .mono { font-family: var(--mono); font-size: 0.86em; }
+  .v-live header.top { padding: 2.25rem 0 0; }
+  .v-live .wordmark { font-family: var(--mono); font-size: 0.95rem; letter-spacing: 0.02em; }
+  .v-live .wordmark b { color: var(--accent); font-weight: 600; }
+  .v-live .wordmark span { color: var(--dim); }
+  .v-live h1 {
+    font-size: clamp(1.45rem, 7.6vw, 3rem); line-height: 1.12;
+    letter-spacing: -0.02em; margin: 1.5rem 0 0; font-weight: 620;
+  }
+  .v-live .lede { font-size: 1.08rem; color: #c9ced6; margin: 1.1rem 0 0; max-width: 34rem; }
+  .v-live .facts { font-family: var(--mono); font-size: 0.78rem; color: var(--dim); margin: 1.4rem 0 0; line-height: 2; }
+  .v-live .links { margin: 1.6rem 0 0; font-size: 0.95rem; }
+  .v-live .links a { margin-right: 1.4rem; }
+  .v-live section { padding: 3.25rem 0 0; }
+  .v-live .rule { height: 1px; background: var(--line); margin: 3.25rem 0 0; }
+  .v-live h2 {
+    font-size: 0.76rem; font-family: var(--mono); font-weight: 500;
+    text-transform: uppercase; letter-spacing: 0.14em; color: var(--dim); margin: 0 0 1.75rem;
+  }
+  .v-live h3 { font-size: 1.22rem; margin: 0 0 0.5rem; letter-spacing: -0.01em; font-weight: 600; }
+  .v-live p { margin: 0 0 0.85rem; }
+  .v-live .claim { margin: 0 0 2.5rem; }
+  .v-live .claim:last-child { margin-bottom: 0; }
+  .v-live .claim p { color: #c9ced6; max-width: 36rem; }
+  .v-live .claim .under {
+    font-family: var(--mono); font-size: 0.76rem; color: var(--dim);
+    border-left: 2px solid var(--line); padding-left: 0.85rem; margin-top: 0.9rem;
+  }
+  .v-live .frames { display: grid; gap: 1.5rem 0.9rem; grid-template-columns: 1fr 1fr; }
+  .v-live .frame figure { margin: 0; }
+  .v-live .box {
+    background: var(--panel); border: 1px dashed var(--line); border-radius: 6px;
+    aspect-ratio: 9 / 16; display: flex; align-items: center; justify-content: center;
+    color: #4a515c; font-family: var(--mono); font-size: 0.7rem;
+    width: 100%; padding: 0; cursor: zoom-in;
+  }
+  .v-live .box:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .v-live .frame figcaption { font-size: 0.82rem; color: var(--dim); margin-top: 0.5rem; line-height: 1.45; }
+  .v-live .frame .n { color: var(--accent); font-family: var(--mono); }
+  .v-live .shotnote { color: var(--dim); font-size: 0.85rem; margin-top: 1.4rem; }
+  .v-live .trail { margin-top: 1.1rem; }
+  .v-live .stats {
+    font-family: var(--mono); font-size: 0.76rem; color: var(--dim); line-height: 1.9;
+    margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem;
+  }
+  .v-live .honest { border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem 1.35rem; }
+  .v-live .honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-live .honest li { margin: 0 0 0.7rem; color: #c9ced6; }
+  .v-live .honest li:last-child { margin-bottom: 0; }
+  .v-live .honest li b { color: var(--text); font-weight: 600; }
+
+  /* ================================================================
+     Shared guide document. Same words in every variant; each variant
+     restyles it. The pitch above it is what the variants disagree on.
+     ================================================================ */
+  .guide .step { margin: 0 0 2rem; }
+  .guide .step h3 { font-size: 1.02rem; margin: 0 0 0.5rem; font-weight: 600; }
+  .guide .step h3 .num { font-family: var(--mono); opacity: 0.6; margin-right: 0.5rem; font-size: 0.9em; }
+  .guide .step p { font-size: 0.95rem; }
+  .guide pre { border-radius: 6px; padding: 0.8rem 0.9rem; overflow-x: auto; margin: 0.7rem 0; }
+  .guide pre code { font-family: var(--mono); font-size: 0.8rem; }
+  .guide .warn { color: #f0c987; }
+  .guide .need { border-radius: 8px; padding: 1rem 1.15rem; font-size: 0.95rem; margin: 0 0 2.25rem; }
+  .guide details.full { padding: 0.25rem 0; margin: 0.5rem 0 1.75rem; }
+  .guide details.full > summary {
+    cursor: pointer; padding: 1.1rem 0; font-family: var(--mono); font-size: 0.82rem;
+    color: var(--accent); list-style: none;
+  }
+  .guide details.full > summary::-webkit-details-marker { display: none; }
+  .guide details.full > summary::before { content: "+ "; }
+  .guide details.full[open] > summary::before { content: "\2212 "; }
+  .guide details.full .step h3 { font-size: 0.98rem; }
+  .guide .tabletitle { font-size: 0.98rem; margin: 2.25rem 0 0.75rem; }
+  .guide table { width: 100%; border-collapse: collapse; font-size: 0.85rem; table-layout: fixed; }
+  .guide td { padding: 0.6rem 0.6rem 0.6rem 0; vertical-align: top; }
+  .guide td:first-child { width: 45%; }
+  .guide td code { overflow-wrap: anywhere; font-family: var(--mono); font-size: 0.86em; }
+  .guide .readmore { font-size: 0.9rem; }
+
+  /* live-variant skin for the shared guide */
+  .v-live .guide pre { background: var(--panel); border: 1px solid var(--line); }
+  .v-live .guide pre code { color: #cfd5de; }
+  .v-live .guide .step p { color: #c9ced6; }
+  .v-live .guide .need { border: 1px solid var(--line); color: #c9ced6; }
+  .v-live .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-live .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-live .guide td { border-top: 1px solid var(--line); color: #c9ced6; }
+  .v-live .guide .readmore { color: var(--dim); }
+  .v-live footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+  .v-live .under, .v-live .stats, .v-live .facts { overflow-wrap: break-word; }
+
+  @media (max-width: 30rem) {
+    .v-live .wrap { padding: 0 1rem; }
+    .v-live header.top { padding-top: 1.75rem; }
+    .v-live section { padding-top: 2.5rem; }
+    .v-live .rule { margin-top: 2.5rem; }
+    .v-live h2 { margin-bottom: 1.35rem; }
+    .v-live .lede { font-size: 1.02rem; }
+    .v-live .claim { margin-bottom: 2rem; }
+    .v-live .honest { padding: 1.25rem 1.1rem; }
+    .v-live .honest ul { padding-left: 1rem; }
+    .v-live .honest li { margin-bottom: 0.6rem; }
+    .v-live .guide .need { padding: 0.9rem 1rem; margin-bottom: 1.75rem; }
+    .v-live .guide .step { margin-bottom: 1.6rem; }
+    .v-live .frames { gap: 1.25rem 0.7rem; }
+    .v-live .frame figcaption { font-size: 0.78rem; }
+    .v-live .guide details.full > summary { padding: 1.2rem 0; }
+    .v-live footer { padding: 2.5rem 0 3rem; }
+  }
+
+  /* ================================================================
+     THE VERTICAL RUN — the layout all three variations share.
+     The gutter holds the spine and the ticket chips. A stage name sits
+     on the same line as its node, so a chip parked on the node reads
+     its state straight off the label beside it.
+     ================================================================ */
+  body[data-variant="stream"], body[data-variant="lanes"], body[data-variant="descent"] { background: #08090c; }
+  .v-run { --line: #ffffff1c; --dim: #949cab; color: #e9ecf1; }
+  .v-run a { color: var(--accent); }
+  .v-run .q-wrap { max-width: 52rem; margin: 0 auto; padding: 0 1.1rem 0 4.75rem; }
+  .v-run .q-hero { padding: 3.5rem 0 3rem; }
+  .v-run .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
+  .v-run .q-mark b { color: var(--accent); font-weight: 600; }
+  .v-run h1 {
+    font-size: clamp(1.7rem, 8.2vw, 3.4rem); line-height: 1.06; letter-spacing: -0.035em;
+    font-weight: 620; margin: 1.15rem 0 0; text-wrap: balance;
+  }
+  .v-run .q-lede { font-size: 1.06rem; color: #c1c8d3; margin: 1.15rem 0 0; max-width: 33rem; text-wrap: pretty; }
+  .v-run .q-facts { font-family: var(--mono); font-size: 0.74rem; color: var(--dim); margin: 1.5rem 0 0; line-height: 2; }
+  .v-run .q-links { margin: 1.75rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
+  .v-run .q-cta {
+    text-decoration: none; font-weight: 600; font-size: 0.98rem;
+    padding: 0.7rem 1.1rem; border-radius: 10px; background: var(--accent); color: #06231a;
+    transition: transform 0.7s var(--ease);
+  }
+  .v-run .q-cta:active { transform: scale(0.98); }
+  .v-run .q-cta.ghost { background: none; color: #e9ecf1; box-shadow: inset 0 0 0 1px var(--line); }
+
+  .v-run h2 {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.16em; color: var(--dim); margin: 0 0 1.5rem;
+  }
+  .v-run .q-station { position: relative; padding: 0 0 2.5rem; }
+  /* The stage name. It brightens when the run reaches it, and that is the
+     state transition the reader is meant to see. */
+  .v-run .q-tag {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--dim);
+    margin: 0 0 0.75rem; padding: 0.15rem 0;
+    display: flex; align-items: center; gap: 0.45rem;
+    transition: color 0.6s var(--ease);
+  }
+  .v-run .q-tag .q-dot {
+    width: 0.44rem; height: 0.44rem; border-radius: 999px; flex: none;
+    opacity: 0.55; transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+  }
+  .v-run .q-tag.hot { color: #e2e9f1; }
+  .v-run .q-tag.hot .q-dot { opacity: 1; transform: scale(1.35); }
+  /* The color code, spelled out once, so no dot needs guessing. */
+  .v-run .q-key {
+    display: flex; flex-wrap: wrap; gap: 0.35rem 0.9rem;
+    font-family: var(--mono); font-size: 0.68rem; color: var(--dim);
+    margin: 0 0 1.9rem;
+  }
+  .v-run .q-keyitem { display: inline-flex; align-items: center; gap: 0.35rem; }
+  .v-run .q-keyitem i { width: 0.44rem; height: 0.44rem; border-radius: 999px; }
+  .v-run .q-card {
+    border-radius: 14px; padding: 1.4rem 1.35rem;
+    background: #ffffff07; box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .v-run .q-card h3 { font-size: 1.28rem; margin: 0 0 0.55rem; letter-spacing: -0.02em; font-weight: 600; }
+  .v-run .q-card p { color: #c1c8d3; margin: 0; text-wrap: pretty; }
+  .v-run .q-card .under {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--dim); line-height: 1.9;
+    margin-top: 0.95rem; padding-top: 0.85rem; border-top: 1px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .v-run .q-frames { display: grid; grid-template-columns: 1fr 1fr; gap: 1.15rem 0.85rem; }
+  .v-run .q-box {
+    width: 100%; padding: 0; aspect-ratio: 9 / 16; border-radius: 10px;
+    background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
+    color: #666e7c; font-family: var(--mono); font-size: 0.68rem; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .v-run .q-box:active { transform: scale(0.985); }
+  .v-run .q-cap { font-size: 0.79rem; color: var(--dim); margin-top: 0.45rem; line-height: 1.45; }
+  .v-run .q-cap .n { color: var(--accent); font-family: var(--mono); }
+  .v-run .q-note { color: var(--dim); font-size: 0.85rem; margin-top: 1.3rem; }
+  .v-run .q-legend { color: var(--dim); font-size: 0.79rem; margin-top: 0.9rem; font-family: var(--mono); }
+  .v-run .q-stats {
+    font-family: var(--mono); font-size: 0.74rem; color: var(--dim); line-height: 1.95;
+    margin-top: 1.15rem; padding-top: 1.05rem; border-top: 1px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .v-run .q-honest { border-radius: 14px; padding: 1.4rem 1.35rem; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-run .q-honest ul { margin: 0; padding-left: 1.1rem; }
+  .v-run .q-honest li { margin: 0 0 0.7rem; color: #c1c8d3; }
+  .v-run .q-honest li:last-child { margin: 0; }
+  .v-run .q-honest li b { color: #e9ecf1; font-weight: 600; }
+  .v-run section { padding: 3rem 0 0; }
+  .v-run .guide pre { background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line); }
+  .v-run .guide pre code { color: #cfd5de; }
+  .v-run .guide .step p { color: #c1c8d3; }
+  .v-run .guide .need { box-shadow: inset 0 0 0 1px var(--line); color: #c1c8d3; }
+  .v-run .guide details.full { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .v-run .guide details.full[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+  .v-run .guide td { border-top: 1px solid var(--line); color: #c1c8d3; }
+  .v-run .guide .readmore { color: var(--dim); }
+  .v-run footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
+  @media (min-width: 40rem) {
+    .v-run .q-wrap { padding-left: 7rem; padding-right: 1.25rem; }
+  }
+
+  /* ================================================================
+     Scroll reveal, used by the three experiment variants.
+     ================================================================ */
+  .rv { opacity: 0; transform: translateY(2.5rem); filter: blur(6px); }
+  .rv.in {
+    opacity: 1; transform: none; filter: none;
+    transition: opacity 0.9s var(--ease), transform 0.9s var(--ease), filter 0.9s var(--ease);
+  }
+
+  /* ================================================================
+     Lightbox — shared by every variant, same behavior as the live page.
+     ================================================================ */
+  .lightbox {
+    position: fixed; inset: 0; background: #05060898;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    display: none; flex-direction: column; z-index: 55;
+  }
+  .lightbox[open] { display: flex; }
+  .lb-stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 1rem; min-height: 0; }
+  .lb-shot {
+    background: #14171c; border: 1px dashed #262b33; border-radius: 8px;
+    height: 100%; aspect-ratio: 9 / 16; max-width: 100%;
+    display: flex; align-items: center; justify-content: center;
+    color: #4a515c; font-family: var(--mono); font-size: 0.8rem;
+  }
+  .lb-bar {
+    display: flex; align-items: center; gap: 1rem; justify-content: space-between;
+    padding: 0.9rem 1.25rem calc(1.6rem + env(safe-area-inset-bottom));
+    color: #969ba5; font-size: 0.85rem;
+  }
+  .lb-cap { flex: 1; text-align: center; line-height: 1.4; }
+  .lb-bar button {
+    background: none; border: 1px solid #262b33; color: #e6e8ec;
+    border-radius: 999px; width: 2.6rem; height: 2.6rem; font-size: 1.1rem; cursor: pointer; flex: none;
+  }
+  .lb-close {
+    align-self: flex-end; background: none; border: 0; color: #969ba5;
+    font-family: var(--mono); font-size: 0.85rem; cursor: pointer;
+    padding: calc(1rem + var(--chrome)) 1.25rem 1rem;
+  }
+  .lb-count { font-family: var(--mono); font-size: 0.75rem; }
+
+  /* Nothing moves for a reader who asked for no motion. */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .rv { opacity: 1; transform: none; filter: none; }
+    * { animation-duration: 0.001ms !important; }
+  }
+  body.nomotion .rv { opacity: 1; transform: none; filter: none; }
+  body.nomotion .layer { display: none; }
+</style>
+</head>
+<body data-variant="live">
+
+<a class="skip" href="#main">Skip to content</a>
+
+<div class="protohead">
+  <b>curia#363</b>
+  <span>living-organism experiment &middot; prototype, not the live page</span>
+</div>
+
+<main id="main" tabindex="-1"></main>
+
+<nav class="switch" aria-label="Prototype variant switcher">
+  <button class="arrow" type="button" data-step="-1" aria-label="Previous variant">&larr;</button>
+  <span class="label"><span class="k" id="sw-k"></span><span class="n" id="sw-n"></span></span>
+  <button class="arrow" type="button" data-step="1" aria-label="Next variant">&rarr;</button>
+  <span class="sep"></span>
+  <button class="toggle" type="button" id="sw-sound" aria-pressed="false" aria-label="Sound, off" title="Sound">&#9834;</button>
+  <button class="toggle" type="button" id="sw-motion" aria-pressed="true" aria-label="Motion, on" title="Motion">&#9678;</button>
+</nav>
+
+<div class="lightbox" id="lb" role="dialog" aria-modal="true" aria-label="Proof frames">
+  <button class="lb-close" type="button" data-lb-close>close &times;</button>
+  <div class="lb-stage"><div class="lb-shot" id="lb-shot">frame 1</div></div>
+  <div class="lb-bar">
+    <button type="button" data-lb-step="-1" aria-label="Previous frame">&larr;</button>
+    <div class="lb-cap"><span id="lb-cap"></span><br><span class="lb-count" id="lb-count"></span></div>
+    <button type="button" data-lb-step="1" aria-label="Next frame">&rarr;</button>
+  </div>
+</div>
+
+<script>
+(function () {
+'use strict';
+
+/* ==================================================================
+   1. CONTENT
+   One copy of every word, rendered by all four variants. The claims,
+   the proof, the honesty block and the guide are the approved page
+   text (docs/landing-page/positioning.md, docs/index.html). A variant
+   may re-arrange these strings. It may not rewrite them.
+   ================================================================== */
+
+var CONTENT = {
+  wordmark: 'curia',
+  kicker: 'self-hosted agent dispatcher',
+  headline: ['Many repos, one queue,', 'driven from a phone.'],
+  lede: 'You already run coding agents every day. Curia reads what is takeable across every repo ' +
+        'you watch, sends an agent at it, and brings every question, every preview and every ' +
+        'approval to the device in your hand.',
+  facts: [
+    'Your box · your subscription · your keys',
+    'GitHub issues in · merged pull requests out'
+  ],
+  cta: { label: 'Set it up', href: '#setup' },
+  source: { label: 'Source', href: 'https://github.com/alp82/curia' },
+
+  /* The four stages of the run. Every word already appears in the page copy. */
+  stages: ['takeable', 'agent', 'gate', 'merged'],
+  claimsHeading: 'What it gives you',
+  claims: [
+    {
+      station: 'takeable',
+      title: 'Your tracker is the queue',
+      body: 'GitHub issues hold every ticket, every claim and every dependency edge. Curia reads ' +
+            'what is takeable across every watched repo, in dependency order, and picks the model ' +
+            'for each ticket from a label. There is no second app, and no board to keep in sync.',
+      under: ['3 repos watched today · label decides the model · blocked and claimed tickets drop out']
+    },
+    {
+      station: 'agent',
+      title: 'Any device is a full seat',
+      body: 'Nine verbs over Discord, one thread per ticket. Questions arrive with buttons. ' +
+            'Results arrive as HTTPS links on your tailnet. You can attach to a live agent’s ' +
+            'terminal from a phone and from a desktop at the same time, and neither one is the ' +
+            'lesser seat.',
+      under: [
+        'tickets · next · start 42 · status · attach 42 · resume 42 · cancel 42 · map 109 · review 42',
+        '~0.5 GB per agent measured · four at once on one small box'
+      ]
+    },
+    {
+      station: 'gate',
+      title: 'An agent cannot finish by talking',
+      body: 'Every ticket ends the same way: commit, pull request, live preview, your approval, ' +
+            'merge. A rejection comes back in your own words and turns into new commits on the ' +
+            'same pull request. A stop hook refuses an agent that tries to quit early.',
+      under: ['resolved means merged · nothing lands without you']
+    }
+  ],
+
+
+  proofHeading: 'One ticket, done',
+  frames: [
+    'The ticket goes out from a Discord thread.',
+    'The agent asks. You answer in the thread.',
+    'The preview link, open on the phone.',
+    'The review gate. Approved.'
+  ],
+  shotnote: 'Four phone screenshots of one real ticket, on a repo that is not this one. Tap one to read it.',
+  /* Names what the dots on the spine are. The queue variant alone shows it. */
+  spineLegend: 'The numbers moving down the left are this page\u2019s own tickets.',
+  railLegend: 'The numbers moving along the rail are this page\u2019s own tickets.',
+  trail: {
+    text: 'This page was planned, decided and written by curia agents. Each one ended at a review gate, and none of them merged itself. ',
+    link: { label: 'Read the merged pull requests', href: 'https://github.com/alp82/curia/pulls?q=is%3Apr+is%3Amerged' }
+  },
+  stats: [
+    'From GitHub, since the first commit on 21 Jul 2026 — 33 merged agent pull requests · 175 issues closed · 3 repos watched.',
+    'From the daemon journal, since 1 Aug 2026 — 62 agents spawned · 88 questions asked · 31 review gates answered.',
+    'Counted 5 Aug 2026.'
+  ],
+
+  honestHeading: 'What you are getting into',
+  honest: [
+    ['Curia is fifteen days old.', ' First commit 21 July 2026.'],
+    ['One person runs it.', ' You would be the second.'],
+    ['Setup is manual and takes an evening.', ' Node, tmux, Tailscale, a Discord bot, a harness, a GitHub repo. It gets simpler. There is no package yet.'],
+    ['Tailscale and Discord are required.', ' There is no web UI.'],
+    ['Agents use your own harness login.', ' An agent can do what you can do with it.']
+  ],
+
+  guideHeading: 'Set it up',
+  need: 'a Linux box that stays on · Node 22 or newer · tmux · ttyd · a Tailscale account · a Discord server you control · Claude Code or Codex CLI, logged in · an evening.',
+
+  steps5: [
+    { t: 'Tailscale on the box and on your phone',
+      body: [
+        { p: 'Turn on HTTPS certificates for your tailnet, then let the daemon publish links without root.' },
+        { code: 'tailscale set --operator=$USER' },
+        { p: 'Every attach link and every preview link is a Tailscale link. Skip this and none of them work.' }
+      ] },
+    { t: 'Log in, as the user that runs the daemon',
+      body: [
+        { code: 'gh auth login && gh auth setup-git\nclaude' },
+        { p: 'Agents use this harness login and this GitHub account. The account needs write access to every repo you watch.' }
+      ] },
+    { t: 'A Discord bot',
+      body: [
+        { html: 'Create an application, add a bot, copy the token. Turn on <b>message content intent</b> — without it your replies arrive empty and no question is ever answered. Invite the bot to your server with the <code>bot</code> and <code>applications.commands</code> scopes. It creates the <code>#curia</code> channel itself on first boot.' }
+      ] },
+    { t: 'The code, and two files',
+      body: [
+        { code: 'git clone https://github.com/alp82/curia.git\ncd curia/daemon && npm install' },
+        { html: '<code>daemon/.env</code> takes the bot token, your Discord user id, and <code>TTYD_BIN</code>. <code>config/curia.yaml</code> takes the repos you watch and a <code>workspace_root</code> curia can own.' },
+        { html: '<span class="warn">Both files ship pointing at another person’s home directory.</span> Change them, or attach is dead and worktrees land in the wrong place.' }
+      ] },
+    { t: 'Run it',
+      body: [
+        { code: 'npm start' },
+        { html: 'A good boot logs <code>[bridge] ready</code>. Send a message in <code>#curia</code>: a thread opens and answers you. Then <code>tickets</code>, <code>start 42</code>, <code>status</code>, <code>attach 42</code>.' }
+      ] }
+  ],
+
+  steps13: [
+    { t: 'The box', body: [{ p: 'Linux, always on. Node 22 or newer, tmux, ttyd, Tailscale. About 0.5 GB per running agent.' }] },
+    { t: 'Tailscale', body: [{ html: 'Install it on the box and on your phone. Turn on HTTPS certificates for your tailnet in the admin console. Then run <code>tailscale set --operator=$USER</code>.' }] },
+    { t: 'GitHub', body: [{ code: 'gh auth login\ngh auth setup-git' }] },
+    { t: 'Your harness', body: [{ html: 'Log in as the user that runs the daemon. Log out and every agent fails. Codex CLI is optional: install it only for the <code>gpt</code> entry in <code>config/routing.yaml</code>.' }] },
+    { t: 'The Discord bot', body: [{ html: 'Create an application. Add a bot and copy the token — Discord shows it once. Turn on message content intent. In <b>OAuth2 &rarr; URL Generator</b> take the <code>bot</code> and <code>applications.commands</code> scopes, and these permissions: Manage Channels, Manage Webhooks, Send Messages, Create Public Threads, Send Messages in Threads, Read Message History, Embed Links, Attach Files. Open the URL and add the bot. Then turn on Developer Mode and copy your own user id.' }] },
+    { t: 'The code', body: [{ code: 'git clone https://github.com/alp82/curia.git\ncd curia/daemon\nnpm install' }] },
+    { t: '<code>daemon/.env</code>',
+      body: [
+        { code: 'DISCORD_BOT_TOKEN=<the bot token>\nDISCORD_ALLOWED_USERS=<your Discord user id>\nTTYD_BIN=/home/<you>/.local/bin/ttyd' },
+        { html: '<code>DISCORD_ALLOWED_USERS</code> is the whole access check. Everyone on it can send agents at your repos. <code>TTYD_BIN</code> defaults to <code>/home/alp/.local/bin/ttyd</code>: leave it and attach is dead. Optional: <code>CURIA_GUILD_ID</code>, <code>CURIA_CHANNEL</code>, <code>PORT</code>. Run one daemon per bot token.' }
+      ] },
+    { t: '<code>config/curia.yaml</code>',
+      body: [
+        { code: 'watch:\n  - repo: you/your-repo\n\ndispatch:\n  workspace_root: /home/<you>/curia-work' },
+        { html: '<code>workspace_root</code> is where curia keeps its own clones and worktrees. Do not point it at a checkout you work in. <code>auto_dispatch</code> is <code>false</code>, so nothing starts without you. The ports work as they ship, and the daemon names any clash at boot.' }
+      ] },
+    { t: 'The skills',
+      body: [
+        { html: 'The nine skills in <code>skills.install</code> are not in this repo. They come from the public <code>mattpocock/skills</code> collection, installed into <code>~/.claude/skills</code>. The daemon refuses to boot if one is missing, and names the path it looked for. Install them, cut the list down, or turn them off with an empty list — not a missing key.' },
+        { code: 'skills:\n  install: []' }
+      ] },
+    { t: '<code>config/routing.yaml</code>', body: [{ html: 'Maps a ticket label to a model, and a model to a CLI. Without Codex, delete the <code>gpt</code> model, the <code>codex</code> harness, and every <code>gpt</code> under <code>defaults</code> and <code>fallbacks</code>.' }] },
+    { t: 'The repos you watch', body: [{ html: '<b>Flat:</b> label an issue <code>ready-for-agent</code>. Curia takes open, unassigned, unblocked issues. <b>Map:</b> the repo needs a <code>wayfinder:map</code> issue with child issues, and a <code>docs/agents/issue-tracker.md</code> file. Dispatch refuses without that file. Blocking uses GitHub’s own issue dependencies.' }] },
+    { t: 'Run it',
+      body: [
+        { code: 'cd daemon\nnpm start' },
+        { html: 'A good boot logs <code>[bridge] ready: guild=&lt;your guild&gt; channel=#curia</code>. Send a normal message in <code>#curia</code>: a thread opens and answers you. The commands work as Discord slash commands or as plain English in a thread — <code>tickets</code>, <code>start 42</code>, <code>status</code>, <code>attach 42</code>, <code>resume 42</code>, <code>cancel 42</code>.' }
+      ] },
+    { t: 'Keep it running', body: [{ html: '<code>deploy/curia.service</code> is a systemd unit. Replace the user and the paths, and keep the <code>PATH=</code> line: systemd’s default path does not find <code>gh</code>, <code>tmux</code>, <code>tailscale</code> or <code>ttyd</code> under <code>~/.local/bin</code>. Restarting is safe. <code>daemon/data/events.jsonl</code> is the record, and everything else is rebuilt from GitHub, tmux and Tailscale on boot. Open questions keep their Discord buttons across a restart.' }] }
+  ],
+
+  failTitle: 'If it does not start',
+  failures: [
+    ['<code>bad config config/curia.yaml: ...</code>', 'The key it names. Config is checked before anything starts.'],
+    ['<code>skills.install names "x", but ... does not exist</code>', 'Step 9.'],
+    ['<code>preview range ... contains attach.serve_port</code>', 'Move one of the ports.'],
+    ['<code>attach index ... does not exist</code>', '<code>npm run build-attach-index --prefix daemon</code>'],
+    ['<code>bot is in no guild</code>', 'The invite did not finish, or <code>CURIA_GUILD_ID</code> is wrong.'],
+    ['The bridge refuses to start', '<code>DISCORD_ALLOWED_USERS</code> is empty.'],
+    ['Replies in a thread do nothing', 'The message content intent is off.'],
+    ['<code>spawned ttyd ... but no listener came up</code>', '<code>TTYD_BIN</code> points at nothing.'],
+    ['No attach or preview links ever appear', 'Tailscale HTTPS certificates are off, or <code>--operator</code> was never set.']
+  ],
+  readmore: 'The config reference and the design records live in the <a href="https://github.com/alp82/curia#setup">README</a> and <a href="https://github.com/alp82/curia/tree/main/docs/adr">docs/adr</a>.',
+  footer: 'curia · <a href="https://github.com/alp82/curia">github.com/alp82/curia</a> · self-hosted, one box, no service to sign up for.'
+};
+
+/* ==================================================================
+   2. SMALL HELPERS
+   ================================================================== */
+
+function h(tag, attrs, kids) {
+  var n = document.createElement(tag);
+  if (attrs) {
+    for (var k in attrs) {
+      if (k === 'class') n.className = attrs[k];
+      else if (k === 'html') n.innerHTML = attrs[k];
+      else if (k === 'text') n.textContent = attrs[k];
+      else if (k.slice(0, 4) === 'data' || k === 'role' || k.slice(0, 5) === 'aria-') n.setAttribute(k, attrs[k]);
+      else n.setAttribute(k, attrs[k]);
+    }
+  }
+  (kids || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+function frag(kids) {
+  var f = document.createDocumentFragment();
+  kids.forEach(function (c) { if (c) f.appendChild(c); });
+  return f;
+}
+function words(s) { return s.split(/(\s+)/); }
+function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+/* ==================================================================
+   3. MOTION AND SOUND
+   Motion follows prefers-reduced-motion, and the bar can override it.
+   Sound is OFF until the operator turns it on: the ticket requires it,
+   and a browser needs the gesture anyway.
+   ================================================================== */
+
+var prefersStill = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var Motion = {
+  on: !prefersStill,
+  set: function (v) {
+    Motion.on = v;
+    document.body.classList.toggle('nomotion', !v);
+  }
+};
+
+var Sound = {
+  on: false, ctx: null, master: null, drone: null, droneFilter: null,
+  enable: function () {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return false;
+    if (!Sound.ctx) {
+      Sound.ctx = new AC();
+      Sound.master = Sound.ctx.createGain();
+      Sound.master.gain.value = 0;
+      Sound.master.connect(Sound.ctx.destination);
+    }
+    if (Sound.ctx.state === 'suspended') Sound.ctx.resume();
+    Sound.on = true;
+    Sound.master.gain.cancelScheduledValues(Sound.ctx.currentTime);
+    Sound.master.gain.linearRampToValueAtTime(0.5, Sound.ctx.currentTime + 0.6);
+    return true;
+  },
+  disable: function () {
+    Sound.on = false;
+    if (Sound.ctx && Sound.master) {
+      Sound.master.gain.cancelScheduledValues(Sound.ctx.currentTime);
+      Sound.master.gain.linearRampToValueAtTime(0, Sound.ctx.currentTime + 0.35);
+    }
+  },
+  /* One short synthesized note. No audio file, so the page stays self-contained. */
+  tone: function (freq, dur, type, vol) {
+    if (!Sound.on || !Sound.ctx) return;
+    var t = Sound.ctx.currentTime;
+    var o = Sound.ctx.createOscillator();
+    var g = Sound.ctx.createGain();
+    o.type = type || 'sine';
+    o.frequency.setValueAtTime(freq, t);
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol == null ? 0.14 : vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + (dur || 0.35));
+    o.connect(g); g.connect(Sound.master);
+    o.start(t); o.stop(t + (dur || 0.35) + 0.05);
+  },
+  /* A low bed the scroll position filters. Only the WebGL variant asks for it. */
+  startDrone: function () {
+    if (!Sound.ctx || Sound.drone) return;
+    var o = Sound.ctx.createOscillator();
+    var o2 = Sound.ctx.createOscillator();
+    var f = Sound.ctx.createBiquadFilter();
+    var g = Sound.ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = 55;
+    o2.type = 'sine'; o2.frequency.value = 82.5;
+    f.type = 'lowpass'; f.frequency.value = 220; f.Q.value = 6;
+    g.gain.value = 0.07;
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(Sound.master);
+    o.start(); o2.start();
+    Sound.drone = [o, o2]; Sound.droneFilter = f;
+  },
+  stopDrone: function () {
+    if (!Sound.drone) return;
+    Sound.drone.forEach(function (o) { try { o.stop(); } catch (e) {} });
+    Sound.drone = null; Sound.droneFilter = null;
+  },
+  filterTo: function (hz) {
+    if (Sound.droneFilter && Sound.ctx) {
+      Sound.droneFilter.frequency.setTargetAtTime(hz, Sound.ctx.currentTime, 0.4);
+    }
+  }
+};
+
+/* ==================================================================
+   4. REVEAL
+   IntersectionObserver, never a scroll listener (B7 of the design skill).
+   ================================================================== */
+
+function makeRevealer() {
+  var obs = null;
+  if (window.IntersectionObserver) {
+    obs = new window.IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.classList.add('in'); obs.unobserve(e.target); }
+      });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+  }
+  return {
+    add: function (node, delay) {
+      if (!Motion.on || !obs) { node.classList.add('in'); return node; }
+      node.classList.add('rv');
+      if (delay) node.style.transitionDelay = delay + 'ms';
+      obs.observe(node);
+      return node;
+    },
+    stop: function () { if (obs) obs.disconnect(); }
+  };
+}
+
+/* ==================================================================
+   5. SHARED BLOCKS
+   The guide is one document in every variant. Only its skin changes.
+   ================================================================== */
+
+function stepNode(step, i) {
+  var kids = [h('h3', {}, [h('span', { class: 'num', text: String(i + 1) }), h('span', { html: step.t })])];
+  step.body.forEach(function (b) {
+    if (b.code) kids.push(h('pre', {}, [h('code', { text: b.code })]));
+    else kids.push(h('p', { html: b.html || b.p }));
+  });
+  return h('div', { class: 'step' }, kids);
+}
+
+function guideNode() {
+  var full = h('details', { class: 'full' }, [h('summary', { text: 'The complete setup, thirteen steps' })]);
+  CONTENT.steps13.forEach(function (s, i) { full.appendChild(stepNode(s, i)); });
+  full.appendChild(h('h3', { class: 'tabletitle', text: CONTENT.failTitle }));
+  var table = h('table', {});
+  CONTENT.failures.forEach(function (row) {
+    table.appendChild(h('tr', {}, [h('td', { html: row[0] }), h('td', { html: row[1] })]));
+  });
+  full.appendChild(table);
+
+  var kids = [h('p', { class: 'need', html: '<b>What you need:</b> ' + CONTENT.need })];
+  CONTENT.steps5.forEach(function (s, i) { kids.push(stepNode(s, i)); });
+  kids.push(full);
+  kids.push(h('p', { class: 'readmore', html: CONTENT.readmore }));
+  return h('div', { class: 'guide' }, kids);
+}
+
+function honestList(cls) {
+  var ul = h('ul', {});
+  CONTENT.honest.forEach(function (it) {
+    ul.appendChild(h('li', {}, [h('b', { text: it[0] }), document.createTextNode(it[1])]));
+  });
+  return h('div', { class: cls }, [ul]);
+}
+
+function statsNode(cls) {
+  var d = h('div', { class: cls });
+  CONTENT.stats.forEach(function (s, i) {
+    d.appendChild(document.createTextNode(s));
+    if (i < CONTENT.stats.length - 1) d.appendChild(h('br'));
+  });
+  return d;
+}
+
+function trailNode(cls) {
+  return h('p', { class: cls }, [
+    document.createTextNode(CONTENT.trail.text),
+    h('a', { href: CONTENT.trail.link.href, text: CONTENT.trail.link.label }),
+    document.createTextNode('.')
+  ]);
+}
+
+/* ==================================================================
+   6. LIGHTBOX — same behavior in all four variants.
+   ================================================================== */
+
+var LB = (function () {
+  var lb = document.getElementById('lb');
+  var shot = document.getElementById('lb-shot');
+  var cap = document.getElementById('lb-cap');
+  var count = document.getElementById('lb-count');
+  var at = 0;
+  function draw() {
+    shot.textContent = 'frame ' + (at + 1);
+    cap.textContent = CONTENT.frames[at];
+    count.textContent = (at + 1) + ' / ' + CONTENT.frames.length;
+  }
+  function open(i) { at = i; draw(); lb.setAttribute('open', ''); document.body.style.overflow = 'hidden'; }
+  function close() { lb.removeAttribute('open'); document.body.style.overflow = ''; }
+  function step(d) { at = (at + d + CONTENT.frames.length) % CONTENT.frames.length; draw(); Sound.tone(560, 0.12, 'sine', 0.05); }
+  lb.querySelectorAll('[data-lb-step]').forEach(function (b) {
+    b.addEventListener('click', function () { step(Number(b.getAttribute('data-lb-step'))); });
+  });
+  lb.querySelector('[data-lb-close]').addEventListener('click', close);
+  lb.addEventListener('click', function (e) {
+    if (e.target === lb || e.target.className === 'lb-stage') close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (!lb.hasAttribute('open')) return;
+    if (e.key === 'Escape') close();
+    if (e.key === 'ArrowRight') step(1);
+    if (e.key === 'ArrowLeft') step(-1);
+  });
+  var x0 = null;
+  lb.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+  lb.addEventListener('touchend', function (e) {
+    if (x0 === null) return;
+    var dx = e.changedTouches[0].clientX - x0;
+    if (Math.abs(dx) > 45) step(dx < 0 ? 1 : -1);
+    x0 = null;
+  }, { passive: true });
+  return { open: open, close: close };
+})();
+
+function frameButton(cls, i) {
+  var b = h('button', { class: cls, type: 'button', text: 'frame ' + (i + 1) });
+  b.addEventListener('click', function () { LB.open(i); });
+  return b;
+}
+
+/* ==================================================================
+   7. A SHARED POINTER
+   One source of truth for cursor and touch, so a variant never needs
+   its own listener set. Values are in 0..1 screen space.
+   ================================================================== */
+
+var Pointer = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5, active: 0, down: false };
+(function () {
+  function set(x, y) {
+    Pointer.tx = x / window.innerWidth;
+    Pointer.ty = y / window.innerHeight;
+    Pointer.active = 1;
+  }
+  window.addEventListener('pointermove', function (e) { set(e.clientX, e.clientY); }, { passive: true });
+  window.addEventListener('pointerdown', function (e) { set(e.clientX, e.clientY); Pointer.down = true; }, { passive: true });
+  window.addEventListener('pointerup', function () { Pointer.down = false; }, { passive: true });
+  window.addEventListener('pointerleave', function () { Pointer.active = 0; }, { passive: true });
+  window.addEventListener('touchmove', function (e) {
+    if (e.touches[0]) set(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: true });
+})();
+function pointerStep() {
+  /* A spring, so the field lags the finger instead of snapping to it. */
+  Pointer.x = lerp(Pointer.x, Pointer.tx, 0.08);
+  Pointer.y = lerp(Pointer.y, Pointer.ty, 0.08);
+}
+
+function scrollProgress() {
+  var max = document.documentElement.scrollHeight - window.innerHeight;
+  return max > 0 ? clamp(window.scrollY / max, 0, 1) : 0;
+}
+
+/* ==================================================================
+   8. VARIANT "live" — the baseline. Same words, same structure, same
+   CSS as https://curia.sh today. Nothing here is new work.
+   ================================================================== */
+
+function mountLive(root) {
+  root.className = 'v-live';
+  function wrap(kids) { return h('div', { class: 'wrap' }, kids); }
+  function rule() { return h('div', { class: 'wrap' }, [h('div', { class: 'rule' })]); }
+
+  var head = h('header', { class: 'top' }, [wrap([
+    h('div', { class: 'wordmark' }, [
+      h('b', { text: CONTENT.wordmark }),
+      document.createTextNode(' '),
+      h('span', { text: '— ' + CONTENT.kicker })
+    ]),
+    h('h1', { html: CONTENT.headline[0] + '<br>' + CONTENT.headline[1] }),
+    h('p', { class: 'lede', text: CONTENT.lede }),
+    h('div', { class: 'facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }),
+    h('div', { class: 'links' }, [
+      h('a', { href: CONTENT.cta.href, text: CONTENT.cta.label }),
+      h('a', { href: CONTENT.source.href, text: CONTENT.source.label })
+    ])
+  ])]);
+
+  var claims = h('div', {});
+  CONTENT.claims.forEach(function (c) {
+    claims.appendChild(h('div', { class: 'claim' }, [
+      h('h3', { text: c.title }),
+      h('p', { text: c.body }),
+      h('div', { class: 'under', html: c.under.join('<br>') })
+    ]));
+  });
+  var s1 = h('section', {}, [wrap([h('h2', { text: CONTENT.claimsHeading }), claims])]);
+
+  var frames = h('div', { class: 'frames' });
+  CONTENT.frames.forEach(function (cap, i) {
+    frames.appendChild(h('div', { class: 'frame' }, [h('figure', {}, [
+      frameButton('box', i),
+      h('figcaption', {}, [h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)])
+    ])]));
+  });
+  var s2 = h('section', {}, [wrap([
+    h('h2', { text: CONTENT.proofHeading }), frames,
+    h('p', { class: 'shotnote', text: CONTENT.shotnote }),
+    trailNode('trail'), statsNode('stats')
+  ])]);
+
+  var s3 = h('section', {}, [wrap([h('h2', { text: CONTENT.honestHeading }), honestList('honest')])]);
+  var s4 = h('section', { id: 'setup' }, [wrap([h('h2', { text: CONTENT.guideHeading }), guideNode()])]);
+  var foot = h('footer', {}, [h('div', { class: 'wrap', html: CONTENT.footer })]);
+
+  root.appendChild(frag([head, rule(), s1, rule(), s2, rule(), s3, rule(), s4, foot]));
+  return { destroy: function () {} };
+}
+
+/* ==================================================================
+   10. THE VERTICAL RUN
+   Operator, round 2: the vertical line carries the story while
+   scrolling, and the story should evolve from top to bottom.
+   Operator, round 3: "you move the ticket is a good start, lets
+   iterate from here", plus "story could start with one repo one
+   ticket, more tickets, then second repo, etc", plus "ticket cards
+   can be a bit bigger and have colorful state indicators", and
+   "intuitive understanding is the goal".
+
+     grow    — the run grows as you descend: one repo and one ticket,
+               then more tickets, then a second repo, then a third
+     descent — the same pinned ticket, without the growth
+     lanes   — three repos converging, without the pinned ticket
+
+   Every variation shares the page, the four stages and real numbers.
+   ================================================================== */
+
+/* Real tickets from this map. A card that reaches merged is a ticket
+   curia really did merge. */
+var SPINE_TICKETS = ['110', '111', '112', '113', '114', '115', '117', '137', '363'];
+
+/* One color per state, so the state reads before the word does. Merged
+   lands on the page's own accent, because merged is the good end. */
+var STATE_COLOR = ['#8b9bb0', '#e0ae4c', '#79a6f2', '#7dd3a0'];
+var STATE_RGB = ['139,155,176', '224,174,76', '121,166,242', '125,211,160'];
+
+function startSpine(canvas, heads, mode, onStage) {
+  var ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0;
+
+  function size() {
+    var w = canvas.clientWidth, hgt = canvas.clientHeight;
+    if (W !== w || H !== hgt) {
+      W = w; H = hgt;
+      canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+  }
+
+  var narrow = function () { return window.innerWidth < 640; };
+  var spineX = function () { return narrow() ? 26 : 52; };
+
+  var nodes = heads.map(function (hd) {
+    return { el: hd.el, stage: hd.stage, y: 0, ty: 0, vy: 0, on: 0, onT: 0, hit: 0, pulse: 0, hot: false };
+  });
+  var cards = [], spawnAt = 0, seq = 0, raf = 0, last = 0, clock = 0;
+  var laneShown = 1;
+  /* The ticket the reader moves. It holds still and the page runs under it. */
+  var solo = (mode === 'grow' || mode === 'descent')
+    ? { id: SPINE_TICKETS[SPINE_TICKETS.length - 1], at: 0, pop: 0 }
+    : null;
+
+  function layout() {
+    var vh = window.innerHeight;
+    nodes.forEach(function (n) {
+      var r = n.el.getBoundingClientRect();
+      n.ty = r.top + r.height * 0.5;
+      n.onT = (r.top < vh * 0.6 && r.bottom > 0) ? 1 : 0;
+    });
+  }
+
+  function accent(a) { return 'rgba(125,211,160,' + a + ')'; }
+  function state(i, a) { return 'rgba(' + STATE_RGB[Math.min(i, 3)] + ',' + a + ')'; }
+
+  function roundRect(x, y, w, hgt, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + hgt - r); ctx.quadraticCurveTo(x + w, y + hgt, x + w - r, y + hgt);
+    ctx.lineTo(x + r, y + hgt); ctx.quadraticCurveTo(x, y + hgt, x, y + hgt - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  /* A ticket card: a dark chip with a colored state dot and its number.
+     Bigger than round 2, per the operator, and the dot is the state. */
+  function drawCard(x, y, id, st, a, swell, mine) {
+    var label = '#' + id;
+    var fs = mine ? 12 : 11;
+    ctx.font = '600 ' + fs + 'px ui-monospace, SFMono-Regular, Menlo, monospace';
+    var tw = ctx.measureText(label).width;
+    var w = tw + 24 + swell * 3;
+    var hgt = (mine ? 25 : 21) + swell * 2;
+    var rx = x - w / 2, ry = y - hgt / 2;
+
+    roundRect(rx, ry, w, hgt, 5);
+    ctx.fillStyle = 'rgba(10,13,17,' + (0.94 * a).toFixed(3) + ')';
+    ctx.fill();
+    ctx.strokeStyle = state(st, ((mine ? 0.95 : 0.7) + swell * 0.3) * a);
+    ctx.lineWidth = mine ? 1.4 : 1;
+    ctx.stroke();
+
+    if (swell > 0.02) {
+      ctx.beginPath(); ctx.arc(x, y, w * 0.62 + swell * 8, 0, 6.2832);
+      ctx.fillStyle = state(st, (0.10 * swell * a).toFixed(3));
+      ctx.fill();
+    }
+
+    var dx = rx + 9;
+    ctx.beginPath(); ctx.arc(dx, y, mine ? 4 : 3.4, 0, 6.2832);
+    ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(226,233,241,' + (0.95 * a).toFixed(3) + ')';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.fillText(label, dx + 8, y + 0.5);
+  }
+
+  function frame(ts) {
+    raf = requestAnimationFrame(frame);
+    if (document.hidden) return;
+    var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
+    last = ts; clock += dt;
+    size(); layout(); pointerStep();
+    ctx.clearRect(0, 0, W, H);
+
+    var sx = spineX(), vh = window.innerHeight;
+    var breath = 0.5 + 0.5 * Math.sin(clock * 0.7);
+    /* Only the transient answers to depth. The steady green does not,
+       which is what round 2 lost and round 3 keeps. */
+    var flashScale = clamp(1 - window.scrollY / (vh * 1.6), 0.34, 1);
+
+    /* How far down the run the reader has come. It drives the growth. */
+    var phase = 0;
+    for (var k = 0; k < nodes.length; k++) if (nodes[k].y <= vh * 0.55) phase = k + 1;
+    var laneWant = (mode === 'lanes') ? 3
+      : (mode === 'grow') ? (phase >= 3 ? 3 : phase >= 2 ? 2 : 1)
+      : 1;
+    laneShown = lerp(laneShown, laneWant, 0.05);
+
+    /* Ambience: a column of light on the spine that never leaves. */
+    var grad = ctx.createLinearGradient(sx - 30, 0, sx + 30, 0);
+    grad.addColorStop(0, accent(0));
+    grad.addColorStop(0.5, accent((0.055 + 0.02 * breath).toFixed(3)));
+    grad.addColorStop(1, accent(0));
+    ctx.fillStyle = grad;
+    ctx.fillRect(sx - 30, 0, 60, H);
+
+    ctx.strokeStyle = accent((0.20 + 0.08 * breath).toFixed(3));
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, H); ctx.stroke();
+
+    /* Repo lanes, above the first stage, folding into the one queue. */
+    var y0 = nodes.length ? nodes[0].y : 0;
+    var laneOff = [0, -17, 17];
+    if (y0 > 0 && laneShown > 1.02) {
+      for (var li = 1; li < 3; li++) {
+        var open = clamp(laneShown - li, 0, 1);
+        if (open <= 0.01) continue;
+        ctx.strokeStyle = accent((0.13 * open + 0.04 * breath * open).toFixed(3));
+        ctx.beginPath();
+        ctx.moveTo(sx + laneOff[li] * open, 0);
+        ctx.lineTo(sx + laneOff[li] * open, Math.max(0, y0 - 100));
+        ctx.quadraticCurveTo(sx + laneOff[li] * open, y0, sx, y0);
+        ctx.stroke();
+      }
+    }
+
+    nodes.forEach(function (n) {
+      var stiff = 120, damp = 18;
+      n.vy += ((n.ty - n.y) * stiff - n.vy * damp) * dt;
+      n.y += n.vy * dt;
+      n.on = lerp(n.on, n.onT, 0.07);
+      n.pulse *= 0.94;
+      n.hit = lerp(n.hit, n.pulse, 0.22);
+
+      var hot = n.on > 0.5 || n.hit > 0.12;
+      if (hot !== n.hot) { n.hot = hot; n.el.classList.toggle('hot', hot); }
+
+      var si = Math.min(n.stage, 3);
+      var glow = 0.11 + n.on * 0.10 + n.hit * 0.12 * flashScale;
+      ctx.beginPath(); ctx.arc(sx, n.y, 11 + n.on * 2 + n.hit * 8, 0, 6.2832);
+      ctx.fillStyle = state(si, glow.toFixed(3));
+      ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, n.y, 4 + n.on * 1.2 + n.hit * 1.8, 0, 6.2832);
+      ctx.fillStyle = state(si, (0.55 + n.on * 0.4).toFixed(3));
+      ctx.fill();
+    });
+
+    /* Traffic. It thickens as the run grows, so the page gets busier the
+       further the reader goes, which is the point the headline makes. */
+    if (Motion.on && mode !== 'descent') {
+      var gap = (mode === 'lanes') ? 2200 : Math.max(900, 3200 - phase * 620);
+      if (ts > spawnAt) {
+        spawnAt = ts + gap + Math.random() * gap * 0.6;
+        cards.push({
+          id: SPINE_TICKETS[seq++ % SPINE_TICKETS.length],
+          y: -26, v: 150 + Math.random() * 60, hold: 0, at: 0, fade: 1, pop: 0,
+          lane: seq % Math.max(1, Math.round(laneShown))
+        });
+      }
+    }
+    for (var i = cards.length - 1; i >= 0; i--) {
+      var c = cards[i];
+      if (c.hold > 0) c.hold -= dt;
+      else {
+        c.y += c.v * dt;
+        for (var j = 0; j < nodes.length; j++) {
+          if (j < c.at || nodes[j].y <= 0) continue;
+          if (Math.abs(c.y - nodes[j].y) < 9) {
+            c.at = j + 1; c.hold = 0.9; c.pop = 1;
+            nodes[j].pulse = 1;
+            if (onStage) onStage(j);
+            break;
+          }
+        }
+      }
+      c.pop *= 0.9;
+      if (c.at >= nodes.length && c.hold <= 0) c.fade -= dt * 1.1;
+      if (c.fade <= 0 || c.y > H + 44) { cards.splice(i, 1); continue; }
+
+      var cx = sx;
+      if (c.at === 0 && y0 > 0 && c.lane > 0) {
+        var t = clamp((y0 - c.y) / 100, 0, 1);
+        cx = sx + laneOff[c.lane] * t * clamp(laneShown - c.lane, 0, 1);
+      }
+      drawCard(cx, c.y, c.id, c.at, c.fade, c.pop, false);
+    }
+    if (cards.length > 16) cards.splice(0, cards.length - 16);
+
+    if (solo) {
+      /* The reader's own ticket. It holds still and the stages come to it. */
+      var y = H * 0.46;
+      var reached = 0;
+      for (var m = 0; m < nodes.length; m++) if (nodes[m].y <= y + 2) reached = m + 1;
+      if (reached !== solo.at) {
+        if (reached > solo.at) {
+          nodes[Math.min(reached - 1, nodes.length - 1)].pulse = 1;
+          solo.pop = 1;
+          if (onStage) onStage(reached - 1);
+        }
+        solo.at = reached;
+      }
+      solo.pop *= 0.9;
+      drawCard(sx, y, solo.id, solo.at, 1, solo.pop, true);
+    }
+  }
+
+  size(); layout();
+  nodes.forEach(function (n) { n.y = n.ty; n.on = n.onT; });
+  if (Motion.on) raf = requestAnimationFrame(frame);
+  else { requestAnimationFrame(function (ts) { frame(ts); cancelAnimationFrame(raf); }); }
+
+  return {
+    destroy: function () {
+      cancelAnimationFrame(raf);
+      nodes.forEach(function (n) { n.el.classList.remove('hot'); });
+    }
+  };
+}
+
+/* One page builder for every variation. Only the spine mode differs. */
+function makeRun(mode) {
+  return function (root) {
+    root.className = 'v-run';
+    var canvas = h('canvas', { class: 'layer', 'aria-hidden': 'true' });
+    document.body.insertBefore(canvas, document.getElementById('main'));
+
+    var rv = makeRevealer();
+    function wrap(kids) { return h('div', { class: 'q-wrap' }, kids); }
+
+    var head = h('section', { class: 'q-hero' }, [wrap([
+      rv.add(h('div', { class: 'q-mark' }, [
+        h('b', { text: CONTENT.wordmark }), document.createTextNode(' — ' + CONTENT.kicker)
+      ])),
+      rv.add(h('h1', { html: CONTENT.headline[0] + ' ' + CONTENT.headline[1] }), 60),
+      rv.add(h('p', { class: 'q-lede', text: CONTENT.lede }), 120),
+      rv.add(h('div', { class: 'q-facts', html: CONTENT.facts[0] + '<br>' + CONTENT.facts[1] }), 180),
+      rv.add(h('div', { class: 'q-links' }, [
+        h('a', { class: 'q-cta', href: CONTENT.cta.href, text: CONTENT.cta.label }),
+        h('a', { class: 'q-cta ghost', href: CONTENT.source.href, text: CONTENT.source.label })
+      ]), 240)
+    ])]);
+
+    /* The color code, spelled out once. Intuitive understanding is the goal,
+       so the reader never has to guess what a colored dot means. */
+    var key = h('div', { class: 'q-key' });
+    CONTENT.stages.forEach(function (name, i) {
+      key.appendChild(h('span', { class: 'q-keyitem' }, [
+        h('i', { style: 'background:' + STATE_COLOR[i] }),
+        document.createTextNode(name)
+      ]));
+    });
+
+    var headEls = [];
+    function stage(name, kids) {
+      var hd = h('p', { class: 'q-tag' }, [
+        h('i', { class: 'q-dot', style: 'background:' + STATE_COLOR[headEls.length] }),
+        document.createTextNode(name)
+      ]);
+      headEls.push(hd);
+      return h('div', { class: 'q-station' }, [hd].concat(kids));
+    }
+
+    var stations = CONTENT.claims.map(function (c, i) {
+      return stage(c.station, [rv.add(h('div', { class: 'q-card' }, [
+        h('h3', { text: c.title }),
+        h('p', { text: c.body }),
+        h('div', { class: 'under', html: c.under.join('<br>') })
+      ]), i * 60)]);
+    });
+    var s1 = h('section', {}, [wrap(
+      [rv.add(h('h2', { text: CONTENT.claimsHeading })), rv.add(key, 40)].concat(stations)
+    )]);
+
+    var frames = h('div', { class: 'q-frames' });
+    CONTENT.frames.forEach(function (cap, i) {
+      frames.appendChild(h('figure', { style: 'margin:0' }, [
+        frameButton('q-box', i),
+        h('figcaption', { class: 'q-cap' }, [
+          h('span', { class: 'n', text: String(i + 1) }), document.createTextNode(' ' + cap)
+        ])
+      ]));
+    });
+    var proof = stage('merged', [
+      rv.add(frames),
+      rv.add(h('p', { class: 'q-note', text: CONTENT.shotnote }), 80),
+      rv.add(trailNode('q-note'), 120),
+      rv.add(h('p', { class: 'q-legend', text: CONTENT.spineLegend }), 140),
+      rv.add(statsNode('q-stats'), 180)
+    ]);
+    var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proof])]);
+
+    /* The run ends at merged. What follows is the cost and the setup, so
+       those sections carry no stage and the spine runs on as a plain line. */
+    var s3 = h('section', {}, [wrap([
+      rv.add(h('h2', { text: CONTENT.honestHeading })), rv.add(honestList('q-honest'), 60)
+    ])]);
+    var s4 = h('section', { id: 'setup' }, [wrap([
+      rv.add(h('h2', { text: CONTENT.guideHeading })), rv.add(guideNode(), 60)
+    ])]);
+    var foot = h('footer', {}, [h('div', { class: 'q-wrap', html: CONTENT.footer })]);
+
+    root.appendChild(frag([head, s1, s2, s3, s4, foot]));
+
+    var heads = headEls.map(function (el, i) { return { el: el, stage: i }; });
+    var notes = [220, 277.18, 329.63, 392];
+    var spine = startSpine(canvas, heads, mode, function (i) {
+      Sound.tone(notes[clamp(i, 0, 3) % notes.length], 0.55, 'triangle', 0.06);
+    });
+
+    return {
+      destroy: function () {
+        if (spine) spine.destroy();
+        rv.stop();
+        canvas.remove();
+      }
+    };
+  };
+}
+
+/* ==================================================================
+   12. THE SWITCHER
+   ?variant= keeps a choice shareable and reload stable, which is how
+   the operator sends back "the header from B with the spine from C".
+   ================================================================== */
+
+/* descent is the locked-in answer for this ticket. The rest stay as the
+   record of what was tried, which is what a prototype is for. */
+var VARIANTS = [
+  { key: 'descent', name: 'You move the ticket', note: 'LOCKED IN', mount: makeRun('descent') },
+  { key: 'live', name: 'The live page', note: 'the page as it is today', mount: mountLive },
+  { key: 'grow', name: 'The run grows', note: 'not chosen', mount: makeRun('grow') },
+  { key: 'lanes', name: 'Many repos, one queue', note: 'not chosen', mount: makeRun('lanes') }
+];
+
+var main = document.getElementById('main');
+var swK = document.getElementById('sw-k');
+var swN = document.getElementById('sw-n');
+var current = null, at = 0;
+
+function indexFromUrl() {
+  var m = /[?&]variant=([^&]+)/.exec(location.search);
+  var key = m ? decodeURIComponent(m[1]) : 'descent';
+  for (var i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return i;
+  return 0;
+}
+
+/* A reveal that never fires leaves the page blank, and nobody working this
+   ticket has a browser to catch that. Two nets, and neither one cancels the
+   scroll reveal for a reader whose browser is behaving. */
+function reveal(nodes) {
+  nodes.forEach(function (n) {
+    n.style.transitionDelay = '0ms';
+    n.classList.add('in');
+    n.classList.add('lit');
+  });
+}
+function revealEverything() {
+  reveal([].slice.call(document.querySelectorAll('.rv')));
+}
+/* Net 1: any uncaught error shows the whole page at once. */
+window.addEventListener('error', revealEverything);
+/* Net 2: anything still hidden two seconds after mount, while it sits on
+   screen, was missed rather than not reached yet. */
+function revealStuck() {
+  var vh = window.innerHeight;
+  reveal([].slice.call(document.querySelectorAll('.rv:not(.in)')).filter(function (n) {
+    var r = n.getBoundingClientRect();
+    return r.top < vh && r.bottom > 0;
+  }));
+}
+var failsafe = 0;
+
+function show(i, push) {
+  clearTimeout(failsafe);
+  if (current && current.destroy) {
+    try { current.destroy(); } catch (e) {}
+  }
+  main.innerHTML = '';
+  at = (i + VARIANTS.length) % VARIANTS.length;
+  var v = VARIANTS[at];
+  document.body.setAttribute('data-variant', v.key);
+  swK.textContent = (at + 1) + ' / ' + VARIANTS.length + ' · ' + v.note;
+  swN.textContent = v.name;
+  window.scrollTo(0, 0);
+  try {
+    current = v.mount(main) || {};
+  } catch (e) {
+    current = {};
+    revealEverything();
+    throw e;
+  }
+  failsafe = setTimeout(revealStuck, 2000);
+  if (push !== false) {
+    try { history.replaceState(null, '', '?variant=' + v.key); } catch (e) {}
+  }
+}
+
+document.querySelectorAll('.switch [data-step]').forEach(function (b) {
+  b.addEventListener('click', function () { show(at + Number(b.getAttribute('data-step'))); });
+});
+
+document.addEventListener('keydown', function (e) {
+  var t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  if (document.getElementById('lb').hasAttribute('open')) return;
+  if (e.key === 'ArrowRight') show(at + 1);
+  if (e.key === 'ArrowLeft') show(at - 1);
+});
+
+var soundBtn = document.getElementById('sw-sound');
+soundBtn.addEventListener('click', function () {
+  if (Sound.on) {
+    Sound.disable();
+    soundBtn.setAttribute('aria-pressed', 'false');
+    soundBtn.setAttribute('aria-label', 'Sound, off');
+    if (current && current.onSound) current.onSound(false);
+  } else {
+    if (!Sound.enable()) return;
+    soundBtn.setAttribute('aria-pressed', 'true');
+    soundBtn.setAttribute('aria-label', 'Sound, on');
+    if (current && current.onSound) current.onSound(true);
+    Sound.tone(523.25, 0.3, 'sine', 0.08);
+  }
+});
+
+var motionBtn = document.getElementById('sw-motion');
+motionBtn.setAttribute('aria-pressed', String(Motion.on));
+motionBtn.setAttribute('aria-label', Motion.on ? 'Motion, on' : 'Motion, off');
+Motion.set(Motion.on);
+motionBtn.addEventListener('click', function () {
+  Motion.set(!Motion.on);
+  motionBtn.setAttribute('aria-pressed', String(Motion.on));
+  motionBtn.setAttribute('aria-label', Motion.on ? 'Motion, on' : 'Motion, off');
+  show(at, false);
+});
+
+show(indexFromUrl(), false);
+
+})();
+</script>
+
+</body>
+</html>
