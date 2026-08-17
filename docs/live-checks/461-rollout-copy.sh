@@ -20,6 +20,11 @@
 #   bash docs/live-checks/461-rollout-copy.sh            # list candidates only
 #   bash docs/live-checks/461-rollout-copy.sh --copy     # list, then copy the best
 #
+# While it sits on a branch and not on main, run it without a checkout:
+#
+#   git fetch -q origin curia/461
+#   git show origin/curia/461:docs/live-checks/461-rollout-copy.sh | bash -s -- --copy
+#
 # The agent container cannot run this. It mounts its own worktree and its own
 # config dir, and no other agent's config dir is reachable from inside it.
 set -eu
@@ -38,7 +43,18 @@ done
 # `dispatch.workspace_root` in curia.yaml and `CURIA_WORKSPACE_ROOT` in
 # deploy/.env are the same path, and the daemon refuses to boot when they
 # disagree. So either one answers this, and the compose default answers it last.
-here=$(cd "$(dirname "$0")/../.." && pwd)
+#
+# `here` is the repo checkout, and it has to survive being piped into bash. Then
+# `$0` is `bash` rather than a path, and a `dirname` walk lands somewhere else.
+# So the git toplevel answers first, and the walk is the fallback.
+here=$(git rev-parse --show-toplevel 2>/dev/null || true)
+if [ -z "$here" ]; then
+  case "$0" in
+    */*) here=$(cd "$(dirname "$0")/../.." 2>/dev/null && pwd || true) ;;
+  esac
+fi
+[ -z "$here" ] && here=$(pwd)
+
 root=${CURIA_WORKSPACE_ROOT:-}
 if [ -z "$root" ] && [ -f "$here/deploy/.env" ]; then
   root=$(sed -n 's/^CURIA_WORKSPACE_ROOT=//p' "$here/deploy/.env" | tail -1)
