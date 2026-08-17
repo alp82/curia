@@ -44,7 +44,11 @@ recreate() {
   # This container runs as uid 1000 with the workspace mounted, so the
   # directories it creates carry the right owner. $WORK can only be empty on a
   # hand run that left the argument off — the daemon always passes it.
-  [ -n "$WORK" ] && mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos"
+  #
+  # `home/` is curia's own HOME since #473, and it is made here for the same
+  # reason. What it does NOT do is fill it: the credentials are the operator's
+  # to seed once, and docs/deploy.md says how.
+  [ -n "$WORK" ] && mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos" "$WORK/home"
   docker compose -f "$REPO/deploy/compose.yaml" up -d --build --force-recreate --no-deps daemon dashboard overseer
 }
 

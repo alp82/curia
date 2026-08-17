@@ -26,12 +26,20 @@ FROM node:${NODE_VERSION}-bookworm-slim
 
 COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscale
 
-# HOME for uid 1000 (see daemon Dockerfile).
-RUN mkdir -p /home/alp && chown 1000:1000 /home/alp
+# HOME for uid 1000 (see daemon Dockerfile). This container mounts no
+# workspace, so the directory this line makes is the one the process runs on.
+# Neither arg carries a default, the rule the Node pin already follows (#473).
+ARG CURIA_HOME
+RUN mkdir -p "$CURIA_HOME" && chown 1000:1000 "$CURIA_HOME"
 
+# THE BAKED DEPENDENCY TREE HAS TO SIT WHERE THE REPO MOUNTS (#473). Compose
+# mounts `daemon/src`, `daemon/bin` and `daemon/assets` and nothing else under
+# `daemon/`, so `node_modules` comes from this image and must land beside them
+# — which makes this path the same variable the mounts take.
+ARG CURIA_REPO_ROOT
 # Its own layer, keyed on the two pin files: a code-only deploy rebuilds this
 # image without re-running the install.
-WORKDIR /home/alp/curia/daemon
+WORKDIR $CURIA_REPO_ROOT/daemon
 COPY daemon/package.json daemon/package-lock.json ./
 RUN npm ci --omit=dev --no-fund --no-audit --ignore-scripts \
-  && chown -R 1000:1000 /home/alp/curia
+  && chown -R 1000:1000 "$CURIA_REPO_ROOT"

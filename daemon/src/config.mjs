@@ -142,7 +142,7 @@ export function overrideSummary(file) {
 // skipped is exactly what the sidecar cannot see and cannot change. Every other
 // rule — the shapes, the ports, the collisions, `3 × max_concurrent` against
 // the sandbox range — runs in both processes, unchanged.
-export function loadCuriaConfig(file, { checkPaths = true, localFile } = {}) {
+export function loadCuriaConfig(file, { checkPaths = true, localFile, env = process.env } = {}) {
   const layers = readLayered(file, { localFile })
   const cfg = layers.data
   // What a refusal names. A merged config has two authors, so a message that
@@ -177,6 +177,22 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile } = {}) {
   }
   if (typeof d.workspace_root !== 'string' || !path.isAbsolute(d.workspace_root)) {
     fail(src, 'dispatch.workspace_root must be an absolute path')
+  }
+  // THE WORKSPACE ROOT IS WRITTEN DOWN TWICE (#473). This key says where the
+  // daemon writes its worktrees. `CURIA_WORKSPACE_ROOT` in `deploy/.env` says
+  // which host tree compose mounts, and compose hands that same value back to
+  // every container that reads this file.
+  //
+  // A disagreement is the one mount failure nothing else would notice: the
+  // daemon writes worktrees at a path no mount covers, so they land inside the
+  // container, the host tree stays empty, and a recreate throws the lot away.
+  // No error, no missing file, no log line. So it refuses the boot instead.
+  //
+  // The variable is absent outside compose — a dev run, the suite — and then
+  // there is no second answer to check against.
+  const mounted = env.CURIA_WORKSPACE_ROOT
+  if (mounted && path.resolve(mounted) !== path.resolve(d.workspace_root)) {
+    fail(src, `dispatch.workspace_root is ${d.workspace_root}, but compose mounts ${mounted} (CURIA_WORKSPACE_ROOT in deploy/.env) — worktrees would be written inside the container and lost on the next recreate`)
   }
   // Who a claim assigns (#390, ADR-0018). A claim is an issue assignee, and
   // GitHub does not let an App be one — so the daemon calls as `curia-sh[bot]`

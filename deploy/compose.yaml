@@ -10,9 +10,27 @@
 #
 # Recreating `tmux`/`ttyd` is a deliberate act at zero live agents.
 #
-# Interpolated variables (`DOCKER_GID`) come from an uncommitted `.env` file
-# beside this one. `DOCKER_GID` is the host's `docker` group id — read it with
+# Interpolated variables come from an uncommitted `.env` file beside this one.
+# `DOCKER_GID` is the host's `docker` group id — read it with
 # `getent group docker | cut -d: -f3`.
+#
+# THE TWO ROOTS ARE VARIABLES, NOT THIS BOX'S PATHS (#473). `CURIA_REPO_ROOT` is
+# the checkout and `CURIA_WORKSPACE_ROOT` is `dispatch.workspace_root` from
+# config/curia.yaml. They move independently, so they are two keys and not one.
+# A box that says neither takes this box's answers, which is what keeps the
+# deploy of this change a deploy rather than an ssh session.
+#
+# A wrong workspace root is the one mount error nothing would notice: the daemon
+# writes its worktrees where no mount covers, so they land inside the container
+# and die with it. So every service that reads curia.yaml is handed
+# `CURIA_WORKSPACE_ROOT` back, and the daemon refuses to boot when the two
+# disagree (daemon/src/config.mjs).
+#
+# CURIA OWNS ITS HOME AND NEVER THE OPERATOR'S (#473). HOME is `home/` inside
+# the workspace root, so the four trees the containers used to take out of
+# `/home/alp` — `.claude`, `.codex`, `.config/gh`, `.gitconfig` — are curia's own
+# now. It needs no mount of its own: it rides the workspace mount that is
+# already there. Seed it before the first `up`, the way docs/deploy.md says.
 
 name: curia
 
@@ -43,6 +61,7 @@ services:
       dockerfile: deploy/daemon/Dockerfile
       args:
         NODE_VERSION: *node-version
+        CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
     image: curia-daemon
     # The #249 restart contract: POST /restart journals and exits nonzero,
     # docker respawns. A clean exit stays down until the next deploy.
@@ -55,14 +74,17 @@ services:
     user: "1000:1000"
     group_add:
       - "${DOCKER_GID:?host docker group id — getent group docker | cut -d: -f3}"
-    working_dir: /home/alp/curia/daemon
+    working_dir: ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon
     # npm install at start, not baked into the image: the code runs from the
     # repo mount, so a deploy is `git pull` plus a restart. With a satisfied
     # tree the install is a fast no-op.
     command: ["bash", "-c", "npm install --no-fund --no-audit && exec node src/index.mjs"]
     environment:
-      HOME: /home/alp
+      HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
       CURIA_TMUX_SOCKET: /run/curia-tmux/default
+      # The second answer to `dispatch.workspace_root`, handed back so the
+      # daemon can refuse a boot where the two disagree (#473).
+      CURIA_WORKSPACE_ROOT: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
     # Renamed by #313, which gave the overseer container its own `.env.overseer`
     # beside this one. Compose refuses a missing env_file, so a box that still
     # carries the old `daemon/.env` fails this recreate and rolls back, rather
@@ -76,15 +98,14 @@ services:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
       # The same-path principle: host paths are data in this repo (curia.yaml,
       # workspace_root, every composed `docker run -v` line), so every tree
-      # mounts at its identical path and no translation layer exists.
-      - /home/alp/curia:/home/alp/curia
-      - /home/alp/curia-work:/home/alp/curia-work
-      # read-write: the usage meters cache under ~/.claude/cache (#146).
-      - /home/alp/.claude:/home/alp/.claude
-      - /home/alp/.codex:/home/alp/.codex:ro
-      # gh auth for the tracker CLI; gh rewrites its own state, so read-write.
-      - /home/alp/.config/gh:/home/alp/.config/gh
-      - /home/alp/.gitconfig:/home/alp/.gitconfig:ro
+      # mounts at its identical path and no translation layer exists. A variable
+      # moves BOTH sides at once, which is what keeps that principle true (#473).
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}:${CURIA_REPO_ROOT:-/home/alp/curia}
+      # This one carries curia's HOME as well, at `home/` inside it: the usage
+      # meter cache (#146), the `gh` auth the tracker CLI runs on, the git
+      # identity, and the credential store a pane agent shares (#34, #53). Four
+      # mounts out of `/home/alp` used to say that, and none of them is here now.
+      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
       - tmux-sock:/run/curia-tmux
     depends_on:
       - tmux
@@ -97,6 +118,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/tmux/Dockerfile
+      args:
+        CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
     image: curia-tmux
     restart: unless-stopped
     # A stop is a deliberate act at zero live agents, but give anything still
@@ -109,12 +132,15 @@ services:
     tty: true
     command: ["tmux", "-S", "/run/curia-tmux/default", "new-session", "-A", "-s", "keeper"]
     environment:
-      HOME: /home/alp
+      HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
     volumes:
       # Panes run `docker run` for sandboxed agents, against host dockerd.
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/alp/curia:/home/alp/curia
-      - /home/alp/curia-work:/home/alp/curia-work
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}:${CURIA_REPO_ROOT:-/home/alp/curia}
+      # A pane agent reads curia's HOME through this mount: it is `home/` inside
+      # the workspace root, so the credential store the daemon points it at
+      # resolves at the same path in here (#473).
+      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
       - tmux-sock:/run/curia-tmux
 
   # Shares the tmux image and the socket volume. The daemon no longer spawns
@@ -143,16 +169,16 @@ services:
       [
         "ttyd", "-W", "-a", "-O", "-p", "7681", "-i", "127.0.0.1",
         "-t", "rendererType=dom",
-        "-I", "/home/alp/curia/daemon/assets/attach-index.html",
-        "/home/alp/curia/daemon/bin/curia-attach.sh",
+        "-I", "${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets/attach-index.html",
+        "${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin/curia-attach.sh",
       ]
     environment:
-      HOME: /home/alp
+      HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
       CURIA_TMUX_SOCKET: /run/curia-tmux/default
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/alp/curia:/home/alp/curia
-      - /home/alp/curia-work:/home/alp/curia-work
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}:${CURIA_REPO_ROOT:-/home/alp/curia}
+      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
       - tmux-sock:/run/curia-tmux
     depends_on:
       - tmux
@@ -170,14 +196,21 @@ services:
       dockerfile: deploy/dashboard/Dockerfile
       args:
         NODE_VERSION: *node-version
+        CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
+        CURIA_REPO_ROOT: ${CURIA_REPO_ROOT:-/home/alp/curia}
     image: curia-dashboard
     restart: unless-stopped
     network_mode: host
     user: "1000:1000"
-    working_dir: /home/alp/curia/daemon
-    command: ["node", "/home/alp/curia/daemon/bin/curia-dashboard.mjs"]
+    working_dir: ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon
+    command: ["node", "${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin/curia-dashboard.mjs"]
     environment:
-      HOME: /home/alp
+      # This container mounts no workspace, so HOME here is the image's own
+      # empty directory. The path still has to match the daemon's: the settings
+      # screen validates a candidate config with the daemon's own loader (#265),
+      # and that loader compares this against `dispatch.workspace_root` (#473).
+      HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
+      CURIA_WORKSPACE_ROOT: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
     volumes:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
       # THE MOUNT LIST IS THE SECRET-FREE CLAIM, so it names files rather than
@@ -185,12 +218,12 @@ services:
       # `data/` (the journal #249 keeps daemon-private) into a process that must
       # hold neither. So: the code it runs, the page it serves, and nothing
       # else. `node_modules` is baked into the image for the same reason.
-      - /home/alp/curia/daemon/src:/home/alp/curia/daemon/src:ro
-      - /home/alp/curia/daemon/bin:/home/alp/curia/daemon/bin:ro
-      - /home/alp/curia/daemon/assets:/home/alp/curia/daemon/assets:ro
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:ro
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:ro
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:ro
       # Read-write, and the only writable path it has: the dashboard rewrites
       # curia.yaml and routing.yaml from the settings screens (#265).
-      - /home/alp/curia/config:/home/alp/curia/config
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/config:${CURIA_REPO_ROOT:-/home/alp/curia}/config
 
   # The overseer (#327, building ADR-0015). One long-lived container beside the
   # dashboard, and many conversations pass through it. There is no pane and no
@@ -215,11 +248,13 @@ services:
       dockerfile: deploy/overseer/Dockerfile
       args:
         NODE_VERSION: *node-version
+        CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
+        CURIA_REPO_ROOT: ${CURIA_REPO_ROOT:-/home/alp/curia}
     image: curia-overseer
     restart: unless-stopped
     user: "1000:1000"
-    working_dir: /home/alp/curia/daemon
-    command: ["node", "/home/alp/curia/daemon/bin/curia-overseer.mjs"]
+    working_dir: ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon
+    command: ["node", "${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin/curia-overseer.mjs"]
     # 127.0.0.1 and nothing else. The tailnet reaches the overseer through the
     # Chat screen, which is the dashboard's page over the daemon — never this
     # port.
@@ -231,11 +266,16 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      HOME: /home/alp
+      # This container mounts three subtrees of the workspace and never the tree
+      # itself, so HOME here is the image's own empty directory, as it always
+      # was. A turn runs in the overseer's own home under the config dir
+      # (overseerHomeFor), which is one of the three.
+      HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
+      CURIA_WORKSPACE_ROOT: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
       # Where the `gh` shim reads the owner's token (#392). The node process
       # derives the same path from the config; a bash script cannot, so compose
       # states it. It is a path and not a secret.
-      CURIA_OVERSEER_TOKEN_DIR: /home/alp/curia-work/overseer/tokens
+      CURIA_OVERSEER_TOKEN_DIR: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens
     # WHAT IS LEFT IN THE SECOND ENV FILE IS THE MODEL CREDENTIAL (#313, #392).
     # `.env.daemon` carries the agents' read-WRITE tokens and the Discord bot
     # token, compose hands a container its env file whole, and a shell in here
@@ -253,23 +293,23 @@ services:
       # The same mount list the dashboard runs on, and the same reason it names
       # files rather than trees: `daemon/` as a whole would carry `.env.daemon`
       # and the daemon-private journal into a container that must hold neither.
-      - /home/alp/curia/daemon/src:/home/alp/curia/daemon/src:ro
-      - /home/alp/curia/daemon/bin:/home/alp/curia/daemon/bin:ro
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:ro
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:ro
       # The seed a turn writes into the config dir reads `voice.md` from here
       # (#314). It is the same agent seed the in-daemon host runs, so the
       # operator's communication rules cross the boundary with the model.
-      - /home/alp/curia/daemon/assets:/home/alp/curia/daemon/assets:ro
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:ro
       # The watch list, read-only: the overseer reads which repos to check out
       # and never rewrites the config the settings screens own. It is re-read
       # per turn, because the settings screen rewrites it. BOTH things it feeds
       # run per turn (#361): the checkout pass and the per-owner git routing.
       # Nothing in this container is held from its own boot.
-      - /home/alp/curia/config:/home/alp/curia/config:ro
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/config:${CURIA_REPO_ROOT:-/home/alp/curia}/config:ro
       # ONE MOUNT LINE COVERS EVERY WATCHED REPO (#312). A named volume per repo
       # cannot be written here, because the watch list changes and this file is
       # static — so the set of clones inside this tree moves with the config.
       # Read-write: the container clones, fetches and prunes it every turn.
-      - /home/alp/curia-work/overseer/repos:/home/alp/curia-work/overseer/repos
+      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/repos:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/repos
       # THE TOKENS, READ-ONLY, and this tree holds nothing else (#392). One file
       # per resource owner, named by the owner, written by the daemon and
       # rewritten about every fifty minutes — an installation token lives one
@@ -277,7 +317,7 @@ services:
       # calls no endpoint: a shell that can mint is the capability ADR-0014
       # removed. Read-only because nothing in here has a reason to write a
       # credential, and the shell in here is the reason to say so.
-      - /home/alp/curia-work/overseer/tokens:/home/alp/curia-work/overseer/tokens:ro
+      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens:ro
       # The config dir, at the SAME PATH on both sides, because the Chat screen
       # reads the overseer's transcript off it (ADR-0015).
-      - /home/alp/curia-work/cfg/curia-overseer:/home/alp/curia-work/cfg/curia-overseer
+      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer

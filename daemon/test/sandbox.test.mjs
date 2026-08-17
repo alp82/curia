@@ -65,7 +65,11 @@ describe('the docker run line (#156)', () => {
     const mounts = [...cmd.matchAll(/-v (\S+)/g)].map((m) => m[1])
     assert.equal(mounts.length, 4)
     for (const m of mounts) {
-      assert.ok(!m.startsWith('/home/alp:'), `${m} mounts the host HOME`)
+      // #473 moved curia's HOME to `home/` inside the workspace root, so the
+      // tree this must deny is that one — the credential store, the `gh` auth
+      // and the git identity all sit in it now.
+      assert.ok(!m.startsWith('/home/alp/curia-work/home'), `${m} mounts curia's HOME`)
+      assert.ok(!m.startsWith('/home/alp:'), `${m} mounts the operator's home`)
       assert.ok(!m.includes('/tmp/tmux'), `${m} mounts the tmux socket`)
     }
   })

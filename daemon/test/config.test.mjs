@@ -197,6 +197,49 @@ describe('the Stop-hook nudge budget (#54 item 4)', () => {
   })
 })
 
+// ---- the workspace root is written down twice (#473) --------------------------
+//
+// `dispatch.workspace_root` says where the daemon writes its worktrees, and
+// `CURIA_WORKSPACE_ROOT` in `deploy/.env` says which tree compose mounts.
+// Compose hands the second value back to every container that reads this file,
+// and a disagreement is the one mount error nothing else would notice: the
+// worktrees land inside the container, the host tree stays empty, no error is
+// raised, and a recreate throws the lot away.
+
+describe('the mounted workspace root against the configured one (#473)', () => {
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-workspace-'))
+    root = path.join(tmp, 'host-skills')
+    fs.mkdirSync(root, { recursive: true })
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  const noSkills = () => `skills:\n  root: ${root}\n  install: []`
+
+  test('a compose mount that disagrees refuses the boot, and names both answers', () => {
+    const file = writeConfig(noSkills())
+    assert.throws(
+      () => loadCuriaConfig(file, { env: { CURIA_WORKSPACE_ROOT: '/srv/somewhere-else' } }),
+      /workspace_root is .*but compose mounts \/srv\/somewhere-else/s,
+      'worktrees written where no mount covers are lost on the next recreate, in silence',
+    )
+  })
+
+  test('the same answer twice boots, trailing slash and all', () => {
+    const file = writeConfig(noSkills())
+    const configured = path.join(tmp, 'work')
+    for (const mounted of [configured, `${configured}/`]) {
+      const cfg = loadCuriaConfig(file, { env: { CURIA_WORKSPACE_ROOT: mounted } })
+      assert.equal(cfg.dispatch.workspace_root, configured)
+    }
+  })
+
+  test('outside compose nothing states it, and there is no second answer to check', () => {
+    const file = writeConfig(noSkills())
+    assert.equal(loadCuriaConfig(file, { env: {} }).dispatch.workspace_root, path.join(tmp, 'work'))
+  })
+})
+
 // ---- who a claim assigns (#390, ADR-0018) -------------------------------------
 
 describe('dispatch.claim_login (#390)', () => {

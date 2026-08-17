@@ -14,7 +14,7 @@ import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import YAML from 'yaml'
+import { composeConfig, DEFAULT_REPO_ROOT, DEFAULT_WORKSPACE_ROOT } from './fixtures/compose.mjs'
 import {
   DEFAULT_OVERSEER, PING_PATH, PING_MARK, readOverseer, overseerHandler, probeOverseer,
 } from '../src/overseerservice.mjs'
@@ -22,7 +22,9 @@ import { TURN_PATH } from '../src/overseerturn.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
-const COMPOSE = YAML.parse(fs.readFileSync(path.join(REPO, 'deploy', 'compose.yaml'), 'utf8'))
+// Resolved the way compose resolves it (#473): every path here is a variable
+// now, and what these tests pin is the mount rather than the variable.
+const COMPOSE = composeConfig()
 const SERVICE = COMPOSE.services.overseer
 const DOCKERFILE = fs.readFileSync(path.join(REPO, 'deploy', 'overseer', 'Dockerfile'), 'utf8')
 // The comments name what the image deliberately leaves out, so the pins below
@@ -64,25 +66,25 @@ describe('the compose overseer service (#327 pins)', () => {
       const [host, guest, mode = 'rw'] = v.split(':')
       return [host, { guest, mode }]
     }))
-    for (const tree of ['/home/alp/curia-work/overseer/repos', '/home/alp/curia-work/cfg/curia-overseer']) {
+    for (const tree of [`${DEFAULT_WORKSPACE_ROOT}/overseer/repos`, `${DEFAULT_WORKSPACE_ROOT}/cfg/curia-overseer`]) {
       assert.equal(mounts[tree].guest, tree, 'the same path on both sides, or the Chat screen reads nothing')
       assert.equal(mounts[tree].mode, 'rw')
     }
-    assert.equal(mounts['/home/alp/curia/config'].mode, 'ro')
+    assert.equal(mounts[`${DEFAULT_REPO_ROOT}/config`].mode, 'ro')
     // The tokens tree (#392): read-only, at the same path, and the shim is
     // pointed at that same path. A container that could write here could
     // rewrite its own credential.
-    const tokens = '/home/alp/curia-work/overseer/tokens'
+    const tokens = `${DEFAULT_WORKSPACE_ROOT}/overseer/tokens`
     assert.equal(mounts[tokens].guest, tokens)
     assert.equal(mounts[tokens].mode, 'ro')
     assert.equal(SERVICE.environment.CURIA_OVERSEER_TOKEN_DIR, tokens)
     // The mount list is the secret-free claim, so it names files rather than
     // trees: `daemon/` as a whole carries `.env.daemon` and the journal.
-    assert.ok(!SERVICE.volumes.some((v) => v.startsWith('/home/alp/curia/daemon:')))
+    assert.ok(!SERVICE.volumes.some((v) => v.startsWith(`${DEFAULT_REPO_ROOT}/daemon:`)))
   })
 
   test('it runs the container process from the repo mount', () => {
-    assert.deepEqual(SERVICE.command, ['node', '/home/alp/curia/daemon/bin/curia-overseer.mjs'])
+    assert.deepEqual(SERVICE.command, ['node', `${DEFAULT_REPO_ROOT}/daemon/bin/curia-overseer.mjs`])
     assert.equal(SERVICE.user, '1000:1000')
   })
 })
