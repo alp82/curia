@@ -28,14 +28,12 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `thread` | The ticket, told as a chat | #508 candidate. The whole journey as a Discord thread: command, ticket embed, question with buttons, preview, gate, receipt. |
-| `board` | The board never leaves | #508 candidate. A control-room atlas pinned over the top of the screen. Scrolling moves the reader's ticket across it. |
-| `lens` | One ticket, then all of it | #508 candidate. A camera story: one huge ticket, its siblings, the map frame closing around them, then all three maps and the ride. |
-| `dawn` | The mess, then the line | #508 candidate. Scattered dim tickets and no line, then the line arrives, the maps appear, and everything snaps into its queue. |
+| `lens` | One ticket, then all of it | **The round 9 winner, unchanged.** A camera story: one huge ticket, its siblings, the map frame closing around them, then the ride. |
+| `saga` | The story in acts | #508 candidate. The lens evolution: the mess, the camera pull-back, the horizontal run mid page, the gate, the merged stack. Every act carries one bold message from the approved copy. |
 
-Every round 9 candidate carries the locked learnings: GitHub-row tickets with number, type and
-speaking name, badged map cards with real names, no overlay of content and ride, natural scroll,
-random types out of every map, and the skills line in the hero.
+Every candidate carries the locked learnings: GitHub-row tickets with number, type and speaking
+name, badged map cards with real names, no overlay of content and ride, natural scroll, random
+types out of every map, and the skills line in the hero.
 
 The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
 of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`), of round 3 (`flood`, `metro`, `dock`,
@@ -152,7 +150,16 @@ repetitive and hard to follow.
 tells the ticket as a Discord chat, `board` pins a control-room atlas over the top of the
 screen, `lens` pulls the camera back from one huge ticket to all of it, and `dawn` shows the
 scattered mess before the line arrives and snaps it into queues. All four carry the locked
-learnings from rounds 1 to 8.
+learnings from rounds 1 to 8. The verdict: `lens` wins with huge potential in the camera
+storytelling. `thread` is out, because Discord is one aspect of curia, not the whole. The
+board's horizontal line belongs in the middle of the story, not in a fixed header. `dawn` folds
+in as an ingredient. Every step of the story gets one clear bold message, so the animations and
+the content blend into one scroll that explains all of working with curia.
+
+**Round 10.** `saga` evolves the winner into five acts, each with a bold message from the
+approved copy: the mess (the lede's first sentence), the camera pull-back (claim 1), the
+horizontal run mid page (claim 2), the gate (claim 3), and merged (the proof heading). The
+stage sounds fire at act milestones, and `lens` stays in the bar unchanged for comparison.
 
 ## The rule the variations share
 
