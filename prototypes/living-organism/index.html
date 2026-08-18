@@ -6,19 +6,16 @@
   THROWAWAY PROTOTYPE. Not the live page. Not served from docs/.
   One self-contained file: no build step, no CDN, no npm, no webfont, no image.
 
-  The baseline is locked (#363 round 4, #508 round 1). #508 round 8:
-  the page alternates copy blocks with full-width story rooms joined
-  by an edge line, so content and ride sit next to each other and
-  never overlay. Tickets read like GitHub issue rows with number,
-  type and speaking name. Maps carry a map badge and their name. The
-  rooms: the queues, the Discord thread with the harnesses, the gate
-  with waiting work, the dashboard atlas, and the merged stack.
-  Switch with ?variant= and the bar:
+  The baseline is locked (#363 round 4, #508 round 1). #508 round 9:
+  four completely different concepts for the journey page, each one
+  clear storytelling device, all with GitHub-row tickets, badged map
+  cards and no overlay of content and ride. Switch with ?variant=:
 
-    base  — the locked baseline alone, gutter ride, pinned card
-    flow  — room pieces slide in along the line
-    doors — room pieces rise in with a stagger
-    zoom  — room pieces scale and fade in
+    base   — the locked baseline alone, gutter ride, pinned card
+    thread — the ticket told as a Discord chat
+    board  — a control-room atlas pinned over the top of the screen
+    lens   — one huge ticket, zoom out to its map, then all of it
+    dawn   — the scattered mess first, then the line arrives
 
   The variants of earlier rounds live on in git history and in NOTES.md.
 
@@ -258,22 +255,51 @@
      round 4). Without motion there is no stage, so the gap collapses. */
   .m-dock .q-hero { padding-top: 62vh; }
   body.nomotion .m-dock .q-hero { padding-top: 3.5rem; }
-  /* The journey page: the ride dictates the layout. The copy narrows,
-     centers, and alternates with full-width scene rooms, so content
-     and lanes sit next to each other and never overlay (#508 round 7).
-     The line runs at the left edge between rooms, so the copy leaves
-     it a small margin. */
+  /* The journey pages (#508 round 8): four distinct concepts share
+     the narrow centered copy and the small left margin for the line. */
   .m-story .q-wrap { max-width: 34rem; padding: 0 1.25rem 0 2.6rem; }
   .m-story .q-hero { padding-bottom: 1rem; }
   .m-story .q-skills { font-size: 1rem; color: #e9ecf1; margin: 1rem 0 0; font-weight: 600; }
-  .m-story .q-station { padding-top: 6vh; }
-  .m-story .q-scene { height: 48vh; }
   .m-story .q-card { background: #101318; }
-  .m-story section { padding-top: 10vh; }
   .m-story .q-key { display: none; }
-  body.nomotion .m-story .q-scene { height: 3rem; }
-  body.nomotion .m-story .q-station { padding-top: 2rem; }
-  body.nomotion .m-story section { padding-top: 3rem; }
+
+  /* thread: the ticket told as a chat. */
+  .m-thread .chat { margin-top: 0.5rem; }
+  .m-thread .c-row { display: flex; margin: 0.55rem 0; }
+  .m-thread .c-row.me { justify-content: flex-end; }
+  .m-thread .c-b {
+    max-width: 88%; padding: 0.55rem 0.75rem; border-radius: 12px;
+    background: #ffffff10; font-size: 0.85rem; line-height: 1.45; color: #dfe4eb;
+  }
+  .m-thread .c-row.me .c-b { background: rgba(125, 211, 160, 0.16); }
+  .m-thread .c-b code { font-family: var(--mono); font-size: 0.85em; }
+  .m-thread .c-link { color: var(--accent); font-family: var(--mono); font-size: 0.8em; }
+  .m-thread .c-ticket {
+    border: 1px solid #ffffff2e; border-radius: 8px; padding: 0.5rem 0.65rem;
+    font-family: var(--mono); font-size: 0.72rem; margin-top: 0.45rem; line-height: 1.6;
+  }
+  .m-thread .c-ticket b { color: var(--accent); }
+  .m-thread .c-btns { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
+  .m-thread .c-btn { height: 1.5rem; width: 4.6rem; border: 1px solid #ffffff3a; border-radius: 7px; }
+  .m-thread .c-btn.on { background: rgba(125, 211, 160, 0.22); border-color: var(--accent); }
+  .m-thread .c-aside { margin: 2.4rem 0 2rem; }
+  .m-thread .q-station { padding: 0.6rem 0; }
+  .m-thread section { padding-top: 2.2rem; }
+
+  /* board: the atlas never leaves the top of the screen. */
+  .m-board .q-hero { padding-top: 46vh; }
+  .m-board .q-station { padding-top: 26vh; }
+  .m-board section { padding-top: 12vh; }
+  body.nomotion .m-board .q-hero { padding-top: 3.5rem; }
+  body.nomotion .m-board .q-station { padding-top: 2rem; }
+
+  /* lens and dawn: an intro screen, then the ride. */
+  .m-lens .q-zoom { height: 150vh; }
+  .m-dawn .q-dawn { height: 105vh; }
+  .m-lens .q-station, .m-dawn .q-station { padding-top: 12vh; }
+  .m-lens section, .m-dawn section { padding-top: 8vh; }
+  body.nomotion .q-zoom, body.nomotion .q-dawn { height: 3rem; }
+  body.nomotion .m-lens .q-station, body.nomotion .m-dawn .q-station { padding-top: 2rem; }
 
   /* ================================================================
      Scroll reveal, used by the three experiment variants.
@@ -813,22 +839,26 @@ function scrollProgress() {
    carries the story, the reader's own ticket holds still as a big
    left-aligned card, and its state changes as each stage passes it.
 
-   #508 round 7 verdict: directionally correct, but content and lanes
-   must sit next to each other and never overlay, tickets must look
-   more like tickets, maps and tickets get speaking names and badges,
-   the types come out of every map at random, the dashboard joins the
-   journey, and most of the prose can go. Round 8 answers: the page
-   alternates copy blocks with full-width story rooms joined by an
-   edge line, tickets carry number, type and name, maps carry a map
-   badge and their name, and a dashboard room shows every map's
-   progress and what needs you (per the UX map, curia#511: the
-   dashboard is the atlas). Three candidates differ only in how a
-   room and its pieces enter and exit:
+   #508 round 8 verdict: variations must explore completely fresh
+   ideas, and the page felt repetitive and hard to follow. Round 9
+   answers with four genuinely different concepts, each one clear
+   storytelling device, all carrying the locked learnings: GitHub-row
+   tickets with names and types, badged map cards, no overlay of
+   content and ride, natural scroll, and the skills line.
 
-     base  — the locked baseline alone, gutter ride, pinned card.
-     flow  — pieces slide in along the line.
-     doors — pieces rise in with a stagger.
-     zoom  — pieces scale and fade in.
+     base   — the locked baseline alone, gutter ride, pinned card.
+     thread — the ticket told as a Discord chat: command, question,
+              buttons, preview, gate, receipt. The stages are the
+              thread's own status markers.
+     board  — a control-room atlas pinned over the top of the screen:
+              maps, the run, what needs you. Scrolling the copy moves
+              the reader's ticket across the board.
+     lens   — a camera story: one huge ticket, zoom out to its
+              siblings, the map frame closes around them, then all
+              three maps and the ride.
+     dawn   — the mess first: scattered dim tickets and no line.
+              Then the line arrives, the maps appear, and everything
+              snaps into its queue.
 
    Every variation shares the page, the four stages and real numbers.
    ================================================================== */
@@ -843,7 +873,7 @@ var MY_TICKET = '508';
 var STATE_COLOR = ['#8b9bb0', '#e0ae4c', '#79a6f2', '#7dd3a0'];
 var STATE_RGB = ['139,155,176', '224,174,76', '121,166,242', '125,211,160'];
 
-function startSpine(canvas, heads, mode, onStage, scenes) {
+function startSpine(canvas, heads, mode, onStage) {
   var ctx = canvas.getContext('2d');
   if (!ctx) return null;
   var dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -866,12 +896,13 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
   function ease(t) { return t * t * (3 - 2 * t); }
   function smooth(a, b, v) { return ease(clamp((v - a) / (b - a), 0, 1)); }
 
-  /* Round 8: content and ride alternate as full-width story rooms
-     joined by an edge line. base is the locked baseline, plain. */
+  /* Round 9: four distinct concepts. base is the locked baseline. */
   var combined = mode !== 'base';
   var journey = combined;
   var TYPE_WORDS = ['research', 'prototype', 'grilling'];
-  scenes = (journey && scenes) ? scenes : [];
+  /* Where each concept's map row sits in the document, and where the
+     ride below it begins. */
+  var MAPS_DOC = (mode === 'lens') ? 2.30 : (mode === 'dawn') ? 1.42 : -1;
   /* Real maps and real tickets, with speaking names shortened from
      their true titles. The type on a companion is random, on the
      operator's order — the page cannot verify one per number, and the
@@ -887,8 +918,18 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
     [{ id: '117', name: 'the README' }, { id: '137', name: 'the polish' }, { id: '363', name: 'the living organism' }]
   ];
   var MY_NAME = 'take the run further';
-  /* Entry and exit: how a room and its line curve come in. */
-  var CURVE = (mode === 'flow') ? 96 : (mode === 'doors') ? 44 : 64;
+  /* dawn: the scattered mess, deterministic so a reload repeats it. */
+  var SCATTER = [];
+  if (mode === 'dawn') {
+    for (var sk = 0; sk < 9; sk++) {
+      SCATTER.push({
+        tk: QUEUE[sk % 3][Math.floor(sk / 3)],
+        xf: 0.16 + 0.68 * ((sk * 0.618) % 1),
+        yf: 0.05 + 0.48 * ((sk * 0.377) % 1),
+        ph: sk * 1.7
+      });
+    }
+  }
 
   var nodes = heads.map(function (hd) {
     return { el: hd.el, stage: hd.stage, y: 0, ty: 0, vy: 0, on: 0, onT: 0, hit: 0, pulse: 0, hot: false };
@@ -900,33 +941,11 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
   /* Geometry shared between the frame and laneX, set every frame. */
   var dockP = 1, sxNow = 0, convNow = 0, vhNow = 0;
 
-  /* Where the ONE line sits at a viewport height: center stage in the
-     hero and inside every story room, and at the left edge while it
-     passes the copy, so content and lanes never overlay. */
+  /* Where the ONE line sits: the left edge, beside the copy. thread
+     keeps the chat's rail there too, so every concept shares it. */
   function pathX(vy) {
     if (!combined) return sxNow;
-    var x = 18;
-    var heroB = vhNow * 0.66 - window.scrollY;
-    x = lerp(x, W * 0.5, 1 - smooth(heroB - 30, heroB + 130, vy));
-    for (var si = 0; si < scenes.length; si++) {
-      var s = scenes[si];
-      if (s.top === undefined) continue;
-      var t = smooth(s.top - CURVE, s.top + 44, vy) * (1 - smooth(s.bottom - 44, s.bottom + CURVE, vy));
-      x = lerp(x, W * 0.5, t);
-    }
-    return x;
-  }
-
-  /* How an element of room s enters: flow slides it in along the
-     line, doors raises it with a stagger, zoom scales it up. */
-  function entry(sTop, k) {
-    var e = smooth(vhNow * 0.98, vhNow * 0.58, sTop);
-    if (mode === 'doors') e = clamp(e * 1.4 - k * 0.15, 0, 1);
-    var r = { a: e, dx: 0, dy: 0 };
-    if (mode === 'flow') r.dx = (1 - ease(e)) * 70;
-    else if (mode === 'doors') r.dy = (1 - ease(e)) * 36;
-    else r.a = e * e;
-    return r;
+    return 16;
   }
 
   function layout() {
@@ -988,6 +1007,10 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
     var m2 = ctx.measureText(name).width;
     var w = Math.max(m1 + 8 + mt, m2) + 30;
     var rx = x - w / 2, ry = y - 17;
+    /* Beside an edge line the box sits to the right of its dot, so no
+       screen edge cuts it (#508 round 1). */
+    if (rx < 4) rx = x + 8;
+    if (rx + w > W - 4) rx = x - w - 8;
     roundRect(rx, ry, w, 34, 6);
     ctx.fillStyle = 'rgba(13,16,21,' + (0.96 * a).toFixed(3) + ')';
     ctx.fill();
@@ -1007,6 +1030,7 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
     ctx.fillText(type, rx + 19 + m1 + 8, y - 7);
     ctx.fillStyle = 'rgba(233,236,241,' + (0.75 * a).toFixed(3) + ')';
     ctx.fillText(name, rx + 11, y + 9);
+    return rx + w;
   }
 
   /* A map card: larger than any ticket, dashed accent border, a
@@ -1144,14 +1168,22 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
     ctx.globalAlpha = 1;
   }
 
-  /* Where line l sits at a viewport height. One lane per map in the
-     hero, and every lane joins the one line before the copy starts.
-     Every join eases in and out, so no connection kinks. */
-  function laneX(l, vy) {
-    if (l === 0 || !combined) return pathX(vy);
-    var docY = vy + window.scrollY;
-    var offTop = (l === 1 ? -0.28 : 0.28) * W;
-    return pathX(vy) + offTop * (1 - smooth(vhNow * 0.26, vhNow * 0.60, docY));
+  /* The map row of lens and dawn, and the fanned queues under it. */
+  function drawMapRow(mapY, withQueues) {
+    for (var mi = 0; mi < 3; mi++) {
+      var mx = W * (0.22 + 0.28 * mi);
+      drawBigMap(mx, mapY, MAPS[mi], 1);
+      if (!withQueues) continue;
+      for (var qi = 0; qi < 3; qi++) {
+        var qy = mapY + 64 + qi * 24;
+        ctx.save();
+        ctx.translate(mx, qy);
+        ctx.rotate((qi - 1) * 0.08);
+        ctx.translate(-mx, -qy);
+        drawMini(mx, qy, '#' + QUEUE[mi][qi].id, 0, 1 - qi * 0.16, false);
+        ctx.restore();
+      }
+    }
   }
 
   function frame(ts) {
@@ -1160,11 +1192,6 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
     var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
     last = ts; clock += dt;
     size(); layout(); pointerStep();
-    for (var sl = 0; sl < scenes.length; sl++) {
-      var sr = scenes[sl].el.getBoundingClientRect();
-      scenes[sl].top = sr.top;
-      scenes[sl].bottom = sr.bottom;
-    }
     ctx.clearRect(0, 0, W, H);
 
     var vh = window.innerHeight;
@@ -1179,9 +1206,9 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
     var conv = cy - 64;
     convNow = conv;
 
-    /* The journey rides the center of the page. base keeps the gutter. */
+    /* The journey rides the left edge. base keeps its gutter. */
     dockP = 1;
-    var sx = combined ? W * 0.5 : spineX();
+    var sx = combined ? 16 : spineX();
     sxNow = sx;
 
     /* The stages the baseline's pinned card has passed. The journey
@@ -1200,135 +1227,139 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
       solo.pop *= 0.9;
     }
 
-    /* Ambience: a column of light on the spine that never leaves. */
-    var grad = ctx.createLinearGradient(sx - 30, 0, sx + 30, 0);
-    grad.addColorStop(0, accent(0));
-    grad.addColorStop(0.5, accent((0.055 + 0.02 * breath).toFixed(3)));
-    grad.addColorStop(1, accent(0));
-    ctx.fillStyle = grad;
-    ctx.fillRect(sx - 30, 0, 60, H);
+    /* Ambience: a column of light on the line that never leaves. The
+       board draws only inside its own strip, so it skips this. */
+    if (mode !== 'board') {
+      var grad = ctx.createLinearGradient(sx - 30, 0, sx + 30, 0);
+      grad.addColorStop(0, accent(0));
+      grad.addColorStop(0.5, accent((0.055 + 0.02 * breath).toFixed(3)));
+      grad.addColorStop(1, accent(0));
+      ctx.fillStyle = grad;
+      ctx.fillRect(sx - 30, 0, 60, H);
+    }
 
-    ctx.strokeStyle = accent((0.20 + 0.08 * breath).toFixed(3));
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(pathX(-8), -8);
-    for (var pv = 8; pv <= H + 8; pv += 12) ctx.lineTo(pathX(pv), pv);
-    ctx.stroke();
-
-    /* The two side lines: one lane per map, bright enough to read as
-       parallel repos (#508 round 4), joining above the gate. */
-    if (combined) {
-      for (var li = 1; li < 3; li++) {
-        ctx.strokeStyle = accent((0.30 + 0.06 * breath).toFixed(3));
+    /* The one line. board tells its story on the pinned atlas instead,
+       and dawn's line arrives only when order does. */
+    if (mode !== 'board') {
+      var lineTo = H + 8;
+      if (mode === 'dawn') {
+        var lineP = smooth(vh * 0.7, vh * 1.5, window.scrollY);
+        lineTo = -8 + (H + 16) * lineP;
+      }
+      if (lineTo > 0) {
+        ctx.strokeStyle = accent((0.20 + 0.08 * breath).toFixed(3));
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        var started = false;
-        for (var vy = -8; vy <= H + 8; vy += 12) {
-          var lx = laneX(li, vy);
-          if (!started) { ctx.moveTo(lx, vy); started = true; } else ctx.lineTo(lx, vy);
-        }
+        ctx.moveTo(pathX(-8), -8);
+        ctx.lineTo(pathX(lineTo), lineTo);
         ctx.stroke();
       }
     }
 
-    /* The opening: three map cards, each with its fanned queue of
-       mini tickets, and the wayfinder types named once below. The
-       title sits under all of it, at the bottom of the first screen. */
-    if (journey) {
-      var mapY = vh * 0.10 + 20 - window.scrollY;
-      if (mapY > -260) {
-        for (var mi = 0; mi < 3; mi++) {
-          var mx = W * (0.22 + 0.28 * mi);
-          drawBigMap(mx, mapY, MAPS[mi], 1);
-          for (var qi = 0; qi < 3; qi++) {
-            var qy = mapY + 64 + qi * 24;
-            ctx.save();
-            ctx.translate(mx, qy);
-            ctx.rotate((qi - 1) * 0.08);
-            ctx.translate(-mx, -qy);
-            drawMini(mx, qy, '#' + QUEUE[mi][qi].id, 0, 1 - qi * 0.16, false);
-            ctx.restore();
+    /* Each concept's own scenery. */
+    if (mode === 'lens') {
+      /* From one ticket to all of it: the camera pulls back. One huge
+         ticket, then its siblings, then the map frame closes around
+         them, then the row of all three maps takes over in the flow. */
+      var zp = clamp(window.scrollY / (vh * 2.0), 0, 1);
+      var cxZ = W * 0.5, cyZ = vh * 0.40;
+      var aA = 1 - smooth(0.72, 0.95, zp);
+      if (aA > 0.02) {
+        var aB = smooth(0.22, 0.5, zp) * aA;
+        if (aB > 0.02) {
+          for (var sb = 0; sb < 6; sb++) {
+            var ang = sb * 1.047 + 0.5;
+            var rad = 128 + (sb % 2) * 32;
+            var tkS = QUEUE[sb % 3][Math.floor(sb / 2)];
+            drawTicket(cxZ + Math.cos(ang) * rad, cyZ + Math.sin(ang) * rad * 0.62,
+              tkS.id, tkS.name, TYPE_WORDS[sb % 3], 0, 0.8 * aB, false);
           }
-          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-          ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-          ctx.fillStyle = 'rgba(148,156,171,0.9)';
-          ctx.fillText(TYPE_WORDS[mi], mx, mapY + 148);
-          ctx.textAlign = 'left';
-        }
-      }
-
-      /* The story rooms: full-width scenes between the copy blocks,
-         so content and ride never overlay. Each element enters the
-         way this variation says (flow, doors, zoom). */
-      for (var sc = 0; sc < scenes.length; sc++) {
-        var s = scenes[sc];
-        if (s.top === undefined || s.bottom < -80 || s.top > H + 80) continue;
-        var cyS = (s.top + s.bottom) / 2;
-        var pw = Math.min(W - 44, 330);
-        if (s.kind === 'thread') {
-          /* The Discord thread, and the harnesses behind it. */
-          var e0 = entry(s.top, 0), e1 = entry(s.top, 1), e2 = entry(s.top, 2);
-          var px = W * 0.5 - pw / 2 + e0.dx;
-          var py = cyS - 66 + e0.dy;
-          drawPanel(px, py, pw, 104, e0.a);
-          drawBubble(px + 10, py + 12, pw - 20, 'start 42', e1.a, true);
-          drawBubble(px + 10, py + 40, pw - 20, CONTENT.frames[1], e1.a, false);
-          ctx.strokeStyle = accent((0.55 * e1.a).toFixed(3));
-          roundRect(px + 10, py + 70, 78, 22, 7); ctx.stroke();
-          roundRect(px + 96, py + 70, 78, 22, 7); ctx.stroke();
-          var bx1 = drawBadge(px + e2.dx - e0.dx, py + 116 + e2.dy - e0.dy, 'Claude Code', e2.a);
-          drawBadge(px + bx1 + 10 + e2.dx - e0.dx, py + 116 + e2.dy - e0.dy, 'Codex CLI', e2.a);
-        } else if (s.kind === 'gate') {
-          /* The preview, the review gate, and the work waiting on you. */
-          var g0 = entry(s.top, 0), g1 = entry(s.top, 1), g2 = entry(s.top, 2);
-          var gx = W * 0.5 - pw / 2 + g0.dx;
-          var gy = cyS - 72 + g0.dy;
-          drawPanel(gx, gy, pw, 104, g0.a);
-          drawBubble(gx + 10, gy + 12, pw - 20, CONTENT.frames[2], g1.a, false);
-          drawBubble(gx + 10, gy + 40, pw - 20, CONTENT.frames[3], g1.a, false);
-          roundRect(gx + 10, gy + 70, 82, 22, 7);
-          ctx.fillStyle = accent((0.16 * g1.a).toFixed(3));
-          ctx.fill();
-          ctx.strokeStyle = accent((0.8 * g1.a).toFixed(3));
+          var fw = lerp(W * 1.25, Math.min(W - 22, 380), ease(aB));
+          var fh = lerp(vh * 1.1, vh * 0.52, ease(aB));
+          ctx.setLineDash([5, 4]);
+          ctx.strokeStyle = accent((0.7 * aB).toFixed(3));
+          roundRect(cxZ - fw / 2, cyZ - fh / 2, fw, fh, 14);
           ctx.stroke();
-          ctx.strokeStyle = 'rgba(233,236,241,' + (0.3 * g1.a).toFixed(3) + ')';
-          roundRect(gx + 100, gy + 70, 82, 22, 7); ctx.stroke();
-          for (var gs = 0; gs < 3; gs++) {
-            drawMini(gx + 26 + gs * 12, gy + 128 + gs * 5 + g2.dy, '#' + QUEUE[gs][0].id, 2, (0.85 - gs * 0.2) * g2.a, false);
-          }
-        } else if (s.kind === 'dash') {
-          /* The dashboard: every map's progress, and what needs you.
-             Its rows reuse the map labels and the page's own words. */
-          var d0 = entry(s.top, 0), d1 = entry(s.top, 1);
-          var dx = W * 0.5 - pw / 2 + d0.dx;
-          var dy = cyS - 78 + d0.dy;
-          drawPanel(dx, dy, pw, 150, d0.a);
-          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-          for (var dr = 0; dr < 3; dr++) {
-            var ry2 = dy + 18 + dr * 28;
-            ctx.font = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace';
-            ctx.fillStyle = 'rgba(233,236,241,' + (0.85 * d1.a).toFixed(3) + ')';
-            ctx.fillText(MAPS[dr].label, dx + 12, ry2);
-            roundRect(dx + 76, ry2 - 4, pw - 96, 8, 4);
-            ctx.fillStyle = 'rgba(233,236,241,' + (0.1 * d1.a).toFixed(3) + ')';
-            ctx.fill();
-            roundRect(dx + 76, ry2 - 4, (pw - 96) * (0.85 - dr * 0.3), 8, 4);
-            ctx.fillStyle = accent((0.55 * d1.a).toFixed(3));
-            ctx.fill();
-          }
-          ctx.strokeStyle = 'rgba(233,236,241,' + (0.15 * d1.a).toFixed(3) + ')';
-          ctx.beginPath(); ctx.moveTo(dx + 12, dy + 100); ctx.lineTo(dx + pw - 12, dy + 100); ctx.stroke();
-          drawBubble(dx + 12, dy + 112, pw - 24, 'review 42', d1.a, true);
-          ctx.beginPath(); ctx.arc(dx + pw - 26, dy + 122, 4 + breath * 2, 0, 6.2832);
-          ctx.fillStyle = accent((0.8 * d1.a).toFixed(3));
+          ctx.setLineDash([]);
+          roundRect(cxZ - fw / 2 + 10, cyZ - fh / 2 + 10, 30, 14, 4);
+          ctx.fillStyle = accent((0.85 * aB).toFixed(3));
           ctx.fill();
-        } else if (s.kind === 'pile') {
-          /* The finished work, stacked green. */
-          for (var mg = 0; mg < 4; mg++) {
-            var p0 = entry(s.top, mg);
-            drawMini(W * 0.5 + p0.dx, cyS + 24 - mg * 15 + p0.dy, '#' + SPINE_TICKETS[mg], 3, (1 - mg * 0.15) * p0.a, false);
-          }
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          ctx.font = '700 8px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.fillStyle = 'rgba(8,12,10,' + (0.95 * aB).toFixed(3) + ')';
+          ctx.fillText('map', cxZ - fw / 2 + 15, cyZ - fh / 2 + 17.5);
+          ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.fillStyle = 'rgba(233,236,241,' + (0.9 * aB).toFixed(3) + ')';
+          ctx.fillText(MAPS[0].label + ' · ' + MAPS[0].name, cxZ - fw / 2 + 52, cyZ - fh / 2 + 17.5);
         }
+        var sZ = lerp(2.3, 1, ease(smooth(0, 0.5, zp)));
+        ctx.save();
+        ctx.translate(cxZ, cyZ);
+        ctx.scale(sZ, sZ);
+        ctx.translate(-cxZ, -cyZ);
+        drawTicket(cxZ, cyZ, MY_TICKET, MY_NAME, 'prototype', 0, aA, true);
+        ctx.restore();
       }
+      var rowY = vh * MAPS_DOC - window.scrollY;
+      if (rowY > -260 && rowY < H + 120) drawMapRow(rowY, true);
+    } else if (mode === 'dawn') {
+      /* The mess first: scattered dim work drifting with no line.
+         Then the line arrives, the maps appear, and every ticket
+         snaps into its queue. */
+      var rowY2 = vh * MAPS_DOC - window.scrollY;
+      var mapsA = smooth(vh * 0.55, vh * 1.0, window.scrollY);
+      if (mapsA > 0.02 && rowY2 > -260 && rowY2 < H + 120) drawMapRow(rowY2, false);
+      for (var sk2 = 0; sk2 < SCATTER.length; sk2++) {
+        var it = SCATTER[sk2];
+        var p2 = ease(smooth(90 + sk2 * 75, 430 + sk2 * 75, window.scrollY));
+        var dxs = it.xf * W + Math.sin(clock * 0.7 + it.ph) * 6 * (1 - p2);
+        var dys = 40 + it.yf * vh + Math.cos(clock * 0.55 + it.ph) * 5 * (1 - p2);
+        var gx2 = W * (0.22 + 0.28 * (sk2 % 3));
+        var gy2 = vh * MAPS_DOC + 64 + Math.floor(sk2 / 3) * 24 - window.scrollY;
+        var x2 = lerp(dxs, gx2, p2), y2 = lerp(dys, gy2, p2);
+        var a2 = lerp(0.55, 1 - Math.floor(sk2 / 3) * 0.16, p2);
+        if (y2 < -30 || y2 > H + 30) continue;
+        if (p2 > 0.85) drawMini(x2, y2, '#' + it.tk.id, 0, a2, false);
+        else drawTicket(x2, y2, it.tk.id, it.tk.name, TYPE_WORDS[sk2 % 3], 0, a2, false);
+      }
+    } else if (mode === 'board') {
+      /* The atlas never leaves: an opaque board pinned over the top of
+         the screen shows the maps, the run and what needs you, while
+         the copy scrolls underneath. The reader's ticket crosses the
+         board as the page passes each stage. */
+      var bh = vh * 0.42;
+      ctx.fillStyle = '#08090c';
+      ctx.fillRect(0, 0, W, bh);
+      ctx.strokeStyle = accent(0.25);
+      ctx.beginPath(); ctx.moveTo(0, bh - 0.5); ctx.lineTo(W, bh - 0.5); ctx.stroke();
+      ctx.save();
+      ctx.translate(W * 0.5, 0);
+      ctx.scale(0.78, 0.78);
+      ctx.translate(-W * 0.5, 0);
+      drawMapRow(76, false);
+      ctx.restore();
+      var byLine = bh * 0.68;
+      ctx.strokeStyle = accent(0.35);
+      ctx.beginPath(); ctx.moveTo(W * 0.08, byLine); ctx.lineTo(W * 0.92, byLine); ctx.stroke();
+      var progF = 0;
+      for (var pf = 0; pf < nodes.length; pf++) progF += 1 - smooth(vh * 0.35, vh * 0.95, nodes[pf].y);
+      for (var bs = 0; bs < 4; bs++) {
+        var bx2 = W * (0.14 + 0.24 * bs);
+        var on2 = clamp(progF - bs, 0, 1);
+        ctx.beginPath(); ctx.arc(bx2, byLine, 6 + on2 * 3, 0, 6.2832);
+        ctx.fillStyle = state(bs, (0.35 + on2 * 0.6).toFixed(3));
+        ctx.fill();
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.font = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace';
+        ctx.fillStyle = state(bs, (0.5 + on2 * 0.5).toFixed(3));
+        ctx.fillText(CONTENT.stages[bs], bx2, byLine + 18);
+      }
+      ctx.textAlign = 'left';
+      var bpx = W * (0.14 + 0.24 * clamp(progF, 0, 3));
+      drawTicket(bpx, byLine - 30, MY_TICKET, MY_NAME, 'prototype', Math.min(solo.at, 3), 1, true);
+      ctx.beginPath(); ctx.arc(W * 0.92, byLine, 4 + breath * 2.5, 0, 6.2832);
+      ctx.fillStyle = accent(0.85);
+      ctx.fill();
     }
 
     nodes.forEach(function (n) {
@@ -1342,27 +1373,28 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
       var hot = n.on > 0.5 || n.hit > 0.12;
       if (hot !== n.hot) { n.hot = hot; n.el.classList.toggle('hot', hot); }
 
+      if (mode === 'board') return;
       var si = Math.min(n.stage, 3);
       var nx = pathX(n.y);
-      var nr = 1;
       var glow = 0.11 + n.on * 0.10 + n.hit * 0.12 * flashScale;
-      ctx.beginPath(); ctx.arc(nx, n.y, (11 + n.on * 2 + n.hit * 8) * nr, 0, 6.2832);
+      ctx.beginPath(); ctx.arc(nx, n.y, 11 + n.on * 2 + n.hit * 8, 0, 6.2832);
       ctx.fillStyle = state(si, glow.toFixed(3));
       ctx.fill();
-      ctx.beginPath(); ctx.arc(nx, n.y, (4 + n.on * 1.2 + n.hit * 1.8) * nr, 0, 6.2832);
+      ctx.beginPath(); ctx.arc(nx, n.y, 4 + n.on * 1.2 + n.hit * 1.8, 0, 6.2832);
       ctx.fillStyle = state(si, (0.55 + n.on * 0.4).toFixed(3));
       ctx.fill();
     });
 
-    /* Traffic. A companion leaves its queue with a random type — the
-       types come out of every map, on the operator's order — and
-       rides the one line through the rooms. */
-    var gap = !combined ? 0 : 2400;
+    /* Traffic. lens and dawn send sparse companions down the line
+       from their map row, each with a random type — the types come
+       out of every map, on the operator's order. thread keeps its
+       chat clean, and the board keeps its dots on the board. */
+    var gap = (mode === 'lens' || mode === 'dawn') ? 3000 : 0;
     if (Motion.on && gap && ts > spawnAt) {
       spawnAt = ts + gap + Math.random() * gap * 0.5;
       var lane = seq % 3;
       var tk = QUEUE[lane][seq % 3];
-      var startY = Math.max(-26, vh * 0.10 + 150 - window.scrollY);
+      var startY = Math.max(-26, vh * MAPS_DOC + 150 - window.scrollY);
       var pop0 = startY > -26 ? 1 : 0;
       seq++;
       cards.push({
@@ -1379,7 +1411,6 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
         c.y += c.v * dt;
         for (var j = 0; j < nodes.length; j++) {
           if (j < c.at || nodes[j].y <= 0) continue;
-          if (Math.abs(laneX(c.lane, c.y) - pathX(c.y)) > 44) break;
           if (Math.abs(c.y - nodes[j].y) < 9) {
             c.at = j + 1; c.hold = 0.9; c.pop = 1;
             nodes[j].pulse = 1;
@@ -1392,7 +1423,7 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
       if (c.at >= nodes.length && c.hold <= 0) c.fade -= dt * 1.1;
       if (c.fade <= 0 || c.y > H + 44) { cards.splice(i, 1); continue; }
 
-      var cx3 = laneX(c.lane, c.y);
+      var cx3 = pathX(c.y);
       if (c.pop > 0.05) {
         ctx.beginPath(); ctx.arc(cx3, c.y, 20 + c.pop * 10, 0, 6.2832);
         ctx.fillStyle = state(Math.min(c.at, 3), (0.10 * c.pop * c.fade).toFixed(3));
@@ -1402,12 +1433,13 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
     }
     if (cards.length > 16) cards.splice(0, cards.length - 16);
 
-    /* The protagonist. It starts in the center queue, leaves when you
-       do, rides the line through every stage, waits at the gate, and
-       lands on the merged stack. Same species as every ticket, only
-       the lit border and the stage word beside it mark it as yours. */
+    /* The protagonist. It rides the line through every stage, waits
+       at the gate, and ends merged. Same species as every ticket,
+       only the lit border and the stage word beside it mark it as
+       yours. The board shows it on the board instead, and this block
+       still keeps its stage and its sound. */
     if (journey) {
-      var pY = vh * 0.10 + 128 - window.scrollY;
+      var pY = (MAPS_DOC > 0 ? vh * MAPS_DOC + 150 : vh * 0.22) - window.scrollY;
       var protoStage = 0;
       for (var pi = 0; pi < nodes.length; pi++) {
         var tI = (pi === 3)
@@ -1426,18 +1458,27 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
         solo.at = protoStage;
       }
       solo.pop *= 0.9;
-      var pX = pathX(pY);
-      var pSt = Math.min(solo.at, 3);
-      if (solo.pop > 0.02) {
-        ctx.beginPath(); ctx.arc(pX, pY, 20 + solo.pop * 14, 0, 6.2832);
-        ctx.fillStyle = state(pSt, (0.12 * solo.pop).toFixed(3));
-        ctx.fill();
+      if (mode !== 'board') {
+        var pX = pathX(pY);
+        var pSt = Math.min(solo.at, 3);
+        /* lens draws its own big opening ticket, so the rider fades
+           in as the camera finishes. dawn hands over after the snap. */
+        var pA = (mode === 'lens') ? smooth(vh * 1.5, vh * 2.0, window.scrollY)
+          : (mode === 'dawn') ? smooth(vh * 0.9, vh * 1.3, window.scrollY)
+          : 1;
+        if (pA > 0.02 && pY > -40 && pY < H + 40) {
+          if (solo.pop > 0.02) {
+            ctx.beginPath(); ctx.arc(pX, pY, 20 + solo.pop * 14, 0, 6.2832);
+            ctx.fillStyle = state(pSt, (0.12 * solo.pop).toFixed(3));
+            ctx.fill();
+          }
+          var rEdge = drawTicket(pX, pY, MY_TICKET, MY_NAME, 'prototype', pSt, pA, true);
+          ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
+          ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+          ctx.fillStyle = state(pSt, (0.95 * pA).toFixed(3));
+          ctx.fillText(CONTENT.stages[pSt], rEdge + 8, pY + 0.5);
+        }
       }
-      drawTicket(pX, pY, MY_TICKET, MY_NAME, 'prototype', pSt, 1, true);
-      ctx.font = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = state(pSt, 0.95);
-      ctx.fillText(CONTENT.stages[pSt], pX + 78, pY + 0.5);
     } else {
       /* The baseline keeps its locked pinned card. */
       drawMine(pathX(cy), cy, solo.at, solo.pop, 1);
@@ -1460,7 +1501,13 @@ function startSpine(canvas, heads, mode, onStage, scenes) {
 /* One page builder for every variation. Only the spine mode differs. */
 function makeRun(mode) {
   return function (root) {
-    root.className = 'v-run' + (mode !== 'base' ? ' m-dock m-story' : '');
+    var cls = 'v-run';
+    if (mode !== 'base') cls += ' m-story';
+    if (mode === 'thread') cls += ' m-thread';
+    if (mode === 'board') cls += ' m-board';
+    if (mode === 'lens') cls += ' m-dock m-lens';
+    if (mode === 'dawn') cls += ' m-dock m-dawn';
+    root.className = cls;
     var canvas = h('canvas', { class: 'layer', 'aria-hidden': 'true' });
     document.body.insertBefore(canvas, document.getElementById('main'));
 
@@ -1506,34 +1553,62 @@ function makeRun(mode) {
     }
 
     /* The journey cuts the claim prose (#508 round 7: the operator
-       allows cutting most of the copy), keeps titles and facts, and
-       leaves the storytelling to the scenes between the stations. */
+       allows cutting most of the copy) and keeps titles and facts. */
     var journeyDom = mode !== 'base';
-    var sceneEls = [];
-    function scene(kind) {
-      var el = h('div', { class: 'q-scene', 'aria-hidden': 'true' });
-      sceneEls.push({ el: el, kind: kind });
-      return el;
-    }
+    var s1;
 
-    var stations = CONTENT.claims.map(function (c, i) {
-      return stage(c.station, [rv.add(h('div', { class: 'q-card' }, [
-        h('h3', { text: c.title }),
-        journeyDom ? null : h('p', { text: c.body }),
-        h('div', { class: 'under', html: c.under.join('<br>') })
-      ]), i * 60)]);
-    });
-    var s1kids = [rv.add(h('h2', { text: CONTENT.claimsHeading })), rv.add(key, 40)];
-    if (journeyDom) {
-      s1kids = s1kids.concat([
-        stations[0], scene('thread'),
-        stations[1], scene('gate'),
-        stations[2], scene('dash')
+    if (mode === 'thread') {
+      /* The ticket, told as a chat. Every message is a page string or
+         a wireframe, and the stage markers are the real stations. */
+      var bubble = function (me, kids) {
+        return h('div', { class: 'c-row' + (me ? ' me' : '') }, [h('div', { class: 'c-b' }, kids)]);
+      };
+      var btns = function (onFirst) {
+        return h('div', { class: 'c-btns' }, [
+          h('div', { class: 'c-btn' + (onFirst ? ' on' : '') }),
+          h('div', { class: 'c-btn' })
+        ]);
+      };
+      var aside = function (c) {
+        return rv.add(h('div', { class: 'c-aside' }, [
+          h('h3', { text: c.title }),
+          h('div', { class: 'under', html: c.under.join('<br>') })
+        ]), 40);
+      };
+      var g1 = stage(CONTENT.stages[0], [
+        rv.add(bubble(true, [h('code', { text: 'start 508' })])),
+        rv.add(bubble(false, [
+          document.createTextNode(CONTENT.frames[0]),
+          h('div', { class: 'c-ticket', html: '<b>#508</b> · prototype · take the run further' })
+        ]), 60),
+        aside(CONTENT.claims[0])
       ]);
+      var g2 = stage(CONTENT.stages[1], [
+        rv.add(bubble(false, [document.createTextNode(CONTENT.frames[1]), btns(false)])),
+        rv.add(bubble(true, [btns(true)]), 60),
+        aside(CONTENT.claims[1])
+      ]);
+      var g3 = stage(CONTENT.stages[2], [
+        rv.add(bubble(false, [h('span', { class: 'c-link', text: CONTENT.frames[2] })])),
+        rv.add(bubble(false, [document.createTextNode(CONTENT.frames[3]), btns(true)]), 60),
+        aside(CONTENT.claims[2])
+      ]);
+      s1 = h('section', {}, [wrap([
+        rv.add(h('h2', { text: CONTENT.claimsHeading })),
+        h('div', { class: 'chat' }, [g1, g2, g3])
+      ])]);
     } else {
-      s1kids = s1kids.concat(stations);
+      var stations = CONTENT.claims.map(function (c, i) {
+        return stage(c.station, [rv.add(h('div', { class: 'q-card' }, [
+          h('h3', { text: c.title }),
+          journeyDom ? null : h('p', { text: c.body }),
+          h('div', { class: 'under', html: c.under.join('<br>') })
+        ]), i * 60)]);
+      });
+      s1 = h('section', {}, [wrap(
+        [rv.add(h('h2', { text: CONTENT.claimsHeading })), rv.add(key, 40)].concat(stations)
+      )]);
     }
-    var s1 = h('section', {}, [wrap(s1kids)]);
 
     var frames = h('div', { class: 'q-frames' });
     CONTENT.frames.forEach(function (cap, i) {
@@ -1544,13 +1619,25 @@ function makeRun(mode) {
         ])
       ]));
     });
-    var proofKids = journeyDom
-      ? [scene('pile'), rv.add(frames), rv.add(trailNode('q-note'), 120), rv.add(statsNode('q-stats'), 180)]
-      : [rv.add(frames),
+    var proofKids;
+    if (mode === 'thread') {
+      proofKids = [
+        rv.add(h('div', { class: 'c-row' }, [h('div', { class: 'c-b' }, [
+          h('div', { class: 'c-ticket', html: '<b>#508</b> · ' + CONTENT.claims[2].under[0] })
+        ])])),
+        rv.add(frames, 60),
+        rv.add(trailNode('q-note'), 120),
+        rv.add(statsNode('q-stats'), 180)
+      ];
+    } else if (journeyDom) {
+      proofKids = [rv.add(frames), rv.add(trailNode('q-note'), 120), rv.add(statsNode('q-stats'), 180)];
+    } else {
+      proofKids = [rv.add(frames),
         rv.add(h('p', { class: 'q-note', text: CONTENT.shotnote }), 80),
         rv.add(trailNode('q-note'), 120),
         rv.add(h('p', { class: 'q-legend', text: CONTENT.spineLegend }), 140),
         rv.add(statsNode('q-stats'), 180)];
+    }
     var proof = stage('merged', proofKids);
     var s2 = h('section', {}, [wrap([rv.add(h('h2', { text: CONTENT.proofHeading })), proof])]);
 
@@ -1564,13 +1651,17 @@ function makeRun(mode) {
     ])]);
     var foot = h('footer', {}, [h('div', { class: 'q-wrap', html: CONTENT.footer })]);
 
-    root.appendChild(frag([head, s1, s2, s3, s4, foot]));
+    var spacer = (mode === 'lens') ? h('div', { class: 'q-zoom', 'aria-hidden': 'true' })
+      : (mode === 'dawn') ? h('div', { class: 'q-dawn', 'aria-hidden': 'true' })
+      : null;
+    root.appendChild(frag([head, spacer, s1, s2, s3, s4, foot]));
 
     var heads = headEls.map(function (el, i) { return { el: el, stage: i }; });
     var notes = [220, 277.18, 329.63, 392];
+    if (mode === 'board') canvas.style.zIndex = '5';
     var spine = startSpine(canvas, heads, mode, function (i) {
       Sound.tone(notes[clamp(i, 0, 3) % notes.length], 0.55, 'triangle', 0.06);
-    }, sceneEls);
+    });
     /* Without a canvas the dock stage would be an empty screen, so the
        page falls back to the plain layout. */
     if (!spine) root.className = 'v-run';
@@ -1591,14 +1682,15 @@ function makeRun(mode) {
    the operator sends back "the header from B with the spine from C".
    ================================================================== */
 
-/* base is the locked baseline. The three others are the round 8 set:
-   story rooms beside the copy, three entry styles. The cut variants
-   live on in git history and in NOTES.md. */
+/* base is the locked baseline. The four others are the round 9 set:
+   four completely different concepts for the journey page. The cut
+   variants live on in git history and in NOTES.md. */
 var VARIANTS = [
   { key: 'base', name: 'You move the ticket', note: 'the locked baseline', mount: makeRun('base') },
-  { key: 'flow', name: 'The rooms flow in', note: '#508 candidate', mount: makeRun('flow') },
-  { key: 'doors', name: 'The rooms rise in', note: '#508 candidate', mount: makeRun('doors') },
-  { key: 'zoom', name: 'The rooms scale in', note: '#508 candidate', mount: makeRun('zoom') }
+  { key: 'thread', name: 'The ticket, told as a chat', note: '#508 candidate', mount: makeRun('thread') },
+  { key: 'board', name: 'The board never leaves', note: '#508 candidate', mount: makeRun('board') },
+  { key: 'lens', name: 'One ticket, then all of it', note: '#508 candidate', mount: makeRun('lens') },
+  { key: 'dawn', name: 'The mess, then the line', note: '#508 candidate', mount: makeRun('dawn') }
 ];
 
 var main = document.getElementById('main');

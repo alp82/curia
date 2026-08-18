@@ -28,17 +28,14 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `flow` | The rooms flow in | #508 candidate. Room pieces slide in along the line. |
-| `doors` | The rooms rise in | #508 candidate. Room pieces rise in with a stagger. |
-| `zoom` | The rooms scale in | #508 candidate. Room pieces scale and fade in. |
+| `thread` | The ticket, told as a chat | #508 candidate. The whole journey as a Discord thread: command, ticket embed, question with buttons, preview, gate, receipt. |
+| `board` | The board never leaves | #508 candidate. A control-room atlas pinned over the top of the screen. Scrolling moves the reader's ticket across it. |
+| `lens` | One ticket, then all of it | #508 candidate. A camera story: one huge ticket, its siblings, the map frame closing around them, then all three maps and the ride. |
+| `dawn` | The mess, then the line | #508 candidate. Scattered dim tickets and no line, then the line arrives, the maps appear, and everything snaps into its queue. |
 
-Every round 8 candidate shares the journey page: copy blocks alternate with full-width story
-rooms joined by an edge line, so content and ride never overlay. Tickets read like GitHub issue
-rows with number, type and speaking name shortened from their true titles. Maps carry a map
-badge, their name and session stubs. The rooms: the fanned queues, the Discord thread with the
-harnesses, the gate with waiting work, the dashboard atlas (per the UX map, curia#511), and the
-merged stack. The types come out of every map at random, on the operator's order. The hero
-states that curia is a wrapper for Matt Pocock's skills, on the operator's order at round 6.
+Every round 9 candidate carries the locked learnings: GitHub-row tickets with number, type and
+speaking name, badged map cards with real names, no overlay of content and ride, natural scroll,
+random types out of every map, and the skills line in the hero.
 
 The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
 of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`), of round 3 (`flood`, `metro`, `dock`,
@@ -147,7 +144,15 @@ the copy iteration becomes a follow-up prototype ticket that asks its questions 
 carry number, type and name. Maps carry a map badge and their name. The dashboard room shows
 every map's progress and a needs-you row, after the UX map's atlas decision (curia#511 and its
 child curia#512). Three candidates differ only in the entry and exit of the rooms: `flow`,
-`doors` and `zoom`.
+`doors` and `zoom`. The verdict: a method correction. Variations must explore completely fresh
+ideas, and three entry styles on one concept are the same idea three times. The page also felt
+repetitive and hard to follow.
+
+**Round 9.** Four completely different concepts, each one clear storytelling device: `thread`
+tells the ticket as a Discord chat, `board` pins a control-room atlas over the top of the
+screen, `lens` pulls the camera back from one huge ticket to all of it, and `dawn` shows the
+scattered mess before the line arrives and snaps it into queues. All four carry the locked
+learnings from rounds 1 to 8.
 
 ## The rule the variations share
 
