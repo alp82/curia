@@ -28,15 +28,17 @@ open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 | Key | Name | State |
 |---|---|---|
 | `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
-| `story` | The page is the journey | #508 candidate. The ride dictates the layout: maps with queues, one lane per map, the Discord thread, the harnesses, the gate, the merged stack. |
-| `stacks` | Queues and stacks | #508 candidate. The journey with fanned queues, and work waiting in a pile at the gate. |
-| `drift` | The journey sways | #508 candidate. The journey with a gentle sway in the line. |
+| `flow` | The rooms flow in | #508 candidate. Room pieces slide in along the line. |
+| `doors` | The rooms rise in | #508 candidate. Room pieces rise in with a stagger. |
+| `zoom` | The rooms scale in | #508 candidate. Room pieces scale and fade in. |
 
-Every round 7 candidate rebuilds the page around the journey: the copy narrows and spreads out,
-every stage gets a screen of scene space, tickets are mini GitHub-style rows, maps are larger
-session-holding cards, and the protagonist #508 is the same species as every ticket, marked only
-by a lit border. The hero states that curia is a wrapper for Matt Pocock's skills, on the
-operator's order at round 6.
+Every round 8 candidate shares the journey page: copy blocks alternate with full-width story
+rooms joined by an edge line, so content and ride never overlay. Tickets read like GitHub issue
+rows with number, type and speaking name shortened from their true titles. Maps carry a map
+badge, their name and session stubs. The rooms: the fanned queues, the Discord thread with the
+harnesses, the gate with waiting work, the dashboard atlas (per the UX map, curia#511), and the
+merged stack. The types come out of every map at random, on the operator's order. The hero
+states that curia is a wrapper for Matt Pocock's skills, on the operator's order at round 6.
 
 The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
 of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`), of round 3 (`flood`, `metro`, `dock`,
@@ -135,7 +137,17 @@ screen of scene space, and the scroll reveals the story beat by beat. The protag
 ticket like every other, marked only by a lit border and the stage word beside it. Wireframe
 panels use only the page's own words: the Discord thread and its buttons, the preview line, the
 gate with its approve button, and the harness names Claude Code and Codex CLI from the guide.
-Three candidates beside `base`: `story`, `stacks` and `drift`.
+Three candidates beside `base`: `story`, `stacks` and `drift`. The verdict: directionally
+correct, but content and lanes must sit next to each other and never overlay, tickets must look
+more like tickets, maps and tickets get speaking names and badges, the types come out of every
+map at random, the dashboard from the UX map joins the journey, most of the prose can go, and
+the copy iteration becomes a follow-up prototype ticket that asks its questions first.
+
+**Round 8.** Copy blocks alternate with full-width story rooms joined by an edge line. Tickets
+carry number, type and name. Maps carry a map badge and their name. The dashboard room shows
+every map's progress and a needs-you row, after the UX map's atlas decision (curia#511 and its
+child curia#512). Three candidates differ only in the entry and exit of the rooms: `flow`,
+`doors` and `zoom`.
 
 ## The rule the variations share
 
