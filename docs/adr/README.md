@@ -19,6 +19,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 ## Dispatch and routing
 
 - [ADR-0004](0004-label-only-routing.md): Model routing reads labels only. Quota awareness is cooling on two triggers, a landed cap and a hot reading, and exhaustion makes the frontier the queue.
+- [ADR-0022](0022-the-overseers-command-understanding.md): The overseer quotes a refusal and copies ids verbatim, a roundtrip test guards the seam, a typed verb runs before a model turn, and the map tool splits in two. Decided, not built.
 
 ## Agents
 
@@ -35,6 +36,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 - [ADR-0013](0013-one-voice-per-fact.md): CuriaBot states mechanics, the agent voice states meaning, and no fact is said twice. Notes queue or interrupt, and a pending cross-check gates the ending.
 - [ADR-0019](0019-typed-payloads-and-the-lint-grades.md): Agent prose ships as typed fields, not one string. One vocabulary of seven names, a mandatory floor per surface, two lint grades and a geometry check on the visual. Decided, not built.
 - [ADR-0020](0020-the-thread-story.md): The thread is the alert surface, and it tells a fixed floor of a story: a title line, one status line for every mechanic from dispatch to receipt, an agent opening, and a typed closing line. Decided, not built.
+- [ADR-0021](0021-the-take-back-is-the-harness-rewind.md): The take back is the harness rewind on user turns, and a correction everywhere a rewind cannot land. The world keeps what ran, and the receipt keeps the text. Decided, not built.
 - [ADR-0021](0021-the-thread-formatting-and-the-one-voice.md): Every thread message posts as one bot named curia, in first person for work and small print for mechanics. The status line holds the link buttons and settles with its meters. The working phase is an icon plus a code-mark label. Decided, not built.
 
 ## Resolution
