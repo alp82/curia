@@ -1037,30 +1037,23 @@ export function plantedSkills(wtPath, harness, install) {
 // knowledge — which is why restating skill doctrine in the prompt was the
 // wrong fix and installing the real skills is the right one.
 //
-// Deliberately absent: to-tickets, triage, to-spec, handoff — the
-// charting-and-PM side, and to-tickets is mass ticket creation in the hands of
-// an agent that now carries charting authority (#49).
-//
-// `wizard` is absent too (#348). It writes an interactive bash script for a
+// The default list excludes only `wizard` (#348). It writes an interactive bash script for a
 // human at a terminal, and a `wayfinder:task` ticket hands its checklist over
 // through `ask_human`, to a phone. The script writes `.env` and `gh secret`
 // where it runs, which is the agent container rather than the operator's box,
 // and it reaches that box only after the merge that ends the ticket.
 //
-// `writing-for-agents` IS installed (#348): an agent here edits agent-facing
-// prose often — AGENTS.md, CONTEXT.md, docs/agents/, the vendored tree, these
-// standing orders — which is the skill's own trigger. It rules structure, and
-// voice.md stays the mandatory authority on words.
-//
-// `wayfinder` and `implement` carry `disable-model-invocation: true`, so they
-// are neither listed to the model nor reachable through its Skill tool — the
-// call comes back "cannot be used with Skill tool". Installing them is still
-// required, because a prompt whose FIRST LINE is `/wayfinder` does load the
-// skill (verified live); naming a skill in prose does not. That is a
-// constraint on the spawn prompt (#54), not on this list.
+// The review gate guards tracker writes. Skill installation does not grant a
+// tracker write before approval. `to-spec` and `to-tickets` also carry
+// `disable-model-invocation: true`, so installation alone does not invoke them.
+// Curia types their slash commands in the dispatch prompt, as it does for
+// `/wayfinder` (#517).
 export const DEFAULT_SKILLS = [
-  'wayfinder', 'grilling', 'domain-modeling', 'research', 'prototype',
-  'implement', 'tdd', 'code-review', 'diagnosing-bugs', 'writing-for-agents',
+  'ask-matt', 'code-review', 'codebase-design', 'diagnosing-bugs', 'domain-modeling',
+  'grill-me', 'grill-with-docs', 'grilling', 'handoff', 'implement',
+  'improve-codebase-architecture', 'prototype', 'research', 'resolving-merge-conflicts',
+  'setup-matt-pocock-skills', 'tdd', 'teach', 'to-questionnaire', 'to-spec',
+  'to-tickets', 'triage', 'wait-what', 'wayfinder', 'writing-for-agents',
 ]
 
 // The FALLBACK skills root, for a config that names none. ~/.claude/skills is
