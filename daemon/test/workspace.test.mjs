@@ -204,20 +204,14 @@ describe('the agent skill set (#57)', () => {
     )
   })
 
-  test('the default set is the nine of #49 plus writing-for-agents, and the rest are withheld', () => {
-    for (const name of ['wayfinder', 'grilling', 'domain-modeling', 'research', 'prototype',
-      'implement', 'tdd', 'code-review', 'diagnosing-bugs']) {
-      assert.ok(DEFAULT_SKILLS.includes(name), `${name} must be installed`)
-    }
-    // #348: an agent here edits agent-facing prose often, which is this
-    // skill's own trigger.
-    assert.ok(DEFAULT_SKILLS.includes('writing-for-agents'), 'writing-for-agents joined the set (#348)')
-    for (const name of ['to-tickets', 'triage', 'to-spec', 'handoff']) {
-      assert.equal(DEFAULT_SKILLS.includes(name), false, `${name} is deliberately withheld (#49)`)
-    }
-    // #348: wizard writes a terminal script, and a task ticket hands its
-    // checklist to a phone through `ask_human`.
-    assert.equal(DEFAULT_SKILLS.includes('wizard'), false, 'wizard is deliberately withheld (#348)')
+  test('the default set is the full vendored tree except wizard (#534)', () => {
+    const vendored = path.resolve(import.meta.dirname, '..', '..', 'skills')
+    const expected = fs.readdirSync(vendored, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && entry.name !== 'wizard')
+      .filter((entry) => fs.existsSync(path.join(vendored, entry.name, 'SKILL.md')))
+      .map((entry) => entry.name)
+      .sort()
+    assert.deepEqual(DEFAULT_SKILLS.toSorted(), expected)
     assert.equal(defaultSkillsRoot(), path.join(os.homedir(), '.claude', 'skills'))
   })
 
@@ -368,7 +362,7 @@ describe('the agent skill set (#57)', () => {
       assert.deepEqual(fs.readdirSync(path.join(cfgDir, 'skills')), ['wayfinder'])
     })
 
-    test('the vendored tree still hides exactly the two skills this exists for', () => {
+    test('the default skills with disabled model invocation get pointers', () => {
       // A tree bump that lists them upstream makes the pointers stop being
       // written, and this is where that shows up as a decision rather than as
       // silence.
@@ -378,7 +372,11 @@ describe('the agent skill set (#57)', () => {
         if (!fs.existsSync(manifest)) return false
         return parseYaml(fs.readFileSync(manifest, 'utf8'))?.policy?.allow_implicit_invocation === false
       })
-      assert.deepEqual(hidden.sort(), ['implement', 'wayfinder'])
+      assert.deepEqual(hidden.sort(), [
+        'ask-matt', 'grill-me', 'grill-with-docs', 'handoff', 'implement',
+        'improve-codebase-architecture', 'setup-matt-pocock-skills', 'teach',
+        'to-questionnaire', 'to-spec', 'to-tickets', 'triage', 'wait-what', 'wayfinder',
+      ])
     })
   })
 
