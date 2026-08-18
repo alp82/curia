@@ -171,6 +171,7 @@
     <a href="#structured">4 · Structured</a>
     <a href="#status">5 · Live status</a>
     <a href="#pick">6 · The pick</a>
+    <a href="#onevoice">7 · One voice</a>
   </nav>
 </header>
 
@@ -728,15 +729,109 @@
 
   <div class="msg"><div class="avatar curia">C</div><div class="body">
     <div class="who">CuriaBot <span class="app">APP</span><span class="ts">10:42</span></div>
-    <div class="txt"><p class="small">✅ resolved — ticket closed · map #511 updated · code merged (pull/631) · worktree removed <span class="edited">(edited)</span></p>
+    <div class="txt"><p class="small">✅ resolved — ticket closed · map #511 updated · code merged (pull/631) · worktree removed<br>
+      <span class="meters">claude-opus-5 · ctx 63% · 5h 🟥 ▓▓▓▓▓┃██░░ 72% · 7d 🟨 ▓▓▓▓▓┃░░░░ 52%</span> <span class="edited">(edited)</span></p>
       <div class="btnrow"><button class="btn sec">chat</button><button class="btn sec">ticket</button></div>
       <div class="edits"><b>The status line settled into the receipt, in small print.</b>
+        <span class="st">The final meter readings stay on the second line, so the cost of the
+        ticket is never lost.</span>
         <span class="st">The preview button is removed here: the preview dies with the ticket,
         and a dead button is a trap. Chat and ticket stay pressable forever.</span></div>
     </div>
   </div></div>
 
   <div class="sysline">CuriaBot changed the channel name: <b>✅ 612 · curia · task</b></div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="onevoice"><span class="n">7</span> One voice</h2>
+<p class="lead">Section 6 with one surface identity. Every message posts as <b>curia</b>, one
+   name and one avatar. Under the hood the split stays, because buttons need app messages and
+   agent prose rides a webhook, but the reader never sees it. Work prose speaks in first
+   person. Mechanics stay impersonal small print. Third-person self-talk like
+   <b>What the agent did</b> is gone. The session name <code>curia-612</code> survives only as
+   an identifier, for <code>resume 612</code> and the receipt.</p>
+
+<div class="thread">
+  <div class="thread-top">🧵 <span class="tname">✅ 612 · curia · task</span></div>
+
+  <div class="sysline">curia started a thread: <b>🎫 612 · curia · task</b></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><p>🎫 <b>#612 — The settings page auth flow</b></p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><p class="small">🧭 <code>reads the call sites</code> <span class="meters">· claude-opus-5 · ctx 47% · 5h 🟩 ▓▓▓▓░┃░░░░ 38% · 7d 🟨 ▓▓▓▓▓┃░░░░ 52%</span> <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">🔗 preview</button><button class="btn sec">chat</button><button class="btn sec">ticket</button></div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:20</span></div>
+    <div class="txt"><p>⚙️ The ticket asks which auth flow the settings page uses.<br>I read the three call sites of the session cookie first.</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:52</span></div>
+    <div class="txt"><p>⚙️ I wrote the comparison. The cookie wins on all three call sites.</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:55</span></div>
+    <div class="txt">
+      <p>❓ <b>Which auth flow should the settings page use?</b></p>
+      <p><b>1.</b> Keep the session cookie, or move to a bearer token?<br>↳ Keep the cookie. The token move is a ticket of its own.</p>
+      <p><b>2.</b> Keep /login as a redirect after the move?<br>↳ Keep it for one release, then delete it.</p>
+      <p>Details: <span class="spoil">Three call sites read the cookie. The token path needs a refresh endpoint.</span></p>
+      <p><i>✅ takes every recommendation above. A reply names the exceptions.</i></p>
+      <p class="subtext">esc-7</p>
+      <div class="btnrow"><button class="btn ok">✅ All as recommended</button></div>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The card head is gone.</b> The message is curia asking, so no line says
+    who asks. ❓ carries the signal, and the esc id drops to the subtext, still there for a
+    reply that names it.</div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">10:03</span></div>
+    <div class="txt">
+      <p>❓ <b>Is #612 done?</b> — The settings page auth flow</p>
+      <p><b>What changed</b><br>The settings page keeps the session cookie. The token move is written up as its own ticket.</p>
+      <p><b>Charting</b><br>Close #612. Add the cookie decision under Decisions so far.</p>
+      <p>3 files · +64 −18 · pull request <b>OPEN</b></p>
+      <p><i>✅ Approve to merge and resolve. A reply is a rejection, and I take your words as the change list.</i></p>
+      <p class="subtext">esc-12</p>
+      <div class="btnrow"><button class="btn ok">✅ Approve</button><button class="btn no">❌ Reject</button><button class="btn sec">🔎 Cross-check</button></div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">10:41</span></div>
+    <div class="txt">
+      <p>✅ <b>resolved</b> — <b>The settings page keeps the session cookie.</b></p>
+      <p>I kept the cookie at all three call sites. The token move is ticket #613.</p>
+      <p>Details: <span class="spoil">3 files, +64 −18. No behavior change outside daemon/src.</span></p>
+      <p>🔗 <a href="#">github.com/alp82/curia/pull/631</a></p>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">10:42</span></div>
+    <div class="txt"><p class="small">✅ resolved — ticket closed · map #511 updated · code merged (pull/631) · session <code>curia-612</code> closed, worktree removed<br>
+      <span class="meters">claude-opus-5 · ctx 63% · 5h 🟥 ▓▓▓▓▓┃██░░ 72% · 7d 🟨 ▓▓▓▓▓┃░░░░ 52%</span> <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">chat</button><button class="btn sec">ticket</button></div>
+    </div>
+  </div></div>
+
+  <div class="sysline">curia changed the channel name: <b>✅ 612 · curia · task</b></div>
+
+  <div class="note"><b>Where a second actor is real, the line names its role.</b> A cross-check
+    verdict still opens with 🔎 the cross-check found, because that is another reader, not
+    curia in third person. First person is for the one who speaks.</div>
 </div>
 
 </main>
