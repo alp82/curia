@@ -1,0 +1,479 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#535 — Mock transcripts of prose skill invocation</title>
+<style>
+  /* PROTOTYPE — throwaway mock for alp82/curia#535. Not production code. */
+  :root {
+    --bg: #16181d;
+    --panel: #1e2128;
+    --line: #2f333d;
+    --ink: #e3e6ea;
+    --dim: #98a0ad;
+    --accent: #57f287;
+    --link: #7fb2ff;
+    --chat: #313338;
+    --chat-ink: #dbdee1;
+    --chat-dim: #949ba4;
+    --chat-name: #f2f3f5;
+    --bot-badge: #5865f2;
+    --btn-secondary: #4e5058;
+    --btn-success: #248046;
+    --btn-danger: #da373c;
+    --btn-primary: #5865f2;
+    --code-bg: #2b2d31;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --gg: "gg sans", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 4rem;
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header.page {
+    padding: 1.6rem 1.1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg));
+  }
+  header.page h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header.page .tag {
+    display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--accent); letter-spacing: .04em;
+  }
+  header.page p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2.sec {
+    margin: 2.6rem 0 .4rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700;
+  }
+  h2.sec .n { color: var(--accent); margin-right: .4rem; }
+  p.lead { margin: .2rem 0 1rem; color: var(--dim); font-size: .93rem; }
+  p.lead b { color: var(--ink); }
+
+  /* ---- Discord transcript chrome ---- */
+  .thread {
+    background: var(--chat); border: 1px solid #232428; border-radius: 12px;
+    padding: 0 0 .8rem; margin: 0 0 1rem; overflow: hidden;
+    font-family: var(--gg);
+  }
+  .thread-top {
+    padding: .55rem .9rem .5rem; border-bottom: 1px solid #26282c;
+    font-size: .86rem; color: var(--chat-dim);
+    display: flex; gap: .45rem; align-items: center;
+  }
+  .thread-top .tname { color: var(--chat-name); font-weight: 600; }
+  .sysline {
+    padding: .5rem .9rem .1rem 2.3rem; color: var(--chat-dim); font-size: .8rem;
+    position: relative;
+  }
+  .sysline::before { content: "→"; position: absolute; left: 1rem; color: #3f4147; }
+  .sysline b { color: var(--chat-ink); font-weight: 600; }
+  .msg { padding: .6rem .9rem 0; display: flex; gap: .75rem; }
+  .avatar {
+    flex: 0 0 2.3rem; width: 2.3rem; height: 2.3rem; border-radius: 50%;
+    display: grid; place-items: center; font-size: .95rem; font-weight: 700;
+    user-select: none; color: #fff; font-family: var(--gg);
+  }
+  .avatar.curia { background: #23508d; }
+  .avatar.op { background: #7a5c2e; }
+  .body { min-width: 0; flex: 1; }
+  .who { font-size: .93rem; color: var(--chat-name); font-weight: 600; }
+  .who .app {
+    background: var(--bot-badge); color: #fff; border-radius: 4px;
+    font-size: .6rem; font-weight: 700; padding: .1rem .3rem; margin-left: .35rem;
+    vertical-align: 2px; letter-spacing: .02em;
+  }
+  .who .ts { color: var(--chat-dim); font-weight: 400; font-size: .72rem; margin-left: .45rem; }
+  .txt { color: var(--chat-ink); font-size: .92rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .txt p { margin: .3rem 0; }
+  .txt .small { font-size: .78rem; color: var(--chat-dim); }
+  .txt .subtext { font-size: .78rem; color: var(--chat-dim); }
+  .txt a { color: var(--link); text-decoration: none; }
+  .txt code {
+    background: var(--code-bg); border-radius: 4px; padding: .06rem .3rem;
+    font: .84em var(--mono);
+  }
+  .txt .spoil {
+    background: #232428; border-radius: 4px; padding: 0 .3rem;
+    color: var(--chat-dim); border: 1px dashed #3f4147;
+  }
+  .txt .meters { color: var(--chat-dim); }
+  .edited { color: var(--chat-dim); font-size: .68rem; margin-left: .3rem; }
+  .btnrow { display: flex; gap: .45rem; flex-wrap: wrap; margin: .5rem 0 .15rem; }
+  .btn {
+    border: none; border-radius: 6px; padding: .42rem .8rem;
+    font: 500 .8rem/1.1 var(--gg); color: #fff; cursor: default; white-space: nowrap;
+  }
+  .btn.sec { background: var(--btn-secondary); }
+  .btn.ok { background: var(--btn-success); }
+  .btn.no { background: var(--btn-danger); }
+  .edits {
+    margin: .4rem 0 0; padding: .4rem .55rem; border-radius: 6px;
+    background: #2b2d31; font-size: .76rem; color: var(--chat-dim);
+  }
+  .edits b { color: var(--chat-ink); font-weight: 600; }
+  .edits .st { display: block; padding: .06rem 0; }
+  .edits .st::before { content: "· "; color: #4e5058; }
+  .note {
+    margin: .6rem .9rem .2rem; padding: .5rem .65rem; border-radius: 6px;
+    background: rgba(87,242,135,.06); border: 1px solid rgba(87,242,135,.18);
+    color: var(--dim); font-size: .8rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .note b { color: var(--accent); }
+  .note.warn { background: rgba(254,231,92,.05); border-color: rgba(254,231,92,.2); }
+  .note.warn b { color: #fee75c; }
+
+  /* candidate cards */
+  .cand {
+    background: var(--chat); border: 1px solid #232428; border-radius: 10px;
+    padding: .1rem 0 .85rem; margin: 0 0 .85rem; font-family: var(--gg);
+    overflow: hidden;
+  }
+  .cand > h3 {
+    margin: 0 0 .1rem; padding: .65rem .9rem .35rem; font-size: .98rem;
+    color: var(--chat-name); display: flex; gap: .5rem; align-items: baseline;
+  }
+  .cand > h3 .n { color: var(--dim); font: 600 .78rem/1 var(--mono); }
+  .cand p.why {
+    margin: .55rem .9rem 0; color: var(--dim); font-size: .84rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .cand p.why b { color: var(--ink); }
+
+  nav.toc { margin: 1rem 0 0; font-size: .9rem; }
+  nav.toc a { color: var(--link); text-decoration: none; display: inline-block; margin: 0 .9rem .3rem 0; }
+  b, strong { color: inherit; }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <span class="tag">alp82/curia#535</span>
+  <h1>Mock transcripts of prose skill invocation</h1>
+  <p>One fictional story: <b>The payments retry map, #640</b>, is done deciding, and its handoff
+     ticket <b>#653 · Hand the map to the build</b> carries <code>/to-spec</code> and
+     <code>/to-tickets</code>. The operator asks for the handoff in their own words. Section 1 is
+     decided ground (ADR-0022). Sections 2 and 4 hold the candidates. Pick by taste.</p>
+  <nav class="toc">
+    <a href="#ask">1 · The ask</a>
+    <a href="#route">2 · The route</a>
+    <a href="#run">3 · The run</a>
+    <a href="#gate">4 · The gate</a>
+    <a href="#ending">5 · The ending</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="ask"><span class="n">1</span> The ask in #curia</h2>
+<p class="lead">Decided ground, shown so the story is whole. A typed verb runs typed, with no
+   thread and no model turn (ADR-0022). Prose opens a conversation thread, named after the text.
+   The operator does not know a verb for the handoff, and does not need one.</p>
+
+<div class="thread">
+  <div class="thread-top"># <span class="tname">curia</span></div>
+
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:02</span></div>
+    <div class="txt"><p>status</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:02</span></div>
+    <div class="txt"><p class="small">⚙️ no live agents · 3 takeable tickets across 2 repos</p></div>
+  </div></div>
+
+  <div class="note"><b>The fast path.</b> The whole line parses as a verb, so it runs as one:
+    no thread, no overseer session, the answer in place (ADR-0022).</div>
+
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:03</span></div>
+    <div class="txt"><p>the payments map is done. cut the build tickets for it</p></div>
+  </div></div>
+
+  <div class="sysline">curia started a thread: <b>the payments map is done. cut the build tickets for it</b></div>
+
+  <div class="note"><b>Prose opens a conversation.</b> The line parses as no verb, so it becomes
+    an overseer turn in its own thread. Section 2 is inside that thread, and it is where the
+    candidates start.</div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="route"><span class="n">2</span> The route: three candidates</h2>
+<p class="lead">The overseer has read the ask. What happens next is the open decision. Each
+   candidate shows the same conversation thread, from the overseer's first word.</p>
+
+<div class="cand">
+  <h3><span class="n">R1</span> The ticket carries the skill</h3>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:03</span></div>
+    <div class="txt"><p>⚙️ <b>The payments retry map</b> has one open ticket, and it carries the
+      handoff: <b>#653 — Hand the map to the build</b>. I start it.</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:04</span></div>
+    <div class="txt"><p class="small">🎫 the run is in <a href="#run">🎫 653 · curia · task</a></p></div>
+  </div></div>
+
+  <p class="why">The seam composes <code>start 653</code>, a verb that exists today. curia types
+     <code>/to-spec</code> and <code>/to-tickets</code> into the dispatch prompt, the way it types
+     <code>/wayfinder</code>. The run lives on a ticket, so its record has the one durable home
+     (ADR-0001), and the review gate guards it like every other run. <b>The cost:</b> a skill no
+     ticket carries cannot be asked for. The overseer's answer to that ask is a map update:
+     <code>map</code> adds the task ticket, then the operator starts it.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">R2</span> A skill verb</h3>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:03</span></div>
+    <div class="txt"><p>⚙️ I run <code>/to-tickets</code> on <b>The payments retry map</b>.</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:04</span></div>
+    <div class="txt"><p class="small">🎫 the run is in <b>⚙️ 640 · curia · to-tickets</b></p></div>
+  </div></div>
+
+  <p class="why">A ninth verb: the seam composes <code>skill to-tickets 640</code>. No handoff
+     ticket has to exist, so any skill is one ask away. <b>The cost:</b> a new verb in the
+     catalogue, a new thread species with no ticket behind its name, and a run whose record no
+     issue holds. When the thread scrolls away, the receipt is the only durable trace, against
+     the one-home rule (ADR-0001). The gate must also learn to guard a run that no ticket
+     claims.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">R3</span> Confirm first</h3>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:03</span></div>
+    <div class="txt">
+      <p>❓ I read this as: start <b>#653 — Hand the map to the build</b>, the handoff ticket of
+         <b>The payments retry map</b>.</p>
+      <p class="small">The run writes a spec and build tickets. Nothing posts before the review gate.</p>
+      <div class="btnrow"><button class="btn ok">✅ Start it</button><button class="btn no">❌ Not that</button></div>
+    </div>
+  </div></div>
+
+  <p class="why">The dispatch waits for the press, the way <code>cancel</code> waits: daemon
+     buttons, not conversation. A misread dies at one press instead of at the gate, and the
+     misunderstood-prose record (#518) shows misreads are real. <b>The cost:</b> every clean read
+     pays the press too, and the review gate already guards every tracker write. The press buys
+     an earlier correction, not more safety.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="run"><span class="n">3</span> The run</h2>
+<p class="lead">The ticket thread, in the decided rendering (ADR-0020, ADR-0021). This section
+   assumes R1, so the thread is a plain ticket thread. The skill changes the words, not the
+   story: title, status line, opening, milestones, then the gate.</p>
+
+<div class="thread">
+  <div class="thread-top">🧵 <span class="tname">🎫 653 · curia · task</span></div>
+
+  <div class="sysline">curia started a thread: <b>🎫 653 · curia · task</b></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:04</span></div>
+    <div class="txt"><p>🎫 <b>#653 — Hand the map to the build</b></p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:04</span></div>
+    <div class="txt"><p class="small">🧭 <code>reads the map</code> <span class="meters">· claude-opus-5 · ctx 21% · 5h 🟩 ▓▓▓░░┃░░░░ 31% · 7d 🟨 ▓▓▓▓▓┃░░░░ 54%</span> <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">chat</button><button class="btn sec">ticket</button></div>
+      <div class="edits"><b>The one status line, edited in place.</b>
+        <span class="st">⚙️ dispatched on claude-opus-5</span>
+        <span class="st">⚙️ <code>curia-653</code> at the composer on claude-opus-5</span>
+        <span class="st">🧭 <code>reads the map</code> · meters &nbsp;← now</span>
+        <span class="st">🔨 <code>writes the spec</code> · meters</span>
+        <span class="st">🔨 <code>cuts the tickets</code> · meters</span>
+        <span class="st">settles at the end into the receipt (section 5)</span></div>
+      <div class="edits"><b>No preview button.</b> This run writes the tracker, not a page, so
+        there is no preview to press. The button appears only when a preview exists.</div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:06</span></div>
+    <div class="txt"><p>⚙️ The map holds nine closed decisions, and I hand them to the build:
+      a spec, then the tickets cut from it.<br>Nothing posts to the tracker before your gate.</p></div>
+  </div></div>
+
+  <div class="note"><b>The opening names the guard.</b> The one new fact a skill run adds to the
+    story is that its product is tracker writes, so the opening says when those writes happen:
+    only after the gate.</div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:31</span></div>
+    <div class="txt"><p>⚙️ The spec is written. One spec holds both lanes, so I did not split it.
+      I cut the tickets now.</p></div>
+  </div></div>
+
+  <div class="note"><b>The gate goes here.</b> Its card must show every title, every edge and
+    every label before anything publishes (#517). Section 4 holds the three candidate shapes of
+    that card.</div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="gate"><span class="n">4</span> The gate: three candidates</h2>
+<p class="lead">The same gate card three times. The head and the buttons never change: what
+   changed, the proposed build shape (#517 lets the operator pick it here), and the charting.
+   The candidates differ only in how the list shows <b>every title, edge and label</b>.
+   One spec and eight tickets, four waves deep.</p>
+
+<div class="note warn" style="margin:0 0 .85rem"><b>No numbers exist yet.</b> Nothing is on the
+  tracker, so the card numbers the items 1 to 8 itself, and every edge names a card number.
+  The real issue numbers exist only after approval, on the receipt.</div>
+
+<div class="cand">
+  <h3><span class="n">G1</span> The ledger: one line per ticket, edges inline</h3>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:52</span></div>
+    <div class="txt">
+      <p>❓ <b>Is #653 done?</b> — Hand the map to the build</p>
+      <p><b>What changed</b><br>The spec is written, and eight tickets are cut from it. Nothing
+         is on the tracker yet: your approval is what publishes.</p>
+      <p><b>Shape</b><br>Flat tickets under the spec. The graph is four waves deep, so a
+         follow-up map buys nothing.</p>
+      <p><b>Charting</b><br>Close #653. Close the map: no open child remains.</p>
+      <p>spec — <b>Payments retry — the spec</b> · no label<br>
+         <b>1.</b> The retry table and its schema · ready-for-agent<br>
+         <b>2.</b> The enqueue path writes retries · after 1 · ready-for-agent<br>
+         <b>3.</b> The worker drains the queue · after 1 · ready-for-agent<br>
+         <b>4.</b> The backoff curve · after 3 · ready-for-agent<br>
+         <b>5.</b> The dead-letter surface · after 3 · ready-for-agent<br>
+         <b>6.</b> Rotate the webhook secret in the Stripe dashboard · ready-for-human<br>
+         <b>7.</b> The retry metrics line · after 3 · ready-for-agent<br>
+         <b>8.</b> The replay command · after 5, 6 · ready-for-agent</p>
+      <p><i>✅ Approve to publish all of it. A reply is a rejection, and I take your words as the change list.</i></p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ Approve</button><button class="btn no">❌ Reject</button><button class="btn sec">🔎 Cross-check</button></div>
+    </div>
+  </div></div>
+
+  <p class="why">Complete and uniform: every line carries its title, its edges and its label, in
+     one place. <b>The cost:</b> the list is the longest of the three, and the reader does the
+     wave arithmetic in their head.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">G2</span> The waves: grouped by what can run at once</h3>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:52</span></div>
+    <div class="txt">
+      <p>❓ <b>Is #653 done?</b> — Hand the map to the build</p>
+      <p><b>What changed</b><br>The spec is written, and eight tickets are cut from it. Nothing
+         is on the tracker yet: your approval is what publishes.</p>
+      <p><b>Shape</b><br>Flat tickets under the spec. The graph is four waves deep, so a
+         follow-up map buys nothing.</p>
+      <p><b>Charting</b><br>Close #653. Close the map: no open child remains.</p>
+      <p>spec — <b>Payments retry — the spec</b> · no label</p>
+      <p class="small">wave 1 — nothing blocks these</p>
+      <p><b>1.</b> The retry table and its schema · ready-for-agent<br>
+         <b>6.</b> Rotate the webhook secret in the Stripe dashboard · ready-for-human</p>
+      <p class="small">wave 2</p>
+      <p><b>2.</b> The enqueue path writes retries · after 1 · ready-for-agent<br>
+         <b>3.</b> The worker drains the queue · after 1 · ready-for-agent</p>
+      <p class="small">wave 3</p>
+      <p><b>4.</b> The backoff curve · after 3 · ready-for-agent<br>
+         <b>5.</b> The dead-letter surface · after 3 · ready-for-agent<br>
+         <b>7.</b> The retry metrics line · after 3 · ready-for-agent</p>
+      <p class="small">wave 4</p>
+      <p><b>8.</b> The replay command · after 5, 6 · ready-for-agent</p>
+      <p><i>✅ Approve to publish all of it. A reply is a rejection, and I take your words as the change list.</i></p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ Approve</button><button class="btn no">❌ Reject</button><button class="btn sec">🔎 Cross-check</button></div>
+    </div>
+  </div></div>
+
+  <p class="why">The wave head answers the operator's first question: what dispatches at once,
+     and how deep the build runs. Every edge stays on its line, so nothing is coarsened.
+     <b>The cost:</b> four small-print heads of extra ink, and a ticket's neighbors in the list
+     are its wave, not its blockers.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">G3</span> The tree: indented under the blocker</h3>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:52</span></div>
+    <div class="txt">
+      <p>❓ <b>Is #653 done?</b> — Hand the map to the build</p>
+      <p><b>What changed</b><br>The spec is written, and eight tickets are cut from it. Nothing
+         is on the tracker yet: your approval is what publishes.</p>
+      <p><b>Shape</b><br>Flat tickets under the spec. The graph is four waves deep, so a
+         follow-up map buys nothing.</p>
+      <p><b>Charting</b><br>Close #653. Close the map: no open child remains.</p>
+      <p>spec — <b>Payments retry — the spec</b> · no label<br>
+         <b>1.</b> The retry table and its schema · ready-for-agent<br>
+         &nbsp;&nbsp;└ <b>2.</b> The enqueue path writes retries · ready-for-agent<br>
+         &nbsp;&nbsp;└ <b>3.</b> The worker drains the queue · ready-for-agent<br>
+         &nbsp;&nbsp;&nbsp;&nbsp;└ <b>4.</b> The backoff curve · ready-for-agent<br>
+         &nbsp;&nbsp;&nbsp;&nbsp;└ <b>5.</b> The dead-letter surface · ready-for-agent<br>
+         &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└ <b>8.</b> The replay command · also after 6 · ready-for-agent<br>
+         &nbsp;&nbsp;&nbsp;&nbsp;└ <b>7.</b> The retry metrics line · ready-for-agent<br>
+         <b>6.</b> Rotate the webhook secret in the Stripe dashboard · ready-for-human</p>
+      <p><i>✅ Approve to publish all of it. A reply is a rejection, and I take your words as the change list.</i></p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ Approve</button><button class="btn no">❌ Reject</button><button class="btn sec">🔎 Cross-check</button></div>
+    </div>
+  </div></div>
+
+  <p class="why">The edge is the position, so most lines spend no words on it. <b>The cost:</b>
+     a phone wraps the deep lines, a ticket with two blockers needs an "also after" patch, and
+     the numbering jumps (8 before 7) because position now means ancestry.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="ending"><span class="n">5</span> The ending</h2>
+<p class="lead">Approval publishes: the spec, the tickets, the edges, the labels. The report
+   leads with the typed headline, and the status line settles into the receipt. A run with no
+   commits has no pull request, so the receipt names issues, not a merge.</p>
+
+<div class="thread">
+  <div class="thread-top">🧵 <span class="tname">✅ 653 · curia · task</span></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">15:11</span></div>
+    <div class="txt">
+      <p>✅ <b>resolved</b> — <b>The payments retry map is handed to the build: one spec and eight tickets.</b></p>
+      <p>I published them as you approved them, with the edges wired. Seven tickets carry
+         <code>ready-for-agent</code>. One waits on you: <b>Rotate the webhook secret in the
+         Stripe dashboard</b>.</p>
+      <p>Details: <span class="spoil">Spec #667. Tickets #668 to #675, in the card's order, so
+         card number 1 is #668.</span></p>
+      <p>🔗 <a href="#">github.com/alp82/payments/issues/667</a></p>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">15:12</span></div>
+    <div class="txt"><p class="small">✅ resolved — ticket closed · spec #667 posted · tickets #668–#675 opened, edges wired · map #640 closed · session <code>curia-653</code> closed<br>
+      <span class="meters">claude-opus-5 · ctx 58% · 5h 🟩 ▓▓▓▓░┃░░░░ 43% · 7d 🟨 ▓▓▓▓▓┃░░░░ 55%</span> <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">chat</button><button class="btn sec">ticket</button></div>
+      <div class="edits"><b>The receipt names the tracker writes.</b>
+        <span class="st">No merge line: the run committed nothing, so no pull request exists.</span>
+        <span class="st">The map closes here too — the handoff was its last open child.</span></div>
+    </div>
+  </div></div>
+
+  <div class="sysline">curia changed the channel name: <b>✅ 653 · curia · task</b></div>
+</div>
+
+</main>
+</body>
+</html>
