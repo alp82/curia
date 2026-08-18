@@ -1,0 +1,88 @@
+{
+ "source": "out/d2/requests/req-1.json (discover run, multi_agent+multi_agent_v2 true)",
+ "advertised_tools": [
+  {
+   "type": "function",
+   "name": "exec_command"
+  },
+  {
+   "type": "function",
+   "name": "write_stdin"
+  },
+  {
+   "type": "function",
+   "name": "update_plan"
+  },
+  {
+   "type": "function",
+   "name": "request_user_input"
+  },
+  {
+   "type": "custom",
+   "name": "apply_patch"
+  },
+  {
+   "type": "function",
+   "name": "view_image"
+  },
+  {
+   "type": "namespace",
+   "name": "collaboration"
+  },
+  {
+   "type": "function",
+   "name": "get_goal"
+  },
+  {
+   "type": "function",
+   "name": "create_goal"
+  },
+  {
+   "type": "function",
+   "name": "update_goal"
+  },
+  {
+   "type": "web_search",
+   "name": "web_search"
+  }
+ ],
+ "collaboration_members": [
+  "followup_task",
+  "interrupt_agent",
+  "list_agents",
+  "send_message",
+  "spawn_agent",
+  "wait_agent"
+ ],
+ "spawn_agent_parameters": {
+  "type": "object",
+  "properties": {
+   "fork_turns": {
+    "type": "string",
+    "description": "Optional number of turns to fork. Defaults to `all`. Use `none`, `all`, or a positive integer string such as `3` to fork only the most recent turns."
+   },
+   "message": {
+    "type": "string",
+    "description": "Initial plain-text task for the new agent.",
+    "encrypted": true
+   },
+   "model": {
+    "type": "string",
+    "description": "Model override for the new agent. Omit unless an explicit override is needed."
+   },
+   "reasoning_effort": {
+    "type": "string",
+    "description": "Reasoning effort override for the new agent. Omit to inherit the parent effort."
+   },
+   "task_name": {
+    "type": "string",
+    "description": "Task name for the new agent. Use lowercase letters, digits, and underscores."
+   }
+  },
+  "required": [
+   "task_name",
+   "message"
+  ],
+  "additionalProperties": false
+ }
+}
