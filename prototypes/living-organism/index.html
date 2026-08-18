@@ -6,15 +6,17 @@
   THROWAWAY PROTOTYPE. Not the live page. Not served from docs/.
   One self-contained file: no build step, no CDN, no npm, no webfont, no image.
 
-  The baseline is locked (#363 round 4, #508 round 1). #508 round 10
-  evolves the round 9 winner: saga tells the story in acts, and every
-  act carries one bold message from the approved copy. The mess, the
-  camera pull-back, the horizontal run mid page, the gate, and the
-  merged stack. Switch with ?variant=:
+  THE OUTCOME (#508 round 10): saga — the story in acts — is the
+  picked baseline for the final landing page. Every act carries one
+  bold message from the approved copy: the mess, the camera pull-back,
+  the horizontal run mid page, the gate, and the merged stack. Two
+  follow-up tickets carry it on: a grilling on how the final page
+  should look, and a prototype that builds the final result.
+  Switch with ?variant=:
 
-    base — the locked baseline alone, gutter ride, pinned card
+    saga — the story in acts, THE PICKED BASELINE
     lens — the round 9 winner, unchanged, kept to compare
-    saga — the story in acts, the evolution to judge
+    base — the round 1 baseline, gutter ride, pinned card
 
   The variants of earlier rounds live on in git history and in NOTES.md.
 
@@ -1710,9 +1712,9 @@ function makeRun(mode) {
    comparison, saga is its evolution. The cut variants live on in git
    history and in NOTES.md. */
 var VARIANTS = [
-  { key: 'base', name: 'You move the ticket', note: 'the locked baseline', mount: makeRun('base') },
+  { key: 'saga', name: 'The story in acts', note: 'PICKED at #508 round 10', mount: makeRun('saga') },
   { key: 'lens', name: 'One ticket, then all of it', note: 'round 9, kept to compare', mount: makeRun('lens') },
-  { key: 'saga', name: 'The story in acts', note: '#508 candidate', mount: makeRun('saga') }
+  { key: 'base', name: 'You move the ticket', note: 'the round 1 baseline', mount: makeRun('base') }
 ];
 
 var main = document.getElementById('main');
@@ -1722,7 +1724,7 @@ var current = null, at = 0;
 
 function indexFromUrl() {
   var m = /[?&]variant=([^&]+)/.exec(location.search);
-  var key = m ? decodeURIComponent(m[1]) : 'base';
+  var key = m ? decodeURIComponent(m[1]) : 'saga';
   for (var i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return i;
   return 0;
 }

@@ -8,8 +8,14 @@ This directory is throwaway code. It answers one question. It is not the live pa
 
 ## The verdict
 
-**The vertical run wins the direction, and `descent` is the locked-in variant.**
-The operator locked it in at round 4, and it is the default the link opens on.
+**#508: the story in acts (`saga`) is the picked baseline for the final page.**
+The operator picked it at #508 round 10, and it is the default the link opens on.
+Two follow-up tickets carry it on: a grilling on how the final landing page should look
+(the copy questions from round 7 belong there), and a prototype that builds the final
+result from `saga` plus that grilling's outcome.
+
+**#363: the vertical run won the direction, and `descent` was the locked-in variant.**
+The operator locked it in at #363 round 4. #508 evolved it over ten more rounds into `saga`.
 
 The living-organism prompt does not beat the live page as written. What survives it is one idea:
 a vertical line down the left that carries the story while the reader scrolls, with the reader's
@@ -160,6 +166,9 @@ the content blend into one scroll that explains all of working with curia.
 approved copy: the mess (the lede's first sentence), the camera pull-back (claim 1), the
 horizontal run mid page (claim 2), the gate (claim 3), and merged (the proof heading). The
 stage sounds fire at act milestones, and `lens` stays in the bar unchanged for comparison.
+The verdict: **the story in acts is the picked baseline.** Two follow-up tickets carry it on:
+a grilling on how the final landing page should look, and a prototype that builds the final
+result from `saga` plus that grilling's outcome.
 
 ## The rule the variations share
 
