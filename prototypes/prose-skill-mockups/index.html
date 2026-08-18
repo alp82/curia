@@ -222,8 +222,13 @@
   that way today (#94). A skill dispatch is not one: the review gate already holds every
   tracker write, so the route runs without a press.</div>
 
+<div class="note" style="margin:0 0 .85rem"><b>The pick: R1 and R2 coexist, split by the
+  ticket.</b> An ask that resolves to a ticket carrying the skill starts that ticket (R1). An
+  ask no ticket carries runs the skill verb (R2). The build must give the ticketless run a
+  durable record home, because the thread alone is not one (ADR-0001).</div>
+
 <div class="cand">
-  <h3><span class="n">R1</span> The ticket carries the skill</h3>
+  <h3><span class="n">R1</span> The ticket carries the skill <span class="n" style="color:var(--accent)">· picked, for the ask a ticket carries</span></h3>
 
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">14:03</span></div>
@@ -245,7 +250,7 @@
 </div>
 
 <div class="cand">
-  <h3><span class="n">R2</span> A skill verb</h3>
+  <h3><span class="n">R2</span> A skill verb <span class="n" style="color:var(--accent)">· picked, for the ask no ticket carries</span></h3>
 
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">14:03</span></div>

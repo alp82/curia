@@ -20,6 +20,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 - [ADR-0004](0004-label-only-routing.md): Model routing reads labels only. Quota awareness is cooling on two triggers, a landed cap and a hot reading, and exhaustion makes the frontier the queue.
 - [ADR-0022](0022-the-overseers-command-understanding.md): The overseer quotes a refusal and copies ids verbatim, a roundtrip test guards the seam, a typed verb runs before a model turn, and the map tool splits in two. Decided, not built.
+- [ADR-0023](0023-the-skill-dispatch-from-prose.md): A skill asked for in prose starts the ticket that carries it, and a `skill` verb runs the ask no ticket carries. No confirm press, because the review gate holds every tracker write, and its card groups the proposed tickets by waves. Decided, not built.
 
 ## Agents
 
