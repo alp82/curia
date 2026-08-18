@@ -210,6 +210,18 @@
 <p class="lead">The overseer has read the ask. What happens next is the open decision. Each
    candidate shows the same conversation thread, from the overseer's first word.</p>
 
+<div class="note warn" style="margin:0 0 .85rem"><b>R1 and R2 read almost the same in the
+  thread. They differ behind it.</b> R1 needs a ticket that already carries the skill, and the
+  run is a normal ticket run: the record lives on #653, forever. R2 needs no ticket at all: a
+  new verb mints the run, and when the thread scrolls away, nothing on the tracker says it
+  happened. The test: ask "cut tickets from our conversation", where no ticket exists. R1
+  answers "that needs a ticket first, I can add one to the map". R2 just runs.</div>
+
+<div class="note" style="margin:0 0 .85rem"><b>Ruled by the operator:</b> a confirm press (R3)
+  is for impactful decisions, like canceling an agent, and <code>cancel</code> already confirms
+  that way today (#94). A skill dispatch is not one: the review gate already holds every
+  tracker write, so the route runs without a press.</div>
+
 <div class="cand">
   <h3><span class="n">R1</span> The ticket carries the skill</h3>
 
@@ -254,7 +266,7 @@
 </div>
 
 <div class="cand">
-  <h3><span class="n">R3</span> Confirm first</h3>
+  <h3><span class="n">R3</span> Confirm first <span class="n" style="color:#fee75c">· ruled: impactful decisions only, not skill dispatch</span></h3>
 
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">14:03</span></div>
@@ -370,7 +382,7 @@
 </div>
 
 <div class="cand">
-  <h3><span class="n">G2</span> The waves: grouped by what can run at once</h3>
+  <h3><span class="n">G2</span> The waves: grouped by what can run at once <span class="n" style="color:var(--accent)">· picked</span></h3>
 
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">14:52</span></div>
