@@ -1,14 +1,21 @@
 # The living-organism experiment
 
 Prototype for [Try the living-organism prompt as a landing-page experiment](https://github.com/alp82/curia/issues/363),
+continued by [Take the living-organism run further, on a second model](https://github.com/alp82/curia/issues/508),
 on the map [The curia landing page](https://github.com/alp82/curia/issues/109).
 
 This directory is throwaway code. It answers one question. It is not the live page.
 
 ## The verdict
 
-**The vertical run wins the direction, and `descent` is the locked-in variant.**
-The operator locked it in at round 4, and it is the default the link opens on.
+**#508: the story in acts (`saga`) is the picked baseline for the final page.**
+The operator picked it at #508 round 10, and it is the default the link opens on.
+Two follow-up tickets carry it on: a grilling on how the final landing page should look
+(the copy questions from round 7 belong there), and a prototype that builds the final
+result from `saga` plus that grilling's outcome.
+
+**#363: the vertical run won the direction, and `descent` was the locked-in variant.**
+The operator locked it in at #363 round 4. #508 evolved it over ten more rounds into `saga`.
 
 The living-organism prompt does not beat the live page as written. What survives it is one idea:
 a vertical line down the left that carries the story while the reader scrolls, with the reader's
@@ -21,15 +28,26 @@ operator runs that one with a different model.
 
 ## What it is
 
-One self-contained HTML file, `index.html`. It holds the locked-in variant and the record of what
-was tried. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
+One self-contained HTML file, `index.html`. It holds the locked baseline and the candidates of the
+open round. Switch with the bar at the bottom, the arrow keys, or `?variant=`.
 
 | Key | Name | State |
 |---|---|---|
-| `descent` | You move the ticket | **Locked in.** Your ticket holds still, the page runs under it, and its state changes as each stage passes. |
-| `live` | The live page | The current https://curia.sh page, the reference the verdict is measured against. |
-| `grow` | The run grows | Not chosen. Adds growing traffic and repo lanes as the reader descends. |
-| `lanes` | Many repos, one queue | Not chosen. Three repos converging, with no pinned ticket. |
+| `base` | You move the ticket | **The locked baseline.** The `descent` mechanic plus the bigger left-aligned reader's card that names its stage (#508 round 1). |
+| `lens` | One ticket, then all of it | **The round 9 winner, unchanged.** A camera story: one huge ticket, its siblings, the map frame closing around them, then the ride. |
+| `saga` | The story in acts | #508 candidate. The lens evolution: the mess, the camera pull-back, the horizontal run mid page, the gate, the merged stack. Every act carries one bold message from the approved copy. |
+
+Every candidate carries the locked learnings: GitHub-row tickets with number, type and speaking
+name, badged map cards with real names, no overlay of content and ride, natural scroll, random
+types out of every map, and the skills line in the hero.
+
+The variants of #363 (`live`, `grow`, `lanes`, `descent`), of #508 round 1 (`story`, `cards`),
+of round 2 (`braid`, `tree`, `acts`, `stack`, `trail`), of round 3 (`flood`, `metro`, `dock`,
+`palm`, `swell`), of round 4 (`voyage`, `relay`, `kinds`, `poster`, `grove`), of round 5
+(`epic`, `chapters`, `hud`, `harvest`, `flags`) and of round 6 (`atlas`, `chart`, `wide`,
+`weave`, `grand`) were removed on the operator's orders. Git history keeps them. The round 7
+keys `story` and `stacks` reuse round 1 and round 2 names for different things, and this table
+is the current meaning.
 
 All variations share one page, four stages and the same real ticket numbers.
 The stages are `takeable`, `agent`, `gate` and `merged`, and each one has its own color.
@@ -62,6 +80,95 @@ The lesson is recorded here because it cost four rounds: each round rebuilt the 
 of making one small change to the thing already approved. An iteration the operator cannot compare
 against the last one is not an iteration. A follow-up prototype takes the direction on, run by a
 different model.
+
+## The #508 rounds
+
+**Round 1.** Two candidates stood beside `descent`, one change each: `story` retold the growth
+with a silent start, and `cards` enlarged the reader's card and named its stage on it. The operator
+took the bigger card as the new baseline with one fix: left-aligned instead of cut off at the left
+edge. The growth story was too weak, multiple repos had no visible evidence, and the map to ticket
+hierarchy was missing. The order: use the bigger card as the baseline, remove the rest, and build
+five variations that explore different storytelling techniques. That order supersedes the round 4
+rule against rebuilding the set, for this round only.
+
+**Round 2.** The set was the locked `base` plus five one-layer techniques: `braid`, `tree`,
+`acts`, `stack` and `trail`. The reader's card became this ticket, #508. The operator found
+interesting elements in `braid`, `tree` and `acts`, and called the round too cowardly. The order:
+go bold, go wild, make the variations really distinct, and aim at storytelling, multi-branches,
+the scroll experience, and instant intuitive understanding of what curia does and why it matters.
+
+**Round 3.** Five distinct scroll experiences beside `base`: `flood`, `metro`, `dock`, `palm` and
+`swell`. Each absorbs a surviving element: `metro` carries the branches of `braid` and the
+hierarchy of `tree`, and `swell` retells `acts` with drama. `flood` and `dock` are new bets on
+the opening screen, and `palm` bets on the phone as the story. The verdict: the dock and metro
+combination is the direction. The line connections were a bit off, and the arcs stay. Wanted
+next: the maps-finish-and-a-new-one-opens story, bigger ticket cards, and an experiment with the
+wayfinder words research, prototype and grilling. That last order is an operator exception to
+the fixed-copy rule, for canvas labels only.
+
+**Round 4.** Five directions of the combined experience beside `base`: `voyage`, `relay`,
+`kinds`, `poster` and `grove`. All open full screen and dock into the gutter, and every join
+eases in and out, which answers the connection note. In `kinds` the companions carry a type word
+instead of a number, because the page cannot verify a type for every real ticket number. The
+reader's card says prototype, which #508 really is. The verdict: `kinds` is awesome, `poster`
+folds in, `relay` makes sense but the parallel repos were almost invisible. Wanted next: clearer
+maps with several visible at once as the story moves, a hero that shows more, and the title
+fully readable at the bottom of the first screen.
+
+**Round 5.** The kept mix became the shared frame: typed two-row companions, the three-row
+reader's card, wider and brighter lines, dashed map cards that never read as tickets, and a
+compressed opening stage above the title. Five identities beside `base`: `epic`, `chapters`,
+`hud`, `harvest` and `flags`. The verdict: the map visualization did not make sense, and the
+maps must be more central.
+
+**Round 6.** The maps hold the center, five ways: `atlas` hangs them as hubs with their tickets
+on spokes, `chart` draws map 109 as a real indented tree that drains into the queue, `wide` lays
+the overview sideways before the ride turns vertical, `weave` runs the line side to side with a
+map card centered at every turn, and `grand` detours the line into a full-width map band at
+every stage. The line, the stations, the companions and the reader's card all ride one shared
+path function now, so a candidate can put the line anywhere on the screen. The verdict: `weave`
+has the potential and the parallel lanes are nice, `atlas` is too jumbled, `chart` is not
+understandable, `wide` confuses with its flip, and the pinned reader's card breaks the story by
+looking different from every other ticket. The order: tailor the whole page around the journey,
+with mini GitHub tickets, larger session-holding map cards, queues and stacks, one lane per map,
+scroll-revealed features, and a prominent line that curia is a wrapper for Matt Pocock's skills.
+
+**Round 7.** The page is the journey: the copy narrows and spreads out, every stage gets a
+screen of scene space, and the scroll reveals the story beat by beat. The protagonist is a mini
+ticket like every other, marked only by a lit border and the stage word beside it. Wireframe
+panels use only the page's own words: the Discord thread and its buttons, the preview line, the
+gate with its approve button, and the harness names Claude Code and Codex CLI from the guide.
+Three candidates beside `base`: `story`, `stacks` and `drift`. The verdict: directionally
+correct, but content and lanes must sit next to each other and never overlay, tickets must look
+more like tickets, maps and tickets get speaking names and badges, the types come out of every
+map at random, the dashboard from the UX map joins the journey, most of the prose can go, and
+the copy iteration becomes a follow-up prototype ticket that asks its questions first.
+
+**Round 8.** Copy blocks alternate with full-width story rooms joined by an edge line. Tickets
+carry number, type and name. Maps carry a map badge and their name. The dashboard room shows
+every map's progress and a needs-you row, after the UX map's atlas decision (curia#511 and its
+child curia#512). Three candidates differ only in the entry and exit of the rooms: `flow`,
+`doors` and `zoom`. The verdict: a method correction. Variations must explore completely fresh
+ideas, and three entry styles on one concept are the same idea three times. The page also felt
+repetitive and hard to follow.
+
+**Round 9.** Four completely different concepts, each one clear storytelling device: `thread`
+tells the ticket as a Discord chat, `board` pins a control-room atlas over the top of the
+screen, `lens` pulls the camera back from one huge ticket to all of it, and `dawn` shows the
+scattered mess before the line arrives and snaps it into queues. All four carry the locked
+learnings from rounds 1 to 8. The verdict: `lens` wins with huge potential in the camera
+storytelling. `thread` is out, because Discord is one aspect of curia, not the whole. The
+board's horizontal line belongs in the middle of the story, not in a fixed header. `dawn` folds
+in as an ingredient. Every step of the story gets one clear bold message, so the animations and
+the content blend into one scroll that explains all of working with curia.
+
+**Round 10.** `saga` evolves the winner into five acts, each with a bold message from the
+approved copy: the mess (the lede's first sentence), the camera pull-back (claim 1), the
+horizontal run mid page (claim 2), the gate (claim 3), and merged (the proof heading). The
+stage sounds fire at act milestones, and `lens` stays in the bar unchanged for comparison.
+The verdict: **the story in acts is the picked baseline.** Two follow-up tickets carry it on:
+a grilling on how the final landing page should look, and a prototype that builds the final
+result from `saga` plus that grilling's outcome.
 
 ## The rule the variations share
 
