@@ -506,6 +506,7 @@ The shared ttyd page over Tailscale Serve. The raw TUI, honest for one device at
 
 **Timeline**:
 The grid-free attach surface. It reads the agent's transcript and writes with tmux send-keys. The timeline is where you drive. The terminal is where you go to see the TUI itself.
+The operator renamed this surface to **Chat** on [#514](https://github.com/alp82/curia/issues/514), one name for agent sessions and overseer conversations alike. The new name lands with the UX build, and until then the code keeps the old word. See [ADR-0020](docs/adr/0020-the-thread-story.md).
 
 **Transcript**:
 The harness's own append-only run log. It carries no geometry, so any device lays it out at its own width. The harness names the file after the session id, and a resume keeps that id, so one run is one file for its whole life.
