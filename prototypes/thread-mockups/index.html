@@ -170,6 +170,7 @@
     <a href="#signal">3 · Signal</a>
     <a href="#structured">4 · Structured</a>
     <a href="#status">5 · Live status</a>
+    <a href="#pick">6 · The pick</a>
   </nav>
 </header>
 
@@ -579,7 +580,7 @@
 </div>
 
 <div class="cand">
-  <h3><span class="n">S3</span> The label in code marks</h3>
+  <h3><span class="n">S3</span> The label in code marks <span class="n" style="color:var(--accent)">· picked</span></h3>
   <div class="line">📖 <code>reads the call sites</code> <span class="meters">· <b>claude-opus-5</b> · ctx 47% · <b>5h</b> 🟩 ▓▓▓▓░┃░░░░ 38%</span></div>
   <div class="line">🧪 <code>runs daemon tests</code> <span class="meters">· <b>claude-opus-5</b> · ctx 62% · <b>5h</b> 🟩 ▓▓▓▓░┃░░░░ 41%</span></div>
   <p class="why">The code marks fence the agent's free text off from the daemon's meters. The
@@ -615,14 +616,14 @@
 </div>
 
 <div class="cand">
-  <h3><span class="n">B</span> Field</h3>
+  <h3><span class="n">B</span> Field <span class="n" style="color:var(--accent)">· picked, with 🚢 for ship</span></h3>
   <div class="icons">
     <span class="ph">🧭 <small>explore</small></span>
     <span class="ph">💭 <small>think</small></span>
     <span class="ph">🔨 <small>build</small></span>
     <span class="ph">🚦 <small>test</small></span>
     <span class="ph">🩹 <small>fix</small></span>
-    <span class="ph">🚚 <small>ship</small></span>
+    <span class="ph">🚢 <small>ship</small></span>
   </div>
   <div class="line">🔨 writes the compare <span class="meters">· <b>claude-opus-5</b> · ctx 51% · <b>5h</b> 🟩 ▓▓▓▓░┃░░░░ 39%</span></div>
   <p class="why">Journey pictures, louder at a phone glance. 🧭 rhymes with the wayfinder
@@ -644,6 +645,99 @@
 <p class="lead" style="margin-top:2rem">The other states keep their present base lines
    (⏳ waiting, 🔎 awaiting review, 🚀 executing, 📦 resolving). This section decides the
    working state only. The verdict of this ticket lands in its resolution comment.</p>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="pick"><span class="n">6</span> The pick, blended</h2>
+<p class="lead">The operator's answer, rendered whole: <b>Signal</b> as the base, the smaller
+   status line and the simpler resolution from <b>Quiet</b>, shape <b>S3</b>, icon set
+   <b>Field</b> with 🚢 for ship. The preview, chat and ticket buttons ride the status line.
+   The gate keeps only approve, reject and cross-check.</p>
+
+<div class="thread">
+  <div class="thread-top">🧵 <span class="tname">✅ 612 · curia · task</span></div>
+
+  <div class="sysline">CuriaBot started a thread: <b>🎫 612 · curia · task</b></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><p>🎫 <b>#612 — The settings page auth flow</b></p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><p class="small">🧭 <code>reads the call sites</code> <span class="meters">· claude-opus-5 · ctx 47% · 5h 🟩 ▓▓▓▓░┃░░░░ 38% · 7d 🟨 ▓▓▓▓▓┃░░░░ 52%</span> <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">🔗 preview</button><button class="btn sec">chat</button><button class="btn sec">ticket</button></div>
+      <div class="edits"><b>One small-print message, edited in place. The links live here.</b>
+        <span class="st">⚙️ dispatched on claude-opus-5 · 🧱 image build, about four minutes</span>
+        <span class="st">⚙️ <code>curia-612</code> at the composer on claude-opus-5</span>
+        <span class="st">🧭 <code>reads the call sites</code> · meters &nbsp;← now</span>
+        <span class="st">🔨 <code>writes the compare</code> · meters</span>
+        <span class="st">settles at the end into the receipt below</span></div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar agent">612</div><div class="body">
+    <div class="who">curia-612 <span class="app">APP</span><span class="ts">09:20</span></div>
+    <div class="txt"><p>⚙️ <b>The goal:</b> decide which auth flow the settings page uses.<br><b>First step:</b> read the three call sites of the session cookie.</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar agent">612</div><div class="body">
+    <div class="who">curia-612 <span class="app">APP</span><span class="ts">09:52</span></div>
+    <div class="txt"><p>⚙️ The comparison is written. The cookie wins on all three call sites.</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">09:55</span></div>
+    <div class="txt">
+      <p><b>[esc-7]</b> <code>curia-612</code> asks:</p>
+      <p><b>Which auth flow should the settings page use?</b></p>
+      <p><b>1.</b> Keep the session cookie, or move to a bearer token?<br>↳ Keep the cookie. The token move is a ticket of its own.</p>
+      <p><b>2.</b> Keep /login as a redirect after the move?<br>↳ Keep it for one release, then delete it.</p>
+      <p>Details: <span class="spoil">Three call sites read the cookie. The token path needs a refresh endpoint.</span></p>
+      <p><i>✅ takes every recommendation above. A reply names the exceptions.</i></p>
+      <div class="btnrow"><button class="btn ok">✅ All as recommended</button></div>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The card carries only its decision button.</b> The preview, chat and
+    ticket buttons sit on the status line, one stable place per thread.</div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">10:03</span></div>
+    <div class="txt">
+      <p><b>[esc-12]</b> <code>curia-612</code> asks for review:</p>
+      <p><b>Is alp82/curia#612 done?</b> — The settings page auth flow</p>
+      <p><b>What the agent did</b><br>Kept the session cookie and documented the token move as its own ticket.</p>
+      <p><b>Charting it proposes for the map</b><br>Close #612. Add the cookie decision under Decisions so far.</p>
+      <p>3 files · +64 −18 · pull request <b>OPEN</b></p>
+      <p><i>✅ Approve to merge and resolve. A reply is a rejection, and the agent gets your words.</i></p>
+      <div class="btnrow"><button class="btn ok">✅ Approve</button><button class="btn no">❌ Reject</button><button class="btn sec">🔎 Cross-check</button></div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar agent">612</div><div class="body">
+    <div class="who">curia-612 <span class="app">APP</span><span class="ts">10:41</span></div>
+    <div class="txt">
+      <p>✅ reports <b>resolved</b></p>
+      <p><b>The settings page keeps the session cookie.</b></p>
+      <p>Kept the cookie at all three call sites. The token move is ticket #613.</p>
+      <p>Details: <span class="spoil">3 files, +64 −18. No behavior change outside daemon/src.</span></p>
+      <p>🔗 <a href="#">github.com/alp82/curia/pull/631</a></p>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">10:42</span></div>
+    <div class="txt"><p class="small">✅ resolved — ticket closed · map #511 updated · code merged (pull/631) · worktree removed <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">chat</button><button class="btn sec">ticket</button></div>
+      <div class="edits"><b>The status line settled into the receipt, in small print.</b>
+        <span class="st">The preview button is removed here: the preview dies with the ticket,
+        and a dead button is a trap. Chat and ticket stay pressable forever.</span></div>
+    </div>
+  </div></div>
+
+  <div class="sysline">CuriaBot changed the channel name: <b>✅ 612 · curia · task</b></div>
+</div>
 
 </main>
 </body>
