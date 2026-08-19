@@ -14,6 +14,11 @@ Two follow-up tickets carry it on: a grilling on how the final landing page shou
 (the copy questions from round 7 belong there), and a prototype that builds the final
 result from `saga` plus that grilling's outcome.
 
+The grilling ([#550](https://github.com/alp82/curia/issues/550), 2026-08-19) settled the copy
+rules and put a storyboard prototype between itself and the final build. Its decisions live in
+[docs/landing-page/positioning.md](../../docs/landing-page/positioning.md), sections
+"The final page rewrite", "What the page is honest about" and the proof change note.
+
 **#363: the vertical run won the direction, and `descent` was the locked-in variant.**
 The operator locked it in at #363 round 4. #508 evolved it over ten more rounds into `saga`.
 
