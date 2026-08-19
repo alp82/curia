@@ -13,9 +13,17 @@ The codex lane is this rig. No codex credential exists in an agent container, so
 ## Run it
 
 ```
-node run-codex.mjs <name>            # the scripted spawn_agent run
-node run-codex.mjs <name> discover   # unscripted; the value is the logged tool schemas
+node run-codex.mjs <name>            # the scripted spawn_agent run (stub model)
+node run-codex.mjs <name> discover   # unscripted stub; the value is the logged tool schemas
+node run-codex.mjs <name> live       # the REAL model on the REAL account — run on the box
 ```
+
+Live mode is the operator's lane. It needs the box: `~/.codex/auth.json`, tmux, node, and the
+pinned codex on PATH. It seeds a throwaway `CODEX_HOME` from the host store (the #207 method),
+keeps curia's config verbatim (`multi_agent = false` included), and asks the real model to spawn
+one subagent whose task is the outside write plus the sentinel report. It needs no npm install:
+the imported daemon modules use only node built-ins. Everything lands in `out/<name>/` as in the
+stub lanes, plus `pane.txt` with the parent's final report.
 
 | Knob | What it does |
 |---|---|
