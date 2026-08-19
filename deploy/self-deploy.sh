@@ -72,7 +72,7 @@ healthy() {
 say "deploy $PREV -> $NEXT"
 mark deploying
 
-# Each step fails under its own name (#559): the 4897a82 rollout died on the
+# Each step fails under its own name (#562): the 4897a82 rollout died on the
 # MERGE, and the one-chain `if merge && recreate && healthy` could only call it
 # a failed health check — after a rollback recreate that restarted a daemon
 # nothing was wrong with.

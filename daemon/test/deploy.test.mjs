@@ -158,7 +158,7 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.equal(docker.length, 0)
   })
 
-  // #559: the 4897a82 rollout. A live check left untracked files on the box at
+  // #562: the 4897a82 rollout. A live check left untracked files on the box at
   // paths a later commit added as tracked, the sibling's merge refused them,
   // and the rollback announced a health-check failure that never happened.
   // The preflight catches the collision now, on the churn rule: identical
@@ -298,7 +298,7 @@ describe('the surviving daemon half: resolution', () => {
     assert.match(said[0], /ROLLED BACK/)
   })
 
-  // #559: a refused merge recreated nothing, so the announcement must not read
+  // #562: a refused merge recreated nothing, so the announcement must not read
   // like a rollback — and the running daemon is the one that says it.
   test('merge-refused: announced as a refusal, never as a failed health check', async () => {
     const { deploy, reduction } = build()
@@ -320,7 +320,7 @@ describe('the surviving daemon half: resolution', () => {
     assert.match(said[0], /docker compose could not recreate the services/)
   })
 
-  // The dashboard's record (#559): the marker dies with the announcement, so
+  // The dashboard's record (#562): the marker dies with the announcement, so
   // the outcome is persisted where GET /overview can keep serving it.
   test('every resolution writes deploy-last.json, and status() serves it', async () => {
     const { deploy } = build()
@@ -414,7 +414,7 @@ describe('the sibling script holds the deploy rule', () => {
     assert.match(code, /mark lockout/)
   })
 
-  // #559: a refused merge changed nothing, so it must exit before any compose
+  // #562: a refused merge changed nothing, so it must exit before any compose
   // up — the old rollback-recreate restarted a daemon nothing was wrong with —
   // and it must write its own marker state, not read as a failed health check.
   test('a refused merge marks merge-refused and exits before any recreate', () => {

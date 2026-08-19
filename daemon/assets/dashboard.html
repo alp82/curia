@@ -1171,7 +1171,7 @@ const EVENTS = {
   deploy_requested: ["deploy", "", (e) => `deploy ordered by ${esc(e.by)}`],
   deploy_landed: ["deploy", "", (e) => `deploy landed${e.next ? ` at ${esc(String(e.next).slice(0, 7))}` : ""}`],
   deploy_rolled_back: ["deploy", "bad", (e) => `deploy rolled back — ${esc(e.reason ?? "the health check failed")}`],
-  /* The refused merge (#559): nothing was recreated, so this must not read
+  /* The refused merge (#562): nothing was recreated, so this must not read
      like the rollback above — the running daemon never stopped. */
   deploy_merge_refused: ["deploy", "bad", (e) => `deploy refused — ${esc(e.reason ?? "git could not fast-forward")}; nothing was recreated`],
   deploy_untracked_dup_discarded: ["deploy", "", (e) => `deploy preflight removed untracked ${esc((e.files ?? []).join(", "))} — byte-identical to files the deploy adds`],
@@ -1260,7 +1260,7 @@ function screenHome(p) {
     </div>`;
 }
 
-/* The self-deploy card (#559). The outcome used to live in one Discord line and
+/* The self-deploy card (#562). The outcome used to live in one Discord line and
    a log only ssh could read; this keeps the LAST verdict on the page — with the
    sibling's own log excerpt when it failed — and the in-flight state while one
    runs. Nothing here is a verb: `deploy` stays typed-only (#270). */

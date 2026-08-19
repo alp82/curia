@@ -89,7 +89,7 @@ export class SelfDeploy {
     this.dockerSocket = dockerSocket
     this.markerPath = path.join(dataDir, 'deploy.json')
     this.logPath = path.join(dataDir, 'deploy.log')
-    // The last resolved outcome, kept for the dashboard (#559): the marker is
+    // The last resolved outcome, kept for the dashboard (#562): the marker is
     // deleted the moment it is announced, and a Discord line scrolls away, so
     // this file is the one place "what did the last deploy do, and why" stays
     // readable after the fact.
@@ -173,7 +173,7 @@ export class SelfDeploy {
     } catch {
       return `❌ the checkout at ${this.repoRoot} has commits origin/main does not (HEAD ${short(prev)}) — that needs hands, not a fast-forward. Fix it over ssh.`
     }
-    // The untracked collision (#559). The tracked-only status check above is
+    // The untracked collision (#562). The tracked-only status check above is
     // right about untracked files in general — the dashboard's own overrides
     // live in them — but an untracked file AT A PATH THE INCOMING RANGE ADDS
     // makes the sibling's `git merge --ff-only` refuse ("untracked working
@@ -300,7 +300,7 @@ export class SelfDeploy {
       this.reduction.journal('deploy_unresolved', { prev, next, state })
       text = `⚠️ deploy outcome unknown: the sibling never wrote a result (last state **${state}**, ${short(prev)} → ${short(next)}). See daemon/data/deploy.log.`
     }
-    // The dashboard's record (#559), written before the marker goes away.
+    // The dashboard's record (#562), written before the marker goes away.
     try {
       fs.writeFileSync(this.lastPath, JSON.stringify({
         state, prev, next, reason, by: marker.by ?? null, ts: marker.ts ?? null,
@@ -355,7 +355,7 @@ export class SelfDeploy {
     return kept.slice(0, maxLines).join('\n')
   }
 
-  // What the dashboard draws (#559): the in-flight marker if one stands, and
+  // What the dashboard draws (#562): the in-flight marker if one stands, and
   // the last resolved outcome. Memory-and-two-small-files cheap, so it rides
   // `GET /overview` on every poll.
   status() {
