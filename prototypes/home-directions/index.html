@@ -47,7 +47,7 @@ svg { display:block; }
   background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
 }
 .bar button:hover { background:#1c212a; }
-.bar .name { min-width:118px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .name { min-width:150px; text-align:center; font-weight:600; letter-spacing:.02em; }
 .bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
 .bar .tog.on { background:#273043; color:#fff; }
 
@@ -345,6 +345,123 @@ svg { display:block; }
   .dX .langs { grid-template-columns:1fr 1fr; }
   .dX .alone .pair { grid-template-columns:1fr 1fr; }
 }
+/* ================================================================
+   ROUND-2 VARIATIONS (recombinations after operator feedback)
+   ================================================================ */
+/* V1 — HUD × chips: direction B pacing, D state chips for color */
+.frame.dark .v1 { --needink:#231a00; --runink:#03210f; }
+.frame.light .v1 { --needink:#fff; --runink:#fff; }
+.v1 .chip { flex:none; align-self:center; font-size:9px; font-weight:800; letter-spacing:.12em;
+  text-transform:uppercase; padding:4px 8px; border-radius:4px; }
+.v1 .ch-need { background:var(--need); color:var(--needink); box-shadow:var(--needglow); }
+.v1 .ch-run { background:var(--good); color:var(--runink); }
+.v1 .ch-hold { background:var(--faint); color:var(--mut); }
+
+/* V2 — HUD × mono: direction B pacing, A mono type and colored text */
+.dB.v2 { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.frame.dark .v2 { --bg:radial-gradient(900px 480px at 50% -8%, #0a1220 0%, #05070d 62%); --acc:#7ee0ff; }
+.frame.light .v2 { --bg:linear-gradient(180deg,#eef1f6 0%,#e2e7ef 100%); }
+.v2 .ring .n { font-size:54px; font-weight:700; }
+.v2 .row .ttl, .v2 .quest .ttl { font-weight:500; font-size:13px; }
+.v2 .ttag { flex:none; font-size:10px; letter-spacing:.14em; }
+.v2 .t-run { color:var(--good); } .v2 .t-hold { color:var(--mut); }
+.v2 .t-need { color:var(--need); text-shadow:var(--needglow); }
+.v2 .row .num, .v2 .quest .num { font-variant-numeric:tabular-nums; }
+
+/* V3 — Calm, boxless: direction C hierarchy, no cards, data hero */
+.dC.v3 .hero { margin:6px 0 26px; }
+.dC.v3 .hero .v { font-size:26px; letter-spacing:-.01em; }
+.dC.v3 .hero .s { margin-top:6px; }
+.dC.v3 .card { background:transparent; border:0; border-radius:0; box-shadow:none; }
+.dC.v3 .item { padding-left:0; padding-right:0; }
+.dC.v3 .item.need, .dC.v3 .item.run { padding-left:11px; }
+.dC.v3 .strip { gap:28px; }
+.dC.v3 .strip .tile { background:transparent; border:0; box-shadow:none; padding:0; border-radius:0; }
+@container frame (min-width:700px) { .dC.v3 .hero .v { font-size:30px; } }
+
+/* V4 — Signage, flat: direction D chips and intensity, no containers */
+.dD.v4 .board-head { margin:0; border-radius:0; }
+.dD.v4 .dep { background:transparent; border:0; border-radius:0; margin:6px 0 0; }
+.dD.v4 h2 { border-bottom:1px solid var(--line); margin:0 16px; padding:14px 0 8px; }
+.dD.v4 .drow { border-top:0; border-bottom:1px solid var(--line); margin:0 16px; padding:12px 0; }
+.dD.v4 .ticker { margin-top:6px; }
+.dD.v4 .tk { background:transparent; border:0; }
+@container frame (min-width:700px) {
+  .dD.v4 .cols { margin:0 16px; gap:0 40px; }
+  .dD.v4 .cols .dep { margin:6px 0 0; }
+}
+
+/* V5 — Control, spaced: direction A with a rebuilt hero and real gaps */
+.dA.v5 .grid { gap:12px; background:transparent; padding:12px; }
+.dA.v5 .panel { border:1px solid var(--edge); padding:16px 18px 20px; }
+.dA.v5 h2 { margin-bottom:12px; }
+.dA.v5 .verdict { align-items:flex-end; }
+.dA.v5 .verdict .n { font-size:64px; }
+.dA.v5 .verdict .lbl { padding-bottom:10px; }
+.dA.v5 .verdict .ok { padding-bottom:10px; line-height:1.7; }
+.dA.v5 .row { padding:9px 0; }
+.dA.v5 .stat { gap:24px; }
+
+/* V6 — Synthesis: B pacing, D chips on needs-you, A mono data, C hierarchy */
+.v6 { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:20px 20px 44px; }
+.frame.dark .v6 { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); }
+.frame.light .v6 { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; }
+.v6 h2, .v6 .num, .v6 time, .v6 .ht, .v6 .reads .k, .v6 .reads .v, .v6 .ring .n, .v6 .ring .k, .v6 .ttl .sub
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v6 .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; }
+.v6 .core { text-align:center; padding:24px 0 8px; }
+.v6 .ring { width:150px; height:150px; margin:0 auto; position:relative; }
+.v6 .ring svg { position:absolute; inset:0; }
+.v6 .ring .in { position:absolute; inset:0; display:flex; flex-direction:column;
+  justify-content:center; align-items:center; }
+.v6 .ring .n { font-size:52px; font-weight:700; color:var(--amber); text-shadow:var(--glow); line-height:1; }
+.v6 .ring .k { font-size:9px; letter-spacing:.3em; color:var(--mut); text-transform:uppercase; margin-top:6px; }
+.v6 .core .sub { margin-top:10px; font-size:12px; color:var(--mut); }
+.v6 .reads { display:flex; justify-content:center; gap:32px; margin-top:16px; }
+.v6 .reads > div { text-align:center; }
+.v6 .reads .v { font-size:17px; font-weight:700; }
+.v6 .reads .k { font-size:9px; letter-spacing:.18em; color:var(--mut); text-transform:uppercase; margin:2px 0 5px; }
+.v6 .reads .spark { margin:0 auto; }
+.v6 .reads .spark polyline { stroke:var(--cyan); }
+.v6 h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
+  margin:30px 0 4px; font-weight:600; }
+.v6 .row { display:flex; align-items:center; gap:10px; padding:11px 0;
+  border-top:1px solid var(--line); font-size:14px; }
+.v6 h2 + .row, .v6 h2 + .quest { border-top:0; }
+.v6 .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.v6 .dot { flex:none; width:8px; height:8px; border-radius:50%; }
+.v6 .dot.on { background:var(--green); }
+.v6 .dot.dim { background:var(--mut); opacity:.4; }
+.v6 .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.v6 .ttl .sub { display:block; font-size:10px; color:var(--mut); font-weight:400; margin-top:2px; }
+.v6 .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.v6 .go { flex:none; font-size:12px; color:var(--cyan); text-decoration:none; }
+.v6 .spark polyline { stroke:var(--green); }
+.v6 .quest { padding:11px 0; border-top:1px solid var(--line); }
+.v6 .quest .l1 { display:flex; align-items:baseline; gap:10px; font-size:14px; }
+.v6 .quest .ttl { font-weight:600; }
+.v6 .qbar { height:2px; margin-top:8px; background:var(--line); position:relative; }
+.v6 .qbar i { position:absolute; inset:0 auto 0 0; background:var(--cyan); }
+.v6 .qbar .fog { position:absolute; top:0; bottom:0; border-top:2px dotted var(--mut); opacity:.6; }
+.v6 .log .row { font-size:12px; color:var(--mut); padding:7px 0; }
+.v6 .log .ttl { font-weight:400; }
+.v6 time { flex:none; width:44px; font-size:10px; color:var(--mut); }
+@container frame (min-width:700px) {
+  .v6 { padding:26px 44px 60px; }
+  .v6 .grid6 { display:grid; grid-template-columns:340px minmax(0,1fr) minmax(0,1fr);
+    gap:0 44px; align-items:start; }
+  .v6 .core { grid-column:1; grid-row:1 / span 3; padding-top:52px; }
+  .v6 .s-need { grid-column:2 / span 2; }
+  .v6 .s-agents { grid-column:2; } .v6 .s-maps { grid-column:3; }
+  .v6 .s-log { grid-column:2 / span 2; }
+}
 </style>
 </head>
 <body>
@@ -354,7 +471,7 @@ svg { display:block; }
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
 <!-- ============ A · CONTROL ROOM ============ -->
-<section class="view dA" data-view="control" data-name="A · Control room">
+<section class="view dA" data-view="control" data-name="A · Control room (r1)">
   <div class="top"><span class="sys">CURIA · ATLAS</span><span class="clock">TUE 19 AUG · 14:07</span></div>
   <div class="grid">
     <div class="panel p-verdict">
@@ -413,7 +530,7 @@ svg { display:block; }
 </section>
 
 <!-- ============ B · GAME HUD (rewrite: one focal ring, no boxes) ============ -->
-<section class="view dB" data-view="hud" data-name="B · Game HUD">
+<section class="view dB" data-view="hud" data-name="B · Game HUD (r1)">
   <div class="ht"><span>curia · atlas</span><span>aug 19 · 14:07</span></div>
   <div class="hudgrid">
   <div class="core">
@@ -467,7 +584,7 @@ svg { display:block; }
 </section>
 
 <!-- ============ C · ENGINEERED CALM ============ -->
-<section class="view dC" data-view="calm" data-name="C · Engineered calm">
+<section class="view dC" data-view="calm" data-name="C · Engineered calm (r1)">
   <div class="inner">
   <div class="brand"><b>curia</b> · atlas</div>
   <div class="hero">
@@ -534,7 +651,7 @@ svg { display:block; }
 </section>
 
 <!-- ============ D · SIGNAGE (wildcard) ============ -->
-<section class="view dD" data-view="signage" data-name="D · Signage">
+<section class="view dD" data-view="signage" data-name="D · Signage (r1)">
   <div class="wrap">
   <div class="mast"><span class="logo">CURIA ATLAS</span><span class="tm">TUE 19 AUG 14:07</span></div>
   <div class="board-head">
@@ -574,6 +691,338 @@ svg { display:block; }
     <div class="drow"><time>09:15</time><span class="ttl">Verdict · Inspiration for the dashboard <span class="sub">#513</span></span></div>
   </div>
   </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V1 · HUD × CHIPS ============ -->
+<section class="view dB v1" data-view="v1" data-name="1 · HUD × chips">
+  <div class="ht"><span>curia · atlas</span><span>aug 19 · 14:07</span></div>
+  <div class="hudgrid">
+  <div class="core">
+    <div class="ring">
+      <svg viewBox="0 0 168 168">
+        <circle cx="84" cy="84" r="76" fill="none" stroke="var(--faint)" stroke-width="3"/>
+        <circle cx="84" cy="84" r="76" fill="none" stroke="var(--need)" stroke-width="3"
+          stroke-dasharray="120 358" stroke-dashoffset="-60" stroke-linecap="round"/>
+      </svg>
+      <div class="in"><span class="n">2</span><span class="k">need you</span></div>
+    </div>
+    <div class="sub">3 agents run · oldest waits 26 min</div>
+    <div class="reads">
+      <div class="r0"><div class="v">7</div><div class="k">resolved / wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="72" height="14"></svg></div>
+      <div class="r0"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="72" height="14"></svg></div>
+    </div>
+  </div>
+  <div class="s-need">
+    <h2>Needs you</h2>
+    <div class="row"><span class="chip ch-need">Gate</span><span class="ttl">The embedded terminal</span><span class="num">#537</span><span class="wait">26 min</span><a class="go" href="#">thread →</a></div>
+    <div class="row"><span class="chip ch-need">Ask · 2</span><span class="ttl">Home-screen design directions</span><span class="num">#519</span><span class="wait">5 min</span><a class="go" href="#">thread →</a></div>
+  </div>
+  <div class="s-agents">
+    <h2>Agents</h2>
+    <div class="row"><span class="chip ch-run">Run</span><span class="ttl">claude · Home-screen design directions</span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="52" height="12"></svg><span class="num">34m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="chip ch-hold">Hold</span><span class="ttl">codex · The subagent meter</span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="52" height="12"></svg><span class="num">26m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="chip ch-run">Run</span><span class="ttl">claude · Journal mining</span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="52" height="12"></svg><span class="num">12m</span><a class="go" href="#">chat →</a></div>
+  </div>
+  <div class="s-maps">
+    <h2>Maps</h2>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Operator surfaces UX</span><span class="num">18 / 24+2</span></div>
+      <div class="qbar"><i style="width:66%"></i><span class="fog" style="left:88%;width:8%"></span></div>
+    </div>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Deploy pipeline</span><span class="num">11 / 12</span></div>
+      <div class="qbar"><i style="width:88%"></i></div>
+    </div>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Journal mining</span><span class="num">3 / 9+4</span></div>
+      <div class="qbar"><i style="width:24%"></i><span class="fog" style="left:72%;width:28%"></span></div>
+    </div>
+  </div>
+  <div class="s-log log">
+    <h2>Log</h2>
+    <div class="row"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue #562</span></div>
+    <div class="row"><time>12:40</time><span class="ttl">closed · The pane-driven rewind #542</span></div>
+    <div class="row"><time>09:15</time><span class="ttl">verdict · Inspiration for the dashboard #513</span></div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V2 · HUD × MONO ============ -->
+<section class="view dB v2" data-view="v2" data-name="2 · HUD × mono">
+  <div class="ht"><span>CURIA · ATLAS</span><span>AUG 19 · 14:07</span></div>
+  <div class="hudgrid">
+  <div class="core">
+    <div class="ring">
+      <svg viewBox="0 0 168 168">
+        <circle cx="84" cy="84" r="76" fill="none" stroke="var(--faint)" stroke-width="3"/>
+        <circle cx="84" cy="84" r="76" fill="none" stroke="var(--need)" stroke-width="3"
+          stroke-dasharray="120 358" stroke-dashoffset="-60" stroke-linecap="round"/>
+      </svg>
+      <div class="in"><span class="n">2</span><span class="k">need you</span></div>
+    </div>
+    <div class="sub">3 AGENTS RUN · OLDEST 26 MIN</div>
+    <div class="reads">
+      <div class="r0"><div class="v">7</div><div class="k">resolved/wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="72" height="14"></svg></div>
+      <div class="r0"><div class="v">412k</div><div class="k">tok today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="72" height="14"></svg></div>
+      <div class="r0"><div class="v">11</div><div class="k">open</div></div>
+    </div>
+  </div>
+  <div class="s-need">
+    <h2>Needs you</h2>
+    <div class="row"><span class="ttag t-need">GATE</span><span class="ttl">The embedded terminal</span><span class="num">#537</span><span class="wait">26 MIN</span><a class="go" href="#">thread →</a></div>
+    <div class="row"><span class="ttag t-need">ASK·2</span><span class="ttl">Home-screen design directions</span><span class="num">#519</span><span class="wait">5 MIN</span><a class="go" href="#">thread →</a></div>
+  </div>
+  <div class="s-agents">
+    <h2>Agents</h2>
+    <div class="row"><span class="ttag t-run">RUN</span><span class="ttl">claude · Home-screen design directions</span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="52" height="12"></svg><span class="num">34m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="ttag t-hold">HOLD</span><span class="ttl">codex · The subagent meter</span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="52" height="12"></svg><span class="num">26m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="ttag t-run">RUN</span><span class="ttl">claude · Journal mining</span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="52" height="12"></svg><span class="num">12m</span><a class="go" href="#">chat →</a></div>
+  </div>
+  <div class="s-maps">
+    <h2>Maps</h2>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Operator surfaces UX</span><span class="num">18/24+2</span></div>
+      <div class="qbar"><i style="width:66%"></i><span class="fog" style="left:88%;width:8%"></span></div>
+    </div>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Deploy pipeline</span><span class="num">11/12</span></div>
+      <div class="qbar"><i style="width:88%"></i></div>
+    </div>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Journal mining</span><span class="num">3/9+4</span></div>
+      <div class="qbar"><i style="width:24%"></i><span class="fog" style="left:72%;width:28%"></span></div>
+    </div>
+  </div>
+  <div class="s-log log">
+    <h2>Log</h2>
+    <div class="row"><time>14:02</time><span class="ttl">MERGE · The deploy verdict references its real issue #562</span></div>
+    <div class="row"><time>12:40</time><span class="ttl">CLOSE · The pane-driven rewind #542</span></div>
+    <div class="row"><time>09:15</time><span class="ttl">VERDICT · Inspiration for the dashboard #513</span></div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V3 · CALM, BOXLESS ============ -->
+<section class="view dC v3" data-view="v3" data-name="3 · Calm, boxless">
+  <div class="inner">
+  <div class="brand"><b>curia</b> · atlas</div>
+  <div class="hero">
+    <div class="v"><em>2</em> need you · 3 agents run</div>
+    <div class="s">Tuesday 14:07 · 7 tickets resolved this week</div>
+  </div>
+  <div class="cols">
+  <div>
+  <section>
+    <h2>Needs you</h2>
+    <div class="card">
+      <div class="item need"><span class="ttl">The embedded terminal<span class="sub">review gate · waits 26 min</span></span><span class="num">#537</span><a class="go" href="#">Open thread</a></div>
+      <div class="item need"><span class="ttl">Home-screen design directions<span class="sub">escalation · 2 questions · waits 5 min</span></span><span class="num">#519</span><a class="go" href="#">Open thread</a></div>
+    </div>
+  </section>
+  <section>
+    <h2>Agents</h2>
+    <div class="card">
+      <div class="item run"><span class="ttl">claude · Home-screen design directions<span class="sub">runs 34 min</span></span>
+        <svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="56" height="14"></svg><a class="go" href="#">Chat</a></div>
+      <div class="item"><span class="ttl">codex · The subagent meter<span class="sub">holds at the gate · 26 min</span></span>
+        <svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="56" height="14"></svg><a class="go" href="#">Chat</a></div>
+      <div class="item run"><span class="ttl">claude · Journal mining<span class="sub">runs 12 min</span></span>
+        <svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="56" height="14"></svg><a class="go" href="#">Chat</a></div>
+    </div>
+  </section>
+  </div>
+  <div>
+  <section>
+    <h2>Maps</h2>
+    <div class="card">
+      <div class="item"><span class="ttl">Operator surfaces UX<span class="sub">frontier 3</span></span>
+        <span class="prog"><span class="track"><i style="width:66%"></i><span class="fog" style="width:8%"></span></span><span class="t">18 / 24+2</span></span></div>
+      <div class="item"><span class="ttl">Deploy pipeline<span class="sub">frontier 1</span></span>
+        <span class="prog"><span class="track"><i style="width:88%"></i></span><span class="t">11 / 12</span></span></div>
+      <div class="item"><span class="ttl">Journal mining<span class="sub">frontier 2</span></span>
+        <span class="prog"><span class="track"><i style="width:24%"></i><span class="fog" style="width:28%"></span></span><span class="t">3 / 9+4</span></span></div>
+    </div>
+  </section>
+  <section>
+    <h2>This week</h2>
+    <div class="strip">
+      <div class="tile"><div class="v">7</div><div class="k">resolved</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="100" height="20"></svg></div>
+      <div class="tile"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="100" height="20"></svg></div>
+      <div class="tile"><div class="v">11</div><div class="k">open tickets</div>
+        <div class="mix" data-mix="5,3,2,1"></div>
+        <div class="mixk">5 grilling · 3 prototype · 2 research · 1 task</div>
+      </div>
+    </div>
+  </section>
+  <section class="feed">
+    <h2>Happened</h2>
+    <div class="card">
+      <div class="item"><time>14:02</time><span class="ttl">Merged · The deploy verdict references its real issue</span><span class="num">#562</span></div>
+      <div class="item"><time>12:40</time><span class="ttl">Closed · The pane-driven rewind</span><span class="num">#542</span></div>
+      <div class="item"><time>09:15</time><span class="ttl">Verdict · Inspiration for the dashboard</span><span class="num">#513</span></div>
+    </div>
+  </section>
+  </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V4 · SIGNAGE, FLAT ============ -->
+<section class="view dD v4" data-view="v4" data-name="4 · Signage, flat">
+  <div class="wrap">
+  <div class="mast"><span class="logo">CURIA ATLAS</span><span class="tm">TUE 19 AUG 14:07</span></div>
+  <div class="board-head">
+    <span class="n">2</span>
+    <span class="k">Need you<span class="sub">Review gate 26 min · escalation 5 min</span></span>
+  </div>
+  <div class="cols">
+  <div>
+  <div class="dep">
+    <h2>Needs you</h2>
+    <div class="drow"><span class="chip ch-need">Gate</span><span class="ttl">The embedded terminal<span class="sub">#537 · waits 26 min</span></span><a class="go" href="#">THREAD</a></div>
+    <div class="drow"><span class="chip ch-need">Ask · 2</span><span class="ttl">Home-screen design directions<span class="sub">#519 · waits 5 min</span></span><a class="go" href="#">THREAD</a></div>
+  </div>
+  <div class="dep">
+    <h2>Agents</h2>
+    <div class="drow"><span class="chip ch-run">Run</span><span class="ttl">claude · Home-screen design directions<span class="sub">#519 · 34 min</span></span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="52" height="14"></svg><a class="go" href="#">CHAT</a></div>
+    <div class="drow"><span class="chip ch-gate">Gate</span><span class="ttl">codex · The subagent meter<span class="sub">#544 · 26 min</span></span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="52" height="14"></svg><a class="go" href="#">CHAT</a></div>
+    <div class="drow"><span class="chip ch-run">Run</span><span class="ttl">claude · Journal mining<span class="sub">#549 · 12 min</span></span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="52" height="14"></svg><a class="go" href="#">CHAT</a></div>
+  </div>
+  </div>
+  <div>
+  <div class="dep">
+    <h2>Maps</h2>
+    <div class="drow mrow"><span class="pct">18/24<span style="color:var(--mut)">+2</span></span><span class="ttl">Operator surfaces UX<span class="sub">frontier 3</span><span class="pbar"><i style="width:66%"></i><span class="fog" style="width:8%"></span></span></span></div>
+    <div class="drow mrow"><span class="pct">11/12</span><span class="ttl">Deploy pipeline<span class="sub">frontier 1</span><span class="pbar"><i style="width:88%"></i></span></span></div>
+    <div class="drow mrow"><span class="pct">3/9<span style="color:var(--mut)">+4</span></span><span class="ttl">Journal mining<span class="sub">frontier 2</span><span class="pbar"><i style="width:24%"></i><span class="fog" style="width:28%"></span></span></span></div>
+  </div>
+  <div class="ticker">
+    <div class="tk"><div class="v">7</div><div class="k">resolved / wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="88" height="16"></svg></div>
+    <div class="tk"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="88" height="16"></svg></div>
+    <div class="tk"><div class="v">11</div><div class="k">open tickets</div></div>
+  </div>
+  <div class="dep feed">
+    <h2>Happened</h2>
+    <div class="drow"><time>14:02</time><span class="ttl">Merged · The deploy verdict references its real issue <span class="sub">#562</span></span></div>
+    <div class="drow"><time>12:40</time><span class="ttl">Closed · The pane-driven rewind <span class="sub">#542</span></span></div>
+    <div class="drow"><time>09:15</time><span class="ttl">Verdict · Inspiration for the dashboard <span class="sub">#513</span></span></div>
+  </div>
+  </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ V5 · CONTROL, SPACED ============ -->
+<section class="view dA v5" data-view="v5" data-name="5 · Control, spaced">
+  <div class="top"><span class="sys">CURIA · ATLAS</span><span class="clock">TUE 19 AUG · 14:07</span></div>
+  <div class="grid">
+    <div class="panel p-verdict">
+      <div class="verdict">
+        <span class="n">2</span>
+        <span class="lbl">NEED YOU<br><span class="num">oldest waits 26 min</span></span>
+        <span class="ok">3 AGENTS RUN<br>ALL LANES NOMINAL</span>
+      </div>
+    </div>
+    <div class="panel p-need">
+      <h2>Needs you</h2>
+      <div class="row"><span class="tag t-need">GATE</span><span class="ttl">The embedded terminal</span><span class="num">#537 · 26m</span><a class="act" href="#">thread ↗</a></div>
+      <div class="row"><span class="tag t-need">ASK·2</span><span class="ttl">Home-screen design directions</span><span class="num">#519 · 5m</span><a class="act" href="#">thread ↗</a></div>
+    </div>
+    <div class="panel p-agents">
+      <h2>Agents</h2>
+      <div class="row"><span class="tag t-run">RUN</span><span class="ttl">claude · Home-screen design directions</span>
+        <svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="56" height="14"></svg>
+        <span class="num">34m</span><a class="act" href="#">chat ↗</a></div>
+      <div class="row"><span class="tag t-gate">GATE</span><span class="ttl">codex · The subagent meter</span>
+        <svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="56" height="14"></svg>
+        <span class="num">26m</span><a class="act" href="#">chat ↗</a></div>
+      <div class="row"><span class="tag t-run">RUN</span><span class="ttl">claude · Journal mining</span>
+        <svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="56" height="14"></svg>
+        <span class="num">12m</span><a class="act" href="#">chat ↗</a></div>
+    </div>
+    <div class="panel p-maps">
+      <h2>Maps</h2>
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:10px;align-items:baseline"><span class="ttl">Operator surfaces UX</span><span class="num">18 / 24+2 · frontier 3</span></div>
+        <div class="bar-w"><i class="c" style="width:66%"></i><i class="o" style="width:22%"></i><i class="f" style="width:8%"></i></div>
+      </div>
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:10px;align-items:baseline"><span class="ttl">Deploy pipeline</span><span class="num">11 / 12 · frontier 1</span></div>
+        <div class="bar-w"><i class="c" style="width:88%"></i><i class="o" style="width:8%"></i></div>
+      </div>
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:10px;align-items:baseline"><span class="ttl">Journal mining</span><span class="num">3 / 9+4 · frontier 2</span></div>
+        <div class="bar-w"><i class="c" style="width:24%"></i><i class="o" style="width:48%"></i><i class="f" style="width:28%"></i></div>
+      </div>
+      <h2 style="margin-top:20px">This week</h2>
+      <div class="stat">
+        <div class="s"><div class="v" style="color:var(--good)">7</div><div class="k">resolved</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="80" height="18"></svg></div>
+        <div class="s"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="80" height="18"></svg></div>
+        <div class="s"><div class="v">11</div><div class="k">open · 5 grill 3 proto 2 res 1 task</div></div>
+      </div>
+    </div>
+    <div class="panel p-feed feed">
+      <h2>Happened</h2>
+      <div class="row"><time>14:02</time><span class="tag t-done">MERGE</span><span class="ttl">The deploy verdict references its real issue</span><span class="num">#562</span></div>
+      <div class="row"><time>12:40</time><span class="tag t-done">CLOSE</span><span class="ttl">The pane-driven rewind</span><span class="num">#542</span></div>
+      <div class="row"><time>09:15</time><span class="tag t-done">VERDICT</span><span class="ttl">Inspiration for the dashboard</span><span class="num">#513</span></div>
+      <div class="row"><time>MON</time><span class="tag t-done">MERGE</span><span class="ttl">The deploy preflight discards lockfile churn</span><span class="num">#559</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ V6 · SYNTHESIS ============ -->
+<section class="view v6" data-view="v6" data-name="6 · Synthesis">
+  <div class="ht"><span>curia · atlas</span><span>aug 19 · 14:07</span></div>
+  <div class="grid6">
+  <div class="core">
+    <div class="ring">
+      <svg viewBox="0 0 150 150">
+        <circle cx="75" cy="75" r="68" fill="none" stroke="var(--line)" stroke-width="3"/>
+        <circle cx="75" cy="75" r="68" fill="none" stroke="var(--amber)" stroke-width="3"
+          stroke-dasharray="107 320" stroke-dashoffset="-54" stroke-linecap="round"/>
+      </svg>
+      <div class="in"><span class="n">2</span><span class="k">need you</span></div>
+    </div>
+    <div class="sub">3 agents run · oldest waits 26 min</div>
+    <div class="reads">
+      <div><div class="v">7</div><div class="k">resolved/wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="72" height="14"></svg></div>
+      <div><div class="v">412k</div><div class="k">tok today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="72" height="14"></svg></div>
+    </div>
+  </div>
+  <div class="s-need">
+    <h2>Needs you</h2>
+    <div class="row"><span class="chip">Gate</span><span class="ttl">The embedded terminal<span class="sub">#537 · waits 26 min</span></span><a class="go" href="#">thread →</a></div>
+    <div class="row"><span class="chip">Ask · 2</span><span class="ttl">Home-screen design directions<span class="sub">#519 · waits 5 min</span></span><a class="go" href="#">thread →</a></div>
+  </div>
+  <div class="s-agents">
+    <h2>Agents</h2>
+    <div class="row"><span class="dot on"></span><span class="ttl">claude · Home-screen design directions</span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="52" height="12"></svg><span class="num">34m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="dot dim"></span><span class="ttl">codex · The subagent meter</span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="52" height="12"></svg><span class="num">26m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="dot on"></span><span class="ttl">claude · Journal mining</span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="52" height="12"></svg><span class="num">12m</span><a class="go" href="#">chat →</a></div>
+  </div>
+  <div class="s-maps">
+    <h2>Maps</h2>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Operator surfaces UX</span><span class="num">18/24+2</span></div>
+      <div class="qbar"><i style="width:66%"></i><span class="fog" style="left:88%;width:8%"></span></div>
+    </div>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Deploy pipeline</span><span class="num">11/12</span></div>
+      <div class="qbar"><i style="width:88%"></i></div>
+    </div>
+    <div class="quest">
+      <div class="l1"><span class="ttl">Journal mining</span><span class="num">3/9+4</span></div>
+      <div class="qbar"><i style="width:24%"></i><span class="fog" style="left:72%;width:28%"></span></div>
+    </div>
+  </div>
+  <div class="s-log log">
+    <h2>Log</h2>
+    <div class="row"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue #562</span></div>
+    <div class="row"><time>12:40</time><span class="ttl">closed · The pane-driven rewind #542</span></div>
+    <div class="row"><time>09:15</time><span class="ttl">verdict · Inspiration for the dashboard #513</span></div>
   </div>
   </div>
 </section>
@@ -647,11 +1096,11 @@ svg { display:block; }
 </nav>
 
 <script>
-const VIEWS = ['control','hud','calm','signage','color'];
+const VIEWS = ['v1','v2','v3','v4','v5','v6','control','hud','calm','signage','color'];
 const frame = document.getElementById('frame');
 const wrap  = document.getElementById('wrap');
 const q = new URLSearchParams(location.search);
-let d    = VIEWS.includes(q.get('d')) ? q.get('d') : 'control';
+let d    = VIEWS.includes(q.get('d')) ? q.get('d') : 'v1';
 let mode = q.get('mode') === 'light' ? 'light' : 'dark';
 let w    = q.get('w') === 'desktop' ? 'desktop' : 'phone';
 
