@@ -1171,6 +1171,11 @@ const EVENTS = {
   deploy_requested: ["deploy", "", (e) => `deploy ordered by ${esc(e.by)}`],
   deploy_landed: ["deploy", "", (e) => `deploy landed${e.next ? ` at ${esc(String(e.next).slice(0, 7))}` : ""}`],
   deploy_rolled_back: ["deploy", "bad", (e) => `deploy rolled back — ${esc(e.reason ?? "the health check failed")}`],
+  /* The refused merge (#559): nothing was recreated, so this must not read
+     like the rollback above — the running daemon never stopped. */
+  deploy_merge_refused: ["deploy", "bad", (e) => `deploy refused — ${esc(e.reason ?? "git could not fast-forward")}; nothing was recreated`],
+  deploy_untracked_dup_discarded: ["deploy", "", (e) => `deploy preflight removed untracked ${esc((e.files ?? []).join(", "))} — byte-identical to files the deploy adds`],
+  deploy_lockfile_churn_discarded: ["deploy", "", (e) => `deploy preflight discarded npm lockfile churn in ${esc((e.files ?? []).join(", "))}`],
   /* The credential watch (#380). The feed says what curia measured; the
      Needs-you item beside it says the condition still stands. */
   token_warned: ["credential", "bad", (e) => (e.fault === "unreachable"
@@ -1250,8 +1255,30 @@ function screenHome(p) {
       <div>
         <div class="h-sect"><h3>Fleet${o.agents == null ? "" : ` (${o.agents.length})`}</h3>${fleetTable(o)}</div>
         ${provStrip(o)}
+        ${deployCard(o)}
       </div>
     </div>`;
+}
+
+/* The self-deploy card (#559). The outcome used to live in one Discord line and
+   a log only ssh could read; this keeps the LAST verdict on the page — with the
+   sibling's own log excerpt when it failed — and the in-flight state while one
+   runs. Nothing here is a verb: `deploy` stays typed-only (#270). */
+function deployCard(o) {
+  const d = o.deploy;
+  if (!d || (!d.in_flight && !d.last)) return "";
+  const sh = (s) => String(s ?? "").slice(0, 7);
+  if (d.in_flight) {
+    return `<div class="h-sect"><h3>Deploy</h3>
+      <div class="unread">a deploy is in flight: ${esc(sh(d.in_flight.prev))} → ${esc(sh(d.in_flight.next))} — state ${esc(d.in_flight.state)}. The daemon restarts if it lands; this page keeps its last snapshot through that.</div></div>`;
+  }
+  const l = d.last;
+  const word = { landed: "landed", "rolled-back": "ROLLED BACK", "merge-refused": "refused", lockout: "LOCKOUT" }[l.state] ?? l.state;
+  const line = `${esc(word)}: ${esc(sh(l.prev))} → ${esc(sh(l.next))}${l.reason ? ` — ${esc(l.reason)}` : ""}${l.resolved_at ? ` · ${esc(ago(l.resolved_at))}` : ""}${l.by ? ` · ordered by ${esc(l.by)}` : ""}`;
+  const ok = l.state === "landed";
+  return `<div class="h-sect"><h3>Last deploy</h3>
+    <div class="${ok ? "dim-note" : "unread"}">${line}</div>
+    ${!ok && l.log ? `<div class="said">${esc(l.log)}</div>` : ""}</div>`;
 }
 
 /* ---- agents ---------------------------------------------------------------- */

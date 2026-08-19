@@ -37,7 +37,7 @@ import { execFileP } from './exec.mjs'
 // Terminal marker states the sibling can write. Everything else means the
 // deploy is still in flight (daemon: handed-off; sibling: deploying,
 // rolling-back).
-const TERMINAL = new Set(['landed', 'rolled-back', 'lockout'])
+const TERMINAL = new Set(['landed', 'rolled-back', 'lockout', 'merge-refused'])
 
 const short = (sha) => String(sha).slice(0, 7)
 
@@ -89,6 +89,15 @@ export class SelfDeploy {
     this.dockerSocket = dockerSocket
     this.markerPath = path.join(dataDir, 'deploy.json')
     this.logPath = path.join(dataDir, 'deploy.log')
+    // The last resolved outcome, kept for the dashboard (#559): the marker is
+    // deleted the moment it is announced, and a Discord line scrolls away, so
+    // this file is the one place "what did the last deploy do, and why" stays
+    // readable after the fact.
+    this.lastPath = path.join(dataDir, 'deploy-last.json')
+    // Set by index.mjs. run() needs it for the one outcome that never restarts
+    // the daemon (merge-refused): no successor boots, so no boot-time
+    // resolvePending() would ever announce it.
+    this.announce = null
   }
 
   readMarker() {
@@ -152,7 +161,7 @@ export class SelfDeploy {
     }
     // The discard note rides on whichever reply follows, so the operator sees
     // what the preflight threw away and why it was safe to.
-    const note = churn.length
+    let note = churn.length
       ? `♻️ discarded npm lockfile churn in ${churn.join(', ')} — the start-time \`npm install\` rewrote it, package.json is clean.\n`
       : ''
     await this.#git('fetch', 'origin', 'main')
@@ -163,6 +172,51 @@ export class SelfDeploy {
       await this.#git('merge-base', '--is-ancestor', 'HEAD', 'origin/main')
     } catch {
       return `❌ the checkout at ${this.repoRoot} has commits origin/main does not (HEAD ${short(prev)}) — that needs hands, not a fast-forward. Fix it over ssh.`
+    }
+    // The untracked collision (#559). The tracked-only status check above is
+    // right about untracked files in general — the dashboard's own overrides
+    // live in them — but an untracked file AT A PATH THE INCOMING RANGE ADDS
+    // makes the sibling's `git merge --ff-only` refuse ("untracked working
+    // tree files would be overwritten"), and the sibling reads that as a
+    // failed deploy. The 4897a82 rollout hit exactly this: a live check run on
+    // the box left files that a later commit added to the tree.
+    //
+    // The fix follows the lockfile-churn rule: a copy byte-identical to what
+    // origin/main brings is safe to discard, and is, with a journal line. A
+    // copy that DIFFERS is somebody's work, so the deploy refuses by name
+    // instead of handing the collision to the sibling.
+    const untracked = (await this.#git('ls-files', '--others', '--exclude-standard')).stdout.split('\n').filter(Boolean)
+    if (untracked.length) {
+      const added = new Set((await this.#git('diff', '--name-only', '--diff-filter=A', 'HEAD', 'origin/main')).stdout.split('\n').filter(Boolean))
+      const dupes = []
+      const diverged = []
+      for (const f of untracked.filter((u) => added.has(u))) {
+        let incoming = null
+        try {
+          incoming = (await this.#git('show', `origin/main:${f}`)).stdout
+        } catch {
+          incoming = null
+        }
+        let local = null
+        try {
+          local = fs.readFileSync(path.join(this.repoRoot, f), 'utf8')
+        } catch {
+          local = null
+        }
+        if (incoming !== null && local !== null && incoming === local) dupes.push(f)
+        else diverged.push(f)
+      }
+      if (diverged.length) {
+        return [
+          `❌ the checkout at ${this.repoRoot} has untracked files that ${short(next)} adds as tracked, with DIFFERENT content: ${diverged.join(', ')}.`,
+          'The merge would refuse to overwrite them and the deploy would roll back for nothing. Move or remove them over ssh — or commit the box’s versions, if they are the ones you want.',
+        ].join('\n')
+      }
+      if (dupes.length) {
+        for (const f of dupes) fs.rmSync(path.join(this.repoRoot, f), { force: true })
+        this.reduction.journal('deploy_untracked_dup_discarded', { files: dupes })
+        note += `♻️ removed untracked ${dupes.join(', ')} — byte-identical copies of files this deploy adds as tracked, so the merge keeps the same bytes.\n`
+      }
     }
     // The socket's group is what lets the sibling talk to host dockerd — the
     // same group_add the compose file gives this container. No socket, no
@@ -195,6 +249,13 @@ export class SelfDeploy {
       if (/is already in use/.test(e.message)) return '⚙️ a deploy is already in flight — the `curia-deploy` container is still running'
       throw e
     }
+    // Watch for the one terminal state that never restarts the daemon:
+    // merge-refused happens before the sibling recreates anything, so THIS
+    // process is the survivor and no boot-time resolvePending() will run. On
+    // every other outcome the recreate kills this process mid-poll and the
+    // successor announces — the poll below simply dies with it.
+    this.resolvePending({ announce: this.announce ?? undefined })
+      .catch((e) => this.log(`deploy watch failed: ${e.message}`))
     return [
       `${note}🚀 deploy handed off: ${short(prev)} → ${short(next)}. The daemon restarts now.`,
       `The sibling health-checks the successor and rolls back to ${short(prev)} if it does not come up — either way the outcome lands here.`,
@@ -204,7 +265,9 @@ export class SelfDeploy {
   // The surviving daemon's half, called once at boot: wait for the sibling to
   // write a terminal state, then say what happened. Announce failures only
   // log — the journal line is the record, the channel line is a courtesy.
-  async resolvePending({ announce, pollMs = 5_000, timeoutMs = 5 * 60_000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  // The default sleep unrefs its timer: run()'s post-hand-off watch must never
+  // be what keeps this process alive.
+  async resolvePending({ announce, pollMs = 5_000, timeoutMs = 5 * 60_000, sleep = (ms) => new Promise((r) => { const t = setTimeout(r, ms); t.unref?.() }) } = {}) {
     let marker = this.readMarker()
     if (!marker) return null
     const deadline = Date.now() + timeoutMs
@@ -213,13 +276,21 @@ export class SelfDeploy {
       marker = this.readMarker() ?? marker
     }
     const { state, prev, next } = marker
+    const reason = marker.reason || null
     let text
     if (state === 'landed') {
       this.reduction.journal('deploy_landed', { prev, next })
       text = `🚀 deploy landed: ${short(prev)} → ${short(next)} — the health check passed`
+    } else if (state === 'merge-refused') {
+      // Nothing was recreated: the sibling refused the fast-forward before it
+      // touched a container, so the running daemon never stopped. The excerpt
+      // carries git's own words — "untracked working tree files would be
+      // overwritten" reads very differently from a crash-looping successor.
+      this.reduction.journal('deploy_merge_refused', { prev, next, reason })
+      text = `❌ deploy refused: git could not fast-forward to ${short(next)} — nothing was recreated, ${short(prev)} never stopped.\n${this.logExcerpt() || 'See daemon/data/deploy.log.'}`
     } else if (state === 'rolled-back') {
-      this.reduction.journal('deploy_rolled_back', { prev, next, reason: marker.reason ?? null })
-      text = `⚠️ deploy ROLLED BACK: ${short(next)} failed its health check — running ${short(prev)} again. See daemon/data/deploy.log.`
+      this.reduction.journal('deploy_rolled_back', { prev, next, reason })
+      text = `⚠️ deploy ROLLED BACK: ${reason ?? `${short(next)} failed its health check`} — running ${short(prev)} again. See daemon/data/deploy.log.`
     } else if (state === 'lockout') {
       // A daemon that can say this survived, so the word is one notch too
       // dark — but the sibling gave up, and that deserves the loud spelling.
@@ -229,6 +300,15 @@ export class SelfDeploy {
       this.reduction.journal('deploy_unresolved', { prev, next, state })
       text = `⚠️ deploy outcome unknown: the sibling never wrote a result (last state **${state}**, ${short(prev)} → ${short(next)}). See daemon/data/deploy.log.`
     }
+    // The dashboard's record (#559), written before the marker goes away.
+    try {
+      fs.writeFileSync(this.lastPath, JSON.stringify({
+        state, prev, next, reason, by: marker.by ?? null, ts: marker.ts ?? null,
+        resolved_at: new Date().toISOString(), text, log: this.logExcerpt(),
+      }, null, 2))
+    } catch (e) {
+      this.log(`could not write ${this.lastPath}: ${e.message}`)
+    }
     fs.rmSync(this.markerPath, { force: true })
     this.log(text)
     try {
@@ -237,5 +317,58 @@ export class SelfDeploy {
       this.log(`deploy outcome announcement failed: ${e.message}`)
     }
     return state
+  }
+
+  // The story of the LAST attempt, out of deploy.log — the `[self-deploy ...]`
+  // narration plus git's and curl's own error lines, never the docker build
+  // noise between them. Read from the file's tail: the log is append-only and
+  // a build dumps megabytes, so this reads a bounded window, once, at resolve
+  // time — not on the dashboard's poll.
+  logExcerpt({ maxBytes = 64 * 1024, maxLines = 30 } = {}) {
+    let tail
+    try {
+      const fd = fs.openSync(this.logPath, 'r')
+      try {
+        const size = fs.fstatSync(fd).size
+        const start = Math.max(0, size - maxBytes)
+        const buf = Buffer.alloc(size - start)
+        fs.readSync(fd, buf, 0, buf.length, start)
+        tail = buf.toString('utf8')
+      } finally {
+        fs.closeSync(fd)
+      }
+    } catch {
+      return ''
+    }
+    const lines = tail.split('\n')
+    // The last attempt starts at the last "deploy <sha> -> <sha>" line.
+    let from = 0
+    for (let i = lines.length - 1; i >= 0; i -= 1) {
+      if (/\[self-deploy .*\] deploy [0-9a-f]{7,} -> [0-9a-f]{7,}/.test(lines[i])) { from = i; break }
+    }
+    const kept = lines.slice(from).filter((l) =>
+      /\[self-deploy /.test(l)
+      || /^(error|fatal):/i.test(l)
+      || /^curl: /.test(l)
+      || /would be overwritten|Please move or remove|Aborting/.test(l)
+      || /^\t\S/.test(l)) // git indents the files it refuses over with a tab
+    return kept.slice(0, maxLines).join('\n')
+  }
+
+  // What the dashboard draws (#559): the in-flight marker if one stands, and
+  // the last resolved outcome. Memory-and-two-small-files cheap, so it rides
+  // `GET /overview` on every poll.
+  status() {
+    const marker = this.readMarker()
+    let last = null
+    try {
+      last = JSON.parse(fs.readFileSync(this.lastPath, 'utf8'))
+    } catch {
+      last = null
+    }
+    return {
+      in_flight: marker && !TERMINAL.has(marker.state) ? marker : null,
+      last,
+    }
   }
 }

@@ -2253,6 +2253,10 @@ async function overview() {
     token_warnings: reduction.standingTokenWarnings(),
     events: reduction.recentEvents(),
     frontier: dispatcher.frontierSnapshot(),
+    // The last self-deploy and any in-flight one (#559): the outcome used to
+    // live in a Discord line and a log only ssh could read, and the 4897a82
+    // rollback was diagnosed over ssh because of it.
+    deploy: selfDeploy.status(),
   }
 }
 
@@ -2783,7 +2787,10 @@ for (const r of reduction.openEscalations()) {
 // verdict and announce it. The bridge is usually up seconds before the sibling
 // finishes its 10s-stability window; if it is not, the journal line still
 // lands and the announce falls back to the log.
-selfDeploy.resolvePending({ announce: (text) => (bridge ? bridge.announce(text) : Promise.resolve()) })
+// The same announcer serves run()'s own post-hand-off watch (#559): a refused
+// merge never restarts the daemon, so no boot-time pass would announce it.
+selfDeploy.announce = (text) => (bridge ? bridge.announce(text) : Promise.resolve())
+selfDeploy.resolvePending({ announce: selfDeploy.announce })
   .catch((e) => log(`deploy resolution failed: ${e.message}`))
 
 // #388, ADR-0015: the turn the restart killed is sent again, never retyped. The

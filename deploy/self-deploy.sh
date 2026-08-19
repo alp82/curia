@@ -71,17 +71,33 @@ healthy() {
 
 say "deploy $PREV -> $NEXT"
 mark deploying
-if git -C "$REPO" merge --ff-only "$NEXT" && recreate && healthy 180; then
-  mark landed
-  say "landed $NEXT"
-  exit 0
+
+# Each step fails under its own name (#559): the 4897a82 rollout died on the
+# MERGE, and the one-chain `if merge && recreate && healthy` could only call it
+# a failed health check — after a rollback recreate that restarted a daemon
+# nothing was wrong with.
+if ! git -C "$REPO" merge --ff-only "$NEXT"; then
+  mark merge-refused "git merge --ff-only refused the fast-forward"
+  say "merge refused — nothing recreated, $PREV keeps running"
+  exit 1
 fi
 
-say "health check failed — rolling back to $PREV"
+REASON="the new daemon failed its health check"
+if recreate; then
+  if healthy 180; then
+    mark landed
+    say "landed $NEXT"
+    exit 0
+  fi
+else
+  REASON="docker compose could not recreate the services"
+fi
+
+say "$REASON — rolling back to $PREV"
 mark rolling-back
 git -C "$REPO" reset --hard "$PREV"
 if recreate && healthy 180; then
-  mark rolled-back "the new daemon failed its health check"
+  mark rolled-back "$REASON"
   say "rolled back to $PREV"
   exit 0
 fi

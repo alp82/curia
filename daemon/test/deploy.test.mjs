@@ -29,7 +29,7 @@ function fakeStore() {
 // A git/docker double: answers rev-parse from `shas`, throws where the
 // scenario says so, and records every docker invocation. `dirty` is what
 // `git status --porcelain` prints — the clean tree is the empty string.
-function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '' } = {}) {
+function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', show = {} } = {}) {
   const docker = []
   const git = []
   const exec = async (file, args) => {
@@ -40,6 +40,13 @@ function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null,
       if (verb === 'checkout') return { stdout: '' }
       if (verb === 'fetch') return { stdout: '' }
       if (verb === 'rev-parse') return { stdout: `${args[1] === 'HEAD' ? head : origin}\n` }
+      if (verb === 'ls-files') return { stdout: untracked }
+      if (verb === 'diff') return { stdout: added }
+      if (verb === 'show') {
+        const f = args[1].split(':').slice(1).join(':')
+        if (show[f] === undefined) throw new Error(`fatal: path '${f}' does not exist`)
+        return { stdout: show[f] }
+      }
       if (verb === 'merge-base') {
         if (!ffOk) throw new Error('exit 1')
         return { stdout: '' }
@@ -63,7 +70,7 @@ function build(opts = {}) {
   const reduction = fakeStore()
   const { exec, docker, git } = fakeExec(opts)
   const deploy = new SelfDeploy({
-    repoRoot: '/home/alp/curia', dataDir, workRoot: '/home/alp/curia-work', reduction, exec,
+    repoRoot: opts.repoRoot ?? '/home/alp/curia', dataDir, workRoot: '/home/alp/curia-work', reduction, exec,
     log: () => {}, port: 4271, home: '/home/alp', dockerSocket: sock,
   })
   return { deploy, reduction, docker, git, dataDir }
@@ -149,6 +156,55 @@ describe('the daemon half: preflight and hand-off', () => {
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /commits origin\/main does not/)
     assert.equal(docker.length, 0)
+  })
+
+  // #559: the 4897a82 rollout. A live check left untracked files on the box at
+  // paths a later commit added as tracked, the sibling's merge refused them,
+  // and the rollback announced a health-check failure that never happened.
+  // The preflight catches the collision now, on the churn rule: identical
+  // bytes are curia's to discard, different bytes are somebody's work.
+  test('an untracked file identical to what the deploy adds is removed, and the deploy proceeds', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-repo-'))
+    fs.mkdirSync(path.join(repoRoot, 'docs'))
+    fs.writeFileSync(path.join(repoRoot, 'docs/check.sh'), 'same bytes\n')
+    const { deploy, reduction, docker } = build({
+      repoRoot,
+      untracked: 'docs/check.sh\n',
+      added: 'docs/check.sh\nsome/other-new-file.mjs\n',
+      show: { 'docs/check.sh': 'same bytes\n' },
+    })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /removed untracked docs\/check\.sh/)
+    assert.match(reply, /deploy handed off/)
+    assert.equal(fs.existsSync(path.join(repoRoot, 'docs/check.sh')), false)
+    assert.equal(reduction.events[0].type, 'deploy_untracked_dup_discarded')
+    assert.deepEqual(reduction.events[0].files, ['docs/check.sh'])
+    assert.equal(docker.length, 1)
+  })
+
+  test('an untracked file that DIFFERS from what the deploy adds is refused by name', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-repo-'))
+    fs.mkdirSync(path.join(repoRoot, 'docs'))
+    fs.writeFileSync(path.join(repoRoot, 'docs/check.sh'), 'the box edition\n')
+    const { deploy, reduction, docker } = build({
+      repoRoot,
+      untracked: 'docs/check.sh\n',
+      added: 'docs/check.sh\n',
+      show: { 'docs/check.sh': 'the incoming edition\n' },
+    })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /untracked files that b{7} adds as tracked, with DIFFERENT content: docs\/check\.sh/)
+    assert.equal(fs.existsSync(path.join(repoRoot, 'docs/check.sh')), true)
+    assert.equal(docker.length, 0)
+    assert.equal(reduction.events.length, 0)
+    assert.equal(deploy.readMarker(), null)
+  })
+
+  test('an untracked file the deploy does not touch stays none of its business', async () => {
+    const { deploy, docker } = build({ untracked: 'config/curia.local.yaml\n', added: 'daemon/src/new.mjs\n' })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /deploy handed off/)
+    assert.equal(docker.length, 1)
   })
 
   test('an interpreted deploy is refused — no confirm exists for it', async () => {
@@ -242,6 +298,76 @@ describe('the surviving daemon half: resolution', () => {
     assert.match(said[0], /ROLLED BACK/)
   })
 
+  // #559: a refused merge recreated nothing, so the announcement must not read
+  // like a rollback — and the running daemon is the one that says it.
+  test('merge-refused: announced as a refusal, never as a failed health check', async () => {
+    const { deploy, reduction } = build()
+    writeMarker(deploy, 'merge-refused', { reason: 'git merge --ff-only refused the fast-forward' })
+    const { said, p } = resolve(deploy)
+    assert.equal(await p, 'merge-refused')
+    assert.equal(reduction.events[0].type, 'deploy_merge_refused')
+    assert.match(said[0], /deploy refused/)
+    assert.match(said[0], /nothing was recreated/)
+    assert.doesNotMatch(said[0], /health check/)
+    assert.equal(deploy.readMarker(), null)
+  })
+
+  test('a rollback announces the sibling\'s own reason', async () => {
+    const { deploy } = build()
+    writeMarker(deploy, 'rolled-back', { reason: 'docker compose could not recreate the services' })
+    const { said, p } = resolve(deploy)
+    assert.equal(await p, 'rolled-back')
+    assert.match(said[0], /docker compose could not recreate the services/)
+  })
+
+  // The dashboard's record (#559): the marker dies with the announcement, so
+  // the outcome is persisted where GET /overview can keep serving it.
+  test('every resolution writes deploy-last.json, and status() serves it', async () => {
+    const { deploy } = build()
+    writeMarker(deploy, 'rolled-back', { reason: 'the new daemon failed its health check', by: 'u1' })
+    const { p } = resolve(deploy)
+    await p
+    const last = JSON.parse(fs.readFileSync(deploy.lastPath, 'utf8'))
+    assert.equal(last.state, 'rolled-back')
+    assert.equal(last.prev, PREV)
+    assert.equal(last.reason, 'the new daemon failed its health check')
+    assert.ok(last.resolved_at)
+    const status = deploy.status()
+    assert.equal(status.in_flight, null)
+    assert.equal(status.last.state, 'rolled-back')
+  })
+
+  test('status() carries a non-terminal marker as in-flight', async () => {
+    const { deploy } = build()
+    writeMarker(deploy, 'deploying')
+    assert.equal(deploy.status().in_flight.state, 'deploying')
+  })
+
+  // The excerpt keeps the sibling's narration and the error lines, and drops
+  // the docker build noise between them.
+  test('logExcerpt reads the last attempt and keeps only the story', () => {
+    const { deploy } = build()
+    fs.writeFileSync(deploy.logPath, [
+      '[self-deploy 2026-08-18T00:00:00Z] deploy 1111111 -> 2222222',
+      '[self-deploy 2026-08-18T00:01:00Z] landed 2222222',
+      '[self-deploy 2026-08-19T19:20:09Z] deploy aaaaaaa -> bbbbbbb',
+      'error: The following untracked working tree files would be overwritten by merge:',
+      '\tdocs/live-checks/461-rollout-copy.sh',
+      'Please move or remove them before you merge.',
+      '#30 [daemon stage-3 8/9] RUN mkdir -p /run/curia-tmux',
+      '#30 CACHED',
+      'curl: (7) Failed to connect to 127.0.0.1 port 4271',
+      '[self-deploy 2026-08-19T19:21:00Z] rolled back to aaaaaaa',
+    ].join('\n'))
+    const out = deploy.logExcerpt()
+    assert.match(out, /deploy aaaaaaa -> bbbbbbb/)
+    assert.match(out, /would be overwritten/)
+    assert.match(out, /461-rollout-copy\.sh/)
+    assert.match(out, /curl: \(7\)/)
+    assert.doesNotMatch(out, /stage-3/)
+    assert.doesNotMatch(out, /landed 2222222/)
+  })
+
   test('a sibling that never answers resolves as unknown', async () => {
     const { deploy, reduction } = build()
     writeMarker(deploy, 'handed-off')
@@ -286,6 +412,23 @@ describe('the sibling script holds the deploy rule', () => {
   test('both failure paths return to the previous ref', () => {
     assert.match(code, /git -C "\$REPO" reset --hard "\$PREV"/)
     assert.match(code, /mark lockout/)
+  })
+
+  // #559: a refused merge changed nothing, so it must exit before any compose
+  // up — the old rollback-recreate restarted a daemon nothing was wrong with —
+  // and it must write its own marker state, not read as a failed health check.
+  test('a refused merge marks merge-refused and exits before any recreate', () => {
+    const lines = code.split('\n')
+    const refuse = lines.findIndex((l) => /mark merge-refused/.test(l))
+    const firstCall = lines.findIndex((l) => /^\s*if recreate\b/.test(l))
+    assert.ok(refuse !== -1, 'the merge-refused marker is missing')
+    assert.ok(firstCall !== -1 && refuse < firstCall, 'merge-refused must be marked before the first recreate call')
+  })
+
+  test('each rollback carries the reason the sibling measured', () => {
+    assert.match(code, /REASON="the new daemon failed its health check"/)
+    assert.match(code, /REASON="docker compose could not recreate the services"/)
+    assert.match(code, /mark rolled-back "\$REASON"/)
   })
 })
 
