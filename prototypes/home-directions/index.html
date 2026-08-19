@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#519 Home-screen design directions — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#519 "Home-screen design directions".
+  Four directions of the Atlas home screen plus one color-language view,
+  switchable via ?d=, width via ?w=, color mode via ?mode=. Static mock data.
+-->
+<style>
+/* ============ shell (not part of any design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+
+/* switcher bar */
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:118px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+.bar .tog.on { background:#273043; color:#fff; }
+
+/* ============ shared bits ============ */
+.spark polyline { fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+.spark .fillp { opacity:.12; stroke:none; }
+
+/* ================================================================
+   DIRECTION A — CONTROL ROOM   (color language: colored TEXT)
+   ================================================================ */
+.dA { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.frame.dark .dA { --bg:#0b0f14; --panel:#11161d; --edge:#1f2732; --ink:#d5dce3; --mut:#71809043;
+  --mut2:#7d8a97; --good:#57d993; --warn:#e5b454; --crit:#f07a7a; --acc:#5ec8e5; }
+.frame.light .dA { --bg:#e9edf1; --panel:#f7f9fb; --edge:#d0d7de; --ink:#1a2330; --mut:#1a233018;
+  --mut2:#5c6b7a; --good:#177a48; --warn:#8f6400; --crit:#b3323a; --acc:#0b6f8f; }
+.dA .top { display:flex; justify-content:space-between; align-items:baseline;
+  padding:14px 16px 10px; border-bottom:1px solid var(--edge); }
+.dA .top .sys { font-size:12px; letter-spacing:.18em; color:var(--mut2); }
+.dA .top .clock { font-size:12px; color:var(--mut2); }
+.dA .grid { display:grid; grid-template-columns:1fr; gap:1px; background:var(--edge); }
+.dA .panel { background:var(--panel); padding:12px 16px 14px; }
+.dA h2 { font-size:10px; font-weight:600; letter-spacing:.22em; color:var(--mut2);
+  margin-bottom:10px; text-transform:uppercase; }
+.dA .verdict { display:flex; align-items:baseline; gap:14px; }
+.dA .verdict .n { font-size:56px; font-weight:700; color:var(--warn); line-height:1; }
+.dA .verdict .lbl { font-size:13px; color:var(--ink); }
+.dA .verdict .ok { color:var(--good); font-size:12px; margin-left:auto; text-align:right; }
+.dA .row { display:flex; gap:10px; align-items:baseline; padding:7px 0;
+  border-top:1px dashed var(--mut); font-size:13px; }
+.dA .row:first-of-type { border-top:0; }
+.dA .tag { font-size:11px; letter-spacing:.08em; }
+.dA .t-need { color:var(--warn); } .dA .t-run { color:var(--good); }
+.dA .t-gate { color:var(--acc); } .dA .t-done { color:var(--mut2); }
+.dA .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dA .num { color:var(--mut2); font-size:12px; }
+.dA .act { color:var(--acc); font-size:12px; text-decoration:none; border-bottom:1px solid transparent; }
+.dA .act:hover { border-bottom-color:var(--acc); }
+.dA .spark polyline { stroke:var(--good); }
+.dA .bar-w { display:flex; height:6px; margin-top:5px; gap:2px; }
+.dA .bar-w i { display:block; height:100%; }
+.dA .bar-w .c { background:var(--acc); } .dA .bar-w .o { background:var(--mut); }
+.dA .bar-w .f { background:repeating-linear-gradient(45deg, var(--mut) 0 2px, transparent 2px 4px); }
+.dA .stat { display:flex; gap:18px; flex-wrap:wrap; }
+.dA .stat .s { }
+.dA .stat .v { font-size:20px; font-weight:700; }
+.dA .stat .k { font-size:10px; letter-spacing:.14em; color:var(--mut2); text-transform:uppercase; margin-top:2px; }
+.dA .stat .spark polyline { stroke:var(--acc); }
+.dA .feed .row { font-size:12px; }
+.dA .feed time { color:var(--mut2); width:44px; flex:none; }
+@container frame (min-width:700px) {
+  .dA .grid { grid-template-columns: 5fr 4fr 3fr; grid-auto-rows:min-content; }
+  .dA .p-verdict { grid-column:1 / -1; display:flex; align-items:center; gap:40px; }
+  .dA .p-verdict .stat { margin-left:auto; }
+  .dA .p-need { grid-column:1; } .dA .p-agents { grid-column:1; }
+  .dA .p-maps { grid-column:2; grid-row:2 / span 2; }
+  .dA .p-feed { grid-column:3; grid-row:2 / span 2; }
+}
+
+/* ================================================================
+   DIRECTION B — GAME HUD   (color language: INTENSITY of fill)
+   ================================================================ */
+.dB { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family: ui-sans-serif, system-ui, sans-serif; padding:18px 16px 28px; }
+.frame.dark .dB { --bg:radial-gradient(1200px 500px at 50% -10%, #0e1a33 0%, #070b16 60%);
+  --ink:#dbe4f5; --mut:#8291ad; --line:#22304d; --panel:#0d1526cc;
+  --hi:#6fd3ff; --hi2:#6fd3ff33; --need:#ffb454; --need2:#ffb45426;
+  --good:#5be49b; --good2:#5be49b22; --glow:0 0 18px; }
+.frame.light .dB { --bg:linear-gradient(180deg,#eef2f9 0%,#e2e8f2 100%);
+  --ink:#101828; --mut:#5a6b85; --line:#c3cede; --panel:#f8fafdcc;
+  --hi:#0d6fa8; --hi2:#0d6fa81f; --need:#a05a00; --need2:#a05a001c;
+  --good:#0f7d4d; --good2:#0f7d4d1c; --glow:0 0 0; }
+.dB .hud-top { display:flex; justify-content:space-between; font-size:11px;
+  letter-spacing:.2em; color:var(--mut); text-transform:uppercase; margin-bottom:14px; }
+.dB .core { text-align:center; padding:6px 0 18px; }
+.dB .ring { width:150px; height:150px; margin:0 auto; position:relative; }
+.dB .ring svg { position:absolute; inset:0; }
+.dB .ring .in { position:absolute; inset:0; display:flex; flex-direction:column;
+  justify-content:center; align-items:center; }
+.dB .ring .n { font-size:52px; font-weight:800; color:var(--need);
+  text-shadow: var(--glow) var(--need2); line-height:1; }
+.dB .ring .k { font-size:11px; letter-spacing:.24em; color:var(--mut); text-transform:uppercase; margin-top:4px; }
+.dB .core .sub { margin-top:10px; font-size:13px; color:var(--mut); }
+.dB .card { background:var(--panel); border:1px solid var(--line); margin-top:14px;
+  padding:12px 14px; clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px); }
+.dB h2 { font-size:10px; letter-spacing:.26em; text-transform:uppercase; color:var(--mut); margin-bottom:10px; }
+.dB h2 b { color:var(--hi); font-weight:600; }
+.dB .q { padding:9px 0; border-top:1px solid var(--line); }
+.dB .q:first-of-type { border-top:0; }
+.dB .q .l1 { display:flex; align-items:baseline; gap:8px; font-size:14px; }
+.dB .q .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.dB .q .num { font-size:12px; color:var(--mut); }
+.dB .q .go { font-size:12px; color:var(--hi); text-decoration:none; }
+.dB .meter { height:8px; background:var(--line); margin-top:7px; position:relative; overflow:hidden; }
+.dB .meter i { position:absolute; inset:0 auto 0 0; }
+.dB .m-need i { background:var(--need); box-shadow:var(--glow) var(--need); }
+.dB .m-run i { background:var(--good); box-shadow:var(--glow) var(--good2); }
+.dB .m-dim i { background:var(--hi); opacity:.45; }
+.dB .q .l2 { display:flex; gap:10px; font-size:11px; color:var(--mut); margin-top:6px; }
+.dB .q .l2 .chat { color:var(--hi); text-decoration:none; margin-left:auto; }
+.dB .spark polyline { stroke:var(--good); }
+.dB .maps .meter { background:var(--line); }
+.dB .maps .fog { position:absolute; top:0; bottom:0;
+  background:repeating-linear-gradient(45deg, var(--mut) 0 2px, transparent 2px 5px); opacity:.5; }
+.dB .stats { display:flex; gap:12px; margin-top:14px; }
+.dB .tile { flex:1; background:var(--panel); border:1px solid var(--line); padding:10px 12px; }
+.dB .tile .v { font-size:22px; font-weight:800; color:var(--ink); }
+.dB .tile .k { font-size:10px; letter-spacing:.18em; color:var(--mut); text-transform:uppercase; margin-top:3px; }
+.dB .tile .spark { margin-top:6px; }
+.dB .tile .spark polyline { stroke:var(--hi); }
+.dB .feed .q .l1 { font-size:13px; font-weight:400; }
+.dB .feed time { font-size:11px; color:var(--mut); width:46px; flex:none; }
+.dB .hudgrid { }
+@container frame (min-width:700px) {
+  .dB { padding:22px 28px 40px; }
+  .dB .hudgrid { display:grid; grid-template-columns: 340px 1fr 1fr; gap:16px; align-items:start; }
+  .dB .core { grid-row:1 / span 3; padding-top:30px; }
+  .dB .card { margin-top:0; }
+  .dB .c-need { grid-column:2 / span 2; }
+  .dB .c-agents { grid-column:2; } .dB .c-maps { grid-column:3; }
+  .dB .c-stats { grid-column:2; } .dB .c-feed { grid-column:3; }
+  .dB .stats { margin-top:0; }
+}
+
+/* ================================================================
+   DIRECTION C — ENGINEERED CALM   (color language: BORDER edges)
+   ================================================================ */
+.dC { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  padding:28px 20px 40px; }
+.frame.light .dC { --bg:#fafaf9; --card:#ffffff; --line:#e7e5e4; --ink:#1c1917;
+  --mut:#78716c; --acc:#4f46e5; --good:#16a34a; --warn:#d97706; --shadow:0 1px 2px rgba(0,0,0,.05); }
+.frame.dark .dC { --bg:#101013; --card:#18181c; --line:#27272c; --ink:#e7e5e4;
+  --mut:#8e8e93; --acc:#818cf8; --good:#4ade80; --warn:#fbbf24; --shadow:0 1px 2px rgba(0,0,0,.4); }
+.dC .brand { font-size:13px; font-weight:600; letter-spacing:.01em; color:var(--mut); margin-bottom:26px; }
+.dC .brand b { color:var(--ink); }
+.dC .hero { margin-bottom:30px; }
+.dC .hero .v { font-size:34px; font-weight:650; letter-spacing:-.02em; line-height:1.15; }
+.dC .hero .v em { font-style:normal; color:var(--acc); }
+.dC .hero .s { font-size:14px; color:var(--mut); margin-top:8px; }
+.dC section { margin-bottom:28px; }
+.dC h2 { font-size:12px; font-weight:600; color:var(--mut); margin-bottom:10px;
+  letter-spacing:.02em; }
+.dC .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+  box-shadow:var(--shadow); }
+.dC .item { display:flex; align-items:center; gap:12px; padding:13px 16px;
+  border-top:1px solid var(--line); font-size:14px; }
+.dC .item:first-child { border-top:0; }
+.dC .item.need { border-left:3px solid var(--warn); padding-left:13px; }
+.dC .item.run { border-left:3px solid var(--good); padding-left:13px; }
+.dC .item .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:500; }
+.dC .item .sub { font-size:12px; color:var(--mut); font-weight:400; display:block; margin-top:2px; }
+.dC .item .num { font-size:12px; color:var(--mut); }
+.dC .go { font-size:13px; color:var(--acc); text-decoration:none; font-weight:500; flex:none; }
+.dC .spark polyline { stroke:var(--acc); }
+.dC .prog { display:flex; align-items:center; gap:10px; width:130px; flex:none; }
+.dC .prog .track { flex:1; height:4px; border-radius:2px; background:var(--line); overflow:hidden; display:flex; gap:2px; }
+.dC .prog .track i { background:var(--acc); border-radius:2px; }
+.dC .prog .track .fog { background:transparent; border-top:4px dotted var(--mut); opacity:.6; border-radius:0; }
+.dC .prog .t { font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.dC .strip { display:flex; gap:12px; }
+.dC .strip .tile { flex:1; background:var(--card); border:1px solid var(--line);
+  border-radius:10px; box-shadow:var(--shadow); padding:14px 16px; }
+.dC .tile .v { font-size:24px; font-weight:650; letter-spacing:-.01em; }
+.dC .tile .k { font-size:12px; color:var(--mut); margin-top:2px; }
+.dC .tile .spark { margin-top:8px; }
+.dC .mix { display:flex; height:6px; border-radius:3px; overflow:hidden; gap:2px; margin-top:12px; }
+.dC .mix i { display:block; }
+.dC .mixk { font-size:11px; color:var(--mut); margin-top:6px; }
+.dC .feed .item { font-size:13px; }
+.dC .feed time { font-size:12px; color:var(--mut); width:56px; flex:none; }
+@container frame (min-width:700px) {
+  .dC { padding:40px 0 60px; }
+  .dC .inner { max-width:1000px; margin:0 auto; padding:0 32px; }
+  .dC .cols { display:grid; grid-template-columns:1fr 1fr; gap:24px; align-items:start; }
+  .dC .hero .v { font-size:40px; }
+}
+
+/* ================================================================
+   DIRECTION D — SIGNAGE (wildcard)  (color language: BACKGROUND)
+   ================================================================ */
+.dD { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+  padding:0 0 30px; }
+.frame.dark .dD { --bg:#101214; --board:#16191c; --line:#26292e; --ink:#f2f4f6; --mut:#9aa3ad;
+  --need:#ffc233; --needink:#231a00; --run:#31d97c; --runink:#03210f;
+  --dim:#3a3f46; --dimink:#c6ccd4; --acc:#ffc233; }
+.frame.light .dD { --bg:#f2f3f5; --board:#ffffff; --line:#dcdfe4; --ink:#15181b; --mut:#5f6a75;
+  --need:#ffc233; --needink:#231a00; --run:#1fbf6b; --runink:#03210f;
+  --dim:#e3e6ea; --dimink:#4a545e; --acc:#0e63d0; }
+.dD .mast { padding:18px 16px 14px; display:flex; align-items:center; gap:10px; }
+.dD .mast .logo { font-size:15px; font-weight:800; letter-spacing:.06em; }
+.dD .mast .tm { margin-left:auto; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.dD .board-head {
+  margin:0 16px; padding:16px; background:var(--need); color:var(--needink);
+  border-radius:8px; display:flex; align-items:center; gap:14px;
+}
+.dD .board-head .n { font-size:44px; font-weight:800; line-height:1; letter-spacing:-.02em; }
+.dD .board-head .k { font-size:15px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+.dD .board-head .sub { font-size:12px; font-weight:500; opacity:.8; display:block; margin-top:3px; text-transform:none; letter-spacing:0; }
+.dD .dep { margin:14px 16px 0; background:var(--board); border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+.dD h2 { font-size:11px; font-weight:800; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--mut); padding:12px 16px 8px; }
+.dD .drow { display:flex; align-items:center; gap:12px; padding:12px 16px;
+  border-top:1px solid var(--line); }
+.dD .chip { flex:none; width:86px; text-align:center; padding:7px 0; border-radius:6px;
+  font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.dD .ch-need { background:var(--need); color:var(--needink); }
+.dD .ch-run { background:var(--run); color:var(--runink); }
+.dD .ch-gate { background:var(--dim); color:var(--dimink); }
+.dD .drow .ttl { flex:1; min-width:0; font-size:15px; font-weight:650;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; letter-spacing:-.01em; }
+.dD .drow .sub { display:block; font-size:12px; font-weight:450; color:var(--mut); margin-top:2px; letter-spacing:0; }
+.dD .drow .go { flex:none; font-size:13px; font-weight:700; text-decoration:none; color:var(--acc); }
+.dD .drow .spark { flex:none; }
+.dD .spark polyline { stroke:var(--run); }
+.dD .mrow .pct { flex:none; font-size:15px; font-weight:800; font-variant-numeric:tabular-nums; width:74px; }
+.dD .mrow .pbar { height:8px; border-radius:4px; background:var(--dim); overflow:hidden; display:flex; gap:2px; margin-top:6px; max-width:220px; }
+.dD .mrow .pbar i { background:var(--run); }
+.dD .mrow .pbar .fog { background:repeating-linear-gradient(45deg,var(--mut) 0 2px,transparent 2px 5px); }
+.dD .ticker { margin:14px 16px 0; display:flex; gap:10px; overflow-x:auto; padding-bottom:4px; }
+.dD .tk { flex:1; min-width:110px; background:var(--board); border:1px solid var(--line);
+  border-radius:8px; padding:12px 14px; }
+.dD .tk .v { font-size:22px; font-weight:800; letter-spacing:-.01em; }
+.dD .tk .k { font-size:11px; color:var(--mut); font-weight:600; margin-top:2px; }
+.dD .tk .spark { margin-top:6px; }
+.dD .tk .spark polyline { stroke:var(--acc); }
+.dD .feed .drow .ttl { font-weight:500; font-size:14px; }
+.dD .feed time { flex:none; width:52px; font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
+@container frame (min-width:700px) {
+  .dD .wrap { max-width:1180px; margin:0 auto; }
+  .dD .cols { display:grid; grid-template-columns:3fr 2fr; gap:0 14px; align-items:start; margin-right:16px; }
+  .dD .cols .dep { margin-right:0; }
+  .dD .board-head .n { font-size:56px; }
+}
+
+/* ================================================================
+   COLOR-LANGUAGE VIEW (neutral frame, judges the four languages)
+   ================================================================ */
+.dX { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family: ui-sans-serif, system-ui, sans-serif; padding:24px 16px 40px; }
+.frame.light .dX { --bg:#fafafa; --card:#fff; --line:#e5e5e5; --ink:#18181b; --mut:#71717a;
+  --good:#15803d; --warn:#b45309; --crit:#b91c1c; --goodbg:#dcfce7; --warnbg:#fef3c7; --critbg:#fee2e2;
+  --goodhi:#22c55e; --warnhi:#f59e0b; --crithi:#ef4444; }
+.frame.dark .dX { --bg:#111113; --card:#1a1a1d; --line:#2a2a2e; --ink:#e4e4e7; --mut:#8e8e93;
+  --good:#4ade80; --warn:#fbbf24; --crit:#f87171; --goodbg:#14331f; --warnbg:#3a2c0a; --critbg:#3b1414;
+  --goodhi:#22c55e; --warnhi:#f59e0b; --crithi:#ef4444; }
+.dX h1 { font-size:18px; font-weight:650; margin-bottom:4px; }
+.dX .lead { font-size:13px; color:var(--mut); margin-bottom:20px; max-width:640px; }
+.dX .langs { display:grid; grid-template-columns:1fr; gap:16px; }
+.dX .lang { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.dX h2 { font-size:13px; font-weight:650; margin-bottom:2px; }
+.dX .note { font-size:12px; color:var(--mut); margin-bottom:10px; }
+.dX .r { display:flex; align-items:center; gap:10px; padding:9px 10px; font-size:13px;
+  border-top:1px solid var(--line); }
+.dX .r:nth-of-type(1) { border-top:0; }
+.dX .r .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dX .r .st { font-size:12px; font-weight:600; flex:none; }
+/* language 1: text */
+.dX .L1 .need .st { color:var(--warn); } .dX .L1 .run .st { color:var(--good); }
+.dX .L1 .crit .st { color:var(--crit); }
+/* language 2: border */
+.dX .L2 .r { border-top:1px solid var(--line); border-left:3px solid transparent; }
+.dX .L2 .need { border-left-color:var(--warnhi); } .dX .L2 .run { border-left-color:var(--goodhi); }
+.dX .L2 .crit { border-left-color:var(--crithi); }
+.dX .L2 .st { color:var(--mut); font-weight:500; }
+/* language 3: background */
+.dX .L3 .r { border-radius:6px; border-top:0; margin-top:6px; }
+.dX .L3 .need { background:var(--warnbg); } .dX .L3 .run { background:var(--goodbg); }
+.dX .L3 .crit { background:var(--critbg); }
+.dX .L3 .st { font-weight:600; }
+.dX .L3 .need .st { color:var(--warn); } .dX .L3 .run .st { color:var(--good); }
+.dX .L3 .crit .st { color:var(--crit); }
+/* language 4: intensity */
+.dX .L4 .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+.dX .L4 .need .dot { background:var(--warnhi); box-shadow:0 0 10px var(--warnhi); }
+.dX .L4 .run .dot { background:var(--goodhi); opacity:.85; }
+.dX .L4 .crit .dot { background:var(--crithi); box-shadow:0 0 14px var(--crithi); }
+.dX .L4 .idle .dot { background:var(--mut); opacity:.4; }
+.dX .L4 .st { color:var(--mut); font-weight:500; }
+.dX .alone { margin-top:20px; }
+.dX .alone .pair { display:grid; grid-template-columns:1fr; gap:12px; margin-top:10px; }
+.dX .dotonly .dot, .dX .dotword .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+.dX .d-need { background:var(--warnhi); } .dX .d-run { background:var(--goodhi); }
+.dX .d-crit { background:var(--crithi); }
+@container frame (min-width:700px) {
+  .dX { padding:32px 32px 48px; }
+  .dX .langs { grid-template-columns:1fr 1fr; }
+  .dX .alone .pair { grid-template-columns:1fr 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#519</b> · Home-screen design directions · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<!-- ============ A · CONTROL ROOM ============ -->
+<section class="view dA" data-view="control" data-name="A · Control room">
+  <div class="top"><span class="sys">CURIA · ATLAS</span><span class="clock">TUE 19 AUG · 14:07</span></div>
+  <div class="grid">
+    <div class="panel p-verdict">
+      <div class="verdict">
+        <span class="n">2</span>
+        <span class="lbl">NEED YOU<br><span class="num">oldest waits 26 min</span></span>
+        <span class="ok">3 AGENTS RUN<br>ALL LANES NOMINAL</span>
+      </div>
+    </div>
+    <div class="panel p-need">
+      <h2>Needs you</h2>
+      <div class="row"><span class="tag t-need">GATE</span><span class="ttl">The embedded terminal</span><span class="num">#537 · 26m</span><a class="act" href="#">thread ↗</a></div>
+      <div class="row"><span class="tag t-need">ASK·2</span><span class="ttl">Home-screen design directions</span><span class="num">#519 · 5m</span><a class="act" href="#">thread ↗</a></div>
+    </div>
+    <div class="panel p-agents">
+      <h2>Agents</h2>
+      <div class="row"><span class="tag t-run">RUN</span><span class="ttl">claude · Home-screen design directions</span>
+        <svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="56" height="14"></svg>
+        <span class="num">34m</span><a class="act" href="#">chat ↗</a></div>
+      <div class="row"><span class="tag t-gate">GATE</span><span class="ttl">codex · The subagent meter</span>
+        <svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="56" height="14"></svg>
+        <span class="num">26m</span><a class="act" href="#">chat ↗</a></div>
+      <div class="row"><span class="tag t-run">RUN</span><span class="ttl">claude · Journal mining</span>
+        <svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="56" height="14"></svg>
+        <span class="num">12m</span><a class="act" href="#">chat ↗</a></div>
+    </div>
+    <div class="panel p-maps">
+      <h2>Maps</h2>
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:10px;align-items:baseline"><span class="ttl">Operator surfaces UX</span><span class="num">18 / 24+2 · frontier 3</span></div>
+        <div class="bar-w"><i class="c" style="width:66%"></i><i class="o" style="width:22%"></i><i class="f" style="width:8%"></i></div>
+      </div>
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:10px;align-items:baseline"><span class="ttl">Deploy pipeline</span><span class="num">11 / 12 · frontier 1</span></div>
+        <div class="bar-w"><i class="c" style="width:88%"></i><i class="o" style="width:8%"></i></div>
+      </div>
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:10px;align-items:baseline"><span class="ttl">Journal mining</span><span class="num">3 / 9+4 · frontier 2</span></div>
+        <div class="bar-w"><i class="c" style="width:24%"></i><i class="o" style="width:48%"></i><i class="f" style="width:28%"></i></div>
+      </div>
+      <h2 style="margin-top:16px">This week</h2>
+      <div class="stat">
+        <div class="s"><div class="v" style="color:var(--good)">7</div><div class="k">resolved</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="80" height="18"></svg></div>
+        <div class="s"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="80" height="18"></svg></div>
+        <div class="s"><div class="v">11</div><div class="k">open · 5 grill 3 proto 2 res 1 task</div></div>
+      </div>
+    </div>
+    <div class="panel p-feed feed">
+      <h2>Happened</h2>
+      <div class="row"><time>14:02</time><span class="tag t-done">MERGE</span><span class="ttl">The deploy verdict references its real issue</span><span class="num">#562</span></div>
+      <div class="row"><time>12:40</time><span class="tag t-done">CLOSE</span><span class="ttl">The pane-driven rewind</span><span class="num">#542</span></div>
+      <div class="row"><time>09:15</time><span class="tag t-done">VERDICT</span><span class="ttl">Inspiration for the dashboard</span><span class="num">#513</span></div>
+      <div class="row"><time>MON</time><span class="tag t-done">MERGE</span><span class="ttl">The deploy preflight discards lockfile churn</span><span class="num">#559</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ B · GAME HUD ============ -->
+<section class="view dB" data-view="hud" data-name="B · Game HUD">
+  <div class="hud-top"><span>curia // atlas</span><span>aug 19 · 14:07</span></div>
+  <div class="hudgrid">
+  <div class="core">
+    <div class="ring">
+      <svg viewBox="0 0 150 150">
+        <circle cx="75" cy="75" r="66" fill="none" stroke="var(--line)" stroke-width="6"/>
+        <circle cx="75" cy="75" r="66" fill="none" stroke="var(--need)" stroke-width="6"
+          stroke-dasharray="118 297" stroke-dashoffset="-30" stroke-linecap="round"/>
+        <circle cx="75" cy="75" r="56" fill="none" stroke="var(--good)" stroke-width="2"
+          stroke-dasharray="220 132" opacity=".5"/>
+      </svg>
+      <div class="in"><span class="n">2</span><span class="k">need you</span></div>
+    </div>
+    <div class="sub">3 agents run · oldest gate waits 26 min</div>
+  </div>
+  <div class="card c-need">
+    <h2><b>◆</b> needs you</h2>
+    <div class="q">
+      <div class="l1"><span class="ttl">The embedded terminal</span><span class="num">#537</span><a class="go" href="#">open thread →</a></div>
+      <div class="meter m-need"><i style="width:72%"></i></div>
+      <div class="l2"><span>review gate</span><span>waits 26 min</span></div>
+    </div>
+    <div class="q">
+      <div class="l1"><span class="ttl">Home-screen design directions</span><span class="num">#519</span><a class="go" href="#">open thread →</a></div>
+      <div class="meter m-need"><i style="width:18%"></i></div>
+      <div class="l2"><span>escalation · 2 questions</span><span>waits 5 min</span></div>
+    </div>
+  </div>
+  <div class="card c-agents">
+    <h2><b>▶</b> agents</h2>
+    <div class="q">
+      <div class="l1"><span class="ttl">claude · Home-screen design directions</span><span class="num">#519</span></div>
+      <div class="meter m-run"><i style="width:64%"></i></div>
+      <div class="l2"><span>runs 34 min</span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="56" height="12"></svg><a class="chat" href="#">chat →</a></div>
+    </div>
+    <div class="q">
+      <div class="l1"><span class="ttl">codex · The subagent meter</span><span class="num">#544</span></div>
+      <div class="meter m-dim"><i style="width:100%"></i></div>
+      <div class="l2"><span>holds at gate 26 min</span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="56" height="12"></svg><a class="chat" href="#">chat →</a></div>
+    </div>
+    <div class="q">
+      <div class="l1"><span class="ttl">claude · Journal mining</span><span class="num">#549</span></div>
+      <div class="meter m-run"><i style="width:28%"></i></div>
+      <div class="l2"><span>runs 12 min</span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="56" height="12"></svg><a class="chat" href="#">chat →</a></div>
+    </div>
+  </div>
+  <div class="card c-maps maps">
+    <h2><b>▦</b> maps</h2>
+    <div class="q">
+      <div class="l1"><span class="ttl">Operator surfaces UX</span><span class="num">18 / 24+2</span></div>
+      <div class="meter"><i class="run" style="width:66%;background:var(--hi)"></i><span class="fog" style="left:88%;width:8%"></span></div>
+      <div class="l2"><span>frontier 3</span></div>
+    </div>
+    <div class="q">
+      <div class="l1"><span class="ttl">Deploy pipeline</span><span class="num">11 / 12</span></div>
+      <div class="meter"><i style="width:88%;background:var(--hi)"></i></div>
+      <div class="l2"><span>frontier 1</span></div>
+    </div>
+    <div class="q">
+      <div class="l1"><span class="ttl">Journal mining</span><span class="num">3 / 9+4</span></div>
+      <div class="meter"><i style="width:24%;background:var(--hi)"></i><span class="fog" style="left:72%;width:28%"></span></div>
+      <div class="l2"><span>frontier 2</span></div>
+    </div>
+  </div>
+  <div class="stats c-stats">
+    <div class="tile"><div class="v">7</div><div class="k">resolved / wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="90" height="16"></svg></div>
+    <div class="tile"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="90" height="16"></svg></div>
+  </div>
+  <div class="card c-feed feed">
+    <h2><b>≡</b> happened</h2>
+    <div class="q"><div class="l1"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue</span><span class="num">#562</span></div></div>
+    <div class="q"><div class="l1"><time>12:40</time><span class="ttl">closed · The pane-driven rewind</span><span class="num">#542</span></div></div>
+    <div class="q"><div class="l1"><time>09:15</time><span class="ttl">verdict · Inspiration for the dashboard</span><span class="num">#513</span></div></div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ C · ENGINEERED CALM ============ -->
+<section class="view dC" data-view="calm" data-name="C · Engineered calm">
+  <div class="inner">
+  <div class="brand"><b>curia</b> · atlas</div>
+  <div class="hero">
+    <div class="v"><em>2 things</em> need you.<br>3 agents run.</div>
+    <div class="s">Tuesday 14:07 · 7 tickets resolved this week</div>
+  </div>
+  <div class="cols">
+  <div>
+  <section>
+    <h2>Needs you</h2>
+    <div class="card">
+      <div class="item need"><span class="ttl">The embedded terminal<span class="sub">review gate · waits 26 min</span></span><span class="num">#537</span><a class="go" href="#">Open thread</a></div>
+      <div class="item need"><span class="ttl">Home-screen design directions<span class="sub">escalation · 2 questions · waits 5 min</span></span><span class="num">#519</span><a class="go" href="#">Open thread</a></div>
+    </div>
+  </section>
+  <section>
+    <h2>Agents</h2>
+    <div class="card">
+      <div class="item run"><span class="ttl">claude · Home-screen design directions<span class="sub">runs 34 min</span></span>
+        <svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="56" height="14"></svg><a class="go" href="#">Chat</a></div>
+      <div class="item"><span class="ttl">codex · The subagent meter<span class="sub">holds at the gate · 26 min</span></span>
+        <svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="56" height="14"></svg><a class="go" href="#">Chat</a></div>
+      <div class="item run"><span class="ttl">claude · Journal mining<span class="sub">runs 12 min</span></span>
+        <svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="56" height="14"></svg><a class="go" href="#">Chat</a></div>
+    </div>
+  </section>
+  </div>
+  <div>
+  <section>
+    <h2>Maps</h2>
+    <div class="card">
+      <div class="item"><span class="ttl">Operator surfaces UX<span class="sub">frontier 3</span></span>
+        <span class="prog"><span class="track"><i style="width:66%"></i><span class="fog" style="width:8%"></span></span><span class="t">18 / 24+2</span></span></div>
+      <div class="item"><span class="ttl">Deploy pipeline<span class="sub">frontier 1</span></span>
+        <span class="prog"><span class="track"><i style="width:88%"></i></span><span class="t">11 / 12</span></span></div>
+      <div class="item"><span class="ttl">Journal mining<span class="sub">frontier 2</span></span>
+        <span class="prog"><span class="track"><i style="width:24%"></i><span class="fog" style="width:28%"></span></span><span class="t">3 / 9+4</span></span></div>
+    </div>
+  </section>
+  <section>
+    <h2>This week</h2>
+    <div class="strip">
+      <div class="tile"><div class="v">7</div><div class="k">resolved</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="100" height="20"></svg></div>
+      <div class="tile"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="100" height="20"></svg></div>
+    </div>
+    <div class="strip" style="margin-top:12px">
+      <div class="tile"><div class="k" style="margin-top:0">Open tickets · 11</div>
+        <div class="mix" data-mix="5,3,2,1"></div>
+        <div class="mixk">5 grilling · 3 prototype · 2 research · 1 task</div>
+      </div>
+    </div>
+  </section>
+  <section class="feed">
+    <h2>Happened</h2>
+    <div class="card">
+      <div class="item"><time>14:02</time><span class="ttl">Merged · The deploy verdict references its real issue</span><span class="num">#562</span></div>
+      <div class="item"><time>12:40</time><span class="ttl">Closed · The pane-driven rewind</span><span class="num">#542</span></div>
+      <div class="item"><time>09:15</time><span class="ttl">Verdict · Inspiration for the dashboard</span><span class="num">#513</span></div>
+    </div>
+  </section>
+  </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ D · SIGNAGE (wildcard) ============ -->
+<section class="view dD" data-view="signage" data-name="D · Signage">
+  <div class="wrap">
+  <div class="mast"><span class="logo">CURIA ATLAS</span><span class="tm">TUE 19 AUG 14:07</span></div>
+  <div class="board-head">
+    <span class="n">2</span>
+    <span class="k">Need you<span class="sub">Review gate 26 min · escalation 5 min</span></span>
+  </div>
+  <div class="cols">
+  <div>
+  <div class="dep">
+    <h2>Needs you</h2>
+    <div class="drow"><span class="chip ch-need">Gate</span><span class="ttl">The embedded terminal<span class="sub">#537 · waits 26 min</span></span><a class="go" href="#">THREAD</a></div>
+    <div class="drow"><span class="chip ch-need">Ask · 2</span><span class="ttl">Home-screen design directions<span class="sub">#519 · waits 5 min</span></span><a class="go" href="#">THREAD</a></div>
+  </div>
+  <div class="dep">
+    <h2>Agents</h2>
+    <div class="drow"><span class="chip ch-run">Run</span><span class="ttl">claude · Home-screen design directions<span class="sub">#519 · 34 min</span></span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="52" height="14"></svg><a class="go" href="#">CHAT</a></div>
+    <div class="drow"><span class="chip ch-gate">Gate</span><span class="ttl">codex · The subagent meter<span class="sub">#544 · 26 min</span></span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="52" height="14"></svg><a class="go" href="#">CHAT</a></div>
+    <div class="drow"><span class="chip ch-run">Run</span><span class="ttl">claude · Journal mining<span class="sub">#549 · 12 min</span></span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="52" height="14"></svg><a class="go" href="#">CHAT</a></div>
+  </div>
+  </div>
+  <div>
+  <div class="dep">
+    <h2>Maps</h2>
+    <div class="drow mrow"><span class="pct">18/24<span style="color:var(--mut)">+2</span></span><span class="ttl">Operator surfaces UX<span class="sub">frontier 3</span><span class="pbar"><i style="width:66%"></i><span class="fog" style="width:8%"></span></span></span></div>
+    <div class="drow mrow"><span class="pct">11/12</span><span class="ttl">Deploy pipeline<span class="sub">frontier 1</span><span class="pbar"><i style="width:88%"></i></span></span></div>
+    <div class="drow mrow"><span class="pct">3/9<span style="color:var(--mut)">+4</span></span><span class="ttl">Journal mining<span class="sub">frontier 2</span><span class="pbar"><i style="width:24%"></i><span class="fog" style="width:28%"></span></span></span></div>
+  </div>
+  <div class="ticker">
+    <div class="tk"><div class="v">7</div><div class="k">resolved / wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="88" height="16"></svg></div>
+    <div class="tk"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="88" height="16"></svg></div>
+    <div class="tk"><div class="v">11</div><div class="k">open tickets</div></div>
+  </div>
+  <div class="dep feed">
+    <h2>Happened</h2>
+    <div class="drow"><time>14:02</time><span class="ttl">Merged · The deploy verdict references its real issue <span class="sub">#562</span></span></div>
+    <div class="drow"><time>12:40</time><span class="ttl">Closed · The pane-driven rewind <span class="sub">#542</span></span></div>
+    <div class="drow"><time>09:15</time><span class="ttl">Verdict · Inspiration for the dashboard <span class="sub">#513</span></span></div>
+  </div>
+  </div>
+  </div>
+  </div>
+</section>
+
+<!-- ============ COLOR LANGUAGE ============ -->
+<section class="view dX" data-view="color" data-name="Color language">
+  <h1>Color language</h1>
+  <p class="lead">The same three facts, four ways to let color carry state. Flip light and dark with the moon button. The last block tests whether color alone may carry a fact.</p>
+  <div class="langs">
+    <div class="lang L1">
+      <h2>1 · Color by text</h2>
+      <p class="note">The status word wears the color. Surfaces stay neutral.</p>
+      <div class="r need"><span class="ttl">The embedded terminal #537</span><span class="st">needs you</span></div>
+      <div class="r run"><span class="ttl">claude · Journal mining #549</span><span class="st">runs</span></div>
+      <div class="r crit"><span class="ttl">deploy preflight</span><span class="st">failed</span></div>
+    </div>
+    <div class="lang L2">
+      <h2>2 · Color by border</h2>
+      <p class="note">A thin colored edge. Text stays neutral.</p>
+      <div class="r need"><span class="ttl">The embedded terminal #537</span><span class="st">needs you</span></div>
+      <div class="r run"><span class="ttl">claude · Journal mining #549</span><span class="st">runs</span></div>
+      <div class="r crit"><span class="ttl">deploy preflight</span><span class="st">failed</span></div>
+    </div>
+    <div class="lang L3">
+      <h2>3 · Color by background</h2>
+      <p class="note">A tinted surface carries the state. Loudest of the four.</p>
+      <div class="r need"><span class="ttl">The embedded terminal #537</span><span class="st">needs you</span></div>
+      <div class="r run"><span class="ttl">claude · Journal mining #549</span><span class="st">runs</span></div>
+      <div class="r crit"><span class="ttl">deploy preflight</span><span class="st">failed</span></div>
+    </div>
+    <div class="lang L4">
+      <h2>4 · Color by intensity</h2>
+      <p class="note">One dot per row. Brightness and glow encode urgency.</p>
+      <div class="r crit"><span class="dot"></span><span class="ttl">deploy preflight</span><span class="st">failed</span></div>
+      <div class="r need"><span class="dot"></span><span class="ttl">The embedded terminal #537</span><span class="st">needs you</span></div>
+      <div class="r run"><span class="dot"></span><span class="ttl">claude · Journal mining #549</span><span class="st">runs</span></div>
+      <div class="r idle"><span class="dot"></span><span class="ttl">codex · idle</span><span class="st">idle</span></div>
+    </div>
+  </div>
+  <div class="alone">
+    <h2 style="font-size:14px;font-weight:650">May color alone carry a fact?</h2>
+    <p class="note">Left: the dot alone says the state. Right: the dot plus the word. The word costs width. The dot alone costs certainty, and a color-blind reader loses the fact.</p>
+    <div class="pair">
+      <div class="lang dotonly">
+        <h2>Color alone</h2>
+        <div class="r"><span class="dot d-need"></span><span class="ttl">The embedded terminal #537</span></div>
+        <div class="r"><span class="dot d-run"></span><span class="ttl">claude · Journal mining #549</span></div>
+        <div class="r"><span class="dot d-crit"></span><span class="ttl">deploy preflight</span></div>
+      </div>
+      <div class="lang dotword">
+        <h2>Color + word</h2>
+        <div class="r"><span class="dot d-need"></span><span class="ttl">The embedded terminal #537</span><span class="st" style="color:var(--mut)">needs you</span></div>
+        <div class="r"><span class="dot d-run"></span><span class="ttl">claude · Journal mining #549</span><span class="st" style="color:var(--mut)">runs</span></div>
+        <div class="r"><span class="dot d-crit"></span><span class="ttl">deploy preflight</span><span class="st" style="color:var(--mut)">failed</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</div></div></div>
+
+<!-- switcher -->
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button class="tog" id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button class="tog" id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+const VIEWS = ['control','hud','calm','signage','color'];
+const frame = document.getElementById('frame');
+const wrap  = document.getElementById('wrap');
+const q = new URLSearchParams(location.search);
+let d    = VIEWS.includes(q.get('d')) ? q.get('d') : 'control';
+let mode = q.get('mode') === 'light' ? 'light' : 'dark';
+let w    = q.get('w') === 'desktop' ? 'desktop' : 'phone';
+
+function render() {
+  document.querySelectorAll('.view').forEach(v =>
+    v.classList.toggle('active', v.dataset.view === d));
+  frame.className = 'frame w-' + w + ' ' + mode;
+  document.getElementById('vname').textContent =
+    document.querySelector('.view.active').dataset.name;
+  document.getElementById('mode').textContent = mode === 'dark' ? '☾' : '☀';
+  document.getElementById('width').textContent = w === 'phone' ? '📱' : '🖥';
+  const p = new URLSearchParams({d, mode, w});
+  history.replaceState(null, '', '?' + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === 'desktop' ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = 'scale(' + s + ')';
+  wrap.style.height = (frame.offsetHeight * s) + 'px';
+}
+function cycle(dir) {
+  d = VIEWS[(VIEWS.indexOf(d) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('mode').onclick = () => { mode = mode === 'dark' ? 'light' : 'dark'; render(); };
+document.getElementById('width').onclick = () => { w = w === 'phone' ? 'desktop' : 'phone'; render(); };
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+window.addEventListener('resize', rescale);
+
+/* sparklines: <svg data-spark="1,2,3"> → polyline, 2px stroke */
+document.querySelectorAll('[data-spark]').forEach(svg => {
+  const vals = svg.dataset.spark.split(',').map(Number);
+  const W = +svg.getAttribute('width'), H = +svg.getAttribute('height');
+  const max = Math.max(...vals), min = Math.min(...vals);
+  const pts = vals.map((v,i) => {
+    const x = (i / (vals.length - 1)) * (W - 4) + 2;
+    const y = H - 2 - ((v - min) / ((max - min) || 1)) * (H - 4);
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  const pl = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  pl.setAttribute('points', pts);
+  svg.appendChild(pl);
+});
+
+/* type-mix bar: lightness steps of one hue, labels sit beside it */
+document.querySelectorAll('[data-mix]').forEach(el => {
+  const vals = el.dataset.mix.split(',').map(Number);
+  const total = vals.reduce((a,b) => a+b, 0);
+  const ops = [1, .65, .4, .2];
+  vals.forEach((v,i) => {
+    const s = document.createElement('i');
+    s.style.width = (v/total*100) + '%';
+    s.style.background = 'var(--acc)';
+    s.style.opacity = ops[i] ?? .15;
+    el.appendChild(s);
+  });
+});
+
+render();
+</script>
+</body>
+</html>
