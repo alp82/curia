@@ -1,0 +1,24 @@
+ Took 0.0s
+
+
+ BANANA DONE
+
+
+────────────────────────────────────────────────────────────────────────────────
+   Session Tree
+  ↑/↓ move · ←/→ page · ctrl+←/→ branch · ctrl+x copy · shift+l label
+  shift+t label time · filters ctrl+d/t/u/l/a · cycle ctrl+o/shift+ctrl+o
+  Type to search:
+────────────────────────────────────────────────────────────────────────────────
+
+  • user: create apple
+  • [bash: echo APPLE-ONE > apple.txt]
+  • assistant: APPLE DONE
+  • user: create banana
+  • [bash: echo BANANA-TWO > banana.txt]
+› • assistant: BANANA DONE
+  (6/6)
+
+────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-workspace/03ec4e81-fbf5-4e5b-ba18-bb15189b2dd1/scratchpad/r...
+0.1%/128k (auto)                                                       standin-1

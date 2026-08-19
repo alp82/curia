@@ -222,9 +222,11 @@
    pacing and the paste-fold guard are the production ones. claude ran a real model with the
    container credential. codex ran against a scripted stand-in on the Responses wire API
    (<code>standin-codex.mjs</code>), the pattern of
-   <code>docs/research/pane-keystroke-codex.probe.mjs</code>, so the conversation cut is read
-   off the request body and never off a model's report of itself. Every turn wrote a file
-   through the harness's own tool, so the file question has an answer on disk.</p>
+   <code>docs/research/pane-keystroke-codex.probe.mjs</code>. opencode and pi ran against a
+   chat-completions twin (<code>standin-chat.mjs</code>), installed pinned after the operator's
+   approval. A stand-in scripts every turn, so the conversation cut is read off the request
+   body and never off a model's report of itself. Every turn wrote a file through the
+   harness's own tool, so the file question has an answer on disk.</p>
 
 <!-- ================================================================ -->
 <h2 class="sec" id="claude"><span class="n">2</span> claude 2.1.220 <span class="verdict pass">PASS</span></h2>
@@ -338,17 +340,86 @@ README.md  <b>apple.txt  banana.txt</b>   # both stand — codex restores no fil
 </ul>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="opencode"><span class="n">4</span> opencode <span class="verdict open">AWAITING THE OPERATOR</span></h2>
-<p class="lead">opencode is not installed in this container, and an install is the operator's
-   call. The question is open on the thread. This section takes the live result when the answer
-   lands.</p>
+<h2 class="sec" id="opencode"><span class="n">4</span> opencode 1.18.18 <span class="verdict pass">PASS</span></h2>
+<p class="lead"><b>The undo lands, and the files follow.</b> The operator approved a pinned
+   install for this probe. Same two turns through the <code>bash</code> tool, against the
+   chat-completions stand-in. One <code>/undo</code> took back one message and removed
+   <code>banana.txt</code> from the disk. A second took back one more and removed
+   <code>apple.txt</code>.</p>
+
+<div class="keys">
+  <span class="lbl">The lane, to take back n messages (agent idle):</span>
+  <kbd>/undo</kbd><kbd>Enter</kbd><span class="then">×n — one message per call</span>
+  <kbd>Ctrl+U</kbd><span class="then">clear the prefilled composer</span>
+</div>
+
+<div class="term"><div class="cap">pane after /undo — one message reverted, and the file went with it</div>
+<pre>  ┃  1 message reverted
+  ┃  <b>ctrl+x r or /redo to restore</b>
+  ┃
+  ┃  <b>banana.txt -1</b>
+
+  ┃  <i>create banana</i>        ← the composer holds the taken-back text
+
+$ ls ws/          # on disk, after the undo
+<b>apple.txt</b>  opencode.json   # banana.txt is gone — the snapshot restored the tree</pre></div>
+
+<div class="term"><div class="cap">the wire, next turn after two undos — only the fresh message remains</div>
+<pre>&gt; create cherry
+• CHERRY: I see 1 user turn(s): <b>"create cherry"</b></pre></div>
+
+<ul class="fact">
+  <li><b>Files restore with the conversation</b>, from opencode's own git snapshots. The undo names the delta (<code>banana.txt -1</code>).</li>
+  <li><b>The command is text, not a chord.</b> <code>/undo</code> rides the same <code>sendText</code> path as any message. <code>/redo</code> exists, so a wrong press has a way back on this lane alone.</li>
+  <li><b>The composer prefills the taken-back text.</b> One <kbd>Ctrl+U</kbd> empties it.</li>
+</ul>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="pi"><span class="n">5</span> pi <span class="verdict open">AWAITING THE OPERATOR</span></h2>
-<p class="lead">pi is not installed in this container either. The prior hands-on
-   (<code>docs/research/pi-handson.md</code>) ran on the deployment host. Its rewind surface is
-   <code>/tree</code>: the session is a branch tree, and a take back continues from an earlier
-   point. This section takes the live result when the answer lands.</p>
+<h2 class="sec" id="pi"><span class="n">5</span> pi 0.84.2 <span class="verdict pass">PASS</span></h2>
+<p class="lead"><b>The tree navigation lands, and nothing is ever lost.</b> pi keeps the session
+   as a branch tree, and a take back is <code>/tree</code> plus a jump: the conversation continues
+   from just before the chosen user turn, and the abandoned turns stay in the tree as a branch.
+   Files stand, as on codex.</p>
+
+<div class="keys">
+  <span class="lbl">The lane, to take back a message (agent idle):</span>
+  <kbd>/tree</kbd><kbd>Enter</kbd><span class="then">the Session Tree</span>
+  <kbd>type the message text</kbd><span class="then">search jumps to it</span>
+  <kbd>Up</kbd><span class="then">select the user entry</span>
+  <kbd>Enter</kbd><span class="then">branch here</span>
+  <kbd>Enter</kbd><span class="then">No summary</span>
+  <kbd>Ctrl+U</kbd><span class="then">clear the prefilled composer</span>
+</div>
+
+<div class="term"><div class="cap">pane after /tree — every entry listed, tool calls included, with search and filters</div>
+<pre>   Session Tree
+  ↑/↓ move · ←/→ page · ctrl+←/→ branch · ctrl+x copy · shift+l label
+  Type to search:
+
+  • user: create apple
+  • [bash: echo APPLE-ONE > apple.txt]
+  • assistant: APPLE DONE
+  • user: <b>create banana</b>
+  • [bash: echo BANANA-TWO > banana.txt]
+› • assistant: BANANA DONE
+  (6/6)</pre></div>
+
+<div class="term"><div class="cap">pane after the jump — landed, files checked on disk</div>
+<pre> APPLE DONE
+
+ <b>Navigated to selected point</b>
+
+$ ls ws/          # on disk, after the navigation
+<b>apple.txt  banana.txt</b>   # both stand — pi restores no files
+
+&gt; create cherry
+ CHERRY: I see 2 user turn(s): <b>"create apple"</b> | <b>"create cherry"</b></pre></div>
+
+<ul class="fact">
+  <li><b>The search is the targeting.</b> The tree lists tool entries too, so a blind Up-count varies with the turn. Curia holds the taken-back text, types it into the tree search, and the jump is exact. Selecting a user entry lands just before it — proven on the wire.</li>
+  <li><b>Conversation only, and the old branch stays.</b> Files stand, and the taken-back turns remain in the tree as an abandoned branch. The receipt says the tree stands, and on this lane the words are literal.</li>
+  <li><b>The composer prefills the taken-back text</b> when a user entry is selected. One <kbd>Ctrl+U</kbd> empties it — proven the hard way: an uncleaned prefill concatenated with the next message in this probe.</li>
+</ul>
 
 <!-- ================================================================ -->
 <h2 class="sec" id="receipt"><span class="n">6</span> The receipt in Discord (mock)</h2>
@@ -403,15 +474,20 @@ README.md  <b>apple.txt  banana.txt</b>   # both stand — codex restores no fil
 
 <!-- ================================================================ -->
 <h2 class="sec" id="verdict"><span class="n">8</span> The verdict</h2>
-<p class="lead">The button shows only where a lane passes.</p>
+<p class="lead">The button shows only where a lane passes, and every lane passes. Two lanes
+   restore files with the conversation (claude, opencode). Two restore the conversation only
+   (codex, pi), and there the receipt says the tree stands. Every lane prefills its composer
+   with the taken-back text, and curia clears it — <kbd>Ctrl+C</kbd> on claude,
+   <kbd>Ctrl+U</kbd> on the other three — so the text waits in the receipt and the dashboard
+   composer, never in the pane.</p>
 
 <div class="wrap">
 <table class="sum">
   <tr><th>lane</th><th>drive</th><th>files</th><th>button</th></tr>
   <tr><td><b>claude 2.1.220</b></td><td>passes — Esc Esc menu, Up, Enter, Enter</td><td>restore with the conversation</td><td>shows</td></tr>
   <tr><td><b>codex 0.146.0</b></td><td>passes — Esc Esc overlay, Esc ×(n−1), Enter</td><td>stand — the receipt says the tree stands</td><td>shows</td></tr>
-  <tr><td><b>opencode</b></td><td>awaiting the operator</td><td>—</td><td>hidden until a lane passes</td></tr>
-  <tr><td><b>pi</b></td><td>awaiting the operator</td><td>—</td><td>hidden until a lane passes</td></tr>
+  <tr><td><b>opencode 1.18.18</b></td><td>passes — /undo as text, ×n</td><td>restore with the conversation</td><td>shows</td></tr>
+  <tr><td><b>pi 0.84.2</b></td><td>passes — /tree, search, Up, Enter, Enter</td><td>stand — the old branch stays in the tree</td><td>shows</td></tr>
 </table>
 </div>
 
