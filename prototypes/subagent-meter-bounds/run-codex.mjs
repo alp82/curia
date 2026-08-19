@@ -48,6 +48,20 @@ if (!name || !['scripted', 'discover', 'live'].includes(mode)) {
 const LIVE = mode === 'live'
 const STUB_PORT = process.env.STUB_PORT ?? '8899'
 
+// Fail loudly BEFORE the throwaway dirs and the tmux spawn: the first live run
+// on the box returned an empty summary because a missing binary died inside
+// tmux with nothing to say. A missing tool is this script's error, not a null
+// in the evidence.
+const missing = []
+for (const [bin, args] of [['codex', ['--version']], ['tmux', ['-V']], ['git', ['--version']]]) {
+  const r = spawnSync(bin, args, { encoding: 'utf8' })
+  if (r.error || r.status !== 0) missing.push(bin)
+}
+if (missing.length) {
+  console.error(`missing on PATH: ${missing.join(', ')}. Live mode runs where the pinned codex binary is installed. If codex lives only in the agent image on this box, say so on the ticket and the rig grows a container wrapper.`)
+  process.exit(2)
+}
+
 const SENTINEL = 'CURIA-544-ORDERS-SENTINEL'
 
 const outDir = join(HERE, 'out', name)
@@ -177,7 +191,12 @@ const childEnv = { PATH: process.env.PATH, HOME: runRoot, CODEX_HOME: codexHome,
 const tmuxSession = `sub544-${name}`
 spawnSync('tmux', ['kill-session', '-t', tmuxSession], { stdio: 'ignore' })
 const envArgs = Object.entries(childEnv).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-spawnSync('tmux', ['new-session', '-d', '-s', tmuxSession, '-c', cwd, '-x', '200', '-y', '50', ...envArgs, cmd])
+const started = spawnSync('tmux', ['new-session', '-d', '-s', tmuxSession, '-c', cwd, '-x', '200', '-y', '50', ...envArgs, cmd], { encoding: 'utf8' })
+const alive = spawnSync('tmux', ['has-session', '-t', tmuxSession], { encoding: 'utf8' })
+if (started.status !== 0 || alive.status !== 0) {
+  console.error(`tmux did not start the run: ${started.stderr || alive.stderr || 'session gone at once'}`)
+  process.exit(2)
+}
 
 // The meter poller: EXACTLY what the daemon reads, on a cadence. Every sample
 // says which file newest-by-mtime picked and what codexTail read off it.
