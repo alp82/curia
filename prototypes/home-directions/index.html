@@ -108,68 +108,75 @@ svg { display:block; }
 }
 
 /* ================================================================
-   DIRECTION B — GAME HUD   (color language: INTENSITY of fill)
+   DIRECTION B — GAME HUD, rewrite  (color language: INTENSITY)
+   one focal ring, no boxes, one glowing element
    ================================================================ */
 .dB { background:var(--bg); color:var(--ink); min-height:800px;
-  font-family: ui-sans-serif, system-ui, sans-serif; padding:18px 16px 28px; }
-.frame.dark .dB { --bg:radial-gradient(1200px 500px at 50% -10%, #0e1a33 0%, #070b16 60%);
-  --ink:#dbe4f5; --mut:#8291ad; --line:#22304d; --panel:#0d1526cc;
-  --hi:#6fd3ff; --hi2:#6fd3ff33; --need:#ffb454; --need2:#ffb45426;
-  --good:#5be49b; --good2:#5be49b22; --glow:0 0 18px; }
-.frame.light .dB { --bg:linear-gradient(180deg,#eef2f9 0%,#e2e8f2 100%);
-  --ink:#101828; --mut:#5a6b85; --line:#c3cede; --panel:#f8fafdcc;
-  --hi:#0d6fa8; --hi2:#0d6fa81f; --need:#a05a00; --need2:#a05a001c;
-  --good:#0f7d4d; --good2:#0f7d4d1c; --glow:0 0 0; }
-.dB .hud-top { display:flex; justify-content:space-between; font-size:11px;
-  letter-spacing:.2em; color:var(--mut); text-transform:uppercase; margin-bottom:14px; }
-.dB .core { text-align:center; padding:6px 0 18px; }
-.dB .ring { width:150px; height:150px; margin:0 auto; position:relative; }
+  font-family: ui-sans-serif, system-ui, sans-serif; padding:20px 20px 44px; }
+.frame.dark .dB { --bg:radial-gradient(900px 480px at 50% -8%, #0c1526 0%, #06090f 62%);
+  --ink:#d9e2f2; --mut:#7787a3; --faint:#1b2437; --acc:#6fd3ff;
+  --need:#ffb454; --good:#5be49b;
+  --needglow:0 0 16px rgba(255,180,84,.45); }
+.frame.light .dB { --bg:linear-gradient(180deg,#f0f3f9 0%,#e4e9f2 100%);
+  --ink:#111a2b; --mut:#5a6b85; --faint:#ccd6e4; --acc:#0d6fa8;
+  --need:#a05a00; --good:#0f7d4d;
+  --needglow:none; }
+.dB .ht { display:flex; justify-content:space-between; font-size:10px;
+  letter-spacing:.28em; color:var(--mut); text-transform:uppercase; }
+.dB .core { text-align:center; padding:22px 0 6px; }
+.dB .ring { width:168px; height:168px; margin:0 auto; position:relative; }
 .dB .ring svg { position:absolute; inset:0; }
 .dB .ring .in { position:absolute; inset:0; display:flex; flex-direction:column;
   justify-content:center; align-items:center; }
-.dB .ring .n { font-size:52px; font-weight:800; color:var(--need);
-  text-shadow: var(--glow) var(--need2); line-height:1; }
-.dB .ring .k { font-size:11px; letter-spacing:.24em; color:var(--mut); text-transform:uppercase; margin-top:4px; }
-.dB .core .sub { margin-top:10px; font-size:13px; color:var(--mut); }
-.dB .card { background:var(--panel); border:1px solid var(--line); margin-top:14px;
-  padding:12px 14px; clip-path:polygon(12px 0,100% 0,100% calc(100% - 12px),calc(100% - 12px) 100%,0 100%,0 12px); }
-.dB h2 { font-size:10px; letter-spacing:.26em; text-transform:uppercase; color:var(--mut); margin-bottom:10px; }
-.dB h2 b { color:var(--hi); font-weight:600; }
-.dB .q { padding:9px 0; border-top:1px solid var(--line); }
-.dB .q:first-of-type { border-top:0; }
-.dB .q .l1 { display:flex; align-items:baseline; gap:8px; font-size:14px; }
-.dB .q .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
-.dB .q .num { font-size:12px; color:var(--mut); }
-.dB .q .go { font-size:12px; color:var(--hi); text-decoration:none; }
-.dB .meter { height:8px; background:var(--line); margin-top:7px; position:relative; overflow:hidden; }
-.dB .meter i { position:absolute; inset:0 auto 0 0; }
-.dB .m-need i { background:var(--need); box-shadow:var(--glow) var(--need); }
-.dB .m-run i { background:var(--good); box-shadow:var(--glow) var(--good2); }
-.dB .m-dim i { background:var(--hi); opacity:.45; }
-.dB .q .l2 { display:flex; gap:10px; font-size:11px; color:var(--mut); margin-top:6px; }
-.dB .q .l2 .chat { color:var(--hi); text-decoration:none; margin-left:auto; }
+.dB .ring .n { font-size:60px; font-weight:800; color:var(--need);
+  text-shadow:var(--needglow); line-height:1; }
+.dB .ring .k { font-size:10px; letter-spacing:.3em; color:var(--mut);
+  text-transform:uppercase; margin-top:6px; }
+.dB .core .sub { margin-top:12px; font-size:13px; color:var(--mut); }
+.dB .reads { display:flex; justify-content:center; gap:34px; margin-top:18px; }
+.dB .reads .r0 { text-align:center; }
+.dB .reads .v { font-size:18px; font-weight:700; }
+.dB .reads .k { font-size:9px; letter-spacing:.22em; color:var(--mut);
+  text-transform:uppercase; margin-top:2px; margin-bottom:5px; }
+.dB .reads .spark { margin:0 auto; }
+.dB .reads .spark polyline { stroke:var(--acc); }
+.dB h2 { font-size:10px; letter-spacing:.3em; text-transform:uppercase;
+  color:var(--mut); margin:30px 0 6px; font-weight:600; }
+.dB .row { display:flex; align-items:baseline; gap:10px; padding:11px 0;
+  border-top:1px solid var(--faint); font-size:14px; }
+.dB .row:first-of-type, .dB h2 + .row { border-top:0; }
+.dB .gl { flex:none; font-size:12px; color:var(--need); text-shadow:var(--needglow); }
+.dB .dot { flex:none; width:8px; height:8px; border-radius:50%; align-self:center; }
+.dB .dot.on { background:var(--good); }
+.dB .dot.dim { background:var(--mut); opacity:.4; }
+.dB .row .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font-weight:600; }
+.dB .row .num { font-size:11px; color:var(--mut); }
+.dB .row .wait { font-size:11px; color:var(--need); letter-spacing:.06em; }
+.dB .row .go { font-size:12px; color:var(--acc); text-decoration:none; flex:none; }
+.dB .row .spark { align-self:center; }
 .dB .spark polyline { stroke:var(--good); }
-.dB .maps .meter { background:var(--line); }
-.dB .maps .fog { position:absolute; top:0; bottom:0;
-  background:repeating-linear-gradient(45deg, var(--mut) 0 2px, transparent 2px 5px); opacity:.5; }
-.dB .stats { display:flex; gap:12px; margin-top:14px; }
-.dB .tile { flex:1; background:var(--panel); border:1px solid var(--line); padding:10px 12px; }
-.dB .tile .v { font-size:22px; font-weight:800; color:var(--ink); }
-.dB .tile .k { font-size:10px; letter-spacing:.18em; color:var(--mut); text-transform:uppercase; margin-top:3px; }
-.dB .tile .spark { margin-top:6px; }
-.dB .tile .spark polyline { stroke:var(--hi); }
-.dB .feed .q .l1 { font-size:13px; font-weight:400; }
-.dB .feed time { font-size:11px; color:var(--mut); width:46px; flex:none; }
-.dB .hudgrid { }
+.dB .quest { display:block; padding:11px 0; border-top:1px solid var(--faint); }
+.dB h2 + .quest { border-top:0; }
+.dB .quest .l1 { display:flex; align-items:baseline; gap:10px; font-size:14px; }
+.dB .quest .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font-weight:600; }
+.dB .quest .num { font-size:12px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.dB .qbar { height:2px; margin-top:8px; background:var(--faint);
+  position:relative; }
+.dB .qbar i { position:absolute; inset:0 auto 0 0; background:var(--acc); }
+.dB .qbar .fog { position:absolute; top:0; bottom:0; border-top:2px dotted var(--mut); opacity:.6; }
+.dB .log .row { font-size:12px; color:var(--mut); font-weight:400; padding:7px 0; }
+.dB .log .row .ttl { font-weight:400; }
+.dB .log time { flex:none; width:42px; font-size:11px; }
 @container frame (min-width:700px) {
-  .dB { padding:22px 28px 40px; }
-  .dB .hudgrid { display:grid; grid-template-columns: 340px 1fr 1fr; gap:16px; align-items:start; }
-  .dB .core { grid-row:1 / span 3; padding-top:30px; }
-  .dB .card { margin-top:0; }
-  .dB .c-need { grid-column:2 / span 2; }
-  .dB .c-agents { grid-column:2; } .dB .c-maps { grid-column:3; }
-  .dB .c-stats { grid-column:2; } .dB .c-feed { grid-column:3; }
-  .dB .stats { margin-top:0; }
+  .dB { padding:26px 44px 60px; }
+  .dB .hudgrid { display:grid; grid-template-columns:360px minmax(0,1fr) minmax(0,1fr);
+    gap:0 44px; align-items:start; }
+  .dB .core { grid-column:1; grid-row:1 / span 3; padding-top:56px; }
+  .dB .s-need { grid-column:2 / span 2; }
+  .dB .s-agents { grid-column:2; } .dB .s-maps { grid-column:3; }
+  .dB .s-log { grid-column:2 / span 2; }
 }
 
 /* ================================================================
@@ -405,81 +412,56 @@ svg { display:block; }
   </div>
 </section>
 
-<!-- ============ B · GAME HUD ============ -->
+<!-- ============ B · GAME HUD (rewrite: one focal ring, no boxes) ============ -->
 <section class="view dB" data-view="hud" data-name="B · Game HUD">
-  <div class="hud-top"><span>curia // atlas</span><span>aug 19 · 14:07</span></div>
+  <div class="ht"><span>curia · atlas</span><span>aug 19 · 14:07</span></div>
   <div class="hudgrid">
   <div class="core">
     <div class="ring">
-      <svg viewBox="0 0 150 150">
-        <circle cx="75" cy="75" r="66" fill="none" stroke="var(--line)" stroke-width="6"/>
-        <circle cx="75" cy="75" r="66" fill="none" stroke="var(--need)" stroke-width="6"
-          stroke-dasharray="118 297" stroke-dashoffset="-30" stroke-linecap="round"/>
-        <circle cx="75" cy="75" r="56" fill="none" stroke="var(--good)" stroke-width="2"
-          stroke-dasharray="220 132" opacity=".5"/>
+      <svg viewBox="0 0 168 168">
+        <circle cx="84" cy="84" r="76" fill="none" stroke="var(--faint)" stroke-width="3"/>
+        <circle cx="84" cy="84" r="76" fill="none" stroke="var(--need)" stroke-width="3"
+          stroke-dasharray="120 358" stroke-dashoffset="-60" stroke-linecap="round"/>
       </svg>
       <div class="in"><span class="n">2</span><span class="k">need you</span></div>
     </div>
-    <div class="sub">3 agents run · oldest gate waits 26 min</div>
-  </div>
-  <div class="card c-need">
-    <h2><b>◆</b> needs you</h2>
-    <div class="q">
-      <div class="l1"><span class="ttl">The embedded terminal</span><span class="num">#537</span><a class="go" href="#">open thread →</a></div>
-      <div class="meter m-need"><i style="width:72%"></i></div>
-      <div class="l2"><span>review gate</span><span>waits 26 min</span></div>
-    </div>
-    <div class="q">
-      <div class="l1"><span class="ttl">Home-screen design directions</span><span class="num">#519</span><a class="go" href="#">open thread →</a></div>
-      <div class="meter m-need"><i style="width:18%"></i></div>
-      <div class="l2"><span>escalation · 2 questions</span><span>waits 5 min</span></div>
+    <div class="sub">3 agents run · oldest waits 26 min</div>
+    <div class="reads">
+      <div class="r0"><div class="v">7</div><div class="k">resolved / wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="72" height="14"></svg></div>
+      <div class="r0"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="72" height="14"></svg></div>
     </div>
   </div>
-  <div class="card c-agents">
-    <h2><b>▶</b> agents</h2>
-    <div class="q">
-      <div class="l1"><span class="ttl">claude · Home-screen design directions</span><span class="num">#519</span></div>
-      <div class="meter m-run"><i style="width:64%"></i></div>
-      <div class="l2"><span>runs 34 min</span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="56" height="12"></svg><a class="chat" href="#">chat →</a></div>
-    </div>
-    <div class="q">
-      <div class="l1"><span class="ttl">codex · The subagent meter</span><span class="num">#544</span></div>
-      <div class="meter m-dim"><i style="width:100%"></i></div>
-      <div class="l2"><span>holds at gate 26 min</span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="56" height="12"></svg><a class="chat" href="#">chat →</a></div>
-    </div>
-    <div class="q">
-      <div class="l1"><span class="ttl">claude · Journal mining</span><span class="num">#549</span></div>
-      <div class="meter m-run"><i style="width:28%"></i></div>
-      <div class="l2"><span>runs 12 min</span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="56" height="12"></svg><a class="chat" href="#">chat →</a></div>
-    </div>
+  <div class="s-need">
+    <h2>Needs you</h2>
+    <div class="row"><span class="gl">◆</span><span class="ttl">The embedded terminal</span><span class="num">#537</span><span class="wait">26 min</span><a class="go" href="#">thread →</a></div>
+    <div class="row"><span class="gl">◆</span><span class="ttl">Home-screen design directions</span><span class="num">#519</span><span class="wait">5 min</span><a class="go" href="#">thread →</a></div>
   </div>
-  <div class="card c-maps maps">
-    <h2><b>▦</b> maps</h2>
-    <div class="q">
+  <div class="s-agents">
+    <h2>Agents</h2>
+    <div class="row"><span class="dot on"></span><span class="ttl">claude · Home-screen design directions</span><svg class="spark" data-spark="1,2,1,3,2,4,3,5" width="52" height="12"></svg><span class="num">34m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="dot dim"></span><span class="ttl">codex · The subagent meter</span><svg class="spark" data-spark="3,4,2,1,1,0,0,0" width="52" height="12"></svg><span class="num">26m</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><span class="dot on"></span><span class="ttl">claude · Journal mining</span><svg class="spark" data-spark="0,0,1,2,2,3,4,4" width="52" height="12"></svg><span class="num">12m</span><a class="go" href="#">chat →</a></div>
+  </div>
+  <div class="s-maps">
+    <h2>Maps</h2>
+    <div class="quest">
       <div class="l1"><span class="ttl">Operator surfaces UX</span><span class="num">18 / 24+2</span></div>
-      <div class="meter"><i class="run" style="width:66%;background:var(--hi)"></i><span class="fog" style="left:88%;width:8%"></span></div>
-      <div class="l2"><span>frontier 3</span></div>
+      <div class="qbar"><i style="width:66%"></i><span class="fog" style="left:88%;width:8%"></span></div>
     </div>
-    <div class="q">
+    <div class="quest">
       <div class="l1"><span class="ttl">Deploy pipeline</span><span class="num">11 / 12</span></div>
-      <div class="meter"><i style="width:88%;background:var(--hi)"></i></div>
-      <div class="l2"><span>frontier 1</span></div>
+      <div class="qbar"><i style="width:88%"></i></div>
     </div>
-    <div class="q">
+    <div class="quest">
       <div class="l1"><span class="ttl">Journal mining</span><span class="num">3 / 9+4</span></div>
-      <div class="meter"><i style="width:24%;background:var(--hi)"></i><span class="fog" style="left:72%;width:28%"></span></div>
-      <div class="l2"><span>frontier 2</span></div>
+      <div class="qbar"><i style="width:24%"></i><span class="fog" style="left:72%;width:28%"></span></div>
     </div>
   </div>
-  <div class="stats c-stats">
-    <div class="tile"><div class="v">7</div><div class="k">resolved / wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,7" width="90" height="16"></svg></div>
-    <div class="tile"><div class="v">412k</div><div class="k">tokens today</div><svg class="spark" data-spark="180,220,340,290,410,380,520,412" width="90" height="16"></svg></div>
-  </div>
-  <div class="card c-feed feed">
-    <h2><b>≡</b> happened</h2>
-    <div class="q"><div class="l1"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue</span><span class="num">#562</span></div></div>
-    <div class="q"><div class="l1"><time>12:40</time><span class="ttl">closed · The pane-driven rewind</span><span class="num">#542</span></div></div>
-    <div class="q"><div class="l1"><time>09:15</time><span class="ttl">verdict · Inspiration for the dashboard</span><span class="num">#513</span></div></div>
+  <div class="s-log log">
+    <h2>Log</h2>
+    <div class="row"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue #562</span></div>
+    <div class="row"><time>12:40</time><span class="ttl">closed · The pane-driven rewind #542</span></div>
+    <div class="row"><time>09:15</time><span class="ttl">verdict · Inspiration for the dashboard #513</span></div>
   </div>
   </div>
 </section>
