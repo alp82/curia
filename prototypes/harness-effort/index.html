@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#559 — How each harness takes a reasoning effort</title>
+<style>
+  /* PROTOTYPE — throwaway demo for alp82/curia#559. Not production code. */
+  :root {
+    --bg: #16181d; --panel: #1e2128; --line: #2f333d; --ink: #e3e6ea;
+    --dim: #98a0ad; --accent: #57f287; --warn: #fee75c; --fail: #f26857;
+    --link: #7fb2ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0 0 4rem; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%; }
+  header.page { padding: 1.6rem 1.1rem 1.3rem; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg)); }
+  header.page h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header.page .tag { display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--accent); letter-spacing: .04em; }
+  header.page p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2.sec { margin: 2.6rem 0 .4rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700; }
+  h2.sec .n { color: var(--accent); margin-right: .4rem; }
+  p.lead { margin: .2rem 0 1rem; color: var(--dim); font-size: .93rem; }
+  p.lead b, p.lead strong { color: var(--ink); }
+  nav.toc { margin: 1rem 0 0; font-size: .9rem; }
+  nav.toc a { color: var(--link); text-decoration: none; display: inline-block; margin: 0 .9rem .3rem 0; }
+  a { color: var(--link); }
+  .verdict { display: inline-block; border-radius: 5px; padding: .12rem .5rem;
+    font: 700 .72rem/1.4 var(--mono); letter-spacing: .05em; vertical-align: 2px; }
+  .verdict.pass { background: rgba(87,242,135,.12); color: var(--accent); border: 1px solid rgba(87,242,135,.3); }
+  .verdict.open { background: rgba(254,231,92,.08); color: var(--warn); border: 1px solid rgba(254,231,92,.25); }
+  .verdict.fail { background: rgba(242,104,87,.1); color: var(--fail); border: 1px solid rgba(242,104,87,.3); }
+  .term { background: #0f1114; border: 1px solid #262a32; border-radius: 8px;
+    margin: .6rem 0 1rem; overflow: hidden; }
+  .term .cap { padding: .35rem .7rem; border-bottom: 1px solid #1d2026;
+    font: 600 .72rem/1.4 var(--mono); color: var(--dim); letter-spacing: .03em; }
+  .term pre { margin: 0; padding: .6rem .7rem; overflow-x: auto;
+    font: .78rem/1.45 var(--mono); color: #c7ccd4; }
+  .term pre b { color: var(--accent); font-weight: 600; }
+  .term pre i { color: var(--warn); font-style: normal; }
+  .term pre s { color: var(--fail); text-decoration: none; font-weight: 600; }
+  .fact { margin: .6rem 0; padding-left: 1rem; }
+  .fact li { margin: .3rem 0; font-size: .9rem; }
+  .fact li b { color: var(--ink); }
+  .fact li .small { color: var(--dim); font-size: .82rem; }
+  .note { margin: .8rem 0; padding: .5rem .65rem; border-radius: 6px;
+    background: rgba(87,242,135,.06); border: 1px solid rgba(87,242,135,.18);
+    color: var(--dim); font-size: .8rem; }
+  .note b { color: var(--accent); }
+  .note.warn { background: rgba(254,231,92,.05); border-color: rgba(254,231,92,.2); }
+  .note.warn b { color: var(--warn); }
+  table.sum { width: 100%; border-collapse: collapse; margin: .8rem 0 1rem; font-size: .82rem; }
+  table.sum th, table.sum td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.sum th { color: var(--dim); font: 700 .7rem/1.4 var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+  table.sum td b { color: var(--ink); }
+  table.sum td { color: var(--dim); }
+  .tablewrap { overflow-x: auto; }
+  code { font: .84em var(--mono); background: #23262d; border-radius: 4px; padding: .05rem .3rem; }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <span class="tag">PROTOTYPE · alp82/curia#559</span>
+  <h1>How each harness takes a reasoning effort</h1>
+  <p>Four lanes, one question each: where does the effort enter, which words does the lane
+     accept, where does it read back, how does a wrong value fail, and can it change on a
+     resume. Every claim is read off a live run's request body, captured by a stand-in
+     model server. The pane never judges itself.</p>
+  <nav class="toc">
+    <a href="#rig">The rig</a>
+    <a href="#claude">claude</a>
+    <a href="#codex">codex</a>
+    <a href="#opencode">opencode</a>
+    <a href="#pi">pi</a>
+    <a href="#summary">Summary</a>
+  </nav>
+</header>
+
+<main>
+
+<h2 class="sec" id="rig"><span class="n">1</span> The rig</h2>
+<p class="lead">Each probe spawns the real CLI in a detached tmux pane through
+   <code>drive.mjs</code>, the daemon's own paced write path. The CLI talks to a local
+   stand-in model server (<code>standin-anthropic.mjs</code>,
+   <code>standin-responses.mjs</code>, <code>standin-chat.mjs</code>) that logs every
+   request whole. So the effort a spawn states is proven on the wire, and the pane
+   captures show only where a human can read it back. Raw captures sit in
+   <code>evidence/</code>.</p>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="claude"><span class="n">2</span> claude 2.1.220 <span class="verdict pass">PROVEN</span></h2>
+<p class="lead"><b>A spawn flag, five levels, a per-turn transcript record, and a warning
+   instead of a refusal.</b> The wire field is <code>output_config.effort</code> on
+   <code>POST /v1/messages</code>.</p>
+
+<ul class="fact">
+  <li><b>Mechanism:</b> <code>claude --effort xhigh</code> at spawn. The env var
+      <code>CLAUDE_CODE_EFFORT_LEVEL</code> works too (req-18 sent <code>low</code> off
+      the env var alone). A <code>settings.json</code> key named <code>effort</code>
+      does nothing (req-16).</li>
+  <li><b>Vocabulary:</b> <code>low medium high xhigh max</code> — the daemon's union minus
+      <code>ultra</code>, one to one. Hidden extra: <code>--effort ultracode</code> is
+      accepted and rides the wire as <code>xhigh</code> (req-14).</li>
+  <li><b>Default:</b> <code>high</code>, proven by the no-flag resume (req-8) and the
+      invalid-value fallback (req-12).</li>
+  <li><b>Mid-session:</b> the <code>/effort</code> slider. The next turn sends the new
+      value (req-6). The switch is session-only: a bare <code>--continue</code> falls back
+      to <code>high</code> (req-8), and <code>--continue --effort low</code> wins (req-10).
+      So an override applies on every spawn, resume included.</li>
+</ul>
+
+<div class="term">
+  <div class="cap">SPAWN HEADER + FOOTER — claude --effort xhigh (evidence/claude-1-spawn-xhigh.txt)</div>
+  <pre>▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Opus 5 (1M context) <b>with xhigh effort</b> · API Usage Billing
+  ▘▘ ▝▝    /…/effort/claude-a/ws
+…
+  ⏸ manual mode on · ? for shortcuts · ← for agents          <b>◉ xhigh · /effort</b></pre>
+</div>
+
+<div class="term">
+  <div class="cap">THE WIRE — output_config.effort follows the flag, the slider, and the resume flag</div>
+  <pre>req-4   --effort xhigh            → "output_config": { "effort": <b>"xhigh"</b> }
+req-6   /effort → max (mid-turn)  → "output_config": { "effort": <b>"max"</b> }
+req-8   --continue (no flag)      → "output_config": { "effort": <b>"high"</b> }   ← default is back
+req-10  --continue --effort low   → "output_config": { "effort": <b>"low"</b> }
+req-12  --effort banana           → "output_config": { "effort": <b>"high"</b> }   + a printed warning
+req-14  --effort ultracode        → "output_config": { "effort": <b>"xhigh"</b> }
+req-18  CLAUDE_CODE_EFFORT_LEVEL=low → "output_config": { "effort": <b>"low"</b> }</pre>
+</div>
+
+<div class="term">
+  <div class="cap">THE /effort SLIDER (evidence/claude-2-effort-menu.txt)</div>
+  <pre>  Effort
+
+         Faster                                                 Smarter
+         ──────────────────────────────▲────────────┆──────────────────
+         low     medium     high     <b>xhigh</b>      max       ultracode
+                                                      xhigh + workflows</pre>
+</div>
+
+<div class="term">
+  <div class="cap">THE SWITCH WARNS — a mid-session change re-reads the history (claude-3-switch-confirm.txt)</div>
+  <pre>  Changing effort mid-session
+  means the full history gets re-read on your next message.
+
+  ❯ 1. Yes, switch to max
+    2. No, go back</pre>
+</div>
+
+<div class="term">
+  <div class="cap">FAILURE SHAPE — a wrong value warns and falls back, exit 0</div>
+  <pre><i>Warning: Unknown --effort value 'banana' — ignoring it and using the
+default effort. Valid values: low, medium, high, xhigh, max.</i>
+ok (req 12)        ← the run continued at high</pre>
+</div>
+
+<ul class="fact">
+  <li><b>Readback:</b> the spawn header, the footer <code>◉ xhigh · /effort</code>, the
+      slider — and the transcript, which records <code>effort</code> on every assistant
+      entry (claude-8-transcript-effort.txt). The daemon already mines that file for the
+      model id, so the true per-turn effort is one field away. <code>/status</code> does
+      NOT show effort.</li>
+  <li><b>Side calls run their own effort:</b> utility calls (topic titles) send
+      <code>effort: high</code>, <code>thinking: disabled</code> regardless of the flag
+      (req-3, req-5). A wire reader must read the main turn, or read the transcript.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="codex"><span class="n">3</span> codex 0.146.0 <span class="verdict pass">PROVEN</span></h2>
+<p class="lead"><b>The known config key, a seventh word, and two traps: garbage passes
+   through, and <code>ultra</code> lies on the readback.</b> The wire field is
+   <code>reasoning.effort</code> on <code>POST /v1/responses</code>.</p>
+
+<ul class="fact">
+  <li><b>Mechanism:</b> <code>model_reasoning_effort</code> in <code>config.toml</code>
+      (what <code>workspace.mjs</code> writes today), or per spawn as
+      <code>-c model_reasoning_effort="x"</code>.</li>
+  <li><b>Vocabulary:</b> <code>minimal low medium high xhigh max ultra</code>. The picker
+      names Max and Ultra "Advanced Reasoning · consumes usage limits faster", Ultra
+      "for demanding work using multiple agents". <code>minimal</code> sits below the
+      union's floor. <code>ultra</code> matches the union by name — but see the trap.</li>
+  <li><b>Default:</b> per model, not one constant. The picker marks Low as the default
+      for gpt-5.6-sol. routing.yaml already records gpt-5.5 defaulting to medium.</li>
+  <li><b>Mid-session:</b> the <code>/model</code> picker switches effort per session
+      (req-11) and never writes <code>config.toml</code>.</li>
+</ul>
+
+<div class="term">
+  <div class="cap">THE WIRE — the full sweep, one exec each (evidence/codex-wire/)</div>
+  <pre>minimal → <b>"minimal"</b>    low → <b>"low"</b>    medium → <b>"medium"</b>    high → <b>"high"</b>
+xhigh   → <b>"xhigh"</b>      max → <b>"max"</b>
+ultra   → <s>"max"</s>       ← clamped on the wire, footer still says ultra
+banana  → <s>"banana"</s>    ← passes through untouched, would 400 on the real API</pre>
+</div>
+
+<div class="term">
+  <div class="cap">THE ULTRA TRAP — footer and rollout say ultra, the request says max (codex-5-after-ultra.txt)</div>
+  <pre>  gpt-5.6-sol <i>ultra</i> · ~/ws                       ← the footer readback
+  "reasoning": { "effort": <b>"max"</b>, … }             ← the same turn on the wire
+  turn_context payload: "effort": <i>"ultra"</i>          ← the rollout record</pre>
+</div>
+
+<div class="term">
+  <div class="cap">FAILURE SHAPE — the dangerous quiet one</div>
+  <pre>$ codex exec -c model_reasoning_effort="banana" "say ok"
+…
+reasoning effort: <s>banana</s>          ← the header echoes it
+"reasoning": { "effort": <s>"banana"</s> } ← and the wire carries it
+exit=0                                ← nothing refused anything</pre>
+</div>
+
+<div class="term">
+  <div class="cap">RESUME — the session record beats the config file, and only -c beats the session</div>
+  <pre>spawn at high, one turn, quit
+config.toml → medium
+codex resume --last               → wire <b>"high"</b>    ← config change IGNORED (req-15)
+codex resume --last -c model_reasoning_effort="minimal"
+                                  → wire <b>"minimal"</b>  ← the CLI override wins (req-16)</pre>
+</div>
+
+<ul class="fact">
+  <li><b>Readback:</b> footer <code>gpt-5.6-sol low · ~/ws</code>, exec header
+      <code>reasoning effort: …</code>, and the rollout's <code>turn_context</code>
+      payloads — all echo the CONFIGURED string, wrong values included. The daemon
+      already parses rollouts, so per-turn effort is readable, with the ultra caveat.</li>
+  <li><b>Failure shape:</b> no validation anywhere on the lane. The daemon's boot check
+      against <code>REASONING_EFFORTS</code> is the only guard.</li>
+  <li><b>Resume rule for the daemon:</b> a ticket-type override on a codex resume must
+      ride the resume COMMAND (<code>-c</code>), never the config file.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="opencode"><span class="n">4</span> opencode <span class="verdict open">PENDING INSTALL</span></h2>
+<p class="lead">Awaiting the operator's approval to install <code>opencode-ai</code>.
+   This section fills in from the same rig: wire first, pane second.</p>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="pi"><span class="n">5</span> pi <span class="verdict open">PENDING INSTALL</span></h2>
+<p class="lead">Awaiting the operator's approval to install
+   <code>@earendil-works/pi-coding-agent</code>. Same rig.</p>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="summary"><span class="n">6</span> Summary</h2>
+<div class="tablewrap">
+<table class="sum">
+  <tr><th>lane</th><th>mechanism</th><th>vocabulary</th><th>readback</th><th>wrong value</th><th>on resume</th></tr>
+  <tr><td><b>claude 2.1.220</b></td>
+      <td><code>--effort</code> flag, <code>CLAUDE_CODE_EFFORT_LEVEL</code>, <code>/effort</code></td>
+      <td>low…max (=union − ultra), + <code>ultracode</code>→xhigh</td>
+      <td>header, footer, slider, transcript per turn</td>
+      <td>warns, falls back to high, runs on</td>
+      <td>flag on the resume spawn wins</td></tr>
+  <tr><td><b>codex 0.146.0</b></td>
+      <td><code>model_reasoning_effort</code> in config.toml, <code>-c</code>, <code>/model</code></td>
+      <td>minimal…max + ultra (ultra rides as max)</td>
+      <td>footer, exec header, rollout per turn — all echo the CONFIG string</td>
+      <td>passes through, real API would 400 mid-run</td>
+      <td>session record beats config; <code>-c</code> beats session</td></tr>
+  <tr><td><b>opencode</b></td><td colspan="5">pending install approval</td></tr>
+  <tr><td><b>pi</b></td><td colspan="5">pending install approval</td></tr>
+</table>
+</div>
+
+<div class="note"><b>What #533 can already settle.</b> Both proven lanes take the effort
+per spawn from a value the daemon controls, resume included — so
+<code>defaults.&lt;type&gt;</code> as <code>{model, effort}</code> with
+type-beats-model precedence is implementable. Neither lane validates, so the daemon's
+boot check is the only guard. The union's <code>ultra</code> needs a per-harness
+translation or a rule that no model maps it.</div>
+
+</main>
+</body>
+</html>

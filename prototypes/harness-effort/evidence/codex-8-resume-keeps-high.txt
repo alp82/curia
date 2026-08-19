@@ -1,0 +1,24 @@
+│                                                  │
+│ model:       gpt-5.6-sol high   /model to change │
+│ directory:   ~/ws2                               │
+│ permissions: YOLO mode                           │
+╰──────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+
+› hi ok
+
+
+• ok (req 14)
+
+
+› resumed ok
+
+
+• ok (req 15)
+
+
+› Find and fix a bug in @filename
+
+  gpt-5.6-sol high · ~/ws2

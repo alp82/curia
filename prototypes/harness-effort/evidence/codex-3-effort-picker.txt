@@ -1,0 +1,24 @@
+  Tip: Our most capable model yet. GPT-5.6 Sol can tackle complex code changes,
+  dig into research, produce polished documents, and take on your most ambitious
+  work. Sol is highly capable at lower reasoning efforts—try starting lower,
+  then turn it up for harder jobs.
+
+
+› say ok
+
+
+• ok (req 10)
+
+
+  Select Reasoning Level for gpt-5.6-sol
+
+› 1. Low (default) (current)  Fast responses with lighter reasoning
+  2. Medium                   Balances speed and reasoning depth for everyday
+                              tasks
+  3. High                     Greater reasoning depth for complex problems
+  4. Extra high               Extra high reasoning depth for complex problems
+  5. More reasoning…          Max and Ultra consume usage limits faster
+
+  Press enter to confirm or esc to go back
+
+

@@ -1,0 +1,8 @@
+      1 "effort":"banana"
+      3 "effort":"high"
+      2 "effort":"low"
+      1 "effort":"max"
+      1 "effort":"medium"
+      2 "effort":"minimal"
+      5 "effort":"ultra"
+      1 "effort":"xhigh"

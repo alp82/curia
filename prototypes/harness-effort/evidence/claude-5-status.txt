@@ -1,0 +1,24 @@
+  Session name:        /rename to add a name
+  Session ID:          1c502788-e11a-4a8b-92cd-8c7ceff859e9
+  cwd:                 /tmp/claude-1000/-workspace/238ef690-9cdf-459e-aa87-8a7
+                       e4da021/scratchpad/effort/claude-a/ws
+  Auth token:          none
+  API key:             ANTHROPIC_API_KEY
+  Anthropic base URL:  http://127.0.0.1:9105
+
+  Model:               Default (claude-opus-5[1m])
+  Setting sources:     User settings
+
+  System diagnostics
+   ⚠ Native installation exists but ~/.local/bin is not in your PATH. Run:
+
+     echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source
+     ~/.bashrc
+   ⚠ claude command at /home/agent/.local/bin/claude missing or broken
+     (/home/agent/.local/bin does not exist)
+   ⚠ claude command at /home/agent/.local/bin/claude missing or broken
+   ⚠ No write permissions for auto-updates
+
+
+  Esc to cancel
+

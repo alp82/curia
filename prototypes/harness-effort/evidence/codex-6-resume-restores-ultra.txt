@@ -1,0 +1,24 @@
+│                                                   │
+│ model:       gpt-5.6-sol ultra   /model to change │
+│ directory:   ~/ws                                 │
+│ permissions: YOLO mode                            │
+╰───────────────────────────────────────────────────╯
+
+  Tip: New Build faster with Codex.
+
+
+› say ok
+
+
+• ok (req 10)
+
+
+› say ok again
+
+
+• ok (req 11)
+
+
+» Run /review on my current changes
+
+  gpt-5.6-sol ultra · ~/ws

@@ -1,0 +1,24 @@
+
+
+❯ hello, reply with one word
+
+● ok (req 4)
+
+✻ Cooked for 0s
+
+❯ /effort
+  ⎿  Set effort level to max (this session only): Maximum capability with
+     deepest reasoning. May use excessive tokens resulting in long response
+     times or overthinking. Use sparingly for the hardest tasks.
+
+❯ again one word
+
+● ok (req 6)
+
+✻ Baked for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents
+
