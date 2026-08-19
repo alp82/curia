@@ -7,7 +7,11 @@
        c — Takeover: the terminal covers the viewport; a floating pill closes it.
      Every variant opens from the SAME chat-header link. The cols×rows badge is measured live,
      so each variant shows its own chrome cost against the full viewport grid.
+     LIVE MODE: when serve.mjs runs beside a loopback ttyd, the terminal box becomes a real
+     same-origin iframe on /terminal/ — a real tmux session running a real Claude Code instance,
+     through the same proxy shape the sidecar takes in #536. Without it the fake pane renders.
      Canned data only. Throwaway code. Do not wire, do not promote. -->
+<meta charset="utf-8">
 <title>curia — embedded terminal prototype (#537)</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
@@ -160,6 +164,7 @@
     font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; white-space: nowrap;
     color: var(--accent); background: var(--chip-ok-bg); border-radius: 999px; padding: 1px 9px;
   }
+  .term-frame { border: 0; flex: 1; min-height: 0; width: 100%; display: block; background: var(--term-bg); }
   .term-head .x { border: 0; background: none; color: var(--ink-dim); font-size: 16px; padding: 0 4px; line-height: 1; }
   .term-head .x:hover { color: var(--bad); }
   .term-head .back { border: 0; background: none; color: var(--accent); padding: 0 2px; font-size: 13px; white-space: nowrap; }
@@ -240,10 +245,14 @@ let typed = "";
 
 /* ================= state ================= */
 const VARIANTS = {
-  a: "Screen — nav stays",
-  b: "Split — chat stays",
-  c: "Takeover — chrome gone"
+  a: "Screen · nav stays",
+  b: "Split · chat stays",
+  c: "Takeover · chrome gone"
 };
+/* live mode: a real ttyd answers on the same-origin /terminal/ route */
+let live = false;
+const LIVE_SESS = "curia-537-demo";
+fetch("/terminal/", { method: "GET" }).then(r => { live = r.ok && _h.get("l") !== "0"; render(); }).catch(() => {});
 const _h = new URLSearchParams(location.hash.slice(1));
 let variant = VARIANTS[_h.get("v")] ? _h.get("v") : "a";
 let screen = ["home", "chat"].includes(_h.get("s")) ? _h.get("s") : "chat";
@@ -270,6 +279,7 @@ function closeTerm() {
 const escT = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
 function termScreen() {
+  if (live) return `<iframe class="term-frame" src="/terminal/" allow="clipboard-read; clipboard-write"></iframe>`;
   const prompt = ' <span class="g">❯</span> ' + escT(typed) + '<span class="cur"> </span>';
   return `<div class="term-screen" id="term-screen" onclick="focusTerm()">
       <pre>${TERM_LINES.map(l => l.html).join("\n")}\n${prompt}</pre>
@@ -277,12 +287,18 @@ function termScreen() {
     <div class="tmux-bar"><span>[${SESS}] 0:claude*</span><span>"box" 14:52</span></div>`;
 }
 function touchKeys() {
+  if (live) return "";
   return `<div class="touch-keys">
     ${["Esc", "Tab", "Ctrl-C", "↑", "↓", "←", "→", "Enter", "/", "1", "2", "3"].map(k =>
       `<button onclick="touchKey('${k}')">${k}</button>`).join("")}
   </div>`;
 }
-function gridBadge() { return `<span class="grid-badge" id="grid-badge">…×…</span>`; }
+function gridBadge() {
+  if (live) return `<span class="grid-badge">live · ttyd</span>`;
+  return `<span class="grid-badge" id="grid-badge">…×…</span>`;
+}
+const dispSess = () => live ? LIVE_SESS : SESS;
+const dispUrl = () => live ? location.host + "/terminal/" : TERM_URL;
 
 function touchKey(k) {
   if (k === "Enter") return keyEnter();
@@ -301,7 +317,7 @@ function keyEnter() {
 }
 function focusTerm() { /* the fake pane reads document keydown; nothing to focus */ }
 document.addEventListener("keydown", e => {
-  if (!termVisible()) return;
+  if (live || !termVisible()) return;
   if (e.target.closest("input")) return;
   if (["ArrowLeft", "ArrowRight"].includes(e.key) && e.altKey) return;
   if (e.key === "Enter") { keyEnter(); e.preventDefault(); return; }
@@ -366,8 +382,8 @@ function screenTermA() {
   return `<div class="term-box" style="flex:1">
     <div class="term-head">
       <button class="back" onclick="closeTerm()">‹ chat</button>
-      <span class="sess">${SESS}</span>
-      <span class="url">${TERM_URL}</span>
+      <span class="sess">${dispSess()}</span>
+      <span class="url">${dispUrl()}</span>
       ${gridBadge()}
       <button class="x" onclick="closeTerm()" title="close — detaches this tmux client">×</button>
     </div>
@@ -383,8 +399,8 @@ function screenChatB() {
         ${chatThread()}${termOpen ? "" : chatInput()}</div></div>
       ${termOpen ? `<div class="drawer ${drawerTall ? "h85" : "h55"}">
         <div class="term-head">
-          <span class="sess">${SESS}</span>
-          <span class="url">${TERM_URL}</span>
+          <span class="sess">${dispSess()}</span>
+          <span class="url">${dispUrl()}</span>
           ${gridBadge()}
           <button class="back" onclick="drawerTall=!drawerTall;render()">${drawerTall ? "shrink" : "grow"}</button>
           <button class="x" onclick="closeTerm()" title="close — detaches this tmux client">×</button>
@@ -400,7 +416,7 @@ function takeoverC() {
       <div class="term-box">${termScreen()}</div>${touchKeys()}
     </div>
     <div class="pill-float">
-      <span class="sess">${SESS}</span>${gridBadge()}
+      <span class="sess">${dispSess()}</span>${gridBadge()}
       <button class="x" onclick="closeTerm()" title="close — detaches this tmux client">×</button>
     </div>`;
 }
@@ -409,7 +425,9 @@ function screenChatPlain() {
   return `${chatHeader()}
     <div class="chat-wrap">
       <div class="chat-note">The <b>terminal</b> link in this header is the judged affordance. It opens the
-        same-origin <span class="mono">/terminal/</span> route — no port 8443. Flip variants with the black bar below.</div>
+        same-origin <span class="mono">/terminal/</span> route — no port 8443. Flip variants with the black bar below.
+        ${live ? `<b>Live:</b> a real ttyd serves a throwaway tmux session (<span class="mono">${LIVE_SESS}</span>)
+        with a real Claude Code inside, through the same proxy shape as #536.` : ""}</div>
       ${chatThread()}${chatInput()}
     </div>`;
 }
