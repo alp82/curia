@@ -46,6 +46,12 @@ The daemon's union in `daemon/src/config.mjs`: `low | medium | high | xhigh | ma
 - **Side calls run their own effort.** Haiku-style utility calls (topic titles) send
   `effort: high` with `thinking: disabled` regardless of the flag (`req-3`, `req-5`).
   A status line reading the wire must read the MAIN turn, or read the transcript.
+- **Fallback models.** The flag applies to fable and sonnet the same way (`req-20`,
+  `req-24`). Haiku does NOT take it: the CLI accepts the flag, prints no warning, sends
+  no `output_config`, and falls back to a thinking budget (`req-22`). The transcript
+  tells the truth: the `effort` field is present where applied and ABSENT where dropped
+  (`claude-9-effort-across-models.txt`). So the daemon can detect a dropped effort on a
+  fallback spawn by reading its own transcript surface.
 
 ## codex 0.146.0 (wire: `POST /v1/responses`, field `reasoning.effort`)
 

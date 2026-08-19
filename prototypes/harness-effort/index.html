@@ -174,6 +174,14 @@ ok (req 12)        ← the run continued at high</pre>
       (req-3, req-5). A wire reader must read the main turn, or read the transcript.</li>
 </ul>
 
+<div class="term">
+  <div class="cap">FALLBACK MODELS — the same flag across the claude lane (claude-9-effort-across-models.txt)</div>
+  <pre>--effort low + claude-fable-5   → "output_config": { "effort": <b>"low"</b> }     transcript: effort low
+--effort low + claude-sonnet-5  → "output_config": { "effort": <b>"low"</b> }     transcript: effort low
+--effort low + claude-haiku-4-5 → <s>output_config absent</s>, thinking budget    transcript: <s>effort absent</s>
+                                  ← dropped silently, no warning. The transcript field is the tell.</pre>
+</div>
+
 <!-- ================================================================ -->
 <h2 class="sec" id="codex"><span class="n">3</span> codex 0.146.0 <span class="verdict pass">PROVEN</span></h2>
 <p class="lead"><b>The known config key, a seventh word, and two traps: garbage passes

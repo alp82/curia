@@ -1,0 +1,12 @@
+{
+  "method": "HEAD",
+  "url": "/api/hello",
+  "headers": {
+    "connection": "keep-alive",
+    "user-agent": "Bun/1.4.0",
+    "accept": "*/*",
+    "host": "127.0.0.1:9105",
+    "accept-encoding": "gzip, deflate, br, zstd"
+  },
+  "body": null
+}
