@@ -124,7 +124,24 @@ export class SelfDeploy {
     // and the status of a modified-but-unstaged file starts with a space, so
     // the lines are cut one by one rather than trimmed as one string.
     const status = (await this.#git('status', '--porcelain', '--untracked-files=no')).stdout
-    const files = status.split('\n').map((l) => l.slice(3).trim()).filter(Boolean)
+    const lines = status.split('\n').filter((l) => l.trim())
+    const entries = lines.map((l) => ({ code: l.slice(0, 2), file: l.slice(3).trim() }))
+    // Lockfile churn heals itself. The start-time `npm install` runs against
+    // the repo mount, and an npm version drift rewrites package-lock.json
+    // (deploy/daemon/Dockerfile) — the daemon wrote that diff, so the daemon
+    // may discard it. The guard against a real dependency edit: discard only
+    // an unstaged lockfile whose sibling package.json is clean. An intentional
+    // change stages the lockfile or dirties package.json with it.
+    const dirty = new Set(entries.map((e) => e.file))
+    const churn = entries
+      .filter((e) => e.code === ' M' && path.basename(e.file) === 'package-lock.json')
+      .filter((e) => !dirty.has(path.posix.join(path.posix.dirname(e.file), 'package.json')))
+      .map((e) => e.file)
+    if (churn.length) {
+      await this.#git('checkout', '--', ...churn)
+      this.reduction.journal('deploy_lockfile_churn_discarded', { files: churn })
+    }
+    const files = entries.map((e) => e.file).filter((f) => !churn.includes(f))
     if (files.length) {
       const named = files.slice(0, 5).join(', ')
       const rest = files.length > 5 ? `, and ${files.length - 5} more` : ''
@@ -133,10 +150,15 @@ export class SelfDeploy {
         'Commit or discard them over ssh. The dashboard writes `config/*.local.yaml`, which git does not track, so a settings save is never what this is.',
       ].join('\n')
     }
+    // The discard note rides on whichever reply follows, so the operator sees
+    // what the preflight threw away and why it was safe to.
+    const note = churn.length
+      ? `♻️ discarded npm lockfile churn in ${churn.join(', ')} — the start-time \`npm install\` rewrote it, package.json is clean.\n`
+      : ''
     await this.#git('fetch', 'origin', 'main')
     const prev = (await this.#git('rev-parse', 'HEAD')).stdout.trim()
     const next = (await this.#git('rev-parse', 'origin/main')).stdout.trim()
-    if (prev === next) return `✅ already at ${short(prev)} — origin/main holds nothing new`
+    if (prev === next) return `${note}✅ already at ${short(prev)} — origin/main holds nothing new`
     try {
       await this.#git('merge-base', '--is-ancestor', 'HEAD', 'origin/main')
     } catch {
@@ -174,7 +196,7 @@ export class SelfDeploy {
       throw e
     }
     return [
-      `🚀 deploy handed off: ${short(prev)} → ${short(next)}. The daemon restarts now.`,
+      `${note}🚀 deploy handed off: ${short(prev)} → ${short(next)}. The daemon restarts now.`,
       `The sibling health-checks the successor and rolls back to ${short(prev)} if it does not come up — either way the outcome lands here.`,
     ].join('\n')
   }

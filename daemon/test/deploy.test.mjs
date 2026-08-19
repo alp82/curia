@@ -37,6 +37,7 @@ function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null,
       git.push(args)
       const verb = args[0]
       if (verb === 'status') return { stdout: dirty }
+      if (verb === 'checkout') return { stdout: '' }
       if (verb === 'fetch') return { stdout: '' }
       if (verb === 'rev-parse') return { stdout: `${args[1] === 'HEAD' ? head : origin}\n` }
       if (verb === 'merge-base') {
@@ -103,6 +104,33 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.equal(docker.length, 0)
     assert.equal(reduction.events.length, 0)
     assert.equal(deploy.readMarker(), null)
+  })
+
+  // The start-time `npm install` runs against the repo mount, and an npm
+  // version drift rewrites package-lock.json (deploy/daemon/Dockerfile). The
+  // daemon wrote that diff, so the preflight discards it and deploys — no ssh.
+  test('unstaged lockfile churn with a clean package.json is discarded, and the deploy proceeds', async () => {
+    const { deploy, reduction, docker, git } = build({ dirty: ' M daemon/package-lock.json\n' })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /discarded npm lockfile churn in daemon\/package-lock\.json/)
+    assert.match(reply, /deploy handed off/)
+    assert.deepEqual(git.find((args) => args[0] === 'checkout'), ['checkout', '--', 'daemon/package-lock.json'])
+    assert.equal(reduction.events[0].type, 'deploy_lockfile_churn_discarded')
+    assert.deepEqual(reduction.events[0].files, ['daemon/package-lock.json'])
+    assert.equal(docker.length, 1)
+  })
+
+  // A lockfile that moved with its package.json is a dependency edit, not
+  // churn — and a staged lockfile was put there by a hand. Both keep the
+  // refusal.
+  test('a lockfile is not discarded when package.json is dirty or when it is staged', async () => {
+    for (const dirty of [' M daemon/package.json\n M daemon/package-lock.json\n', 'M  daemon/package-lock.json\n']) {
+      const { deploy, docker, git } = build({ dirty })
+      const reply = await deploy.run({ by: 'u1' })
+      assert.match(reply, /uncommitted changes/)
+      assert.equal(git.find((args) => args[0] === 'checkout'), undefined)
+      assert.equal(docker.length, 0)
+    }
   })
 
   test('the check asks about tracked files only', async () => {
