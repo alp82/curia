@@ -1,4 +1,7 @@
 <!-- PROTOTYPE — wayfinder alp82/curia#537: The embedded terminal.
+     VERDICT (operator, 2026-08-19): variant a Screen wins. The embedded terminal replaces
+     the terminal page, so port 8443 and its Serve rule retire in the build. The touch key
+     row shows only on phones.
      Question: the terminal moves inside the dashboard on a same-origin /terminal/ route (#536).
      Does the embedded terminal replace the terminal page, so port 8443 retires?
      Three variants of where the embedded terminal lives, switchable via the floating bar or #v=:
@@ -169,6 +172,8 @@
   .term-head .x:hover { color: var(--bad); }
   .term-head .back { border: 0; background: none; color: var(--accent); padding: 0 2px; font-size: 13px; white-space: nowrap; }
   .touch-keys { display: flex; gap: 6px; padding: 6px 8px; background: var(--bg-inset); border-top: 1px solid var(--line); overflow-x: auto; }
+  /* decided on this ticket: the touch key row shows only on phones */
+  @media (min-width: 761px) { .touch-keys { display: none; } }
   .touch-keys button {
     border: 1px solid var(--line); background: var(--bg-raise); color: var(--ink-dim);
     border-radius: 6px; padding: 3px 10px; font: 12px ui-monospace, Menlo, monospace; white-space: nowrap; flex: none;
