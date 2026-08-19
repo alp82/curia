@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#542 — The pane-driven rewind</title>
+<style>
+  /* PROTOTYPE — throwaway demo for alp82/curia#542. Not production code. */
+  :root {
+    --bg: #16181d;
+    --panel: #1e2128;
+    --line: #2f333d;
+    --ink: #e3e6ea;
+    --dim: #98a0ad;
+    --accent: #57f287;
+    --warn: #fee75c;
+    --fail: #f26857;
+    --link: #7fb2ff;
+    --chat: #313338;
+    --chat-ink: #dbdee1;
+    --chat-dim: #949ba4;
+    --chat-name: #f2f3f5;
+    --bot-badge: #5865f2;
+    --btn-secondary: #4e5058;
+    --code-bg: #2b2d31;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --gg: "gg sans", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 4rem;
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header.page {
+    padding: 1.6rem 1.1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg));
+  }
+  header.page h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header.page .tag {
+    display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--accent); letter-spacing: .04em;
+  }
+  header.page p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2.sec {
+    margin: 2.6rem 0 .4rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700;
+  }
+  h2.sec .n { color: var(--accent); margin-right: .4rem; }
+  p.lead { margin: .2rem 0 1rem; color: var(--dim); font-size: .93rem; }
+  p.lead b, p.lead strong { color: var(--ink); }
+  nav.toc { margin: 1rem 0 0; font-size: .9rem; }
+  nav.toc a { color: var(--link); text-decoration: none; display: inline-block; margin: 0 .9rem .3rem 0; }
+
+  .verdict {
+    display: inline-block; border-radius: 5px; padding: .12rem .5rem;
+    font: 700 .72rem/1.4 var(--mono); letter-spacing: .05em; vertical-align: 2px;
+  }
+  .verdict.pass { background: rgba(87,242,135,.12); color: var(--accent); border: 1px solid rgba(87,242,135,.3); }
+  .verdict.open { background: rgba(254,231,92,.08); color: var(--warn); border: 1px solid rgba(254,231,92,.25); }
+  .verdict.fail { background: rgba(242,104,87,.1); color: var(--fail); border: 1px solid rgba(242,104,87,.3); }
+
+  .keys { margin: .6rem 0 .9rem; display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+  .keys kbd {
+    background: #23262d; border: 1px solid #3a3f4a; border-bottom-width: 2px;
+    border-radius: 5px; padding: .16rem .5rem; font: 600 .8rem/1.2 var(--mono);
+    color: var(--ink); white-space: nowrap;
+  }
+  .keys .then { color: var(--dim); font-size: .8rem; }
+  .keys .lbl { color: var(--dim); font-size: .8rem; width: 100%; }
+
+  .term {
+    background: #0f1114; border: 1px solid #262a32; border-radius: 8px;
+    margin: .6rem 0 1rem; overflow: hidden;
+  }
+  .term .cap {
+    padding: .35rem .7rem; border-bottom: 1px solid #1d2026;
+    font: 600 .72rem/1.4 var(--mono); color: var(--dim); letter-spacing: .03em;
+  }
+  .term pre {
+    margin: 0; padding: .6rem .7rem; overflow-x: auto;
+    font: .78rem/1.45 var(--mono); color: #c7ccd4;
+  }
+  .term pre b { color: var(--accent); font-weight: 600; }
+  .term pre i { color: var(--warn); font-style: normal; }
+
+  .fact { margin: .6rem 0; padding-left: 1rem; }
+  .fact li { margin: .3rem 0; font-size: .9rem; color: var(--chat-ink); }
+  .fact li b { color: var(--ink); }
+  .fact li .small { color: var(--dim); font-size: .82rem; }
+
+  .note {
+    margin: .8rem 0; padding: .5rem .65rem; border-radius: 6px;
+    background: rgba(87,242,135,.06); border: 1px solid rgba(87,242,135,.18);
+    color: var(--dim); font-size: .8rem;
+  }
+  .note b { color: var(--accent); }
+  .note.warn { background: rgba(254,231,92,.05); border-color: rgba(254,231,92,.2); }
+  .note.warn b { color: var(--warn); }
+
+  /* Discord transcript chrome (cribbed from prototypes/prose-skill-mockups) */
+  .thread {
+    background: var(--chat); border: 1px solid #232428; border-radius: 12px;
+    padding: 0 0 .8rem; margin: 0 0 1rem; overflow: hidden;
+    font-family: var(--gg);
+  }
+  .thread-top {
+    padding: .55rem .9rem .5rem; border-bottom: 1px solid #26282c;
+    font-size: .86rem; color: var(--chat-dim);
+    display: flex; gap: .45rem; align-items: center;
+  }
+  .thread-top .tname { color: var(--chat-name); font-weight: 600; }
+  .msg { padding: .6rem .9rem 0; display: flex; gap: .75rem; }
+  .avatar {
+    flex: 0 0 2.3rem; width: 2.3rem; height: 2.3rem; border-radius: 50%;
+    display: grid; place-items: center; font-size: .95rem; font-weight: 700;
+    user-select: none; color: #fff; font-family: var(--gg);
+  }
+  .avatar.curia { background: #23508d; }
+  .avatar.op { background: #7a5c2e; }
+  .body { min-width: 0; flex: 1; }
+  .who { font-size: .93rem; color: var(--chat-name); font-weight: 600; }
+  .who .app {
+    background: var(--bot-badge); color: #fff; border-radius: 4px;
+    font-size: .6rem; font-weight: 700; padding: .1rem .3rem; margin-left: .35rem;
+    vertical-align: 2px; letter-spacing: .02em;
+  }
+  .who .ts { color: var(--chat-dim); font-weight: 400; font-size: .72rem; margin-left: .45rem; }
+  .txt { color: var(--chat-ink); font-size: .92rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .txt p { margin: .3rem 0; }
+  .txt .small { font-size: .78rem; color: var(--chat-dim); }
+  .txt code { background: var(--code-bg); border-radius: 4px; padding: .06rem .3rem; font: .84em var(--mono); }
+  .edited { color: var(--chat-dim); font-size: .68rem; margin-left: .3rem; }
+  .btnrow { display: flex; gap: .45rem; flex-wrap: wrap; margin: .5rem 0 .15rem; }
+  .btn {
+    border: none; border-radius: 6px; padding: .42rem .8rem;
+    font: 500 .8rem/1.1 var(--gg); color: #fff; cursor: default; white-space: nowrap;
+    background: var(--btn-secondary);
+  }
+  .quote {
+    margin: .35rem 0; padding: .1rem 0 .1rem .7rem; border-left: 4px solid #4e5058;
+    color: var(--chat-dim); font-size: .88rem;
+  }
+  .edits {
+    margin: .4rem 0 0; padding: .4rem .55rem; border-radius: 6px;
+    background: #2b2d31; font-size: .76rem; color: var(--chat-dim);
+  }
+  .edits b { color: var(--chat-ink); font-weight: 600; }
+  .edits .st { display: block; padding: .06rem 0; }
+  .edits .st::before { content: "· "; color: #4e5058; }
+
+  /* dashboard composer mock */
+  .composer {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    margin: 0 0 1rem; overflow: hidden;
+  }
+  .composer .chead {
+    padding: .55rem .9rem; border-bottom: 1px solid var(--line);
+    font-size: .85rem; color: var(--dim); display: flex; gap: .5rem; align-items: center;
+  }
+  .composer .chead b { color: var(--ink); }
+  .composer .cbody { padding: .8rem .9rem .9rem; }
+  .composer .hint { font-size: .76rem; color: var(--warn); margin: 0 0 .4rem; }
+  .composer .field {
+    background: #14161a; border: 1px solid #3a3f4a; border-radius: 8px;
+    padding: .6rem .7rem; font-size: .9rem; color: var(--ink); line-height: 1.45;
+  }
+  .composer .field .caret { display: inline-block; width: 1px; height: 1em; background: var(--accent); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .composer .crow { display: flex; gap: .5rem; margin-top: .55rem; justify-content: flex-end; }
+  .composer .cbtn {
+    border: none; border-radius: 7px; padding: .45rem .9rem;
+    font: 600 .8rem/1.1 var(--gg); color: #fff; cursor: default;
+  }
+  .composer .cbtn.send { background: #248046; }
+  .composer .cbtn.drop { background: var(--btn-secondary); }
+
+  table.sum {
+    width: 100%; border-collapse: collapse; margin: .6rem 0 1rem; font-size: .84rem;
+  }
+  table.sum th, table.sum td { border: 1px solid var(--line); padding: .45rem .55rem; text-align: left; vertical-align: top; }
+  table.sum th { background: var(--panel); color: var(--dim); font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; }
+  table.sum td b { color: var(--ink); }
+  table.sum td { color: var(--chat-ink); }
+  .wrap { overflow-x: auto; }
+  b, strong { color: inherit; }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <span class="tag">alp82/curia#542</span>
+  <h1>The pane-driven rewind</h1>
+  <p>Can curia drive each harness's own rewind with keystrokes in the pane? This demo holds the
+     evidence of live probes: a real CLI in a tmux pane, every keystroke sent through the daemon's
+     own paced write path (<code>daemon/src/tmux.mjs</code>), and the result read from the disk
+     and from the wire. The Discord receipt and the dashboard composer are static mocks
+     (sections 6 and 7). Decided ground: ADR-0021.</p>
+  <nav class="toc">
+    <a href="#rig">1 · The rig</a>
+    <a href="#claude">2 · claude</a>
+    <a href="#codex">3 · codex</a>
+    <a href="#opencode">4 · opencode</a>
+    <a href="#pi">5 · pi</a>
+    <a href="#receipt">6 · The receipt</a>
+    <a href="#composer">7 · The composer</a>
+    <a href="#verdict">8 · The verdict</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="rig"><span class="n">1</span> The rig</h2>
+<p class="lead">Each probe spawns the real CLI in a detached tmux session, exactly as curia
+   dispatches an agent. The driver (<code>drive.mjs</code>) imports <code>newSession</code>,
+   <code>sendText</code> and <code>sendKey</code> from <code>daemon/src/tmux.mjs</code>, so the
+   pacing and the paste-fold guard are the production ones. claude ran a real model with the
+   container credential. codex ran against a scripted stand-in on the Responses wire API
+   (<code>standin-codex.mjs</code>), the pattern of
+   <code>docs/research/pane-keystroke-codex.probe.mjs</code>. opencode and pi ran against a
+   chat-completions twin (<code>standin-chat.mjs</code>), installed pinned after the operator's
+   approval. A stand-in scripts every turn, so the conversation cut is read off the request
+   body and never off a model's report of itself. Every turn wrote a file through the
+   harness's own tool, so the file question has an answer on disk.</p>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="claude"><span class="n">2</span> claude 2.1.220 <span class="verdict pass">PASS</span></h2>
+<p class="lead"><b>The rewind lands, and the files follow.</b> Two turns wrote
+   <code>apple.txt</code> and <code>banana.txt</code>. The drive took back one message, and
+   <code>banana.txt</code> left the disk. A second drive took back one more, and
+   <code>apple.txt</code> left too. Blind keystrokes, no attached client.</p>
+
+<div class="keys">
+  <span class="lbl">The lane, to take back n messages (agent idle):</span>
+  <kbd>Esc</kbd><kbd>Esc</kbd><span class="then">menu</span>
+  <kbd>Up ×n</kbd><span class="then">pick the landing</span>
+  <kbd>Enter</kbd><span class="then">confirm card</span>
+  <kbd>Enter</kbd><span class="then">restore code and conversation</span>
+  <kbd>Ctrl+C</kbd><span class="then">clear the prefilled composer</span>
+</div>
+
+<div class="term"><div class="cap">pane after Esc Esc — the rewind menu, one entry per user turn, with file deltas</div>
+<pre>  Rewind
+
+  Restore the code and/or conversation to the point before…
+
+    Use the Write tool to create apple.txt containing exactly APPLE-ONE. …
+    apple.txt +1
+
+  ❯ <b>Now use the Write tool to create banana.txt containing exactly BANANA…</b>
+    banana.txt +1
+
+    (current)
+
+  Enter to continue · Esc to cancel</pre></div>
+
+<div class="term"><div class="cap">pane after Enter — the confirm card quotes the taken-back message</div>
+<pre>  Confirm you want to restore to the point before you sent this message:
+
+  │ Now use the Write tool to create banana.txt containing exactly BANANA-TWO.
+  │ Then reply done.
+  │ (53s ago)
+
+  The conversation will be forked.
+  The code will be restored <b>-1 in banana.txt</b>.
+
+  ❯ 1. Restore code and conversation
+    2. Restore conversation
+    3. Restore code
+    4. Summarize from here
+  ↓ 5. Summarize up to here
+
+  <i>⚠ Rewinding does not affect files edited manually or via bash.</i></pre></div>
+
+<div class="term"><div class="cap">pane after the second Enter — landed, and the composer holds the taken-back text</div>
+<pre>❯ <i>Now use the Write tool to create banana.txt containing exactly BANANA-TWO.
+  Then reply done.</i>
+────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+$ ls wt/          # on disk, after the rewind
+<b>apple.txt</b>         # banana.txt is gone — the checkpoint restored the tree</pre></div>
+
+<ul class="fact">
+  <li><b>Files restore with the conversation.</b> Option 1 removed <code>banana.txt</code>, and the second rewind removed <code>apple.txt</code>. <span class="small">The harness warns that manual and bash edits stay — the receipt must name those as standing.</span></li>
+  <li><b>The composer prefills the taken-back text.</b> One <kbd>Ctrl+C</kbd> empties it. <span class="small">Esc does not clear it, and Ctrl+U kills one line of a multi-line message. Curia must clear, or the old text rides the next note.</span></li>
+  <li><b>The entry needs an empty composer and an idle agent.</b> A running turn takes one Esc as the interrupt first — the Ask now mechanic, unchanged.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="codex"><span class="n">3</span> codex 0.146.0 <span class="verdict pass">PASS</span></h2>
+<p class="lead"><b>The backtrack lands, and only the conversation moves.</b> Same two turns,
+   written through <code>exec_command</code>. One press took back one message, a second run took
+   back two. Both files stayed on disk both times, and the cut is proven on the wire: the next
+   request body holds the kept turns and nothing else.</p>
+
+<div class="keys">
+  <span class="lbl">The lane, to take back n messages (agent idle):</span>
+  <kbd>Esc</kbd><kbd>Esc</kbd><span class="then">transcript overlay, last user turn targeted</span>
+  <kbd>Esc ×(n−1)</kbd><span class="then">step earlier</span>
+  <kbd>Enter</kbd><span class="then">fork before the target</span>
+  <kbd>Ctrl+U</kbd><span class="then">clear the prefilled composer</span>
+</div>
+
+<div class="term"><div class="cap">pane after Esc Esc — the transcript overlay with the backtrack keybar</div>
+<pre>/ T R A N S C R I P T / / / / / / / / / / / / / / / / / / / / / / / / /
+
+› create banana
+
+$ echo BANANA-TWO > banana.txt
+✓ • 0ms
+
+• BANANA DONE
+──────────────────────────────────────────────────────────────── 100% ─
+ ↑/↓ to scroll   pgup/pgdn to page   home/end to jump
+ q to quit   <b>esc/← to edit prev   → to edit next   enter to edit message</b></pre></div>
+
+<div class="term"><div class="cap">pane after Enter — a fork, and the composer holds the taken-back text</div>
+<pre>• <b>You’re continuing from this point in a new conversation</b>
+
+› <i>create banana</i>
+
+$ ls ws/          # on disk, after the backtrack
+README.md  <b>apple.txt  banana.txt</b>   # both stand — codex restores no files</pre></div>
+
+<div class="term"><div class="cap">the wire, next turn after a one-press backtrack — the banana turn is gone, the apple turn stays</div>
+<pre>&gt; create cherry
+• CHERRY: I see 3 user turn(s):
+  "&lt;environment_context&gt;…" | <b>"create apple"</b> | <b>"create cherry"</b></pre></div>
+
+<ul class="fact">
+  <li><b>Conversation only.</b> <code>apple.txt</code> and <code>banana.txt</code> stood through every backtrack. The receipt must say the tree stands on this lane.</li>
+  <li><b>The composer prefills the taken-back text.</b> One <kbd>Ctrl+U</kbd> empties it here.</li>
+  <li><b>The pin matters twice.</b> 0.147.0 shipped the backtrack regression the ticket names. And the pinned 0.146.0 self-updates: its first spawn cached <code>latest_version 0.148.0</code> in <code>CODEX_HOME/version.json</code>, and the next spawn ran <code>npm install -g @openai/codex</code>, failed without root, and died before the composer. The probe held it with a read-only <code>version.json</code>. <span class="small">This hazard sits beyond this ticket and goes to the gate as a charting line.</span></li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="opencode"><span class="n">4</span> opencode 1.18.18 <span class="verdict pass">PASS</span></h2>
+<p class="lead"><b>The undo lands, and the files follow.</b> The operator approved a pinned
+   install for this probe. Same two turns through the <code>bash</code> tool, against the
+   chat-completions stand-in. One <code>/undo</code> took back one message and removed
+   <code>banana.txt</code> from the disk. A second took back one more and removed
+   <code>apple.txt</code>.</p>
+
+<div class="keys">
+  <span class="lbl">The lane, to take back n messages (agent idle):</span>
+  <kbd>/undo</kbd><kbd>Enter</kbd><span class="then">×n — one message per call</span>
+  <kbd>Ctrl+U</kbd><span class="then">clear the prefilled composer</span>
+</div>
+
+<div class="term"><div class="cap">pane after /undo — one message reverted, and the file went with it</div>
+<pre>  ┃  1 message reverted
+  ┃  <b>ctrl+x r or /redo to restore</b>
+  ┃
+  ┃  <b>banana.txt -1</b>
+
+  ┃  <i>create banana</i>        ← the composer holds the taken-back text
+
+$ ls ws/          # on disk, after the undo
+<b>apple.txt</b>  opencode.json   # banana.txt is gone — the snapshot restored the tree</pre></div>
+
+<div class="term"><div class="cap">the wire, next turn after two undos — only the fresh message remains</div>
+<pre>&gt; create cherry
+• CHERRY: I see 1 user turn(s): <b>"create cherry"</b></pre></div>
+
+<ul class="fact">
+  <li><b>Files restore with the conversation</b>, from opencode's own git snapshots. The undo names the delta (<code>banana.txt -1</code>).</li>
+  <li><b>The command is text, not a chord.</b> <code>/undo</code> rides the same <code>sendText</code> path as any message. <code>/redo</code> exists, so a wrong press has a way back on this lane alone.</li>
+  <li><b>The composer prefills the taken-back text.</b> One <kbd>Ctrl+U</kbd> empties it.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="pi"><span class="n">5</span> pi 0.84.2 <span class="verdict pass">PASS</span></h2>
+<p class="lead"><b>The tree navigation lands, and nothing is ever lost.</b> pi keeps the session
+   as a branch tree, and a take back is <code>/tree</code> plus a jump: the conversation continues
+   from just before the chosen user turn, and the abandoned turns stay in the tree as a branch.
+   Files stand, as on codex.</p>
+
+<div class="keys">
+  <span class="lbl">The lane, to take back a message (agent idle):</span>
+  <kbd>/tree</kbd><kbd>Enter</kbd><span class="then">the Session Tree</span>
+  <kbd>type the message text</kbd><span class="then">search jumps to it</span>
+  <kbd>Up</kbd><span class="then">select the user entry</span>
+  <kbd>Enter</kbd><span class="then">branch here</span>
+  <kbd>Enter</kbd><span class="then">No summary</span>
+  <kbd>Ctrl+U</kbd><span class="then">clear the prefilled composer</span>
+</div>
+
+<div class="term"><div class="cap">pane after /tree — every entry listed, tool calls included, with search and filters</div>
+<pre>   Session Tree
+  ↑/↓ move · ←/→ page · ctrl+←/→ branch · ctrl+x copy · shift+l label
+  Type to search:
+
+  • user: create apple
+  • [bash: echo APPLE-ONE > apple.txt]
+  • assistant: APPLE DONE
+  • user: <b>create banana</b>
+  • [bash: echo BANANA-TWO > banana.txt]
+› • assistant: BANANA DONE
+  (6/6)</pre></div>
+
+<div class="term"><div class="cap">pane after the jump — landed, files checked on disk</div>
+<pre> APPLE DONE
+
+ <b>Navigated to selected point</b>
+
+$ ls ws/          # on disk, after the navigation
+<b>apple.txt  banana.txt</b>   # both stand — pi restores no files
+
+&gt; create cherry
+ CHERRY: I see 2 user turn(s): <b>"create apple"</b> | <b>"create cherry"</b></pre></div>
+
+<ul class="fact">
+  <li><b>The search is the targeting.</b> The tree lists tool entries too, so a blind Up-count varies with the turn. Curia holds the taken-back text, types it into the tree search, and the jump is exact. Selecting a user entry lands just before it — proven on the wire.</li>
+  <li><b>Conversation only, and the old branch stays.</b> Files stand, and the taken-back turns remain in the tree as an abandoned branch. The receipt says the tree stands, and on this lane the words are literal.</li>
+  <li><b>The composer prefills the taken-back text</b> when a user entry is selected. One <kbd>Ctrl+U</kbd> empties it — proven the hard way: an uncleaned prefill concatenated with the next message in this probe.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="receipt"><span class="n">6</span> The receipt in Discord (mock)</h2>
+<p class="lead">ADR-0021: the receipt is a first-class message. It keeps the text, names the
+   landing point, and names what stands. The take back button rides the status line, which
+   carries buttons since the messaging mockups. The taken-back text comes from curia's own
+   journal — curia wrote that message into the pane, so it never scrapes a pane to quote it.</p>
+
+<div class="thread">
+  <div class="thread-top">🧵 <span class="tname">⚙️ 542 · curia · task</span></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">14:06</span></div>
+    <div class="txt"><p class="small">⚙️ writes the compare · <b>claude-opus-5</b> · ctx 51%</p>
+      <div class="btnrow"><button class="btn">👁 preview</button><button class="btn">💬 chat</button><button class="btn">🎫 ticket</button><button class="btn">↩ take back</button></div>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The press.</b> One press steps the agent back one message. Curia drives
+    the pane: on claude the menu lane of section 2, on codex the overlay lane of section 3.
+    Another press steps one message further.</div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">14:09</span></div>
+    <div class="txt">
+      <p>↩ <b>Took back your message from 14:04.</b> The agent continues from before it.</p>
+      <div class="quote">use the staging config for the compare run, not prod</div>
+      <p class="small">files restored with the conversation · verbs that ran and commits stand · text kept — the composer holds it</p>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The codex wording.</b> On a lane with no file checkpoints the third line
+    changes to: <b>the tree stands</b> — files and commits keep their state, only the
+    conversation rewound.</div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="composer"><span class="n">7</span> The dashboard composer (mock)</h2>
+<p class="lead">The same take back, seen in the dashboard chat. The composer prefills the
+   taken-back text for editing, so the operator fixes the message instead of retyping it.
+   The pane's own prefill is cleared by curia (section 2 and 3), so this composer is the one
+   place the text waits.</p>
+
+<div class="composer">
+  <div class="chead">💬 <b>chat · 542 · the compare run</b></div>
+  <div class="cbody">
+    <div class="hint">↩ taken back · edit and send, or drop it</div>
+    <div class="field">use the staging config for the compare run, not prod<span class="caret"></span></div>
+    <div class="crow"><button class="cbtn drop">drop</button><button class="cbtn send">send</button></div>
+  </div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="verdict"><span class="n">8</span> The verdict</h2>
+<p class="lead">The button shows only where a lane passes, and every lane passes. Two lanes
+   restore files with the conversation (claude, opencode). Two restore the conversation only
+   (codex, pi), and there the receipt says the tree stands. Every lane prefills its composer
+   with the taken-back text, and curia clears it — <kbd>Ctrl+C</kbd> on claude,
+   <kbd>Ctrl+U</kbd> on the other three — so the text waits in the receipt and the dashboard
+   composer, never in the pane.</p>
+
+<div class="wrap">
+<table class="sum">
+  <tr><th>lane</th><th>drive</th><th>files</th><th>button</th></tr>
+  <tr><td><b>claude 2.1.220</b></td><td>passes — Esc Esc menu, Up, Enter, Enter</td><td>restore with the conversation</td><td>shows</td></tr>
+  <tr><td><b>codex 0.146.0</b></td><td>passes — Esc Esc overlay, Esc ×(n−1), Enter</td><td>stand — the receipt says the tree stands</td><td>shows</td></tr>
+  <tr><td><b>opencode 1.18.18</b></td><td>passes — /undo as text, ×n</td><td>restore with the conversation</td><td>shows</td></tr>
+  <tr><td><b>pi 0.84.2</b></td><td>passes — /tree, search, Up, Enter, Enter</td><td>stand — the old branch stays in the tree</td><td>shows</td></tr>
+</table>
+</div>
+
+<p class="lead">Raw pane captures live beside this file under <code>evidence/</code>.
+   The drive lanes above are the exact keystrokes curia's take-back driver sends.</p>
+
+</main>
+</body>
+</html>

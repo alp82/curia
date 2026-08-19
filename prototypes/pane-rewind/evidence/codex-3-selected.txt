@@ -1,0 +1,24 @@
+/ T R A N S C R I P T / / / / / / / / / / / / / / / / / / / / / / / / / / / / /
+
+
+› create apple
+
+
+⚠ Model metadata for `standin-1` not found. Defaulting to fallback metadata;
+  this can degrade performance and cause issues.
+
+$ echo APPLE-ONE > apple.txt
+✓ • 0ms
+
+────────────────────────────────────────────────────────────────────────────────
+
+• APPLE DONE
+
+────────────────────────────────────────────────────────────────────────────────
+
+
+› create banana
+────────────────────────────────────────────────────────────────────────── 55% ─
+ ↑/↓ to scroll   pgup/pgdn to page   home/end to jump
+ q to quit   esc/← to edit prev   → to edit next   enter to edit message
+

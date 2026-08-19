@@ -1,0 +1,24 @@
+ create apple
+
+
+
+ $ echo APPLE-ONE > apple.txt
+
+ (no output)
+
+
+ APPLE DONE
+
+ Navigated to selected point
+
+
+ create cherrycreate date
+
+
+ CHERRY: I see 2 user turn(s): "create apple" | "create cherrycreate date"
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-workspace/03ec4e81-fbf5-4e5b-ba18-bb15189b2dd1/scratchpad/r...
+0.0%/128k (auto)                                                       standin-1

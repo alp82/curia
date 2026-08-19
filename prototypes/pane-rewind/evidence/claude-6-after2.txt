@@ -1,0 +1,24 @@
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Haiku 4.5 · Claude API
+  ▘▘ ▝▝    /…/03ec4e81-fbf5-4e5b-ba18-bb15189b2dd1/scratchpad/rw-claude/wt
+
+ ▎ Fable 5 is now a standard part of your Max plan
+ ▎ You can use up to 50% of your weekly usage limit on Fable 5. If you hit your
+ ▎ limit, you can continue on Fable 5 with usage credits. Fable 5 draws down
+ ▎ usage faster than Opus 5. Run /model and select Fable to use it. Learn more:
+ ▎ https://support.claude.com/en/articles/15424964-claude-fable-5-promotional-ac
+ ▎ cess
+
+────────────────────────────────────────────────────────────────────────────────
+❯ Use the Write tool to create apple.txt containing exactly APPLE-ONE. Then
+  reply done.
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)
+
+
+
+
+
+
+
+

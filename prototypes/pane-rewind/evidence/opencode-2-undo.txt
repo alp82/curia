@@ -1,0 +1,24 @@
+  ┃  $ echo APPLE-ONE > apple.txt
+  ┃
+  ┃  (no output)
+  ┃
+
+     APPLE DONE
+
+     ▣  Build · standin-1 · 6.9s
+
+  ┃
+  ┃  1 message reverted
+  ┃  ctrl+x r or /redo to restore
+  ┃
+  ┃  banana.txt -1
+  ┃
+
+  ┃
+  ┃  create banana
+  ┃
+  ┃  Build · standin-1 standin
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-workspace/03ec4e81-fbf5-4e5b-ba18- tab       ctrl+p
+   bb15189b2dd1/scratchpad/rw-oc/ws                     agents    commands
+
