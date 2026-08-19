@@ -43,6 +43,9 @@ MULTI_AGENT=1 node run-codex.mjs s3
 - `out/<name>/timeline.jsonl` — what `findTranscript` picked and what `codexTail` reported, sampled four times a second while the run went.
 - `out/d2/tools-extract.json` — the collaboration tool schemas, read off the wire in the discover run.
 - `out/claude-live/extract.json` — the claude-lane evidence from the live in-session run.
+- `out/live2/` — the live box run (2026-08-19): the summary the operator pasted back, and the pane
+  tail with the child's refusal of the outside write. The box carries no codex binary, so the
+  operator ran the rig inside the agent image with the host `auth.json` mounted read-only.
 
 ## The wire detail a re-run needs
 
