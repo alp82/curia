@@ -122,18 +122,50 @@ The page shows, besides those: **four frames of one real ticket** on a repo othe
 captured by the operator on a phone, in a strip after the three claims; and **a dated stats line** an
 agent regenerates from GitHub and the journal. `proof.md` holds the detail.
 
+**Changed at [Grill the final landing page](https://github.com/alp82/curia/issues/550), 2026-08-19.**
+The four-frame strip and the dated stats line leave the final page:
+
+- Proof moments sit inside the story, one per scene where one fits, instead of one strip. The
+  storyboard prototype names the moments. Each moment may be a captured screenshot or built HTML,
+  and [Capture the four proof frames](https://github.com/alp82/curia/issues/135) waits on that call.
+- The stats line becomes one dogfood line in the merged act. It absorbs the written-by-curia line:
+  curia improved itself over about 300 tickets driven from Discord. The build regenerates the real
+  count on build day and links the merged pull requests.
+
 ## What the page is honest about
 
-Three things a reader finds out sooner or later, so the page says them first:
+**Changed at [Grill the final landing page](https://github.com/alp82/curia/issues/550), 2026-08-19.**
+The age line and the one-person line leave the final page. The operator ruled the age irrelevant,
+and a packaged setup with onboarding is coming, so the page points forward instead.
 
-- Curia is eleven days old. First commit 2026-07-21.
-- One person runs it. There are no other users.
-- Setup is manual today: Node, tmux, Tailscale, a Discord bot, a harness, a GitHub repo. It gets
-  simpler, and the page does not promise packaging it has not shipped.
+Three things stay on the page, because a reader finds them out in the first evening:
+
+- Tailscale and Discord are required. There is no web UI.
+- Agents use the reader's own harness login. An agent can do what the reader can do with it.
+- Setup is manual today, and a packaged setup with onboarding is coming. The page names no date
+  and no version.
 
 **Where it sits: straight after the three claims, before the guide.** The reader learns why they
 would want curia, then what it costs. Putting it on the first screen spends the opening on an
 apology; putting it only in the guide reads evasive to the sceptical reader this page is for.
+
+## The final page rewrite
+
+**Settled at [Grill the final landing page](https://github.com/alp82/curia/issues/550), 2026-08-19.**
+The operator judged the current lines machine made, and ordered a rewrite for the final page.
+
+- **The voice**: plain and concrete, like a good README written by a person. Short sentences,
+  real nouns, real numbers, no slogan patterns.
+- **Every line is a placeholder.** The storyboard prototype offers new words inside each scene,
+  and a line survives only by earning its place again.
+- **The promise stays, the words may move.** The storyboard offers headline candidates beside the
+  current headline. The three claims keep their meaning.
+- The claim bodies stay cut. Each act shows one bold line plus one fact line, and a body sentence
+  comes back only where a scene cannot carry the meaning alone.
+- The first screen stays bare: kicker, headline, the skills line, two buttons.
+- The five saga acts are the starting spine. The storyboard may change arcs, focuses and sections.
+- No sound and no bottom bar. The system reduced-motion setting decides motion.
+- The banned words, the banned moves and the two failure modes below still hold.
 
 ## What the page never sounds like
 
