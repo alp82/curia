@@ -1,0 +1,27 @@
+{
+  "name": "d1",
+  "mode": "discover",
+  "codex_version": "codex-cli 0.146.0",
+  "requests_seen": 1,
+  "child_requests_seen": 0,
+  "rollout_files": [
+    {
+      "file": "sessions/2026/08/18/rollout-2026-08-18T19-59-33-01a01675-2d3d-77a3-a9f4-8670ec5e75c7.jsonl",
+      "marker": null,
+      "lines": 12,
+      "mtime": "2026-08-18T19:59:33.546Z",
+      "token_counts": [
+        {
+          "at": "2026-08-18T19:59:33.538Z",
+          "input_tokens": 111111
+        }
+      ]
+    }
+  ],
+  "child_usage_in_parent_rollout": null,
+  "final_findTranscript_pick": "sessions/2026/08/18/rollout-2026-08-18T19-59-33-01a01675-2d3d-77a3-a9f4-8670ec5e75c7.jsonl",
+  "final_codexTail_tokens": 111111,
+  "child_saw_orders_sentinel": null,
+  "outside_probe_written": false,
+  "outside_probe_content": null
+}

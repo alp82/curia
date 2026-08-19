@@ -1,0 +1,35 @@
+{
+  "name": "s2",
+  "mode": "scripted",
+  "codex_version": "codex-cli 0.146.0",
+  "requests_seen": 3,
+  "child_requests_seen": 0,
+  "rollout_files": [
+    {
+      "file": "sessions/2026/08/18/rollout-2026-08-18T20-02-15-01a01677-a794-7b61-bb93-f7baf8209857.jsonl",
+      "marker": "parent",
+      "lines": 20,
+      "mtime": "2026-08-18T20:02:16.043Z",
+      "token_counts": [
+        {
+          "at": "2026-08-18T20:02:15.944Z",
+          "input_tokens": 111111
+        },
+        {
+          "at": "2026-08-18T20:02:15.988Z",
+          "input_tokens": 111111
+        },
+        {
+          "at": "2026-08-18T20:02:16.038Z",
+          "input_tokens": 111111
+        }
+      ]
+    }
+  ],
+  "child_usage_in_parent_rollout": false,
+  "final_findTranscript_pick": "sessions/2026/08/18/rollout-2026-08-18T20-02-15-01a01677-a794-7b61-bb93-f7baf8209857.jsonl",
+  "final_codexTail_tokens": 111111,
+  "child_saw_orders_sentinel": null,
+  "outside_probe_written": false,
+  "outside_probe_content": null
+}

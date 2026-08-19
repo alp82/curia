@@ -1,0 +1,51 @@
+{
+  "name": "s3",
+  "mode": "scripted",
+  "codex_version": "codex-cli 0.146.0",
+  "requests_seen": 5,
+  "child_requests_seen": 2,
+  "rollout_files": [
+    {
+      "file": "sessions/2026/08/18/rollout-2026-08-18T20-04-06-01a01679-581b-7272-a519-bf3110622880.jsonl",
+      "marker": "parent",
+      "lines": 24,
+      "mtime": "2026-08-18T20:04:07.051Z",
+      "token_counts": [
+        {
+          "at": "2026-08-18T20:04:06.724Z",
+          "input_tokens": 111111
+        },
+        {
+          "at": "2026-08-18T20:04:06.992Z",
+          "input_tokens": 111111
+        },
+        {
+          "at": "2026-08-18T20:04:07.043Z",
+          "input_tokens": 111111
+        }
+      ]
+    },
+    {
+      "file": "sessions/2026/08/18/rollout-2026-08-18T20-04-06-01a01679-5985-7d33-8ddb-50620945c30a.jsonl",
+      "marker": "child",
+      "lines": 17,
+      "mtime": "2026-08-18T20:04:06.983Z",
+      "token_counts": [
+        {
+          "at": "2026-08-18T20:04:06.904Z",
+          "input_tokens": 2222
+        },
+        {
+          "at": "2026-08-18T20:04:06.971Z",
+          "input_tokens": 2222
+        }
+      ]
+    }
+  ],
+  "child_usage_in_parent_rollout": false,
+  "final_findTranscript_pick": "sessions/2026/08/18/rollout-2026-08-18T20-04-06-01a01679-581b-7272-a519-bf3110622880.jsonl",
+  "final_codexTail_tokens": 111111,
+  "child_saw_orders_sentinel": true,
+  "outside_probe_written": true,
+  "outside_probe_content": "curia-544-outside-probe"
+}

@@ -1,0 +1,220 @@
+{
+ "parent_transcript": "/cfg/projects/-workspace/d2f194d4-222c-43cb-9f8e-d8fb741ad6a2.jsonl",
+ "subagent_transcript": "<projects>/d2f194d4-222c-43cb-9f8e-d8fb741ad6a2/subagents/agent-a02414b3394a09e65.jsonl",
+ "parent_usage_lines": 140,
+ "parent_sidechain_true_lines": 0,
+ "subagent_usage_lines": [
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:54:58.479Z",
+   "model": "claude-fable-5",
+   "tokens": 19185
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:54:59.185Z",
+   "model": "claude-fable-5",
+   "tokens": 19185
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:54:59.888Z",
+   "model": "claude-fable-5",
+   "tokens": 19185
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:55:00.101Z",
+   "model": "claude-fable-5",
+   "tokens": 19185
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:55:07.549Z",
+   "model": "claude-fable-5",
+   "tokens": 27392
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:55:07.554Z",
+   "model": "claude-fable-5",
+   "tokens": 27392
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:55:08.387Z",
+   "model": "claude-fable-5",
+   "tokens": 27392
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:55:16.486Z",
+   "model": "claude-fable-5",
+   "tokens": 27841
+  },
+  {
+   "isSidechain": true,
+   "at": "2026-08-18T19:55:16.491Z",
+   "model": "claude-fable-5",
+   "tokens": 27841
+  }
+ ],
+ "parent_usage_around_spawn": [
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:17.065Z",
+   "model": "claude-fable-5",
+   "tokens": 85038
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:17.068Z",
+   "model": "claude-fable-5",
+   "tokens": 85038
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:17.072Z",
+   "model": "claude-fable-5",
+   "tokens": 85038
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:20.685Z",
+   "model": "claude-fable-5",
+   "tokens": 90345
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:23.695Z",
+   "model": "claude-fable-5",
+   "tokens": 90519
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:23.699Z",
+   "model": "claude-fable-5",
+   "tokens": 90519
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:25.601Z",
+   "model": "claude-fable-5",
+   "tokens": 90519
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:28.420Z",
+   "model": "claude-fable-5",
+   "tokens": 90841
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:29.539Z",
+   "model": "claude-fable-5",
+   "tokens": 90841
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:35.881Z",
+   "model": "claude-fable-5",
+   "tokens": 91097
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:35.885Z",
+   "model": "claude-fable-5",
+   "tokens": 91097
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:54:40.212Z",
+   "model": "claude-fable-5",
+   "tokens": 91097
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:23.143Z",
+   "model": "claude-fable-5",
+   "tokens": 92351
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:23.148Z",
+   "model": "claude-fable-5",
+   "tokens": 92351
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:26.429Z",
+   "model": "claude-fable-5",
+   "tokens": 92351
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:33.172Z",
+   "model": "claude-fable-5",
+   "tokens": 94544
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:33.220Z",
+   "model": "claude-fable-5",
+   "tokens": 94544
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:35.440Z",
+   "model": "claude-fable-5",
+   "tokens": 94544
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:42.642Z",
+   "model": "claude-fable-5",
+   "tokens": 95841
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:42.644Z",
+   "model": "claude-fable-5",
+   "tokens": 95841
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:43.058Z",
+   "model": "claude-fable-5",
+   "tokens": 95841
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:46.572Z",
+   "model": "claude-fable-5",
+   "tokens": 97146
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:54.074Z",
+   "model": "claude-fable-5",
+   "tokens": 98315
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:54.108Z",
+   "model": "claude-fable-5",
+   "tokens": 98315
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:55.834Z",
+   "model": "claude-fable-5",
+   "tokens": 98315
+  },
+  {
+   "isSidechain": false,
+   "at": "2026-08-18T19:55:59.556Z",
+   "model": "claude-fable-5",
+   "tokens": 99192
+  }
+ ]
+}
