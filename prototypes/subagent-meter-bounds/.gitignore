@@ -1,0 +1,6 @@
+# The raw request bodies are large and they regenerate on a re-run. The counted
+# evidence is committed: summary.json per run, timeline.jsonl (what the daemon's
+# own meter read, sample by sample), tools-extract.json (the collaboration
+# schemas read off the wire), and the claude-live extract.
+out/*/requests/
+out/*/pane.txt

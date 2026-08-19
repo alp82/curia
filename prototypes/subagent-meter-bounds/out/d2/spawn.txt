@@ -1,0 +1,1 @@
+codex --model "gpt-5.5" --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat "/tmp/claude-1000/-workspace/d2f194d4-222c-43cb-9f8e-d8fb741ad6a2/scratchpad/curia-544/d2/prompt.md")"

@@ -1,0 +1,22 @@
+
+────────────────────────────────────────────────────────────────────────────────
+  Rewind
+
+  Confirm you want to restore to the point before you sent this message:
+
+  │ Now use the Write tool to create banana.txt containing exactly BANANA-TWO.
+  │ Then reply done.
+  │ (53s ago)
+
+  The conversation will be forked.
+  The code will be restored -1 in banana.txt.
+
+  ❯ 1. Restore code and conversation
+    2. Restore conversation
+    3. Restore code
+    4. Summarize from here
+  ↓ 5. Summarize up to here
+
+  ⚠ Rewinding does not affect files edited manually or via bash.
+
+

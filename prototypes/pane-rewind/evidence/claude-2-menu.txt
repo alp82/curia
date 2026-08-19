@@ -1,0 +1,16 @@
+  Rewind
+
+  Restore the code and/or conversation to the point before…
+
+    Use the Write tool to create apple.txt containing exactly APPLE-ONE. …
+    apple.txt +1
+
+    Now use the Write tool to create banana.txt containing exactly BANANA…
+    banana.txt +1
+
+  ❯ (current)
+
+
+
+  Enter to continue · Esc to cancel
+

@@ -1,0 +1,24 @@
+ Took 0.0s
+
+
+ APPLE DONE
+
+
+ create banana
+
+
+
+ $ echo BANANA-TWO > banana.txt
+
+ (no output)
+
+ Took 0.0s
+
+
+ BANANA DONE
+
+────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-workspace/03ec4e81-fbf5-4e5b-ba18-bb15189b2dd1/scratchpad/r...
+0.1%/128k (auto)                                                       standin-1

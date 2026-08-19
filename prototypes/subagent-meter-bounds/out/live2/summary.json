@@ -1,0 +1,50 @@
+{
+  "name": "live2",
+  "mode": "live",
+  "codex_version": "codex-cli 0.146.0",
+  "model": "gpt-5.6-sol",
+  "requests_seen": null,
+  "rollout_files": [
+    {
+      "file": "sessions/2026/08/19/rollout-2026-08-19T09-01-52-01a01941-69e3-75e2-9330-cc671e29ea14.jsonl",
+      "thread_source": "user",
+      "sentinel_in_rollout": true,
+      "lines": 26,
+      "mtime": "2026-08-19T09:02:09.204Z",
+      "token_counts": [
+        {
+          "at": "2026-08-19T09:01:59.027Z",
+          "input_tokens": 11613
+        },
+        {
+          "at": "2026-08-19T09:02:05.875Z",
+          "input_tokens": 11764
+        },
+        {
+          "at": "2026-08-19T09:02:09.198Z",
+          "input_tokens": 11946
+        }
+      ]
+    },
+    {
+      "file": "sessions/2026/08/19/rollout-2026-08-19T09-01-58-01a01941-82f9-7af3-b2f9-e801a7e3b73c.jsonl",
+      "thread_source": "subagent",
+      "sentinel_in_rollout": true,
+      "lines": 15,
+      "mtime": "2026-08-19T09:02:05.868Z",
+      "token_counts": [
+        {
+          "at": "2026-08-19T09:02:05.859Z",
+          "input_tokens": 11368
+        }
+      ]
+    }
+  ],
+  "child_rollout_count": 1,
+  "child_usage_in_parent_rollout": false,
+  "final_findTranscript_pick": "sessions/2026/08/19/rollout-2026-08-19T09-01-52-01a01941-69e3-75e2-9330-cc671e29ea14.jsonl",
+  "final_codexTail_tokens": 11946,
+  "child_saw_orders_sentinel": true,
+  "outside_probe_written": false,
+  "outside_probe_content": null
+}

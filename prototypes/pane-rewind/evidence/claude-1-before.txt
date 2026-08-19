@@ -1,0 +1,24 @@
+● Write(apple.txt)
+  ⎿  Wrote 1 line to apple.txt
+      1 APPLE-ONE
+
+● done
+
+✻ Cooked for 5s
+
+❯ Now use the Write tool to create banana.txt containing exactly BANANA-TWO.
+  Then reply done.
+
+● Write(banana.txt)
+  ⎿  Wrote 1 line to banana.txt
+      1 BANANA-TWO
+
+● done
+
+✻ Churned for 4s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
