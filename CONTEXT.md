@@ -464,6 +464,9 @@ The default delivery mode. The note rides the agent's next tool result, and noth
 The other delivery mode, and the button under the receipt that picks it. The current tool call gets a grace of a few seconds, then the note goes into the pane as a user turn. The agent's own reply is the outcome. [ADR-0013](docs/adr/0013-one-voice-per-fact.md) names the mechanics an interrupt, and so do the code and the journal.
 _Avoid_: interrupt on the operator's surfaces (it reads as an ending, and no button ends an agent).
 
+**Take back**:
+The operator's undo of one of their own sent messages, and never of what curia or an agent said. On an agent chat it is the harness rewind, with a correction where a rewind cannot land. On an overseer conversation it is a journal append that moves the resume id one operator message back. The floor is the first message: no press removes the invocation of the work. The world keeps what ran, and the receipt quotes the taken-back text. See [ADR-0021](docs/adr/0021-the-take-back-is-the-harness-rewind.md) and [ADR-0023](docs/adr/0023-the-overseer-take-back-rides-the-session-chain.md).
+
 **Verdict carrier**:
 The whole verdict, posted into the thread when no agent is left to read it. It names the reviewer, its model, its findings and the pull request that holds the full text. A verdict is never mourned in one line.
 
