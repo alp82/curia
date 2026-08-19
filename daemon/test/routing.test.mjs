@@ -352,6 +352,37 @@ describe('parseUsageLimit', () => {
   test('pane text with no usage-limit language does not match', () => {
     assert.equal(parseUsageLimit('⏵⏵ bypass permissions on'), null)
   })
+
+  // The #544 phrasing, verbatim off the live pane (2026-08-18): the CLI
+  // printed this at a real Fable cap hit and the old pattern missed it — the
+  // daemon wrote no cooling and armed no limit resume.
+  test('the reached-your-model-limit phrasing is a model-scope hit with no reset', () => {
+    const result = parseUsageLimit(
+      "You've reached your Fable 5 limit. /model to switch models. /upgrade to increase your usage limit.",
+    )
+    assert.equal(result.scope, 'model')
+    assert.equal(result.resetAt, null)
+    // a TUI is free to render a typographic apostrophe; both match
+    assert.equal(parseUsageLimit('You’ve reached your Fable 5 limit.').scope, 'model')
+  })
+
+  test('reached-your-limit phrasing naming no model is a provider-scope hit', () => {
+    assert.equal(parseUsageLimit("You've reached your weekly limit.").scope, 'provider')
+  })
+
+  // The healthy-pane trap beside the new phrasing: the same promotional block
+  // says "If you hit your limit, you can continue on Fable 5 with usage
+  // credits" — hit-phrasing, not reached-phrasing, and it must never match.
+  test('the promotional if-you-hit-your-limit text is not a cap-hit', () => {
+    const result = parseUsageLimit(
+      'You can use up to 50% of your weekly usage limit on Fable 5. If you hit your limit, you can continue on Fable 5 with usage credits.',
+    )
+    assert.equal(result, null)
+  })
+
+  test('the new phrasing counts as a forgeable limit phrase', () => {
+    assert.equal(carriesLimitPhrase('the pane says "You\'ve reached your Fable 5 limit" wrongly'), true)
+  })
 })
 
 describe('parseCreditGate (#126, #108 item 12)', () => {

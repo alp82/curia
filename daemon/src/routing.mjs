@@ -333,8 +333,22 @@ export const LIMIT_PATTERNS = {
   // Scope: reached-text naming a specific model ⇒ 'model' (Fable's own weekly
   // sub-cap); generic ⇒ 'provider'.
   anthropic: {
-    reached: /([A-Za-z][A-Za-z0-9 .-]*?)\s*usage limit reached/i,
-    scopeOf: (m) => (MODEL_NAMES.some((name) => m[1].toLowerCase().includes(name)) ? 'model' : 'provider'),
+    // Two phrasings, both read off live panes: "<name> usage limit reached"
+    // (the original), and "You've reached your <name> limit" (the wording the
+    // CLI printed at the #544 cap hit, 2026-08-18 — the old pattern missed it
+    // and the daemon never cooled). The second alternative requires a name
+    // before "limit", so the promotional "If you hit your limit, you can
+    // continue…" text in healthy panes stays unmatched (field-notes
+    // contract 4).
+    reached: new RegExp(
+      '([A-Za-z][A-Za-z0-9 .-]*?)\\s*usage limit reached'
+      + `|you${AP}ve reached your ([A-Za-z][A-Za-z0-9 .-]*?)\\s*limit`,
+      'i',
+    ),
+    scopeOf: (m) => {
+      const name = (m[1] ?? m[2] ?? '').toLowerCase()
+      return MODEL_NAMES.some((n) => name.includes(n)) ? 'model' : 'provider'
+    },
     // `|<epoch-seconds>` suffix when present
     reset: /\|\s*(\d{9,12})/,
   },
