@@ -1202,6 +1202,11 @@ export class Dispatcher {
     }
 
     const cfgDir = cfgDirFor(this.root, session)
+    // Declared outside the try so the finally can release the pending
+    // reservation (#allocatePorts) on BOTH endings — after `agents.set` the
+    // ports are covered by the live-agent scan, and on a failed dispatch
+    // nothing publishes them.
+    let ports = []
     try {
       // every caller resolves the issue through #resolveRepo → fetchIssue, so
       // the body is always present
@@ -1223,9 +1228,11 @@ export class Dispatcher {
       this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, wtPath, cfgDir })
       // #157: the prompt NAMES the published ports, so they are allocated before
       // it is written and handed to the container after. The allocation is a
-      // bind probe and a set lookup — nothing is held until `docker run`, so a
-      // failure between here and the spawn leaks no port.
-      const ports = await this.#allocatePorts()
+      // bind probe, a set lookup and an in-memory reservation — docker binds
+      // nothing until `docker run`, and the reservation is what stops a second
+      // dispatch landing in that window from picking the same numbers. The
+      // finally below releases it on every ending.
+      ports = await this.#allocatePorts()
       // The type label reaches the prompt (#49 decision 2): it is the only thing
       // that stops a dispatched `wayfinder:grilling` agent from standing in for
       // the human's side of its own ticket.
@@ -1346,6 +1353,8 @@ export class Dispatcher {
       // for. `${repo}#new` would read as an issue number that does not exist.
       const what = newMap ? `a new map in ${repo}` : `${repo}#${n}`
       return `⚠️ dispatch of ${what} failed before the agent could run: ${e.message} — ${claimTail}`
+    } finally {
+      this.#releasePendingPorts(ports)
     }
   }
 
@@ -1519,10 +1528,39 @@ export class Dispatcher {
 
   // Ports already handed to LIVE agents, so two dispatches landing together
   // cannot publish the same host port. Everything else on the box is caught by
-  // the bind probe inside allocatePorts.
+  // the bind probe inside allocatePorts — everything except a SIBLING dispatch
+  // in its own allocate-to-register window: its ports are not in `agents` yet
+  // and docker has not bound them yet, so neither defense sees them. Worse,
+  // docker binds published ports one at a time, so a probe landing mid-bind can
+  // skip 9000-9001 and take 9002 just before the sibling does (the thread-178
+  // failure). The pending set is the reservation that closes that window: ports
+  // enter it here and leave it when the caller is done — registered in `agents`
+  // (which takes over the claim) or failed (which frees them for real).
+  #pendingPorts = new Set()
+
+  // Allocations queue behind each other: the bind probes inside the allocator
+  // are awaits, and two allocations interleaving across them would both read
+  // `taken` before either had written the pending set — the same window, one
+  // layer down.
+  #allocateChain = Promise.resolve()
+
   #allocatePorts() {
-    const taken = [...this.agents.values()].flatMap((w) => w.ports ?? [])
-    return this.deps.allocatePorts(this.config.sandbox.ports, { count: PORTS_PER_AGENT, taken })
+    const run = this.#allocateChain.then(async () => {
+      const taken = [
+        ...[...this.agents.values()].flatMap((w) => w.ports ?? []),
+        ...this.#pendingPorts,
+      ]
+      const ports = await this.deps.allocatePorts(this.config.sandbox.ports, { count: PORTS_PER_AGENT, taken })
+      for (const p of ports) this.#pendingPorts.add(p)
+      return ports
+    })
+    // a refused allocation must not jam the queue for the next dispatch
+    this.#allocateChain = run.catch(() => {})
+    return run
+  }
+
+  #releasePendingPorts(ports) {
+    for (const p of ports ?? []) this.#pendingPorts.delete(p)
   }
 
   // Everything a container needs before the pane can start it: the image and
@@ -2291,7 +2329,42 @@ export class Dispatcher {
       // still shows. Nothing is retried here — a spawn that dies on its own
       // command line dies the same way every time, and re-running it would
       // only burn the claim. Report, and keep the session for inspection.
+      //
+      // ONE exception: docker refusing a host port. That death is not a
+      // property of this command line — it is a collision with a neighbouring
+      // spawn's bind (the pending-port reservation closes the daemon's own
+      // window, but a container this process never started can still take the
+      // number) — so it does NOT die the same way on fresh ports. One retry,
+      // marked on the agent so a second collision falls through to the report.
+      // The pane text is untrusted (see paneTail), so a ticket that renders the
+      // docker phrase can forge this match; the cost is capped at that single
+      // respawn, and the exit status itself is nonce-gated.
       const status = parseExitMarker(tail, agent.exitMarker)
+      if (status !== null && !agent.portRetried && agent.ports?.length
+        && /port is already allocated/.test(tail)) {
+        agent.portRetried = true
+        // Named BEFORE the respawn: #respawnOn overwrites `agent.ports` with
+        // the fresh numbers, and the message is about the ones that were lost.
+        const lostPorts = agent.ports
+        this.reduction.journal('agent_port_collision', {
+          repo: agent.repo, ticket: agent.ticket, agent: agent.session, ports: lostPorts,
+        })
+        await this.deps.killSession(agent.session).catch(() => {})
+        try {
+          await this.#respawnOn(agent, agent.model, { retry_after_port_collision: true }, { freshPorts: true })
+          this.notify(agent.ticket, `⚙️ \`${agent.session}\` lost host port ${lostPorts.join('/')} to a concurrent spawn — respawned on ${agent.ports.join('/')}`)
+        } catch (e) {
+          // Same shape as the failed limit-respawn: the old session is dead, so
+          // letting this reject would strand the claim in a record reconcile
+          // deliberately skips.
+          const verb = e.refusal ? 'refused' : 'failed'
+          this.log(`port-collision respawn of ${agent.session} ${verb}:`, e.message)
+          const released = await this.#releaseClaim(agent, `respawn after a host-port collision ${verb}: ${e.message}`)
+          this.#failedSpawn({ repo: agent.repo, ticket: agent.ticket, agent: agent.session, reason: `respawn after a host-port collision ${verb}` })
+          this.notify(agent.ticket, `⚠️ \`${agent.session}\` lost its host ports to a concurrent spawn and the retry ${verb}: ${e.message} — ${released ? 'claim released' : 'claim release FAILED: the issue is still assigned; reconcile will retry'}`)
+        }
+        return
+      }
       if (status !== null) {
         this.#watchdogGaveUp(agent, {
           event: 'agent_exited_early',
@@ -2596,7 +2669,7 @@ export class Dispatcher {
   // a different side-channel layout — and a same-harness respawn re-seeds too,
   // because one path is easier to trust than a branch that has to be right
   // about when it matters.
-  async #respawnOn(agent, next, journalData = {}) {
+  async #respawnOn(agent, next, journalData = {}, { freshPorts = false } = {}) {
     const nextHarness = this.routing.models[next].harness
     // #174: the planted-config refusal is per harness, and this is where the
     // harness moves. It runs BEFORE #reshapeWorkspace and #armAgent, so a
@@ -2629,59 +2702,75 @@ export class Dispatcher {
     // #164: a reviewer publishes nothing — it starts no dev server and
     // `publish_preview` is refused for it — so a respawn must not allocate three
     // host ports a builder could have had.
-    const ports = agent.reviewer ? [] : (agent.ports ?? await this.#allocatePorts())
-    this.#armAgent({
-      session: agent.session, ticket: agent.ticket, harness: nextHarness,
-      model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
-    })
-    await this.#rewritePrompt(agent, nextHarness, ports)
-    const plan = await this.#spawnPlan({
-      session: agent.session, ticket: agent.ticket, repo: agent.repo,
-      harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
-      promptFile: agent.promptFile, ports, reviewer: Boolean(agent.reviewer),
-    })
-    // A fresh marker per spawn: the old session is dead, and reusing its nonce
-    // would let the previous life's exit line — still on screen for a moment —
-    // read as the successor's death.
-    const exitMarker = newExitMarker()
-    await this.deps.newSession({ name: agent.session, cwd: agent.wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
-    agent.ports = plan.container.ports
-    agent.sandbox = 'docker'
-    agent.exitMarker = exitMarker
-    agent.model = next
-    agent.harness = nextHarness
-    agent.provider = this.routing.models[next].provider
-    agent.spawnedAt = Date.now()
-    agent.state = 'spawning'
-    // A respawn is a NEW client process, so what the last one proved about its
-    // tool channel says nothing about this one (#194). Clearing these is what
-    // makes the second window a real second reading rather than an echo. The
-    // last-contact reading goes with the stamp (#370): the successor has
-    // reached curia never, and the predecessor's traffic must not say otherwise.
-    agent.mcpSeenAt = null
-    agent.mcpLastAt = null
-    agent.readyAt = null
-    // The whole line, not the delta (#219 — see `spawnKind` for the rule). What
-    // changed is the model, the harness and the container; what did NOT change
-    // is the dispatch this agent belongs to, and a reader that takes the last
-    // line gets a description of a ticket agent unless this says otherwise.
     //
-    // `kind` and `instruction` have live readers: #epochCharting answers the two
-    // refused tools, the ending list, the result path and `resume`, which
-    // dispatches a CHILD ticket instead of resuming the map when this says
-    // `ticket`. `instance`, `sandbox`, `image` and `ports` have none today —
-    // reconcile reads a container's ports back from docker itself. They are
-    // restated anyway, because the spawn line is their stated state home and a
-    // fact that lives here must not be erased by a respawn.
-    this.reduction.journal('agent_spawned', {
-      repo: agent.repo, ticket: agent.ticket, agent: agent.session,
-      instance: agent.instance ?? null,
-      model: next, harness: nextHarness,
-      kind: spawnKind(agent), instruction: agent.instruction ?? null,
-      sandbox: 'docker', image: plan.container.image, ports: plan.container.ports,
-      ...journalData,
-    })
-    this.#watchdog(agent).catch((e) => this.log(`watchdog ${agent.session} failed:`, e.message))
+    // `freshPorts` is the port-collision retry: the old numbers are exactly
+    // what failed, so this respawn abandons them and allocates again. The
+    // reservation the allocator takes is released in the finally — on success
+    // `agent.ports` (set below) carries the claim into the live-agent scan, and
+    // on failure the caller tears the agent down, so nothing holds them.
+    const allocated = !agent.reviewer && (freshPorts || !agent.ports)
+    const ports = agent.reviewer ? [] : (allocated ? await this.#allocatePorts() : agent.ports)
+    try {
+      this.#armAgent({
+        session: agent.session, ticket: agent.ticket, harness: nextHarness,
+        model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
+      })
+      // Fresh numbers force the rewrite whatever the harness did: the prompt on
+      // disk names the ports (#157), and keeping it would hand the agent three
+      // numbers nothing publishes.
+      await this.#rewritePrompt(agent, nextHarness, ports, { force: freshPorts })
+      const plan = await this.#spawnPlan({
+        session: agent.session, ticket: agent.ticket, repo: agent.repo,
+        harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
+        promptFile: agent.promptFile, ports, reviewer: Boolean(agent.reviewer),
+      })
+      // A fresh marker per spawn: the old session is dead, and reusing its nonce
+      // would let the previous life's exit line — still on screen for a moment —
+      // read as the successor's death.
+      const exitMarker = newExitMarker()
+      await this.deps.newSession({ name: agent.session, cwd: agent.wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
+      agent.ports = plan.container.ports
+      agent.sandbox = 'docker'
+      agent.exitMarker = exitMarker
+      agent.model = next
+      agent.harness = nextHarness
+      agent.provider = this.routing.models[next].provider
+      agent.spawnedAt = Date.now()
+      agent.state = 'spawning'
+      // A respawn is a NEW client process, so what the last one proved about its
+      // tool channel says nothing about this one (#194). Clearing these is what
+      // makes the second window a real second reading rather than an echo. The
+      // last-contact reading goes with the stamp (#370): the successor has
+      // reached curia never, and the predecessor's traffic must not say otherwise.
+      agent.mcpSeenAt = null
+      agent.mcpLastAt = null
+      agent.readyAt = null
+      // The whole line, not the delta (#219 — see `spawnKind` for the rule). What
+      // changed is the model, the harness and the container; what did NOT change
+      // is the dispatch this agent belongs to, and a reader that takes the last
+      // line gets a description of a ticket agent unless this says otherwise.
+      //
+      // `kind` and `instruction` have live readers: #epochCharting answers the two
+      // refused tools, the ending list, the result path and `resume`, which
+      // dispatches a CHILD ticket instead of resuming the map when this says
+      // `ticket`. `instance`, `sandbox`, `image` and `ports` have none today —
+      // reconcile reads a container's ports back from docker itself. They are
+      // restated anyway, because the spawn line is their stated state home and a
+      // fact that lives here must not be erased by a respawn.
+      this.reduction.journal('agent_spawned', {
+        repo: agent.repo, ticket: agent.ticket, agent: agent.session,
+        instance: agent.instance ?? null,
+        model: next, harness: nextHarness,
+        kind: spawnKind(agent), instruction: agent.instruction ?? null,
+        sandbox: 'docker', image: plan.container.image, ports: plan.container.ports,
+        ...journalData,
+      })
+      this.#watchdog(agent).catch((e) => this.log(`watchdog ${agent.session} failed:`, e.message))
+    } finally {
+      // On success `agent.ports` now carries these numbers into the live-agent
+      // scan; on a throw the caller tears the agent down and they are free.
+      if (allocated) this.#releasePendingPorts(ports)
+    }
   }
 
   // The HARNESS is the one reason to rewrite the prompt (#173). The wayfinder
@@ -2700,8 +2789,11 @@ export class Dispatcher {
   // carries no invocation, so a harness move rewrites the same text for it.
   // One guard for both is easier to trust than a branch about when the
   // difference matters, and the cost is one issue read.
-  async #rewritePrompt(agent, nextHarness, ports = null) {
-    if (nextHarness === agent.promptHarness) return
+  async #rewritePrompt(agent, nextHarness, ports = null, { force = false } = {}) {
+    // `force` is the port-collision retry (same harness, NEW ports): the prompt
+    // names the ports (#157), so fresh numbers make the text on disk stale even
+    // though the harness never moved.
+    if (!force && nextHarness === agent.promptHarness) return
     // #164: a reviewer respawned down the fallback chain must be handed the
     // REVIEWER's prompt again. Writing the builder's here would give an agent
     // with no claim and no branch a full set of ticket standing orders.

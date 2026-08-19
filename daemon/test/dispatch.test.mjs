@@ -1002,6 +1002,89 @@ describe('a harness command that exits is not a slow start (#169)', () => {
   })
 })
 
+// A docker host-port collision is the one early exit that does not die the
+// same way every time: fresh ports fix it. Two defenses — allocations reserve
+// their numbers in memory so concurrent dispatches cannot pick the same triple,
+// and a collision that still happens (a container this daemon never started)
+// gets exactly one respawn on fresh ports.
+describe('a docker port collision is retried on fresh ports', () => {
+  const READY = '⏵⏵ bypass permissions on'
+  const collisionPane = (marker) => [
+    'docker: Error response from daemon: driver failed programming external connectivity',
+    'on endpoint curia-42: Bind for 127.0.0.1:9002 failed: port is already allocated',
+    `[curia] the harness command exited — ${marker} 125`,
+    'alp@box:~/curia-work/repos/o__r/wt/42$',
+  ].join('\n')
+
+  test('concurrent dispatches get disjoint port triples — the reservation covers the allocate-to-register window', async () => {
+    // an allocator shaped like the real one: first free numbers from 9000,
+    // honouring `taken` — without the pending reservation both dispatches
+    // would read an empty `taken` and get the same triple
+    const allocatePorts = async (range, { taken = [] } = {}) => {
+      const used = new Set(taken)
+      const out = []
+      for (let p = 9000; out.length < 3; p += 1) if (!used.has(p)) out.push(p)
+      return out
+    }
+    const d = makeDispatcher({
+      allocatePorts,
+      fetchIssue: async (repo, n) => ({ ...OPEN_ISSUE, number: Number(n) }),
+    })
+    await Promise.all([d.start('42', { repo: 'o/r' }), d.start('43', { repo: 'o/r' })])
+
+    const a = d.agents.get('curia-42').ports
+    const b = d.agents.get('curia-43').ports
+    assert.equal(a.length, 3)
+    assert.equal(b.length, 3)
+    assert.equal(new Set([...a, ...b]).size, 6, `the triples must not overlap (got ${a} and ${b})`)
+  })
+
+  test('the collision exit respawns once on fresh ports instead of giving up', async () => {
+    const markers = []
+    let allocs = 0
+    const killed = []
+    const d = makeDispatcher({
+      allocatePorts: async () => (allocs += 1) === 1 ? [9000, 9001, 9002] : [9003, 9004, 9005],
+      newSession: async (opts) => { markers.push(opts.exitMarker) },
+      killSession: async (n) => { killed.push(n) },
+      // the first life dies on the collision; its successor reaches a composer
+      capturePane: async () => (markers.length < 2 ? collisionPane(markers[0] ?? '') : READY),
+    })
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => typesOf().includes('agent_ready'))
+
+    assert.ok(typesOf().includes('agent_port_collision'))
+    assert.ok(!typesOf().includes('agent_exited_early'), 'the retry replaces the give-up')
+    assert.deepEqual(killed, ['curia-42'], 'the dead pane is torn down before the respawn')
+    const spawns = events.filter((e) => e.type === 'agent_spawned')
+    assert.equal(spawns.length, 2)
+    assert.equal(spawns[1].retry_after_port_collision, true)
+    assert.deepEqual(spawns[1].ports, [9003, 9004, 9005], 'the respawn abandons the numbers that failed')
+    assert.deepEqual(d.agents.get('curia-42').ports, [9003, 9004, 9005])
+    const msg = notifies.find((n) => /lost host port/.test(n.message))?.message
+    assert.ok(msg, 'the thread hears what happened')
+    assert.match(msg, /9000\/9001\/9002/, 'named by the ports that were lost')
+    assert.match(msg, /respawned on 9003\/9004\/9005/)
+  })
+
+  test('a second collision falls through to the report — one retry, never a loop', async () => {
+    const markers = []
+    const d = makeDispatcher({
+      newSession: async (opts) => { markers.push(opts.exitMarker) },
+      // every life dies the same way
+      capturePane: async () => collisionPane(markers[markers.length - 1] ?? ''),
+    })
+    await d.start('42', { repo: 'o/r' })
+    await waitFor(() => typesOf().includes('agent_exited_early'))
+
+    assert.equal(events.filter((e) => e.type === 'agent_port_collision').length, 1)
+    assert.equal(markers.length, 2, 'one dispatch, one retry, nothing more')
+    const gaveUp = notifies.find((n) => /exited with status 125/.test(n.message))
+    assert.ok(gaveUp, 'the second death is reported like any early exit')
+    assert.match(gaveUp.message, /kept for inspection/)
+  })
+})
+
 describe('the tool channel is recorded, not assumed (#194)', () => {
   const READY = '⏵⏵ bypass permissions on'
 
