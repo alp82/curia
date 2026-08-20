@@ -1,0 +1,32 @@
+  Welcome to Codex, OpenAI's command-line coding agent
+
+> You are in /tmp/claude-1000/-workspace/fb2b15a6-18ba-4fa5-90ea-d8d1522b9ba3/scratchpad/538lab/code
+
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher
+  risk of prompt injection. Trusting the directory allows project-local config, hooks, and exec
+  policies to load.
+
+› 1. Yes, continue
+  2. No, quit
+
+  Press enter to continue
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

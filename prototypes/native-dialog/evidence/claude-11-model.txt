@@ -1,0 +1,17 @@
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous
+  model names, specify with --model.
+
+  ❯ 1. Default (recommended) ✔  Use the default model (currently Opus 5 (1M context)) · $5/$25 per
+                                Mtok
+    2. Opus (1M context)        Opus 5 with 1M context · Best for everyday, complex tasks · $5/$25
+                                per Mtok
+    3. Sonnet                   Sonnet 5 · Efficient for routine tasks · $3/$15 per Mtok
+    4. Sonnet 5 (1M context)    Sonnet 5 for long sessions · $3/$15 per Mtok
+    5. Haiku                    Haiku 4.5 · Fastest for quick answers · $1/$5 per Mtok
+
+  ● High effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this session only · Esc to cancel
+
+

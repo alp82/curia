@@ -1,0 +1,721 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#538 The native dialog on the chat page — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#538 "The native dialog on the chat page".
+  A native menu (the harness question picker, the trust prompt) holds the pane,
+  and the chat page cannot show it. This demo answers: can the page READ the
+  menu from the pane text, DRAW it, and ANSWER it with keys — and should that
+  web copy replace the dialog guard banner?
+
+  Every pane below is a LIVE capture (evidence/, findings.md): the real claude
+  TUI 2.1.220 and the real codex TUI 0.146.0 ran against stand-in model
+  servers, and every keystroke plan was proven by the tool_result the harness
+  posted back. The parser in the <script> is the liftable module; the page
+  around it is throwaway.
+-->
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --red:#ff7a7a; --dim:#14161c; --glow:0 0 14px rgba(255,180,84,.35);
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+html,body { background:var(--bg); color:var(--ink); }
+body { font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:15px; line-height:1.5; padding-bottom:90px; }
+a { color:var(--cyan); }
+.wrap { max-width:720px; margin:0 auto; padding:0 16px; }
+
+header.page { border-bottom:1px solid var(--line); padding:22px 0 18px; margin-bottom:8px; }
+header.page .tk { font:600 10px/1 var(--mono); letter-spacing:.24em; text-transform:uppercase;
+  color:var(--mut); }
+header.page .tk b { color:var(--amber); font-weight:600; }
+header.page h1 { font-size:20px; font-weight:650; margin-top:8px; line-height:1.3; }
+header.page p { color:var(--mut); font-size:13px; margin-top:8px; max-width:640px; }
+header.page p b { color:var(--ink); font-weight:600; }
+
+h2.sec { font:600 10px/1 var(--mono); letter-spacing:.3em; text-transform:uppercase;
+  color:var(--mut); margin:34px 0 6px; }
+p.lede { color:var(--mut); font-size:13px; margin:0 0 14px; max-width:640px; }
+p.lede b { color:var(--ink); }
+
+/* fixture picker */
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 4px; }
+.chips .gh { flex-basis:100%; font:600 9px/1 var(--mono); letter-spacing:.2em;
+  text-transform:uppercase; color:var(--mut); margin-top:6px; }
+.chips button { border:1px solid var(--line); background:transparent; color:var(--ink);
+  border-radius:999px; font:600 12px/1 var(--mono); padding:9px 12px; cursor:pointer;
+  min-height:36px; }
+.chips button.on { background:var(--dim); border-color:var(--amber); color:var(--amber); }
+.chips button.fail.on { border-color:var(--red); color:var(--red); }
+
+/* the three panels */
+.panel { border:1px solid var(--line); border-radius:10px; margin-top:14px; overflow:hidden; }
+.panel > .cap { display:flex; align-items:center; gap:8px; font:600 10px/1 var(--mono);
+  letter-spacing:.18em; text-transform:uppercase; color:var(--mut);
+  padding:10px 14px; border-bottom:1px solid var(--line); background:var(--dim); }
+.panel > .cap .dotc { width:7px; height:7px; border-radius:50%; background:var(--mut); }
+.panel.pane-p > .cap .dotc { background:var(--mut); }
+.panel.today-p > .cap .dotc { background:var(--amber); }
+.panel.web-p > .cap .dotc { background:var(--green); }
+.panel > .bd { padding:14px; }
+
+/* the pane */
+pre.pane { font:11px/1.5 var(--mono); color:#aab3c0; overflow-x:auto; white-space:pre;
+  padding:12px; background:#07080b; border-radius:6px; }
+pre.pane .hl { color:var(--ink); font-weight:600; }
+.panenote { font:10px/1.5 var(--mono); color:var(--mut); margin-top:8px; }
+
+/* today: the guard banner */
+.guard { display:flex; gap:10px; align-items:center; background:var(--amber); color:var(--amberink);
+  padding:10px 14px; font-size:12px; font-weight:600; border-radius:8px; }
+.guard a { color:inherit; font-weight:800; text-decoration:underline; }
+.todaynote { font-size:12px; color:var(--mut); margin-top:10px; }
+
+/* the web copy: dialog card in the chat's V6 language */
+.dcard { border:1px solid var(--line); border-left:3px solid var(--amber); border-radius:8px;
+  overflow:hidden; }
+.dcard .dhead { display:flex; align-items:center; gap:10px; padding:10px 14px;
+  border-bottom:1px solid var(--line); }
+.dcard .dhead .chip { font:800 9px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink);
+  box-shadow:var(--glow); }
+.dcard .dhead .hdr { flex:1; font:600 10px/1 var(--mono); letter-spacing:.14em;
+  text-transform:uppercase; color:var(--mut); }
+.dcard .dhead a { font:600 11px/1 var(--mono); text-decoration:none; }
+.dcard .tabsline { display:flex; gap:6px; padding:10px 14px 0; flex-wrap:wrap; }
+.dcard .tabsline .tb { font:600 10px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase;
+  padding:5px 9px; border-radius:4px; border:1px solid var(--line); color:var(--mut); }
+.dcard .tabsline .tb.cur { border-color:var(--amber); color:var(--amber); }
+.dcard .tabsline .tb.done { color:var(--green); border-color:var(--line); }
+.dcard .q { padding:12px 14px 6px; }
+.dcard .q .qh { font-size:14px; font-weight:650; line-height:1.45; }
+.dcard .q .qbody { font-size:13px; color:var(--mut); line-height:1.5; margin-top:4px;
+  white-space:pre-line; }
+.dcard .opt { display:flex; gap:10px; padding:11px 14px; border-top:1px solid var(--line);
+  cursor:pointer; -webkit-tap-highlight-color:rgba(255,180,84,.15); }
+.dcard .opt:active { background:var(--dim); }
+.dcard .opt .mark { flex:none; width:16px; height:16px; margin-top:2px; border-radius:50%;
+  border:1.5px solid var(--mut); }
+.dcard .opt .mark.box { border-radius:4px; }
+.dcard .opt.sel .mark { border-color:var(--amber); }
+.dcard .opt.checked .mark { border-color:var(--amber); background:var(--amber);
+  box-shadow:inset 0 0 0 3px var(--bg); }
+.dcard .opt .ob { flex:1; min-width:0; }
+.dcard .opt .ol { font-size:13px; font-weight:600; line-height:1.4; }
+.dcard .opt .ol .num { font:600 10px/1 var(--mono); color:var(--mut); margin-right:6px; }
+.dcard .opt .od { font-size:12px; color:var(--mut); margin-top:3px; line-height:1.45; }
+.dcard .opt.synth .ol { color:var(--cyan); font-weight:500; }
+.dcard .dfoot { display:flex; gap:8px; align-items:center; padding:12px 14px;
+  border-top:1px solid var(--line); flex-wrap:wrap; }
+.dcard .btn { border:1px solid var(--line); background:transparent; color:var(--ink);
+  border-radius:999px; font-size:12px; font-weight:600; padding:9px 14px; cursor:pointer;
+  min-height:38px; }
+.dcard .btn.prime { background:var(--amber); color:var(--amberink); border-color:var(--amber);
+  box-shadow:var(--glow); }
+.dcard .btn.ghost { color:var(--mut); }
+.dcard .src { font:10px/1.4 var(--mono); color:var(--mut); flex-basis:100%; }
+
+/* the wire strip: what the tap sends */
+.wire { margin-top:10px; border:1px dashed var(--line); border-radius:8px; padding:10px 12px;
+  font:11px/1.7 var(--mono); color:var(--mut); display:none; }
+.wire.on { display:block; }
+.wire .k { display:inline-block; border:1px solid var(--line); border-radius:4px;
+  padding:1px 7px; margin:0 3px 2px 0; color:var(--ink); background:var(--dim); }
+.wire .lbl { color:var(--mut); }
+.wire .rcv { color:var(--green); margin-top:4px; display:block; }
+.wire .rcv b { font-weight:600; }
+.wire .live { color:var(--amber); }
+
+/* parse-fail panel */
+.failnote { font-size:13px; color:var(--mut); line-height:1.55; }
+.failnote b { color:var(--ink); }
+.failnote .no { color:var(--red); font-family:var(--mono); font-size:11px; }
+
+/* measured table */
+table.keys { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:6px; }
+table.keys th, table.keys td { text-align:left; padding:9px 10px 9px 0;
+  border-bottom:1px solid var(--line); vertical-align:top; }
+table.keys th { font:600 9px/1.4 var(--mono); letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mut); }
+table.keys td .k { font:11px var(--mono); border:1px solid var(--line); border-radius:4px;
+  padding:1px 6px; background:var(--dim); white-space:nowrap; }
+table.keys td.c { color:var(--mut); }
+.tbl-scroll { overflow-x:auto; }
+
+/* decision */
+.decide { border:1px solid var(--line); border-radius:10px; margin-top:14px; }
+.decide .row { display:flex; gap:12px; padding:13px 14px; border-top:1px solid var(--line); }
+.decide .row:first-child { border-top:0; }
+.decide .tag { flex:none; font:800 9px/1.6 var(--mono); letter-spacing:.14em;
+  text-transform:uppercase; padding:3px 8px; border-radius:4px; height:fit-content; }
+.decide .tag.web { background:var(--green); color:#04170c; }
+.decide .tag.banner { background:var(--amber); color:var(--amberink); }
+.decide .tag.keep { background:var(--dim); color:var(--mut); border:1px solid var(--line); }
+.decide .tx { font-size:13px; line-height:1.55; color:var(--mut); }
+.decide .tx b { color:var(--ink); }
+
+footer.pg { margin-top:40px; border-top:1px solid var(--line); padding:16px 0 30px;
+  font:11px/1.7 var(--mono); color:var(--mut); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <div class="tk"><b>alp82/curia#538</b> · WAYFINDER:PROTOTYPE · PROTOTYPES/NATIVE-DIALOG</div>
+  <h1>The native dialog on the chat page</h1>
+  <p>
+    A native menu — the harness question picker, the trust prompt — holds the terminal pane, and
+    the chat page cannot show it. Today the page pins an amber <b>guard banner</b> and refuses
+    every send. This demo shows the <b>web copy</b>: the page reads the menu from the pane text,
+    draws it as a card, and answers it with keystrokes. Every pane below is a <b>live capture</b>
+    of the real TUI, and every keystroke plan was proven against the real harness
+    (<span style="font-family:var(--mono); font-size:12px">findings.md</span>).
+  </p>
+</header>
+
+<h2 class="sec">Pick a captured dialog</h2>
+<p class="lede">Each fixture shows the pane the daemon captures, what the chat shows <b>today</b>,
+and the <b>web copy</b> this ticket proposes. Tap an option on the card to see the exact keys it
+would send, and what the harness then receives.</p>
+<div class="chips" id="chips"></div>
+
+<div class="panel pane-p">
+  <div class="cap"><span class="dotc"></span>the pane — what tmux capture-pane returns</div>
+  <div class="bd">
+    <pre class="pane" id="pane"></pre>
+    <div class="panenote" id="panenote"></div>
+  </div>
+</div>
+
+<div class="panel today-p">
+  <div class="cap"><span class="dotc"></span>today — the dialog guard (#75)</div>
+  <div class="bd">
+    <div class="guard">⚠ A native dialog owns the terminal. The chat cannot answer it.
+      <a href="#" onclick="return false">terminal ↗</a></div>
+    <div class="todaynote">Every send returns 409. Enter, Up and Tab refuse. Only Escape and
+      Ctrl-C pass. The operator must open the terminal — on a phone, a pinch-zoomed ttyd — to
+      press one arrow key.</div>
+  </div>
+</div>
+
+<div class="panel web-p">
+  <div class="cap"><span class="dotc"></span>the web copy — parsed from the pane above</div>
+  <div class="bd" id="webcopy"></div>
+</div>
+
+<h2 class="sec">Keys, measured live</h2>
+<p class="lede">The card never guesses: each tap maps to keystrokes that were fired at the real
+TUI, with the harness's own tool_result as the receipt.</p>
+<div class="tbl-scroll"><table class="keys">
+  <tr><th>dialog</th><th>tap</th><th>keys sent</th><th>proof</th></tr>
+  <tr><td>claude, single pick</td><td>option <i>k</i></td><td><span class="k">k</span> one digit picks and submits</td>
+    <td class="c">digit 2 → the harness received the option-2 label</td></tr>
+  <tr><td>claude, single pick</td><td>—</td><td><span class="k">↓</span>×Δ <span class="k">Enter</span> also works</td>
+    <td class="c">Down, Enter → received “Redis”</td></tr>
+  <tr><td>claude, multi-select</td><td>toggle <i>k</i></td><td><span class="k">k</span> toggles, does not submit</td>
+    <td class="c">digit 3 checked [✔] Feed, selector did not move</td></tr>
+  <tr><td>claude, multi-select</td><td>Submit</td><td><span class="k">Tab</span> <span class="k">Enter</span></td>
+    <td class="c">received “Home, Feed”</td></tr>
+  <tr><td>claude, several questions</td><td>option <i>k</i></td><td><span class="k">k</span> answers and advances the tab</td>
+    <td class="c">1, 2, Enter → both answers received</td></tr>
+  <tr><td>codex, any</td><td>option <i>k</i></td><td><span class="k">↓</span>×Δ <span class="k">Enter</span> digits are inert</td>
+    <td class="c">digit 2 changed nothing on the trust prompt</td></tr>
+  <tr><td>any</td><td>Cancel</td><td><span class="k">Esc</span> already passes the guard today</td>
+    <td class="c">unchanged from #75</td></tr>
+</table></div>
+
+<h2 class="sec">The decision</h2>
+<p class="lede">Does the web copy replace the dialog guard banner?</p>
+<div class="decide">
+  <div class="row"><span class="tag web">card</span>
+    <div class="tx"><b>When the pane parses, the card replaces the banner body.</b> The menu the
+    operator must answer is drawn in the chat, in the escalation card's own language, and a tap
+    answers it. The terminal link stays in the card header — the pane is still one click away.</div></div>
+  <div class="row"><span class="tag banner">banner</span>
+    <div class="tx"><b>When detection fires and the parse fails, the banner stays.</b> The rewind
+    menu fixture shows it live: dialog chrome with no numbered options refuses to parse, and the
+    guard banner with the terminal link is exactly what #515 decided. The banner is the fallback,
+    never deleted.</div></div>
+  <div class="row"><span class="tag keep">veto</span>
+    <div class="tx"><b>The send veto stays.</b> A composer send still returns 409 while any dialog
+    owns the pane. The card's own keystrokes are the one sanctioned writer, so a stale phone and a
+    mid-answer race stay refused — the #75 containment is unchanged.</div></div>
+  <div class="row"><span class="tag keep">seam</span>
+    <div class="tx"><b>The parse runs daemon-side.</b> The daemon already probes the pane on the
+    watchdog cadence; the parsed menu rides the existing SSE dialog event as a structured payload,
+    and a tap posts back an option index the daemon turns into keys. The page never touches tmux,
+    and the pane stays untrusted text handled by one parser with unit fixtures.</div></div>
+</div>
+
+<footer class="pg">
+  prototypes/native-dialog · map: The dashboard and the Discord experience (#511) ·
+  guard today: daemon/src/timeline.mjs detectDialog (#75, #176) ·
+  captures: evidence/*.txt · proofs: findings.md
+</footer>
+
+</div>
+
+<script>
+'use strict'
+/* =========================================================================
+   THE LIFTABLE MODULE — parseDialog + answerPlan. Pure text in, plain data
+   out: no DOM, no tmux. This is the half that would move into the daemon
+   (timeline.mjs), next to detectDialog whose markers it reuses.
+   ========================================================================= */
+
+// Same three markers as daemon/src/timeline.mjs DIALOG_MARKERS (#75, #176).
+const DIALOG_MARKERS = [
+  /Enter to [^·\n]{1,60}·/,
+  /↑\/↓ to navigate/,
+  /Press enter to [^\n]{1,60}/,
+]
+
+const RULE_RE = /^\s*[─]{4,}\s*$/
+const OPT_RE = /^\s*(❯|›)?\s{0,8}(\d{1,2})\.\s+(.*\S)\s*$/
+const CHECK_RE = /^\[( |✔|x|X)\]\s*(.*)$/
+const TABBAR_RE = /(☐|☒)/
+const SYNTH = { 'Type something.': 'type', 'Type something': 'type', 'Chat about this': 'chat' }
+
+// parseDialog(pane) -> menu | null.
+// null means: this pane holds no menu the page can draw — the guard banner
+// stays. The parse anchors on the footer chrome and walks up, so it reads
+// the whole pane rather than the detector's 20-line tail.
+function parseDialog(pane) {
+  const lines = String(pane ?? '').split('\n')
+  let footerAt = -1
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (DIALOG_MARKERS.some((re) => re.test(lines[i]))) { footerAt = i; break }
+  }
+  if (footerAt < 0) return null
+  const footer = lines[footerAt].trim()
+
+  // The first option: the "1." line closest above the footer.
+  let oneAt = -1
+  for (let i = footerAt - 1; i >= 0; i--) {
+    const m = OPT_RE.exec(lines[i])
+    if (m && m[2] === '1') { oneAt = i; break }
+  }
+  if (oneAt < 0) return null
+
+  // Options, walking down from "1." to the footer. Rules and blanks are
+  // skipped; a "● …" line is chrome (the /model effort radio), kept aside;
+  // any other line wraps the option above it.
+  const options = []
+  const extras = []
+  let expect = 1
+  let sawCodexSel = false
+  for (let i = oneAt; i < footerAt; i++) {
+    const line = lines[i]
+    if (RULE_RE.test(line) || !line.trim()) continue
+    if (/^\s*●/.test(line)) { extras.push(line.trim()); continue }
+    const m = OPT_RE.exec(line)
+    if (m && Number(m[2]) === expect) {
+      let label = m[3], desc = '', checked = null
+      const c = CHECK_RE.exec(label)
+      if (c) { checked = c[1] !== ' '; label = c[2] }
+      // Column layouts (/model on both lanes) put the description on the
+      // same line behind a 2+ space run.
+      const col = /^(.*?\S)\s{2,}(.*)$/.exec(label)
+      if (col && checked === null) { label = col[1]; desc = col[2] }
+      if (m[1] === '›') sawCodexSel = true
+      options.push({ n: expect, label, desc, selected: m[1] != null,
+        checked, synth: SYNTH[label] ?? null })
+      expect += 1
+      continue
+    }
+    if (!options.length) return null
+    const last = options[options.length - 1]
+    const t = line.trim()
+    // The multi list renders a bare "Submit" row under its last entry.
+    if (t === 'Submit') { last.submitRow = true; continue }
+    last.desc = last.desc ? `${last.desc} ${t}` : t
+  }
+  if (options.length < 2) return null
+  if (!options.some((o) => o.selected)) return null
+
+  // Above "1.": the question paragraph, then maybe a header chip or tab bar,
+  // bounded by the nearest rule (or the pane top).
+  let top = 0
+  for (let i = oneAt - 1; i >= 0; i--) { if (RULE_RE.test(lines[i])) { top = i + 1; break } }
+  const above = lines.slice(top, oneAt).map((l) => l.trim())
+  while (above.length && !above[0]) above.shift()
+  while (above.length && !above.at(-1)) above.pop()
+  let tabs = null, header = null
+  if (above.length && TABBAR_RE.test(above[0])) {
+    const bar = above.shift()
+    const names = [...bar.matchAll(/[☐☒✔]\s*([A-Za-z][\w-]*)/g)].map((m) => m[1])
+    if (/←/.test(bar) || names.length > 1) tabs = names
+    else header = names[0] ?? null
+    while (above.length && !above[0]) above.shift()
+  }
+  // The question: the last paragraph that asks one, else the first (the
+  // dialog's title line). The rest is body, in pane order.
+  const paras = []
+  let cur = []
+  for (const l of above) {
+    if (!l) { if (cur.length) { paras.push(cur.join(' ')); cur = [] } continue }
+    cur.push(l)
+  }
+  if (cur.length) paras.push(cur.join(' '))
+  if (!paras.length) return null
+  let qi = paras.length - 1
+  for (let i = paras.length - 1; i >= 0; i--) { if (paras[i].includes('?')) { qi = i; break } }
+  if (!paras[qi].includes('?') && paras.length > 1) qi = 0
+  const question = paras[qi]
+  const body = paras.filter((_, i) => i !== qi).join('\n')
+
+  const multi = options.some((o) => o.checked !== null)
+  const harness = (sawCodexSel || /^Press enter/i.test(footer)) ? 'codex' : 'claude'
+  const kind = multi ? 'multi'
+    : options.length <= 2 && /Enter to (confirm|continue)|Press enter to continue/i.test(footer) ? 'confirm'
+    : 'pick'
+  return { harness, kind, tabs, header, body, question, options, footer, extras }
+}
+
+// answerPlan(menu, n) -> { keys: [...], note } | { composer: true, note }.
+// n is the option number; 'submit' and 'cancel' are actions.
+function answerPlan(menu, n) {
+  if (n === 'cancel') return { keys: ['Escape'], note: 'Escape already passes the guard (#75).' }
+  if (n === 'submit') return { keys: ['Tab', 'Enter'], note: 'Tab reaches the Submit tab, Enter confirms the review screen.' }
+  const opt = menu.options.find((o) => o.n === n)
+  if (opt?.synth === 'type' || opt?.synth === 'chat') {
+    return { composer: true, note: opt.synth === 'type'
+      ? 'Free text: the card focuses the chat composer, and the send types the words into the dialog’s own text entry.'
+      : 'Back to the conversation: the card focuses the composer and the dialog is answered as chat.' }
+  }
+  if (menu.harness === 'codex') {
+    const from = menu.options.findIndex((o) => o.selected) + 1
+    const d = n - from
+    const moves = Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up')
+    return { keys: [...moves, 'Enter'], note: 'Codex ignores digits (measured), so the selector walks, then Enter confirms.' }
+  }
+  if (menu.kind === 'multi') return { keys: [String(n)], note: 'One digit toggles the box. Submit sends Tab, Enter.' }
+  if (n <= 9) return { keys: [String(n)], note: 'One digit picks and submits (measured live).' }
+  const from = menu.options.findIndex((o) => o.selected) + 1
+  const d = n - from
+  return { keys: [...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up'), 'Enter'], note: 'Past digit 9 the selector walks.' }
+}
+
+/* =========================================================================
+   THROWAWAY PAGE — fixtures (live captures) + rendering.
+   ========================================================================= */
+
+const FIXTURES = [
+{ id: 'single', group: 'claude', name: 'question', note: 'AskUserQuestion, one question — evidence/claude-4-ask-single.txt', ask: true, proven: 'Redis',
+pane: ` ☐ Cache
+
+Which storage backend should the feed cache use?
+
+❯ 1. SQLite (Recommended)
+     One file next to the journal, no new daemon.
+  2. Redis
+     Fast, but a second process to babysit.
+  3. In-memory only
+     Free, dies with the daemon.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel` },
+
+{ id: 'multi', group: 'claude', name: 'multi-select', note: 'AskUserQuestion, multiSelect — evidence/claude-6-ask-multi.txt', ask: true, proven: 'Home, Feed',
+pane: `←  ☐ Scope  ✔ Submit  →
+
+Which screens should ship in the first cut?
+
+❯ 1. [ ] Home
+  The verdict ring and needs-you.
+  2. [ ] Chat
+  The per-agent conversation.
+  3. [ ] Feed
+  The wire at two altitudes.
+  4. [ ] Settings
+  Four rows, drill-in.
+  5. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel` },
+
+{ id: 'two', group: 'claude', name: 'two questions', note: 'AskUserQuestion, two questions, tabbed — evidence/claude-10-ask-two.txt', ask: true,
+pane: `←  ☐ Preview  ☐ Terminal  ✔ Submit  →
+
+Should the preview link open in a new tab?
+
+❯ 1. New tab
+     The chat stays where it was.
+  2. Same tab
+     Back returns to the chat.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel` },
+
+{ id: 'long', group: 'claude', name: 'long labels', note: 'AskUserQuestion, wrapped labels — evidence/claude-9-ask-long.txt', ask: true, proven: 'Write the open set to its own table and treat the journal as history only',
+pane: ` ☐ Escalations
+
+The daemon found two ways to hold the escalation record across a restart, and the migration cost
+differs by an order of magnitude. Which one should the spec lock in before the handoff?
+
+❯ 1. Replay the journal from the last snapshot and rebuild the open set in memory on every boot
+     No schema change, but boot cost grows with journal length until the next snapshot rotation
+     lands.
+  2. Write the open set to its own table and treat the journal as history only
+     A schema migration now, constant boot cost forever, and the table is one more thing backup must
+     carry.
+  3. Keep both for one release and diff them on every boot
+     The safest read, the most code, and a diff that only pays off if the two ever disagree.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel` },
+
+{ id: 'trust', group: 'claude', name: 'trust', note: 'The folder trust prompt — evidence/claude-1-trust.txt',
+pane: `────────────────────────────────────────────────────────────────────────────────────────────────────
+ Accessing workspace:
+
+ /workspace
+
+ Quick safety check: Is this a project you created or one you trust? (Like your own code, a
+ well-known open source project, or work from your team). If not, take a moment to review what's in
+ this folder first.
+
+ Claude Code'll be able to read, edit, and execute files here.
+
+ Security guide
+
+ ❯ 1. Yes, I trust this folder
+   2. No, exit
+
+ Enter to confirm · Esc to cancel` },
+
+{ id: 'apikey', group: 'claude', name: 'api key', note: 'The custom API key prompt — evidence/claude-2-apikey.txt. Note ❯ on option 2: the parser carries the real selection.',
+pane: `────────────────────────────────────────────────────────────────────────────────────────────────────
+  Detected a custom API key in your environment
+
+  ANTHROPIC_API_KEY: sk-ant-...standin-key-538
+
+  Do you want to use this API key?
+
+    1. Yes
+  ❯ 2. No (recommended)
+
+  Enter to confirm · Esc to cancel` },
+
+{ id: 'model', group: 'claude', name: '/model', note: 'The model picker — evidence/claude-11-model.txt. The effort radio (● line) rides as chrome under the options.',
+pane: `────────────────────────────────────────────────────────────────────────────────────────────────────
+  Select model
+  Switch between Claude models. Your pick becomes the default for new sessions. For other/previous
+  model names, specify with --model.
+
+  ❯ 1. Default (recommended) ✔  Use the default model (currently Opus 5 (1M context)) · $5/$25 per
+                                Mtok
+    2. Opus (1M context)        Opus 5 with 1M context · Best for everyday, complex tasks · $5/$25
+                                per Mtok
+    3. Sonnet                   Sonnet 5 · Efficient for routine tasks · $3/$15 per Mtok
+    4. Sonnet 5 (1M context)    Sonnet 5 for long sessions · $3/$15 per Mtok
+    5. Haiku                    Haiku 4.5 · Fastest for quick answers · $1/$5 per Mtok
+
+  ● High effort (default) ←/→ to adjust
+
+  Enter to set as default · s to use this session only · Esc to cancel` },
+
+{ id: 'ctrust', group: 'codex', name: 'trust', note: 'The codex directory trust prompt — evidence/codex-1-trust.txt',
+pane: `  Welcome to Codex, OpenAI's command-line coding agent
+
+> You are in /tmp/…/538lab/codexwork
+
+  Do you trust the contents of this directory? Working with untrusted contents comes with higher
+  risk of prompt injection. Trusting the directory allows project-local config, hooks, and exec
+  policies to load.
+
+› 1. Yes, continue
+  2. No, quit
+
+  Press enter to continue` },
+
+{ id: 'cmodel', group: 'codex', name: '/model', note: 'The codex model picker — evidence/codex-2-model.txt',
+pane: `  Select Model and Effort
+  Access legacy models by running codex -m <model_name> or in your config.toml
+
+› 1. gpt-5.6-sol (default)  Latest frontier agentic coding model.
+  2. gpt-5.6-terra          Balanced agentic coding model for everyday work.
+  3. gpt-5.6-luna           Fast and affordable agentic coding model.
+  4. gpt-5.5                Frontier model for complex coding, research, and real-world work.
+  5. gpt-5.2                Optimized for professional work and long-running agents.
+
+  Press enter to confirm or esc to go back` },
+
+{ id: 'rewind', group: 'the fallback', name: 'rewind menu', fail: true,
+note: 'The rewind menu from #542 — prototypes/pane-rewind/evidence/claude-2-menu.txt. Dialog chrome, but no numbered options: the parse refuses, the banner stays.',
+pane: `  Rewind
+
+  Restore the code and/or conversation to the point before…
+
+    Use the Write tool to create apple.txt containing exactly APPLE-ONE. …
+    apple.txt +1
+
+    Now use the Write tool to create banana.txt containing exactly BANANA…
+    banana.txt +1
+
+  ❯ (current)
+
+
+
+  Enter to continue · Esc to cancel` },
+]
+
+const $ = (id) => document.getElementById(id)
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
+
+function renderPane(fx) {
+  const menu = parseDialog(fx.pane)
+  const html = fx.pane.split('\n').map((l) => {
+    const optLine = OPT_RE.test(l) || /❯|›/.test(l)
+    return optLine ? `<span class="hl">${esc(l)}</span>` : esc(l)
+  }).join('\n')
+  $('pane').innerHTML = html
+  $('panenote').textContent = fx.note
+  return menu
+}
+
+function keysHtml(plan) {
+  if (plan.composer) return `<span class="lbl">no keys — </span>${esc(plan.note)}`
+  return `<span class="lbl">tmux send-keys:</span> `
+    + plan.keys.map((k) => `<span class="k">${esc(k)}</span>`).join('')
+    + ` <span class="lbl">${esc(plan.note)}</span>`
+}
+
+function renderCard(fx, menu) {
+  const el = $('webcopy')
+  if (!menu) {
+    el.innerHTML = `
+      <div class="guard">⚠ A native dialog owns the terminal. The chat cannot answer it.
+        <a href="#" onclick="return false">terminal ↗</a></div>
+      <div class="failnote" style="margin-top:12px">
+        <span class="no">parseDialog(pane) → null.</span><br>
+        The footer chrome matched, but no numbered option list did — this menu is not one the
+        page can copy. <b>The banner is the fallback</b>: same amber, same terminal link, same
+        send veto. The web copy never guesses at a menu it cannot read.
+      </div>`
+    return
+  }
+  const state = { checked: new Map(menu.options.map((o) => [o.n, o.checked === true])) }
+  const draw = (wireInner, done) => {
+    const tabsHtml = menu.tabs ? `<div class="tabsline">`
+      + menu.tabs.map((t, i) => `<span class="tb ${i === 0 ? 'cur' : ''}">${esc(t)}</span>`).join('')
+      + `<span class="tb">✔ Submit</span></div>` : ''
+    const hdr = menu.header ? esc(menu.header) : (menu.tabs ? esc(menu.tabs[0]) : (menu.kind === 'confirm' ? 'confirm' : 'pick one'))
+    el.innerHTML = `
+    <div class="dcard">
+      <div class="dhead">
+        <span class="chip">terminal dialog</span>
+        <span class="hdr">${hdr} · ${esc(menu.harness)}</span>
+        <a href="#" onclick="return false">terminal ↗</a>
+      </div>
+      ${tabsHtml}
+      <div class="q">
+        ${menu.body ? `<div class="qbody">${esc(menu.body)}</div>` : ''}
+        <div class="qh" style="margin-top:${menu.body ? '8px' : '0'}">${esc(menu.question)}</div>
+      </div>
+      ${menu.options.map((o) => {
+        const isBox = o.checked !== null
+        const cls = ['opt', o.selected ? 'sel' : '', o.synth ? 'synth' : '',
+          state.checked.get(o.n) ? 'checked' : ''].join(' ')
+        return `<div class="${cls}" data-n="${o.n}">
+          <span class="mark ${isBox ? 'box' : ''}"></span>
+          <span class="ob">
+            <span class="ol"><span class="num">${o.n}</span>${esc(o.label)}</span>
+            ${o.desc ? `<span class="od">${esc(o.desc)}</span>` : ''}
+          </span>
+        </div>`
+      }).join('')}
+      <div class="dfoot">
+        ${menu.kind === 'multi' ? `<button class="btn prime" data-act="submit">Submit</button>` : ''}
+        <button class="btn ghost" data-act="cancel">Cancel — Esc</button>
+        <span class="src">drawn from the pane text · footer: ${esc(menu.footer)}${menu.extras.length ? ` · chrome kept aside: ${esc(menu.extras.join(' · '))}` : ''}</span>
+      </div>
+    </div>
+    <div class="wire ${wireInner ? 'on' : ''}" id="wire">${wireInner ?? ''}</div>`
+
+    const receipt = (labels) => {
+      if (!fx.ask) return `<span class="rcv">✔ the dialog leaves the pane; the composer returns; the guard clears on the next probe.</span>`
+      const wire = `Your questions have been answered: "${menu.question}"="${labels}". You can now continue with these answers in mind.`
+      const live = fx.proven === labels
+        ? ` <span class="live">(this exact answer was replayed live — findings.md)</span>`
+        : ` <span class="live">(wire format proven live — findings.md)</span>`
+      return `<span class="rcv">✔ the harness receives: <b>${esc(wire)}</b>${live}</span>`
+    }
+    el.querySelectorAll('.opt').forEach((opt) => opt.addEventListener('click', () => {
+      const n = Number(opt.dataset.n)
+      const plan = answerPlan(menu, n)
+      const o = menu.options.find((x) => x.n === n)
+      let inner = keysHtml(plan)
+      if (menu.kind === 'multi' && !o.synth && !plan.composer) {
+        state.checked.set(n, !state.checked.get(n))
+        draw(inner, false)
+        return
+      }
+      if (!plan.composer) {
+        if (menu.tabs && menu.tabs.length > 1 && menu.kind !== 'multi') {
+          inner += `<span class="rcv">✔ the next question's tab opens in the pane; the card redraws from the next probe. The last digit lands on the review screen, and Enter submits every answer.</span>`
+        } else {
+          inner += receipt(o.label)
+        }
+      }
+      draw(inner, true)
+    }))
+    el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
+      const plan = answerPlan(menu, b.dataset.act)
+      let inner = keysHtml(plan)
+      if (b.dataset.act === 'submit') {
+        const picked = menu.options.filter((o) => state.checked.get(o.n)).map((o) => o.label)
+        inner += receipt(picked.join(', ') || 'nothing checked')
+      } else {
+        inner += `<span class="rcv">✔ the dialog is dismissed — the same escape hatch the guard allows today.</span>`
+      }
+      draw(inner, true)
+    }))
+  }
+  draw(null, false)
+}
+
+function select(id) {
+  const fx = FIXTURES.find((f) => f.id === id)
+  document.querySelectorAll('#chips button').forEach((b) =>
+    b.classList.toggle('on', b.dataset.id === id))
+  const menu = renderPane(fx)
+  renderCard(fx, menu)
+}
+
+const chips = $('chips')
+let lastGroup = null
+for (const f of FIXTURES) {
+  if (f.group !== lastGroup) {
+    lastGroup = f.group
+    const gh = document.createElement('span')
+    gh.className = 'gh'; gh.textContent = f.group
+    chips.appendChild(gh)
+  }
+  const b = document.createElement('button')
+  b.dataset.id = f.id
+  b.textContent = f.name
+  if (f.fail) b.classList.add('fail')
+  b.addEventListener('click', () => select(f.id))
+  chips.appendChild(b)
+}
+select('single')
+</script>
+</body>
+</html>
