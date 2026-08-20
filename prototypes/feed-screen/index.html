@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#523 The feed screen — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#523 "The feed screen".
+  Three answers to one question: what is the journal tail FOR on this surface,
+  and how does it read. Switchable via ?d=, width via ?w=, color mode via ?mode=.
+  Static mock data in the V6 synthesis language decided at #519.
+
+    v1 · Ledger — the tail is EVIDENCE. Every event, one mono row, filter chips.
+    v2 · Story  — the tail is CATCH-UP. Events fold into episodes per ticket.
+    v3 · Wire   — the tail is ATTENTION. News at full size, mechanics compressed.
+
+  Decided input from #526: an entry that names a ticket offers the link to that
+  ticket's Discord thread — the live thread, else the last thread ever bound,
+  else absent. Each variant shows one entry with the link absent.
+-->
+<style>
+/* ============ shell (not part of any design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+
+/* switcher bar */
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:150px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+
+/* ================================================================
+   V6 SYNTHESIS TOKENS — shared by all three variants (.fs)
+   Rules from #519: color always pairs with a word; calm rows carry
+   color by border; background tint is reserved for needs-you;
+   mono for data; boxless hierarchy.
+   ================================================================ */
+.fs { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:20px 20px 44px; }
+.frame.dark .fs { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5; --crit:#f07a7a;
+  --needbg:rgba(255,180,84,.07);
+  --glow:0 0 14px rgba(255,180,84,.35); }
+.frame.light .fs { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#b97900; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f; --crit:#b3323a;
+  --needbg:rgba(185,121,0,.08);
+  --glow:none; }
+.fs .mono, .fs h2, .fs time, .fs .ht, .fs .num, .fs .word, .fs .chip, .fs .fchip,
+.fs .day, .fs .by, .fs .etype, .fs .micro, .fs .tailnote, .fs summary
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.fs .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; }
+.fs .screen { font-size:22px; font-weight:700; margin:18px 0 2px; letter-spacing:-.01em; }
+.fs .sub { font-size:12px; color:var(--mut); }
+.fs .pulse { display:flex; align-items:flex-end; gap:14px; margin-top:14px; }
+.fs .pulse .k { font-size:9px; letter-spacing:.18em; color:var(--mut); text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; margin-bottom:4px; }
+.fs .pulse .dens { display:flex; align-items:flex-end; gap:2px; height:26px; }
+.fs .pulse .dens i { width:6px; background:var(--cyan); opacity:.85; border-radius:1px 1px 0 0; }
+.fs h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
+  margin:26px 0 4px; font-weight:600; }
+.fs .day { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
+  margin:22px 0 2px; padding-bottom:6px; }
+.fs time { flex:none; width:44px; font-size:10px; color:var(--mut); padding-top:2px; }
+.fs .word { font-size:11px; font-weight:700; }
+.fs .word.ok { color:var(--green); }
+.fs .word.bad { color:var(--crit); }
+.fs .word.warn { color:var(--amber); }
+.fs .word.info { color:var(--cyan); }
+.fs .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.fs .go { flex:none; font-size:12px; color:var(--cyan); text-decoration:none; }
+.fs .by { flex:none; font-size:10px; color:var(--mut); }
+.fs .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.fs .tailnote { margin-top:26px; padding-top:10px; border-top:1px solid var(--line);
+  font-size:10px; color:var(--mut); line-height:1.6; }
+.fs details { border-top:1px solid var(--line); }
+.fs summary { cursor:pointer; list-style:none; font-size:10px; color:var(--mut); padding:8px 0; }
+.fs summary::-webkit-details-marker { display:none; }
+.fs summary::before { content:"▸ "; }
+.fs details[open] summary::before { content:"▾ "; }
+
+/* ================================================================
+   V1 · LEDGER — the tail is evidence. Complete, chronological, mono.
+   ================================================================ */
+.fs .fchips { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+.fs .fchip { font-size:10px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer;
+  padding:6px 10px; border:1px solid var(--line); border-radius:999px; color:var(--mut);
+  background:transparent; user-select:none; }
+.fs .fchip.on { color:var(--ink); border-color:var(--mut); }
+.v1 .row { display:flex; align-items:baseline; gap:10px; padding:9px 0;
+  border-top:1px solid var(--line); font-size:13px; }
+.v1 .day + .row, .v1 .fchips + .row { border-top:0; }
+.v1 .etype { flex:none; width:104px; font-size:10px; color:var(--mut); letter-spacing:.04em;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.v1 .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-weight:500; font-size:13px; }
+.v1 .row.need { background:var(--needbg); border-top-color:transparent;
+  margin:0 -8px; padding-left:8px; padding-right:8px; border-radius:4px; }
+.fs .hidden { display:none !important; }
+@container frame (min-width:700px) {
+  .v1.fs { padding:26px 44px 60px; }
+  .v1 .wrap { max-width:1100px; margin:0 auto; }
+  .v1 .row { gap:16px; }
+  .v1 .etype { width:150px; }
+  .v1 time { width:52px; }
+  .v1 .by { width:70px; text-align:right; }
+}
+
+/* ================================================================
+   V2 · STORY — the tail is catch-up. Episodes per ticket, sentences,
+   quiet events folded.
+   ================================================================ */
+.v2 .mark { display:flex; align-items:center; gap:10px; margin:24px 0 4px;
+  font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--cyan);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v2 .mark::before, .v2 .mark::after { content:""; flex:1; border-top:1px dashed var(--cyan); opacity:.5; }
+.v2 .ep { padding:16px 0 10px; border-top:1px solid var(--line); }
+.v2 .ep.need { background:var(--needbg); border-top-color:transparent;
+  margin:0 -10px; padding-left:10px; padding-right:10px; border-radius:6px; }
+.v2 .ep .head { display:flex; align-items:center; gap:10px; }
+.v2 .ep .ttl { flex:1; min-width:0; font-weight:600; font-size:14px; }
+.v2 .ep .ttl .num { margin-left:6px; }
+.v2 .ep .line { margin-top:6px; font-size:13px; line-height:1.55; color:var(--ink); }
+.v2 .ep .line b { font-weight:700; }
+.v2 .ep .line .word { font-size:12px; }
+.v2 .ep .beats { margin-top:8px; }
+.v2 .ep .beat { display:flex; gap:10px; align-items:baseline; padding:5px 0;
+  font-size:12px; color:var(--mut); }
+.v2 .ep .beat .word { font-size:10px; }
+.v2 .ep .foot { margin-top:8px; }
+.v2 .quiet { margin-top:22px; }
+@container frame (min-width:700px) {
+  .v2.fs { padding:26px 44px 60px; }
+  .v2 .wrap { max-width:1100px; margin:0 auto; }
+  .v2 .cols { display:grid; grid-template-columns:1fr 1fr; gap:0 44px; align-items:start; }
+}
+
+/* ================================================================
+   V3 · WIRE — the tail is attention. Two altitudes on one stream:
+   news at full size, mechanics compressed between them.
+   ================================================================ */
+.v3 .mark { display:flex; align-items:center; gap:10px; margin:24px 0 4px;
+  font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--cyan);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v3 .mark::before, .v3 .mark::after { content:""; flex:1; border-top:1px dashed var(--cyan); opacity:.5; }
+.v3 .news { display:flex; align-items:flex-start; gap:12px; padding:14px 0;
+  border-top:1px solid var(--line); }
+.v3 .news.need { background:var(--needbg); border-top-color:transparent;
+  margin:0 -10px; padding-left:10px; padding-right:10px; border-radius:6px; }
+.v3 .news.calm-ok  { border-left:2px solid var(--green); padding-left:12px; margin-left:-14px; }
+.v3 .news.calm-bad { border-left:2px solid var(--crit);  padding-left:12px; margin-left:-14px; }
+.v3 .news .bd { flex:1; min-width:0; }
+.v3 .news .l1 { font-size:14px; font-weight:600; line-height:1.4; }
+.v3 .news .l1 .word { font-size:12px; margin-right:6px; }
+.v3 .news .l2 { font-size:11px; color:var(--mut); margin-top:3px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v3 .micro { padding:2px 0 2px 54px; }
+.v3 .micro .m { display:flex; gap:10px; align-items:baseline; padding:4px 0;
+  font-size:11px; color:var(--mut); }
+.v3 .micro .m time { width:38px; font-size:9px; }
+.v3 .micro summary { padding:6px 0; border:0; }
+.v3 .micro details { border:0; }
+@container frame (min-width:700px) {
+  .v3.fs { padding:26px 44px 60px; }
+  .v3 .wrap { max-width:760px; margin:0 auto; }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#523</b> · The feed screen · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<!-- ============ V1 · LEDGER ============ -->
+<section class="view fs v1" data-view="v1" data-name="1 · Ledger — evidence">
+<div class="wrap">
+  <div class="ht"><span>curia · atlas · feed</span><span>aug 20 · 14:07</span></div>
+  <div class="screen">Feed</div>
+  <div class="sub">The journal tail — every event, in write order. The ledger you audit.</div>
+  <div class="pulse">
+    <div><div class="k">24 h · 96 events</div>
+      <div class="dens" data-dens="1,0,0,0,0,0,2,4,3,6,8,5,7,9,4,6,11,8,3,2,5,4,2,1"></div></div>
+  </div>
+  <div class="fchips">
+    <span class="fchip on" data-fam="all">all</span>
+    <span class="fchip" data-fam="agent">agents</span>
+    <span class="fchip" data-fam="need">needs you</span>
+    <span class="fchip" data-fam="deploy">deploys</span>
+    <span class="fchip" data-fam="command">commands</span>
+    <span class="fchip" data-fam="system">system</span>
+  </div>
+
+  <div class="day">today · wed 20 aug</div>
+  <div class="row" data-fam="command"><time>14:07</time><span class="etype">command</span><span class="ttl">start 559 — The effort prototype</span><span class="by">alp82</span></div>
+  <div class="row" data-fam="agent"><time>14:02</time><span class="etype">pr_opened</span><span class="ttl">The effort prototype #559 · claude</span><span class="by">curia</span><a class="go" href="#">thread →</a></div>
+  <div class="row need" data-fam="need"><time>13:58</time><span class="chip">Gate</span><span class="ttl">review requested — The embedded terminal #537</span><a class="go" href="#">thread →</a></div>
+  <div class="row need" data-fam="need"><time>13:41</time><span class="chip">Ask · 2</span><span class="ttl">Home-screen design directions #519</span><a class="go" href="#">thread →</a></div>
+  <div class="row" data-fam="agent"><time>13:22</time><span class="etype">result</span><span class="ttl"><span class="word ok">resolved</span> The pane-driven rewind #542</span><span class="by">claude</span><a class="go" href="#">thread →</a></div>
+  <div class="row" data-fam="agent"><time>12:56</time><span class="etype">agent_died</span><span class="ttl"><span class="word bad">died</span> codex · The subagent meter #544 — context exhausted</span><span class="by">curia</span><a class="go" href="#">thread →</a></div>
+  <div class="row" data-fam="deploy"><time>12:40</time><span class="etype">deploy_landed</span><span class="ttl"><span class="word ok">landed</span> daemon 669ed83 — 41 s, green suite</span><span class="by">curia</span></div>
+  <div class="row" data-fam="deploy"><time>12:31</time><span class="etype">deploy_requested</span><span class="ttl">deploy — 3 commits queued</span><span class="by">alp82</span></div>
+  <div class="row" data-fam="agent"><time>11:58</time><span class="etype">notify</span><span class="ttl"><span class="word info">look</span> The model-switch prototype #561 — preview is up</span><span class="by">claude</span><a class="go" href="#">thread →</a></div>
+  <div class="row" data-fam="agent"><time>11:20</time><span class="etype">preview</span><span class="ttl">The feed screen #523 — port 9012</span><span class="by">curia</span><a class="go" href="#">thread →</a></div>
+  <div class="row" data-fam="system"><time>10:44</time><span class="etype">token_warned</span><span class="ttl"><span class="word warn">hot</span> anthropic window at 92 % — resets 16:00</span><span class="by">curia</span></div>
+  <div class="row" data-fam="system"><time>10:12</time><span class="etype">config_reloaded</span><span class="ttl">poll_interval_s 5 → 3</span><span class="by">alp82</span></div>
+  <div class="row" data-fam="agent"><time>09:02</time><span class="etype">auto_resume</span><span class="ttl">claude · Journal mining #549 — worktree stands</span><span class="by">curia</span><a class="go" href="#">thread →</a></div>
+  <div class="row" data-fam="system"><time>08:47</time><span class="etype">bridge_recovered</span><span class="ttl"><span class="word ok">recovered</span> discord bridge — wedged 92 s</span><span class="by">curia</span></div>
+  <div class="row" data-fam="system"><time>08:46</time><span class="etype">bridge_wedged</span><span class="ttl"><span class="word bad">wedged</span> discord bridge</span><span class="by">curia</span></div>
+
+  <div class="day">yesterday · tue 19 aug</div>
+  <div class="row" data-fam="agent"><time>23:12</time><span class="etype">result</span><span class="ttl"><span class="word ok">resolved</span> The effort prototype #559</span><span class="by">claude</span><a class="go" href="#">thread →</a></div>
+  <div class="row" data-fam="agent"><time>22:40</time><span class="etype">land_repaired</span><span class="ttl">pull request opened at resolve — The deploy verdict #562</span><span class="by">curia</span></div>
+  <div class="row" data-fam="system"><time>21:03</time><span class="etype">journal_backup</span><span class="ttl">1.4 MB — nightly</span><span class="by">curia</span></div>
+  <div class="row" data-fam="agent"><time>19:44</time><span class="etype">dispatch_held</span><span class="ttl"><span class="word warn">held</span> The maps screen #522 — two dispatch failures</span><span class="by">curia</span></div>
+
+  <div class="tailnote">ring · last 100 of 41 285 events · older history lives in the journal<br>
+  an entry with no thread link never had a thread bound (#526)</div>
+</div>
+</section>
+
+<!-- ============ V2 · STORY ============ -->
+<section class="view fs v2" data-view="v2" data-name="2 · Story — catch-up">
+<div class="wrap">
+  <div class="ht"><span>curia · atlas · feed</span><span>aug 20 · 14:07</span></div>
+  <div class="screen">Feed</div>
+  <div class="sub">What happened while you were away — the tail folded into episodes per ticket.</div>
+
+  <div class="mark">since you left · 09:00</div>
+
+  <div class="cols">
+  <div>
+  <div class="ep need">
+    <div class="head"><span class="chip">Gate</span><span class="ttl">The embedded terminal<span class="num">#537</span></span><a class="go" href="#">thread →</a></div>
+    <div class="line"><b>claude</b> finished the sidecar proxy work and opened the review gate at 13:58. The gate <span class="word warn">waits on you</span>.</div>
+    <div class="beats">
+      <div class="beat"><time>13:58</time><span class="word warn">gate</span> review requested</div>
+      <div class="beat"><time>13:31</time>pr updated — 2 commits</div>
+      <div class="beat"><time>11:20</time>preview published</div>
+    </div>
+  </div>
+  <div class="ep need">
+    <div class="head"><span class="chip">Ask · 2</span><span class="ttl">Home-screen design directions<span class="num">#519</span></span><a class="go" href="#">thread →</a></div>
+    <div class="line"><b>claude</b> asks two questions on round three. Both carry a recommendation, so one press answers the round.</div>
+  </div>
+  <div class="ep">
+    <div class="head"><span class="ttl">The pane-driven rewind<span class="num">#542</span></span><a class="go" href="#">thread →</a></div>
+    <div class="line"><span class="word ok">resolved</span> at 13:22 — all four lanes pass on blind keystrokes. Merged and closed, map line appended.</div>
+  </div>
+  <div class="ep">
+    <div class="head"><span class="ttl">The subagent meter<span class="num">#544</span></span><a class="go" href="#">thread →</a></div>
+    <div class="line"><b>codex</b> <span class="word bad">died</span> at 12:56 — context exhausted. The worktree stands. A resume costs one <b>resume 544</b>.</div>
+  </div>
+  </div>
+  <div>
+  <div class="ep">
+    <div class="head"><span class="ttl">Deploy</span></div>
+    <div class="line"><span class="word ok">landed</span> daemon 669ed83 at 12:40 — 41 s, green suite. Requested by <b>alp82</b> at 12:31.</div>
+  </div>
+  <div class="ep">
+    <div class="head"><span class="ttl">Journal mining<span class="num">#549</span></span><a class="go" href="#">thread →</a></div>
+    <div class="line"><b>claude</b> resumed at 09:02 on the standing worktree and mines the production journal since.</div>
+  </div>
+  <div class="ep">
+    <div class="head"><span class="ttl">The maps screen<span class="num">#522</span></span></div>
+    <div class="line"><span class="word warn">held</span> after two dispatch failures yesterday 19:44. Your <b>start 522</b> clears the hold. No thread was ever bound.</div>
+  </div>
+
+  <details class="quiet">
+    <summary>9 quiet events — commands, config, backup, bridge</summary>
+    <div class="ep">
+      <div class="beats">
+        <div class="beat"><time>14:07</time>command · start 559 · alp82</div>
+        <div class="beat"><time>10:44</time><span class="word warn">hot</span> anthropic window at 92 % — resets 16:00</div>
+        <div class="beat"><time>10:12</time>config_reloaded · poll_interval_s 5 → 3 · alp82</div>
+        <div class="beat"><time>08:47</time><span class="word ok">recovered</span> discord bridge — wedged 92 s</div>
+        <div class="beat"><time>21:03</time>journal_backup · 1.4 MB · nightly</div>
+      </div>
+    </div>
+  </details>
+  </div>
+  </div>
+
+  <div class="tailnote">episodes fold the same 100-event ring — nothing is dropped, only grouped<br>
+  an episode with no thread link never had a thread bound (#526)</div>
+</div>
+</section>
+
+<!-- ============ V3 · WIRE ============ -->
+<section class="view fs v3" data-view="v3" data-name="3 · Wire — attention">
+<div class="wrap">
+  <div class="ht"><span>curia · atlas · feed</span><span>aug 20 · 14:07</span></div>
+  <div class="screen">Feed</div>
+  <div class="sub">One stream, two altitudes. News at full size, mechanics compressed between.</div>
+  <div class="pulse">
+    <div><div class="k">24 h · 96 events</div>
+      <div class="dens" data-dens="1,0,0,0,0,0,2,4,3,6,8,5,7,9,4,6,11,8,3,2,5,4,2,1"></div></div>
+  </div>
+  <div class="fchips">
+    <span class="fchip on" data-fam="all">all</span>
+    <span class="fchip" data-fam="agent">agents</span>
+    <span class="fchip" data-fam="need">needs you</span>
+    <span class="fchip" data-fam="deploy">deploys</span>
+    <span class="fchip" data-fam="command">commands</span>
+    <span class="fchip" data-fam="system">system</span>
+  </div>
+
+  <div class="news need" data-fam="need">
+    <time>13:58</time>
+    <div class="bd">
+      <div class="l1"><span class="chip">Gate</span> The embedded terminal #537</div>
+      <div class="l2">review requested · waits 9 min</div>
+    </div>
+    <a class="go" href="#">thread →</a>
+  </div>
+  <div class="news need" data-fam="need">
+    <time>13:41</time>
+    <div class="bd">
+      <div class="l1"><span class="chip">Ask · 2</span> Home-screen design directions #519</div>
+      <div class="l2">round 3 · both carry a recommendation</div>
+    </div>
+    <a class="go" href="#">thread →</a>
+  </div>
+
+  <div class="micro">
+    <div class="m" data-fam="command"><time>14:07</time><span>command · start 559 · alp82</span></div>
+    <div class="m" data-fam="agent"><time>14:02</time><span>pr_opened · The effort prototype #559</span></div>
+  </div>
+
+  <div class="news calm-ok" data-fam="agent">
+    <time>13:22</time>
+    <div class="bd">
+      <div class="l1"><span class="word ok">resolved</span>The pane-driven rewind #542</div>
+      <div class="l2">all four lanes pass on blind keystrokes · merged</div>
+    </div>
+    <a class="go" href="#">thread →</a>
+  </div>
+  <div class="news calm-bad" data-fam="agent">
+    <time>12:56</time>
+    <div class="bd">
+      <div class="l1"><span class="word bad">died</span>codex · The subagent meter #544</div>
+      <div class="l2">context exhausted · worktree stands · resume 544</div>
+    </div>
+    <a class="go" href="#">thread →</a>
+  </div>
+  <div class="news calm-ok" data-fam="deploy">
+    <time>12:40</time>
+    <div class="bd">
+      <div class="l1"><span class="word ok">landed</span>deploy · daemon 669ed83</div>
+      <div class="l2">41 s · green suite · requested by alp82 12:31</div>
+    </div>
+  </div>
+
+  <div class="micro">
+    <details>
+      <summary>6 mechanics · 08:46 – 11:58 — preview, notify, config, bridge, resume</summary>
+      <div class="m" data-fam="agent"><time>11:58</time><span>notify · look · The model-switch prototype #561</span></div>
+      <div class="m" data-fam="agent"><time>11:20</time><span>preview · The feed screen #523 · port 9012</span></div>
+      <div class="m" data-fam="system"><time>10:44</time><span>token_warned · anthropic window at 92 %</span></div>
+      <div class="m" data-fam="system"><time>10:12</time><span>config_reloaded · poll_interval_s 5 → 3 · alp82</span></div>
+      <div class="m" data-fam="agent"><time>09:02</time><span>auto_resume · claude · Journal mining #549</span></div>
+      <div class="m" data-fam="system"><time>08:46</time><span>bridge wedged 92 s, recovered</span></div>
+    </details>
+  </div>
+
+  <div class="mark">your last visit · yesterday 22:50</div>
+
+  <div class="news calm-ok" data-fam="agent">
+    <time>23:12</time>
+    <div class="bd">
+      <div class="l1"><span class="word ok">resolved</span>The effort prototype #559</div>
+      <div class="l2">all four lanes take a spawn-time effort · findings.md is ground truth</div>
+    </div>
+    <a class="go" href="#">thread →</a>
+  </div>
+  <div class="news calm-bad" data-fam="agent">
+    <time>19:44</time>
+    <div class="bd">
+      <div class="l1"><span class="word warn">held</span>The maps screen #522</div>
+      <div class="l2">two dispatch failures · your start clears it · no thread bound</div>
+    </div>
+  </div>
+
+  <div class="micro">
+    <div class="m" data-fam="agent"><time>22:40</time><span>land_repaired · The deploy verdict #562</span></div>
+    <div class="m" data-fam="system"><time>21:03</time><span>journal_backup · 1.4 MB · nightly</span></div>
+  </div>
+
+  <div class="tailnote">news = gate, ask, verdict, death, deploy, hold — everything else rides compressed<br>
+  an entry with no thread link never had a thread bound (#526)</div>
+</div>
+</section>
+
+</div></div></div>
+
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button class="tog" id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button class="tog" id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+const VIEWS = ['v1','v2','v3'];
+const frame = document.getElementById('frame');
+const wrap  = document.getElementById('wrap');
+const q = new URLSearchParams(location.search);
+let d    = VIEWS.includes(q.get('d')) ? q.get('d') : 'v1';
+let mode = q.get('mode') === 'light' ? 'light' : 'dark';
+let w    = q.get('w') === 'desktop' ? 'desktop' : 'phone';
+
+function render() {
+  document.querySelectorAll('.view').forEach(v =>
+    v.classList.toggle('active', v.dataset.view === d));
+  frame.className = 'frame w-' + w + ' ' + mode;
+  document.getElementById('vname').textContent =
+    document.querySelector('.view.active').dataset.name;
+  document.getElementById('mode').textContent = mode === 'dark' ? '☾' : '☀';
+  document.getElementById('width').textContent = w === 'phone' ? '📱' : '🖥';
+  const p = new URLSearchParams({d, mode, w});
+  history.replaceState(null, '', '?' + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === 'desktop' ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = 'scale(' + s + ')';
+  wrap.style.height = (frame.offsetHeight * s) + 'px';
+}
+function cycle(dir) {
+  d = VIEWS[(VIEWS.indexOf(d) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('mode').onclick = () => { mode = mode === 'dark' ? 'light' : 'dark'; render(); };
+document.getElementById('width').onclick = () => { w = w === 'phone' ? 'desktop' : 'phone'; render(); };
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+window.addEventListener('resize', rescale);
+
+/* density strip: <div data-dens="1,2,3"> → bars, single hue (events per hour) */
+document.querySelectorAll('[data-dens]').forEach(el => {
+  const vals = el.dataset.dens.split(',').map(Number);
+  const max = Math.max(...vals, 1);
+  vals.forEach(v => {
+    const i = document.createElement('i');
+    i.style.height = Math.max(2, v / max * 26) + 'px';
+    i.style.opacity = v === 0 ? .18 : .85;
+    el.appendChild(i);
+  });
+});
+
+/* filter chips: one family visible, or all — scoped to the variant they sit in */
+document.querySelectorAll('.fchips').forEach(bar => {
+  const scope = bar.closest('.view');
+  bar.querySelectorAll('.fchip').forEach(chip => {
+    chip.onclick = () => {
+      bar.querySelectorAll('.fchip').forEach(c => c.classList.toggle('on', c === chip));
+      const fam = chip.dataset.fam;
+      scope.querySelectorAll('[data-fam]').forEach(r => {
+        if (r.classList.contains('fchip')) return;
+        r.classList.toggle('hidden', fam !== 'all' && r.dataset.fam !== fam);
+      });
+      scope.querySelectorAll('details').forEach(dt => { dt.open = fam !== 'all'; });
+    };
+  });
+});
+
+render();
+</script>
+</body>
+</html>
