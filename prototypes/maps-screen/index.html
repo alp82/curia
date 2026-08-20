@@ -55,7 +55,7 @@ svg { display:block; }
 
 /* ============ V6 base tokens (from #519, rules this screen) ============ */
 .mv { background:var(--bg); color:var(--ink); min-height:800px;
-  font-family:ui-sans-serif,system-ui,sans-serif; padding:20px 20px 44px; }
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:28px 24px 72px; }
 .frame.dark .mv { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
   --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
   --glow:0 0 14px rgba(255,180,84,.35); }
@@ -65,12 +65,22 @@ svg { display:block; }
 .mv h2, .mv .num, .mv .ht, .mv .tk, .mv .route, .mv .go, .mv .fchip, .mv select, .mv .word
   { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
 .mv .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
-  color:var(--mut); text-transform:uppercase; margin-bottom:6px; }
+  color:var(--mut); text-transform:uppercase; margin-bottom:26px; }
 .mv h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
-  margin:24px 0 4px; font-weight:600; }
+  margin:36px 0 8px; font-weight:600; }
+
+/* the verdict strip — the screen's one-glance read */
+.mv .verdict { display:flex; align-items:baseline; gap:26px; margin:0 0 6px; }
+.mv .verdict .v { font-size:26px; font-weight:700; line-height:1;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .verdict .v.need { color:var(--amber); text-shadow:var(--glow); }
+.mv .verdict .v.take { color:var(--cyan); }
+.mv .verdict .k { display:block; font-size:9px; letter-spacing:.2em; color:var(--mut);
+  text-transform:uppercase; margin-top:6px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
 
 /* filters — shared, live inside the view */
-.mv .filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:12px 0 4px; }
+.mv .filters { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:22px 0 8px; }
 .mv .fchip { font-size:11px; padding:6px 10px; border-radius:999px; cursor:pointer;
   background:transparent; border:1px solid var(--line); color:var(--mut); }
 .mv .fchip.on { border-color:var(--cyan); color:var(--cyan); font-weight:600; }
@@ -89,7 +99,7 @@ svg { display:block; }
 .mv .route { font-size:10px; color:var(--mut); white-space:nowrap; }
 .mv .route b { color:var(--cyan); font-weight:600; }
 .mv .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
-.mv .ttl .sub { display:block; font-size:10px; color:var(--mut); font-weight:400; margin-top:2px;
+.mv .ttl .sub { display:block; font-size:11px; color:var(--mut); font-weight:400; margin-top:4px;
   overflow:hidden; text-overflow:ellipsis; }
 .mv .word { font-size:10px; color:var(--mut); letter-spacing:.08em; text-transform:uppercase; }
 .mv .word.run { color:var(--green); }
@@ -97,56 +107,69 @@ svg { display:block; }
 .mv .word.take { color:var(--cyan); }
 
 /* marker glyphs — the line vocabulary */
-.mv .g-run { width:10px; height:10px; border-radius:50%; background:var(--green); }
-.mv .g-gate { width:9px; height:9px; background:var(--amber); transform:rotate(45deg); box-shadow:var(--glow); }
-.mv .g-ask { width:10px; height:10px; border-radius:50%; background:var(--amber); box-shadow:var(--glow); }
-.mv .g-take { width:10px; height:10px; border-radius:50%; border:2px solid var(--cyan); background:var(--bg); }
-.mv .g-wait { width:4px; height:9px; background:var(--mut); opacity:.5; }
-.mv .legend { display:flex; gap:14px; margin-top:12px; font-size:10px; color:var(--mut);
+.mv .g-run { width:12px; height:12px; border-radius:50%; background:var(--green); }
+.mv .g-gate { width:11px; height:11px; background:var(--amber); transform:rotate(45deg); box-shadow:var(--glow); }
+.mv .g-ask { width:12px; height:12px; border-radius:50%; background:var(--amber); box-shadow:var(--glow); }
+.mv .g-take { width:12px; height:12px; border-radius:50%; border:2.5px solid var(--cyan); background:var(--bg); }
+.mv .g-wait { width:4px; height:11px; background:var(--mut); opacity:.5; }
+.mv .legend { display:flex; gap:20px; margin-top:18px; font-size:10px; color:var(--mut);
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
-.mv .legend i { display:inline-block; vertical-align:-1px; margin-right:5px; }
+.mv .legend i { display:inline-block; vertical-align:-1px; margin-right:6px;
+  transform:scale(.85); transform-origin:center; }
+.mv .legend i.g-gate { transform:scale(.85) rotate(45deg); }
 
 /* horizontal track, shared by the line reads */
-.mv .track { position:relative; height:26px; margin-top:10px; }
-.mv .rail { position:absolute; left:0; right:0; top:12px; height:3px; background:var(--line); }
-.mv .walkseg { position:absolute; top:12px; height:3px; background:var(--cyan); }
-.mv .fogseg { position:absolute; top:12px; height:3px; border-top:3px dotted var(--mut); opacity:.6; }
-.mv .mk { position:absolute; top:0; width:26px; height:26px; margin-left:-13px; cursor:pointer;
+.mv .track { position:relative; height:36px; margin-top:16px; }
+.mv .rail { position:absolute; left:0; right:0; top:16px; height:4px; background:var(--line); border-radius:2px; }
+.mv .walkseg { position:absolute; top:16px; height:4px; background:var(--cyan); border-radius:2px; }
+.mv .fogseg { position:absolute; top:16px; height:4px; border-top:4px dotted var(--mut); opacity:.6; }
+.mv .mk { position:absolute; top:3px; width:30px; height:30px; margin-left:-15px; cursor:pointer;
   display:flex; align-items:center; justify-content:center; background:none; border:0; padding:0; }
 .mv .mk i { display:block; }
-.mv .mk.sel i { outline:2px solid var(--mut); outline-offset:2px; border-radius:50%; }
-.mv .lhead { display:flex; align-items:baseline; gap:10px; }
-.mv .lhead .ttl { font-size:14px; font-weight:700; }
+.mv .mk.sel i { outline:2px solid var(--mut); outline-offset:3px; border-radius:50%; }
+
+/* the map head — a control-room stat: big fraction, then the name */
+.mv .mhead { display:flex; align-items:center; gap:16px; }
+.mv .mfrac { flex:none; font-size:24px; font-weight:700; line-height:1;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-variant-numeric:tabular-nums; }
+.mv .mfrac .of { color:var(--mut); font-weight:400; }
+.mv .mfrac .fogn { color:var(--mut); font-weight:400; font-size:14px; }
+.mv .mtt { flex:1; min-width:0; }
+.mv .mtt .nm { display:block; font-size:15px; font-weight:700; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.mv .mtt .meta { display:block; font-size:10px; color:var(--mut); margin-top:4px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .mtt .meta a { color:var(--cyan); text-decoration:none; }
 
 /* ================================================================
    L1 — DISPATCH: the line is state, the list under it is what starts
    ================================================================ */
-.l1 .map { margin-top:20px; }
-.l1 .track { height:20px; }
-.l1 .track .rail, .l1 .track .walkseg, .l1 .track .fogseg { top:9px; }
-.l1 .mk { width:20px; height:20px; margin-left:-10px; cursor:default; }
-.l1 .row { display:flex; align-items:center; gap:10px; padding:9px 0 9px 4px; font-size:14px; }
+.l1 .map { margin-top:44px; }
+.l1 .track { height:26px; margin-top:14px; }
+.l1 .track .rail, .l1 .track .walkseg, .l1 .track .fogseg { top:11px; }
+.l1 .mk { top:0; width:26px; height:26px; margin-left:-13px; cursor:default; }
+.l1 .row { display:flex; align-items:center; gap:12px; padding:13px 0 13px 4px; font-size:15px; }
 .l1 .row + .row { border-top:1px solid var(--line); }
 .l1 .row .g { flex:none; }
 @container frame (min-width:700px) {
-  .l1 .maps { display:grid; grid-template-columns:1fr 1fr; gap:8px 44px; align-items:start; }
+  .l1 .maps { display:grid; grid-template-columns:1fr 1fr; gap:16px 64px; align-items:start; }
 }
 
 /* ================================================================
    L2 — JOURNEY: proportional lines, one instrument, no taps
    ================================================================ */
-.l2 .map { margin-top:24px; }
-.l2 .lrow { display:flex; align-items:center; gap:12px; margin-top:8px; }
-.l2 .lwrap { position:relative; height:16px; flex:1; }
-.l2 .lwrap .rail, .l2 .lwrap .walkseg, .l2 .lwrap .fogseg { top:7px; }
+.l2 .map { margin-top:42px; }
+.l2 .lrow { display:flex; align-items:center; gap:16px; margin-top:14px; }
+.l2 .lwrap { position:relative; height:22px; flex:1; }
+.l2 .lwrap .rail, .l2 .lwrap .walkseg, .l2 .lwrap .fogseg { top:9px; }
 .l2 .rail { right:auto; }
-.l2 .here { position:absolute; top:1px; width:3px; height:15px; margin-left:-1px;
-  background:var(--cyan); }
-.l2 .tick { position:absolute; top:4px; width:8px; height:8px; border-radius:50%; margin-left:-4px; }
-.l2 .frac { flex:none; font-size:13px; font-weight:700;
+.l2 .here { position:absolute; top:0; width:4px; height:22px; margin-left:-2px;
+  background:var(--cyan); border-radius:2px; }
+.l2 .tick { position:absolute; top:6px; width:10px; height:10px; border-radius:50%; margin-left:-5px; }
+.l2 .frac { flex:none; font-size:17px; font-weight:700;
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
-.l2 .frac .fog { color:var(--mut); font-weight:400; }
-.l2 .next { margin-top:5px; font-size:12px; color:var(--mut); overflow:hidden;
+.l2 .frac .fog { color:var(--mut); font-weight:400; font-size:12px; }
+.l2 .next { margin-top:10px; font-size:13px; color:var(--mut); overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap; }
 .l2 .next b { color:var(--ink); font-weight:600; }
 @container frame (min-width:700px) {
@@ -156,20 +179,20 @@ svg { display:block; }
 /* ================================================================
    L3 — TRIAGE: needs-you lifts off the line, maps sort by attention
    ================================================================ */
-.l3 .map { margin-top:14px; }
-.l3 .track { height:64px; }
-.l3 .track .rail, .l3 .track .walkseg, .l3 .track .fogseg { top:50px; }
-.l3 .mk { top:38px; }
-.l3 .stem { position:absolute; top:14px; height:36px; width:0; border-left:1px solid var(--amber); margin-left:-1px; opacity:.7; }
-.l3 .float { position:absolute; top:2px; transform:translateX(-50%); display:flex; align-items:center;
-  gap:6px; white-space:nowrap; }
-.l3 .float .fl { font-size:11px; font-weight:600; }
+.l3 .map { margin-top:38px; }
+.l3 .track { height:84px; }
+.l3 .track .rail, .l3 .track .walkseg, .l3 .track .fogseg { top:66px; }
+.l3 .mk { top:53px; }
+.l3 .stem { position:absolute; top:20px; height:46px; width:0; border-left:1px solid var(--amber); margin-left:-1px; opacity:.7; }
+.l3 .float { position:absolute; top:4px; transform:translateX(-50%); display:flex; align-items:center;
+  gap:8px; white-space:nowrap; }
+.l3 .float .fl { font-size:12px; font-weight:600; }
 .l3 .float .num { font-size:10px; }
-.l3 .under { margin-top:2px; font-size:12px; color:var(--mut); overflow:hidden;
+.l3 .under { margin-top:6px; font-size:13px; color:var(--mut); overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap; }
-.l3 .calmtrack { height:26px; }
-.l3 .calmtrack .rail, .l3 .calmtrack .walkseg, .l3 .calmtrack .fogseg { top:12px; }
-.l3 .calmtrack .mk { top:0; }
+.l3 .calmtrack { height:36px; }
+.l3 .calmtrack .rail, .l3 .calmtrack .walkseg, .l3 .calmtrack .fogseg { top:16px; }
+.l3 .calmtrack .mk { top:3px; }
 @container frame (min-width:700px) {
   .l3 .maps { max-width:860px; }
 }
@@ -177,43 +200,44 @@ svg { display:block; }
 /* ================================================================
    L4 — EXPLORER: every stop taps open a detail panel under the line
    ================================================================ */
-.l4 .map { margin-top:22px; }
-.l4 .stub { position:absolute; top:0; height:26px; cursor:pointer; background:none; border:0; padding:0; }
-.l4 .stub.sel .walkseg, .l4 .stub.sel .fogseg { outline:2px solid var(--mut); outline-offset:3px; }
-.l4 .panel { margin-top:8px; border-left:2px solid var(--line); padding:2px 0 2px 12px; }
-.l4 .prow { display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px; }
+.l4 .map { margin-top:44px; }
+.l4 .stub { position:absolute; top:0; height:36px; cursor:pointer; background:none; border:0; padding:0; }
+.l4 .stub.sel .walkseg, .l4 .stub.sel .fogseg { outline:2px solid var(--mut); outline-offset:4px; }
+.l4 .panel { margin-top:14px; border-left:2px solid var(--line); padding:4px 0 4px 16px; }
+.l4 .prow { display:flex; align-items:center; gap:12px; padding:9px 0; font-size:14px; }
 .l4 .prow.dim { color:var(--mut); }
 .l4 .prow.dim .ttl { font-weight:400; }
 @container frame (min-width:700px) {
-  .l4 .maps { display:grid; grid-template-columns:1fr 1fr; gap:8px 44px; align-items:start; }
+  .l4 .maps { display:grid; grid-template-columns:1fr 1fr; gap:16px 64px; align-items:start; }
 }
 
 /* ================================================================
    L5 — STATIONS: the line runs down the left edge, tickets are stops
    ================================================================ */
-.l5 .map { margin-top:22px; }
-.l5 .st { position:relative; display:flex; align-items:center; gap:10px;
-  padding:9px 0 9px 34px; font-size:13px; }
-.l5 .seg { position:absolute; left:12px; top:0; bottom:0; width:0; }
-.l5 .seg.walk { border-left:3px solid var(--cyan); }
-.l5 .seg.open { border-left:3px solid var(--line); }
-.l5 .seg.wait { border-left:3px dashed var(--line); }
-.l5 .seg.fog { border-left:3px dotted var(--mut); opacity:.7; }
+.l5 .map { margin-top:46px; }
+.l5 .st { position:relative; display:flex; align-items:center; gap:12px;
+  padding:13px 0 13px 42px; font-size:14px; }
+.l5 .st:first-of-type { margin-top:14px; }
+.l5 .seg { position:absolute; left:14px; top:0; bottom:0; width:0; }
+.l5 .seg.walk { border-left:4px solid var(--cyan); }
+.l5 .seg.open { border-left:4px solid var(--line); }
+.l5 .seg.wait { border-left:4px dashed var(--line); }
+.l5 .seg.fog { border-left:4px dotted var(--mut); opacity:.7; }
 .l5 .seg.half-top { bottom:50%; }
 .l5 .seg.half-bot { top:50%; }
-.l5 .stmk { position:absolute; left:12px; top:50%; transform:translate(-50%,-50%); z-index:1; }
+.l5 .stmk { position:absolute; left:14px; top:50%; transform:translate(-50%,-50%); z-index:1; }
 .l5 .st.dim { color:var(--mut); }
 .l5 .st.dim .ttl { font-weight:400; color:var(--mut); }
-.l5 .st .sub2 { display:block; font-size:10px; color:var(--mut); font-weight:400; margin-top:2px; }
+.l5 .st .sub2 { display:block; font-size:11px; color:var(--mut); font-weight:400; margin-top:4px; }
 @container frame (min-width:700px) {
-  .l5 .maps { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px 44px; align-items:start; }
+  .l5 .maps { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px 64px; align-items:start; }
 }
 
 /* ================================================================
    L0 — the round-2 baseline, kept for reference
    ================================================================ */
-.l0 .map { margin-top:22px; }
-.l0 .detail { display:flex; align-items:center; gap:10px; margin-top:6px; font-size:13px; min-height:22px; }
+.l0 .map { margin-top:40px; }
+.l0 .detail { display:flex; align-items:center; gap:10px; margin-top:10px; font-size:13px; min-height:22px; }
 @container frame (min-width:700px) {
   .l0 .maps { max-width:860px; }
 }
@@ -227,36 +251,42 @@ svg { display:block; }
 
 <section class="view mv l1" data-view="l1" data-name="1 · Dispatch · start work">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
 <section class="view mv l2" data-view="l2" data-name="2 · Journey · how far">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
 <section class="view mv l3" data-view="l3" data-name="3 · Triage · needs me">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
 <section class="view mv l4" data-view="l4" data-name="4 · Explorer · drill in">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
 <section class="view mv l5" data-view="l5" data-name="5 · Stations · vertical">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
 <section class="view mv l0" data-view="l0" data-name="0 · Baseline (r2)">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
@@ -341,9 +371,21 @@ function visMaps() {
 /* ---------- atoms ---------- */
 const route = f => `<span class="route">→ <b>${f.model}</b></span>`;
 const prMark = p => p ? `<a class="go" href="#" onclick="return false">pr ${p.n}${p.draft ? " draft" : ""} →</a>` : "";
-const nums = m => `<span class="num">${m.closed} / ${m.total}${m.fog ? "+" + m.fog : ""}</span>`;
-const lhead = m => `<div class="lhead"><span class="ttl">${m.name}</span>${nums(m)}<span class="go">${m.num} →</span></div>`;
+const lhead = m => `<div class="mhead">
+  <div class="mfrac">${m.closed}<span class="of">/${m.total}</span>${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</div>
+  <div class="mtt"><span class="nm">${m.name}</span>
+    <span class="meta">${m.repo} · <a href="#" onclick="return false">${m.num} →</a></span></div>
+</div>`;
 const needsOf = m => m.flight.filter(f => f.state === "gate" || f.ask);
+function verdictHTML(maps) {
+  const needs = maps.reduce((a, m) => a + needsOf(m).length, 0);
+  const take = maps.reduce((a, m) => a + m.frontier.length, 0);
+  return `<div class="verdict">
+    <div><span class="v need">${needs}</span><span class="k">need you</span></div>
+    <div><span class="v take">${take}</span><span class="k">takeable</span></div>
+    <div><span class="v">${maps.length}</span><span class="k">maps</span></div>
+  </div>`;
+}
 
 function legend(extra) {
   return `<div class="legend">
@@ -438,7 +480,6 @@ function renderL2(maps) {
             background:var(--${f.state === "gate" || f.ask ? "amber" : "green"})"></span>`).join("")}
           <span class="here" style="left:${here.toFixed(1)}%"></span>
         </div>
-        <span class="frac">${m.closed}/${m.total}${m.fog ? `<span class="fog">+${m.fog}</span>` : ""}</span>
       </div>
       <div class="next">${next ? `next: <b>${next.title}</b> ${route(next)}` : "nothing takeable"}
         ${m.fog ? ` · fog: ${m.fogNotes[0]}${m.fogNotes.length > 1 ? " +" + (m.fogNotes.length - 1) : ""}` : ""}</div>
@@ -591,6 +632,7 @@ function render() {
     if (!on) return;
     sec.querySelector("[data-filters]").innerHTML = filtersHTML();
     const maps = visMaps();
+    sec.querySelector("[data-verdict]").innerHTML = verdictHTML(maps);
     sec.querySelector("[data-body]").innerHTML =
       maps.length ? RENDER[v](maps) : `<div class="fnone">no map matches the filter</div>`;
     sec.querySelectorAll("[data-repo]").forEach(b =>
