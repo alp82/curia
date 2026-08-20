@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#522 The maps screen — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#522 "The maps screen".
+  Three reads of the map tree in the V6 synthesis direction from #519,
+  switchable via ?v=, width via ?w=, color mode via ?mode=. Static mock data.
+  The filters work; every other link is dead on purpose.
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:150px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+.bar .tog.on { background:#273043; color:#fff; }
+
+/* ============ V6 base tokens (from #519, rules this screen) ============ */
+.mv { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:20px 20px 44px; }
+.frame.dark .mv { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); }
+.frame.light .mv { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; }
+.mv h2, .mv .num, .mv .ht, .mv .tk, .mv .typ, .mv .route, .mv .go, .mv .fchip, .mv select
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; margin-bottom:6px; }
+.mv h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
+  margin:26px 0 4px; font-weight:600; }
+
+/* filters — shared, live inside the view */
+.mv .filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 4px; }
+.mv .fchip { font-size:11px; padding:6px 10px; border-radius:999px; cursor:pointer;
+  background:transparent; border:1px solid var(--line); color:var(--mut); }
+.mv .fchip.on { border-color:var(--cyan); color:var(--cyan); font-weight:600; }
+.mv select { font-size:11px; padding:6px 8px; border-radius:8px; background:transparent;
+  border:1px solid var(--line); color:var(--mut); }
+.mv .fnone { padding:24px 0; color:var(--mut); font-size:13px; }
+
+/* shared atoms */
+.mv .tk { font-size:11px; color:var(--mut); text-decoration:none; }
+.mv .tk:hover { color:var(--cyan); }
+.mv .typ { flex:none; font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mut); border:1px solid var(--line); border-radius:4px; padding:2px 6px; }
+.mv .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.mv .dot { flex:none; width:8px; height:8px; border-radius:50%; }
+.mv .dot.on { background:var(--green); }
+.mv .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.mv .go { flex:none; font-size:11px; color:var(--cyan); text-decoration:none; white-space:nowrap; }
+.mv .route { font-size:10px; color:var(--mut); white-space:nowrap; }
+.mv .route b { color:var(--cyan); font-weight:600; }
+.mv .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.mv .ttl .sub { display:block; font-size:10px; color:var(--mut); font-weight:400; margin-top:2px;
+  overflow:hidden; text-overflow:ellipsis; }
+.mv .word { font-size:10px; color:var(--mut); letter-spacing:.08em; text-transform:uppercase; }
+.mv .word.run { color:var(--green); }
+
+/* map header + progress bar (12 / 15+3 with fog tail) */
+.mv .maphead { display:flex; align-items:baseline; gap:10px; margin-top:8px; }
+.mv .maphead .mtitle { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font-weight:700; font-size:15px; text-decoration:none; }
+.mv .maphead .repo { font-size:10px; color:var(--mut); }
+.mv .qbar { height:3px; margin:8px 0 2px; background:var(--line); position:relative; }
+.mv .qbar i { position:absolute; top:0; bottom:0; background:var(--cyan); }
+.mv .qbar .fog { position:absolute; top:0; bottom:0; border-top:3px dotted var(--mut); opacity:.6; background:none; }
+
+/* ================================================================
+   A — LEDGER TREE: one outline per map, the frontier line drawn
+   ================================================================ */
+.va .map { padding-bottom:10px; }
+.va .row { display:flex; align-items:center; gap:10px; padding:10px 0;
+  border-top:1px solid var(--line); font-size:14px; }
+.va .row.walked { color:var(--mut); font-size:12px; }
+.va .row.walked .ttl { font-weight:400; color:var(--mut); }
+.va .frontline { display:flex; align-items:center; gap:10px; margin:2px 0; }
+.va .frontline .lab { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--cyan); }
+.va .frontline .l { flex:1; border-top:1px dashed var(--cyan); opacity:.55; }
+.va .row.front { border-top:0; }
+.va .kids { margin-left:26px; }
+.va .kid { display:flex; align-items:center; gap:10px; padding:6px 0; font-size:12px;
+  color:var(--mut); opacity:.75; }
+.va .kid .ttl { font-weight:400; }
+.va .fogrow { display:flex; gap:10px; align-items:baseline; padding:10px 0 0; font-size:12px;
+  color:var(--mut); border-top:1px dotted var(--mut); }
+@container frame (min-width:700px) {
+  .va .maps { display:grid; grid-template-columns:1fr 1fr; gap:0 44px; align-items:start; }
+  .va .map.wide { grid-column:1 / -1; }
+}
+
+/* ================================================================
+   B — FRONTIER FIRST: takeable now on top, maps as strips
+   ================================================================ */
+.vb .row { display:flex; align-items:center; gap:10px; padding:11px 0;
+  border-top:1px solid var(--line); font-size:14px; }
+.vb h2 + .row, .vb h2 + .quest { border-top:0; }
+.vb .row .unb { display:block; font-size:10px; color:var(--mut); font-weight:400; margin-top:2px;
+  overflow:hidden; text-overflow:ellipsis; }
+.vb .quest { padding:11px 0; border-top:1px solid var(--line); }
+.vb .quest .l1 { display:flex; align-items:baseline; gap:10px; font-size:14px; }
+.vb .quest .marks { display:flex; gap:8px; margin-top:5px; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
+@container frame (min-width:700px) {
+  .vb .grid { display:grid; grid-template-columns:minmax(0,3fr) minmax(0,2fr); gap:0 44px; align-items:start; }
+  .vb .colL { grid-column:1; } .vb .colR { grid-column:2; }
+}
+
+/* ================================================================
+   C — THE MARCH: walked | in flight | frontier | ahead
+   ================================================================ */
+.vc .map { padding-bottom:6px; }
+.vc .stages { margin-top:4px; }
+.vc .stage-h { display:flex; align-items:center; gap:8px; margin-top:12px; }
+.vc .stage-h .lab { font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--mut); }
+.vc .stage-h.line .lab { color:var(--cyan); }
+.vc .stage-h .l { flex:1; border-top:1px solid var(--line); }
+.vc .stage-h.line .l { border-top:1px dashed var(--cyan); opacity:.55; }
+.vc .srow { display:flex; align-items:center; gap:10px; padding:8px 0; font-size:13px; }
+.vc .srow.dim { color:var(--mut); opacity:.8; }
+.vc .srow.dim .ttl { font-weight:400; }
+.vc .fogband { padding:8px 0; font-size:12px; color:var(--mut); }
+@container frame (min-width:700px) {
+  .vc .stages { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:0 24px; }
+  .vc .stages > .col { min-width:0; }
+  .vc .stage-h { margin-top:14px; }
+  .vc .map + .map { margin-top:18px; border-top:1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#522</b> · The maps screen · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<section class="view mv va" data-view="a" data-name="A · Ledger tree">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv vb" data-view="b" data-name="B · Frontier first">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv vc" data-view="c" data-name="C · The march">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+</div></div></div>
+
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button class="tog" id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button class="tog" id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* ---------- mock data: three maps, two repos ---------- */
+const MAPS = [
+  {
+    repo:"alp82/curia", name:"The UX map: the dashboard, Discord, and the way between them",
+    num:"#511", closed:18, total:24, fog:2, wide:true,
+    recent:[
+      { t:"#542", title:"The pane-driven rewind" },
+      { t:"#537", title:"The embedded terminal" }
+    ],
+    flight:[
+      { t:"#522", title:"The maps screen", typ:"prototype", state:"run", agent:"claude", mins:34, pr:{ n:"#574", draft:true } },
+      { t:"#544", title:"The subagent prototype: the meter and the bounds", typ:"prototype", state:"gate", mins:26, pr:{ n:"#571" } }
+    ],
+    frontier:[
+      { t:"#523", title:"The chat screen", typ:"prototype", model:"claude-opus-5",
+        kids:[ { t:"#527", title:"The navigation between the screens" } ] },
+      { t:"#545", title:"The delegation paragraph in the standing orders", typ:"grilling", model:"claude-opus-5",
+        kids:[ { t:"#546", title:"The subagent rollout on both lanes" } ] },
+      { t:"#549", title:"Mine the production journal for misrouted turns", typ:"research", model:"claude-haiku-4-5",
+        kids:[] }
+    ],
+    fogNotes:["reasoning-effort routing", "the shape of the build handoff"]
+  },
+  {
+    repo:"alp82/curia", name:"The deploy pipeline",
+    num:"#480", closed:11, total:12, fog:0,
+    recent:[ { t:"#562", title:"The deploy verdict references its real issue" } ],
+    flight:[],
+    frontier:[
+      { t:"#491", title:"The rollback drill on the staging box", typ:"task", model:"gpt-5.6-sol", kids:[] }
+    ],
+    fogNotes:[]
+  },
+  {
+    repo:"alp82/aistack", name:"The measured layer",
+    num:"#29", closed:3, total:9, fog:4,
+    recent:[ { t:"#28", title:"The neighbors survey" } ],
+    flight:[
+      { t:"#30", title:"The ingest cut-over", typ:"task", state:"run", agent:"codex", mins:12 }
+    ],
+    frontier:[
+      { t:"#31", title:"The measured layer gets a freshness stamp", typ:"task", model:"claude-sonnet-5",
+        kids:[ { t:"#32", title:"Stale readings gray out" }, { t:"#33", title:"The gauge legend" } ] },
+      { t:"#35", title:"Pick the store for the readings", typ:"grilling", model:"claude-opus-5", kids:[] }
+    ],
+    fogNotes:["alert thresholds", "the export shape", "backfill", "retention"]
+  }
+];
+const TYPES = ["grilling","prototype","research","task"];
+const TYPE_SHORT = { grilling:"grill", prototype:"proto", research:"res", task:"task" };
+
+/* ---------- filter state, shared by the three views ---------- */
+let filt = { repo:"all", typ:"all" };
+
+function visMaps() {
+  return MAPS
+    .filter(m => filt.repo === "all" || m.repo === filt.repo)
+    .map(m => ({ ...m,
+      flight: m.flight.filter(f => filt.typ === "all" || f.typ === filt.typ),
+      frontier: m.frontier.filter(f => filt.typ === "all" || f.typ === filt.typ) }))
+    .filter(m => filt.typ === "all" || m.flight.length || m.frontier.length);
+}
+
+/* ---------- atoms ---------- */
+const tk = t => `<a class="tk" href="#" onclick="return false">${t}</a>`;
+const typ = f => `<span class="typ">${TYPE_SHORT[f.typ]}</span>`;
+const route = f => `<span class="route">→ <b>${f.model}</b> · ${f.typ} default</span>`;
+const prMark = p => p ? `<a class="go" href="#" onclick="return false">pr ${p.n}${p.draft ? " draft" : ""} →</a>` : "";
+const stateBits = f => f.state === "gate"
+  ? `<span class="chip">gate</span>`
+  : `<span class="dot on"></span>`;
+const stateWord = f => f.state === "gate"
+  ? `<span class="num">waits ${f.mins}m</span>`
+  : `<span class="word run">runs</span><span class="num">${f.agent} · ${f.mins}m</span>`;
+function qbar(m) {
+  const units = m.total + m.fog;
+  const c = m.closed / units * 100, f = m.fog / units * 100;
+  return `<div class="qbar"><i style="left:0;width:${c.toFixed(1)}%"></i>${
+    m.fog ? `<span class="fog" style="right:0;width:${f.toFixed(1)}%"></span>` : ""}</div>`;
+}
+const nums = m => `<span class="num">${m.closed} / ${m.total}${m.fog ? "+" + m.fog : ""}</span>`;
+const mapHead = m => `<div class="maphead">
+    <a class="mtitle" href="#" onclick="return false">${m.name}</a>${nums(m)}<span class="go">${m.num} →</span>
+  </div>
+  <div class="maphead" style="margin-top:0"><span class="repo">${m.repo}</span></div>
+  ${qbar(m)}`;
+
+/* ---------- filters row ---------- */
+function filtersHTML() {
+  const repos = [...new Set(MAPS.map(m => m.repo))];
+  return `<button class="fchip ${filt.repo === "all" ? "on" : ""}" data-repo="all">all projects</button>
+    ${repos.map(r => `<button class="fchip ${filt.repo === r ? "on" : ""}" data-repo="${r}">${r.split("/")[1]}</button>`).join("")}
+    <select data-typ>
+      <option value="all">all types</option>
+      ${TYPES.map(t => `<option value="${t}" ${filt.typ === t ? "selected" : ""}>${t}</option>`).join("")}
+    </select>`;
+}
+
+/* ================================================================
+   A — LEDGER TREE
+   ================================================================ */
+function renderA(maps) {
+  return `<div class="maps">${maps.map(m => `<div class="map ${m.wide ? "wide" : ""}">
+    ${mapHead(m)}
+    <div class="row walked"><span class="num">✓ ${m.closed} walked</span>
+      <span class="ttl">last: ${m.recent.map(r => `${r.title} ${tk(r.t)}`).join(" · ")}</span></div>
+    ${m.flight.map(f => `<div class="row">${stateBits(f)}${typ(f)}
+      <span class="ttl">${f.title}<span class="sub">${f.t}</span></span>
+      ${stateWord(f)}${prMark(f.pr)}</div>`).join("")}
+    <div class="frontline"><span class="l"></span><span class="lab">frontier · ${m.frontier.length}</span><span class="l"></span></div>
+    ${m.frontier.map(f => `<div class="row front">${typ(f)}
+      <span class="ttl">${f.title}<span class="sub">${f.t} · ${route(f)}</span></span>
+      <span class="go">start →</span></div>
+      ${f.kids.length ? `<div class="kids">${f.kids.map(k => `<div class="kid">
+        <span class="word">waits</span><span class="ttl">${k.title}</span>${tk(k.t)}</div>`).join("")}</div>` : ""}`).join("")}
+    ${m.fog ? `<div class="fogrow"><span class="num">+${m.fog} in the fog</span>
+      <span class="ttl" style="font-weight:400">${m.fogNotes.join(" · ")}</span></div>` : ""}
+  </div>`).join("")}</div>`;
+}
+
+/* ================================================================
+   B — FRONTIER FIRST
+   ================================================================ */
+function renderB(maps) {
+  const front = maps.flatMap(m => m.frontier.map(f => ({ ...f, map: m })));
+  const flight = maps.flatMap(m => m.flight.map(f => ({ ...f, map: m })));
+  return `<div class="grid">
+  <div class="colL">
+    <h2>Takeable now · ${front.length}</h2>
+    ${front.map(f => `<div class="row">${typ(f)}
+      <span class="ttl">${f.title}
+        <span class="sub">${f.t} · ${f.map.name}</span>
+        <span class="unb">${f.kids.length ? `unblocks ${f.kids.map(k => `${k.title} ${k.t}`).join(" · ")}` : "unblocks nothing yet"}</span>
+      </span>
+      ${route(f)}<span class="go">start →</span></div>`).join("")}
+    <h2>In flight · ${flight.length}</h2>
+    ${flight.length ? flight.map(f => `<div class="row">${stateBits(f)}${typ(f)}
+      <span class="ttl">${f.title}<span class="sub">${f.t} · ${f.map.name}</span></span>
+      ${stateWord(f)}${prMark(f.pr)}</div>`).join("") : `<div class="fnone">nothing in flight</div>`}
+  </div>
+  <div class="colR">
+    <h2>Maps · ${maps.length}</h2>
+    ${maps.map(m => `<div class="quest">
+      <div class="l1"><span class="ttl">${m.name}</span>${nums(m)}<span class="go">${m.num} →</span></div>
+      ${qbar(m)}
+      <div class="marks"><span>${m.repo}</span><span>frontier ${m.frontier.length}</span>${
+        m.flight.map(f => f.state === "gate" ? `<span style="color:var(--amber)">gate ${f.t}</span>`
+          : `<span style="color:var(--green)">runs ${f.t}</span>`).join("")}${
+        m.fog ? `<span>+${m.fog} fog</span>` : ""}</div>
+    </div>`).join("")}
+  </div></div>`;
+}
+
+/* ================================================================
+   C — THE MARCH
+   ================================================================ */
+function renderC(maps) {
+  const col = (cls, head, rows, empty) => `<div class="col">
+    <div class="stage-h ${cls}"><span class="lab">${head}</span><span class="l"></span></div>
+    ${rows.length ? rows.join("") : `<div class="srow dim"><span class="ttl">${empty}</span></div>`}</div>`;
+  return maps.map(m => `<div class="map">
+    ${mapHead(m)}
+    <div class="stages">
+      ${col("", `walked · ${m.closed}`,
+        m.recent.map(r => `<div class="srow dim"><span class="num">✓</span><span class="ttl">${r.title}</span>${tk(r.t)}</div>`)
+          .concat(m.closed > m.recent.length ? [`<div class="srow dim"><span class="num">… ${m.closed - m.recent.length} more</span></div>`] : []),
+        "nothing yet")}
+      ${col("", `in flight · ${m.flight.length}`,
+        m.flight.map(f => `<div class="srow">${stateBits(f)}<span class="ttl">${f.title}<span class="sub">${f.t}${f.pr ? ` · pr ${f.pr.n}${f.pr.draft ? " draft" : ""}` : ""}</span></span>${stateWord(f)}</div>`),
+        "nothing in flight")}
+      ${col("line", `frontier · ${m.frontier.length}`,
+        m.frontier.map(f => `<div class="srow">${typ(f)}<span class="ttl">${f.title}<span class="sub">${f.t} · ${route(f)}</span></span><span class="go">start →</span></div>`),
+        "nothing takeable")}
+      ${col("", `ahead · ${m.frontier.reduce((a, f) => a + f.kids.length, 0)}${m.fog ? " +" + m.fog + " fog" : ""}`,
+        m.frontier.flatMap(f => f.kids.map(k => `<div class="srow dim"><span class="word">waits</span><span class="ttl">${k.title}<span class="sub">${k.t} · behind ${f.t}</span></span></div>`))
+          .concat(m.fog ? [`<div class="fogband">fog: ${m.fogNotes.join(" · ")}</div>`] : []),
+        "nothing ahead")}
+    </div>
+  </div>`).join("");
+}
+
+/* ---------- shell wiring ---------- */
+const RENDER = { a: renderA, b: renderB, c: renderC };
+const VIEWS = ["a", "b", "c"];
+const frame = document.getElementById("frame");
+const wrap = document.getElementById("wrap");
+const q = new URLSearchParams(location.search);
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "a";
+let mode = q.get("mode") === "light" ? "light" : "dark";
+let w = q.get("w") === "desktop" ? "desktop" : "phone";
+
+function render() {
+  document.querySelectorAll(".view").forEach(sec => {
+    const on = sec.dataset.view === v;
+    sec.classList.toggle("active", on);
+    if (!on) return;
+    sec.querySelector("[data-filters]").innerHTML = filtersHTML();
+    const maps = visMaps();
+    sec.querySelector("[data-body]").innerHTML =
+      maps.length ? RENDER[v](maps) : `<div class="fnone">no map matches the filter</div>`;
+    sec.querySelectorAll("[data-repo]").forEach(b =>
+      b.onclick = () => { filt.repo = b.dataset.repo; render(); });
+    const sel = sec.querySelector("[data-typ]");
+    sel.onchange = () => { filt.typ = sel.value; render(); };
+  });
+  frame.className = "frame w-" + w + " " + mode;
+  document.getElementById("vname").textContent =
+    document.querySelector(".view.active").dataset.name;
+  document.getElementById("mode").textContent = mode === "dark" ? "☾" : "☀";
+  document.getElementById("width").textContent = w === "phone" ? "📱" : "🖥";
+  const p = new URLSearchParams({ v, mode, w });
+  history.replaceState(null, "", "?" + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === "desktop" ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = "scale(" + s + ")";
+  wrap.style.height = (frame.offsetHeight * s) + "px";
+}
+function cycle(dir) {
+  v = VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+document.getElementById("mode").onclick = () => { mode = mode === "dark" ? "light" : "dark"; render(); };
+document.getElementById("width").onclick = () => { w = w === "phone" ? "desktop" : "phone"; render(); };
+window.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+window.addEventListener("resize", rescale);
+render();
+</script>
+</body>
+</html>
