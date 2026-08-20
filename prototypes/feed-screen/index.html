@@ -113,11 +113,11 @@ svg { display:block; }
 /* ================================================================
    V1 · LEDGER — the tail is evidence. Complete, chronological, mono.
    ================================================================ */
-.v1 .fchips { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
-.v1 .fchip { font-size:10px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer;
+.fs .fchips { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+.fs .fchip { font-size:10px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer;
   padding:6px 10px; border:1px solid var(--line); border-radius:999px; color:var(--mut);
   background:transparent; user-select:none; }
-.v1 .fchip.on { color:var(--ink); border-color:var(--mut); }
+.fs .fchip.on { color:var(--ink); border-color:var(--mut); }
 .v1 .row { display:flex; align-items:baseline; gap:10px; padding:9px 0;
   border-top:1px solid var(--line); font-size:13px; }
 .v1 .day + .row, .v1 .fchips + .row { border-top:0; }
@@ -127,7 +127,7 @@ svg { display:block; }
   font-weight:500; font-size:13px; }
 .v1 .row.need { background:var(--needbg); border-top-color:transparent;
   margin:0 -8px; padding-left:8px; padding-right:8px; border-radius:4px; }
-.v1 .row.hidden { display:none; }
+.fs .hidden { display:none !important; }
 @container frame (min-width:700px) {
   .v1.fs { padding:26px 44px 60px; }
   .v1 .wrap { max-width:1100px; margin:0 auto; }
@@ -213,7 +213,7 @@ svg { display:block; }
     <div><div class="k">24 h · 96 events</div>
       <div class="dens" data-dens="1,0,0,0,0,0,2,4,3,6,8,5,7,9,4,6,11,8,3,2,5,4,2,1"></div></div>
   </div>
-  <div class="fchips" id="fchips">
+  <div class="fchips">
     <span class="fchip on" data-fam="all">all</span>
     <span class="fchip" data-fam="agent">agents</span>
     <span class="fchip" data-fam="need">needs you</span>
@@ -323,8 +323,20 @@ svg { display:block; }
   <div class="ht"><span>curia · atlas · feed</span><span>aug 20 · 14:07</span></div>
   <div class="screen">Feed</div>
   <div class="sub">One stream, two altitudes. News at full size, mechanics compressed between.</div>
+  <div class="pulse">
+    <div><div class="k">24 h · 96 events</div>
+      <div class="dens" data-dens="1,0,0,0,0,0,2,4,3,6,8,5,7,9,4,6,11,8,3,2,5,4,2,1"></div></div>
+  </div>
+  <div class="fchips">
+    <span class="fchip on" data-fam="all">all</span>
+    <span class="fchip" data-fam="agent">agents</span>
+    <span class="fchip" data-fam="need">needs you</span>
+    <span class="fchip" data-fam="deploy">deploys</span>
+    <span class="fchip" data-fam="command">commands</span>
+    <span class="fchip" data-fam="system">system</span>
+  </div>
 
-  <div class="news need">
+  <div class="news need" data-fam="need">
     <time>13:58</time>
     <div class="bd">
       <div class="l1"><span class="chip">Gate</span> The embedded terminal #537</div>
@@ -332,7 +344,7 @@ svg { display:block; }
     </div>
     <a class="go" href="#">thread →</a>
   </div>
-  <div class="news need">
+  <div class="news need" data-fam="need">
     <time>13:41</time>
     <div class="bd">
       <div class="l1"><span class="chip">Ask · 2</span> Home-screen design directions #519</div>
@@ -342,11 +354,11 @@ svg { display:block; }
   </div>
 
   <div class="micro">
-    <div class="m"><time>14:07</time><span>command · start 559 · alp82</span></div>
-    <div class="m"><time>14:02</time><span>pr_opened · The effort prototype #559</span></div>
+    <div class="m" data-fam="command"><time>14:07</time><span>command · start 559 · alp82</span></div>
+    <div class="m" data-fam="agent"><time>14:02</time><span>pr_opened · The effort prototype #559</span></div>
   </div>
 
-  <div class="news calm-ok">
+  <div class="news calm-ok" data-fam="agent">
     <time>13:22</time>
     <div class="bd">
       <div class="l1"><span class="word ok">resolved</span>The pane-driven rewind #542</div>
@@ -354,7 +366,7 @@ svg { display:block; }
     </div>
     <a class="go" href="#">thread →</a>
   </div>
-  <div class="news calm-bad">
+  <div class="news calm-bad" data-fam="agent">
     <time>12:56</time>
     <div class="bd">
       <div class="l1"><span class="word bad">died</span>codex · The subagent meter #544</div>
@@ -362,7 +374,7 @@ svg { display:block; }
     </div>
     <a class="go" href="#">thread →</a>
   </div>
-  <div class="news calm-ok">
+  <div class="news calm-ok" data-fam="deploy">
     <time>12:40</time>
     <div class="bd">
       <div class="l1"><span class="word ok">landed</span>deploy · daemon 669ed83</div>
@@ -373,18 +385,18 @@ svg { display:block; }
   <div class="micro">
     <details>
       <summary>6 mechanics · 08:46 – 11:58 — preview, notify, config, bridge, resume</summary>
-      <div class="m"><time>11:58</time><span>notify · look · The model-switch prototype #561</span></div>
-      <div class="m"><time>11:20</time><span>preview · The feed screen #523 · port 9012</span></div>
-      <div class="m"><time>10:44</time><span>token_warned · anthropic window at 92 %</span></div>
-      <div class="m"><time>10:12</time><span>config_reloaded · poll_interval_s 5 → 3 · alp82</span></div>
-      <div class="m"><time>09:02</time><span>auto_resume · claude · Journal mining #549</span></div>
-      <div class="m"><time>08:46</time><span>bridge wedged 92 s, recovered</span></div>
+      <div class="m" data-fam="agent"><time>11:58</time><span>notify · look · The model-switch prototype #561</span></div>
+      <div class="m" data-fam="agent"><time>11:20</time><span>preview · The feed screen #523 · port 9012</span></div>
+      <div class="m" data-fam="system"><time>10:44</time><span>token_warned · anthropic window at 92 %</span></div>
+      <div class="m" data-fam="system"><time>10:12</time><span>config_reloaded · poll_interval_s 5 → 3 · alp82</span></div>
+      <div class="m" data-fam="agent"><time>09:02</time><span>auto_resume · claude · Journal mining #549</span></div>
+      <div class="m" data-fam="system"><time>08:46</time><span>bridge wedged 92 s, recovered</span></div>
     </details>
   </div>
 
   <div class="mark">your last visit · yesterday 22:50</div>
 
-  <div class="news calm-ok">
+  <div class="news calm-ok" data-fam="agent">
     <time>23:12</time>
     <div class="bd">
       <div class="l1"><span class="word ok">resolved</span>The effort prototype #559</div>
@@ -392,7 +404,7 @@ svg { display:block; }
     </div>
     <a class="go" href="#">thread →</a>
   </div>
-  <div class="news calm-bad">
+  <div class="news calm-bad" data-fam="agent">
     <time>19:44</time>
     <div class="bd">
       <div class="l1"><span class="word warn">held</span>The maps screen #522</div>
@@ -401,8 +413,8 @@ svg { display:block; }
   </div>
 
   <div class="micro">
-    <div class="m"><time>22:40</time><span>land_repaired · The deploy verdict #562</span></div>
-    <div class="m"><time>21:03</time><span>journal_backup · 1.4 MB · nightly</span></div>
+    <div class="m" data-fam="agent"><time>22:40</time><span>land_repaired · The deploy verdict #562</span></div>
+    <div class="m" data-fam="system"><time>21:03</time><span>journal_backup · 1.4 MB · nightly</span></div>
   </div>
 
   <div class="tailnote">news = gate, ask, verdict, death, deploy, hold — everything else rides compressed<br>
@@ -475,14 +487,20 @@ document.querySelectorAll('[data-dens]').forEach(el => {
   });
 });
 
-/* v1 filter chips: one family visible, or all */
-document.querySelectorAll('#fchips .fchip').forEach(chip => {
-  chip.onclick = () => {
-    document.querySelectorAll('#fchips .fchip').forEach(c => c.classList.toggle('on', c === chip));
-    const fam = chip.dataset.fam;
-    document.querySelectorAll('.v1 .row').forEach(r =>
-      r.classList.toggle('hidden', fam !== 'all' && r.dataset.fam !== fam));
-  };
+/* filter chips: one family visible, or all — scoped to the variant they sit in */
+document.querySelectorAll('.fchips').forEach(bar => {
+  const scope = bar.closest('.view');
+  bar.querySelectorAll('.fchip').forEach(chip => {
+    chip.onclick = () => {
+      bar.querySelectorAll('.fchip').forEach(c => c.classList.toggle('on', c === chip));
+      const fam = chip.dataset.fam;
+      scope.querySelectorAll('[data-fam]').forEach(r => {
+        if (r.classList.contains('fchip')) return;
+        r.classList.toggle('hidden', fam !== 'all' && r.dataset.fam !== fam);
+      });
+      scope.querySelectorAll('details').forEach(dt => { dt.open = fam !== 'all'; });
+    };
+  });
 });
 
 render();
