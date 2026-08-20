@@ -247,14 +247,102 @@ codex resume --last -c model_reasoning_effort="minimal"
 </ul>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="opencode"><span class="n">4</span> opencode <span class="verdict open">PENDING INSTALL</span></h2>
-<p class="lead">Awaiting the operator's approval to install <code>opencode-ai</code>.
-   This section fills in from the same rig: wire first, pane second.</p>
+<h2 class="sec" id="opencode"><span class="n">4</span> opencode 1.18.18 <span class="verdict pass">PROVEN</span></h2>
+<p class="lead"><b>The config IS the vocabulary: curia authors the effort words, and the
+   TUI spawn reads them from the throwaway <code>opencode.json</code>.</b> Installed
+   pinned after the operator's approval. The wire field is <code>reasoning_effort</code>
+   on <code>POST /v1/chat/completions</code>.</p>
+
+<ul class="fact">
+  <li><b>Mechanism:</b> the model entry's base options —
+      <code>models.&lt;id&gt;.options.reasoningEffort</code> — state the spawn effort
+      (req-45). The entry can declare <code>variants</code> (name → overrides), picked
+      per run with <code>run --variant</code> or mid-session with <code>/variant</code>.
+      The TUI takes no variant flag at spawn; a top-level <code>variant</code> key and
+      <code>default: true</code> on a variant both do nothing (proven on the wire).</li>
+  <li><b>Vocabulary:</b> config-defined. Whatever string the config states rides
+      verbatim — <code>ultra</code> included (req-34). The union maps trivially because
+      curia writes the mapping itself.</li>
+  <li><b>Default:</b> none. No option, no effort field on the wire.</li>
+  <li><b>Resume:</b> <code>--continue</code> re-reads the config, so a changed
+      <code>reasoningEffort</code> applies to the resumed session (req-46). A
+      ticket-type override on resume = rewrite the throwaway config.</li>
+</ul>
+
+<div class="term">
+  <div class="cap">THE WIRE — base options, variants, and the two quiet failures (evidence/opencode-wire/)</div>
+  <pre>options.reasoningEffort = "medium"       → <b>"medium"</b> at TUI spawn   (req-45)
+/variant → xhigh (mid-session)           → <b>"xhigh"</b>                (req-39)
+run --variant ultra (declared)           → <b>"ultra"</b> verbatim        (req-34)
+run --variant banana (NOT declared)      → <s>nothing sent, no warning</s> (req-36)
+options.reasoningEffort = "banana"       → <s>"banana"</s> verbatim      (req-48)
+config medium → high, then --continue    → <b>"high"</b>  ← the resume re-reads config (req-46)</pre>
+</div>
+
+<div class="term">
+  <div class="cap">THE /variant PICKER AND THE FOOTER (opencode-4-variant-menu.txt, opencode-5-footer-xhigh.txt)</div>
+  <pre>  Select variant                                   esc
+● Default
+  minimal  low  medium  high  <b>xhigh</b>  max  ultra
+…
+  Build · standin-1 stand-in <b>· xhigh</b>       ← footer, only when a VARIANT is chosen</pre>
+</div>
+
+<ul class="fact">
+  <li><b>Readback:</b> the footer and the sqlite message store record the VARIANT only.
+      A base-options effort shows nowhere — the daemon's own config value is the sole
+      record on this lane.</li>
+  <li><b>One wrinkle:</b> the TUI persists the last-used model and variant per user dir
+      and carries it into other workspaces (a fresh workspace inherited xhigh). Curia's
+      per-agent config dirs start that state empty.</li>
+</ul>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="pi"><span class="n">5</span> pi <span class="verdict open">PENDING INSTALL</span></h2>
-<p class="lead">Awaiting the operator's approval to install
-   <code>@earendil-works/pi-coding-agent</code>. Same rig.</p>
+<h2 class="sec" id="pi"><span class="n">5</span> pi 0.84.2 <span class="verdict pass">PROVEN</span></h2>
+<p class="lead"><b>A validated flag, the one always-visible footer, and a per-change
+   session record.</b> Installed pinned after the operator's approval
+   (<code>@earendil-works/pi-coding-agent</code>). The wire field is
+   <code>reasoning_effort</code>, mapped per model through <code>thinkingLevelMap</code>
+   in <code>models.json</code>.</p>
+
+<ul class="fact">
+  <li><b>Mechanism:</b> <code>--thinking &lt;level&gt;</code> at spawn, or the suffix
+      <code>--model &lt;id&gt;:&lt;level&gt;</code> (req-11). The per-model
+      <code>thinkingLevelMap</code> translates each level to the provider string.</li>
+  <li><b>Vocabulary:</b> fixed and validated: <code>off minimal low medium high xhigh
+      max</code>. <code>low..max</code> match the union. <code>ultra</code> is INVALID
+      on pi. <code>off</code> and <code>minimal</code> sit below the union's floor.</li>
+  <li><b>Default:</b> <code>medium</code> (req-10). <code>off</code> omits the field
+      (req-2).</li>
+  <li><b>Mid-session:</b> <code>Shift+Tab</code> cycles the level, footer and wire
+      follow (req-13). No <code>/thinking</code> command — that text goes to the model
+      as a message. Session-only: a bare <code>-c</code> resume returns to
+      <code>medium</code> even after xhigh (req-19), and <code>--thinking</code> on the
+      resume wins (req-17). The flag rides every spawn.</li>
+</ul>
+
+<div class="term">
+  <div class="cap">THE WIRE — the sweep and the fallback (evidence/pi-wire/)</div>
+  <pre>--thinking off      → <b>no field</b>       minimal…max → <b>as named</b>   (req-2…7)
+--thinking ultra    → <s>"medium"</s> + warning naming the valid values (req-8)
+--thinking banana   → <s>"medium"</s> + the same warning              (req-9)
+no flag             → <b>"medium"</b>  ← the default                   (req-10)
+--model standin-1:xhigh → <b>"xhigh"</b> ← the suffix form              (req-11)
+-c (bare resume, session was xhigh) → <s>"medium"</s>  ← default is back (req-19)
+-c --thinking xhigh → <b>"xhigh"</b>  ← the flag wins on resume         (req-17)</pre>
+</div>
+
+<div class="term">
+  <div class="cap">THE FOOTER — always visible (pi-1-spawn-xhigh.txt)</div>
+  <pre>0.0%/128k (auto)                                     standin-1 <b>• xhigh</b></pre>
+</div>
+
+<div class="term">
+  <div class="cap">FAILURE SHAPE — the best warning of the four lanes (pi-6-invalid-warning.txt)</div>
+  <pre><i>Warning: Invalid thinking level "banana". Valid values: off, minimal,
+low, medium, high, xhigh, max</i>
+ok (req 9)        ← the run continued at medium</pre>
+</div>
 
 <!-- ================================================================ -->
 <h2 class="sec" id="summary"><span class="n">6</span> Summary</h2>
@@ -273,17 +361,34 @@ codex resume --last -c model_reasoning_effort="minimal"
       <td>footer, exec header, rollout per turn — all echo the CONFIG string</td>
       <td>passes through, real API would 400 mid-run</td>
       <td>session record beats config; <code>-c</code> beats session</td></tr>
-  <tr><td><b>opencode</b></td><td colspan="5">pending install approval</td></tr>
-  <tr><td><b>pi</b></td><td colspan="5">pending install approval</td></tr>
+  <tr><td><b>opencode 1.18.18</b></td>
+      <td><code>opencode.json</code> model options, <code>run --variant</code>, <code>/variant</code></td>
+      <td>config-defined — curia authors the words</td>
+      <td>footer + sqlite record VARIANTS only; base options show nowhere</td>
+      <td>undeclared variant quietly ignored; option garbage rides the wire</td>
+      <td>config re-read — rewrite it and resume</td></tr>
+  <tr><td><b>pi 0.84.2</b></td>
+      <td><code>--thinking</code> flag, <code>--model id:level</code>, Shift+Tab</td>
+      <td>off…max validated; ultra invalid</td>
+      <td>footer always; session JSONL per change</td>
+      <td>warns with the valid list, falls back to medium</td>
+      <td>flag on the resume spawn wins</td></tr>
 </table>
 </div>
 
-<div class="note"><b>What #533 can already settle.</b> Both proven lanes take the effort
-per spawn from a value the daemon controls, resume included — so
+<div class="note"><b>What #533 can settle.</b> All four lanes take the effort at spawn
+from a value the daemon controls, and the override survives a resume on each — claude
+and pi by the flag on the resume spawn, opencode by rewriting the throwaway config,
+codex only by <code>-c</code> on the resume command. So
 <code>defaults.&lt;type&gt;</code> as <code>{model, effort}</code> with
-type-beats-model precedence is implementable. Neither lane validates, so the daemon's
-boot check is the only guard. The union's <code>ultra</code> needs a per-harness
-translation or a rule that no model maps it.</div>
+type-beats-model precedence is implementable everywhere.</div>
+
+<div class="note warn"><b>No lane refuses a wrong value.</b> claude and pi warn and fall
+back. codex and opencode send garbage to the wire — a mid-run 400 on a real API. The
+daemon's boot check against <code>REASONING_EFFORTS</code> is the only guard, and it
+needs a per-harness vocabulary map: <code>ultra</code> is <code>ultracode</code> on
+claude (rides as xhigh + workflows), <code>ultra</code> on codex (rides as max),
+INVALID on pi, and config-authored on opencode.</div>
 
 </main>
 </body>

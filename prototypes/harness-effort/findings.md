@@ -85,20 +85,97 @@ The daemon's union in `daemon/src/config.mjs`: `low | medium | high | xhigh | ma
   on the resume command line wins over the session record (`req-16`, footer follows).
   So a ticket-type override on resume must ride the resume COMMAND, not the config file.
 
-## opencode (pending the install approval)
+## opencode 1.18.18 (wire: `POST /v1/chat/completions`, field `reasoning_effort`)
 
-## pi (pending the install approval)
+Installed pinned after the operator's approval, as the pane-rewind probe was.
+
+- **Mechanism.** The per-agent `opencode.json`, which the daemon writes anyway. The
+  model entry's base options state the spawn effort:
+  `provider.<id>.models.<id>.options.reasoningEffort` rides the wire as
+  `reasoning_effort` (`opencode-wire/req-45`). The model entry can also declare
+  `variants` (name → option overrides, e.g. `"xhigh": {"reasoningEffort": "xhigh"}`),
+  picked per run with `opencode run --variant <name>`. The interactive TUI takes NO
+  variant flag at spawn — the config options are the spawn mechanism there. A top-level
+  `"variant"` config key does nothing, and `"default": true` on a variant does nothing
+  at spawn (both proven ignored on the wire).
+- **Vocabulary.** Config-defined, not harness-fixed. opencode ships no effort words for
+  a custom model: whatever string the config states rides the wire verbatim (`ultra`
+  included, `req-34`). So the union maps trivially — curia authors the per-model
+  mapping itself. Catalog models ship their own variant lists (low/high/max style).
+- **Default.** None. A model with no `reasoningEffort` option sends no effort field.
+- **Readback.** The footer shows `Build · standin-1 stand-in · xhigh` once a VARIANT is
+  chosen (`opencode-5-footer-xhigh.txt`), and nothing for a base-options effort.
+  `opencode run` prints no effort at all. The message store (a sqlite db,
+  `opencode.db`) records `variant` per assistant message — again only for variants,
+  `null` for base options. So a base-options effort reads back NOWHERE: the daemon's
+  own config value is the only record.
+- **Failure shape.** Two quiet ones. A `--variant` name the model does not declare is
+  ignored without a warning, and no effort rides the wire (`req-36`,
+  `opencode-2-run-banana.txt`). A garbage string in the options passes through
+  verbatim (`req-48`) — a mid-run 400 on a real API, exactly the codex shape.
+- **Mid-session.** Yes: the `/variant` command opens a picker of the declared variants
+  (`opencode-4-variant-menu.txt`); the footer updates and the next turn sends the new
+  value (`req-39`). The TUI persists the last-used model and variant in its per-user
+  state and carries it into OTHER workspaces under the same home (proven: a fresh
+  workspace inherited `xhigh`). On resume (`--continue`) the config is re-read: a
+  changed `reasoningEffort` option applied to the resumed session (`req-46`), so a
+  ticket-type override on resume works by rewriting the throwaway config.
+
+## pi 0.84.2 (wire: `POST /v1/chat/completions`, field `reasoning_effort`)
+
+Installed pinned after the operator's approval (`@earendil-works/pi-coding-agent`).
+
+- **Mechanism.** The spawn flag `--thinking <level>`, or the suffix form
+  `--model <id>:<level>` (`pi-wire/req-11`). The per-model `thinkingLevelMap` in
+  `models.json` maps each level to the provider string that rides the wire, so curia
+  controls both the level and its translation for a custom provider.
+- **Vocabulary.** Fixed and validated: `off, minimal, low, medium, high, xhigh, max`.
+  Mapping onto the union: `low..max` one to one. `ultra` is INVALID on pi (warns, falls
+  back). pi adds `off` and `minimal` below the union's floor.
+- **Default.** `medium` (`req-10`, no flag). `off` omits the effort field entirely
+  (`req-2`).
+- **Readback.** The footer always shows `standin-1 • xhigh`
+  (`pi-1-spawn-xhigh.txt`) — the one lane where the effort is permanently visible. The
+  session JSONL under `<agent-dir>/sessions/` records `thinkingLevel` at start and on
+  every change (`pi-7-session-thinking-record.txt`) — a plain file the daemon can read.
+- **Failure shape.** The best of the four: a printed warning that names the valid
+  values — "Invalid thinking level \"banana\". Valid values: off, minimal, low,
+  medium, high, xhigh, max" — then a fallback to `medium`, exit 0
+  (`pi-6-invalid-warning.txt`, `req-9`). Still not a refusal.
+- **Mid-session.** Yes: `Shift+Tab` cycles the level; the footer and the wire follow
+  (`req-13`). There is NO `/thinking` slash command — that text goes to the model as a
+  user message, a hazard for a pane driver. The cycle is session-only in the claude
+  sense: a bare `-c` resume returns to the DEFAULT `medium` even when the session ended
+  at `xhigh` (`req-19`), and `--thinking` on the resume wins (`req-17`). So the flag
+  must ride every spawn, resume included.
 
 ## What the design at #533 can settle on this evidence
 
-- Every lane takes the effort at spawn from a value the daemon fully controls
-  (claude: flag or env var; codex: config key or `-c`). Per-spawn override is universal
-  on the two proven lanes, resume included, so `defaults.<type>` as `{model, effort}`
-  with type-beats-model precedence is implementable.
-- Boot validation against `REASONING_EFFORTS` must also map per harness: claude refuses
-  nothing and warns, codex refuses nothing and sends garbage to the real API. The union
-  value `ultra` needs a per-harness translation table (`ultracode` on claude, `ultra`
-  accepted but riding as `max` on codex) or a rule that no model maps it.
-- The status line can read the chosen effort back from the harness's own record
-  (claude transcript per assistant turn, codex rollout per turn_context), with one
-  caveat: the codex record states the configured label, not the clamped wire value.
+- **The config shape works everywhere.** Every lane takes the effort at spawn from a
+  value the daemon fully controls: claude `--effort`, codex `model_reasoning_effort`
+  (config or `-c`), opencode the throwaway `opencode.json` model options, pi
+  `--thinking`. So `defaults.<type>` as `{model, effort}` beside
+  `models.<label>.reasoning_effort`, with type-beats-model precedence, is
+  implementable on all four.
+- **The override survives a resume on every lane, each by its own rule.** claude and
+  pi: pass the flag again on the resume spawn (a bare resume falls back to the
+  default). opencode: rewrite the config, the resume re-reads it. codex: the session
+  record beats the config file, so the override must ride `-c` on the resume command.
+- **No lane refuses a wrong value, so boot validation is the daemon's job.** claude
+  and pi warn and fall back (visible, recoverable). codex and opencode send garbage to
+  the wire (a mid-run 400 on a real API — the dangerous quiet shape the ticket named).
+  The existing `REASONING_EFFORTS` check must extend to the type override, plus a
+  per-harness vocabulary check: `ultra` is claude `ultracode` (rides as xhigh +
+  workflows), codex `ultra` (rides as max), INVALID on pi, and config-authored on
+  opencode. A row naming an effort its model's harness cannot state should be refused
+  at boot, as #557 asked.
+- **The status line can only show what a surface states.** Per-turn records exist on
+  claude (transcript `effort`, honest: absent when a model dropped it), codex (rollout
+  `turn_context.effort`, echoes the configured label even when clamped or garbage), and
+  pi (session `thinkingLevel`). opencode records only variant picks, nothing for
+  base-options effort — there the daemon's own config value is the sole source.
+- **Fallback models.** On the claude lane the flag applies to fable and sonnet and is
+  silently dropped by haiku (transcript shows the drop). On codex the effort is per
+  model in config, so a fallback re-spawn states its own. A fallback chain should
+  carry the effort ruling through re-spawns and read the harness record to see whether
+  it stuck.
