@@ -167,11 +167,19 @@ svg { display:block; }
 .r3 .acts .mut { color:var(--mut); }
 .r3 .phone-hint { margin-top:6px; font-size:10px; color:var(--mut);
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r3 .row.pick { cursor:pointer; }
+.r3 .s-done .row { font-size:12px; color:var(--mut); padding:7px 0; }
+.r3 .s-done .ttl { font-weight:400; }
+.r3 .s-done h2 { margin-top:34px; }
+.r3 .state .st { font-weight:700; }
+.r3 .state .st.need { color:var(--amber); }
+.r3 .detail[hidden] { display:none; }
 @container frame (min-width:700px) {
   .r3 { padding:26px 44px 60px; }
   .r3 .grid { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,7fr); gap:0 56px; align-items:start; }
   .r3 .s-list { grid-column:1; }
-  .r3 .s-detail { grid-column:2; border-left:1px solid var(--line); padding-left:44px; min-height:520px; }
+  .r3 .s-done { grid-column:1; }
+  .r3 .s-detail { grid-column:2; grid-row:1 / span 2; border-left:1px solid var(--line); padding-left:44px; min-height:520px; }
   .r3 .phone-hint { display:none; }
 }
 </style>
@@ -307,6 +315,133 @@ svg { display:block; }
   </div>
 </section>
 
+<!-- ============ 4 · FOCUS, CONVERGED (round 2) ============ -->
+<section class="view sc r3" data-view="r4" data-name="4 · Focus, converged">
+  <div class="ht"><span>curia · agents</span><span>aug 20 · 09:41</span></div>
+  <div class="grid">
+  <div class="s-list">
+    <div class="reads"><b>5</b> live · <span class="hot">2 need you</span> · <b>412k</b> tok today</div>
+    <h2>Agents</h2>
+    <div class="row pick sel" data-agent="a1"><span class="chip">Gate</span><span class="ttl">Home-screen design directions<span class="sub">claude · waits 26 min</span></span><span class="num">34m</span></div>
+    <div class="row pick" data-agent="a2"><span class="chip">Ask · 2</span><span class="ttl">The subagent meter and the bounds<span class="sub">codex · waits 5 min</span></span><span class="num">26m</span></div>
+    <div class="row pick" data-agent="a3"><span class="dot on"></span><span class="ttl">Mine the production journal<span class="sub">claude · working</span></span><span class="num">12m</span></div>
+    <div class="row pick" data-agent="a4"><span class="dot on"></span><span class="ttl">The settings screen<span class="sub">opencode · working · 86% hot</span></span><span class="num">1h12</span></div>
+    <div class="row pick" data-agent="a5"><span class="dot dim"></span><span class="ttl">The aistack-machine prototype<span class="sub">pi · parked</span></span><span class="num">41m</span></div>
+    <div class="phone-hint">tap a row to open it</div>
+  </div>
+  <div class="s-detail">
+    <div class="detail" id="d-a1">
+      <h2>Selected</h2>
+      <div class="dtt">Home-screen design directions</div>
+      <div class="dsub">alp82/curia#519 · branch curia/519 · dispatched 09:07</div>
+      <div class="state"><span class="st need">at the gate</span> · review requested · waits 26 min</div>
+      <div class="mgrid">
+        <div><div class="v">claude</div><div class="k">lane</div></div>
+        <div><div class="v">fable-5</div><div class="k">model</div></div>
+        <div><div class="v">high</div><div class="k">effort</div></div>
+        <div><div class="v">61%</div><div class="k">context</div></div>
+        <div><div class="v">128k</div><div class="k">tok</div></div>
+      </div>
+      <div class="story">
+        <h2>Story</h2>
+        <div class="row"><time>09:36</time><span class="ttl">gate · review requested, pull request 572 open</span></div>
+        <div class="row"><time>09:15</time><span class="ttl">answered · round of 2, all as recommended</span></div>
+        <div class="row"><time>09:12</time><span class="ttl">ask · 2 questions on the color language</span></div>
+        <div class="row"><time>09:07</time><span class="ttl">dispatched on fable-5 · high</span></div>
+      </div>
+      <div class="acts"><a class="go" href="#">open chat →</a><a class="go mut" href="#">thread →</a><a class="go mut" href="#">ticket →</a></div>
+    </div>
+    <div class="detail" id="d-a2" hidden>
+      <h2>Selected</h2>
+      <div class="dtt">The subagent meter and the bounds</div>
+      <div class="dsub">alp82/curia#544 · branch curia/544 · dispatched 09:15</div>
+      <div class="state"><span class="st need">waiting on your answer</span> · 2 questions open · waits 5 min</div>
+      <div class="mgrid">
+        <div><div class="v">codex</div><div class="k">lane</div></div>
+        <div><div class="v">gpt-5.3</div><div class="k">model</div></div>
+        <div><div class="v">medium</div><div class="k">effort</div></div>
+        <div><div class="v">38%</div><div class="k">context</div></div>
+        <div><div class="v">96k</div><div class="k">tok</div></div>
+      </div>
+      <div class="story">
+        <h2>Story</h2>
+        <div class="row"><time>09:36</time><span class="ttl">ask · 2 questions on the meter fix</span></div>
+        <div class="row"><time>09:24</time><span class="ttl">look · findings.md posted</span></div>
+        <div class="row"><time>09:15</time><span class="ttl">dispatched on gpt-5.3 · medium</span></div>
+      </div>
+      <div class="acts"><a class="go" href="#">open chat →</a><a class="go mut" href="#">thread →</a><a class="go mut" href="#">ticket →</a></div>
+    </div>
+    <div class="detail" id="d-a3" hidden>
+      <h2>Selected</h2>
+      <div class="dtt">Mine the production journal</div>
+      <div class="dsub">alp82/curia#549 · branch curia/549 · dispatched 09:29</div>
+      <div class="state"><span class="st">working</span> · commits land · 12 min in</div>
+      <div class="mgrid">
+        <div><div class="v">claude</div><div class="k">lane</div></div>
+        <div><div class="v">fable-5</div><div class="k">model</div></div>
+        <div><div class="v">high</div><div class="k">effort</div></div>
+        <div><div class="v">22%</div><div class="k">context</div></div>
+        <div><div class="v">41k</div><div class="k">tok</div></div>
+      </div>
+      <div class="story">
+        <h2>Story</h2>
+        <div class="row"><time>09:41</time><span class="ttl">commit · the journal parser walks one day</span></div>
+        <div class="row"><time>09:31</time><span class="ttl">working · the plan is posted</span></div>
+        <div class="row"><time>09:29</time><span class="ttl">dispatched on fable-5 · high</span></div>
+      </div>
+      <div class="acts"><a class="go" href="#">open chat →</a><a class="go mut" href="#">thread →</a><a class="go mut" href="#">ticket →</a></div>
+    </div>
+    <div class="detail" id="d-a4" hidden>
+      <h2>Selected</h2>
+      <div class="dtt">The settings screen</div>
+      <div class="dsub">alp82/curia#525 · branch curia/525 · dispatched 08:29</div>
+      <div class="state"><span class="st">working</span> · 2 subagents run · 1 h 12 min in</div>
+      <div class="mgrid">
+        <div><div class="v">opencode</div><div class="k">lane</div></div>
+        <div><div class="v">sonnet-5</div><div class="k">model</div></div>
+        <div><div class="v">medium</div><div class="k">effort</div></div>
+        <div><div class="v hot">86% hot</div><div class="k">context</div></div>
+        <div><div class="v">204k</div><div class="k">tok</div></div>
+        <div><div class="v">2</div><div class="k">subagents</div></div>
+      </div>
+      <div class="story">
+        <h2>Story</h2>
+        <div class="row"><time>09:38</time><span class="ttl">subagent · the variant sweep spawned</span></div>
+        <div class="row"><time>09:12</time><span class="ttl">subagent · the settings audit spawned</span></div>
+        <div class="row"><time>08:52</time><span class="ttl">answered · 1 question on the defaults</span></div>
+        <div class="row"><time>08:29</time><span class="ttl">dispatched on sonnet-5 · medium</span></div>
+      </div>
+      <div class="acts"><a class="go" href="#">open chat →</a><a class="go mut" href="#">thread →</a><a class="go mut" href="#">ticket →</a></div>
+    </div>
+    <div class="detail" id="d-a5" hidden>
+      <h2>Selected</h2>
+      <div class="dtt">The aistack-machine prototype</div>
+      <div class="dsub">alp82/curia#554 · branch curia/554 · dispatched 08:47</div>
+      <div class="state"><span class="st">parked</span> · a cross-check reads the diff · 41 min</div>
+      <div class="mgrid">
+        <div><div class="v">pi</div><div class="k">lane</div></div>
+        <div><div class="v">gpt-5.3</div><div class="k">model</div></div>
+        <div><div class="v">medium</div><div class="k">effort</div></div>
+        <div><div class="v">54%</div><div class="k">context</div></div>
+        <div><div class="v">88k</div><div class="k">tok</div></div>
+      </div>
+      <div class="story">
+        <h2>Story</h2>
+        <div class="row"><time>09:00</time><span class="ttl">parked · a cross-check was requested from the thread</span></div>
+        <div class="row"><time>08:58</time><span class="ttl">gate · review requested, pull request 574 open</span></div>
+        <div class="row"><time>08:47</time><span class="ttl">dispatched on gpt-5.3 · medium</span></div>
+      </div>
+      <div class="acts"><a class="go" href="#">open chat →</a><a class="go mut" href="#">thread →</a><a class="go mut" href="#">ticket →</a></div>
+    </div>
+  </div>
+  <div class="s-done">
+    <h2>Ended today</h2>
+    <div class="row"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue #562</span><a class="go" href="#">chat →</a></div>
+    <div class="row"><time>12:40</time><span class="ttl">resolved · The pane-driven rewind #542</span><a class="go" href="#">chat →</a></div>
+  </div>
+  </div>
+</section>
+
 <!-- switcher -->
 <nav class="bar">
   <button id="prev" aria-label="previous">◀</button>
@@ -319,11 +454,11 @@ svg { display:block; }
 </nav>
 
 <script>
-const VIEWS = ['r1','r2','r3'];
+const VIEWS = ['r4','r1','r2','r3'];
 const frame = document.getElementById('frame');
 const wrap  = document.getElementById('wrap');
 const q = new URLSearchParams(location.search);
-let d    = VIEWS.includes(q.get('d')) ? q.get('d') : 'r1';
+let d    = VIEWS.includes(q.get('d')) ? q.get('d') : 'r4';
 let mode = q.get('mode') === 'light' ? 'light' : 'dark';
 let w    = q.get('w') === 'desktop' ? 'desktop' : 'phone';
 
@@ -358,6 +493,16 @@ window.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') cycle(1);
 });
 window.addEventListener('resize', rescale);
+
+/* focus view: tapping a row opens its detail */
+document.querySelectorAll('.row.pick').forEach(row => {
+  row.addEventListener('click', () => {
+    const sec = row.closest('.view');
+    sec.querySelectorAll('.row.pick').forEach(r => r.classList.toggle('sel', r === row));
+    sec.querySelectorAll('.detail').forEach(dd => { dd.hidden = dd.id !== 'd-' + row.dataset.agent; });
+    requestAnimationFrame(rescale);
+  });
+});
 
 /* sparklines: <svg data-spark="1,2,3"> → polyline, 2px stroke */
 document.querySelectorAll('[data-spark]').forEach(svg => {
