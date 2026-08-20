@@ -44,10 +44,13 @@ shape, so the cooled-model failure is measured and not imagined.
   `--model` on the resume beats it (`req-14`, `standin-2`). The daemon's spawn template
   always passes `--model`, so a respawn always states the routing pick; the settings write
   cannot leak into another agent because every agent gets its own config dir.
-- **Vocabulary.** `/model` takes any string and validates it live against the account, so
-  the daemon can type either the routing label (`opus` is a CLI alias) or a concrete id.
-  The transcript answers with the id the API resolved, which is the id→label direction
-  `modelName()` already renders.
+- **Vocabulary.** Both directions proven on one switch (`claude-11-alias-seam.txt`).
+  Typed `/model opus` — the routing label, which is also a CLI alias: the CLI accepted it
+  WITHOUT the validation probe (it knows its own aliases), the wire stated
+  `claude-opus-5` (`req-16`), and the transcript's assistant entry states the same id —
+  the field `modelName()` renders. `settings.json` keeps the label as typed. An unknown
+  string (`standin-2`) takes the validation probe instead. So the daemon can type the
+  label for anthropic models and must type `models.<label>.id` for anything else.
 
 ## codex 0.146.0 (wire: `POST /v1/responses`, field `model`)
 
