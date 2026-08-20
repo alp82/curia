@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "url": "/ping",
+  "headers": {
+    "host": "127.0.0.1:9105",
+    "user-agent": "curl/7.88.1",
+    "accept": "*/*"
+  },
+  "body": null
+}

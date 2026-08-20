@@ -1,0 +1,8 @@
+• ok (req 3, model standin-1)
+  Select Reasoning Level for gpt-5.6-terra
+  1. Low               Fast responses with lighter reasoning
+› 2. Medium (default)  Balances speed and reasoning depth for everyday tasks
+  3. High              Greater reasoning depth for complex problems
+  4. Extra high        Extra high reasoning depth for complex problems
+  5. More reasoning…   Max and Ultra consume usage limits faster
+  Press enter to confirm or esc to go back

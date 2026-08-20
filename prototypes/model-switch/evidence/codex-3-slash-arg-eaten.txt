@@ -1,0 +1,6 @@
+  this can degrade performance and cause issues.
+• ok (req 2, model standin-1)
+› /model standin-2
+• ok (req 3, model standin-1)
+› Use /skills to list available skills
+  standin-1 default · /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75…

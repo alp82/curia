@@ -1,0 +1,12 @@
+│ >_ OpenAI Codex (v0.146.0)                              │
+│                                                         │
+│ model:       standin-1   /model to change               │
+│ directory:   /tmp/claude-1000/-workspace/…/ms-codex/cwd │
+│ permissions: YOLO mode                                  │
+╰─────────────────────────────────────────────────────────╯
+  Tip: Our most capable model yet. GPT-5.6 Sol can tackle complex code changes,
+  dig into research, produce polished documents, and take on your most ambitious
+  work. Sol is highly capable at lower reasoning efforts—try starting lower,
+  then turn it up for harder jobs.
+› Use /skills to list available skills
+  standin-1 default · /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75…

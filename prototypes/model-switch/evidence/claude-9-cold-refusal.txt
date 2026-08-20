@@ -1,0 +1,14 @@
+❯ remember the pelican/model standin-1
+● ok (req 6, model standin-2)
+✻ Baked for 0s
+❯ /model standin-1
+  ⎿  Set model to standin-1 and saved as your default for new sessions
+❯ /model standin-cold
+  ⎿  API error: 403
+     {"type":"error","error":{"type":"permission_error","message":"You do not
+     have access to the model standin-cold."}}
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+                                                              ● high · /effort

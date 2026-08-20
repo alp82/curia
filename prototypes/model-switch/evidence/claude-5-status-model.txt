@@ -1,0 +1,24 @@
+
+❯ /status
+
+────────────────────────────────────────────────────────────────────────────────
+  Settings  Status   Config   Usage   Stats
+
+  Version:             2.1.220
+  Session name:        /rename to add a name
+  Session ID:          008a3bb5-eb89-4d7c-9484-ea1dd9626a26
+  cwd:                 /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb
+                       df92bd7/scratchpad/ms-claude/cwd
+  Auth token:          none
+  API key:             ANTHROPIC_API_KEY
+  Anthropic base URL:  http://127.0.0.1:9105
+
+  Model:               standin-2
+  Setting sources:     User settings
+
+  System diagnostics
+   ⚠ No write permissions for auto-updates
+
+
+  Esc to cancel
+

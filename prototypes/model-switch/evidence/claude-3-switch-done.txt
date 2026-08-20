@@ -1,0 +1,14 @@
+
+❯ /model standin-2
+  ⎿  Unable to validate model: undefined is not an object (evaluating
+     'z.usage.input_tokens')
+
+❯ /model standin-2
+  ⎿  Set model to standin-2 and saved as your default for new sessions
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+
+
