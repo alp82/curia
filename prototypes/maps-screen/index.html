@@ -6,9 +6,10 @@
 <title>#522 The maps screen — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#522 "The maps screen".
-  Three reads of the map tree in the V6 synthesis direction from #519,
-  switchable via ?v=, width via ?w=, color mode via ?mode=. Static mock data.
-  The filters work; every other link is dead on purpose.
+  Round 2: five vastly distinct reads of the map tree, phone first,
+  in the V6 synthesis direction from #519. The round-1 reads sit at the
+  end of the cycle. Switch via ?v=, width via ?w=, color via ?mode=.
+  Static mock data. The filters and taps work; every link is dead on purpose.
 -->
 <style>
 /* ============ shell (not part of the design) ============ */
@@ -60,15 +61,15 @@ svg { display:block; }
 .frame.light .mv { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
   --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
   --glow:none; }
-.mv h2, .mv .num, .mv .ht, .mv .tk, .mv .typ, .mv .route, .mv .go, .mv .fchip, .mv select
+.mv h2, .mv .num, .mv .ht, .mv .tk, .mv .route, .mv .go, .mv .fchip, .mv select, .mv .word
   { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
 .mv .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
   color:var(--mut); text-transform:uppercase; margin-bottom:6px; }
 .mv h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
-  margin:26px 0 4px; font-weight:600; }
+  margin:24px 0 4px; font-weight:600; }
 
 /* filters — shared, live inside the view */
-.mv .filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:14px 0 4px; }
+.mv .filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:12px 0 4px; }
 .mv .fchip { font-size:11px; padding:6px 10px; border-radius:999px; cursor:pointer;
   background:transparent; border:1px solid var(--line); color:var(--mut); }
 .mv .fchip.on { border-color:var(--cyan); color:var(--cyan); font-weight:600; }
@@ -78,9 +79,6 @@ svg { display:block; }
 
 /* shared atoms */
 .mv .tk { font-size:11px; color:var(--mut); text-decoration:none; }
-.mv .tk:hover { color:var(--cyan); }
-.mv .typ { flex:none; font-size:9px; letter-spacing:.14em; text-transform:uppercase;
-  color:var(--mut); border:1px solid var(--line); border-radius:4px; padding:2px 6px; }
 .mv .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
   padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
 .mv .dot { flex:none; width:8px; height:8px; border-radius:50%; }
@@ -94,18 +92,126 @@ svg { display:block; }
   overflow:hidden; text-overflow:ellipsis; }
 .mv .word { font-size:10px; color:var(--mut); letter-spacing:.08em; text-transform:uppercase; }
 .mv .word.run { color:var(--green); }
+.mv .word.gate { color:var(--amber); }
+.mv .word.take { color:var(--cyan); }
 
-/* map header + progress bar (12 / 15+3 with fog tail) */
-.mv .maphead { display:flex; align-items:baseline; gap:10px; margin-top:8px; }
-.mv .maphead .mtitle { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap; font-weight:700; font-size:15px; text-decoration:none; }
-.mv .maphead .repo { font-size:10px; color:var(--mut); }
 .mv .qbar { height:3px; margin:8px 0 2px; background:var(--line); position:relative; }
 .mv .qbar i { position:absolute; top:0; bottom:0; background:var(--cyan); }
 .mv .qbar .fog { position:absolute; top:0; bottom:0; border-top:3px dotted var(--mut); opacity:.6; background:none; }
 
 /* ================================================================
-   A — LEDGER TREE: one outline per map, the frontier line drawn
+   R2 V1 — MAP CARDS: one card per map, tap opens its tree
+   ================================================================ */
+.c1 .card { border:1px solid var(--line); border-radius:10px; padding:14px 14px 12px; margin-top:12px; }
+.c1 .head { display:flex; align-items:baseline; gap:10px; cursor:pointer; }
+.c1 .head .ttl { font-size:15px; font-weight:700; }
+.c1 .counts { display:flex; gap:12px; margin-top:8px; flex-wrap:wrap; }
+.c1 .row { display:flex; align-items:center; gap:10px; padding:9px 0; font-size:13px;
+  border-top:1px solid var(--line); }
+.c1 .open .row:first-of-type { margin-top:10px; }
+.c1 .frontline { display:flex; align-items:center; gap:10px; margin:10px 0 2px; }
+.c1 .frontline .lab { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--cyan); }
+.c1 .frontline .l { flex:1; border-top:1px dashed var(--cyan); opacity:.55; }
+.c1 .row.front { border-top:0; }
+.c1 .fogrow { padding:9px 0 0; font-size:11px; color:var(--mut); border-top:1px dotted var(--mut); margin-top:4px; }
+@container frame (min-width:700px) {
+  .c1 .cards { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; align-items:start; }
+  .c1 .card { margin-top:0; }
+}
+
+/* ================================================================
+   R2 V2 — ONE QUEUE: a single attention-ordered list
+   ================================================================ */
+.c2 .strip { display:flex; gap:20px; margin-top:12px; }
+.c2 .strip > div { flex:1; min-width:0; }
+.c2 .strip .k { font-size:10px; color:var(--mut); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.c2 .strip .v { font-size:15px; font-weight:700; margin-top:2px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.c2 .row { display:flex; align-items:center; gap:10px; padding:11px 0; font-size:14px;
+  border-top:1px solid var(--line); }
+.c2 h2 + .row { border-top:0; }
+.c2 .frontline { display:flex; align-items:center; gap:10px; margin:18px 0 2px; }
+.c2 .frontline .lab { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--cyan); }
+.c2 .frontline .l { flex:1; border-top:1px dashed var(--cyan); opacity:.55; }
+.c2 .row.front { border-top:0; }
+.c2 .ahead { margin-top:16px; padding-top:10px; border-top:1px dotted var(--mut);
+  font-size:12px; color:var(--mut); }
+@container frame (min-width:700px) {
+  .c2 .wrapq { max-width:720px; }
+  .c2 .strip { max-width:720px; }
+}
+
+/* ================================================================
+   R2 V3 — ROUTE LINES: each map is one line, markers on the track
+   ================================================================ */
+.c3 .legend { display:flex; gap:16px; margin-top:12px; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
+.c3 .legend i { display:inline-block; vertical-align:-1px; margin-right:5px; }
+.c3 .map { margin-top:22px; }
+.c3 .head { display:flex; align-items:baseline; gap:10px; }
+.c3 .head .ttl { font-size:14px; font-weight:700; }
+.c3 .track { position:relative; height:26px; margin-top:10px; }
+.c3 .rail { position:absolute; left:0; right:0; top:12px; height:3px; background:var(--line); }
+.c3 .walked { position:absolute; top:12px; height:3px; background:var(--cyan); }
+.c3 .fogseg { position:absolute; top:12px; height:3px; border-top:3px dotted var(--mut); opacity:.6; }
+.c3 .mk { position:absolute; top:0; width:26px; height:26px; margin-left:-13px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; background:none; border:0; padding:0; }
+.c3 .mk i { display:block; }
+.c3 .mk.sel i { outline:2px solid var(--mut); outline-offset:2px; border-radius:50%; }
+.mv .g-run { width:10px; height:10px; border-radius:50%; background:var(--green); }
+.mv .g-gate { width:9px; height:9px; background:var(--amber); transform:rotate(45deg); box-shadow:var(--glow); }
+.mv .g-take { width:10px; height:10px; border-radius:50%; border:2px solid var(--cyan); background:var(--bg); }
+.mv .g-wait { width:4px; height:9px; background:var(--mut); opacity:.5; }
+.c3 .detail { display:flex; align-items:center; gap:10px; margin-top:6px; font-size:13px; min-height:22px; }
+@container frame (min-width:700px) {
+  .c3 .maps { max-width:860px; }
+}
+
+/* ================================================================
+   R2 V4 — PRINTOUT: dense mono ledger, one glyph per state
+   ================================================================ */
+.c4 [data-body] { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:12px; }
+.c4 .mh { display:flex; gap:8px; align-items:baseline; margin-top:18px; font-weight:700; font-size:12px; }
+.c4 .mh .rep { color:var(--mut); font-weight:400; }
+.c4 .mh .sp { flex:1; }
+.c4 .ln { display:flex; gap:8px; align-items:baseline; padding:4px 0 4px 14px;
+  white-space:nowrap; overflow:hidden; }
+.c4 .ln .t { overflow:hidden; text-overflow:ellipsis; }
+.c4 .ln .sp { flex:1; }
+.c4 .ln .g { flex:none; width:14px; text-align:center; }
+.c4 .mut { color:var(--mut); }
+.c4 .grn { color:var(--green); }
+.c4 .amb { color:var(--amber); text-shadow:var(--glow); }
+.c4 .cyn { color:var(--cyan); }
+.c4 .fr { padding:4px 0 2px 14px; color:var(--cyan); letter-spacing:.2em; font-size:10px; }
+@container frame (min-width:700px) {
+  .c4 [data-body] { columns:2; column-gap:56px; }
+  .c4 .map4 { break-inside:avoid; }
+}
+
+/* ================================================================
+   R2 V5 — SCOREBOARD: big tiles, then the one takeable list
+   ================================================================ */
+.c5 .tiles { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+.c5 .tile { border:1px solid var(--line); border-radius:10px; padding:14px; }
+.c5 .tile .big { font-size:30px; font-weight:700; line-height:1;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.c5 .tile .big .fog { font-size:14px; color:var(--mut); font-weight:400; }
+.c5 .tile .name { font-size:11px; color:var(--mut); margin-top:6px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.c5 .tile .badge { margin-top:10px; display:inline-flex; align-items:center; gap:6px; }
+.c5 .row { display:flex; align-items:center; gap:10px; padding:11px 0; font-size:14px;
+  border-top:1px solid var(--line); }
+.c5 h2 + .row { border-top:0; }
+.c5 .ahead { margin-top:14px; padding-top:10px; border-top:1px dotted var(--mut);
+  font-size:12px; color:var(--mut); }
+@container frame (min-width:700px) {
+  .c5 .tiles { grid-template-columns:repeat(3, minmax(0,1fr)); }
+  .c5 .below { max-width:720px; }
+}
+
+/* ================================================================
+   R1 A — LEDGER TREE (kept from round 1)
    ================================================================ */
 .va .map { padding-bottom:10px; }
 .va .row { display:flex; align-items:center; gap:10px; padding:10px 0;
@@ -122,13 +228,20 @@ svg { display:block; }
 .va .kid .ttl { font-weight:400; }
 .va .fogrow { display:flex; gap:10px; align-items:baseline; padding:10px 0 0; font-size:12px;
   color:var(--mut); border-top:1px dotted var(--mut); }
+.mv .maphead { display:flex; align-items:baseline; gap:10px; margin-top:8px; }
+.mv .maphead .mtitle { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font-weight:700; font-size:15px; text-decoration:none; }
+.mv .maphead .repo { font-size:10px; color:var(--mut); }
+.mv .typ { flex:none; font-size:9px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mut); border:1px solid var(--line); border-radius:4px; padding:2px 6px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
 @container frame (min-width:700px) {
   .va .maps { display:grid; grid-template-columns:1fr 1fr; gap:0 44px; align-items:start; }
   .va .map.wide { grid-column:1 / -1; }
 }
 
 /* ================================================================
-   B — FRONTIER FIRST: takeable now on top, maps as strips
+   R1 B — FRONTIER FIRST (kept from round 1)
    ================================================================ */
 .vb .row { display:flex; align-items:center; gap:10px; padding:11px 0;
   border-top:1px solid var(--line); font-size:14px; }
@@ -145,7 +258,7 @@ svg { display:block; }
 }
 
 /* ================================================================
-   C — THE MARCH: walked | in flight | frontier | ahead
+   R1 C — THE MARCH (kept from round 1)
    ================================================================ */
 .vc .map { padding-bottom:6px; }
 .vc .stages { margin-top:4px; }
@@ -172,19 +285,49 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv va" data-view="a" data-name="A · Ledger tree">
+<section class="view mv c1" data-view="v1" data-name="1 · Map cards">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
-<section class="view mv vb" data-view="b" data-name="B · Frontier first">
+<section class="view mv c2" data-view="v2" data-name="2 · One queue">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
-<section class="view mv vc" data-view="c" data-name="C · The march">
+<section class="view mv c3" data-view="v3" data-name="3 · Route lines">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv c4" data-view="v4" data-name="4 · Printout">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv c5" data-view="v5" data-name="5 · Scoreboard">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv va" data-view="a" data-name="A · Ledger tree (r1)">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv vb" data-view="b" data-name="B · Frontier first (r1)">
+  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv vc" data-view="c" data-name="C · The march (r1)">
   <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
@@ -207,7 +350,7 @@ svg { display:block; }
 const MAPS = [
   {
     repo:"alp82/curia", name:"The UX map: the dashboard, Discord, and the way between them",
-    num:"#511", closed:18, total:24, fog:2, wide:true,
+    short:"ux map", num:"#511", closed:18, total:24, fog:2, wide:true,
     recent:[
       { t:"#542", title:"The pane-driven rewind" },
       { t:"#537", title:"The embedded terminal" }
@@ -228,7 +371,7 @@ const MAPS = [
   },
   {
     repo:"alp82/curia", name:"The deploy pipeline",
-    num:"#480", closed:11, total:12, fog:0,
+    short:"deploy", num:"#480", closed:11, total:12, fog:0,
     recent:[ { t:"#562", title:"The deploy verdict references its real issue" } ],
     flight:[],
     frontier:[
@@ -238,7 +381,7 @@ const MAPS = [
   },
   {
     repo:"alp82/aistack", name:"The measured layer",
-    num:"#29", closed:3, total:9, fog:4,
+    short:"measured", num:"#29", closed:3, total:9, fog:4,
     recent:[ { t:"#28", title:"The neighbors survey" } ],
     flight:[
       { t:"#30", title:"The ingest cut-over", typ:"task", state:"run", agent:"codex", mins:12 }
@@ -254,8 +397,10 @@ const MAPS = [
 const TYPES = ["grilling","prototype","research","task"];
 const TYPE_SHORT = { grilling:"grill", prototype:"proto", research:"res", task:"task" };
 
-/* ---------- filter state, shared by the three views ---------- */
+/* ---------- ui state, shared ---------- */
 let filt = { repo:"all", typ:"all" };
+let openCard = MAPS[0].num;           /* v1: which card is open */
+let sel = {};                          /* v3: selected marker per map */
 
 function visMaps() {
   return MAPS
@@ -269,11 +414,9 @@ function visMaps() {
 /* ---------- atoms ---------- */
 const tk = t => `<a class="tk" href="#" onclick="return false">${t}</a>`;
 const typ = f => `<span class="typ">${TYPE_SHORT[f.typ]}</span>`;
-const route = f => `<span class="route">→ <b>${f.model}</b> · ${f.typ} default</span>`;
+const route = f => `<span class="route">→ <b>${f.model}</b></span>`;
 const prMark = p => p ? `<a class="go" href="#" onclick="return false">pr ${p.n}${p.draft ? " draft" : ""} →</a>` : "";
-const stateBits = f => f.state === "gate"
-  ? `<span class="chip">gate</span>`
-  : `<span class="dot on"></span>`;
+const stateBits = f => f.state === "gate" ? `<span class="chip">gate</span>` : `<span class="dot on"></span>`;
 const stateWord = f => f.state === "gate"
   ? `<span class="num">waits ${f.mins}m</span>`
   : `<span class="word run">runs</span><span class="num">${f.agent} · ${f.mins}m</span>`;
@@ -289,6 +432,8 @@ const mapHead = m => `<div class="maphead">
   </div>
   <div class="maphead" style="margin-top:0"><span class="repo">${m.repo}</span></div>
   ${qbar(m)}`;
+const frontline = (n, cls) => `<div class="frontline ${cls || ""}"><span class="l"></span><span class="lab">frontier${n != null ? " · " + n : ""}</span><span class="l"></span></div>`;
+const aheadOf = m => m.frontier.reduce((a, f) => a + f.kids.length, 0);
 
 /* ---------- filters row ---------- */
 function filtersHTML() {
@@ -302,7 +447,163 @@ function filtersHTML() {
 }
 
 /* ================================================================
-   A — LEDGER TREE
+   R2 V1 — MAP CARDS
+   ================================================================ */
+function renderV1(maps) {
+  return `<div class="cards">${maps.map(m => {
+    const open = openCard === m.num;
+    const gates = m.flight.filter(f => f.state === "gate").length;
+    const runs = m.flight.filter(f => f.state === "run").length;
+    return `<div class="card ${open ? "open" : ""}">
+    <div class="head" data-card="${m.num}">
+      <span class="ttl">${m.name}</span>${nums(m)}
+    </div>
+    ${qbar(m)}
+    <div class="counts">
+      <span class="word take">${m.frontier.length} takeable</span>
+      ${runs ? `<span class="word run">${runs} runs</span>` : ""}
+      ${gates ? `<span class="word gate">${gates} gate</span>` : ""}
+      ${m.fog ? `<span class="word">+${m.fog} fog</span>` : ""}
+      <span class="go" style="margin-left:auto">${m.num} →</span>
+    </div>
+    ${open ? `
+      ${m.flight.map(f => `<div class="row">${stateBits(f)}
+        <span class="ttl">${f.title}<span class="sub">${f.t}</span></span>${stateWord(f)}${prMark(f.pr)}</div>`).join("")}
+      ${frontline(m.frontier.length)}
+      ${m.frontier.map(f => `<div class="row front">
+        <span class="ttl">${f.title}<span class="sub">${f.t} · ${route(f)}${f.kids.length ? ` · unblocks ${f.kids.map(k => k.t).join(" ")}` : ""}</span></span>
+        <span class="go">start →</span></div>`).join("")}
+      ${m.fog ? `<div class="fogrow">+${m.fog} in the fog: ${m.fogNotes.join(" · ")}</div>` : ""}
+    ` : ""}
+  </div>`; }).join("")}</div>`;
+}
+
+/* ================================================================
+   R2 V2 — ONE QUEUE
+   ================================================================ */
+function renderV2(maps) {
+  const gates = maps.flatMap(m => m.flight.filter(f => f.state === "gate").map(f => ({ ...f, map: m })));
+  const runs  = maps.flatMap(m => m.flight.filter(f => f.state === "run").map(f => ({ ...f, map: m })));
+  const front = maps.flatMap(m => m.frontier.map(f => ({ ...f, map: m })));
+  const waits = maps.reduce((a, m) => a + aheadOf(m), 0);
+  const fog = maps.reduce((a, m) => a + m.fog, 0);
+  return `<div class="strip">${maps.map(m => `<div>
+      <div class="k">${m.short} ${m.num}</div><div class="v">${m.closed}/${m.total}${m.fog ? "+" + m.fog : ""}</div>${qbar(m)}
+    </div>`).join("")}</div>
+  <div class="wrapq">
+    ${gates.map(f => `<div class="row"><span class="chip">gate</span>
+      <span class="ttl">${f.title}<span class="sub">${f.map.short} · ${f.t} · waits ${f.mins}m</span></span>${prMark(f.pr)}</div>`).join("")}
+    ${runs.map(f => `<div class="row"><span class="dot on"></span>
+      <span class="ttl">${f.title}<span class="sub">${f.map.short} · ${f.t} · ${f.agent} · ${f.mins}m</span></span>${prMark(f.pr)}</div>`).join("")}
+    ${frontline(front.length)}
+    ${front.map(f => `<div class="row front">
+      <span class="ttl">${f.title}<span class="sub">${f.map.short} · ${f.t} · ${route(f)}${f.kids.length ? ` · unblocks ${f.kids.length}` : ""}</span></span>
+      <span class="go">start →</span></div>`).join("")}
+    <div class="ahead">ahead: ${waits} blocked · +${fog} fog, across ${maps.length} maps</div>
+  </div>`;
+}
+
+/* ================================================================
+   R2 V3 — ROUTE LINES
+   ================================================================ */
+function markerFor(k) {
+  return k === "run" ? "g-run" : k === "gate" ? "g-gate" : k === "take" ? "g-take" : "g-wait";
+}
+function lineItems(m) {
+  const items = [];
+  m.flight.forEach(f => items.push({ kind: f.state, f }));
+  m.frontier.forEach(f => items.push({ kind: "take", f }));
+  m.frontier.forEach(f => f.kids.forEach(k => items.push({ kind: "wait", f: k, behind: f.t })));
+  return items;
+}
+function detailLine(m, it) {
+  if (!it) return `<span class="num">all walked</span>`;
+  const f = it.f;
+  if (it.kind === "run")  return `<span class="dot on"></span><span class="ttl">${f.title}</span><span class="word run">runs</span><span class="num">${f.agent} · ${f.mins}m</span>${prMark(f.pr)}`;
+  if (it.kind === "gate") return `<span class="chip">gate</span><span class="ttl">${f.title}</span><span class="num">waits ${f.mins}m</span>${prMark(f.pr)}`;
+  if (it.kind === "take") return `<span class="word take">next</span><span class="ttl">${f.title}</span>${route(f)}<span class="go">start →</span>`;
+  return `<span class="word">waits</span><span class="ttl">${f.title}</span><span class="num">behind ${it.behind}</span>`;
+}
+function renderV3(maps) {
+  return `<div class="legend">
+    <span><i class="g-run"></i>runs</span><span><i class="g-gate"></i>gate</span>
+    <span><i class="g-take"></i>takeable</span><span><i class="g-wait"></i>blocked</span>
+    <span style="letter-spacing:.2em">╌╌ fog</span>
+  </div>
+  <div class="maps">${maps.map((m, mi) => {
+    /* schematic, not proportional: a walked stub, even markers, a fog stub */
+    const items = lineItems(m);
+    const wStub = 14, fogStub = m.fog ? 12 : 0;
+    const span = 100 - wStub - fogStub - 6;
+    const selIdx = sel[m.num] ?? items.findIndex(i => i.kind === "take");
+    return `<div class="map">
+      <div class="head"><span class="ttl">${m.name}</span>${nums(m)}<span class="go">${m.num} →</span></div>
+      <div class="track">
+        <div class="rail"></div>
+        <div class="walked" style="left:0;width:${wStub}%"></div>
+        ${m.fog ? `<div class="fogseg" style="right:0;width:${fogStub}%"></div>` : ""}
+        ${items.map((it, i) => {
+          const pos = wStub + (i + 0.5) / items.length * span;
+          return `<button class="mk ${i === selIdx ? "sel" : ""}" style="left:${pos.toFixed(1)}%"
+            data-mk="${mi}:${i}" aria-label="${it.f.title}"><i class="${markerFor(it.kind)}"></i></button>`;
+        }).join("")}
+      </div>
+      <div class="detail">${detailLine(m, items[selIdx])}</div>
+    </div>`; }).join("")}</div>`;
+}
+
+/* ================================================================
+   R2 V4 — PRINTOUT
+   ================================================================ */
+function renderV4(maps) {
+  return maps.map(m => `<div class="map4">
+    <div class="mh"><span class="rep">${m.repo.split("/")[1]}</span><span>${m.name}</span>
+      <span class="sp"></span><span class="mut">${m.closed}/${m.total}${m.fog ? "+" + m.fog : ""}</span><span class="cyn">${m.num} →</span></div>
+    ${qbar(m)}
+    <div class="ln mut"><span class="g">✓</span><span class="t">${m.closed} walked · last ${m.recent[0].title} ${m.recent[0].t}</span></div>
+    ${m.flight.map(f => f.state === "gate"
+      ? `<div class="ln"><span class="g amb">◆</span><span class="t">${f.title} ${f.t}</span><span class="sp"></span><span class="amb">gate ${f.mins}m</span>${f.pr ? `<span class="cyn">pr ${f.pr.n} →</span>` : ""}</div>`
+      : `<div class="ln"><span class="g grn">▶</span><span class="t">${f.title} ${f.t}</span><span class="sp"></span><span class="grn">runs</span><span class="mut">${f.agent} ${f.mins}m</span>${f.pr ? `<span class="cyn">pr ${f.pr.n} →</span>` : ""}</div>`).join("")}
+    <div class="fr">── frontier ──</div>
+    ${m.frontier.map(f => `<div class="ln"><span class="g cyn">○</span><span class="t">${f.title} ${f.t}</span>
+      <span class="sp"></span><span class="mut">→${f.model.replace("claude-","").replace("gpt-","g")}</span><span class="cyn">start →</span></div>
+      ${f.kids.map(k => `<div class="ln mut" style="padding-left:34px"><span class="g">·</span><span class="t">${k.title} ${k.t}</span><span class="sp"></span><span>waits</span></div>`).join("")}`).join("")}
+    ${m.fog ? `<div class="ln mut"><span class="g">╌</span><span class="t">fog +${m.fog}: ${m.fogNotes.join(" · ")}</span></div>` : ""}
+  </div>`).join("");
+}
+
+/* ================================================================
+   R2 V5 — SCOREBOARD
+   ================================================================ */
+function renderV5(maps) {
+  const front = maps.flatMap(m => m.frontier.map(f => ({ ...f, map: m })));
+  const waits = maps.reduce((a, m) => a + aheadOf(m), 0);
+  const fog = maps.reduce((a, m) => a + m.fog, 0);
+  const badge = m => {
+    const g = m.flight.find(f => f.state === "gate");
+    if (g) return `<span class="chip">gate ${g.t}</span>`;
+    const r = m.flight.find(f => f.state === "run");
+    if (r) return `<span class="dot on"></span><span class="word run">${r.agent} runs ${r.t}</span>`;
+    if (m.frontier.length) return `<span class="word take">${m.frontier.length} takeable</span>`;
+    return `<span class="word">quiet</span>`;
+  };
+  return `<div class="tiles">${maps.map(m => `<div class="tile">
+      <div class="big">${m.closed}<span style="color:var(--mut)">/${m.total}</span>${m.fog ? `<span class="fog"> +${m.fog}</span>` : ""}</div>
+      ${qbar(m)}
+      <div class="name">${m.short} · ${m.repo.split("/")[1]} · <a class="go" href="#" onclick="return false">${m.num} →</a></div>
+      <div class="badge">${badge(m)}</div>
+    </div>`).join("")}</div>
+  <div class="below">
+    <h2>The line · ${front.length} takeable</h2>
+    ${front.map(f => `<div class="row">
+      <span class="ttl">${f.title}<span class="sub">${f.map.short} · ${f.t} · ${route(f)}</span></span>
+      <span class="go">start →</span></div>`).join("")}
+    <div class="ahead">ahead: ${waits} blocked · +${fog} fog — the maps hold the detail on GitHub</div>
+  </div>`;
+}
+
+/* ================================================================
+   R1 A — LEDGER TREE
    ================================================================ */
 function renderA(maps) {
   return `<div class="maps">${maps.map(m => `<div class="map ${m.wide ? "wide" : ""}">
@@ -312,9 +613,9 @@ function renderA(maps) {
     ${m.flight.map(f => `<div class="row">${stateBits(f)}${typ(f)}
       <span class="ttl">${f.title}<span class="sub">${f.t}</span></span>
       ${stateWord(f)}${prMark(f.pr)}</div>`).join("")}
-    <div class="frontline"><span class="l"></span><span class="lab">frontier · ${m.frontier.length}</span><span class="l"></span></div>
+    ${frontline(m.frontier.length)}
     ${m.frontier.map(f => `<div class="row front">${typ(f)}
-      <span class="ttl">${f.title}<span class="sub">${f.t} · ${route(f)}</span></span>
+      <span class="ttl">${f.title}<span class="sub">${f.t} · ${route(f)} · ${f.typ} default</span></span>
       <span class="go">start →</span></div>
       ${f.kids.length ? `<div class="kids">${f.kids.map(k => `<div class="kid">
         <span class="word">waits</span><span class="ttl">${k.title}</span>${tk(k.t)}</div>`).join("")}</div>` : ""}`).join("")}
@@ -324,7 +625,7 @@ function renderA(maps) {
 }
 
 /* ================================================================
-   B — FRONTIER FIRST
+   R1 B — FRONTIER FIRST
    ================================================================ */
 function renderB(maps) {
   const front = maps.flatMap(m => m.frontier.map(f => ({ ...f, map: m })));
@@ -357,7 +658,7 @@ function renderB(maps) {
 }
 
 /* ================================================================
-   C — THE MARCH
+   R1 C — THE MARCH
    ================================================================ */
 function renderC(maps) {
   const col = (cls, head, rows, empty) => `<div class="col">
@@ -376,7 +677,7 @@ function renderC(maps) {
       ${col("line", `frontier · ${m.frontier.length}`,
         m.frontier.map(f => `<div class="srow">${typ(f)}<span class="ttl">${f.title}<span class="sub">${f.t} · ${route(f)}</span></span><span class="go">start →</span></div>`),
         "nothing takeable")}
-      ${col("", `ahead · ${m.frontier.reduce((a, f) => a + f.kids.length, 0)}${m.fog ? " +" + m.fog + " fog" : ""}`,
+      ${col("", `ahead · ${aheadOf(m)}${m.fog ? " +" + m.fog + " fog" : ""}`,
         m.frontier.flatMap(f => f.kids.map(k => `<div class="srow dim"><span class="word">waits</span><span class="ttl">${k.title}<span class="sub">${k.t} · behind ${f.t}</span></span></div>`))
           .concat(m.fog ? [`<div class="fogband">fog: ${m.fogNotes.join(" · ")}</div>`] : []),
         "nothing ahead")}
@@ -385,12 +686,13 @@ function renderC(maps) {
 }
 
 /* ---------- shell wiring ---------- */
-const RENDER = { a: renderA, b: renderB, c: renderC };
-const VIEWS = ["a", "b", "c"];
+const RENDER = { v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4, v5: renderV5,
+  a: renderA, b: renderB, c: renderC };
+const VIEWS = ["v1", "v2", "v3", "v4", "v5", "a", "b", "c"];
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "a";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "v1";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 
@@ -405,8 +707,15 @@ function render() {
       maps.length ? RENDER[v](maps) : `<div class="fnone">no map matches the filter</div>`;
     sec.querySelectorAll("[data-repo]").forEach(b =>
       b.onclick = () => { filt.repo = b.dataset.repo; render(); });
-    const sel = sec.querySelector("[data-typ]");
-    sel.onchange = () => { filt.typ = sel.value; render(); };
+    const selEl = sec.querySelector("[data-typ]");
+    selEl.onchange = () => { filt.typ = selEl.value; render(); };
+    sec.querySelectorAll("[data-card]").forEach(h =>
+      h.onclick = () => { openCard = openCard === h.dataset.card ? null : h.dataset.card; render(); });
+    sec.querySelectorAll("[data-mk]").forEach(b =>
+      b.onclick = () => {
+        const [mi, i] = b.dataset.mk.split(":").map(Number);
+        sel[visMaps()[mi].num] = i; render();
+      });
   });
   frame.className = "frame w-" + w + " " + mode;
   document.getElementById("vname").textContent =
