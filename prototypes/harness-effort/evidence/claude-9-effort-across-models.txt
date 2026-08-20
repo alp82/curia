@@ -1,0 +1,12 @@
+claude 2.1.220, `--effort low` against three claude-lane models (stand-in wire):
+
+req-20  claude-sonnet-5             output_config: {"effort":"low"}   thinking: adaptive
+req-22  claude-haiku-4-5-20251001   output_config: (absent)           thinking: {"type":"enabled","budget_tokens":31999}
+req-24  claude-fable-5              output_config: {"effort":"low"}   thinking: adaptive
+
+Transcript per assistant turn (cfg/projects/<ws>/<session>.jsonl):
+  claude-fable-5              effort: low
+  claude-haiku-4-5-20251001   effort: (absent)   <- the drop is visible here
+  claude-sonnet-5             effort: low
+
+No warning is printed for the haiku drop. The flag is accepted and silently unused.

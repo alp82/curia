@@ -1,0 +1,4 @@
+[0m
+> build · standin-1
+[0m
+ok (req 32)

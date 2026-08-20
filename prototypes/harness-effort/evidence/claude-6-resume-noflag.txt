@@ -1,0 +1,24 @@
+❯ again one word
+
+● ok (req 6)
+
+✻ Crunched for 0s
+
+❯ /status
+  ⎿  Settings dialog dismissed
+
+❯ /exit
+  ⎿  Bye!
+
+❯ resumed, one word
+
+● ok (req 8)
+
+✻ Cogitated for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents
+
+

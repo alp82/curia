@@ -1,0 +1,24 @@
+  Tip: Our most capable model yet. GPT-5.6 Sol can tackle complex code changes,
+  dig into research, produce polished documents, and take on your most ambitious
+  work. Sol is highly capable at lower reasoning efforts—try starting lower,
+  then turn it up for harder jobs.
+
+
+› say ok
+
+
+• ok (req 10)
+
+
+  Select Model and Effort
+  Access legacy models by running codex -m <model_name> or in your config.toml
+
+› 1. gpt-5.6-sol (current)  Latest frontier agentic coding model.
+  2. gpt-5.6-terra          Balanced agentic coding model for everyday work.
+  3. gpt-5.6-luna           Fast and affordable agentic coding model.
+  4. gpt-5.5                Frontier model for complex coding, research, and
+                            real-world work.
+  5. gpt-5.2                Optimized for professional work and long-running
+                            agents.
+
+  Press enter to confirm or esc to go back

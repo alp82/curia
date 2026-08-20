@@ -1,0 +1,24 @@
+  Tip: Our most capable model yet. GPT-5.6 Sol can tackle complex code changes,
+  dig into research, produce polished documents, and take on your most ambitious
+  work. Sol is highly capable at lower reasoning efforts—try starting lower,
+  then turn it up for harder jobs.
+
+
+› say ok
+
+
+• ok (req 10)
+
+
+  Advanced Reasoning
+  ⚠ Consumes usage limits faster
+
+› 1. Max    For difficult problems when quality matters more than speed ·
+            higher usage
+  2. Ultra  For demanding work using multiple agents · highest usage
+
+  Press enter to confirm or esc to go back
+
+
+
+

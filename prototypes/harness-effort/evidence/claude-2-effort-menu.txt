@@ -1,0 +1,24 @@
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Opus 5 (1M context) with xhigh effort · API Usage Billing
+  ▘▘ ▝▝    /…/scratchpad/effort/claude-a/ws
+
+
+❯ hello, reply with one word
+
+● ok (req 4)
+
+✻ Cooked for 0s
+
+❯ /effort
+
+────────────────────────────────────────────────────────────────────────────────
+  Effort
+
+         Faster                                                 Smarter
+         ──────────────────────────────▲────────────┆──────────────────
+         low     medium     high     xhigh      max       ultracode
+                                                      xhigh + workflows
+
+  ←/→ to adjust · Enter to confirm · Esc to cancel
+
+

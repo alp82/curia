@@ -1,0 +1,24 @@
+
+  ┃
+  ┃  say ok
+  ┃
+
+     ok (req 38)
+
+     ▣  Bu    Select variant                                   esc
+
+              Search
+
+            ● Default
+              minimal
+              low
+              medium
+              high
+  ┃           xhigh
+  ┃
+  ┃
+  ┃  Build · standin-1 stand-in
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-workspace/238ef690-9cdf-459e-aa87- tab       ctrl+p
+   8a707e4da021/scratchpad/effort/oc/ws                 agents    commands
+

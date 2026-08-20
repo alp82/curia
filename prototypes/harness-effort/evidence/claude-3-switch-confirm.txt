@@ -1,0 +1,24 @@
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Opus 5 (1M context) with xhigh effort · API Usage Billing
+  ▘▘ ▝▝    /…/scratchpad/effort/claude-a/ws
+
+
+❯ hello, reply with one word
+
+● ok (req 4)
+
+✻ Cooked for 0s
+
+❯ /effort
+
+────────────────────────────────────────────────────────────────────────────────
+  Change effort level?
+  Your next response will be slower and use more tokens
+
+  This conversation is cached for the current effort level. Switching to max
+  means the full history gets re-read on your next message.
+
+  ❯ 1. Yes, switch to max
+    2. No, go back
+
+

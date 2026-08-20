@@ -1,0 +1,24 @@
+❯ /status
+  ⎿  Settings dialog dismissed
+
+❯ /exit
+  ⎿  Bye!
+
+❯ resumed, one word
+
+● ok (req 8)
+
+✻ Cooked for 0s
+
+❯ one word again
+
+● ok (req 10)
+
+✻ Worked for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents
+
+

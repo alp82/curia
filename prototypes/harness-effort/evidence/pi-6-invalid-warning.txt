@@ -1,0 +1,2 @@
+Warning: Invalid thinking level "banana". Valid values: off, minimal, low, medium, high, xhigh, max
+ok (req 9)
