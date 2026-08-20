@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#524 The chat screen — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#524 "The chat screen".
+  The chat picker and the embedded chat in the V6 synthesis direction (#519),
+  switchable via ?v=, width via ?w=, color mode via ?mode=. Static mock data.
+
+  Views:
+    pick1  Picker A — one list, needs-you pinned, then recency
+    pick2  Picker B — one screen, two sections (Tickets / Overseer)
+    pick3  Picker C — two screens behind tabs
+    chat1  Agent chat — escalation card with the options open
+    chat2  Agent chat — escalation card leads with the recommendation
+    chat3  Chat states — answered, answered in the thread, take back, guard, ended
+    chat4  Overseer chat
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:190px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+
+/* ============ V6 synthesis language (#519) ============ */
+.cs { background:var(--bg); color:var(--ink); min-height:820px;
+  font-family:ui-sans-serif,system-ui,sans-serif; }
+.frame.dark .cs { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); --dim:#14161c; }
+.frame.light .cs { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; --dim:#eeeeeb; }
+.cs .mono, .cs h2, .cs .num, .cs time, .cs .ht, .cs .chip, .cs .meta, .cs .sub, .cs .tag
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+.cs .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; padding:20px 20px 0; }
+.cs h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
+  margin:26px 0 4px; font-weight:600; }
+.cs .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.cs .dot { flex:none; width:8px; height:8px; border-radius:50%; }
+.cs .dot.on { background:var(--green); }
+.cs .dot.dim { background:var(--mut); opacity:.4; }
+.cs .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.cs .go { flex:none; font-size:12px; color:var(--cyan); text-decoration:none; }
+
+/* ---- picker list ---- */
+.cs .list { padding:0 20px 40px; }
+.cs .row { display:flex; align-items:center; gap:10px; padding:12px 0;
+  border-top:1px solid var(--line); font-size:14px; text-decoration:none; }
+.cs h2 + .row { border-top:0; }
+.cs .row .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.cs .row .sub { display:block; font-size:10px; color:var(--mut); font-weight:400; margin-top:3px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs .row .sub .ov { color:var(--cyan); }
+.cs .row .state { flex:none; font-size:10px; color:var(--mut); }
+.cs .row.sel { border-left:3px solid var(--cyan); padding-left:10px; margin-left:-13px; }
+.cs .tabs { display:flex; gap:0; margin:14px 20px 0; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+.cs .tabs button { flex:1; padding:9px 0; border:0; background:transparent; color:var(--mut); cursor:pointer;
+  font:600 11px/1 ui-monospace,"SF Mono",Menlo,Consolas,monospace; letter-spacing:.12em; text-transform:uppercase; }
+.cs .tabs button.on { background:var(--dim); color:var(--ink); }
+
+/* ---- two panes on desktop ---- */
+.cs .duo { display:block; }
+.cs .rail { display:none; }
+.cs.vpick .rail { display:block; }
+.cs.vpick .pane { display:none; }
+@container frame (min-width:700px) {
+  .cs .duo { display:grid; grid-template-columns:340px minmax(0,1fr); align-items:stretch; min-height:820px; }
+  .cs .rail, .cs.vpick .rail { display:block; border-right:1px solid var(--line); }
+  .cs .pane, .cs.vpick .pane { display:block; }
+  .cs .back { display:none; }
+}
+
+/* ---- chat pane ---- */
+.cs .chead { display:flex; align-items:center; gap:10px; padding:16px 20px 12px;
+  border-bottom:1px solid var(--line); }
+.cs .back { flex:none; font-size:13px; color:var(--cyan); text-decoration:none; }
+.cs .chead .ttl { flex:1; min-width:0; }
+.cs .chead .t1 { font-size:15px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cs .chead .t2 { font-size:10px; color:var(--mut); margin-top:3px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs .chead .t2 .need { color:var(--amber); }
+.cs .links { flex:none; display:flex; gap:12px; font-size:11px; }
+.cs .links a { color:var(--cyan); text-decoration:none;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs .tb { flex:none; border:1px solid var(--line); background:transparent; color:var(--mut);
+  border-radius:6px; font-size:11px; padding:5px 8px; cursor:pointer;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+.cs .tl { padding:8px 20px 24px; max-width:760px; }
+.cs .meta { font-size:10px; color:var(--mut); margin:16px 0 4px; }
+.cs .meta.you { text-align:right; }
+.cs .say { font-size:14px; line-height:1.55; }
+.cs .prompt { font-size:14px; line-height:1.5; text-align:right; color:var(--ink);
+  border-right:3px solid var(--cyan); padding-right:10px; margin-left:15%; position:relative; }
+.cs .prompt .tbm { position:absolute; left:-8px; top:2px; transform:translateX(-100%); }
+.cs .tool { font-size:11px; color:var(--mut); padding:2px 0;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs .think { font-size:12px; color:var(--mut); font-style:italic;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* ---- escalation card ---- */
+.cs .esc { border:1px solid var(--line); border-left:3px solid var(--amber); border-radius:8px;
+  margin-top:6px; overflow:hidden; }
+.cs .esc .ehead { display:flex; align-items:center; gap:10px; padding:10px 14px;
+  border-bottom:1px solid var(--line); }
+.cs .esc .ehead .num { flex:1; }
+.cs .q { padding:12px 14px 4px; }
+.cs .q .qn { font-size:10px; color:var(--mut); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs .q .qh { font-size:14px; font-weight:650; margin-top:2px; line-height:1.4; }
+.cs .opt { display:flex; gap:10px; padding:10px 0; border-top:1px solid var(--line);
+  margin-top:10px; cursor:pointer; }
+.cs .q .opt:first-of-type { border-top:0; }
+.cs .opt .radio { flex:none; width:16px; height:16px; border-radius:50%; border:1.5px solid var(--mut);
+  margin-top:1px; }
+.cs .opt.picked .radio { border-color:var(--amber); background:var(--amber); box-shadow:inset 0 0 0 3px var(--bg); }
+.cs .opt .obody { flex:1; min-width:0; }
+.cs .opt .ol { font-size:13px; font-weight:600; }
+.cs .opt .ol .rec { font-size:9px; color:var(--amber); letter-spacing:.1em; text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; margin-left:8px; }
+.cs .opt .oc { font-size:12px; color:var(--mut); margin-top:3px; line-height:1.45; }
+.cs .opt .oe { font-size:11px; color:var(--mut); margin-top:3px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs .other { font-size:11px; color:var(--cyan); padding:2px 14px 10px; display:inline-block;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; text-decoration:none; }
+.cs .efoot { display:flex; gap:8px; align-items:center; padding:12px 14px;
+  border-top:1px solid var(--line); flex-wrap:wrap; }
+.cs .btn { border:1px solid var(--line); background:transparent; color:var(--ink);
+  border-radius:999px; font-size:12px; font-weight:600; padding:9px 14px; cursor:pointer; }
+.cs .btn.prime { background:var(--amber); color:var(--amberink); border-color:var(--amber);
+  box-shadow:var(--glow); }
+.cs .btn[disabled] { color:var(--mut); cursor:default; }
+.cs .fvw { font-size:10px; color:var(--mut); flex-basis:100%;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs details.fold { border-top:1px solid var(--line); }
+.cs details.fold summary { list-style:none; cursor:pointer; padding:10px 14px; font-size:11px; color:var(--cyan);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs details.fold summary::-webkit-details-marker { display:none; }
+.cs .esc .lead { padding:12px 14px 0; font-size:13px; line-height:1.5; }
+.cs .esc .lead .why { color:var(--mut); font-size:12px; margin-top:6px; }
+
+/* ---- receipts, banners, ended ---- */
+.cs .rcpt { border:1px solid var(--line); border-left:3px solid var(--green); border-radius:8px;
+  margin-top:6px; padding:10px 14px; }
+.cs .rcpt .rh { font-size:11px; color:var(--green);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs .rcpt .rl { font-size:12px; margin-top:6px; color:var(--ink); }
+.cs .rcpt .rl .num { margin-right:6px; }
+.cs .rcpt .rnote { font-size:10px; color:var(--mut); margin-top:6px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.cs .rcpt.tbk { border-left-color:var(--cyan); }
+.cs .rcpt.tbk .rh { color:var(--cyan); }
+.cs .rcpt.tbk blockquote { border-left:2px solid var(--line); padding-left:8px; margin-top:6px;
+  font-size:12px; color:var(--mut); }
+.cs .guard { display:flex; gap:10px; align-items:center; background:var(--amber); color:var(--amberink);
+  padding:10px 14px; font-size:12px; font-weight:600; border-radius:8px; margin-top:6px; }
+.cs .guard a { font-weight:800; text-decoration:underline; }
+.cs .endnote { text-align:center; font-size:10px; color:var(--mut); padding:14px 0 4px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* ---- composer ---- */
+.cs .comp { display:flex; gap:8px; padding:12px 20px 20px; max-width:760px; }
+.cs .comp input { flex:1; min-width:0; background:transparent; border:1px solid var(--line);
+  border-radius:999px; padding:11px 16px; color:var(--ink); font-size:13px; }
+.cs .comp input::placeholder { color:var(--mut); }
+.cs .comp button { flex:none; width:40px; height:40px; border-radius:50%; border:0;
+  background:var(--cyan); color:var(--bg); font-size:15px; cursor:pointer; }
+
+/* ---- states gallery (chat3) ---- */
+.cs .gal { padding:4px 20px 40px; max-width:900px; }
+.cs .gal .cap { font-size:10px; letter-spacing:.24em; text-transform:uppercase; color:var(--mut);
+  margin:26px 0 8px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+@container frame (min-width:700px) {
+  .cs .gal { display:grid; grid-template-columns:1fr 1fr; gap:0 44px; align-items:start; margin:0 auto; }
+  .cs .gal > div { min-width:0; }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#524</b> · The chat screen · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<!-- ================= PICKER A · one list ================= -->
+<section class="view cs vpick" data-view="pick1" data-name="Picker A · one list">
+  <div class="duo">
+    <div class="rail">
+      <div class="ht"><span>curia · chats</span><span>2 need you</span></div>
+      <div class="list">
+        <h2>All chats · needs-you first, then the newest</h2>
+        <a class="row" href="#"><span class="chip">Ask · 2</span>
+          <span class="ttl">Home-screen design directions
+            <span class="sub">#519 · claude · waits for you 5 min</span></span>
+          <span class="state">runs</span></a>
+        <a class="row" href="#"><span class="chip">Gate</span>
+          <span class="ttl">The subagent meter
+            <span class="sub">#544 · codex · waits for you 26 min</span></span>
+          <span class="state">holds</span></a>
+        <a class="row" href="#"><span class="dot on"></span>
+          <span class="ttl">Journal mining
+            <span class="sub">#549 · claude · runs 12 min</span></span>
+          <span class="state">runs</span></a>
+        <a class="row" href="#"><span class="dot on"></span>
+          <span class="ttl">The deploy preflight verdict
+            <span class="sub"><span class="ov">overseer</span> · last word 14:02</span></span>
+          <span class="state">14:02</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">The pane-driven rewind
+            <span class="sub">#542 · claude · ended Mon · read-only</span></span>
+          <span class="state">Mon</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">Chart the journal mining map
+            <span class="sub"><span class="ov">overseer</span> · last word Mon</span></span>
+          <span class="state">Mon</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">The deploy verdict references its real issue
+            <span class="sub">#562 · codex · ended Mon · read-only</span></span>
+          <span class="state">Mon</span></a>
+      </div>
+    </div>
+    <div class="pane" data-tpl="tpl-chat519"></div>
+  </div>
+</section>
+
+<!-- ================= PICKER B · two sections ================= -->
+<section class="view cs vpick" data-view="pick2" data-name="Picker B · two sections">
+  <div class="duo">
+    <div class="rail">
+      <div class="ht"><span>curia · chats</span><span>2 need you</span></div>
+      <div class="list">
+        <h2>Tickets</h2>
+        <a class="row" href="#"><span class="chip">Ask · 2</span>
+          <span class="ttl">Home-screen design directions
+            <span class="sub">#519 · claude · waits for you 5 min</span></span>
+          <span class="state">runs</span></a>
+        <a class="row" href="#"><span class="chip">Gate</span>
+          <span class="ttl">The subagent meter
+            <span class="sub">#544 · codex · waits for you 26 min</span></span>
+          <span class="state">holds</span></a>
+        <a class="row" href="#"><span class="dot on"></span>
+          <span class="ttl">Journal mining
+            <span class="sub">#549 · claude · runs 12 min</span></span>
+          <span class="state">runs</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">The pane-driven rewind
+            <span class="sub">#542 · claude · ended Mon · read-only</span></span>
+          <span class="state">Mon</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">The deploy verdict references its real issue
+            <span class="sub">#562 · codex · ended Mon · read-only</span></span>
+          <span class="state">Mon</span></a>
+        <h2>Overseer</h2>
+        <a class="row" href="#"><span class="dot on"></span>
+          <span class="ttl">The deploy preflight verdict
+            <span class="sub">last word 14:02</span></span>
+          <span class="state">14:02</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">Chart the journal mining map
+            <span class="sub">last word Mon</span></span>
+          <span class="state">Mon</span></a>
+      </div>
+    </div>
+    <div class="pane" data-tpl="tpl-chat519"></div>
+  </div>
+</section>
+
+<!-- ================= PICKER C · two screens (tabs) ================= -->
+<section class="view cs vpick" data-view="pick3" data-name="Picker C · two screens">
+  <div class="duo">
+    <div class="rail">
+      <div class="ht"><span>curia · chats</span><span>2 need you</span></div>
+      <div class="tabs">
+        <button class="tabbtn on" data-tab="t">Tickets · 5</button>
+        <button class="tabbtn" data-tab="o">Overseer · 2</button>
+      </div>
+      <div class="list tabpane" data-pane="t">
+        <a class="row" href="#" style="margin-top:10px"><span class="chip">Ask · 2</span>
+          <span class="ttl">Home-screen design directions
+            <span class="sub">#519 · claude · waits for you 5 min</span></span>
+          <span class="state">runs</span></a>
+        <a class="row" href="#"><span class="chip">Gate</span>
+          <span class="ttl">The subagent meter
+            <span class="sub">#544 · codex · waits for you 26 min</span></span>
+          <span class="state">holds</span></a>
+        <a class="row" href="#"><span class="dot on"></span>
+          <span class="ttl">Journal mining
+            <span class="sub">#549 · claude · runs 12 min</span></span>
+          <span class="state">runs</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">The pane-driven rewind
+            <span class="sub">#542 · claude · ended Mon · read-only</span></span>
+          <span class="state">Mon</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">The deploy verdict references its real issue
+            <span class="sub">#562 · codex · ended Mon · read-only</span></span>
+          <span class="state">Mon</span></a>
+      </div>
+      <div class="list tabpane" data-pane="o" style="display:none">
+        <a class="row" href="#" style="margin-top:10px"><span class="dot on"></span>
+          <span class="ttl">The deploy preflight verdict
+            <span class="sub">last word 14:02</span></span>
+          <span class="state">14:02</span></a>
+        <a class="row" href="#"><span class="dot dim"></span>
+          <span class="ttl">Chart the journal mining map
+            <span class="sub">last word Mon</span></span>
+          <span class="state">Mon</span></a>
+      </div>
+    </div>
+    <div class="pane" data-tpl="tpl-chat519"></div>
+  </div>
+</section>
+
+<!-- ================= AGENT CHAT · card with options open ================= -->
+<section class="view cs vchat" data-view="chat1" data-name="Agent chat · options open">
+  <div class="duo">
+    <div class="rail" data-tpl="tpl-rail"></div>
+    <div class="pane" data-tpl="tpl-chat519"></div>
+  </div>
+</section>
+
+<!-- ================= AGENT CHAT · card leads with the recommendation ================= -->
+<section class="view cs vchat" data-view="chat2" data-name="Agent chat · recommendation first">
+  <div class="duo">
+    <div class="rail" data-tpl="tpl-rail"></div>
+    <div class="pane">
+      <div class="chead">
+        <a class="back" href="#">‹ chats</a>
+        <span class="ttl">
+          <span class="t1">Home-screen design directions</span>
+          <span class="t2">#519 · claude · runs 34 min · <span class="need">asks you · round 3</span></span>
+        </span>
+        <span class="links"><a href="#">ticket ↗</a><a href="#">thread ↗</a><a href="#">terminal ↗</a></span>
+      </div>
+      <div class="tl">
+        <div class="meta you">you · 13:33 · dispatch</div>
+        <div class="prompt">/wayfinder #519 — four directions of the Atlas home screen, phone and desktop width.</div>
+        <div class="meta">claude · 13:34</div>
+        <div class="say">I read the map and the inspiration verdict. Engineered calm rules the vibe, and Grafana is the anti-example. I build four directions now.</div>
+        <div class="meta">claude · 14:01</div>
+        <div class="tool">⚙ Write prototypes/home-directions/index.html · 1,148 lines</div>
+        <div class="tool">⚙ publish_preview · port 9018 · /index.html</div>
+        <div class="say" style="margin-top:8px">Four directions stand, phone and desktop, both color modes. Round 3 is one question pair.</div>
+
+        <div class="meta">claude asks · 14:02</div>
+        <div class="esc">
+          <div class="ehead"><span class="chip">Ask · 2</span>
+            <span class="num">esc-7 · round 3 · waits 5 min</span></div>
+          <div class="lead">
+            <b>1 · Which round-2 variation rules the home screen?</b><br>
+            <span class="why">curia recommends <b>A · V6 synthesis</b> — one direction then rules every screen prototype after this one.</span>
+          </div>
+          <div class="lead">
+            <b>2 · May color alone carry a fact?</b><br>
+            <span class="why">curia recommends <b>A · no, color pairs with a word</b> — every state survives grayscale and color-blindness.</span>
+          </div>
+          <div class="efoot">
+            <button class="btn prime">✅ All as recommended</button>
+            <button class="btn">Answer myself</button>
+            <span class="fvw">first valid answer wins — here or in the thread</span>
+          </div>
+          <details class="fold"><summary>show the options · 3 + 2</summary>
+            <div class="q">
+              <div class="qn">1 of 2</div>
+              <div class="opt"><span class="radio"></span><span class="obody">
+                <span class="ol">A · V6 synthesis <span class="rec">✦ recommended</span></span>
+                <span class="oc">One direction rules every screen prototype after this one.</span></span></div>
+              <div class="opt"><span class="radio"></span><span class="obody">
+                <span class="ol">B · V1 · HUD × chips</span>
+                <span class="oc">The ring stays, and the chips carry every state.</span></span></div>
+              <div class="opt"><span class="radio"></span><span class="obody">
+                <span class="ol">C · V4 · signage, flat</span>
+                <span class="oc">The loudest board. Background color carries state everywhere.</span></span></div>
+            </div>
+            <div class="q" style="padding-bottom:12px">
+              <div class="qn">2 of 2</div>
+              <div class="opt"><span class="radio"></span><span class="obody">
+                <span class="ol">A · No · color pairs with a word <span class="rec">✦ recommended</span></span>
+                <span class="oc">Every state survives grayscale and color-blindness.</span></span></div>
+              <div class="opt"><span class="radio"></span><span class="obody">
+                <span class="ol">B · Yes · a dot may stand alone</span>
+                <span class="oc">Rows get 90px back, and a color-blind reader loses the fact.</span>
+                <span class="oe">› the run dot next to "Journal mining" says nothing without green</span></span></div>
+            </div>
+          </details>
+        </div>
+      </div>
+      <div class="comp"><input placeholder="Message claude…"><button>➤</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CHAT STATES ================= -->
+<section class="view cs" data-view="chat3" data-name="Chat states">
+  <div class="ht"><span>curia · chat states</span><span>one card, five moments</span></div>
+  <div class="gal">
+    <div>
+      <div class="cap">answered here</div>
+      <div class="rcpt">
+        <div class="rh">✔ answered · you · here · 14:07</div>
+        <div class="rl"><span class="num">1</span>V6 synthesis · ✦ as recommended</div>
+        <div class="rl"><span class="num">2</span>color pairs with a word · ✦ as recommended</div>
+        <div class="rnote">the thread shows the same receipt</div>
+      </div>
+
+      <div class="cap">answered in the thread first</div>
+      <div class="rcpt">
+        <div class="rh">✔ answered · alp · in the thread · 14:22</div>
+        <div class="rl"><span class="num">1</span>V6 synthesis</div>
+        <div class="rl"><span class="num">2</span>a dot may stand alone</div>
+        <div class="rnote">first valid answer wins — this card closed when the thread answered</div>
+      </div>
+
+      <div class="cap">the take back (ADR-0023)</div>
+      <div class="rcpt tbk">
+        <div class="rh">⟲ you took back a message · 14:31</div>
+        <blockquote>Try a teal accent on the ring.</blockquote>
+        <div class="rnote">the composer holds its text · one more press steps one message further</div>
+      </div>
+    </div>
+    <div>
+      <div class="cap">a native dialog owns the terminal</div>
+      <div class="guard">⚠ A native dialog owns the terminal. The chat cannot answer it.
+        <a href="#">terminal ↗</a></div>
+
+      <div class="cap">the ended session · read-only</div>
+      <div style="border:1px solid var(--line); border-radius:8px; overflow:hidden">
+        <div class="chead" style="padding:12px 14px">
+          <span class="ttl">
+            <span class="t1">The pane-driven rewind</span>
+            <span class="t2">#542 · claude · ended Mon 18:40</span>
+          </span>
+          <span class="links"><a href="#">ticket ↗</a><a href="#">thread ↗</a></span>
+        </div>
+        <div class="tl" style="padding:4px 14px 10px">
+          <div class="meta">claude · Mon 18:39</div>
+          <div class="say">All four lanes pass on blind keystrokes. The resolution comment is posted, and the ticket is closed.</div>
+          <div class="endnote">the session ended · the chat stays readable · no composer</div>
+        </div>
+      </div>
+
+      <div class="cap">a message sent while the turn runs</div>
+      <div>
+        <div class="meta you">you · 14:12 · queued</div>
+        <div class="prompt">Wait with round 4 — I look at V6 on the phone first.</div>
+        <div class="rnote" style="font-size:10px;color:var(--mut);text-align:right;margin-top:4px;font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace">queued · rides the next turn</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= OVERSEER CHAT ================= -->
+<section class="view cs vchat" data-view="chat4" data-name="Overseer chat">
+  <div class="duo">
+    <div class="rail" data-tpl="tpl-rail-ov"></div>
+    <div class="pane">
+      <div class="chead">
+        <a class="back" href="#">‹ chats</a>
+        <span class="ttl">
+          <span class="t1">The deploy preflight verdict</span>
+          <span class="t2">overseer · today 14:02</span>
+        </span>
+        <button class="tb">⟲ take back</button>
+      </div>
+      <div class="tl">
+        <div class="meta you">you · 13:58</div>
+        <div class="prompt">Why did the deploy preflight refuse 669ed83?</div>
+        <div class="meta">overseer · 13:58</div>
+        <div class="tool">⚙ journal · deploy_refused · 13:57</div>
+        <div class="say" style="margin-top:8px">The preflight found a dirty <span class="mono" style="font-size:12px">daemon/package-lock.json</span> in the worktree. It refuses a deploy over uncommitted churn. The effort prototype (#559) landed that change, so a commit or a checkout clears it.</div>
+        <div class="meta you">you · 14:01</div>
+        <div class="prompt">Deploy it.</div>
+        <div class="meta">overseer · 14:02</div>
+        <div class="tool">⚙ deploy · run 41 · started</div>
+        <div class="say" style="margin-top:8px">Deploy 41 runs. The sidecar keeps the restarting marker while the daemon is down.</div>
+      </div>
+      <div class="comp"><input placeholder="Message the overseer…"><button>➤</button></div>
+    </div>
+  </div>
+</section>
+
+</div></div></div>
+
+<!-- ============ templates (cloned into panes/rails) ============ -->
+<template id="tpl-rail">
+  <div class="ht"><span>curia · chats</span><span>2 need you</span></div>
+  <div class="list">
+    <h2>All chats</h2>
+    <a class="row sel" href="#"><span class="chip">Ask · 2</span>
+      <span class="ttl">Home-screen design directions
+        <span class="sub">#519 · claude · waits for you 5 min</span></span></a>
+    <a class="row" href="#"><span class="chip">Gate</span>
+      <span class="ttl">The subagent meter
+        <span class="sub">#544 · codex · waits for you 26 min</span></span></a>
+    <a class="row" href="#"><span class="dot on"></span>
+      <span class="ttl">Journal mining
+        <span class="sub">#549 · claude · runs 12 min</span></span></a>
+    <a class="row" href="#"><span class="dot on"></span>
+      <span class="ttl">The deploy preflight verdict
+        <span class="sub"><span class="ov">overseer</span> · last word 14:02</span></span></a>
+    <a class="row" href="#"><span class="dot dim"></span>
+      <span class="ttl">The pane-driven rewind
+        <span class="sub">#542 · claude · ended Mon · read-only</span></span></a>
+    <a class="row" href="#"><span class="dot dim"></span>
+      <span class="ttl">Chart the journal mining map
+        <span class="sub"><span class="ov">overseer</span> · last word Mon</span></span></a>
+  </div>
+</template>
+
+<template id="tpl-rail-ov">
+  <div class="ht"><span>curia · chats</span><span>2 need you</span></div>
+  <div class="list">
+    <h2>All chats</h2>
+    <a class="row" href="#"><span class="chip">Ask · 2</span>
+      <span class="ttl">Home-screen design directions
+        <span class="sub">#519 · claude · waits for you 5 min</span></span></a>
+    <a class="row" href="#"><span class="chip">Gate</span>
+      <span class="ttl">The subagent meter
+        <span class="sub">#544 · codex · waits for you 26 min</span></span></a>
+    <a class="row" href="#"><span class="dot on"></span>
+      <span class="ttl">Journal mining
+        <span class="sub">#549 · claude · runs 12 min</span></span></a>
+    <a class="row sel" href="#"><span class="dot on"></span>
+      <span class="ttl">The deploy preflight verdict
+        <span class="sub"><span class="ov">overseer</span> · last word 14:02</span></span></a>
+    <a class="row" href="#"><span class="dot dim"></span>
+      <span class="ttl">The pane-driven rewind
+        <span class="sub">#542 · claude · ended Mon · read-only</span></span></a>
+    <a class="row" href="#"><span class="dot dim"></span>
+      <span class="ttl">Chart the journal mining map
+        <span class="sub"><span class="ov">overseer</span> · last word Mon</span></span></a>
+  </div>
+</template>
+
+<template id="tpl-chat519">
+  <div class="chead">
+    <a class="back" href="#">‹ chats</a>
+    <span class="ttl">
+      <span class="t1">Home-screen design directions</span>
+      <span class="t2">#519 · claude · runs 34 min · <span class="need">asks you · round 3</span></span>
+    </span>
+    <span class="links"><a href="#">ticket ↗</a><a href="#">thread ↗</a><a href="#">terminal ↗</a></span>
+  </div>
+  <div class="tl">
+    <div class="meta you">you · 13:33 · dispatch</div>
+    <div class="prompt"><button class="tb tbm" title="take back">⟲</button>/wayfinder #519 — four directions of the Atlas home screen, phone and desktop width.</div>
+    <div class="meta">claude · 13:34</div>
+    <div class="say">I read the map and the inspiration verdict. Engineered calm rules the vibe, and Grafana is the anti-example. I build four directions now.</div>
+    <div class="meta">claude · 13:52</div>
+    <div class="think">✻ thought 41s — the signage chips need an amber that survives grayscale, and the ring must not glow in light mode…</div>
+    <div class="meta">claude · 14:01</div>
+    <div class="tool">⚙ Write prototypes/home-directions/index.html · 1,148 lines</div>
+    <div class="tool">⚙ publish_preview · port 9018 · /index.html</div>
+    <div class="say" style="margin-top:8px">Four directions stand, phone and desktop, both color modes. Round 3 is one question pair.</div>
+
+    <div class="meta">claude asks · 14:02</div>
+    <div class="esc">
+      <div class="ehead"><span class="chip">Ask · 2</span>
+        <span class="num">esc-7 · round 3 · waits 5 min</span></div>
+      <div class="q">
+        <div class="qn">1 of 2</div>
+        <div class="qh">Which round-2 variation rules the home screen?</div>
+        <div class="opt picked"><span class="radio"></span><span class="obody">
+          <span class="ol">A · V6 synthesis <span class="rec">✦ recommended</span></span>
+          <span class="oc">One direction rules every screen prototype after this one.</span></span></div>
+        <div class="opt"><span class="radio"></span><span class="obody">
+          <span class="ol">B · V1 · HUD × chips</span>
+          <span class="oc">The ring stays, and the chips carry every state.</span></span></div>
+        <div class="opt"><span class="radio"></span><span class="obody">
+          <span class="ol">C · V4 · signage, flat</span>
+          <span class="oc">The loudest board. Background color carries state everywhere.</span></span></div>
+      </div>
+      <a class="other" href="#">✎ other — write an answer</a>
+      <div class="q" style="border-top:1px solid var(--line)">
+        <div class="qn">2 of 2</div>
+        <div class="qh">May color alone carry a fact?</div>
+        <div class="opt picked"><span class="radio"></span><span class="obody">
+          <span class="ol">A · No · color pairs with a word <span class="rec">✦ recommended</span></span>
+          <span class="oc">Every state survives grayscale and color-blindness.</span></span></div>
+        <div class="opt"><span class="radio"></span><span class="obody">
+          <span class="ol">B · Yes · a dot may stand alone</span>
+          <span class="oc">Rows get 90px back, and a color-blind reader loses the fact.</span>
+          <span class="oe">› the run dot next to "Journal mining" says nothing without green</span></span></div>
+      </div>
+      <a class="other" href="#">✎ other — write an answer</a>
+      <div class="efoot">
+        <button class="btn prime">✅ All as recommended</button>
+        <button class="btn">Answer · 2 picked</button>
+        <span class="fvw">first valid answer wins — here or in the thread</span>
+      </div>
+    </div>
+  </div>
+  <div class="comp"><input placeholder="Message claude…"><button>➤</button></div>
+</template>
+
+<!-- switcher -->
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button class="tog" id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button class="tog" id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* clone templates into every pane/rail that names one */
+document.querySelectorAll('[data-tpl]').forEach(el => {
+  el.innerHTML = document.getElementById(el.dataset.tpl).innerHTML;
+});
+
+const VIEWS = ['pick1','pick2','pick3','chat1','chat2','chat3','chat4'];
+const frame = document.getElementById('frame');
+const wrap  = document.getElementById('wrap');
+const q = new URLSearchParams(location.search);
+let v    = VIEWS.includes(q.get('v')) ? q.get('v') : 'pick1';
+let mode = q.get('mode') === 'light' ? 'light' : 'dark';
+let w    = q.get('w') === 'desktop' ? 'desktop' : 'phone';
+
+function render() {
+  document.querySelectorAll('.view').forEach(x =>
+    x.classList.toggle('active', x.dataset.view === v));
+  frame.className = 'frame w-' + w + ' ' + mode;
+  document.getElementById('vname').textContent =
+    document.querySelector('.view.active').dataset.name;
+  document.getElementById('mode').textContent = mode === 'dark' ? '☾' : '☀';
+  document.getElementById('width').textContent = w === 'phone' ? '📱' : '🖥';
+  const p = new URLSearchParams({v, mode, w});
+  history.replaceState(null, '', '?' + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === 'desktop' ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = 'scale(' + s + ')';
+  wrap.style.height = (frame.offsetHeight * s) + 'px';
+}
+function cycle(dir) {
+  v = VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('mode').onclick = () => { mode = mode === 'dark' ? 'light' : 'dark'; render(); };
+document.getElementById('width').onclick = () => { w = w === 'phone' ? 'desktop' : 'phone'; render(); };
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+window.addEventListener('resize', rescale);
+
+/* picker C tabs */
+document.querySelectorAll('.tabs .tabbtn').forEach(btn => {
+  btn.onclick = () => {
+    const rail = btn.closest('.rail');
+    rail.querySelectorAll('.tabbtn').forEach(b => b.classList.toggle('on', b === btn));
+    rail.querySelectorAll('.tabpane').forEach(p =>
+      p.style.display = p.dataset.pane === btn.dataset.tab ? '' : 'none');
+    rescale();
+  };
+});
+
+/* option rows toggle their radio, static otherwise */
+document.querySelectorAll('.opt').forEach(o => {
+  o.addEventListener('click', () => {
+    o.closest('.q').querySelectorAll('.opt').forEach(x => x.classList.remove('picked'));
+    o.classList.add('picked');
+  });
+});
+
+render();
+</script>
+</body>
+</html>
