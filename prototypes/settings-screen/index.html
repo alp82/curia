@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#525 The settings screen — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#525 "The settings screen".
+  Three layout variants of the settings screen in the V6 direction (#519),
+  plus a states view of the save banner and the restart.
+  Switchable via ?d=, width via ?w=, color mode via ?mode=.
+  Static mock data from the real curia.yaml / routing.yaml. The save is faked
+  in the page: edit any field to see the dirty state, press Save to see it land.
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:170px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+
+/* ============ V6 base (#519 synthesis) ============ */
+.set { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:20px 20px 80px; }
+.frame.dark .set { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5; --red:#f07a7a;
+  --glow:0 0 14px rgba(255,180,84,.35); --field:#12151b; --float:#12151b; }
+.frame.light .set { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f; --red:#b3323a;
+  --glow:none; --field:#ffffff; --float:#ffffff; }
+.set .mono, .set h2, .set .ht, .set .key, .set .num, .set .toastn
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.set .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.set h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
+  margin:32px 0 4px; font-weight:600; }
+.set .hint { font-size:11px; color:var(--mut); margin:2px 0 6px; line-height:1.55; max-width:560px; }
+.set .hint .mono { font-size:10px; }
+.set .row { display:flex; align-items:center; gap:12px; padding:10px 0;
+  border-top:1px solid var(--line); font-size:13px; }
+.set .rows .row:first-child { border-top:0; }
+.set .key { font-size:12px; }
+.set .keywrap { flex:1; min-width:0; }
+.set .keywrap .sub { display:block; font-size:10.5px; color:var(--mut); margin-top:3px; line-height:1.45; }
+.set .grow { flex:1; min-width:0; }
+.set .dim { font-size:11px; color:var(--mut); }
+.set select, .set input[type=text], .set input[type=number] {
+  background:var(--field); border:1px solid var(--line); color:var(--ink);
+  font:12px ui-monospace,"SF Mono",Menlo,Consolas,monospace; padding:6px 9px; border-radius:6px; }
+.set input[type=number] { width:74px; }
+.set input[type=text] { width:130px; }
+.set input[type=checkbox] { width:16px; height:16px; accent-color:var(--green); }
+.set .btn { border:1px solid var(--line); background:transparent; color:var(--ink); cursor:pointer;
+  font:600 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace; letter-spacing:.12em;
+  text-transform:uppercase; padding:8px 14px; border-radius:6px; }
+.set .btn:hover { border-color:var(--mut); }
+.set .btn[disabled] { opacity:.4; cursor:default; }
+.set .btn[disabled]:hover { border-color:var(--line); }
+.set .btn.primary, .set .btn.hot { background:var(--amber); color:var(--amberink);
+  border-color:var(--amber); box-shadow:var(--glow); font-weight:800; }
+.set .btn.sm { padding:5px 9px; }
+.set .link { color:var(--cyan); font-size:12px; text-decoration:none; }
+.set .dot { flex:none; width:8px; height:8px; border-radius:50%; }
+.set .dot.on { background:var(--green); }
+.set .dot.dim { background:var(--mut); opacity:.4; }
+.set .toast { font-size:12px; color:var(--mut); }
+.set .toast.ok { color:var(--green); }
+.set .toast.bad { color:var(--red); }
+.set .toastn { font-variant-numeric:tabular-nums; }
+.set .why { flex-basis:100%; font:11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--mut); line-height:1.5; }
+.set .why.bad { color:var(--red); }
+.set .ok-word { color:var(--green); font:700 11px ui-monospace,Menlo,monospace;
+  letter-spacing:.08em; text-transform:uppercase; }
+.set .gone { opacity:.45; }
+.set .gone .grow { text-decoration:line-through; }
+.set .mtable { margin-top:10px; }
+.set .mtable .hint { margin-top:8px; }
+.set .ghline { display:flex; align-items:center; gap:8px; font-size:12.5px; padding:8px 0 2px; flex-wrap:wrap; }
+.set .mstate { display:flex; align-items:center; gap:8px; padding:8px 0 12px; }
+
+/* the save banner, on top (S1 · S2) */
+.sbar { position:sticky; top:0; z-index:6; background:var(--bg);
+  display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  padding:12px 0; border-bottom:1px solid var(--line); margin-top:14px; min-height:57px; }
+
+/* the save dock, at the bottom (S3) */
+.dock { position:sticky; bottom:14px; z-index:6; width:max-content; max-width:100%;
+  margin:26px auto 0; display:none; align-items:center; gap:10px; flex-wrap:wrap;
+  background:var(--float); border:1px solid var(--line); border-radius:14px;
+  padding:9px 12px; box-shadow:0 8px 28px rgba(0,0,0,.35); }
+.dock.up { display:flex; }
+
+/* ---- S1 · one column ---- */
+@container frame (min-width:700px) {
+  .s1 { padding:26px 44px 80px; }
+  .s1 .wrap { max-width:620px; margin:0 auto; }
+}
+
+/* ---- S2 · desktop grid ---- */
+@container frame (min-width:700px) {
+  .s2 { padding:26px 44px 80px; }
+  .s2 .sections { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0 56px; }
+  .s2 .b-routing { grid-column:1; grid-row:1 / span 2; }
+  .s2 .b-projects { grid-column:2; grid-row:1; }
+  .s2 .b-dispatch { grid-column:2; grid-row:2; }
+  .s2 .b-maint { grid-column:1 / -1; margin-top:8px; }
+}
+
+/* ---- S3 · rail + dock ---- */
+.s3 .rail { position:sticky; top:0; z-index:5; background:var(--bg);
+  display:flex; gap:8px; overflow-x:auto; padding:12px 0 10px; margin-top:12px;
+  border-bottom:1px solid var(--line); }
+.s3 .rail a { flex:none; font:600 10px ui-monospace,Menlo,monospace; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--mut); text-decoration:none;
+  padding:7px 12px; border:1px solid var(--line); border-radius:999px; }
+.s3 .rail a.on { color:var(--ink); border-color:var(--mut); }
+@container frame (min-width:700px) {
+  .s3 { padding:26px 44px 80px; }
+  .s3 .body { display:grid; grid-template-columns:170px minmax(0,1fr); gap:0 56px; align-items:start; }
+  .s3 .rail { position:sticky; top:20px; flex-direction:column; gap:2px;
+    border-bottom:0; overflow:visible; padding:34px 0 0; }
+  .s3 .rail a { border:0; border-left:2px solid transparent; border-radius:0; padding:8px 0 8px 14px; }
+  .s3 .rail a.on { border-left-color:var(--amber); }
+  .s3 .sections { max-width:620px; }
+}
+
+/* ---- states view ---- */
+.sv .lead { font-size:12px; color:var(--mut); margin:14px 0 0; max-width:620px; line-height:1.6; }
+.sv .snap { display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  border:1px dashed var(--line); border-radius:10px; padding:12px 14px; margin-top:10px; }
+.sv .snap.dockish { border-radius:14px; border-style:solid; background:var(--float);
+  width:max-content; max-width:100%; box-shadow:0 8px 28px rgba(0,0,0,.35); }
+.sv .lbl { font:10px ui-monospace,Menlo,monospace; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--mut); margin:20px 0 0; }
+@container frame (min-width:700px) {
+  .sv { padding:26px 44px 80px; }
+  .sv .cols { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:0 56px; align-items:start; }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#525</b> · The settings screen · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<!-- ============ S1 · ONE COLUMN · BANNER ON TOP ============ -->
+<section class="view set s1" data-view="s1" data-name="1 · Column · banner top">
+  <div class="wrap">
+    <div class="ht"><span>curia · settings</span><span>wed 20 aug · 14:07</span></div>
+    <div class="sbar" data-bar></div>
+    <div class="sections" data-sections></div>
+  </div>
+</section>
+
+<!-- ============ S2 · GRID ON DESKTOP · BANNER ON TOP ============ -->
+<section class="view set s2" data-view="s2" data-name="2 · Grid · banner top">
+  <div class="ht"><span>curia · settings</span><span>wed 20 aug · 14:07</span></div>
+  <div class="sbar" data-bar></div>
+  <div class="sections" data-sections></div>
+</section>
+
+<!-- ============ S3 · SECTION RAIL · SAVE DOCK ============ -->
+<section class="view set s3" data-view="s3" data-name="3 · Rail · save dock">
+  <div class="ht"><span>curia · settings</span><span>wed 20 aug · 14:07</span></div>
+  <div class="body">
+    <nav class="rail" data-rail>
+      <a href="#" class="on" data-goto="b-routing">Routing</a>
+      <a href="#" data-goto="b-projects">Projects</a>
+      <a href="#" data-goto="b-dispatch">Dispatch</a>
+      <a href="#" data-goto="b-maint">Maintenance</a>
+    </nav>
+    <div class="sections" data-sections></div>
+  </div>
+  <div class="dock" data-dock></div>
+</section>
+
+<!-- ============ STATES · THE SAVE BANNER AND THE RESTART ============ -->
+<section class="view set sv" data-view="states" data-name="Save & restart states">
+  <div class="ht"><span>curia · settings · states</span><span>wed 20 aug · 14:07</span></div>
+  <p class="lead">Every state the save and the restart can be in, in both shapes.
+    The banner states an outcome, not a claim: the daemon reports what it runs,
+    and the page compares that against the file. A button appears only where it
+    is the mitigation.</p>
+  <div class="cols">
+  <div>
+    <h2>The save banner, on top</h2>
+    <div class="lbl">clean</div>
+    <div class="snap"><button class="btn" disabled>Save</button><span class="toast">No unsaved changes.</span></div>
+    <div class="lbl">dirty</div>
+    <div class="snap"><button class="btn primary">Save</button><span class="toast"><span class="toastn">3</span> unsaved changes.</span></div>
+    <div class="lbl">saving</div>
+    <div class="snap"><button class="btn" disabled>Saving…</button></div>
+    <div class="lbl">applied</div>
+    <div class="snap"><span class="ok-word">saved ✓</span><span class="toast">Wrote <span class="mono">routing.local.yaml</span>. The daemon is running it.</span></div>
+    <div class="lbl">declined — the restart is the mitigation</div>
+    <div class="snap"><span class="ok-word">saved ✓</span><button class="btn hot">Restart to apply</button>
+      <span class="toast">The daemon did not apply it.</span>
+      <span class="why">curia.yaml moved outside the live set: dispatch.ready_timeout_s. The daemon kept the config it booted with.</span></div>
+    <div class="lbl">offline — no button: nobody would take the order</div>
+    <div class="snap"><span class="ok-word">saved ✓</span>
+      <span class="toast">The daemon is not answering, so it takes this file at its next boot. If it refuses to boot, the daemon log names the key.</span></div>
+    <div class="lbl">refused — nothing on disk moved, the draft stays</div>
+    <div class="snap"><button class="btn primary">Save</button><span class="toast bad">Refused — nothing was written.</span>
+      <span class="why bad">defaults.research: "gpt4" is not a model under models: — the daemon refuses this config</span></div>
+    <div class="lbl">daemon restarting</div>
+    <div class="snap"><button class="btn" disabled>Save</button>
+      <span class="toast">The daemon exited nonzero and the supervisor respawns it. This page serves its last snapshot meanwhile.</span></div>
+    <div class="lbl">unread</div>
+    <div class="snap"><button class="btn" disabled>Save</button><span class="toast bad">The settings could not be read.</span>
+      <span class="why bad">curia.local.yaml does not parse as yaml (line 12) — fix it on the box before saving over it</span></div>
+  </div>
+  <div>
+    <h2>The save dock, at the bottom</h2>
+    <p class="hint">Nothing shows while the screen is clean. The dock rises on the first edit and speaks the same outcomes.</p>
+    <div class="lbl">dirty</div>
+    <div class="snap dockish"><span class="toast"><span class="toastn">3</span> unsaved changes</span>
+      <button class="btn primary">Save</button><a class="link" href="#">discard</a></div>
+    <div class="lbl">applied</div>
+    <div class="snap dockish"><span class="ok-word">saved ✓</span><span class="toast">The daemon is running it.</span></div>
+    <div class="lbl">declined</div>
+    <div class="snap dockish"><span class="ok-word">saved ✓</span><button class="btn hot">Restart to apply</button>
+      <span class="why">curia.yaml moved outside the live set: dispatch.ready_timeout_s.</span></div>
+    <div class="lbl">refused</div>
+    <div class="snap dockish"><span class="toast bad">Refused — nothing was written</span><button class="btn primary">Save</button>
+      <span class="why bad">defaults.research: "gpt4" is not a model under models:</span></div>
+
+    <h2 style="margin-top:40px">The restart, in maintenance</h2>
+    <div class="lbl">in step — the calm reading</div>
+    <div class="snap"><span class="dot on"></span><span class="toast">The daemon is running these files. It read them 4 min ago.</span>
+      <button class="btn">Restart daemon</button></div>
+    <div class="lbl">a hand edit waits — the needs-you reading</div>
+    <div class="snap"><span class="dot dim"></span>
+      <span class="toast">The daemon is NOT running the files. These differ: <span class="mono">dispatch.ready_timeout_s</span>. A restart takes them.</span>
+      <button class="btn hot">Restart daemon</button></div>
+    <div class="lbl">unknown</div>
+    <div class="snap"><span class="dot dim"></span>
+      <span class="toast">curia cannot tell whether the daemon runs these files: it is not answering.</span>
+      <button class="btn" disabled>Restart daemon</button></div>
+  </div>
+  </div>
+</section>
+
+</div></div></div>
+
+<!-- switcher -->
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* ---- the four sections, one source, injected into each layout ---- */
+const MODELS = ['fable','opus','sonnet','gpt'];
+const pick = (cur) => `<select>${MODELS.map(m => `<option${m === cur ? ' selected' : ''}>${m}</option>`).join('')}</select>`;
+const DEFAULTS = [['grilling','opus'],['prototype','opus'],['research','gpt'],['task','opus'],['untyped','opus'],['map','fable']];
+const REPOS = [['getalfredo/landing-page','auto'],['alp82/alperortac.com','auto'],['alp82/aistack','auto'],['alp82/curia','auto']];
+
+const SECTIONS = `
+<section class="blk b-routing">
+  <h2>Routing</h2>
+  <p class="hint">The model each ticket type gets when no label on the ticket says otherwise.</p>
+  <div class="rows">
+    ${DEFAULTS.map(([t, m]) => `<div class="row"><span class="key grow">${t}</span>${pick(m)}</div>`).join('')}
+  </div>
+  <div class="mgr"><a class="link" data-mgr href="#">4 of 4 models active · manage</a>
+    <div class="mtable" hidden>
+      <div class="rows">
+        <div class="row"><input type="checkbox" checked><span class="key grow">fable</span><span class="dim mono">anthropic · claude</span></div>
+        <div class="row"><input type="checkbox" checked><span class="key grow">opus</span><span class="dim mono">anthropic · claude</span></div>
+        <div class="row"><input type="checkbox" checked><span class="key grow">sonnet</span><span class="dim mono">anthropic · claude</span></div>
+        <div class="row"><input type="checkbox" checked><span class="key grow">gpt <span class="dim">gpt-5.6-sol</span></span><span class="dim mono">openai · codex</span></div>
+      </div>
+      <p class="hint">A model switched off keeps its whole entry in routing.yaml. It leaves the dispatch
+        vocabulary: no default may name it, a fallback chain steps over it, and a
+        <span class="mono">model:</span> label on it is refused.</p>
+    </div>
+  </div>
+</section>
+<section class="blk b-projects">
+  <h2>Projects</h2>
+  <p class="hint">The repos curia watches. It dispatches against these and no others.</p>
+  <div class="ghline"><span class="dot on"></span>GitHub connected as <b class="mono" style="font-size:12px">alp82</b>
+    <span class="dim">the 30 most recently pushed repos it can reach</span></div>
+  <div class="rows">
+    ${REPOS.map(([r, m]) => `<div class="row" data-repo><span class="key grow">${r}</span><span class="dim mono">${m}</span><a class="link" data-rm href="#">remove</a></div>`).join('')}
+    <div class="row" data-inert><select><option>add a repo…</option><option>alp82/notes</option><option>alp82/dotfiles</option></select>
+      <input type="text" placeholder="owner/name"><button class="btn sm">add</button></div>
+  </div>
+  <p class="hint">The last repo cannot be removed: curia dispatches only against watched repos.</p>
+</section>
+<section class="blk b-dispatch">
+  <h2>Dispatch</h2>
+  <p class="hint">Whether curia starts work by itself, how many agents run at once, and how often it looks for work.</p>
+  <div class="rows">
+    <div class="row"><span class="keywrap"><span class="key">auto_dispatch</span>
+      <span class="sub">On, curia starts the next takeable ticket by itself. Off, every dispatch is one the operator ordered.</span></span>
+      <input type="checkbox"></div>
+    <div class="row"><span class="keywrap"><span class="key">max_concurrent</span>
+      <span class="sub">How many agents may run at once. Each one costs a container, and three sandbox ports.</span></span>
+      <input type="number" min="1" value="6"></div>
+    <div class="row"><span class="keywrap"><span class="key">poll_interval_s</span>
+      <span class="sub">How often curia reads the frontier of every watched repo.</span></span>
+      <input type="number" min="1" value="60"></div>
+  </div>
+  <p class="hint">A save applies at once. It cancels no running agent: auto_dispatch off leaves every live
+    agent running, and a max_concurrent below the live count starts nothing new until the count falls.
+    A model change reaches the next dispatch, never a running one.</p>
+</section>
+<section class="blk b-maint">
+  <h2>Maintenance</h2>
+  <p class="hint">Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.</p>
+  <div class="mstate"><span class="dot on"></span><span class="toast">The daemon is running these files. It read them 4 min ago.</span></div>
+  <button class="btn" data-inert>Restart daemon</button>
+  <p class="hint">A restart is for the keys a save cannot apply: the ports, <span class="mono">workspace_root</span>,
+    <span class="mono">sandbox</span>, <span class="mono">identity</span>, and every routing key this screen
+    does not write. Agent panes live in their own container, so they survive it.</p>
+  <p class="hint">A save writes <span class="mono">curia.local.yaml</span> and <span class="mono">routing.local.yaml</span>
+    beside the tracked files. Git does not track them, so a save leaves the checkout clean.</p>
+</section>`;
+
+/* ---- shell: view / width / mode switcher (same as #519) ---- */
+const VIEWS = ['s1','s2','s3','states'];
+const frame = document.getElementById('frame');
+const wrap  = document.getElementById('wrap');
+const q = new URLSearchParams(location.search);
+let d    = VIEWS.includes(q.get('d')) ? q.get('d') : 's1';
+let mode = q.get('mode') === 'light' ? 'light' : 'dark';
+let w    = q.get('w') === 'desktop' ? 'desktop' : 'phone';
+
+function render() {
+  document.querySelectorAll('.view').forEach(v =>
+    v.classList.toggle('active', v.dataset.view === d));
+  frame.className = 'frame w-' + w + ' ' + mode;
+  document.getElementById('vname').textContent =
+    document.querySelector('.view.active').dataset.name;
+  document.getElementById('mode').textContent = mode === 'dark' ? '☾' : '☀';
+  document.getElementById('width').textContent = w === 'phone' ? '📱' : '🖥';
+  history.replaceState(null, '', '?' + new URLSearchParams({d, mode, w}));
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === 'desktop' ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = 'scale(' + s + ')';
+  wrap.style.height = (frame.offsetHeight * s) + 'px';
+}
+function cycle(dir) { d = VIEWS[(VIEWS.indexOf(d) + dir + VIEWS.length) % VIEWS.length]; render(); }
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('mode').onclick = () => { mode = mode === 'dark' ? 'light' : 'dark'; render(); };
+document.getElementById('width').onclick = () => { w = w === 'phone' ? 'desktop' : 'phone'; render(); };
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+window.addEventListener('resize', rescale);
+
+/* ---- the faked save: dirty count, Save walks saving → applied ---- */
+const S = {};   // per-view: { dirty:Set<el>, phase, init:Map<el,val> }
+const val = (el) => el.type === 'checkbox' ? el.checked : el.value;
+
+function barHTML(st, dock) {
+  const n = st.dirty.size;
+  const count = `<span class="toast"><span class="toastn">${n}</span> unsaved change${n === 1 ? '' : 's'}${dock ? '' : '.'}</span>`;
+  if (st.phase === 'saving') return `<button class="btn" disabled>Saving…</button>`;
+  if (st.phase === 'applied' && n === 0)
+    return `<span class="ok-word">saved ✓</span><span class="toast">The daemon is running it.</span>`;
+  if (n === 0) return dock ? '' : `<button class="btn" disabled>Save</button><span class="toast">No unsaved changes.</span>`;
+  return dock
+    ? `${count}<button class="btn primary" data-save>Save</button><a class="link" data-discard href="#">discard</a>`
+    : `<button class="btn primary" data-save>Save</button>${count}`;
+}
+
+function paint(view) {
+  const st = S[view.dataset.view];
+  const bar = view.querySelector('[data-bar]');
+  const dock = view.querySelector('[data-dock]');
+  if (bar) bar.innerHTML = barHTML(st, false);
+  if (dock) {
+    dock.innerHTML = barHTML(st, true);
+    dock.classList.toggle('up', st.dirty.size > 0 || st.phase === 'saving' || st.phase === 'applied');
+  }
+  const save = view.querySelector('[data-save]');
+  if (save) save.onclick = () => {
+    st.phase = 'saving'; paint(view);
+    setTimeout(() => {
+      for (const el of st.dirty) if (el.matches('input,select')) st.init.set(el, val(el));
+      st.dirty.clear(); st.phase = 'applied'; paint(view);
+    }, 700);
+  };
+  const discard = view.querySelector('[data-discard]');
+  if (discard) discard.onclick = (e) => {
+    e.preventDefault();
+    for (const el of st.dirty) {
+      if (el.matches?.('[data-repo]')) { el.classList.remove('gone'); el.querySelector('[data-rm]').textContent = 'remove'; }
+      else if (el.type === 'checkbox') el.checked = st.init.get(el);
+      else if ('value' in el) el.value = st.init.get(el);
+    }
+    st.dirty.clear(); st.phase = 'idle'; paint(view);
+  };
+}
+
+document.querySelectorAll('[data-sections]').forEach(slot => { slot.innerHTML = SECTIONS; });
+
+document.querySelectorAll('.view.set').forEach(view => {
+  if (!view.querySelector('[data-sections]')) return;
+  const st = S[view.dataset.view] = { dirty: new Set(), phase: 'idle', init: new Map() };
+  view.querySelectorAll('input,select').forEach(el => {
+    st.init.set(el, val(el));
+    el.addEventListener('change', () => {
+      if (el.closest('[data-inert]')) return;
+      if (val(el) === st.init.get(el)) st.dirty.delete(el); else st.dirty.add(el);
+      st.phase = 'edit'; paint(view);
+    });
+  });
+  view.querySelectorAll('[data-rm]').forEach(rm => rm.addEventListener('click', (e) => {
+    e.preventDefault();
+    const row = rm.closest('[data-repo]');
+    const gone = row.classList.toggle('gone');
+    rm.textContent = gone ? 'undo' : 'remove';
+    if (gone) st.dirty.add(row); else st.dirty.delete(row);
+    st.phase = 'edit'; paint(view);
+  }));
+  view.querySelectorAll('[data-mgr]').forEach(a => a.addEventListener('click', (e) => {
+    e.preventDefault();
+    const t = a.parentElement.querySelector('.mtable');
+    t.hidden = !t.hidden;
+    a.textContent = t.hidden ? '4 of 4 models active · manage' : '4 of 4 models active · close';
+    rescale();
+  }));
+  view.querySelectorAll('[data-inert]').forEach(b => b.addEventListener('click', (e) => e.preventDefault()));
+  paint(view);
+});
+
+document.querySelectorAll('[data-rail] a').forEach(a => a.addEventListener('click', (e) => {
+  e.preventDefault();
+  const view = a.closest('.view');
+  view.querySelectorAll('[data-rail] a').forEach(x => x.classList.remove('on'));
+  a.classList.add('on');
+  view.querySelector('.' + a.dataset.goto)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}));
+
+render();
+</script>
+</body>
+</html>
