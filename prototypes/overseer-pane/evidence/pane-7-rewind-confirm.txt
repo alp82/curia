@@ -1,0 +1,24 @@
+  Nothing else is moving.
+
+✻ Brewed for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+  Rewind
+
+  Confirm you want to restore to the point before you sent this message:
+
+  │ [curia note] The deploy of curia 1.4 finished at 17:20.
+  │ Good. Now rename the maps effort to Atlas.
+  │ (26s ago)
+
+  The conversation will be forked.
+  The code will be unchanged.
+
+  ❯ 1. Restore conversation
+    2. Summarize from here
+    3. Summarize up to here
+    4. Never mind
+
+
+
+

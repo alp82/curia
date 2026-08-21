@@ -1,0 +1,5 @@
+{"event":"hello","data":{"session":"curia-op-1","file":"/tmp/claude-1000/-workspace/cefe8ca0-dabc-4d9e-bce2-1cbb35638139/scratchpad/op-pane/work/cfg/curia-op-1/projects/-tmp-claude-1000--workspace-cefe8ca0-dabc-4d9e-bce2-1cbb35638139-scratchpad-op-pane-home/ff7c748d-11f1-4b39-9a58-e2ba9bc2ab6c.jsonl","harness":"claude","clients":1,"draft":""}}
+{"event":"items","data":[{"kind":"prompt","at":"2026-08-21T17:15:55.731Z","text":"Which agents run right now?","seq":0},{"kind":"say","at":"2026-08-21T17:15:55.998Z","text":"Overseer here (req 4, 2 msgs in context). You said: \"<system-reminder> As you answer the user's questions, you can use the following context: # currentDate Today's date is 2\". Nothing else is moving.","seq":1},{"kind":"prompt","at":"2026-08-21T17:16:27.542Z","text":"Park the maps effort until Monday.","seq":2},{"kind":"say","at":"2026-08-21T17:16:27.599Z","text":"Overseer here (req 6, 4 msgs in context). You said: \"Park the maps effort until Monday.\". Nothing else is moving.","seq":3}]}
+{"event":"escalations","data":[]}
+{"event":"esc_history","data":[]}
+{"event":"clients","data":{"clients":1}}

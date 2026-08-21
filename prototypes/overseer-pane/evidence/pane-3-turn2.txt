@@ -1,0 +1,24 @@
+│        /…/scratchpad/op-pane/home        │                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+❯ Which agents run right now?
+
+● Overseer here (req 4, 2 msgs in context). You said: "<system-reminder> As you
+  answer the user's questions, you can use the following context: # currentDate
+  Today's date is 2". Nothing else is moving.
+
+✻ Brewed for 0s
+
+❯ Park the maps effort until Monday.
+
+● Overseer here (req 6, 4 msgs in context). You said: "Park the maps effort
+  until Monday.". Nothing else is moving.
+
+✻ Worked for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents
+

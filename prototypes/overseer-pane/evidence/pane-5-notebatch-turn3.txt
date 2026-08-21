@@ -1,0 +1,24 @@
+
+✻ Brewed for 0s
+
+❯ Park the maps effort until Monday.
+
+● Overseer here (req 6, 4 msgs in context). You said: "Park the maps effort
+  until Monday.". Nothing else is moving.
+
+✻ Worked for 0s
+
+❯ [curia note] The deploy of curia 1.4 finished at 17:20.
+  Good. Now rename the maps effort to Atlas.
+
+● Overseer here (req 8, 6 msgs in context). You said: "[curia note] The deploy
+  of curia 1.4 finished at 17:20. Good. Now rename the maps effort to Atlas.".
+  Nothing else is moving.
+
+✻ Brewed for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents
+
