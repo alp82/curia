@@ -1,0 +1,9 @@
+{"kind":"prompt","text":"Which agents run right now?"}
+{"kind":"say","text":"Overseer here (req 4, 2 msgs in context). You said: \"<system-reminder> As you answer the u"}
+{"kind":"prompt","text":"Park the maps effort until Monday."}
+{"kind":"say","text":"Overseer here (req 6, 4 msgs in context). You said: \"Park the maps effort until Monday.\". "}
+{"kind":"prompt","text":"Rename the maps effort to Atlas Prime."}
+{"kind":"say","text":"Overseer here (req 10, 6 msgs in context). You said: \"Rename the maps effort to Atlas Prim"}
+{"kind":"prompt","text":"Explain the Atlas rename slowly please."}
+{"kind":"say","text":"Overseer here (req 12, 8 msgs in context). You said: \"Explain the Atlas rename slowly plea"}
+{"kind":"prompt","text":"[Request interrupted by user]"}

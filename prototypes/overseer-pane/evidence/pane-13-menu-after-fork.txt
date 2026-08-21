@@ -1,0 +1,24 @@
+  ⎿  Interrupted · What should Claude do instead?
+
+────────────────────────────────────────────────────────────────────────────────
+  Rewind
+
+  Restore the code and/or conversation to the point before…
+
+   ↑ 1 more above
+
+    Park the maps effort until Monday.
+    No code changes
+
+    Rename the maps effort to Atlas Prime.
+    No code changes
+
+    Explain the Atlas rename slowly please.
+    No code changes
+
+  ❯ (current)
+
+
+
+  Enter to continue · Esc to cancel
+

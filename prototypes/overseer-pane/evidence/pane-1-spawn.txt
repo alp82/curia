@@ -1,0 +1,24 @@
+╭─── Claude Code v2.1.220 ─────────────────────────────────────────────────────╮
+│                                          │ What's new                        │
+│               Welcome back!              │ Added a `keybindingFlavor` setti… │
+│                                          │ Plugin marketplaces: `headersHel… │
+│                  ▐▛███▜▌                 │ A catalog entry's `headersHelper… │
+│                 ▝▜█████▛▘                │ /release-notes for more           │
+│                   ▘▘ ▝▝                  │                                   │
+│                                          │                                   │
+│   standin-overseer · API Usage Billing   │                                   │
+│        /…/scratchpad/op-pane/home        │                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents           ● high · /effort
+
+
+
+
+
+
+

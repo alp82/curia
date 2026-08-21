@@ -1,0 +1,194 @@
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The overseer terminal prototype — #570</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--line:#21262d;--fg:#e6edf3;--dim:#8b949e;--ok:#3fb950;--warn:#d29922;--acc:#58a6ff;--stale:#f85149}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.55 system-ui,-apple-system,sans-serif;padding:0 0 4rem}
+header{padding:1.2rem 1rem .9rem;border-bottom:1px solid var(--line)}
+header .tk{color:var(--dim);font:600 .78rem/1 ui-monospace,monospace;letter-spacing:.04em}
+header h1{margin:.3rem 0 .4rem;font-size:1.25rem;line-height:1.3}
+header p{margin:0;color:var(--dim);font-size:.92rem}
+main{max-width:44rem;margin:0 auto;padding:0 1rem}
+.verdicts{display:grid;gap:.5rem;margin:1.1rem 0}
+.v{display:flex;gap:.6rem;align-items:baseline;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:.6rem .8rem}
+.v b{font-size:.95rem}
+.chip{font:700 .7rem/1 ui-monospace,monospace;padding:.25rem .5rem;border-radius:99px;white-space:nowrap}
+.pass{color:var(--ok);border:1px solid var(--ok)}
+.gap{color:var(--warn);border:1px solid var(--warn)}
+h2{font-size:1.02rem;margin:2rem 0 .5rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+p{color:var(--fg);font-size:.95rem}
+p.d{color:var(--dim)}
+pre{background:#010409;border:1px solid var(--line);border-radius:8px;padding:.7rem .8rem;overflow-x:auto;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:#c9d1d9;margin:.6rem 0 1rem}
+.cap{color:var(--dim);font:600 .72rem/1 ui-monospace,monospace;letter-spacing:.03em;margin-top:.9rem;display:block}
+.items{display:grid;gap:2px;margin:.6rem 0 1rem;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.item{display:flex;gap:.6rem;align-items:baseline;background:var(--panel);padding:.42rem .6rem;font:12.5px/1.4 ui-monospace,monospace}
+.item .k{flex:0 0 4.2rem;font-weight:700;color:var(--dim)}
+.item.prompt .k{color:var(--acc)}
+.item.say .k{color:var(--ok)}
+.item .t{color:#c9d1d9;overflow-wrap:anywhere}
+.item.stale{outline:1px solid var(--stale);outline-offset:-1px}
+.item .flag{margin-left:auto;color:var(--stale);font:700 .68rem/1.2 ui-monospace,monospace;white-space:nowrap}
+ul{padding-left:1.2rem}
+li{margin:.35rem 0;font-size:.93rem}
+code{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:.05rem .3rem;font-size:.85em}
+.foot{margin-top:2.2rem;color:var(--dim);font-size:.85rem;border-top:1px solid var(--line);padding-top:1rem}
+</style>
+<header><main>
+<span class="tk">alp82/curia#570 · prototype · 2026-08-21</span>
+<h1>The overseer in a live pane: the spike</h1>
+<p>One overseer conversation ran as an interactive claude session in tmux, driven and read with the daemon's own code. A local stand-in model logged every request, so each claim is wire truth.</p>
+</main></header>
+<main>
+
+<div class="verdicts">
+<div class="v"><span class="chip pass">PASS</span><b>The pane takes operator messages as keystrokes and answers in the pane.</b></div>
+<div class="v"><span class="chip pass">PASS</span><b>The chat page reads and writes it exactly as an agent pane. No new code.</b></div>
+<div class="v"><span class="chip pass">PASS</span><b>The take back runs as the pane rewind of ADR-0021, mid-turn too.</b></div>
+<div class="v"><span class="chip gap">GAP</span><b>After a rewind the chat page shows both branches. A 25-line branch walk fixes the read.</b></div>
+</div>
+
+<h2>1 · The pane answers</h2>
+<p class="d">The pane spawned with the real overseer standing orders on <code>--append-system-prompt</code>. The daemon's paced <code>send-keys</code> typed the message. The wire (req-4) shows the standing orders and the model.</p>
+<span class="cap">pane after turn 1 — evidence/pane-2-turn1.txt</span>
+<pre>╰──────────────────────────────────────────────────────────────────────────────╯
+❯ Which agents run right now?
+● Overseer here (req 4, 2 msgs in context). You said: "&lt;system-reminder&gt; As you
+  answer the user's questions, you can use the following context: # currentDate
+  Today's date is 2". Nothing else is moving.
+✻ Brewed for 0s
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents</pre>
+
+<h2>2 · The chat page reads it as an agent pane</h2>
+<p class="d">The real <code>TimelineSurface</code> served it on the pane path: harness detected from the config dir, transcript found newest-by-mtime, driver null. Message 2 went in through the page's own <code>POST /send</code>.</p>
+<span class="cap">GET /events items — evidence/chatread-2-turn2.jsonl</span>
+<div class="items"><div class="item prompt"><span class="k">prompt</span><span class="t">Which agents run right now?</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 4, 2 msgs in context). You said: "&lt;system-reminder&gt; As you answer the user's questions, you…</span></div>
+<div class="item prompt"><span class="k">prompt</span><span class="t">Park the maps effort until Monday.</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 6, 4 msgs in context). You said: "Park the maps effort until Monday.". Nothing else is movi…</span></div></div>
+<p class="d">The dialog guard carries over: a send while the rewind menu owned the pane refused with words, and nothing was typed into the menu.</p>
+<span class="cap">POST /send during the rewind menu — evidence/chatread-6-send-refused-during-menu.txt</span>
+<pre>{"status":409,"body":{"error":"the agent is in a terminal dialog (\"Enter to continue\") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent","dialog":true}}</pre>
+
+<h2>3 · Notes batch into one message</h2>
+<p class="d">ADR-0023 batches queued curia notes as prefixed lines inside the operator's message. In a pane this is a bracketed paste: the composer keeps the newline, one Enter submits, and the wire shows ONE user message.</p>
+<span class="cap">composer holding the two-line batch — evidence/pane-4-notebatch-composer.txt</span>
+<pre>
+✻ Worked for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ [curia note] The deploy of curia 1.4 finished at 17:20.
+  Good. Now rename the maps effort to Atlas.
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on</pre>
+
+<h2>4 · The take back is the pane rewind</h2>
+<p class="d">Double Escape opened the menu. It lists every operator turn — the first one included, so curia must enforce the ADR-0023 floor itself.</p>
+<span class="cap">the rewind menu — evidence/pane-6-rewind-menu.txt</span>
+<pre>
+────────────────────────────────────────────────────────────────────────────────
+  Rewind
+
+  Restore the code and/or conversation to the point before…
+
+    Which agents run right now?
+    No code changes
+
+    Park the maps effort until Monday.
+    No code changes
+
+    [curia note] The deploy of curia 1.4 finished at 17:20.…
+    No code changes
+
+  ❯ (current)
+
+  Enter to continue · Esc to cancel</pre>
+<span class="cap">the confirm — evidence/pane-7-rewind-confirm.txt</span>
+<pre>
+  Confirm you want to restore to the point before you sent this message:
+
+  │ [curia note] The deploy of curia 1.4 finished at 17:20.
+  │ Good. Now rename the maps effort to Atlas.
+  │ (26s ago)
+
+  The conversation will be forked.
+  The code will be unchanged.
+
+  ❯ 1. Restore conversation
+    2. Summarize from here
+    3. Summarize up to here
+    4. Never mind</pre>
+<p class="d">The composer came back prefilled with the taken-back message. <code>Ctrl-C</code> cleared it, so the dashboard composer stays the one editable copy. The next request on the wire proves the landing: the note-batch exchange is gone from context.</p>
+<span class="cap">model context of the turn after the take back — evidence/wire/req-10.json</span>
+<div class="items"><div class="item prompt"><span class="k">user</span><span class="t">&lt;system-reminder&gt; As you answer the user's questions, you can use the following context: # currentDa…</span></div>
+<div class="item say"><span class="k">system</span><span class="t">Available agent types for the Agent tool: - claude: Catch-all for any task that doesn't fit a more s…</span></div>
+<div class="item say"><span class="k">assistant</span><span class="t">Overseer here (req 4, 2 msgs in context). You said: "&lt;system-reminder&gt; As you answer the user's ques…</span></div>
+<div class="item prompt"><span class="k">user</span><span class="t">Park the maps effort until Monday.</span></div>
+<div class="item say"><span class="k">assistant</span><span class="t">Overseer here (req 6, 4 msgs in context). You said: "Park the maps effort until Monday.". Nothing el…</span></div>
+<div class="item prompt"><span class="k">user</span><span class="t">Rename the maps effort to Atlas Prime.</span></div></div>
+
+<h2>5 · Mid-turn, the press acts at once</h2>
+<p class="d">A slow streaming answer stopped mid-word on ONE Escape. The transcript keeps the partial answer and an interrupt line, and the chat page reads both. The rewind after the interrupt worked the same way.</p>
+<span class="cap">the interrupt — evidence/pane-12-interrupted.txt</span>
+<pre>✻ Brewed for 0s
+❯ Explain the Atlas rename slowly please.
+● Overseer here (req 12, 8 msgs in context). You said: "Explain the Atlas rename
+  slowly please.". I will now think out loud for a
+  ⎿  Interrupted · What should Claude do instead?
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents</pre>
+<p class="d">The menu after a fork lists the ACTIVE branch only — the taken-back turn is not offered, so blind selection counting counts on the branch the fixed reader walks.</p>
+<span class="cap">the menu after the fork — evidence/pane-13-menu-after-fork.txt</span>
+<pre>────────────────────────────────────────────────────────────────────────────────
+  Rewind
+  Restore the code and/or conversation to the point before…
+   ↑ 1 more above
+    Park the maps effort until Monday.
+    No code changes
+    Rename the maps effort to Atlas Prime.
+    No code changes
+    Explain the Atlas rename slowly please.
+    No code changes
+  ❯ (current)
+  Enter to continue · Esc to cancel</pre>
+
+<h2>6 · The one gap, and its fix</h2>
+<p class="d">The transcript stays one file with one session id through everything. But the linear scan the page uses today shows BOTH branches after a fork:</p>
+<span class="cap">GET /events after the fork — evidence/chatread-5-after-fork.jsonl</span>
+<div class="items"><div class="item prompt"><span class="k">prompt</span><span class="t">Which agents run right now?</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 4, 2 msgs in context). You said: "&lt;system-reminder&gt; As you answer the user's questions, you…</span></div>
+<div class="item prompt"><span class="k">prompt</span><span class="t">Park the maps effort until Monday.</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 6, 4 msgs in context). You said: "Park the maps effort until Monday.". Nothing else is movi…</span></div>
+<div class="item prompt stale"><span class="k">prompt</span><span class="t">[curia note] The deploy of curia 1.4 finished at 17:20. Good. Now rename the maps effort to Atlas.</span><span class="flag">taken back, still shown</span></div>
+<div class="item say stale"><span class="k">say</span><span class="t">Overseer here (req 8, 6 msgs in context). You said: "[curia note] The deploy of curia 1.4 finished at 17:20. G…</span><span class="flag">taken back, still shown</span></div>
+<div class="item prompt"><span class="k">prompt</span><span class="t">Rename the maps effort to Atlas Prime.</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 10, 6 msgs in context). You said: "Rename the maps effort to Atlas Prime.". Nothing else is…</span></div></div>
+<p class="d">The fix shape, proved in <code>branchread.mjs</code>: walk <code>parentUuid</code> from the last line, feed the daemon's own <code>parseLine</code>. The walk yields exactly the active branch:</p>
+<span class="cap">the branch-aware read — evidence/branchread-final.jsonl</span>
+<div class="items"><div class="item prompt"><span class="k">prompt</span><span class="t">Which agents run right now?</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 4, 2 msgs in context). You said: "&lt;system-reminder&gt; As you answer the u</span></div>
+<div class="item prompt"><span class="k">prompt</span><span class="t">Park the maps effort until Monday.</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 6, 4 msgs in context). You said: "Park the maps effort until Monday.". </span></div>
+<div class="item prompt"><span class="k">prompt</span><span class="t">Rename the maps effort to Atlas Prime.</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 10, 6 msgs in context). You said: "Rename the maps effort to Atlas Prim</span></div>
+<div class="item prompt"><span class="k">prompt</span><span class="t">Explain the Atlas rename slowly please.</span></div>
+<div class="item say"><span class="k">say</span><span class="t">Overseer here (req 12, 8 msgs in context). You said: "Explain the Atlas rename slowly plea</span></div>
+<div class="item prompt"><span class="k">prompt</span><span class="t">[Request interrupted by user]</span></div></div>
+<p class="d">The rewind itself writes nothing — the fork appears only with the next message. So the take-back receipt in curia's journal must carry the landing point for the window between the press and the next turn. The same fix serves AGENT panes: ADR-0021 already makes their take back a rewind, so agent chats show both branches today too.</p>
+
+<h2>7 · Decision facts for #571</h2>
+<ul>
+<li>A pane overseer needs no new chat-page code for normal turns. The pane path serves it as it serves an agent.</li>
+<li>The take back is the proved #542 flow: Escape interrupts at once, double Escape opens rewind, blind counting picks the landing, <code>Ctrl-C</code> clears the prefill. Curia enforces the floor and writes the receipt. The ADR-0023 journal append retires if panes win.</li>
+<li>One build change for the chat: the tailer follows the active branch by <code>parentUuid</code>, for both chat kinds, and the receipt carries the landing point.</li>
+<li>Notes batch through a bracketed paste — <code>tmux.mjs</code> gains a paste write beside <code>sendText</code>.</li>
+<li>The pane seed extends the agent seed with <code>customApiKeyResponses</code> for the env credential (a first-spawn approval dialog otherwise).</li>
+<li>Costs, hosting, restart rehydration, and MCP identity are the #569 research facts, unchanged.</li>
+</ul>
+
+<div class="foot">Ran with Claude Code 2.1.220, tmux 3.3a, Node 24.19.0. Raw captures, wire logs, and transcripts sit in <code>prototypes/overseer-pane/evidence/</code>. The full note is <code>findings.md</code> beside this page.</div>
+</main>

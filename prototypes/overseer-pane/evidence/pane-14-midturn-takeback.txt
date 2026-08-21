@@ -1,0 +1,24 @@
+  answer the user's questions, you can use the following context: # currentDate
+  Today's date is 2". Nothing else is moving.
+
+✻ Brewed for 0s
+
+❯ Park the maps effort until Monday.
+
+● Overseer here (req 6, 4 msgs in context). You said: "Park the maps effort
+  until Monday.". Nothing else is moving.
+
+✻ Cogitated for 0s
+
+❯ Rename the maps effort to Atlas Prime.
+
+● Overseer here (req 10, 6 msgs in context). You said: "Rename the maps effort
+  to Atlas Prime.". Nothing else is moving.
+
+✻ Baked for 0s
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  Press Ctrl-C again to exit
+

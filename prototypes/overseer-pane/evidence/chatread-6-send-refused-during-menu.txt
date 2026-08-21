@@ -1,0 +1,1 @@
+{"status":409,"body":{"error":"the agent is in a terminal dialog (\"Enter to continue\") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent","dialog":true}}
