@@ -6,11 +6,12 @@
 <title>#522 The maps screen — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#522 "The maps screen".
-  Round 3: the route-lines idea is the baseline. Five variations, each
-  built for one UX goal: dispatch, journey, triage, explorer, stations.
-  The round-2 baseline sits at the end of the cycle. V6 direction from #519.
-  Switch via ?v=, width via ?w=, color via ?mode=. Static mock data.
-  The filters and taps work; every link is dead on purpose.
+  Round 5: the drill-in explorer is the baseline. One interaction everywhere:
+  tap a stop, get a detail panel — inline on the phone, a master-detail
+  split on desktop. Five experiments on the line itself: true scale, race,
+  bands, metro, vertical. The round-3 explorer sits at the end of the cycle.
+  V6 direction from #519. Switch via ?v=, width via ?w=, color via ?mode=.
+  Static mock data. Filters and taps work; every link is dead on purpose.
 -->
 <style>
 /* ============ shell (not part of the design) ============ */
@@ -89,7 +90,6 @@ svg { display:block; }
 .mv .fnone { padding:24px 0; color:var(--mut); font-size:13px; }
 
 /* shared atoms */
-.mv .tk { font-size:11px; color:var(--mut); text-decoration:none; }
 .mv .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
   padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
 .mv .dot { flex:none; width:8px; height:8px; border-radius:50%; }
@@ -118,7 +118,7 @@ svg { display:block; }
   transform:scale(.85); transform-origin:center; }
 .mv .legend i.g-gate { transform:scale(.85) rotate(45deg); }
 
-/* horizontal track, shared by the line reads */
+/* horizontal track */
 .mv .track { position:relative; height:36px; margin-top:16px; }
 .mv .rail { position:absolute; left:0; right:0; top:16px; height:4px; background:var(--line); border-radius:2px; }
 .mv .walkseg { position:absolute; top:16px; height:4px; background:var(--cyan); border-radius:2px; }
@@ -127,6 +127,8 @@ svg { display:block; }
   display:flex; align-items:center; justify-content:center; background:none; border:0; padding:0; }
 .mv .mk i { display:block; }
 .mv .mk.sel i { outline:2px solid var(--mut); outline-offset:3px; border-radius:50%; }
+.mv .stub { position:absolute; top:0; height:36px; cursor:pointer; background:none; border:0; padding:0; }
+.mv .stub.sel .walkseg, .mv .stub.sel .fogseg { outline:2px solid var(--mut); outline-offset:4px; }
 
 /* the map head — a control-room stat: big fraction, then the name */
 .mv .mhead { display:flex; align-items:center; gap:16px; }
@@ -141,106 +143,97 @@ svg { display:block; }
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
 .mv .mtt .meta a { color:var(--cyan); text-decoration:none; }
 
-/* ================================================================
-   L1 — DISPATCH: the line is state, the list under it is what starts
-   ================================================================ */
-.l1 .map { margin-top:44px; }
-.l1 .track { height:26px; margin-top:14px; }
-.l1 .track .rail, .l1 .track .walkseg, .l1 .track .fogseg { top:11px; }
-.l1 .mk { top:0; width:26px; height:26px; margin-left:-13px; cursor:default; }
-.l1 .row { display:flex; align-items:center; gap:12px; padding:13px 0 13px 4px; font-size:15px; }
-.l1 .row + .row { border-top:1px solid var(--line); }
-.l1 .row .g { flex:none; }
+/* the detail panel and the master-detail split */
+.mv .panel { margin-top:14px; border-left:2px solid var(--line); padding:4px 0 4px 16px; }
+.mv .prow { display:flex; align-items:center; gap:12px; padding:9px 0; font-size:14px; }
+.mv .prow.dim { color:var(--mut); }
+.mv .prow.dim .ttl { font-weight:400; }
+.mv .phead { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+  margin-bottom:6px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .detailpane { display:none; }
+.mv .map { margin-top:44px; }
 @container frame (min-width:700px) {
-  .l1 .maps { display:grid; grid-template-columns:1fr 1fr; gap:16px 64px; align-items:start; }
+  .mv .md { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,4fr); gap:0 64px; align-items:start; }
+  .mv .detailpane { display:block; position:sticky; top:24px; margin-top:44px; }
+  .mv .inlinepanel { display:none; }
 }
 
 /* ================================================================
-   L2 — JOURNEY: proportional lines, one instrument, no taps
+   M1 — TRUE SCALE: journey-proportional lines, stops in place
    ================================================================ */
-.l2 .map { margin-top:42px; }
-.l2 .lrow { display:flex; align-items:center; gap:16px; margin-top:14px; }
-.l2 .lwrap { position:relative; height:22px; flex:1; }
-.l2 .lwrap .rail, .l2 .lwrap .walkseg, .l2 .lwrap .fogseg { top:9px; }
-.l2 .rail { right:auto; }
-.l2 .here { position:absolute; top:0; width:4px; height:22px; margin-left:-2px;
-  background:var(--cyan); border-radius:2px; }
-.l2 .tick { position:absolute; top:6px; width:10px; height:10px; border-radius:50%; margin-left:-5px; }
-.l2 .frac { flex:none; font-size:17px; font-weight:700;
+.m1 .lwrap { position:relative; height:36px; margin-top:14px; }
+.m1 .lwrap .rail { right:auto; }
+
+/* ================================================================
+   M2 — RACE: one shared axis, tap a map
+   ================================================================ */
+.m2 .rrow { display:flex; align-items:center; gap:14px; padding:15px 0; cursor:pointer;
+  border-top:1px solid var(--line); }
+.m2 .rrow:first-of-type { border-top:0; margin-top:10px; }
+.m2 .rrow .nm { flex:none; width:92px; font-size:13px; font-weight:700; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.m2 .rrow.sel .nm { color:var(--cyan); }
+.m2 .rrow .lw { position:relative; flex:1; height:22px; }
+.m2 .rrow .rail, .m2 .rrow .walkseg, .m2 .rrow .fogseg { top:9px; }
+.m2 .rrow .tickn { position:absolute; top:5px; width:12px; height:12px; border-radius:50%; margin-left:-6px; }
+.m2 .rrow .frac { flex:none; width:74px; text-align:right; font-size:15px; font-weight:700;
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
-.l2 .frac .fog { color:var(--mut); font-weight:400; font-size:12px; }
-.l2 .next { margin-top:10px; font-size:13px; color:var(--mut); overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; }
-.l2 .next b { color:var(--ink); font-weight:600; }
-@container frame (min-width:700px) {
-  .l2 .maps { max-width:860px; }
-}
+.m2 .rrow .frac .fogn { color:var(--mut); font-weight:400; font-size:11px; }
 
 /* ================================================================
-   L3 — TRIAGE: needs-you lifts off the line, maps sort by attention
+   M3 — BANDS: the line is a segmented band, tap a segment
    ================================================================ */
-.l3 .map { margin-top:38px; }
-.l3 .track { height:84px; }
-.l3 .track .rail, .l3 .track .walkseg, .l3 .track .fogseg { top:66px; }
-.l3 .mk { top:53px; }
-.l3 .stem { position:absolute; top:20px; height:46px; width:0; border-left:1px solid var(--amber); margin-left:-1px; opacity:.7; }
-.l3 .float { position:absolute; top:4px; transform:translateX(-50%); display:flex; align-items:center;
-  gap:8px; white-space:nowrap; }
-.l3 .float .fl { font-size:12px; font-weight:600; }
-.l3 .float .num { font-size:10px; }
-.l3 .under { margin-top:6px; font-size:13px; color:var(--mut); overflow:hidden;
-  text-overflow:ellipsis; white-space:nowrap; }
-.l3 .calmtrack { height:36px; }
-.l3 .calmtrack .rail, .l3 .calmtrack .walkseg, .l3 .calmtrack .fogseg { top:16px; }
-.l3 .calmtrack .mk { top:3px; }
-@container frame (min-width:700px) {
-  .l3 .maps { max-width:860px; }
-}
+.m3 .band { display:flex; gap:3px; margin-top:16px; height:30px; }
+.m3 .bseg { position:relative; border:0; cursor:pointer; border-radius:4px; min-width:34px;
+  display:flex; align-items:center; justify-content:center; gap:5px;
+  font: 700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace; padding:0 6px; }
+.m3 .bseg.sel { outline:2px solid var(--mut); outline-offset:3px; }
+.m3 .b-walk { background:var(--cyan); color:var(--bg); }
+.m3 .b-flight { background:var(--green); color:var(--bg); }
+.m3 .b-flight.needs { background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.m3 .b-take { background:transparent; border:2px solid var(--cyan); color:var(--cyan); }
+.m3 .b-wait { background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px);
+  color:var(--mut); }
+.m3 .b-fog { background:transparent; border:2px dotted var(--mut); color:var(--mut); }
+.m3 .bcap { display:flex; gap:14px; margin-top:10px; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
 
 /* ================================================================
-   L4 — EXPLORER: every stop taps open a detail panel under the line
+   M4 — METRO: station names live on the line
    ================================================================ */
-.l4 .map { margin-top:44px; }
-.l4 .stub { position:absolute; top:0; height:36px; cursor:pointer; background:none; border:0; padding:0; }
-.l4 .stub.sel .walkseg, .l4 .stub.sel .fogseg { outline:2px solid var(--mut); outline-offset:4px; }
-.l4 .panel { margin-top:14px; border-left:2px solid var(--line); padding:4px 0 4px 16px; }
-.l4 .prow { display:flex; align-items:center; gap:12px; padding:9px 0; font-size:14px; }
-.l4 .prow.dim { color:var(--mut); }
-.l4 .prow.dim .ttl { font-weight:400; }
-@container frame (min-width:700px) {
-  .l4 .maps { display:grid; grid-template-columns:1fr 1fr; gap:16px 64px; align-items:start; }
-}
+.m4 .track { height:96px; margin-top:6px; }
+.m4 .track .rail, .m4 .track .walkseg, .m4 .track .fogseg { top:46px; }
+.m4 .mk { top:33px; }
+.m4 .stub { top:30px; }
+.m4 .lbl { position:absolute; transform:translateX(-50%); font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; white-space:nowrap;
+  background:none; border:0; cursor:pointer; padding:2px 4px; max-width:96px;
+  overflow:hidden; text-overflow:ellipsis; }
+.m4 .lbl.up { top:14px; } .m4 .lbl.dn { top:66px; }
+.m4 .lbl.sel { color:var(--ink); font-weight:700; }
+.m4 .lbl.needs { color:var(--amber); }
 
 /* ================================================================
-   L5 — STATIONS: the line runs down the left edge, tickets are stops
+   M5 — VERTICAL: the journey runs down the page
    ================================================================ */
-.l5 .map { margin-top:46px; }
-.l5 .st { position:relative; display:flex; align-items:center; gap:12px;
-  padding:13px 0 13px 42px; font-size:14px; }
-.l5 .st:first-of-type { margin-top:14px; }
-.l5 .seg { position:absolute; left:14px; top:0; bottom:0; width:0; }
-.l5 .seg.walk { border-left:4px solid var(--cyan); }
-.l5 .seg.open { border-left:4px solid var(--line); }
-.l5 .seg.wait { border-left:4px dashed var(--line); }
-.l5 .seg.fog { border-left:4px dotted var(--mut); opacity:.7; }
-.l5 .seg.half-top { bottom:50%; }
-.l5 .seg.half-bot { top:50%; }
-.l5 .stmk { position:absolute; left:14px; top:50%; transform:translate(-50%,-50%); z-index:1; }
-.l5 .st.dim { color:var(--mut); }
-.l5 .st.dim .ttl { font-weight:400; color:var(--mut); }
-.l5 .st .sub2 { display:block; font-size:11px; color:var(--mut); font-weight:400; margin-top:4px; }
-@container frame (min-width:700px) {
-  .l5 .maps { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px 64px; align-items:start; }
-}
-
-/* ================================================================
-   L0 — the round-2 baseline, kept for reference
-   ================================================================ */
-.l0 .map { margin-top:40px; }
-.l0 .detail { display:flex; align-items:center; gap:10px; margin-top:10px; font-size:13px; min-height:22px; }
-@container frame (min-width:700px) {
-  .l0 .maps { max-width:860px; }
-}
+.m5 .st { position:relative; display:flex; align-items:center; gap:12px;
+  padding:13px 0 13px 42px; font-size:14px; text-align:left; width:100%;
+  background:none; border:0; color:inherit; cursor:pointer; }
+.m5 .st:first-of-type { margin-top:14px; }
+.m5 .st.walkst { min-height:88px; }
+.m5 .st.fogst { min-height:64px; }
+.m5 .seg { position:absolute; left:14px; top:0; bottom:0; width:0; }
+.m5 .seg.walk { border-left:4px solid var(--cyan); }
+.m5 .seg.open { border-left:4px solid var(--line); }
+.m5 .seg.wait { border-left:4px dashed var(--line); }
+.m5 .seg.fog { border-left:4px dotted var(--mut); opacity:.7; }
+.m5 .seg.half-top { bottom:50%; }
+.m5 .seg.half-bot { top:50%; }
+.m5 .stmk { position:absolute; left:14px; top:50%; transform:translate(-50%,-50%); z-index:1; }
+.m5 .st.dim { color:var(--mut); }
+.m5 .st.dim .ttl { font-weight:400; color:var(--mut); }
+.m5 .st.sel .ttl { color:var(--cyan); }
+.m5 .st .sub2 { display:block; font-size:11px; color:var(--mut); font-weight:400; margin-top:4px; }
 </style>
 </head>
 <body>
@@ -249,43 +242,43 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv l1" data-view="l1" data-name="1 · Dispatch · start work">
-  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+<section class="view mv m1" data-view="m1" data-name="1 · True scale">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
   <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
-<section class="view mv l2" data-view="l2" data-name="2 · Journey · how far">
-  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+<section class="view mv m2" data-view="m2" data-name="2 · Race">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
   <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
-<section class="view mv l3" data-view="l3" data-name="3 · Triage · needs me">
-  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+<section class="view mv m3" data-view="m3" data-name="3 · Bands">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
   <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
-<section class="view mv l4" data-view="l4" data-name="4 · Explorer · drill in">
-  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+<section class="view mv m4" data-view="m4" data-name="4 · Metro">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
   <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
-<section class="view mv l5" data-view="l5" data-name="5 · Stations · vertical">
-  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+<section class="view mv m5" data-view="m5" data-name="5 · Vertical">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
   <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
 </section>
 
-<section class="view mv l0" data-view="l0" data-name="0 · Baseline (r2)">
-  <div class="ht"><span>curia · atlas · maps</span><span>thu 20 aug · 14:07</span></div>
+<section class="view mv m0" data-view="m0" data-name="0 · Baseline (r3)">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
   <div data-verdict></div>
   <div class="filters" data-filters></div>
   <div data-body></div>
@@ -357,7 +350,7 @@ const TYPES = ["grilling","prototype","research","task"];
 
 /* ---------- ui state, shared ---------- */
 let filt = { repo:"all", typ:"all" };
-let sel = {};   /* explorer + baseline: selected stop per map */
+let sel = null;   /* one selection: { map:"#511", key: 2 | "walk" | "fog" | "map" | group } */
 
 function visMaps() {
   return MAPS
@@ -386,7 +379,6 @@ function verdictHTML(maps) {
     <div><span class="v">${maps.length}</span><span class="k">maps</span></div>
   </div>`;
 }
-
 function legend(extra) {
   return `<div class="legend">
     <span><i class="g-run"></i>runs</span><span><i class="g-gate"></i>gate</span>
@@ -395,8 +387,6 @@ function legend(extra) {
     ${extra || ""}
   </div>`;
 }
-
-/* the stops of one map's line, in walking order */
 function lineItems(m) {
   const items = [];
   m.flight.forEach(f => items.push({ kind: f.state === "gate" ? "gate" : f.ask ? "ask" : "run", f }));
@@ -408,29 +398,87 @@ function markerFor(k) {
   return { run:"g-run", gate:"g-gate", ask:"g-ask", take:"g-take", wait:"g-wait" }[k];
 }
 
-/* a horizontal schematic track: walked stub, even stops, fog stub */
-function track(m, mi, opts) {
-  const o = opts || {};
-  const items = lineItems(m);
-  const wStub = 14, fogStub = m.fog ? 12 : 0;
-  const span = 100 - wStub - fogStub - 6;
-  const selIdx = o.selectable ? (sel[m.num] ?? items.findIndex(i => i.kind === "take")) : -1;
-  const pos = i => wStub + (i + 0.5) / items.length * span;
-  return { items, selIdx, pos, html: `
-    <div class="track ${o.cls || ""}">
-      <div class="rail"></div>
-      ${o.stubs
-        ? `<button class="stub ${sel[m.num] === "walk" ? "sel" : ""}" data-stub="${mi}:walk" style="left:0;width:${wStub}%" aria-label="walked"><div class="walkseg" style="left:0;right:0"></div></button>`
-        : `<div class="walkseg" style="left:0;width:${wStub}%"></div>`}
-      ${m.fog ? (o.stubs
-        ? `<button class="stub ${sel[m.num] === "fog" ? "sel" : ""}" data-stub="${mi}:fog" style="right:0;width:${fogStub}%" aria-label="fog"><div class="fogseg" style="left:0;right:0"></div></button>`
-        : `<div class="fogseg" style="right:0;width:${fogStub}%"></div>`) : ""}
-      ${items.map((it, i) => `<button class="mk ${i === selIdx ? "sel" : ""}" style="left:${pos(i).toFixed(1)}%"
-          ${o.selectable ? `data-mk="${mi}:${i}"` : `tabindex="-1"`} aria-label="${it.f.title}">
-          <i class="${markerFor(it.kind)}"></i></button>`).join("")}
-      ${(o.floats || []).join("")}
-    </div>` };
+/* ---------- one selection across every view ---------- */
+function defaultSel(maps, keyKind) {
+  if (!maps.length) return null;
+  if (keyKind === "map") return { map: (maps.find(m => needsOf(m).length) || maps[0]).num, key: "map" };
+  if (keyKind === "group") {
+    const m = maps.find(x => needsOf(x).length);
+    if (m) return { map: m.num, key: "flight" };
+    const t = maps.find(x => x.frontier.length);
+    return t ? { map: t.num, key: "take" } : { map: maps[0].num, key: "walk" };
+  }
+  for (const m of maps) {
+    const i = lineItems(m).findIndex(x => x.kind === "gate" || x.kind === "ask");
+    if (i >= 0) return { map: m.num, key: i };
+  }
+  for (const m of maps) {
+    const i = lineItems(m).findIndex(x => x.kind === "take");
+    if (i >= 0) return { map: m.num, key: i };
+  }
+  return { map: maps[0].num, key: "walk" };
 }
+function currentSel(maps, keyKind, valid) {
+  if (sel && maps.some(m => m.num === sel.map) && valid(sel.key)) return sel;
+  return defaultSel(maps, keyKind);
+}
+const isStopKey = k => typeof k === "number" || k === "walk" || k === "fog";
+const isGroupKey = k => ["walk","flight","take","wait","fog"].includes(k);
+
+/* ---------- the detail panel ---------- */
+function stopPanel(m, key) {
+  const items = lineItems(m);
+  if (key === "walk") return `<div class="panel">
+    ${m.recent.map(r => `<div class="prow dim"><span class="num">✓</span><span class="ttl">${r.title}</span><a class="go" href="#" onclick="return false">${r.t} →</a></div>`).join("")}
+    <div class="prow dim"><span class="num">… ${m.closed - m.recent.length} more on GitHub</span></div></div>`;
+  if (key === "fog") return `<div class="panel">
+    ${m.fogNotes.map(n => `<div class="prow dim"><span class="num">╌</span><span class="ttl">${n}</span><span class="word">not yet specified</span></div>`).join("")}</div>`;
+  if (key === "map") return `<div class="panel">
+    ${items.map(it => `<div class="prow ${it.kind === "wait" ? "dim" : ""}"><i class="${markerFor(it.kind)}"></i>
+      <span class="ttl">${it.f.title}<span class="sub">${it.f.t || ""}${it.kind === "take" ? ` · ${route(it.f)}` : ""}${it.kind === "wait" ? ` · behind ${it.behind}` : ""}</span></span>
+      ${it.kind === "take" ? `<span class="go">start →</span>` : ""}${it.kind === "gate" ? `<span class="chip">gate</span>` : ""}${it.f.ask ? `<span class="chip">ask</span>` : ""}</div>`).join("")}
+    </div>`;
+  if (key === "flight" || key === "take" || key === "wait") {
+    const kinds = key === "flight" ? ["run","gate","ask"] : [key];
+    const group = items.filter(it => kinds.includes(it.kind));
+    return `<div class="panel">${group.length ? group.map(it => stopRow(m, it)).join("") : `<div class="prow dim"><span class="ttl">nothing here</span></div>`}</div>`;
+  }
+  const it = items[key];
+  return it ? `<div class="panel">${stopRow(m, it, true)}</div>` : "";
+}
+function stopRow(m, it, full) {
+  const f = it.f;
+  if (it.kind === "run" || it.kind === "ask") return `
+    <div class="prow"><span class="dot on"></span><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
+    <div class="prow dim"><span class="word run">runs</span><span class="ttl">${f.agent} · ${f.mins}m${f.pr ? "" : " · no pull request yet"}</span>${prMark(f.pr)}</div>
+    ${f.ask ? `<div class="prow"><span class="chip">ask</span><span class="ttl">${f.ask.q}</span><span class="num">${f.ask.mins}m</span><a class="go" href="#" onclick="return false">answer →</a></div>` : ""}`;
+  if (it.kind === "gate") return `
+    <div class="prow"><span class="chip">gate</span><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
+    <div class="prow dim"><span class="ttl">waits ${f.mins}m for your review</span>${prMark(f.pr)}<a class="go" href="#" onclick="return false">preview →</a></div>`;
+  if (it.kind === "take") return `
+    <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
+    <div class="prow dim"><span class="ttl">${f.typ} · ${route(f)}</span><a class="go" href="#" onclick="return false">start →</a></div>
+    ${full ? f.kids.map(k => `<div class="prow dim"><span class="word">unblocks</span><span class="ttl">${k.title}</span><a class="go" href="#" onclick="return false">${k.t} →</a></div>`).join("") : ""}`;
+  return `
+    <div class="prow dim"><i class="g-wait"></i><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
+    <div class="prow dim"><span class="ttl">blocked behind ${it.behind}</span></div>`;
+}
+function paneFor(maps, s) {
+  if (!s) return "";
+  const m = maps.find(x => x.num === s.map);
+  if (!m) return "";
+  return `<div class="detailpane"><div class="phead">${m.short} · ${keyName(m, s.key)}</div>${stopPanel(m, s.key)}</div>`;
+}
+function keyName(m, key) {
+  if (key === "walk") return "walked";
+  if (key === "fog") return "the fog";
+  if (key === "map") return "all stops";
+  if (typeof key === "string") return key === "flight" ? "in flight" : key === "take" ? "takeable" : "blocked";
+  const it = lineItems(m)[key];
+  return it ? it.f.t : "";
+}
+const inlinePanel = (m, s) => s && s.map === m.num
+  ? `<div class="inlinepanel">${stopPanel(m, s.key)}</div>` : "";
 
 /* ---------- filters row ---------- */
 function filtersHTML() {
@@ -443,185 +491,200 @@ function filtersHTML() {
     </select>`;
 }
 
-/* ================================================================
-   L1 — DISPATCH
-   ================================================================ */
-function renderL1(maps) {
-  return legend() + `<div class="maps">${maps.map((m, mi) => `<div class="map">
-    ${lhead(m)}
-    ${track(m, mi, {}).html}
-    ${m.frontier.map(f => `<div class="row"><i class="g g-take"></i>
-      <span class="ttl">${f.title}<span class="sub">${f.t} · ${route(f)}${f.kids.length ? ` · unblocks ${f.kids.length}` : ""}</span></span>
-      <span class="go">start →</span></div>`).join("")
-      || `<div class="row"><span class="num">nothing takeable — ${m.flight.length ? "work is in flight" : "all walked"}</span></div>`}
-  </div>`).join("")}</div>`;
+/* a schematic track with tappable stops and stubs (baseline + metro) */
+function schemaTrack(m, s, opts) {
+  const o = opts || {};
+  const items = lineItems(m);
+  const wStub = 14, fogStub = m.fog ? 12 : 0;
+  const span = 100 - wStub - fogStub - 6;
+  const pos = i => wStub + (i + 0.5) / items.length * span;
+  const selHere = s && s.map === m.num;
+  return { items, pos, html: `
+    <div class="track">
+      <div class="rail"></div>
+      <button class="stub ${selHere && s.key === "walk" ? "sel" : ""}" data-sel="${m.num}|walk" style="left:0;width:${wStub}%" aria-label="walked"><div class="walkseg" style="left:0;right:0"></div></button>
+      ${m.fog ? `<button class="stub ${selHere && s.key === "fog" ? "sel" : ""}" data-sel="${m.num}|fog" style="right:0;width:${fogStub}%" aria-label="fog"><div class="fogseg" style="left:0;right:0"></div></button>` : ""}
+      ${items.map((it, i) => `<button class="mk ${selHere && s.key === i ? "sel" : ""}" style="left:${pos(i).toFixed(1)}%"
+          data-sel="${m.num}|${i}" aria-label="${it.f.title}"><i class="${markerFor(it.kind)}"></i></button>`).join("")}
+      ${(o.extras || []).join("")}
+    </div>` };
 }
 
 /* ================================================================
-   L2 — JOURNEY
+   M1 — TRUE SCALE
    ================================================================ */
-function renderL2(maps) {
+function renderM1(maps) {
   const maxU = Math.max(...maps.map(m => m.total + m.fog));
-  return legend() + `<div class="maps">${maps.map(m => {
-    const units = m.total + m.fog;
-    const w = units / maxU * 100;
-    const walked = m.closed / units * 100;
-    const here = (m.closed + m.flight.length) / units * 100;
-    const fogW = m.fog / units * 100;
-    const next = m.frontier[0];
-    return `<div class="map">
+  const s = currentSel(maps, "stop", isStopKey);
+  return legend() + `<div class="md"><div class="master">
+    ${maps.map(m => {
+      const units = m.total + m.fog;
+      const w = units / maxU * 100;
+      const walked = m.closed / units * 100;
+      const fogW = m.fog / units * 100;
+      const items = lineItems(m);
+      /* true positions, then a nudge so stops stay 8% apart */
+      const raw = items.map((it, i) => (m.closed + i + 0.5) / units * 100);
+      for (let i = 1; i < raw.length; i++) raw[i] = Math.max(raw[i], raw[i - 1] + 8);
+      const over = raw.length ? Math.max(0, raw[raw.length - 1] - 97) : 0;
+      const posArr = raw.map(p => p - over);
+      const selHere = s && s.map === m.num;
+      return `<div class="map">
       ${lhead(m)}
-      <div class="lrow">
-        <div class="lwrap" style="flex:0 0 ${w.toFixed(1)}%">
-          <div class="rail" style="left:0;width:100%"></div>
-          <div class="walkseg" style="left:0;width:${walked.toFixed(1)}%"></div>
-          ${m.fog ? `<div class="fogseg" style="left:${(100 - fogW).toFixed(1)}%;width:${fogW.toFixed(1)}%"></div>` : ""}
-          ${m.flight.map((f, i) => `<span class="tick" style="left:${(walked + (i + 0.5) / units * 100).toFixed(1)}%;
-            background:var(--${f.state === "gate" || f.ask ? "amber" : "green"})"></span>`).join("")}
-          <span class="here" style="left:${here.toFixed(1)}%"></span>
-        </div>
+      <div class="lwrap" style="width:${w.toFixed(1)}%">
+        <div class="rail" style="left:0;width:100%;top:16px"></div>
+        <button class="stub ${selHere && s.key === "walk" ? "sel" : ""}" data-sel="${m.num}|walk" style="left:0;width:${walked.toFixed(1)}%" aria-label="walked"><div class="walkseg" style="left:0;right:0"></div></button>
+        ${m.fog ? `<button class="stub ${selHere && s.key === "fog" ? "sel" : ""}" data-sel="${m.num}|fog" style="right:0;width:${fogW.toFixed(1)}%" aria-label="fog"><div class="fogseg" style="left:0;right:0"></div></button>` : ""}
+        ${items.map((it, i) => `<button class="mk ${selHere && s.key === i ? "sel" : ""}" style="left:${posArr[i].toFixed(1)}%"
+          data-sel="${m.num}|${i}" aria-label="${it.f.title}"><i class="${markerFor(it.kind)}"></i></button>`).join("")}
       </div>
-      <div class="next">${next ? `next: <b>${next.title}</b> ${route(next)}` : "nothing takeable"}
-        ${m.fog ? ` · fog: ${m.fogNotes[0]}${m.fogNotes.length > 1 ? " +" + (m.fogNotes.length - 1) : ""}` : ""}</div>
-    </div>`; }).join("")}</div>
-  <div class="legend" style="margin-top:20px"><span>▍ the frontier line</span><span>line length = map size</span></div>`;
+      ${inlinePanel(m, s)}
+    </div>`; }).join("")}
+  </div>${paneFor(maps, s)}</div>`;
 }
 
 /* ================================================================
-   L3 — TRIAGE
+   M2 — RACE
    ================================================================ */
-function renderL3(maps) {
-  const sorted = [...maps].sort((a, b) => needsOf(b).length - needsOf(a).length);
-  return legend() + `<div class="maps">${sorted.map((m, mi) => {
-    const needs = needsOf(m);
-    const t = track(m, mi, { cls: needs.length ? "" : "calmtrack" });
-    const floats = [];
-    if (needs.length) {
-      t.items.forEach((it, i) => {
-        if (it.kind !== "gate" && it.kind !== "ask") return;
-        const x = Math.min(Math.max(t.pos(i), 18), 66);
-        floats.push(`<div class="stem" style="left:${t.pos(i).toFixed(1)}%"></div>
-          <div class="float" style="left:${x.toFixed(1)}%">
-            <span class="chip">${it.kind}</span>
-            <span class="fl">${it.kind === "ask" ? it.f.ask.q : it.f.title}</span>
-            <span class="num">${it.kind === "ask" ? it.f.ask.mins : it.f.mins}m</span>
-            ${it.kind === "gate" ? prMark(it.f.pr) : `<a class="go" href="#" onclick="return false">answer →</a>`}
-          </div>`);
+function renderM2(maps) {
+  const s = currentSel(maps, "map", k => k === "map");
+  return legend() + `<div class="md"><div class="master">
+    ${maps.map(m => {
+      const units = m.total + m.fog;
+      const walked = m.closed / units * 100;
+      const fogW = m.fog / units * 100;
+      const needs = needsOf(m);
+      const selHere = s && s.map === m.num;
+      return `<div>
+      <div class="rrow ${selHere ? "sel" : ""}" data-sel="${m.num}|map" role="button" tabindex="0">
+        <span class="nm">${m.short}</span>
+        <span class="lw">
+          <span class="rail"></span>
+          <span class="walkseg" style="left:0;width:${walked.toFixed(1)}%"></span>
+          ${m.fog ? `<span class="fogseg" style="right:0;width:${fogW.toFixed(1)}%"></span>` : ""}
+          ${needs.map((f, i) => `<span class="tickn ${f.state === "gate" ? "g-gate" : "g-ask"}" style="left:${(walked + 4 + i * 6).toFixed(1)}%"></span>`).join("")}
+          ${m.frontier.length ? `<span class="tickn g-take" style="left:${(walked + 4 + needs.length * 6).toFixed(1)}%"></span>` : ""}
+        </span>
+        <span class="frac">${m.closed}/${m.total}${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</span>
+      </div>
+      ${inlinePanel(m, s)}
+    </div>`; }).join("")}
+  </div>${paneFor(maps, s)}</div>`;
+}
+
+/* ================================================================
+   M3 — BANDS
+   ================================================================ */
+function renderM3(maps) {
+  const s = currentSel(maps, "group", isGroupKey);
+  return `<div class="md"><div class="master">
+    ${maps.map(m => {
+      const items = lineItems(m);
+      const flight = items.filter(i => ["run","gate","ask"].includes(i.kind));
+      const waits = items.filter(i => i.kind === "wait");
+      const needs = needsOf(m).length > 0;
+      const segs = [
+        { key:"walk", cls:"b-walk", n:m.closed, lab:"✓" },
+        { key:"flight", cls:"b-flight" + (needs ? " needs" : ""), n:flight.length, lab:needs ? "!" : "▶" },
+        { key:"take", cls:"b-take", n:m.frontier.length, lab:"○" },
+        { key:"wait", cls:"b-wait", n:waits.length, lab:"·" },
+        { key:"fog", cls:"b-fog", n:m.fog, lab:"╌" }
+      ].filter(x => x.n > 0);
+      const total = segs.reduce((a, x) => a + x.n, 0);
+      const selHere = s && s.map === m.num;
+      return `<div class="map">
+      ${lhead(m)}
+      <div class="band">${segs.map(x => `<button class="bseg ${x.cls} ${selHere && s.key === x.key ? "sel" : ""}"
+        style="flex-grow:${x.n}" data-sel="${m.num}|${x.key}" aria-label="${x.key}">${x.n}<span>${x.lab}</span></button>`).join("")}</div>
+      ${inlinePanel(m, s)}
+    </div>`; }).join("")}
+    <div class="bcap">walked ✓ · in flight ▶ (! needs you) · takeable ○ · blocked · · fog ╌</div>
+  </div>${paneFor(maps, s)}</div>`;
+}
+
+/* ================================================================
+   M4 — METRO
+   ================================================================ */
+function renderM4(maps) {
+  const s = currentSel(maps, "stop", isStopKey);
+  return legend() + `<div class="md"><div class="master">
+    ${maps.map(m => {
+      const t = schemaTrack(m, s);
+      const selHere = s && s.map === m.num;
+      const labels = t.items.map((it, i) => {
+        const x = Math.min(Math.max(t.pos(i), 10), 90);
+        const needs = it.kind === "gate" || it.kind === "ask";
+        return `<button class="lbl ${i % 2 ? "dn" : "up"} ${needs ? "needs" : ""} ${selHere && s.key === i ? "sel" : ""}"
+          style="left:${x.toFixed(1)}%" data-sel="${m.num}|${i}">${it.f.title}</button>`;
       });
-    }
-    return `<div class="map">
+      return `<div class="map">
       ${lhead(m)}
-      ${track(m, mi, { cls: needs.length ? "" : "calmtrack", floats }).html}
-      <div class="under">${m.frontier.length ? `${m.frontier.length} takeable · next: ${m.frontier[0].title}` : "nothing takeable"}</div>
-    </div>`; }).join("")}</div>`;
+      ${schemaTrack(m, s, { extras: labels }).html}
+      ${inlinePanel(m, s)}
+    </div>`; }).join("")}
+  </div>${paneFor(maps, s)}</div>`;
 }
 
 /* ================================================================
-   L4 — EXPLORER
+   M5 — VERTICAL
    ================================================================ */
-function panelFor(m, key, items) {
-  if (key === "walk") return `<div class="panel">
-    ${m.recent.map(r => `<div class="prow dim"><span class="num">✓</span><span class="ttl">${r.title}</span><a class="go" href="#" onclick="return false">${r.t} →</a></div>`).join("")}
-    <div class="prow dim"><span class="num">… ${m.closed - m.recent.length} more on GitHub</span></div></div>`;
-  if (key === "fog") return `<div class="panel">
-    ${m.fogNotes.map(n => `<div class="prow dim"><span class="num">╌</span><span class="ttl">${n}</span><span class="word">not yet specified</span></div>`).join("")}</div>`;
-  const it = items[key];
-  if (!it) return "";
-  const f = it.f;
-  if (it.kind === "run" || it.kind === "ask") return `<div class="panel">
-    <div class="prow"><span class="dot on"></span><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
-    <div class="prow dim"><span class="word run">runs</span><span class="ttl">${f.agent} · ${f.mins}m${f.pr ? "" : " · no pull request yet"}</span>${prMark(f.pr)}</div>
-    ${f.ask ? `<div class="prow"><span class="chip">ask</span><span class="ttl">${f.ask.q}</span><span class="num">${f.ask.mins}m</span><a class="go" href="#" onclick="return false">answer →</a></div>` : ""}
-    </div>`;
-  if (it.kind === "gate") return `<div class="panel">
-    <div class="prow"><span class="chip">gate</span><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
-    <div class="prow dim"><span class="ttl">waits ${f.mins}m for your review</span>${prMark(f.pr)}<a class="go" href="#" onclick="return false">preview →</a></div>
-    </div>`;
-  if (it.kind === "take") return `<div class="panel">
-    <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
-    <div class="prow dim"><span class="ttl">${f.typ} · ${route(f)}</span><a class="go" href="#" onclick="return false">start →</a></div>
-    ${f.kids.map(k => `<div class="prow dim"><span class="word">unblocks</span><span class="ttl">${k.title}</span><a class="go" href="#" onclick="return false">${k.t} →</a></div>`).join("")}
-    </div>`;
-  return `<div class="panel">
-    <div class="prow dim"><i class="g-wait"></i><span class="ttl">${f.title}</span><a class="go" href="#" onclick="return false">${f.t} →</a></div>
-    <div class="prow dim"><span class="ttl">blocked behind ${it.behind}</span></div></div>`;
-}
-function renderL4(maps) {
-  return legend(`<span>tap any stop</span>`) + `<div class="maps">${maps.map((m, mi) => {
-    const t = track(m, mi, { selectable: true, stubs: true });
-    const key = sel[m.num] ?? t.items.findIndex(i => i.kind === "take");
-    return `<div class="map">
-      ${lhead(m)}
-      ${t.html}
-      ${panelFor(m, key, t.items)}
-    </div>`; }).join("")}</div>`;
+function renderM5(maps) {
+  const s = currentSel(maps, "stop", isStopKey);
+  return legend() + `<div class="md"><div class="master">
+    ${maps.map(m => {
+      const items = lineItems(m);
+      const selHere = s && s.map === m.num;
+      const rows = [];
+      rows.push({ key:"walk", leave:"walk", cls:"dim walkst", mk:`<span class="stmk num">✓</span>`,
+        body:`<span class="ttl">${m.closed} walked<span class="sub2">last: ${m.recent[0].title} ${m.recent[0].t}</span></span>` });
+      items.forEach((it, i) => {
+        const leave = it.kind === "wait" ? "wait" : it.kind === "take" ? "wait" : "open";
+        rows.push({ key:i, leave, cls:it.kind === "wait" ? "dim" : "",
+          mk:`<span class="stmk"><i class="${markerFor(it.kind)}"></i></span>`,
+          body:`<span class="ttl">${it.f.title}<span class="sub2">${it.f.t || ""}${
+            it.kind === "take" ? ` · ${route(it.f)}` : it.kind === "wait" ? ` · behind ${it.behind}` :
+            it.kind === "gate" ? ` · waits ${it.f.mins}m` : ` · ${it.f.agent} · ${it.f.mins}m`}</span></span>
+          ${it.kind === "gate" ? `<span class="chip">gate</span>` : ""}${it.f.ask ? `<span class="chip">ask</span>` : ""}
+          ${it.kind === "take" ? `<span class="go">start →</span>` : ""}` });
+      });
+      if (m.fog) rows.push({ key:"fog", leave:"fog", cls:"dim fogst", mk:`<span class="stmk num">╌</span>`,
+        body:`<span class="ttl">+${m.fog} in the fog<span class="sub2">${m.fogNotes.join(" · ")}</span></span>` });
+      let prev = "walk";
+      const html = rows.map((d, i) => {
+        const last = i === rows.length - 1;
+        const isSel = selHere && s.key === d.key;
+        const r = `<button class="st ${d.cls} ${isSel ? "sel" : ""}" data-sel="${m.num}|${d.key}">
+          ${i ? `<span class="seg ${prev} half-top"></span>` : ""}
+          ${last ? "" : `<span class="seg ${d.leave} half-bot"></span>`}
+          ${d.mk}${d.body}</button>${isSel ? inlinePanel(m, s) : ""}`;
+        prev = d.leave;
+        return r;
+      }).join("");
+      return `<div class="map">${lhead(m)}${html}</div>`; }).join("")}
+  </div>${paneFor(maps, s)}</div>`;
 }
 
 /* ================================================================
-   L5 — STATIONS
+   M0 — the round-3 explorer baseline
    ================================================================ */
-function renderL5(maps) {
-  return legend() + `<div class="maps">${maps.map(m => {
-    /* station descriptors; the rail style hands over from row to row */
-    const ds = [];
-    ds.push({ leave:"walk", cls:"dim", mk:`<span class="stmk num">✓</span>`,
-      body:`<span class="ttl">${m.closed} walked<span class="sub2">last: ${m.recent[0].title} ${m.recent[0].t}</span></span>` });
-    m.flight.forEach(f => {
-      const k = f.state === "gate" ? "gate" : f.ask ? "ask" : "run";
-      ds.push({ leave:"open", cls:"", mk:`<span class="stmk"><i class="${markerFor(k)}"></i></span>`,
-        body:`<span class="ttl">${f.title}<span class="sub2">${f.t} · ${k === "gate" ? `gate · waits ${f.mins}m` : `${f.agent} · ${f.mins}m${f.ask ? " · ask: " + f.ask.q : ""}`}</span></span>
-        ${k === "gate" || f.ask ? `<span class="chip">${k === "gate" ? "gate" : "ask"}</span>` : ""}${prMark(f.pr)}` });
-    });
-    m.frontier.forEach(f => {
-      ds.push({ leave:"wait", cls:"", mk:`<span class="stmk"><i class="g-take"></i></span>`,
-        body:`<span class="ttl">${f.title}<span class="sub2">${f.t} · ${route(f)}</span></span><span class="go">start →</span>` });
-      f.kids.forEach(k => ds.push({ leave:"wait", cls:"dim", mk:`<span class="stmk"><i class="g-wait"></i></span>`,
-        body:`<span class="ttl">${k.title}<span class="sub2">${k.t} · behind ${f.t}</span></span>` }));
-    });
-    if (m.fog) ds.push({ leave:"fog", cls:"dim", mk:`<span class="stmk num">╌</span>`,
-      body:`<span class="ttl">+${m.fog} in the fog<span class="sub2">${m.fogNotes.join(" · ")}</span></span>` });
-    let prev = "walk";
-    const rows = ds.map((d, i) => {
-      const last = i === ds.length - 1;
-      const html = `<div class="st ${d.cls}">
-        ${i ? `<div class="seg ${prev} half-top"></div>` : ""}
-        ${last ? "" : `<div class="seg ${d.leave} half-bot"></div>`}
-        ${d.mk}${d.body}</div>`;
-      prev = d.leave;
-      return html;
-    });
-    return `<div class="map">${lhead(m)}${rows.join("")}</div>`; }).join("")}</div>`;
-}
-
-/* ================================================================
-   L0 — the round-2 baseline
-   ================================================================ */
-function detailLine(m, it) {
-  if (!it) return `<span class="num">all walked</span>`;
-  const f = it.f;
-  if (it.kind === "run" || it.kind === "ask")
-    return `<span class="dot on"></span><span class="ttl">${f.title}</span><span class="word run">runs</span><span class="num">${f.agent} · ${f.mins}m</span>${f.ask ? `<span class="chip">ask</span>` : ""}${prMark(f.pr)}`;
-  if (it.kind === "gate") return `<span class="chip">gate</span><span class="ttl">${f.title}</span><span class="num">waits ${f.mins}m</span>${prMark(f.pr)}`;
-  if (it.kind === "take") return `<span class="word take">next</span><span class="ttl">${f.title}</span>${route(f)}<span class="go">start →</span>`;
-  return `<span class="word">waits</span><span class="ttl">${f.title}</span><span class="num">behind ${it.behind}</span>`;
-}
-function renderL0(maps) {
-  return legend() + `<div class="maps">${maps.map((m, mi) => {
-    const t = track(m, mi, { selectable: true });
-    return `<div class="map">
+function renderM0(maps) {
+  const s = currentSel(maps, "stop", isStopKey);
+  return legend(`<span>tap any stop</span>`) + `<div class="md"><div class="master">
+    ${maps.map(m => `<div class="map">
       ${lhead(m)}
-      ${t.html}
-      <div class="detail">${detailLine(m, t.items[t.selIdx])}</div>
-    </div>`; }).join("")}</div>`;
+      ${schemaTrack(m, s).html}
+      ${inlinePanel(m, s)}
+    </div>`).join("")}
+  </div>${paneFor(maps, s)}</div>`;
 }
 
 /* ---------- shell wiring ---------- */
-const RENDER = { l1: renderL1, l2: renderL2, l3: renderL3, l4: renderL4, l5: renderL5, l0: renderL0 };
-const VIEWS = ["l1", "l2", "l3", "l4", "l5", "l0"];
+const RENDER = { m1: renderM1, m2: renderM2, m3: renderM3, m4: renderM4, m5: renderM5, m0: renderM0 };
+const VIEWS = ["m1", "m2", "m3", "m4", "m5", "m0"];
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "l1";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "m1";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 
@@ -639,15 +702,12 @@ function render() {
       b.onclick = () => { filt.repo = b.dataset.repo; render(); });
     const selEl = sec.querySelector("[data-typ]");
     selEl.onchange = () => { filt.typ = selEl.value; render(); };
-    sec.querySelectorAll("[data-mk]").forEach(b =>
-      b.onclick = () => {
-        const [mi, i] = b.dataset.mk.split(":").map(Number);
-        sel[visMaps()[mi].num] = i; render();
-      });
-    sec.querySelectorAll("[data-stub]").forEach(b =>
-      b.onclick = () => {
-        const [mi, key] = b.dataset.stub.split(":");
-        sel[visMaps()[Number(mi)].num] = key; render();
+    sec.querySelectorAll("[data-sel]").forEach(b =>
+      b.onclick = e => {
+        e.stopPropagation();
+        const [mn, k] = b.dataset.sel.split("|");
+        sel = { map: mn, key: /^\d+$/.test(k) ? Number(k) : k };
+        render();
       });
   });
   frame.className = "frame w-" + w + " " + mode;
