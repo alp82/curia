@@ -6,10 +6,16 @@
 <title>#560 · the main layout and the page navigation</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#560 · the main layout and the page navigation structure.
-  Three navigation-frame variants (A tab row · B home the hub · C the strip) around simplified
-  copies of the six approved screens (#519 #521 #522 #523 #524 #525). The screens are the
-  approved material; only the frame differs per variant. Switch variants with the ‹ › controls,
-  color mode and frame width beside them. The two ⇢ buttons play the Discord deep links (#526).
+  Five navigation-frame variants around simplified copies of the six approved screens
+  (#519 #521 #522 #523 #524 #525):
+    A · the tab row   — bottom tabs, a left rail on desktop
+    B · the hub       — no standing chrome, home is the way to everything
+    C · the pane line — a tmux status line with window numbers
+    D · the board     — no pages: all six screens on one scroll, a jump rail at the edge
+    E · the dial      — the verdict ring floats, and the six pages fan out of it
+  The screens are the approved material; only the frame differs per variant.
+  Switch variants with the ‹ › controls, color mode and frame width beside them.
+  The two ⇢ buttons play the Discord deep links (#526).
 -->
 <style>
 /* ---------- reset ---------- */
@@ -26,10 +32,10 @@ html,body{background:#08090c}
 .ph-ttl{font-weight:700;letter-spacing:.06em;margin-right:auto}
 .ph-btn{background:#171b22;border:1px solid #262c36;color:#cfd6e2;border-radius:7px;
   padding:5px 9px;font:11px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
-.ph-btn.wide{min-width:104px;text-align:center}
+.ph-btn.wide{min-width:110px;text-align:center}
 .ph-note{margin-top:6px;color:#8a93a3;line-height:1.5}
 .stage{display:flex;justify-content:center;padding:22px 12px 60px}
-.frame{border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.5);overflow:hidden;
+.frame{position:relative;border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.5);overflow:hidden;
   display:flex;flex-direction:column;background:var(--bg);
   font-family:ui-sans-serif,system-ui,sans-serif;color:var(--ink)}
 .frame.w-phone{width:390px;height:800px}
@@ -60,7 +66,7 @@ html,body{background:#08090c}
 .w-desktop .scr.fill{padding:0}
 
 /* ---------- shared atoms (from the approved screens) ---------- */
-.mono,h2,.num,time,.ht,.chip,.sub,.dsub,.reads,.meta,.state .st,.go.mut-sz,.fchip,.word,.tglance
+.mono,h2,.num,time,.ht,.chip,.sub,.dsub,.reads,.meta,.state .st,.fchip,.word,.tglance
   {font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .ht{display:flex;justify-content:space-between;font:10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   text-transform:uppercase;letter-spacing:.24em;color:var(--mut)}
@@ -184,6 +190,8 @@ time{color:var(--mut)}
 .w-desktop .mp .md{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,4fr);gap:0 64px}
 .w-desktop .mp .detailpane{display:block;position:sticky;top:24px;margin-top:34px}
 .w-desktop .mp .inlinepanel{display:none}
+.board .mp .detailpane{display:none}
+.board .mp .inlinepanel{display:block}
 
 /* ---------- feed (the Wire, #523) ---------- */
 .fd .screen{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:18px 0 2px}
@@ -220,6 +228,7 @@ time{color:var(--mut)}
   font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);line-height:1.6}
 .fd .hiddenrow{display:none}
 .w-desktop .fd .wrap{max-width:760px;margin:0 auto}
+.board .fd .wrap{max-width:none}
 
 /* ---------- chats (#524) ---------- */
 .ch .list{padding-bottom:20px}
@@ -348,18 +357,54 @@ time{color:var(--mut)}
 .rail .rdate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
 
-/* ---------- variant C · the strip ---------- */
-.stripnav{flex:none;background:var(--bg);border-bottom:1px solid var(--line);padding:10px 16px 0}
-.stripnav .l1{display:flex;justify-content:space-between;align-items:baseline;
-  font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
-  text-transform:uppercase;color:var(--mut)}
-.stripnav .l1 .gl a{text-decoration:none;color:var(--mut);letter-spacing:.12em}
-.stripnav .l1 .gl a.need{color:var(--amberw);font-weight:700}
-.stripnav .l2{display:flex;gap:2px;margin-top:8px}
-.stripnav .l2 a{flex:1;text-align:center;text-decoration:none;color:var(--mut);
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.1em;text-transform:uppercase;
-  padding:7px 0 9px;border-bottom:2px solid transparent}
-.stripnav .l2 a.cur{color:var(--ink);border-bottom-color:var(--cyan)}
+/* ---------- variant C · the pane line ---------- */
+.paneline{flex:none;display:flex;align-items:center;gap:14px;background:var(--dim);
+  border-top:1px solid var(--line);padding:9px 12px calc(9px + env(safe-area-inset-bottom));
+  font:600 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em;
+  color:var(--mut);overflow-x:auto;white-space:nowrap;scrollbar-width:none}
+.paneline::-webkit-scrollbar{display:none}
+.paneline .sess{color:var(--cyan);flex:none}
+.paneline .pw{flex:none;text-decoration:none;color:var(--mut)}
+.paneline .pw.cur{color:var(--ink);font-weight:800}
+.paneline .pw .flag{color:var(--green)}
+.paneline .pw .cnt{background:var(--amber);color:var(--amberink);font-weight:800;
+  padding:0 4px;border-radius:3px;margin-left:3px;box-shadow:var(--glow)}
+.paneline .ptime{flex:none;margin-left:auto;color:var(--mut);letter-spacing:.18em}
+
+/* ---------- variant D · the board ---------- */
+.board .bdiv{display:flex;align-items:center;gap:12px;margin:44px 0 2px;
+  font:700 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.3em;
+  text-transform:uppercase;color:var(--ink);scroll-margin-top:12px}
+.board .bdiv::after{content:"";flex:1;border-top:1px solid var(--line)}
+.board .bdiv .bmark{color:var(--mut);font-weight:400;letter-spacing:.1em}
+.board #sec-home{scroll-margin-top:12px}
+.w-desktop .board .bwrap{max-width:880px;margin:0 auto}
+.jumprail{position:absolute;right:4px;top:50%;transform:translateY(-50%);z-index:8;
+  display:flex;flex-direction:column;gap:6px;padding:10px 5px;border-radius:10px;
+  background:color-mix(in srgb, var(--bg) 72%, transparent)}
+.jumprail a{display:block;width:22px;text-align:center;text-decoration:none;
+  font:700 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);padding:4px 0}
+.jumprail a:hover{color:var(--ink)}
+.jumprail a.jn{color:var(--amberw)}
+
+/* ---------- variant E · the dial ---------- */
+.dialwrap{position:absolute;right:18px;bottom:18px;z-index:12}
+.dialwrap.lift{bottom:96px}
+.dialbtn{position:relative;width:58px;height:58px;border-radius:50%;border:0;background:var(--bg);
+  box-shadow:0 8px 26px rgba(0,0,0,.45)}
+.dialbtn svg{position:absolute;inset:0}
+.dialbtn .dn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font:700 19px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--amber);text-shadow:var(--glow)}
+.dialscrim{position:absolute;inset:0;z-index:11;background:color-mix(in srgb, var(--bg) 62%, transparent)}
+.dialmenu{position:absolute;right:29px;bottom:29px;z-index:12}
+.dialmenu a{position:absolute;transform:translate(-50%,-50%);text-decoration:none;
+  font:700 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink);background:var(--float);border:1px solid var(--line);border-radius:999px;
+  padding:8px 13px;box-shadow:0 6px 20px rgba(0,0,0,.4);white-space:nowrap}
+.dialmenu a.cur{border-color:var(--cyan);color:var(--cyan)}
+.dialmenu a .cnt{background:var(--amber);color:var(--amberink);font-weight:800;
+  padding:0 4px;border-radius:3px;margin-left:4px}
+.dialmenu a .flag{color:var(--green);margin-left:4px}
 </style>
 </head>
 <body>
@@ -390,12 +435,14 @@ time{color:var(--mut)}
 ---------------------------------------------------------------------- */
 const NOTES = {
   a: 'A · the tab row — six tabs under the thumb, one press between pages. The bar yields to the composer and the terminal. The settings dock stacks above it. Desktop turns it into a left rail.',
-  b: 'B · home the hub — no standing chrome. Home is the glance, and every road runs through it: one press out, two presses between pages. Settings rides in the header strip.',
-  c: 'C · the strip — the header strip every screen already carries becomes the frame: wordmark, the glance, and a word row. It stays on every screen, and the terminal pays for it in rows.'
+  b: 'B · the hub — no standing chrome. Home is the glance, and every road runs through it: one press out, two presses between pages. Settings rides in the header strip.',
+  c: 'C · the pane line — a tmux status line closes the frame: session name, six window numbers, the needs-you count as a flag. It stays on every screen, even the terminal, and it reads like the panes the agents live in.',
+  d: 'D · the board — no pages at all: the six screens stack on one scroll, home on top as the masthead. The rail on the right jumps between sections. Conversations, the terminal and a settings section push over the board.',
+  e: 'E · the dial — the verdict ring leaves home and floats over every screen, carrying the needs-you count. Tap it and the six pages fan out around it. No other chrome exists.'
 };
 const S = {
-  v: 'a',                      // variant a|b|c
-  page: 'home',                // home agents maps feed chats chat terminal settings
+  v: 'a',                      // variant a|b|c|d|e
+  page: 'home',                // home agents maps feed chats chat terminal settings board
   chatId: '519',
   agentsSel: 'a1',
   mapsSel: { map:'m1', group:'flight' },
@@ -403,10 +450,11 @@ const S = {
   setSec: null,                // null | routing | projects | dispatch | maint
   setPhase: 'clean',           // clean | dirty | applied
   setDirty: 0,
-  termFrom: '519'
+  termFrom: '519',
+  dialOpen: false
 };
 const q = new URLSearchParams(location.search);
-if (['a','b','c'].includes(q.get('v'))) S.v = q.get('v');
+if (['a','b','c','d','e'].includes(q.get('v'))) S.v = q.get('v');
 
 /* ----------------------------------------------------------------------
    data — the fictional world of the approved screens
@@ -482,15 +530,14 @@ const CHATS = {
 ---------------------------------------------------------------------- */
 const el = id => document.getElementById(id);
 const frame = el('frame');
+const DATE = 'fri 21 aug · 14:07';
 function ht(title){
-  const date = 'fri 21 aug · 14:07';
-  if (S.v === 'c') return '';
   if (S.v === 'b'){
     if (S.page === 'home')
-      return `<div class="ht"><span>curia · atlas</span><span><a data-go="page:settings">settings</a> · ${date}</span></div>`;
-    return `<div class="ht"><span><a data-go="page:home">‹ atlas</a> · ${title}</span><span>${date}</span></div>`;
+      return `<div class="ht"><span>curia · atlas</span><span><a data-go="page:settings">settings</a> · ${DATE}</span></div>`;
+    return `<div class="ht"><span><a data-go="page:home">‹ atlas</a> · ${title}</span><span>${DATE}</span></div>`;
   }
-  return `<div class="ht"><span>curia · ${title}</span><span>${date}</span></div>`;
+  return `<div class="ht"><span>curia · ${title}</span><span>${DATE}</span></div>`;
 }
 function h2link(txt, go){
   if (S.v === 'b' && go) return `<h2>${txt}<a data-go="${go}">open →</a></h2>`;
@@ -498,9 +545,9 @@ function h2link(txt, go){
 }
 
 /* ----------------------------------------------------------------------
-   screens
+   screen bodies (shared by the pages and by the board)
 ---------------------------------------------------------------------- */
-function scrHome(){
+function bodyHome(){
   const needRows = `
     <div class="row tap" data-go="chat:519">
       <span class="chip">Ask · 2</span>
@@ -525,9 +572,7 @@ function scrHome(){
       <div class="l1"><span class="qt">${nm}</span><span class="num">${frac}</span></div>
       <div class="qbar"><i style="width:${w}%"></i>${fogL ? `<span class="fog" style="left:${fogL}%;width:${fogW}%"></span>` : ''}</div>
     </div>`;
-  return `<section class="scr home">
-    ${ht('atlas')}
-    <div class="grid6">
+  return `<div class="grid6">
       <div class="core">
         <div class="ring">
           <svg viewBox="0 0 150 150">
@@ -560,11 +605,10 @@ function scrHome(){
         <div class="row"><time>12:40</time><span class="ttl">landed · deploy daemon 669ed83, green suite</span></div>
         <div class="row"><time>11:20</time><span class="ttl">preview · The feed screen on port 9012</span></div>
       </div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
-function scrAgents(){
+function bodyAgents(){
   const row = a => `
     <div class="row pick ${S.agentsSel === a.id ? 'sel' : ''}" data-agent="${a.id}">
       ${a.lead === 'chip' ? `<span class="chip">${a.chipTxt}</span>` : `<span class="dot ${a.lead === 'dot dim' ? 'dim' : 'on'}"></span>`}
@@ -586,9 +630,7 @@ function scrAgents(){
       <a class="go dimmed">thread →</a>
       <a class="go dimmed">ticket →</a>
     </div>`;
-  return `<section class="scr ag">
-    ${ht('agents')}
-    <div class="grid-ag">
+  return `<div class="grid-ag">
       <div class="s-list">
         <div class="reads"><b>5 live</b> · <span class="hot">2 need you</span> · <b>412k tok today</b></div>
         <h2>Agents</h2>
@@ -600,8 +642,7 @@ function scrAgents(){
         <div class="row"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue</span><a class="go" data-go="chat:562">chat →</a></div>
         <div class="row"><time>12:40</time><span class="ttl">resolved · The pane-driven rewind</span><a class="go" data-go="chat:542">chat →</a></div>
       </div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
 const MAPS = {
@@ -659,7 +700,7 @@ function mapPanel(mapId, group){
       <div class="prow dim"><span class="pt">task · → <b style="color:var(--cyan)">gpt-5.6-sol</b></span><a class="go">start →</a></div>
     </div>`;
 }
-function scrMaps(){
+function bodyMaps(){
   const band = (id, m) => `
     <div class="band">${m.segs.map(([g,n,wd,extra]) => `
       <button class="bseg b-${g} ${extra || ''} ${S.mapsSel.map === id && S.mapsSel.group === g ? 'selseg' : ''}"
@@ -674,16 +715,13 @@ function scrMaps(){
       ${band(id, m)}${inline}
     </div>`;
   };
-  return `<section class="scr mp">
-    ${ht('atlas · maps')}
-    <div class="filters">
+  return `<div class="filters">
       <button class="fchip on">all projects</button><button class="fchip">curia</button><button class="fchip">aistack</button>
     </div>
     <div class="md">
       <div class="master">${mapBlock('m1')}${mapBlock('m2')}${mapBlock('m3')}</div>
       <div class="detailpane">${mapPanel(S.mapsSel.map, S.mapsSel.group)}</div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
 const FEED = [
@@ -698,7 +736,7 @@ const FEED = [
   { alt:'news', fam:'agent', cls:'calm-ok', t:'23:12', w:'ok', word:'resolved', l1:'The effort prototype #559', l2:'all four lanes take a spawn-time effort · findings.md is ground truth', go:1 },
   { alt:'news', fam:'system', cls:'calm-bad', t:'19:44', w:'warn', word:'held', l1:'The maps screen #522', l2:'two dispatch failures · your start clears it · no thread bound', go:0 }
 ];
-function scrFeed(){
+function bodyFeed(){
   const rows = FEED.map(e => {
     if (e.alt === 'mark') return `<div class="mark">your last visit · yesterday 22:50</div>`;
     const hide = S.feedFam !== 'all' && e.fam !== S.feedFam ? 'hiddenrow' : '';
@@ -713,9 +751,7 @@ function scrFeed(){
   }).join('');
   const chips = [['all','all'],['agents','agent'],['needs you','need'],['deploys','deploy'],['commands','command'],['system','system']]
     .map(([t,f]) => `<button class="fchip ${S.feedFam === f ? 'on' : ''}" data-fam="${f}">${t}</button>`).join('');
-  return `<section class="scr fd">
-    <div class="wrap">
-      ${ht('atlas · feed')}
+  return `<div class="wrap">
       <div class="screen">Feed</div>
       <div class="fsub">One stream, two altitudes. News at full size, mechanics compressed between.</div>
       <div class="pulse"><div><div class="k">24 h · 96 events</div>
@@ -724,8 +760,7 @@ function scrFeed(){
       ${rows}
       <div class="tailnote">news = gate, ask, verdict, death, deploy, hold — everything else rides compressed<br>
       an entry with no thread link never had a thread bound (#526)</div>
-    </div>
-  </section>`;
+    </div>`;
 }
 
 function chatRow(id, lead, ttl, sub, state){
@@ -786,9 +821,10 @@ function chatPane(id){
   const foot = c.live
     ? `<div class="comp"><input placeholder="Message ${c.kind === 'ov' ? 'the overseer' : 'claude'}…"><button class="send">➤</button></div>`
     : `<div class="ro-note">this session ended · read-only · the record stays</div>`;
+  const backGo = S.v === 'd' ? 'page:chats' : 'page:chats';
   return `<div class="chpane">
     <div class="chead">
-      <a class="back" data-go="page:chats">‹ chats</a>
+      <a class="back" data-go="${backGo}">‹ chats</a>
       <div class="t1">${c.t1}</div><div class="t2">${c.t2}</div>
       ${links}
     </div>
@@ -836,14 +872,15 @@ $ git log --oneline -3
   </section>`;
 }
 
-function scrSettings(){
-  const home = `
-    <div class="st-home">
+function bodySettingsHome(){
+  return `<div class="st-home">
       <a class="sec-row" data-go="set:routing"><span><span class="t">Routing</span><span class="g">opus · research → gpt · map → fable</span></span><span class="chev">›</span></a>
       <a class="sec-row" data-go="set:projects"><span><span class="t">Projects</span><span class="g">4 repos · alp82</span></span><span class="chev">›</span></a>
       <a class="sec-row" data-go="set:dispatch"><span><span class="t">Dispatch</span><span class="g">manual · 6 agents · 60 s</span></span><span class="chev">›</span></a>
       <a class="sec-row" data-go="set:maint"><span><span class="t">Maintenance</span><span class="g okw">in step · read 4 min ago</span></span><span class="chev">›</span></a>
     </div>`;
+}
+function scrSettings(){
   const secs = {
     routing: `<h2>Routing</h2>
       ${[['grilling','opus'],['prototype','opus'],['research','gpt'],['task','opus'],['untyped','opus'],['map','fable']]
@@ -868,16 +905,37 @@ function scrSettings(){
     <button class="btn prime" data-save>Save</button><a class="discard" data-discard>discard</a></div>`;
   if (S.setPhase === 'applied') dock = `<div class="dock"><span class="okw">saved ✓</span><span class="toast">The daemon is running it.</span></div>`;
   const desktop = frame.classList.contains('w-desktop');
+  const backLabel = S.v === 'd' ? '‹ the board' : '‹ settings';
   const body = desktop
-    ? `<div class="st-grid">${home}<div class="sec-body">${secs[S.setSec || 'routing']}</div></div>`
+    ? `<div class="st-grid">${bodySettingsHome()}<div class="sec-body">${secs[S.setSec || 'routing']}</div></div>`
     : (S.setSec
-        ? `<a class="back" data-go="set:home">‹ settings</a><div class="sec-body">${secs[S.setSec]}</div>`
-        : home);
+        ? `<a class="back" data-go="set:home">${backLabel}</a><div class="sec-body">${secs[S.setSec]}</div>`
+        : bodySettingsHome());
   return `<section class="scr st"><div class="scr-inner">
     ${ht('settings')}
     ${body}
     ${dock}
   </div></section>`;
+}
+
+/* ---------- variant D · the board ---------- */
+function scrBoard(){
+  return `<section class="scr board">
+    <div class="bwrap">
+      <div class="ht"><span>curia · atlas</span><span>${DATE}</span></div>
+      <div id="sec-home" class="home">${bodyHome()}</div>
+      <div class="bdiv" id="sec-agents">agents <span class="bmark">5 live · 2 need you</span></div>
+      <div class="ag">${bodyAgents()}</div>
+      <div class="bdiv" id="sec-maps">maps <span class="bmark">3 in walk</span></div>
+      <div class="mp">${bodyMaps()}</div>
+      <div class="bdiv" id="sec-feed">feed <span class="bmark">96 events · 24 h</span></div>
+      <div class="fd">${bodyFeed()}</div>
+      <div class="bdiv" id="sec-chats">chats <span class="bmark">2 wait</span></div>
+      <div class="ch">${chatList()}</div>
+      <div class="bdiv" id="sec-settings">settings</div>
+      <div class="st">${bodySettingsHome()}</div>
+    </div>
+  </section>`;
 }
 
 /* ----------------------------------------------------------------------
@@ -886,7 +944,7 @@ function scrSettings(){
 const PAGES = [['home','home'],['agents','agents'],['maps','maps'],['feed','feed'],['chats','chats'],['settings','settings']];
 function curTop(){
   if (S.page === 'chat' || S.page === 'terminal') return 'chats';
-  if (S.page === 'settings') return 'settings';
+  if (S.page === 'board') return 'home';
   return S.page;
 }
 function tabItems(cls){
@@ -897,26 +955,69 @@ function tabItems(cls){
     return `<a class="${cls} ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${label}${badge}</a>`;
   }).join('');
 }
-function chromeTop(){
-  if (S.v !== 'c') return '';
-  return `<div class="stripnav">
-    <div class="l1"><span>curia · atlas</span>
-      <span class="gl"><a class="need" data-go="page:chats">2 need you</a> · <a data-go="page:agents">5 live</a> · <span>14:07</span></span></div>
-    <div class="l2">${tabItems('')}</div>
-  </div>`;
-}
 function chromeBottom(){
-  if (S.v !== 'a') return '';
-  if (S.page === 'chat' || S.page === 'terminal') return '';   /* the bar yields to the composer and the terminal */
-  if (frame.classList.contains('w-desktop')) return '';
-  return `<nav class="tabbar">${tabItems('tab')}</nav>`;
+  if (S.v === 'a'){
+    if (S.page === 'chat' || S.page === 'terminal') return '';   /* the bar yields */
+    if (frame.classList.contains('w-desktop')) return '';
+    return `<nav class="tabbar">${tabItems('tab')}</nav>`;
+  }
+  if (S.v === 'c'){
+    const win = (i,p,label,extra) =>
+      `<a class="pw ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${i}:${label}${curTop() === p ? '*' : ''}${extra || ''}</a>`;
+    return `<nav class="paneline">
+      <span class="sess">[atlas]</span>
+      ${win(0,'home','home')}${win(1,'agents','agents','<span class="flag">●</span>')}${win(2,'maps','maps')}
+      ${win(3,'feed','feed')}${win(4,'chats','chats','<span class="cnt">2</span>')}${win(5,'settings','set')}
+      <span class="ptime">14:07</span>
+    </nav>`;
+  }
+  return '';
 }
 function chromeRail(){
   if (S.v !== 'a' || !frame.classList.contains('w-desktop')) return '';
   return `<nav class="rail"><span class="wm">curia · atlas</span>
     <a class="rneed" data-go="page:chats">2 need you</a>
     ${tabItems('tab')}
-    <span class="rdate">fri 21 aug · 14:07</span></nav>`;
+    <span class="rdate">${DATE}</span></nav>`;
+}
+function chromeOverlay(){
+  if (S.v === 'd' && S.page === 'board'){
+    return `<div class="jumprail">
+      <a data-jump="home" title="home">◉</a><a data-jump="agents" title="agents">A</a>
+      <a data-jump="maps" title="maps">M</a><a data-jump="feed" title="feed">F</a>
+      <a data-jump="chats" title="chats" class="jn">C</a><a data-jump="settings" title="settings">S</a>
+    </div>`;
+  }
+  if (S.v === 'e'){
+    const lift = (S.page === 'chat' || S.page === 'terminal' ||
+      (S.page === 'chats' && frame.classList.contains('w-desktop'))) ? 'lift' : '';
+    let menu = '';
+    if (S.dialOpen){
+      const R = 118;
+      const items = PAGES.map(([p,label], i) => {
+        const th = (90 + i*18) * Math.PI / 180;
+        const tx = Math.cos(th) * R, ty = -Math.sin(th) * R;
+        let badge = '';
+        if (p === 'chats') badge = '<span class="cnt">2</span>';
+        if (p === 'agents') badge = '<span class="flag">●</span>';
+        return `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}"
+          style="transform:translate(calc(-50% + ${tx.toFixed(0)}px), calc(-50% + ${ty.toFixed(0)}px))">${label}${badge}</a>`;
+      }).join('');
+      menu = `<div class="dialscrim" data-dialclose></div><div class="dialmenu ${lift ? 'lift' : ''}"
+        style="${lift ? 'bottom:107px' : ''}">${items}</div>`;
+    }
+    return `${menu}<div class="dialwrap ${lift}">
+      <button class="dialbtn" data-dial aria-label="navigation dial · 2 need you">
+        <svg viewBox="0 0 58 58">
+          <circle cx="29" cy="29" r="25" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="29" cy="29" r="25" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="39 118" stroke-dashoffset="-20" stroke-linecap="round"/>
+        </svg>
+        <span class="dn">2</span>
+      </button>
+    </div>`;
+  }
+  return '';
 }
 
 /* ----------------------------------------------------------------------
@@ -924,22 +1025,28 @@ function chromeRail(){
 ---------------------------------------------------------------------- */
 function screen(){
   switch (S.page){
+    case 'board': return scrBoard();
     case 'home': return scrHome();
-    case 'agents': return scrAgents();
-    case 'maps': return scrMaps();
-    case 'feed': return scrFeed();
+    case 'agents': return `<section class="scr ag">${ht('agents')}${bodyAgents()}</section>`;
+    case 'maps': return `<section class="scr mp">${ht('atlas · maps')}${bodyMaps()}</section>`;
+    case 'feed': return `<section class="scr fd">${ht('atlas · feed')}${bodyFeed()}</section>`;
     case 'chats':
     case 'chat': return scrChats();
     case 'terminal': return scrTerminal();
     case 'settings': return scrSettings();
   }
 }
+function scrHome(){
+  return `<section class="scr home">${ht('atlas')}${bodyHome()}</section>`;
+}
 function render(){
-  frame.className = frame.className.replace(/v-[abc]/,'v-' + S.v);
-  frame.innerHTML = chromeRail() + chromeTop() +
-    `<div class="viewport" id="vp">${screen()}</div>` + chromeBottom();
+  if (S.v === 'd' && S.page === 'home') S.page = 'board';
+  if (S.v !== 'd' && S.page === 'board') S.page = 'home';
+  frame.className = frame.className.replace(/v-[abcde]/,'v-' + S.v);
+  frame.innerHTML = chromeRail() +
+    `<div class="viewport" id="vp">${screen()}</div>` + chromeBottom() + chromeOverlay();
   el('phNote').textContent = NOTES[S.v];
-  el('bVar').textContent = { a:'A · tab row', b:'B · the hub', c:'C · the strip' }[S.v];
+  el('bVar').textContent = { a:'A · tab row', b:'B · the hub', c:'C · pane line', d:'D · the board', e:'E · the dial' }[S.v];
   buildSparks(); buildDens();
   const u = new URL(location); u.searchParams.set('v', S.v); history.replaceState(null,'',u);
 }
@@ -969,6 +1076,10 @@ function buildDens(){
 /* ----------------------------------------------------------------------
    events
 ---------------------------------------------------------------------- */
+function gotoSection(sec){
+  const t = document.getElementById('sec-' + sec);
+  if (t) t.scrollIntoView({ behavior:'smooth', block:'start' });
+}
 frame.addEventListener('click', ev => {
   const opt = ev.target.closest('[data-opt]');
   if (opt){
@@ -977,6 +1088,10 @@ frame.addEventListener('click', ev => {
     opt.classList.add('picked');
     return;
   }
+  if (ev.target.closest('[data-dial]')){ S.dialOpen = !S.dialOpen; render(); return; }
+  if (ev.target.closest('[data-dialclose]')){ S.dialOpen = false; render(); return; }
+  const jump = ev.target.closest('[data-jump]');
+  if (jump){ gotoSection(jump.dataset.jump); return; }
   const save = ev.target.closest('[data-save]');
   if (save){ S.setPhase = 'applied'; render(); return; }
   const disc = ev.target.closest('[data-discard]');
@@ -990,11 +1105,23 @@ frame.addEventListener('click', ev => {
   const go = ev.target.closest('[data-go]');
   if (!go) return;
   ev.preventDefault();
+  S.dialOpen = false;
   const [kind, arg] = go.dataset.go.split(':');
-  if (kind === 'page'){ S.page = arg; if (arg === 'settings'){ S.setSec = null; } scrollTop(); }
+  if (kind === 'page'){
+    if (S.v === 'd' && PAGES.some(([p]) => p === arg)){
+      S.page = 'board'; render(); gotoSection(arg); return;
+    }
+    S.page = arg; if (arg === 'settings') S.setSec = null; scrollTop();
+  }
   else if (kind === 'chat'){ S.page = frame.classList.contains('w-desktop') ? 'chats' : 'chat'; S.chatId = arg; scrollTop(); }
   else if (kind === 'terminal'){ S.page = 'terminal'; S.termFrom = arg || S.chatId; }
-  else if (kind === 'set'){ S.setSec = arg === 'home' ? null : arg; scrollTop(); }
+  else if (kind === 'set'){
+    if (arg === 'home'){
+      if (S.v === 'd'){ S.page = 'board'; render(); gotoSection('settings'); return; }
+      S.setSec = null;
+    } else { S.page = 'settings'; S.setSec = arg; }
+    scrollTop();
+  }
   render();
 });
 frame.addEventListener('change', ev => {
@@ -1010,9 +1137,9 @@ frame.addEventListener('change', ev => {
 });
 function scrollTop(){ const vp = el('vp'); if (vp) vp.scrollTop = 0; }
 
-const VARS = ['a','b','c'];
-el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+2)%3]; render(); };
-el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%3]; render(); };
+const VARS = ['a','b','c','d','e'];
+el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; S.dialOpen = false; render(); };
+el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; S.dialOpen = false; render(); };
 el('bVar').onclick = () => el('bNext').onclick();
 el('bMode').onclick = () => {
   const dark = frame.classList.toggle('dark');
@@ -1032,7 +1159,8 @@ el('bDlChat').onclick = () => {   /* Discord → one agent's chat (#526) */
   render();
 };
 el('bDlHome').onclick = () => {   /* Discord → plain Atlas home (#526) */
-  S.page = 'home'; render();
+  S.page = S.v === 'd' ? 'board' : 'home';
+  render(); scrollTop();
 };
 
 render();
