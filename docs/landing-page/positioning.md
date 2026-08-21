@@ -138,7 +138,13 @@ The four-frame strip and the dated stats line leave the final page:
 The age line and the one-person line leave the final page. The operator ruled the age irrelevant,
 and a packaged setup with onboarding is coming, so the page points forward instead.
 
-Three things stay on the page, because a reader finds them out in the first evening:
+**Changed at [Storyboard the final landing page](https://github.com/alp82/curia/issues/567),
+2026-08-21.** The honesty block leaves the final page as its own section. The three facts below
+stay true and stay on the page, but they live in the guide: its what-you-need line names
+Tailscale, Discord and the harness login, and the setup line stays honest that setup is manual
+with packaging coming. The where-it-sits paragraph below no longer applies.
+
+Three things stay true, and a reader finds them out in the first evening:
 
 - Tailscale and Discord are required. There is no web UI.
 - Agents use the reader's own harness login. An agent can do what the reader can do with it.
@@ -162,8 +168,17 @@ The operator judged the current lines machine made, and ordered a rewrite for th
   current headline. The three claims keep their meaning.
 - The claim bodies stay cut. Each act shows one bold line plus one fact line, and a body sentence
   comes back only where a scene cannot carry the meaning alone.
-- The first screen stays bare: kicker, headline, the skills line, two buttons.
-- The five saga acts are the starting spine. The storyboard may change arcs, focuses and sections.
+- ~~The first screen stays bare: kicker, headline, the skills line, two buttons.~~ **Changed at
+  [Storyboard the final landing page](https://github.com/alp82/curia/issues/567), 2026-08-21.**
+  The first screen merges with the opening scene: the story runs above (drifting tickets funnel
+  through a prominent curia node and come out as ordered maps), and the kicker and headline sit
+  readable at the bottom of the screen. The skills line and the two buttons stay with them.
+- The guide shows the five condensed steps only, settled at
+  [Storyboard the final landing page](https://github.com/alp82/curia/issues/567). The complete
+  thirteen live in the README, which the page links.
+- ~~The five saga acts are the starting spine.~~ The storyboard settled the scene order: the
+  twelve scenes recorded in
+  [prototypes/landing-storyboard/NOTES.md](../../prototypes/landing-storyboard/NOTES.md).
 - No sound and no bottom bar. The system reduced-motion setting decides motion.
 - The banned words, the banned moves and the two failure modes below still hold.
 

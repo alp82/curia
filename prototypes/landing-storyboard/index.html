@@ -1,0 +1,855 @@
+<!doctype html>
+<!--
+  curia#567 — Storyboard the final landing page.
+  On the map: The curia landing page (curia#109).
+  Baseline: the saga acts picked at curia#508 round 10 (prototypes/living-organism/).
+  Rules: docs/landing-page/positioning.md, sections "The final page rewrite" and
+  "What the page is honest about".
+
+  THROWAWAY PROTOTYPE. Not the live page. Wireframe fidelity on purpose:
+  grey boxes stand for scenes, not for the design. One self-contained file,
+  no build step, no CDN, no webfont, no image.
+
+  What this is: a storyboard. Each card is ONE SCENE of the final page, in
+  page order. Copy is OUT OF SCOPE here since round 1: the operator extracted
+  the word decisions into their own prototype ticket, so a card names what the
+  scene contains and what moves, and its "says" line is only the gist. Switch
+  arcs with the bar at the bottom or ?arc=.
+
+    story — the operator's story from round 1, the lead arc
+    saga  — the five acts as picked at #508, proof moments folded in
+    diary — the whole page follows one ticket, start to merge
+    phone — the phone arrives first, the queue is revealed behind it
+    drain — the page stays wide: three maps fill, run in parallel, drain
+
+  Fixed by earlier decisions, not up for a vote here:
+    - first screen: kicker, headline, skills line, two buttons, nothing else
+    - the honesty block left the page at round 3; its facts live in the guide
+    - no sound, no bottom bar on the final page (this bar is prototype chrome)
+    - banned words and banned moves per positioning.md
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>curia#567 — landing page storyboard</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0b0d10">
+<style>
+  :root {
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --accent: #7dd3a0;
+    --dim: #949cab;
+    --line: #ffffff1e;
+    --c-takeable: #6ab0f3;
+    --c-agent: #f0c987;
+    --c-gate: #e08a8a;
+    --c-merged: #a78bdb;
+    --chrome: 1.75rem;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; padding: calc(var(--chrome) + 1rem) 0 6.5rem;
+    font: 1rem/1.55 var(--sans);
+    background: #08090c; color: #e6e8ec;
+    overflow-x: hidden;
+  }
+  a { color: var(--accent); }
+
+  .protohead {
+    position: fixed; inset: 0 0 auto 0; z-index: 50; height: var(--chrome);
+    display: flex; align-items: center; gap: 0.5rem; padding: 0 0.7rem;
+    background: #ffd66b; color: #1a1206;
+    font: 600 0.7rem/1 var(--mono); white-space: nowrap; overflow: hidden;
+  }
+  .protohead b { font-weight: 700; }
+  .protohead span { opacity: 0.72; overflow: hidden; text-overflow: ellipsis; }
+
+  .wrap { max-width: 34rem; margin: 0 auto; padding: 0 1rem; }
+
+  /* How to read this storyboard. */
+  .intro { font-size: 0.9rem; color: #c1c8d3; padding: 0.5rem 0 0.75rem; }
+  .intro b { color: #e6e8ec; }
+  .intro p { margin: 0 0 0.6rem; }
+
+  .archead { padding: 0.75rem 0 0.25rem; }
+  .archead .k { font-family: var(--mono); font-size: 0.7rem; color: var(--accent); letter-spacing: 0.12em; text-transform: uppercase; }
+  .archead h1 { font-size: 1.45rem; margin: 0.2rem 0 0.3rem; letter-spacing: -0.02em; }
+  .archead p { margin: 0; color: var(--dim); font-size: 0.92rem; }
+
+  /* One scene of the final page. */
+  .scene {
+    margin: 1.4rem 0; border-radius: 14px;
+    background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line);
+    padding: 1rem 1rem 1.1rem;
+  }
+  .scene-head {
+    display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em;
+    text-transform: uppercase; color: #e2e9f1; margin: 0 0 0.75rem;
+  }
+  .scene-head .num { color: var(--accent); }
+  .scene-head .tag { color: var(--dim); text-transform: none; letter-spacing: 0; margin-left: auto; }
+
+  /* The sketch: grey boxes, dashed frames. Not the design. */
+  .sketch {
+    border-radius: 10px; background: #0d1015; box-shadow: inset 0 0 0 1px #ffffff12;
+    padding: 0.9rem; margin: 0 0 0.8rem; position: relative; overflow: hidden;
+    min-height: 7rem;
+  }
+  .note { font-size: 0.82rem; color: var(--dim); margin: 0.35rem 0; }
+  .note b { color: #c1c8d3; font-weight: 600; }
+  .note.proof b { color: var(--accent); }
+
+  .lines { margin: 0.8rem 0 0; }
+  .lines .lab { font-family: var(--mono); font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--dim); margin: 0 0 0.4rem; }
+  .cand {
+    display: flex; gap: 0.6rem; align-items: baseline;
+    padding: 0.45rem 0.6rem; border-radius: 8px; margin: 0.3rem 0;
+    background: #ffffff05; box-shadow: inset 0 0 0 1px #ffffff10;
+    font-size: 0.94rem;
+  }
+  .cand .key {
+    font-family: var(--mono); font-size: 0.72rem; color: #08090c;
+    background: var(--accent); border-radius: 5px; padding: 0.05rem 0.35rem; flex: none;
+    font-weight: 700;
+  }
+  .cand .cur { font-family: var(--mono); font-size: 0.66rem; color: var(--dim); margin-left: auto; flex: none; }
+  .cand q { quotes: none; }
+  .under {
+    font-family: var(--mono); font-size: 0.7rem; color: var(--dim); line-height: 1.8;
+    margin-top: 0.7rem; padding-top: 0.6rem; border-top: 1px solid var(--line);
+    overflow-wrap: break-word;
+  }
+  .under b { color: #c1c8d3; font-weight: 600; }
+
+  /* Sketch parts. */
+  .t-row {
+    display: inline-flex; align-items: center; gap: 0.35rem;
+    font-family: var(--mono); font-size: 0.62rem; color: #c1c8d3;
+    background: #14171c; border: 1px solid #262b33; border-radius: 6px;
+    padding: 0.22rem 0.45rem; white-space: nowrap;
+  }
+  .t-row i { width: 0.4rem; height: 0.4rem; border-radius: 999px; background: #4a515c; flex: none; }
+  .t-row.hot { border-color: var(--accent); color: #e6e8ec; }
+  .t-row.dim { opacity: 0.45; }
+  .mapcard {
+    border: 1px dashed #3a4150; border-radius: 8px; padding: 0.5rem;
+    display: flex; flex-direction: column; gap: 0.3rem; align-items: flex-start;
+  }
+  .mapcard .mb {
+    font-family: var(--mono); font-size: 0.56rem; letter-spacing: 0.1em; color: var(--dim);
+    text-transform: uppercase;
+  }
+  .phone {
+    width: 8.5rem; border: 2px solid #3a4150; border-radius: 14px;
+    padding: 0.5rem; margin: 0 auto; background: #101318;
+    display: flex; flex-direction: column; gap: 0.35rem;
+  }
+  .bubble {
+    font-size: 0.62rem; line-height: 1.35; color: #c1c8d3;
+    background: #1a1f27; border-radius: 8px; padding: 0.3rem 0.45rem;
+    max-width: 92%;
+  }
+  .bubble.me { background: #24405c; align-self: flex-end; }
+  .bubble .who { font-family: var(--mono); font-size: 0.52rem; color: var(--dim); display: block; }
+  .btnrow { display: flex; gap: 0.25rem; }
+  .btnrow span {
+    font-family: var(--mono); font-size: 0.58rem; color: #e6e8ec;
+    border: 1px solid #3a4150; border-radius: 5px; padding: 0.12rem 0.4rem;
+  }
+  .approve {
+    font-family: var(--mono); font-size: 0.62rem; font-weight: 700; color: #06231a;
+    background: var(--accent); border-radius: 6px; padding: 0.3rem 0.6rem;
+    align-self: center; position: relative;
+  }
+  .pulse { position: relative; }
+  .pulse::after {
+    content: ""; position: absolute; inset: -4px; border-radius: 10px;
+    border: 1px solid var(--accent); opacity: 0.6;
+    animation: pu 1.6s ease-out infinite;
+  }
+  @keyframes pu { from { transform: scale(1); opacity: 0.6; } to { transform: scale(1.18); opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .pulse::after { animation: none; } }
+  .grey { background: #1a1f27; border-radius: 6px; color: #4a515c; font-family: var(--mono); font-size: 0.58rem; display: flex; align-items: center; justify-content: center; }
+  .stageline { display: flex; align-items: center; gap: 0; margin: 0.9rem 0 0.4rem; }
+  .stageline .seg { flex: 1; height: 2px; background: #262b33; }
+  .stageline .dot { width: 0.55rem; height: 0.55rem; border-radius: 999px; flex: none; }
+  .stagelabels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.55rem; color: var(--dim); }
+  .scatter { position: relative; height: 8rem; }
+  .scatter .t-row { position: absolute; }
+  .colwrap { display: flex; gap: 0.5rem; }
+  .colwrap .mapcard { flex: 1; min-width: 0; }
+  .colwrap .t-row { max-width: 100%; overflow: hidden; }
+  .center { text-align: center; }
+  .caption { font-family: var(--mono); font-size: 0.6rem; color: var(--dim); text-align: center; margin-top: 0.6rem; }
+
+  /* Hero sketch */
+  .heroline { border-radius: 4px; background: #262b33; }
+  .skills-note { font-size: 0.62rem; color: #c1c8d3; font-family: var(--mono); }
+
+  /* The bottom arc switcher — prototype chrome, not part of any design. */
+  .switch {
+    position: fixed; z-index: 50; left: 50%; transform: translateX(-50%);
+    bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem;
+    background: #f2f4f7; color: #14171c; border-radius: 999px;
+    box-shadow: 0 6px 28px #000000aa, 0 0 0 1px #ffffff30;
+    font-family: var(--mono); max-width: calc(100vw - 1rem);
+  }
+  .switch button {
+    border: 0; background: none; color: inherit; cursor: pointer;
+    font-family: inherit; border-radius: 999px; flex: none;
+    width: 2rem; height: 2rem; font-size: 1rem;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .switch button:active { transform: scale(0.94); }
+  .switch .label { padding: 0 0.55rem; display: flex; flex-direction: column; align-items: center; line-height: 1.25; }
+  .switch .label .k { font-size: 0.62rem; opacity: 0.55; letter-spacing: 0.06em; text-transform: uppercase; }
+  .switch .label .n { font-size: 0.78rem; font-weight: 600; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="protohead">
+  <b>curia#567</b>
+  <span>landing page storyboard &middot; prototype, not the live page</span>
+</div>
+
+<main id="main" class="wrap"></main>
+
+<nav class="switch" aria-label="Arc switcher">
+  <button type="button" data-step="-1" aria-label="Previous arc">&larr;</button>
+  <span class="label"><span class="k" id="sw-k"></span><span class="n" id="sw-n"></span></span>
+  <button type="button" data-step="1" aria-label="Next arc">&rarr;</button>
+</nav>
+
+<script>
+(function () {
+'use strict';
+
+/* ================================================================
+   Helpers
+   ================================================================ */
+function h(tag, attrs, kids) {
+  var n = document.createElement(tag);
+  if (attrs) for (var k in attrs) {
+    if (k === 'class') n.className = attrs[k];
+    else if (k === 'html') n.innerHTML = attrs[k];
+    else if (k === 'text') n.textContent = attrs[k];
+    else n.setAttribute(k, attrs[k]);
+  }
+  (kids || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+
+/* ================================================================
+   WORD CANDIDATES — shared by every arc, so a pick carries over.
+   "current" marks the line of the picked saga baseline / live page.
+   Every other line is new. The full list of new lines goes to the
+   review gate, per positioning.md.
+   ================================================================ */
+/* Word candidates left with round 1: the operator extracted the copy
+   decision into its own prototype ticket. A scene's `says` line below is
+   the gist only, anchored to the approved copy where one exists. */
+
+var UNDER = {
+  facts: 'Your box · your subscription · your keys<br>GitHub issues in · merged pull requests out',
+  queue: '3 repos watched · a label picks the model · blocked and claimed tickets drop out',
+  seat: 'tickets · next · start 42 · status · attach 42 · resume 42 · cancel 42 · map 109 · review 42<br>~0.5 GB per agent measured · four at once on one small box',
+  gate: 'resolved means merged · nothing lands without you'
+};
+
+/* ================================================================
+   SKETCHES — grey boxes. Each stands for a scene, not a design.
+   ================================================================ */
+var SC = { takeable: 'var(--c-takeable)', agent: 'var(--c-agent)', gate: 'var(--c-gate)', merged: 'var(--c-merged)' };
+
+function row(txt, mod, color) {
+  var r = h('span', { class: 't-row' + (mod ? ' ' + mod : '') }, [h('i', color ? { style: 'background:' + color } : {}), document.createTextNode(txt)]);
+  return r;
+}
+
+function skHero() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'skills-note', text: 'kicker' }),
+    h('div', { class: 'heroline', style: 'height:1.6rem;width:88%;margin:0.45rem 0' }),
+    h('div', { class: 'heroline', style: 'height:1.6rem;width:64%;margin:0 0 0.7rem' }),
+    h('div', { class: 'skills-note', text: 'Curia is a wrapper for Matt Pocock’s skills.' }),
+    h('div', { style: 'display:flex;gap:0.5rem;margin-top:0.7rem' }, [
+      h('span', { class: 'approve', text: 'Set it up' }),
+      h('span', { class: 't-row', text: 'Source' })
+    ]),
+    h('div', { class: 'caption', text: 'the first screen stays bare — fixed by the grilling' })
+  ]);
+}
+
+function skMess(hotOne) {
+  var pos = [
+    ['#231 fix-login-redirect', '4%', '6%'], ['#88 rotate-api-keys', '52%', '2%'],
+    ['#412 dark-mode-tokens', '12%', '34%'], ['#57 flaky-e2e-suite', '58%', '38%'],
+    ['#199 bump-node-22', '30%', '64%'], ['#340 import-csv-orders', '2%', '72%'],
+    ['#76 cache-invalidation', '62%', '70%']
+  ];
+  var box = h('div', { class: 'scatter' });
+  pos.forEach(function (p, i) {
+    var r = row(p[0], (hotOne && i === 3) ? 'hot' : 'dim');
+    r.style.left = p[1]; r.style.top = p[2];
+    box.appendChild(r);
+  });
+  return h('div', { class: 'sketch' }, [box, h('div', { class: 'caption', text: hotOne ? 'one ticket among many — the one the page follows' : 'tickets drift, unordered, across your repos' })]);
+}
+
+function skPull() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'center' }, [row('#57 flaky-e2e-suite', 'hot', SC.takeable)]),
+    h('div', { style: 'margin:0.6rem 0' }, [
+      h('div', { class: 'mapcard' }, [
+        h('span', { class: 'mb', text: 'map · test reliability' }),
+        row('#57 flaky-e2e-suite', 'hot', SC.takeable), row('#58 retry-budget', 'dim'), row('#61 ci-matrix', 'dim')
+      ])
+    ]),
+    h('div', { class: 'colwrap' }, [
+      h('div', { class: 'mapcard' }, [h('span', { class: 'mb', text: 'map · app' }), row('#412', 'dim'), row('#231', 'dim')]),
+      h('div', { class: 'mapcard' }, [h('span', { class: 'mb', text: 'map · infra' }), row('#88', 'dim'), row('#199', 'dim')]),
+      h('div', { class: 'mapcard' }, [h('span', { class: 'mb', text: 'map · tests' }), row('#57', 'hot', SC.takeable), row('#61', 'dim')])
+    ]),
+    h('div', { class: 'caption', text: 'camera pulls back: one ticket → its map → all your maps' })
+  ]);
+}
+
+function skRun(withThread) {
+  var lineB = h('div', {}, [
+    h('div', { class: 'stageline' }, [
+      h('span', { class: 'dot', style: 'background:' + SC.takeable }), h('span', { class: 'seg' }),
+      h('span', { class: 'dot', style: 'background:' + SC.agent }), h('span', { class: 'seg' }),
+      h('span', { class: 'dot', style: 'background:' + SC.gate }), h('span', { class: 'seg' }),
+      h('span', { class: 'dot', style: 'background:' + SC.merged })
+    ]),
+    h('div', { class: 'stagelabels' }, ['takeable', 'agent', 'gate', 'merged'].map(function (s) { return h('span', { text: s }); }))
+  ]);
+  var kids = [lineB];
+  if (withThread) {
+    kids.push(h('div', { class: 'phone', style: 'margin-top:0.8rem' }, [
+      h('div', { class: 'bubble me' }, [h('span', { class: 'who', text: 'you' }), document.createTextNode('start 57')]),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'curia' }), document.createTextNode('agent up on #57 flaky-e2e-suite')]),
+      h('div', { class: 'bubble' }, [
+        h('span', { class: 'who', text: 'agent' }),
+        document.createTextNode('Which suite first?'),
+        h('div', { class: 'btnrow' }, [h('span', { text: 'A checkout' }), h('span', { text: 'B auth' }), h('span', { text: 'C ✅ all' })])
+      ]),
+      h('div', { class: 'bubble me' }, [h('span', { class: 'who', text: 'you' }), document.createTextNode('C')])
+    ]));
+    kids.push(h('div', { class: 'caption', text: 'the thread writes itself while you scroll — built HTML, easy to animate' }));
+  } else {
+    kids.push(h('div', { class: 'caption', text: 'the ticket crosses the four stages, left to right' }));
+  }
+  return h('div', { class: 'sketch' }, kids);
+}
+
+function skGate() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'phone pulse' }, [
+      h('div', { class: 'grey', style: 'height:4.2rem', text: 'running preview' }),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'curia' }), document.createTextNode('review gate on #57 — diff, preview, ticket')]),
+      h('span', { class: 'approve', text: 'Approve' })
+    ]),
+    h('div', { class: 'caption', text: 'the phone with the live preview, then the gate — the needs-you pulse' })
+  ]);
+}
+
+function skMerged() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { style: 'display:flex;flex-direction:column;gap:0.3rem;align-items:center' }, [
+      row('#57 flaky-e2e-suite · merged', 'hot', SC.merged),
+      row('#412 dark-mode-tokens · merged', '', SC.merged),
+      row('#88 rotate-api-keys · merged', '', SC.merged),
+      row('#199 bump-node-22 · merged', '', SC.merged)
+    ]),
+    h('div', { class: 'caption', text: 'the stack of merged pull requests grows — the dogfood line sits here' })
+  ]);
+}
+
+function skThread() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'phone' }, [
+      h('div', { class: 'bubble me' }, [h('span', { class: 'who', text: 'you' }), document.createTextNode('start 57')]),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'curia' }), document.createTextNode('agent up on #57')]),
+      h('div', { class: 'bubble' }, [
+        h('span', { class: 'who', text: 'agent' }),
+        document.createTextNode('Which suite first?'),
+        h('div', { class: 'btnrow' }, [h('span', { text: 'A' }), h('span', { text: 'B' }), h('span', { text: 'C' })])
+      ]),
+      h('div', { class: 'bubble me' }, [h('span', { class: 'who', text: 'you' }), document.createTextNode('C')]),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'agent' }), document.createTextNode('preview: https://… (tap)')])
+    ]),
+    h('div', { class: 'caption', text: 'the Discord thread builds itself while you scroll' })
+  ]);
+}
+
+function skPreview() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'phone' }, [
+      h('div', { class: 'grey', style: 'height:6rem', text: 'running preview' }),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'agent' }), document.createTextNode('preview is live on your tailnet')])
+    ]),
+    h('div', { class: 'caption', text: 'the phone screen with a running preview — before any gate' })
+  ]);
+}
+
+function skFlood() {
+  function col(name, rows) {
+    var kids = [h('span', { class: 'mb', text: 'map · ' + name })];
+    rows.forEach(function (r) { kids.push(row(r[0], r[1] || '', r[2])); });
+    return h('div', { class: 'mapcard' }, kids);
+  }
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'colwrap' }, [
+      col('app', [['#412', 'dim'], ['#231', 'dim'], ['#340', 'dim']]),
+      col('infra', [['#88', 'dim'], ['#199', 'dim']]),
+      col('tests', [['#57', 'dim'], ['#58', 'dim'], ['#61', 'dim']])
+    ]),
+    h('div', { class: 'caption', text: 'three maps fill with tickets as you scroll' })
+  ]);
+}
+
+function skOrder() {
+  function col(name, rows) {
+    var kids = [h('span', { class: 'mb', text: 'map · ' + name })];
+    rows.forEach(function (r) { kids.push(row(r[0], r[1] || '', r[2])); });
+    return h('div', { class: 'mapcard' }, kids);
+  }
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'colwrap' }, [
+      col('app', [['#412 takeable', 'hot', SC.takeable], ['#231 blocked', 'dim'], ['#340 blocked', 'dim']]),
+      col('infra', [['#88 takeable', 'hot', SC.takeable], ['#199 blocked', 'dim']]),
+      col('tests', [['#57 takeable', 'hot', SC.takeable], ['#61 blocked', 'dim']])
+    ]),
+    h('div', { class: 'caption', text: 'dependency order: the takeable ones light up, the blocked ones wait' })
+  ]);
+}
+
+function skLanes() {
+  function lane(t, stage, color) {
+    return h('div', { style: 'display:flex;align-items:center;gap:0.5rem' }, [
+      row(t, 'hot', color),
+      h('span', { class: 'skills-note', text: stage })
+    ]);
+  }
+  return h('div', { class: 'sketch' }, [
+    h('div', { style: 'display:flex;flex-direction:column;gap:0.4rem' }, [
+      lane('#412 dark-mode-tokens', 'agent', SC.agent),
+      lane('#88 rotate-api-keys', 'agent', SC.agent),
+      lane('#57 flaky-e2e-suite', 'gate', SC.gate),
+      lane('#199 bump-node-22', 'agent', SC.agent)
+    ]),
+    h('div', { class: 'caption', text: 'four lanes at once, one per running agent' })
+  ]);
+}
+
+function skGates() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'phone pulse' }, [
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'curia' }), document.createTextNode('gate on #57 — Approve?')]),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'agent' }), document.createTextNode('question on #412 — A / B / C')]),
+      h('span', { class: 'approve', text: 'Approve #57' })
+    ]),
+    h('div', { class: 'caption', text: 'every moment that needs you queues on one phone' })
+  ]);
+}
+
+function skHonest() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { style: 'display:flex;flex-direction:column;gap:0.35rem' }, [
+      row('Tailscale and Discord are required'),
+      row('agents use your own harness login'),
+      row('setup is manual · packaging is coming')
+    ]),
+    h('div', { class: 'caption', text: 'three honest lines — after the story, before the guide (fixed)' })
+  ]);
+}
+
+function skGuide() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'mapcard', style: 'align-items:stretch' }, [
+      h('span', { class: 'mb', text: 'five steps, nothing folded' }),
+      row('1 Tailscale'), row('2 log in'), row('3 Discord bot'), row('4 code + 2 files'), row('5 run it'),
+      row('the complete setup lives in the README', 'dim')
+    ]),
+    h('div', { class: 'caption', text: 'locked at round 4: five steps only' })
+  ]);
+}
+
+function skFooter() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'center skills-note', text: 'curia · github.com/alp82/curia · self-hosted, one box, no service to sign up for.' }),
+    h('div', { class: 'caption', text: 'one line, unchanged' })
+  ]);
+}
+
+function skProjects() {
+  function proj(name, rows) {
+    var kids = [h('span', { class: 'mb', text: name })];
+    rows.forEach(function (r) { kids.push(row(r, 'dim')); });
+    return h('div', { class: 'mapcard' }, kids);
+  }
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'colwrap' }, [
+      proj('shop-app', ['#412', '#231', '#340']),
+      proj('infra', ['#88', '#199']),
+      proj('data-jobs', ['#57', '#61', '#76'])
+    ]),
+    h('div', { class: 'caption', text: 'three projects, steady work coming in, nothing ordered' })
+  ]);
+}
+
+function skMapsOrder() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'scatter', style: 'height:4.5rem' }, (function () {
+      var out = [];
+      [['#412', '6%', '8%'], ['#88', '46%', '4%'], ['#57', '72%', '30%'], ['#231', '20%', '52%'], ['#199', '56%', '58%']].forEach(function (p) {
+        var r = row(p[0], 'dim'); r.style.position = 'absolute'; r.style.left = p[1]; r.style.top = p[2]; out.push(r);
+      });
+      return out;
+    })()),
+    h('div', { class: 'caption', style: 'margin:0.3rem 0', text: '… the scatter forms into maps …' }),
+    h('div', { class: 'colwrap' }, [
+      h('div', { class: 'mapcard' }, [h('span', { class: 'mb', text: 'map · shop-app' }), row('#412 takeable', 'hot', SC.takeable), row('#231 blocked', 'dim'), row('#340 blocked', 'dim')]),
+      h('div', { class: 'mapcard' }, [h('span', { class: 'mb', text: 'map · infra' }), row('#88 takeable', 'hot', SC.takeable), row('#199 blocked', 'dim')]),
+      h('div', { class: 'mapcard' }, [h('span', { class: 'mb', text: 'map · data-jobs' }), row('#57 takeable', 'hot', SC.takeable), row('#61 blocked', 'dim')])
+    ]),
+    h('div', { class: 'caption', text: 'the long beat: order appears over up to two screens of scroll' })
+  ]);
+}
+
+function skGrill() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'phone' }, [
+      h('div', { class: 'bubble' }, [
+        h('span', { class: 'who', text: 'agent' }),
+        document.createTextNode('The settings screen: tabs or one long list?'),
+        h('div', { class: 'btnrow' }, [h('span', { text: 'A tabs' }), h('span', { text: 'B list' }), h('span', { text: 'C ✅ rec' })])
+      ]),
+      h('div', { class: 'bubble me' }, [h('span', { class: 'who', text: 'you' }), document.createTextNode('B')]),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'agent' }), document.createTextNode('done — preview coming')])
+    ]),
+    h('div', { class: 'caption', text: 'the grilling on Discord — a real question, three buttons' })
+  ]);
+}
+
+function skAtlas() {
+  function mrow(name, pct, needs) {
+    return h('div', { style: 'display:flex;align-items:center;gap:0.35rem' }, [
+      h('span', { class: 'mb', text: name, style: 'flex:none;width:3.6rem' }),
+      h('div', { style: 'flex:1;height:0.4rem;border-radius:99px;background:#1a1f27' }, [
+        h('div', { style: 'width:' + pct + '%;height:100%;border-radius:99px;background:' + (needs ? 'var(--c-gate)' : 'var(--accent)') })
+      ])
+    ]);
+  }
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'phone' }, [
+      h('span', { class: 'mb', text: 'atlas' }),
+      mrow('landing', 78), mrow('overseer', 55), mrow('prod', 30, true),
+      h('div', { class: 'bubble' }, [h('span', { class: 'who', text: 'needs you' }), document.createTextNode('1 gate · 1 question')])
+    ]),
+    h('div', { class: 'caption', text: 'the atlas: every map, its progress, and what needs you — mobile first' })
+  ]);
+}
+
+function skHarness() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { style: 'border:1px solid #3a4150;border-radius:8px;overflow:hidden' }, [
+      h('div', { style: 'display:flex;gap:0.3rem;padding:0.35rem;background:#14171c' }, [
+        h('span', { class: 't-row hot', text: 'Claude Code' }),
+        h('span', { class: 't-row dim', text: 'Codex CLI' })
+      ]),
+      h('div', { class: 'grey', style: 'height:5rem;border-radius:0;font-size:0.56rem;flex-direction:column;gap:0.2rem' }, [
+        h('span', { text: '$ the real terminal, live in the browser' }),
+        h('span', { text: '> running tests …' })
+      ])
+    ]),
+    h('div', { class: 'caption', text: 'the harness in the browser — the toggle flips between the supported ones' })
+  ]);
+}
+
+function skLifecycle() {
+  function step(txt, color, hot) {
+    return row(txt, hot ? 'hot' : '', color);
+  }
+  return h('div', { class: 'sketch' }, [
+    h('div', { style: 'display:flex;gap:0.35rem;align-items:center;overflow-x:auto;padding-bottom:0.3rem' }, [
+      step('issue #57', SC.takeable), h('span', { class: 'mb', text: '→' }),
+      step('claimed', SC.agent), h('span', { class: 'mb', text: '→' }),
+      step('PR open', SC.agent), h('span', { class: 'mb', text: '→' }),
+      step('gate · Approve', SC.gate, true), h('span', { class: 'mb', text: '→' }),
+      step('merged', SC.merged)
+    ]),
+    h('div', { class: 'caption', text: 'a horizontal sub story on GitHub — the approve button is the climax' })
+  ]);
+}
+
+function skVPS() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { class: 'mapcard', style: 'align-items:stretch' }, [
+      h('span', { class: 'mb', text: 'your VPS' }),
+      row('#412 dark-mode-tokens · agent', 'hot', SC.agent),
+      row('#88 rotate-api-keys · agent', 'hot', SC.agent),
+      row('#57 flaky-e2e-suite · gate', 'hot', SC.gate),
+      row('#199 bump-node-22 · agent', 'hot', SC.agent)
+    ]),
+    h('div', { class: 'caption', text: 'self-hosted, parallel agents on one box' })
+  ]);
+}
+
+function skOpen() {
+  return h('div', { class: 'sketch' }, [
+    h('div', { style: 'display:flex;flex-direction:column;gap:0.35rem;align-items:center' }, [
+      row('open source · github.com/alp82/curia'),
+      row('Tailscale carries every link'),
+      row('your box · your subscription · your keys')
+    ]),
+    h('div', { class: 'caption', text: 'the close: what it is, where it lives' })
+  ]);
+}
+
+function skOpening() {
+  var scatter = h('div', { class: 'scatter', style: 'height:3.4rem' });
+  [['#412 dark-mode-tokens', '2%', '6%'], ['#88 rotate-api-keys', '48%', '2%'],
+   ['#57 flaky-e2e-suite', '18%', '48%'], ['#199 bump-node-22', '60%', '46%']].forEach(function (p) {
+    var r = row(p[0], 'dim'); r.style.left = p[1]; r.style.top = p[2]; scatter.appendChild(r);
+  });
+  function mini(name, rows) {
+    var kids = [h('span', { class: 'mb', text: name })];
+    rows.forEach(function (t) { kids.push(row(t, 'hot', SC.takeable)); });
+    return h('div', { class: 'mapcard' }, kids);
+  }
+  return h('div', { class: 'sketch' }, [
+    scatter,
+    h('div', { class: 'center', style: 'margin:0.25rem 0' }, [
+      h('span', { class: 'approve pulse', text: 'curia' })
+    ]),
+    h('div', { class: 'colwrap', style: 'margin-bottom:0.6rem' }, [
+      mini('map · shop-app', ['#412']), mini('map · infra', ['#88']), mini('map · data-jobs', ['#57'])
+    ]),
+    h('div', { style: 'border-top:1px solid var(--line);padding-top:0.6rem' }, [
+      h('div', { class: 'skills-note', text: 'kicker' }),
+      h('div', { class: 'heroline', style: 'height:1.1rem;width:82%;margin:0.35rem 0' }),
+      h('div', { class: 'heroline', style: 'height:1.1rem;width:58%;margin:0 0 0.5rem' }),
+      h('div', { class: 'skills-note', text: 'Curia is a wrapper for Matt Pocock\u2019s skills.' }),
+      h('div', { style: 'display:flex;gap:0.5rem;margin-top:0.5rem' }, [
+        h('span', { class: 'approve', text: 'Set it up' }),
+        h('span', { class: 't-row', text: 'Source' })
+      ])
+    ]),
+    h('div', { class: 'caption', text: 'one screen: the story above, the headline readable at the bottom' })
+  ]);
+}
+
+/* ================================================================
+   SCENES — the building blocks. An arc is an ordered list of these.
+   `says` is the gist only: the words are decided in the copy ticket.
+   ================================================================ */
+function scene(name, tag, sketch, moves, proof, says, underHtml) {
+  return { name: name, tag: tag, sketch: sketch, moves: moves, proof: proof, says: says, under: underHtml };
+}
+
+var S = {
+  hero: scene('The first screen', 'fixed structure', skHero,
+    'Nothing moves yet. Kicker, headline, skills line, two buttons.',
+    null, 'the promise: many repos, one queue, driven from a phone', null),
+  mess: scene('The mess', 'the lede', skMess,
+    'Ticket rows drift, unordered. The spine has not arrived.',
+    null, 'you already run agents every day, and the work drifts', UNDER.facts),
+  pull: scene('The pull back', 'claim 1', skPull,
+    'The camera pulls back: one ticket, then its map, then all your maps.',
+    null, 'claim 1: your tracker is the queue', UNDER.queue),
+  runThread: scene('The run', 'claim 2', function () { return skRun(true); },
+    'The ticket crosses the four stages. Beside it, a Discord thread writes itself.',
+    'the thread that builds itself, with the A/B/C question inside it — built HTML.',
+    'claim 2: any device is a full seat', UNDER.seat),
+  gate: scene('The gate', 'claim 3', skGate,
+    'The scroll stops on one approve button. The needs-you pulse.',
+    'the phone with a running preview, right above the approve button — built HTML.',
+    'claim 3: an agent cannot finish by talking', UNDER.gate),
+  merged: scene('Merged', 'proof + dogfood', skMerged,
+    'The merged stack grows. The dogfood line closes the story.',
+    'the dogfood line: real count regenerated on build day, pull requests linked.',
+    'the close: merged, and the queue moves on', null),
+  honesty: scene('What you are getting into', 'fixed position', skHonest,
+    'A plain list. No animation needed.',
+    null, 'Tailscale and Discord required · your harness login · manual setup, packaging coming', null),
+  guide: scene('Set it up', 'locked at round 4', skGuide,
+    'The guide scrolls under the story, honest about today.',
+    null, 'five condensed steps only — the complete thirteen live in the README, which the page links. Carries the honest facts: Tailscale, Discord, your harness login, manual setup with packaging coming.', null),
+  footer: scene('Footer', '', skFooter, 'One line, plus the GitHub link.', null, null, null),
+
+  /* the operator's story (round 1) */
+  projects: scene('Three projects', 'the opening', skProjects,
+    'Three project cards fill with steady, unorganized work as you scroll.',
+    null, 'you run several projects, and the work never stops arriving', UNDER.facts),
+  zoom: scene('Into the mess', 'the problem', function () { return skMess(false); },
+    'The camera dives into one project: tickets drift, nothing is ordered.',
+    null, 'the mess up close — everything waits for you', null),
+  mapsOrder: scene('Maps bring order', 'claim 1 · up to two screens', skMapsOrder,
+    'The long beat: the scatter forms into map trees, edges draw in, takeable tickets light up and drain into a queue. Up to two screens of scroll.',
+    null, 'claim 1: your tracker is the queue — maps and dependency order do the sorting', UNDER.queue),
+  grill: scene('The grilling', 'claim 2', skGrill,
+    'A Discord thread writes itself: the agent asks, three buttons, you tap one.',
+    'the questionnaire with A, B and C buttons — built HTML.',
+    'claim 2: any device is a full seat — the agent asks, you answer in the thread', UNDER.seat),
+  previewPhone: scene('The preview', 'claim 2 continues', skPreview,
+    'The phone fills the scene. A preview of the agent’s work runs on it.',
+    'the phone with a running preview — built HTML.',
+    'the work shows itself on your phone before any merge', null),
+  atlas: scene('The atlas', 'the overview', skAtlas,
+    'The dashboard scene, mobile first: every map, its progress, and the needs-you row.',
+    'the atlas dashboard as built HTML, after the UX map’s atlas decision.',
+    'one screen shows every map and what needs you', null),
+  harness: scene('The harness, live', 'the terminal', skHarness,
+    'A browser window with the real terminal. A toggle flips between the supported harnesses.',
+    'a captured or rebuilt terminal view — the toggle names Claude Code and Codex CLI.',
+    'attach to the live agent from any browser, phone or desktop', null),
+  lifecycle: scene('One ticket on GitHub', 'claim 3 · horizontal', skLifecycle,
+    'A horizontal sub story: issue, claim, pull request, review gate, merge. The approve button is the climax.',
+    'locked at round 3: the approve moment is the climax, and the dogfood line closes the scene with the real count regenerated and the pull requests linked.',
+    'claim 3: an agent cannot finish by talking — resolved means merged', UNDER.gate),
+  vps: scene('Your VPS', 'self-hosted', skVPS,
+    'One box, four agent lanes running at once.',
+    null, 'self-hosted on your own box — parallel agents, measured', '~0.5 GB per agent measured · four at once on one small box'),
+  open: scene('Open source', 'the close', skOpen,
+    'Plain rows: the repo, the license, the pieces it stands on.',
+    null, 'open source on GitHub — Tailscale for the links, your keys, no service to sign up for', null)
+};
+
+/* ================================================================
+   ARCS
+   ================================================================ */
+var ARCS = [
+  { key: 'story', name: 'The operator’s story',
+    logic: 'Dictated at rounds 1 and 2: the first screen already tells the story (mess in, curia node, ordered maps out) with the headline at the bottom, then the zoom into the mess, maps bring order (the long beat), the grilling on Discord, the preview on the phone, the atlas, the live harness in the browser, one ticket’s lifecycle on GitHub, the self-hosted close.',
+    scenes: [S.hero, S.zoom, S.mapsOrder, S.grill, S.previewPhone, S.atlas, S.harness, S.lifecycle, S.vps, S.open, S.guide, S.footer] },
+  { key: 'saga', name: 'The saga, tightened',
+    logic: 'The five acts as picked at #508, with the proof moments folded into the acts they prove.',
+    scenes: [S.hero, S.mess, S.pull, S.runThread, S.gate, S.merged, S.honesty, S.guide, S.footer] },
+  { key: 'diary', name: 'One ticket’s diary',
+    logic: 'The whole page follows one named ticket from the pile to the merge. Every claim rides under a moment of that ticket’s life, and the preview gets its own scene.',
+    scenes: [S.hero, S.diaryMess, S.taken, S.thread, S.preview, S.gate, S.merged, S.honesty, S.guide, S.footer] },
+  { key: 'phone', name: 'The phone first',
+    logic: 'Presence leads. The phone arrives right after the mess, and the queue is revealed behind it.',
+    scenes: [S.hero, S.mess, S.phoneFirst, S.queueBehind, S.gate, S.merged, S.honesty, S.guide, S.footer] },
+  { key: 'drain', name: 'The queue drains',
+    logic: 'The page stays wide the whole way: maps fill, order appears, four lanes run at once, and you show up only where a gate needs you.',
+    scenes: [S.hero, S.flood, S.order, S.lanes, S.gates, S.merged, S.honesty, S.guide, S.footer] }
+];
+
+/* Scenes still referenced by the round 1 arcs. */
+S.diaryMess = scene('One ticket among many', 'the lede', function () { return skMess(true); },
+  'The pile drifts. One ticket lights up — the one the page follows to the end.',
+  null, 'you already run agents every day, and the work drifts', UNDER.facts);
+S.taken = scene('Taken', 'claim 1', skOrder,
+  'The queue orders the pile. The followed ticket comes up takeable and an agent takes it.',
+  null, 'claim 1: your tracker is the queue', UNDER.queue);
+S.thread = scene('The thread', 'claim 2', skThread,
+  'The Discord thread of the followed ticket writes itself: start, question, answer, preview link.',
+  'the thread that builds itself, with the A/B/C question — built HTML.',
+  'claim 2: any device is a full seat', UNDER.seat);
+S.preview = scene('The preview', 'between claims', skPreview,
+  'The phone fills the scene. The preview runs on it before any gate.',
+  'the phone with a running preview — built HTML, its own scene.',
+  'the work shows itself on your phone before any merge', null);
+S.phoneFirst = scene('The phone arrives', 'claim 2', skThread,
+  'Straight from the mess to your hand: the thread, the buttons, the preview link.',
+  'the thread that builds itself, with the A/B/C question — built HTML.',
+  'claim 2: any device is a full seat', UNDER.seat);
+S.queueBehind = scene('The queue behind it', 'claim 1', skPull,
+  'The camera pulls back from the phone: the maps and the queue that feed it.',
+  null, 'claim 1: your tracker is the queue', UNDER.queue);
+S.flood = scene('The flood', 'the lede', skFlood,
+  'Three map columns fill with tickets as you scroll.',
+  null, 'you already run agents every day, and the work drifts', UNDER.facts);
+S.order = scene('The order', 'claim 1', skOrder,
+  'Dependency edges draw in. Takeable tickets light up, blocked ones stay grey.',
+  null, 'claim 1: your tracker is the queue', UNDER.queue);
+S.lanes = scene('Four at once', 'claim 2', skLanes,
+  'Four lanes run in parallel, one per agent. The thread rides beside the busiest lane.',
+  'the thread that builds itself, beside the lanes — built HTML.',
+  'claim 2: any device is a full seat', UNDER.seat);
+S.gates = scene('The gates', 'claim 3', skGates,
+  'Every needs-you moment lands on one phone. One approve at a time.',
+  'the phone with the queued gates and the running preview — built HTML.',
+  'claim 3: an agent cannot finish by talking', UNDER.gate);
+
+S.opening = scene('The first screen, merged with the story', 'round 2 change', skOpening,
+  'Above the fold the story already runs: grey drifting tickets funnel through a prominent curia node and come out as ordered maps. The kicker and the headline sit readable at the bottom of the screen.',
+  null, 'the promise: many repos, one queue, driven from a phone', null);
+S.zoom.moves = 'The scroll dives into the mess seen above the fold: tickets drift, nothing is ordered.';
+
+/* Fix the arc references now that the late scenes exist. */
+ARCS[0].scenes[0] = S.opening;
+ARCS[2].scenes = [S.hero, S.diaryMess, S.taken, S.thread, S.preview, S.gate, S.merged, S.honesty, S.guide, S.footer];
+ARCS[3].scenes = [S.hero, S.mess, S.phoneFirst, S.queueBehind, S.gate, S.merged, S.honesty, S.guide, S.footer];
+ARCS[4].scenes = [S.hero, S.flood, S.order, S.lanes, S.gates, S.merged, S.honesty, S.guide, S.footer];
+
+/* ================================================================
+   RENDER
+   ================================================================ */
+function sceneCard(sc, i) {
+  var kids = [
+    h('div', { class: 'scene-head' }, [
+      h('span', { class: 'num', text: 'scene ' + (i + 1) }),
+      h('span', { text: sc.name }),
+      sc.tag ? h('span', { class: 'tag', text: sc.tag }) : null
+    ]),
+    sc.sketch(),
+    h('div', { class: 'note', html: '<b>moves:</b> ' + sc.moves })
+  ];
+  if (sc.proof) kids.push(h('div', { class: 'note proof', html: '<b>proof:</b> ' + sc.proof }));
+  if (sc.says) kids.push(h('div', { class: 'note', html: '<b>says:</b> ' + sc.says }));
+  if (sc.under) kids.push(h('div', { class: 'under', html: '<b>facts under:</b><br>' + sc.under }));
+  return h('section', { class: 'scene' }, kids);
+}
+
+function render(arc) {
+  var main = document.getElementById('main');
+  main.innerHTML = '';
+  main.appendChild(h('div', { class: 'intro' }, [
+    h('p', { html: '<b>How to read this:</b> each card is one scene of the final page, in page order. The grey boxes are sketches, not the design. The <b>says</b> line is the gist only: the words are decided later, in their own ticket.' }),
+    h('p', { html: 'Switch arcs with the bar below. Arc 1 is your story from round 1.' })
+  ]));
+  main.appendChild(h('div', { class: 'archead' }, [
+    h('div', { class: 'k', text: 'arc · ' + arc.key }),
+    h('h1', { text: arc.name }),
+    h('p', { text: arc.logic })
+  ]));
+  arc.scenes.forEach(function (sc, i) { main.appendChild(sceneCard(sc, i)); });
+  document.getElementById('sw-k').textContent = 'arc ' + (ARCS.indexOf(arc) + 1) + '/' + ARCS.length;
+  document.getElementById('sw-n').textContent = arc.name;
+}
+
+var m = location.search.match(/[?&]arc=([^&]+)/);
+var idx = 0;
+if (m) ARCS.forEach(function (a, i) { if (a.key === decodeURIComponent(m[1])) idx = i; });
+
+function go(i) {
+  idx = (i + ARCS.length) % ARCS.length;
+  var url = location.pathname + '?arc=' + ARCS[idx].key;
+  history.replaceState(null, '', url);
+  render(ARCS[idx]);
+  window.scrollTo(0, 0);
+}
+
+document.querySelectorAll('.switch [data-step]').forEach(function (b) {
+  b.addEventListener('click', function () { go(idx + Number(b.getAttribute('data-step'))); });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'ArrowLeft') go(idx - 1);
+  if (e.key === 'ArrowRight') go(idx + 1);
+});
+
+render(ARCS[idx]);
+})();
+</script>
+</body>
+</html>
