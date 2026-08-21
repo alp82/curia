@@ -1,0 +1,32 @@
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Opus 5 (1M context) · API Usage Billing
+  ▘▘ ▝▝    /…/claude-1000/-workspace/fb2b15a6-18ba-4fa5-90ea-d8d1522b9ba3/scratchpad/538lab/work
+
+
+❯ /effort
+
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  Effort
+
+                   Faster                                                 Smarter
+                   ────────────────────▲──────────────────────┆──────────────────
+                   low     medium     high     xhigh      max       ultracode
+                                                                xhigh + workflows
+
+  ←/→ to adjust · Enter to confirm · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

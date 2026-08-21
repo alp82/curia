@@ -20,12 +20,15 @@ each keystroke answer below is proven by the tool_result the harness posted back
 | claude-9-ask-long.txt | AskUserQuestion, long labels | same |
 | claude-10-ask-two.txt | AskUserQuestion, two questions | `Enter to select · Tab/Arrow keys to navigate · Esc to cancel` |
 | claude-11-model.txt | /model picker | `Enter to set as default · s to use this session only · Esc to cancel` |
+| claude-12-effort.txt | /effort slider | `←/→ to adjust · Enter to confirm · Esc to cancel` |
 | codex-1-trust.txt | directory trust prompt | `Press enter to continue` |
 | codex-2-model.txt | /model picker | `Press enter to confirm or esc to go back` |
 
-The rewind menu capture from #542 (`prototypes/pane-rewind/evidence/claude-2-menu.txt`)
-is the parse-failure fixture: its entries carry no numbers, so the parser refuses it and
-the guard banner stays.
+Two rewind captures from #542 ride along as fixtures. The full menu
+(`prototypes/pane-rewind/evidence/claude-2-menu.txt`) parses in the unnumbered-list mode:
+blank-line blocks between the title prose and the footer, with the `❯` block as the
+selection. The scrolled variant (`claude-5-menu2.txt`, one entry visible) refuses to
+parse — one entry is not a menu — and is the demo's parse-failure fixture.
 
 ## Key mechanics, measured
 
@@ -49,6 +52,27 @@ Claude, several questions in one call:
 - One tab per question plus a Submit tab. A digit answers the current question and
   advances to the next tab. Proven: digits `1` then `2` then Enter on the review screen
   returned both answers.
+
+Claude, the /effort slider:
+
+- `←/→` move the `▲` cursor one stop per press (measured: Left moved high → medium).
+- Digit keys are inert (measured: `5` changed nothing). Enter confirms.
+
+Claude, the free-text path ("Type something."):
+
+- The digit of the "Type something." entry MOVES the selector there without submitting
+  (measured: `4` moved `❯`, nothing fired).
+- Enter on it DECLINES the picker: the tool_result reads "The user doesn't want to
+  proceed with this tool use", and the composer returns.
+- A normal chat send right after rides the SAME user turn as the decline, so the model
+  reads the words as the answer. Proven: "use Redis but cap memory at 100MB" arrived in
+  the request body beside the declined tool_result.
+- This is also the "note on a pick" path: there is no native way to attach text to a
+  picked option, so a pick-with-note declines the picker and sends "label — note" as
+  chat. Measured on the single picker only; the multiSelect variant needs one live
+  check at build time.
+- "Chat about this" is the same decline path with no text prepared — which is why the
+  card carries ONE free-text affordance, not two.
 
 Codex:
 

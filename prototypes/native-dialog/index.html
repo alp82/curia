@@ -120,6 +120,18 @@ pre.pane .hl { color:var(--ink); font-weight:600; }
   box-shadow:var(--glow); }
 .dcard .btn.ghost { color:var(--mut); }
 .dcard .src { font:10px/1.4 var(--mono); color:var(--mut); flex-basis:100%; }
+.dcard .opt .noteb { flex:none; align-self:center; border:1px solid var(--line); background:transparent;
+  color:var(--mut); border-radius:6px; font:11px var(--mono); padding:6px 9px; cursor:pointer; }
+.dcard .noteed { padding:12px 14px; border-top:1px solid var(--line); display:flex; gap:8px;
+  flex-wrap:wrap; align-items:center; }
+.dcard .noteed textarea { flex:1 1 100%; background:var(--dim); border:1px solid var(--line);
+  border-radius:8px; color:var(--ink); font:13px/1.5 inherit; padding:10px; min-height:64px; }
+.dcard .noteed .hint { font:10px/1.5 var(--mono); color:var(--mut); flex:1; }
+.dcard .stops { display:flex; gap:6px; padding:12px 14px; flex-wrap:wrap; }
+.dcard .stops button { border:1px solid var(--line); background:transparent; color:var(--ink);
+  border-radius:999px; font:600 12px var(--mono); padding:9px 12px; cursor:pointer; min-height:38px; }
+.dcard .stops button.cur { border-color:var(--amber); color:var(--amber); }
+.dcard .stops .ann { flex-basis:100%; font:10px/1.4 var(--mono); color:var(--mut); }
 
 /* the wire strip: what the tap sends */
 .wire { margin-top:10px; border:1px dashed var(--line); border-radius:8px; padding:10px 12px;
@@ -227,6 +239,12 @@ TUI, with the harness's own tool_result as the receipt.</p>
     <td class="c">1, 2, Enter → both answers received</td></tr>
   <tr><td>codex, any</td><td>option <i>k</i></td><td><span class="k">↓</span>×Δ <span class="k">Enter</span> digits are inert</td>
     <td class="c">digit 2 changed nothing on the trust prompt</td></tr>
+  <tr><td>claude, /effort slider</td><td>stop <i>k</i></td><td><span class="k">←</span>/<span class="k">→</span>×Δ <span class="k">Enter</span></td>
+    <td class="c">one stop per arrow; digits changed nothing</td></tr>
+  <tr><td>claude, rewind menu</td><td>entry <i>k</i></td><td><span class="k">↑</span>/<span class="k">↓</span>×Δ <span class="k">Enter</span> no numbers to press</td>
+    <td class="c">menu shape from the #542 captures</td></tr>
+  <tr><td>free text, or a note on a pick</td><td>Type something</td><td><span class="k">digit</span> <span class="k">Enter</span> then the chat send</td>
+    <td class="c">the decline and the typed words reached the model in one turn</td></tr>
   <tr><td>any</td><td>Cancel</td><td><span class="k">Esc</span> already passes the guard today</td>
     <td class="c">unchanged from #75</td></tr>
 </table></div>
@@ -239,8 +257,8 @@ TUI, with the harness's own tool_result as the receipt.</p>
     operator must answer is drawn in the chat, in the escalation card's own language, and a tap
     answers it. The terminal link stays in the card header — the pane is still one click away.</div></div>
   <div class="row"><span class="tag banner">banner</span>
-    <div class="tx"><b>When detection fires and the parse fails, the banner stays.</b> The rewind
-    menu fixture shows it live: dialog chrome with no numbered options refuses to parse, and the
+    <div class="tx"><b>When detection fires and the parse fails, the banner stays.</b> The scrolled
+    fixture shows it live: a menu the pane clips down to one entry refuses to parse, and the
     guard banner with the terminal link is exactly what #515 decided. The banner is the fallback,
     never deleted.</div></div>
   <div class="row"><span class="tag keep">veto</span>
@@ -302,7 +320,7 @@ function parseDialog(pane) {
     const m = OPT_RE.exec(lines[i])
     if (m && m[2] === '1') { oneAt = i; break }
   }
-  if (oneAt < 0) return null
+  if (oneAt < 0) return parseSlider(lines, footerAt, footer) ?? parseList(lines, footerAt, footer)
 
   // Options, walking down from "1." to the footer. Rules and blanks are
   // skipped; a "● …" line is chrome (the /model effort radio), kept aside;
@@ -376,31 +394,114 @@ function parseDialog(pane) {
   const kind = multi ? 'multi'
     : options.length <= 2 && /Enter to (confirm|continue)|Press enter to continue/i.test(footer) ? 'confirm'
     : 'pick'
-  return { harness, kind, tabs, header, body, question, options, footer, extras }
+  return { harness, kind, numbered: true, tabs, header, body, question, options, footer, extras }
 }
 
-// answerPlan(menu, n) -> { keys: [...], note } | { composer: true, note }.
+// The /effort slider: a track with a ▲ cursor over a line of stop words.
+// ←/→ move one stop, Enter confirms, digits are inert (measured live).
+function parseSlider(lines, footerAt, footer) {
+  if (!/←\/→ to adjust/.test(footer)) return null
+  let trackAt = -1
+  for (let i = footerAt - 1; i >= 0; i--) if (lines[i].includes('▲')) { trackAt = i; break }
+  if (trackAt < 0 || trackAt + 1 >= footerAt) return null
+  const stopWords = [...lines[trackAt + 1].matchAll(/\S+/g)]
+    .map((m) => ({ label: m[0], at: m.index + m[0].length / 2 }))
+  if (stopWords.length < 2) return null
+  const cursor = lines[trackAt].indexOf('▲')
+  let sel = 0
+  for (let i = 0; i < stopWords.length; i++) {
+    if (Math.abs(stopWords[i].at - cursor) < Math.abs(stopWords[sel].at - cursor)) sel = i
+  }
+  let question = 'Adjust'
+  for (let i = trackAt - 1; i >= 0; i--) {
+    const t = lines[i].trim()
+    if (!t || /Faster|Smarter/.test(t) || RULE_RE.test(lines[i])) { if (RULE_RE.test(lines[i])) break; continue }
+    question = t
+    break
+  }
+  const extras = []
+  const ann = lines[trackAt + 2]?.trim()
+  if (ann && !DIALOG_MARKERS.some((re) => re.test(ann))) extras.push(ann)
+  const options = stopWords.map((s, i) => ({ n: i + 1, label: s.label, desc: '',
+    selected: i === sel, checked: null, synth: null }))
+  return { harness: 'claude', kind: 'slider', numbered: false, tabs: null, header: null,
+    body: '', question, options, footer, extras }
+}
+
+// A menu without numbers (the rewind menu): blank-line blocks between the
+// title prose and the footer, one of them carrying the ❯ selector. Entries
+// sit deeper than the title, or carry the selector themselves.
+function parseList(lines, footerAt, footer) {
+  let top = 0
+  for (let i = footerAt - 1; i >= 0; i--) { if (RULE_RE.test(lines[i])) { top = i + 1; break } }
+  const blocks = []
+  let cur = []
+  for (const l of lines.slice(top, footerAt)) {
+    if (!l.trim()) { if (cur.length) { blocks.push(cur); cur = [] } continue }
+    cur.push(l)
+  }
+  if (cur.length) blocks.push(cur)
+  if (blocks.length < 2) return null
+  const selRe = /^\s*(❯|›)\s+(.*)$/
+  const indentOf = (l) => /^\s*/.exec(l)[0].length
+  const titleIndent = indentOf(blocks[0][0])
+  const entries = [], prose = []
+  for (const b of blocks) {
+    if (selRe.test(b[0]) || indentOf(b[0]) > titleIndent) entries.push(b)
+    else prose.push(b)
+  }
+  if (entries.length < 2 || !entries.some((b) => selRe.test(b[0]))) return null
+  const options = entries.map((b, i) => {
+    const m = selRe.exec(b[0])
+    return { n: i + 1, label: (m ? m[2] : b[0].trim()), desc: b.slice(1).map((l) => l.trim()).join(' '),
+      selected: Boolean(m), checked: null, synth: null }
+  })
+  const flat = (b) => b.map((l) => l.trim()).join(' ')
+  const header = prose.length > 1 ? flat(prose[0]) : null
+  const question = prose.length ? flat(prose[prose.length - 1]) : ''
+  const harness = /^Press enter/i.test(footer) ? 'codex' : 'claude'
+  return { harness, kind: 'list', numbered: false, tabs: null, header,
+    body: prose.slice(1, -1).map(flat).join('\n'), question, options, footer, extras: [] }
+}
+
+// answerPlan(menu, n) -> { keys: [...], note } | { thenText: true, ... }.
 // n is the option number; 'submit' and 'cancel' are actions.
+const walk = (menu, n, fwd = 'Down', back = 'Up') => {
+  const from = menu.options.findIndex((o) => o.selected) + 1
+  const d = n - from
+  return Array(Math.abs(d)).fill(d > 0 ? fwd : back)
+}
 function answerPlan(menu, n) {
   if (n === 'cancel') return { keys: ['Escape'], note: 'Escape already passes the guard (#75).' }
   if (n === 'submit') return { keys: ['Tab', 'Enter'], note: 'Tab reaches the Submit tab, Enter confirms the review screen.' }
-  const opt = menu.options.find((o) => o.n === n)
-  if (opt?.synth === 'type' || opt?.synth === 'chat') {
-    return { composer: true, note: opt.synth === 'type'
-      ? 'Free text: the card focuses the chat composer, and the send types the words into the dialog’s own text entry.'
-      : 'Back to the conversation: the card focuses the composer and the dialog is answered as chat.' }
+  if (menu.kind === 'slider') {
+    return { keys: [...walk(menu, n, 'Right', 'Left'), 'Enter'], note: 'The cursor walks one stop per arrow (measured); digits are inert.' }
   }
+  const opt = menu.options.find((o) => o.n === n)
+  if (opt?.synth) return planType(menu)
   if (menu.harness === 'codex') {
-    const from = menu.options.findIndex((o) => o.selected) + 1
-    const d = n - from
-    const moves = Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up')
-    return { keys: [...moves, 'Enter'], note: 'Codex ignores digits (measured), so the selector walks, then Enter confirms.' }
+    return { keys: [...walk(menu, n), 'Enter'], note: 'Codex ignores digits (measured), so the selector walks, then Enter confirms.' }
+  }
+  if (!menu.numbered) {
+    return { keys: [...walk(menu, n), 'Enter'], note: 'No numbers on this menu, so the selector walks, then Enter picks.' }
   }
   if (menu.kind === 'multi') return { keys: [String(n)], note: 'One digit toggles the box. Submit sends Tab, Enter.' }
   if (n <= 9) return { keys: [String(n)], note: 'One digit picks and submits (measured live).' }
-  const from = menu.options.findIndex((o) => o.selected) + 1
-  const d = n - from
-  return { keys: [...Array(Math.abs(d)).fill(d > 0 ? 'Down' : 'Up'), 'Enter'], note: 'Past digit 9 the selector walks.' }
+  return { keys: [...walk(menu, n), 'Enter'], note: 'Past digit 9 the selector walks.' }
+}
+
+// The free-text path, measured live: the digit of "Type something." moves the
+// selector without submitting, Enter DECLINES the picker, the composer
+// returns, and the next chat send carries the words — the model reads them in
+// the same user turn as the decline.
+function planType(menu) {
+  const t = menu.options.find((o) => o.synth === 'type')
+  if (!t) return { keys: ['Escape'], thenText: true, note: 'No free-text entry on this menu: Escape dismisses it, then the chat send carries the words.' }
+  const keys = menu.numbered && menu.kind !== 'multi' ? [String(t.n), 'Enter'] : [...walk(menu, t.n), 'Enter']
+  const note = menu.kind === 'multi'
+    ? 'The selector walks to the free-text entry. Measured on the single picker; the multi flow needs one live check at build time.'
+    : 'The picker declines into the composer, and the chat send carries the words (measured live).'
+  return { keys, thenText: true, note }
 }
 
 /* =========================================================================
@@ -556,8 +657,18 @@ pane: `  Select Model and Effort
 
   Press enter to confirm or esc to go back` },
 
-{ id: 'rewind', group: 'the fallback', name: 'rewind menu', fail: true,
-note: 'The rewind menu from #542 — prototypes/pane-rewind/evidence/claude-2-menu.txt. Dialog chrome, but no numbered options: the parse refuses, the banner stays.',
+{ id: 'effort', group: 'claude', name: '/effort', note: 'The effort slider — evidence/claude-12-effort.txt. Arrows move one stop, Enter confirms, digits are inert (measured).',
+pane: `────────────────────────────────────────────────────────────────────────────────────────────────────
+  Effort
+
+                   Faster                                                 Smarter
+                   ────────────────────▲──────────────────────┆──────────────────
+                   low     medium     high     xhigh      max       ultracode
+                                                                xhigh + workflows
+
+  ←/→ to adjust · Enter to confirm · Esc to cancel` },
+
+{ id: 'rewind', group: 'claude', name: 'rewind', note: 'The rewind menu from #542 — prototypes/pane-rewind/evidence/claude-2-menu.txt. No numbers, so the selector walks: arrows plus Enter.',
 pane: `  Rewind
 
   Restore the code and/or conversation to the point before…
@@ -569,6 +680,14 @@ pane: `  Rewind
     banana.txt +1
 
   ❯ (current)
+
+
+
+  Enter to continue · Esc to cancel` },
+
+{ id: 'scrolled', group: 'the fallback', name: 'scrolled menu', fail: true,
+note: 'The same rewind menu, scrolled — #542 claude-5-menu2.txt. Only the current entry is visible. One entry is not a menu: the parse refuses, and the banner stays.',
+pane: `  ❯ (current)
 
 
 
@@ -605,18 +724,45 @@ function renderCard(fx, menu) {
         <a href="#" onclick="return false">terminal ↗</a></div>
       <div class="failnote" style="margin-top:12px">
         <span class="no">parseDialog(pane) → null.</span><br>
-        The footer chrome matched, but no numbered option list did — this menu is not one the
-        page can copy. <b>The banner is the fallback</b>: same amber, same terminal link, same
-        send veto. The web copy never guesses at a menu it cannot read.
+        The footer chrome matched, but no menu the page can read whole did — so there is no card
+        to draw. <b>The banner is the fallback</b>: same amber, same terminal link, same send
+        veto. The web copy never guesses at a menu it cannot read.
       </div>`
     return
   }
-  const state = { checked: new Map(menu.options.map((o) => [o.n, o.checked === true])) }
-  const draw = (wireInner, done) => {
+  const hasType = menu.options.some((o) => o.synth === 'type')
+  const state = { checked: new Map(menu.options.map((o) => [o.n, o.checked === true])), note: null }
+  const draw = (wireInner) => {
     const tabsHtml = menu.tabs ? `<div class="tabsline">`
       + menu.tabs.map((t, i) => `<span class="tb ${i === 0 ? 'cur' : ''}">${esc(t)}</span>`).join('')
       + `<span class="tb">✔ Submit</span></div>` : ''
-    const hdr = menu.header ? esc(menu.header) : (menu.tabs ? esc(menu.tabs[0]) : (menu.kind === 'confirm' ? 'confirm' : 'pick one'))
+    const hdr = menu.header ? esc(menu.header) : (menu.tabs ? esc(menu.tabs[0])
+      : menu.kind === 'confirm' ? 'confirm' : menu.kind === 'slider' ? 'adjust' : 'pick one')
+    const rows = menu.kind === 'slider'
+      ? `<div class="stops">`
+        + menu.options.map((o) => `<button class="${o.selected ? 'cur' : ''}" data-n="${o.n}">${esc(o.label)}</button>`).join('')
+        + (menu.extras.length ? `<span class="ann">${esc(menu.extras.join(' · '))}</span>` : '')
+        + `</div>`
+      : menu.options.filter((o) => o.synth !== 'chat').map((o) => {
+        const isBox = o.checked !== null
+        const cls = ['opt', o.selected ? 'sel' : '', o.synth ? 'synth' : '',
+          state.checked.get(o.n) ? 'checked' : ''].join(' ')
+        return `<div class="${cls}" data-n="${o.n}">
+          <span class="mark ${isBox ? 'box' : ''}"></span>
+          <span class="ob">
+            <span class="ol">${menu.numbered ? `<span class="num">${o.n}</span>` : ''}${esc(o.label)}</span>
+            ${o.desc ? `<span class="od">${esc(o.desc)}</span>` : ''}
+          </span>
+          ${hasType && !o.synth ? `<button class="noteb" data-note="${o.n}">✎ note</button>` : ''}
+        </div>`
+      }).join('')
+    const noteEd = state.note === null ? '' : `
+      <div class="noteed">
+        <textarea id="notetx" placeholder="Type the answer in your own words…">${esc(state.note)}</textarea>
+        <span class="hint">Sent as free text: the picker declines into the composer, and the chat send carries these words.</span>
+        <button class="btn prime" data-act="sendnote">Send</button>
+        <button class="btn ghost" data-act="closenote">Close</button>
+      </div>`
     el.innerHTML = `
     <div class="dcard">
       <div class="dhead">
@@ -629,27 +775,19 @@ function renderCard(fx, menu) {
         ${menu.body ? `<div class="qbody">${esc(menu.body)}</div>` : ''}
         <div class="qh" style="margin-top:${menu.body ? '8px' : '0'}">${esc(menu.question)}</div>
       </div>
-      ${menu.options.map((o) => {
-        const isBox = o.checked !== null
-        const cls = ['opt', o.selected ? 'sel' : '', o.synth ? 'synth' : '',
-          state.checked.get(o.n) ? 'checked' : ''].join(' ')
-        return `<div class="${cls}" data-n="${o.n}">
-          <span class="mark ${isBox ? 'box' : ''}"></span>
-          <span class="ob">
-            <span class="ol"><span class="num">${o.n}</span>${esc(o.label)}</span>
-            ${o.desc ? `<span class="od">${esc(o.desc)}</span>` : ''}
-          </span>
-        </div>`
-      }).join('')}
+      ${rows}
+      ${noteEd}
       <div class="dfoot">
         ${menu.kind === 'multi' ? `<button class="btn prime" data-act="submit">Submit</button>` : ''}
         <button class="btn ghost" data-act="cancel">Cancel — Esc</button>
-        <span class="src">drawn from the pane text · footer: ${esc(menu.footer)}${menu.extras.length ? ` · chrome kept aside: ${esc(menu.extras.join(' · '))}` : ''}</span>
+        <span class="src">drawn from the pane text · footer: ${esc(menu.footer)}</span>
       </div>
     </div>
     <div class="wire ${wireInner ? 'on' : ''}" id="wire">${wireInner ?? ''}</div>`
 
     const receipt = (labels) => {
+      if (menu.kind === 'slider') return `<span class="rcv">✔ the effort is set to ${esc(labels)}; the composer returns; the guard clears on the next probe.</span>`
+      if (menu.kind === 'list') return `<span class="rcv">✔ the pane advances (the rewind menu opens its confirm step); the card redraws from the next probe.</span>`
       if (!fx.ask) return `<span class="rcv">✔ the dialog leaves the pane; the composer returns; the guard clears on the next probe.</span>`
       const wire = `Your questions have been answered: "${menu.question}"="${labels}". You can now continue with these answers in mind.`
       const live = fx.proven === labels
@@ -657,39 +795,60 @@ function renderCard(fx, menu) {
         : ` <span class="live">(wire format proven live — findings.md)</span>`
       return `<span class="rcv">✔ the harness receives: <b>${esc(wire)}</b>${live}</span>`
     }
-    el.querySelectorAll('.opt').forEach((opt) => opt.addEventListener('click', () => {
+    const noteReceipt = () => `<span class="rcv">✔ the picker declines, and the model reads the words as the answer — same user turn as the decline (proven live — findings.md).</span>`
+
+    el.querySelectorAll('[data-n]').forEach((opt) => opt.addEventListener('click', () => {
       const n = Number(opt.dataset.n)
-      const plan = answerPlan(menu, n)
       const o = menu.options.find((x) => x.n === n)
+      if (o.synth === 'type') { state.note = state.note ?? ''; draw(null); return }
+      const plan = answerPlan(menu, n)
       let inner = keysHtml(plan)
-      if (menu.kind === 'multi' && !o.synth && !plan.composer) {
+      if (menu.kind === 'multi') {
         state.checked.set(n, !state.checked.get(n))
-        draw(inner, false)
+        draw(inner)
         return
       }
-      if (!plan.composer) {
-        if (menu.tabs && menu.tabs.length > 1 && menu.kind !== 'multi') {
-          inner += `<span class="rcv">✔ the next question's tab opens in the pane; the card redraws from the next probe. The last digit lands on the review screen, and Enter submits every answer.</span>`
-        } else {
-          inner += receipt(o.label)
-        }
+      if (menu.tabs && menu.tabs.length > 1) {
+        inner += `<span class="rcv">✔ the next question's tab opens in the pane; the card redraws from the next probe. The last digit lands on the review screen, and Enter submits every answer.</span>`
+      } else {
+        inner += receipt(o.label)
       }
-      draw(inner, true)
+      draw(inner)
+    }))
+    el.querySelectorAll('.noteb').forEach((b) => b.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      const o = menu.options.find((x) => x.n === Number(b.dataset.note))
+      state.note = `${o.label} — `
+      draw(null)
     }))
     el.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', () => {
-      const plan = answerPlan(menu, b.dataset.act)
+      const act = b.dataset.act
+      if (act === 'closenote') { state.note = null; draw(null); return }
+      if (act === 'sendnote') {
+        const text = el.querySelector('#notetx')?.value ?? ''
+        const plan = planType(menu)
+        state.note = null
+        draw(keysHtml(plan)
+          + `<span class="lbl">then the chat send:</span> <span class="k">${esc(text || '(empty)')}</span>`
+          + noteReceipt())
+        return
+      }
+      const plan = answerPlan(menu, act)
       let inner = keysHtml(plan)
-      if (b.dataset.act === 'submit') {
+      if (act === 'submit') {
         const picked = menu.options.filter((o) => state.checked.get(o.n)).map((o) => o.label)
         inner += receipt(picked.join(', ') || 'nothing checked')
       } else {
         inner += `<span class="rcv">✔ the dialog is dismissed — the same escape hatch the guard allows today.</span>`
       }
-      draw(inner, true)
+      draw(inner)
     }))
+    const tx = el.querySelector('#notetx')
+    if (tx) { tx.focus(); tx.selectionStart = tx.value.length }
   }
-  draw(null, false)
+  draw(null)
 }
+
 
 function select(id) {
   const fx = FIXTURES.find((f) => f.id === id)
