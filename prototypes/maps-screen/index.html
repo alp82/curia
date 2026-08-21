@@ -1,0 +1,636 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#522 The maps screen — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#522 "The maps screen".
+  The decided screen leads the cycle: the numbered band cut, needs-you
+  maps first then most recent event, repo chips only, the routed model
+  kept. Tap a segment for detail — inline on the phone, a sticky pane on
+  desktop. Behind it: the five round-6 chrome cuts and the round-5
+  bands baseline, kept for reference. V6 direction from #519.
+  Switch via ?v=, width via ?w=, color via ?mode=. Static mock data.
+  Filters and taps work; every link is dead on purpose.
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:190px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+.bar .tog.on { background:#273043; color:#fff; }
+
+/* ============ V6 base tokens (from #519, rules this screen) ============ */
+.mv { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:28px 24px 72px; }
+.frame.dark .mv { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); }
+.frame.light .mv { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; }
+.mv h2, .mv .num, .mv .ht, .mv .route, .mv .go, .mv .fchip, .mv select, .mv .word
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; margin-bottom:26px; }
+
+/* the verdict strip (baseline only, round 6 reduces it) */
+.mv .verdict { display:flex; align-items:baseline; gap:26px; margin:0 0 6px; }
+.mv .verdict .v { font-size:26px; font-weight:700; line-height:1;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .verdict .v.need { color:var(--amber); text-shadow:var(--glow); }
+.mv .verdict .v.take { color:var(--cyan); }
+.mv .verdict .k { display:block; font-size:9px; letter-spacing:.2em; color:var(--mut);
+  text-transform:uppercase; margin-top:6px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* filters */
+.mv .filters { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:22px 0 8px; }
+.mv .filters:empty { margin:0; }
+.mv .fchip { font-size:11px; padding:6px 10px; border-radius:999px; cursor:pointer;
+  background:transparent; border:1px solid var(--line); color:var(--mut); }
+.mv .fchip.on { border-color:var(--cyan); color:var(--cyan); font-weight:600; }
+.mv select { font-size:11px; padding:6px 8px; border-radius:8px; background:transparent;
+  border:1px solid var(--line); color:var(--mut); }
+.mv .fnone { padding:24px 0; color:var(--mut); font-size:13px; }
+
+/* shared atoms */
+.mv .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.mv .dot { flex:none; width:8px; height:8px; border-radius:50%; }
+.mv .dot.on { background:var(--green); }
+.mv .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.mv .go { flex:none; font-size:11px; color:var(--cyan); text-decoration:none; white-space:nowrap; }
+.mv .route { font-size:10px; color:var(--mut); white-space:nowrap; }
+.mv .route b { color:var(--cyan); font-weight:600; }
+.mv .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.mv .ttl .sub { display:block; font-size:11px; color:var(--mut); font-weight:400; margin-top:4px;
+  overflow:hidden; text-overflow:ellipsis; }
+.mv .word { font-size:10px; color:var(--mut); letter-spacing:.08em; text-transform:uppercase; }
+.mv .word.run { color:var(--green); }
+.mv .word.take { color:var(--cyan); }
+.mv .g-take { width:12px; height:12px; border-radius:50%; border:2.5px solid var(--cyan); background:var(--bg); }
+.mv .g-wait { width:4px; height:11px; background:var(--mut); opacity:.5; }
+
+/* the map head — big fraction, then the name (numbered + baseline) */
+.mv .mhead { display:flex; align-items:center; gap:16px; }
+.mv .mfrac { flex:none; font-size:24px; font-weight:700; line-height:1;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-variant-numeric:tabular-nums; }
+.mv .mfrac .of { color:var(--mut); font-weight:400; }
+.mv .mfrac .fogn { color:var(--mut); font-weight:400; font-size:14px; }
+.mv .mtt { flex:1; min-width:0; }
+.mv .mtt .nm { display:block; font-size:15px; font-weight:700; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.mv .mtt .meta { display:block; font-size:10px; color:var(--mut); margin-top:4px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .mtt .meta a { color:var(--cyan); text-decoration:none; }
+
+/* the band */
+.mv .band { display:flex; gap:3px; margin-top:14px; height:34px; }
+.mv .bseg { position:relative; border:0; cursor:pointer; border-radius:5px; min-width:34px;
+  display:flex; align-items:center; justify-content:center; gap:6px; overflow:hidden;
+  font: 700 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace; padding:0 8px; white-space:nowrap; }
+.mv .bseg .wd { font-weight:400; font-size:10px; letter-spacing:.08em; }
+.mv .bseg.sel { outline:2px solid var(--mut); outline-offset:3px; }
+.mv .b-walk { background:var(--cyan); color:var(--bg); }
+.mv .b-flight { background:var(--green); color:var(--bg); }
+.mv .b-flight.needs { background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.mv .b-take { background:transparent; border:2px solid var(--cyan); color:var(--cyan); }
+.mv .b-wait { background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px);
+  color:var(--mut); }
+.mv .b-fog { background:transparent; border:2px dotted var(--mut); color:var(--mut); }
+.mv .band.micro { height:14px; gap:2px; margin-top:8px; }
+.mv .band.micro .bseg { min-width:10px; border-radius:3px; padding:0; }
+.mv .band.micro .b-take, .mv .band.micro .b-fog { border-width:1.5px; }
+.mv .band.hero { height:44px; margin-top:18px; }
+
+/* the detail panel and the master-detail split */
+.mv .panel { margin-top:14px; border-left:2px solid var(--line); padding:4px 0 4px 16px; }
+.mv .prow { display:flex; align-items:center; gap:12px; padding:9px 0; font-size:14px; }
+.mv .prow.dim { color:var(--mut); }
+.mv .prow.dim .ttl { font-weight:400; }
+.mv .phead { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+  margin-bottom:6px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .psub { font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--mut);
+  margin:10px 0 2px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .detailpane { display:none; }
+.mv .map { margin-top:44px; }
+@container frame (min-width:700px) {
+  .mv .md { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,4fr); gap:0 64px; align-items:start; }
+  .mv .detailpane { display:block; position:sticky; top:24px; margin-top:44px; }
+  .mv .inlinepanel { display:none; }
+}
+
+/* per-view chrome */
+.b1 .nmrow { font-size:13px; font-weight:600; color:var(--mut); }
+.b1 .map { margin-top:38px; }
+.b3 .needline { display:flex; align-items:center; gap:12px; padding:12px 0; font-size:14px; }
+.b3 .needline + .needline { border-top:1px solid var(--line); }
+.b3 .needwrap { margin-bottom:14px; }
+.b3 .nmrow { display:flex; align-items:baseline; gap:10px; font-size:13px; font-weight:600; }
+.b3 .nmrow .num { margin-left:auto; }
+.b4 .nmrow { display:flex; align-items:baseline; gap:10px; font-size:13px; font-weight:600; }
+.b4 .next { margin-top:10px; font-size:13px; color:var(--mut); overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.b4 .next b { color:var(--ink); font-weight:600; }
+.b5 .hero-wrap { margin-top:6px; }
+.b5 .mrow { display:flex; align-items:center; gap:14px; margin-top:18px; }
+.b5 .mrow .nm { flex:none; width:88px; font-size:12px; font-weight:600; color:var(--mut);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.b5 .mrow .bw { flex:1; min-width:0; }
+.b5 .mrow .frac { flex:none; width:70px; text-align:right; font-size:13px; font-weight:700;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.b5 .mrow .frac .fogn { color:var(--mut); font-weight:400; font-size:10px; }
+.b0 .bcap { display:flex; gap:14px; margin-top:16px; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#522</b> · The maps screen · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<section class="view mv b2" data-view="fin" data-name="✓ · The maps screen">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv b1" data-view="b1" data-name="1 · Naked">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv b2" data-view="b2" data-name="2 · Numbered">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv b3" data-view="b3" data-name="3 · Needs first">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv b4" data-view="b4" data-name="4 · Next line">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv b5" data-view="b5" data-name="5 · One band">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+<section class="view mv b0" data-view="b0" data-name="0 · Baseline (r5)">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
+</div></div></div>
+
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button class="tog" id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button class="tog" id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* ---------- mock data: three maps, two repos ---------- */
+const MAPS = [
+  {
+    repo:"alp82/curia", name:"The UX map: the dashboard, Discord, and the way between them",
+    short:"ux map", num:"#511", closed:18, total:24, fog:2, ago:"12m", agoMin:12,
+    recent:[
+      { t:"#542", title:"The pane-driven rewind" },
+      { t:"#537", title:"The embedded terminal" }
+    ],
+    flight:[
+      { t:"#522", title:"The maps screen", typ:"prototype", state:"run", agent:"claude", mins:34, pr:{ n:"#574", draft:true } },
+      { t:"#544", title:"The subagent prototype: the meter and the bounds", typ:"prototype", state:"gate", mins:26, pr:{ n:"#571" } }
+    ],
+    frontier:[
+      { t:"#523", title:"The chat screen", typ:"prototype", model:"claude-opus-5",
+        kids:[ { t:"#527", title:"The navigation between the screens" } ] },
+      { t:"#545", title:"The delegation paragraph in the standing orders", typ:"grilling", model:"claude-opus-5",
+        kids:[ { t:"#546", title:"The subagent rollout on both lanes" } ] },
+      { t:"#549", title:"Mine the production journal for misrouted turns", typ:"research", model:"claude-haiku-4-5",
+        kids:[] }
+    ],
+    fogNotes:["reasoning-effort routing", "the shape of the build handoff"]
+  },
+  {
+    repo:"alp82/curia", name:"The deploy pipeline",
+    short:"deploy", num:"#480", closed:11, total:12, fog:0, ago:"3h", agoMin:180,
+    recent:[ { t:"#562", title:"The deploy verdict references its real issue" } ],
+    flight:[],
+    frontier:[
+      { t:"#491", title:"The rollback drill on the staging box", typ:"task", model:"gpt-5.6-sol", kids:[] }
+    ],
+    fogNotes:[]
+  },
+  {
+    repo:"alp82/aistack", name:"The measured layer",
+    short:"measured", num:"#29", closed:3, total:9, fog:4, ago:"8m", agoMin:8,
+    recent:[ { t:"#28", title:"The neighbors survey" } ],
+    flight:[
+      { t:"#30", title:"The ingest cut-over", typ:"task", state:"run", agent:"codex", mins:12,
+        ask:{ q:"Keep the raw rows after the cut?", mins:8 } }
+    ],
+    frontier:[
+      { t:"#31", title:"The measured layer gets a freshness stamp", typ:"task", model:"claude-sonnet-5",
+        kids:[ { t:"#32", title:"Stale readings gray out" }, { t:"#33", title:"The gauge legend" } ] },
+      { t:"#35", title:"Pick the store for the readings", typ:"grilling", model:"claude-opus-5", kids:[] }
+    ],
+    fogNotes:["alert thresholds", "the export shape", "backfill", "retention"]
+  }
+];
+const TYPES = ["grilling","prototype","research","task"];
+
+/* ---------- ui state ---------- */
+let filt = { repo:"all", typ:"all" };
+let sel = null;   /* { map: "#511" | "*", key: "walk"|"flight"|"take"|"wait"|"fog" } */
+
+function visMaps() {
+  return MAPS
+    .filter(m => filt.repo === "all" || m.repo === filt.repo)
+    .map(m => ({ ...m,
+      flight: m.flight.filter(f => filt.typ === "all" || f.typ === filt.typ),
+      frontier: m.frontier.filter(f => filt.typ === "all" || f.typ === filt.typ) }))
+    .filter(m => filt.typ === "all" || m.flight.length || m.frontier.length);
+}
+
+/* ---------- atoms ---------- */
+const route = f => `<span class="route">→ <b>${f.model}</b></span>`;
+const prMark = p => p ? `<a class="go" href="#" onclick="return false">pr ${p.n}${p.draft ? " draft" : ""} →</a>` : "";
+const gh = t => `<a class="go" href="#" onclick="return false">${t} →</a>`;
+const lhead = m => `<div class="mhead">
+  <div class="mfrac">${m.closed}<span class="of">/${m.total}</span>${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</div>
+  <div class="mtt"><span class="nm">${m.name}</span>
+    <span class="meta">${m.repo} · <a href="#" onclick="return false">${m.num} →</a></span></div>
+</div>`;
+const needsOf = m => m.flight.filter(f => f.state === "gate" || f.ask);
+function verdictHTML(maps) {
+  const needs = maps.reduce((a, m) => a + needsOf(m).length, 0);
+  const take = maps.reduce((a, m) => a + m.frontier.length, 0);
+  return `<div class="verdict">
+    <div><span class="v need">${needs}</span><span class="k">need you</span></div>
+    <div><span class="v take">${take}</span><span class="k">takeable</span></div>
+    <div><span class="v">${maps.length}</span><span class="k">maps</span></div>
+  </div>`;
+}
+function lineItems(m) {
+  const items = [];
+  m.flight.forEach(f => items.push({ kind: f.state === "gate" ? "gate" : f.ask ? "ask" : "run", f }));
+  m.frontier.forEach(f => items.push({ kind: "take", f }));
+  m.frontier.forEach(f => f.kids.forEach(k => items.push({ kind: "wait", f: k, behind: f.t })));
+  return items;
+}
+const GROUPS = ["walk","flight","take","wait","fog"];
+const isGroupKey = k => GROUPS.includes(k);
+const groupName = k => ({ walk:"walked", flight:"in flight", take:"takeable", wait:"blocked", fog:"the fog" })[k];
+
+/* ---------- the band ---------- */
+function bandSegs(m) {
+  const items = lineItems(m);
+  const flight = items.filter(i => ["run","gate","ask"].includes(i.kind));
+  const waits = items.filter(i => i.kind === "wait");
+  const needs = needsOf(m).length > 0;
+  return [
+    { key:"walk", cls:"b-walk", n:m.closed, word:"walked" },
+    { key:"flight", cls:"b-flight" + (needs ? " needs" : ""), n:flight.length, word:needs ? "needs you" : "in flight" },
+    { key:"take", cls:"b-take", n:m.frontier.length, word:"takeable" },
+    { key:"wait", cls:"b-wait", n:waits.length, word:"blocked" },
+    { key:"fog", cls:"b-fog", n:m.fog, word:"fog" }
+  ].filter(x => x.n > 0);
+}
+function bandHTML(m, s, o = {}) {
+  const segs = bandSegs(m);
+  const total = segs.reduce((a, x) => a + x.n, 0);
+  const selHere = s && s.map === (o.selfKey || m.num);
+  return `<div class="band ${o.cls || ""}">${segs.map(x => `<button
+    class="bseg ${x.cls} ${selHere && s.key === x.key ? "sel" : ""}" style="flex-grow:${x.n}"
+    data-sel="${o.selfKey || m.num}|${x.key}" aria-label="${x.word} ${x.n}">${
+      o.micro ? "" : `${x.n}${o.words && x.n / total >= .2 ? `<span class="wd">${x.word}</span>` : ""}`
+    }</button>`).join("")}</div>`;
+}
+
+/* ---------- the detail panel ---------- */
+function groupRows(m, key, full) {
+  if (key === "walk") return `
+    ${m.recent.map(r => `<div class="prow dim"><span class="num">✓</span><span class="ttl">${r.title}</span>${gh(r.t)}</div>`).join("")}
+    <div class="prow dim"><span class="num">… ${m.closed - m.recent.length} more on GitHub</span></div>`;
+  if (key === "fog") return m.fogNotes.map(n =>
+    `<div class="prow dim"><span class="num">╌</span><span class="ttl">${n}</span><span class="word">not yet specified</span></div>`).join("");
+  if (key === "flight") {
+    const rows = m.flight.map(f => {
+      if (f.state === "gate") return `
+        <div class="prow"><span class="chip">gate</span><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+        <div class="prow dim"><span class="ttl">waits ${f.mins}m for your review</span>${prMark(f.pr)}<a class="go" href="#" onclick="return false">preview →</a></div>`;
+      return `
+        <div class="prow"><span class="dot on"></span><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+        <div class="prow dim"><span class="word run">runs</span><span class="ttl">${f.agent} · ${f.mins}m</span>${prMark(f.pr)}</div>
+        ${f.ask ? `<div class="prow"><span class="chip">ask</span><span class="ttl">${f.ask.q}</span><span class="num">${f.ask.mins}m</span><a class="go" href="#" onclick="return false">answer →</a></div>` : ""}`;
+    });
+    return rows.join("") || `<div class="prow dim"><span class="ttl">nothing in flight</span></div>`;
+  }
+  if (key === "take") return m.frontier.map(f => `
+    <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+    <div class="prow dim"><span class="ttl">${f.typ} · ${route(f)}</span><a class="go" href="#" onclick="return false">start →</a></div>
+    ${full ? f.kids.map(k => `<div class="prow dim"><span class="word">unblocks</span><span class="ttl">${k.title}</span>${gh(k.t)}</div>`).join("") : ""}`).join("")
+    || `<div class="prow dim"><span class="ttl">nothing takeable</span></div>`;
+  return m.frontier.flatMap(f => f.kids.map(k => `
+    <div class="prow dim"><i class="g-wait"></i><span class="ttl">${k.title}<span class="sub">${k.t} · behind ${f.t}</span></span></div>`)).join("")
+    || `<div class="prow dim"><span class="ttl">nothing blocked</span></div>`;
+}
+function stopPanel(maps, s) {
+  if (s.map === "*") {
+    const withRows = maps.filter(m => bandSegs(m).some(x => x.key === s.key));
+    return `<div class="panel">${withRows.map(m =>
+      `<div class="psub">${m.short}</div>${groupRows(m, s.key, true)}`).join("")
+      || `<div class="prow dim"><span class="ttl">nothing here</span></div>`}</div>`;
+  }
+  const m = maps.find(x => x.num === s.map);
+  return m ? `<div class="panel">${groupRows(m, s.key, true)}</div>` : "";
+}
+function paneFor(maps, s) {
+  if (!s) return "";
+  const label = s.map === "*" ? "all maps" : (maps.find(x => x.num === s.map) || {}).short || "";
+  return `<div class="detailpane"><div class="phead">${label} · ${groupName(s.key)}</div>${stopPanel(maps, s)}</div>`;
+}
+const inlinePanel = (maps, s, mapKey) => s && s.map === mapKey
+  ? `<div class="inlinepanel">${stopPanel(maps, s)}</div>` : "";
+
+function currentSel(maps, allowStar) {
+  if (sel && isGroupKey(sel.key) &&
+      (maps.some(m => m.num === sel.map) || (allowStar && sel.map === "*"))) return sel;
+  if (allowStar) return { map:"*", key: maps.some(m => needsOf(m).length) ? "flight" : "take" };
+  const m = maps.find(x => needsOf(x).length);
+  if (m) return { map: m.num, key: "flight" };
+  const t = maps.find(x => x.frontier.length);
+  return t ? { map: t.num, key: "take" } : (maps.length ? { map: maps[0].num, key: "walk" } : null);
+}
+
+/* ---------- filters row ---------- */
+function filtersHTML(kind) {
+  if (kind === "none") return "";
+  const repos = [...new Set(MAPS.map(m => m.repo))];
+  const chips = `<button class="fchip ${filt.repo === "all" ? "on" : ""}" data-repo="all">all projects</button>
+    ${repos.map(r => `<button class="fchip ${filt.repo === r ? "on" : ""}" data-repo="${r}">${r.split("/")[1]}</button>`).join("")}`;
+  if (kind === "chips") return chips;
+  return chips + `<select data-typ>
+      <option value="all">all types</option>
+      ${TYPES.map(t => `<option value="${t}" ${filt.typ === t ? "selected" : ""}>${t}</option>`).join("")}
+    </select>`;
+}
+
+/* ================================================================
+   FIN — THE MAPS SCREEN, as decided in round 6:
+   the numbered cut, needs-you maps first then most recent event,
+   repo chips only, the routed model kept
+   ================================================================ */
+const finHead = m => `<div class="mhead">
+  <div class="mfrac">${m.closed}<span class="of">/${m.total}</span>${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</div>
+  <div class="mtt"><span class="nm">${m.name}</span>
+    <span class="meta">${m.repo} · ${m.ago} ago · <a href="#" onclick="return false">${m.num} →</a></span></div>
+</div>`;
+function renderFin(maps) {
+  const sorted = [...maps].sort((a, b) =>
+    (needsOf(b).length ? 1 : 0) - (needsOf(a).length ? 1 : 0) || a.agoMin - b.agoMin);
+  const s = currentSel(sorted);
+  return `<div class="md"><div class="master">
+    ${sorted.map(m => `<div class="map">
+      ${finHead(m)}
+      ${bandHTML(m, s, { words:true })}
+      ${inlinePanel(sorted, s, m.num)}
+    </div>`).join("")}
+  </div>${paneFor(sorted, s)}</div>`;
+}
+
+/* ================================================================
+   B1 — NAKED: names and bands, nothing else
+   ================================================================ */
+function renderB1(maps) {
+  const s = currentSel(maps);
+  return `<div class="md"><div class="master">
+    ${maps.map(m => `<div class="map">
+      <div class="nmrow">${m.name}</div>
+      ${bandHTML(m, s)}
+      ${inlinePanel(maps, s, m.num)}
+    </div>`).join("")}
+  </div>${paneFor(maps, s)}</div>`;
+}
+
+/* ================================================================
+   B2 — NUMBERED: the stat head, a self-labeling band
+   ================================================================ */
+function renderB2(maps) {
+  const s = currentSel(maps);
+  return `<div class="md"><div class="master">
+    ${maps.map(m => `<div class="map">
+      ${lhead(m)}
+      ${bandHTML(m, s, { words:true })}
+      ${inlinePanel(maps, s, m.num)}
+    </div>`).join("")}
+  </div>${paneFor(maps, s)}</div>`;
+}
+
+/* ================================================================
+   B3 — NEEDS FIRST: one alert line above calm bands
+   ================================================================ */
+function renderB3(maps) {
+  const s = currentSel(maps);
+  const needs = maps.flatMap(m => needsOf(m).map(f => ({ m, f })));
+  return `<div class="needwrap">${needs.map(({ m, f }) => f.state === "gate"
+    ? `<div class="needline"><span class="chip">gate</span><span class="ttl">${f.title}<span class="sub">${m.short} · waits ${f.mins}m</span></span>${prMark(f.pr)}</div>`
+    : `<div class="needline"><span class="chip">ask</span><span class="ttl">${f.ask.q}<span class="sub">${m.short} · ${f.title} · ${f.ask.mins}m</span></span><a class="go" href="#" onclick="return false">answer →</a></div>`).join("")
+    || `<div class="needline"><span class="num">nothing needs you</span></div>`}</div>
+  <div class="md"><div class="master">
+    ${maps.map(m => `<div class="map">
+      <div class="nmrow"><span class="ttl">${m.name}</span><span class="num">${m.closed}/${m.total}${m.fog ? "+" + m.fog : ""}</span></div>
+      ${bandHTML(m, s)}
+      ${inlinePanel(maps, s, m.num)}
+    </div>`).join("")}
+  </div>${paneFor(maps, s)}</div>`;
+}
+
+/* ================================================================
+   B4 — NEXT LINE: the band plus the one line that acts
+   ================================================================ */
+function renderB4(maps) {
+  const s = currentSel(maps);
+  return `<div class="md"><div class="master">
+    ${maps.map(m => {
+      const next = m.frontier[0];
+      return `<div class="map">
+      <div class="nmrow"><span class="ttl">${m.name}</span><span class="num">${m.closed}/${m.total}${m.fog ? "+" + m.fog : ""}</span></div>
+      ${bandHTML(m, s)}
+      <div class="next">${next ? `next: <b>${next.title}</b> ${route(next)} <a class="go" href="#" onclick="return false">start →</a>`
+        : m.flight.length ? "nothing takeable — work is in flight" : "all walked"}</div>
+      ${inlinePanel(maps, s, m.num)}
+    </div>`; }).join("")}
+  </div>${paneFor(maps, s)}</div>`;
+}
+
+/* ================================================================
+   B5 — ONE BAND: the sum on top, micro bands per map
+   ================================================================ */
+function renderB5(maps) {
+  const s = currentSel(maps, true);
+  const sum = {
+    num:"*", short:"all maps", name:"all maps",
+    closed: maps.reduce((a, m) => a + m.closed, 0),
+    total: maps.reduce((a, m) => a + m.total, 0),
+    fog: maps.reduce((a, m) => a + m.fog, 0),
+    recent: maps.flatMap(m => m.recent).slice(0, 2),
+    flight: maps.flatMap(m => m.flight),
+    frontier: maps.flatMap(m => m.frontier),
+    fogNotes: maps.flatMap(m => m.fogNotes)
+  };
+  return `<div class="md"><div class="master"><div class="hero-wrap">
+    ${bandHTML(sum, s, { cls:"hero", words:true, selfKey:"*" })}
+    ${s && s.map === "*" ? `<div class="inlinepanel">${stopPanel(maps, s)}</div>` : ""}
+    ${maps.map(m => `<div>
+      <div class="mrow">
+        <span class="nm">${m.short}</span>
+        <span class="bw">${bandHTML(m, s, { micro:true })}</span>
+        <span class="frac">${m.closed}/${m.total}${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</span>
+      </div>
+      ${inlinePanel(maps, s, m.num)}
+    </div>`).join("")}
+  </div></div>${paneFor(maps, s)}</div>`;
+}
+
+/* ================================================================
+   B0 — the round-5 bands baseline
+   ================================================================ */
+function renderB0(maps) {
+  const s = currentSel(maps);
+  return `<div class="md"><div class="master">
+    ${maps.map(m => `<div class="map">
+      ${lhead(m)}
+      ${bandHTML(m, s)}
+      ${inlinePanel(maps, s, m.num)}
+    </div>`).join("")}
+    <div class="bcap">walked · in flight (amber needs you) · takeable · blocked · fog</div>
+  </div>${paneFor(maps, s)}</div>`;
+}
+
+/* ---------- shell wiring ---------- */
+const RENDER = { fin: renderFin, b1: renderB1, b2: renderB2, b3: renderB3, b4: renderB4, b5: renderB5, b0: renderB0 };
+const FILTER_KIND = { fin:"chips", b1:"none", b2:"full", b3:"none", b4:"chips", b5:"none", b0:"full" };
+const VERDICT_ON = { b0:true };
+const VIEWS = ["fin", "b1", "b2", "b3", "b4", "b5", "b0"];
+const frame = document.getElementById("frame");
+const wrap = document.getElementById("wrap");
+const q = new URLSearchParams(location.search);
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "fin";
+let mode = q.get("mode") === "light" ? "light" : "dark";
+let w = q.get("w") === "desktop" ? "desktop" : "phone";
+
+function render() {
+  document.querySelectorAll(".view").forEach(sec => {
+    const on = sec.dataset.view === v;
+    sec.classList.toggle("active", on);
+    if (!on) return;
+    const maps = visMaps();
+    sec.querySelector("[data-verdict]").innerHTML = VERDICT_ON[v] ? verdictHTML(maps) : "";
+    sec.querySelector("[data-filters]").innerHTML = filtersHTML(FILTER_KIND[v]);
+    sec.querySelector("[data-body]").innerHTML =
+      maps.length ? RENDER[v](maps) : `<div class="fnone">no map matches the filter</div>`;
+    sec.querySelectorAll("[data-repo]").forEach(b =>
+      b.onclick = () => { filt.repo = b.dataset.repo; render(); });
+    const selEl = sec.querySelector("[data-typ]");
+    if (selEl) selEl.onchange = () => { filt.typ = selEl.value; render(); };
+    sec.querySelectorAll("[data-sel]").forEach(b =>
+      b.onclick = e => {
+        e.stopPropagation();
+        const [mn, k] = b.dataset.sel.split("|");
+        sel = { map: mn, key: k };
+        render();
+      });
+  });
+  frame.className = "frame w-" + w + " " + mode;
+  document.getElementById("vname").textContent =
+    document.querySelector(".view.active").dataset.name;
+  document.getElementById("mode").textContent = mode === "dark" ? "☾" : "☀";
+  document.getElementById("width").textContent = w === "phone" ? "📱" : "🖥";
+  const p = new URLSearchParams({ v, mode, w });
+  history.replaceState(null, "", "?" + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === "desktop" ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = "scale(" + s + ")";
+  wrap.style.height = (frame.offsetHeight * s) + "px";
+}
+function cycle(dir) {
+  v = VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+document.getElementById("mode").onclick = () => { mode = mode === "dark" ? "light" : "dark"; render(); };
+document.getElementById("width").onclick = () => { w = w === "phone" ? "desktop" : "phone"; render(); };
+window.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+window.addEventListener("resize", rescale);
+render();
+</script>
+</body>
+</html>
