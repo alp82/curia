@@ -6,10 +6,11 @@
 <title>#522 The maps screen — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#522 "The maps screen".
-  Round 6: bands won round 5. Five reductions of the chrome AROUND the band:
-  naked, numbered, needs first, next line, one band. Tap a segment for
-  detail — inline on the phone, a sticky pane on desktop. The round-5
-  bands view sits at the end of the cycle. V6 direction from #519.
+  The decided screen leads the cycle: the numbered band cut, needs-you
+  maps first then most recent event, repo chips only, the routed model
+  kept. Tap a segment for detail — inline on the phone, a sticky pane on
+  desktop. Behind it: the five round-6 chrome cuts and the round-5
+  bands baseline, kept for reference. V6 direction from #519.
   Switch via ?v=, width via ?w=, color via ?mode=. Static mock data.
   Filters and taps work; every link is dead on purpose.
 -->
@@ -185,6 +186,13 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
+<section class="view mv b2" data-view="fin" data-name="✓ · The maps screen">
+  <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
+  <div data-verdict></div>
+  <div class="filters" data-filters></div>
+  <div data-body></div>
+</section>
+
 <section class="view mv b1" data-view="b1" data-name="1 · Naked">
   <div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>
   <div data-verdict></div>
@@ -244,7 +252,7 @@ svg { display:block; }
 const MAPS = [
   {
     repo:"alp82/curia", name:"The UX map: the dashboard, Discord, and the way between them",
-    short:"ux map", num:"#511", closed:18, total:24, fog:2,
+    short:"ux map", num:"#511", closed:18, total:24, fog:2, ago:"12m", agoMin:12,
     recent:[
       { t:"#542", title:"The pane-driven rewind" },
       { t:"#537", title:"The embedded terminal" }
@@ -265,7 +273,7 @@ const MAPS = [
   },
   {
     repo:"alp82/curia", name:"The deploy pipeline",
-    short:"deploy", num:"#480", closed:11, total:12, fog:0,
+    short:"deploy", num:"#480", closed:11, total:12, fog:0, ago:"3h", agoMin:180,
     recent:[ { t:"#562", title:"The deploy verdict references its real issue" } ],
     flight:[],
     frontier:[
@@ -275,7 +283,7 @@ const MAPS = [
   },
   {
     repo:"alp82/aistack", name:"The measured layer",
-    short:"measured", num:"#29", closed:3, total:9, fog:4,
+    short:"measured", num:"#29", closed:3, total:9, fog:4, ago:"8m", agoMin:8,
     recent:[ { t:"#28", title:"The neighbors survey" } ],
     flight:[
       { t:"#30", title:"The ingest cut-over", typ:"task", state:"run", agent:"codex", mins:12,
@@ -429,6 +437,29 @@ function filtersHTML(kind) {
 }
 
 /* ================================================================
+   FIN — THE MAPS SCREEN, as decided in round 6:
+   the numbered cut, needs-you maps first then most recent event,
+   repo chips only, the routed model kept
+   ================================================================ */
+const finHead = m => `<div class="mhead">
+  <div class="mfrac">${m.closed}<span class="of">/${m.total}</span>${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</div>
+  <div class="mtt"><span class="nm">${m.name}</span>
+    <span class="meta">${m.repo} · ${m.ago} ago · <a href="#" onclick="return false">${m.num} →</a></span></div>
+</div>`;
+function renderFin(maps) {
+  const sorted = [...maps].sort((a, b) =>
+    (needsOf(b).length ? 1 : 0) - (needsOf(a).length ? 1 : 0) || a.agoMin - b.agoMin);
+  const s = currentSel(sorted);
+  return `<div class="md"><div class="master">
+    ${sorted.map(m => `<div class="map">
+      ${finHead(m)}
+      ${bandHTML(m, s, { words:true })}
+      ${inlinePanel(sorted, s, m.num)}
+    </div>`).join("")}
+  </div>${paneFor(sorted, s)}</div>`;
+}
+
+/* ================================================================
    B1 — NAKED: names and bands, nothing else
    ================================================================ */
 function renderB1(maps) {
@@ -538,14 +569,14 @@ function renderB0(maps) {
 }
 
 /* ---------- shell wiring ---------- */
-const RENDER = { b1: renderB1, b2: renderB2, b3: renderB3, b4: renderB4, b5: renderB5, b0: renderB0 };
-const FILTER_KIND = { b1:"none", b2:"full", b3:"none", b4:"chips", b5:"none", b0:"full" };
+const RENDER = { fin: renderFin, b1: renderB1, b2: renderB2, b3: renderB3, b4: renderB4, b5: renderB5, b0: renderB0 };
+const FILTER_KIND = { fin:"chips", b1:"none", b2:"full", b3:"none", b4:"chips", b5:"none", b0:"full" };
 const VERDICT_ON = { b0:true };
-const VIEWS = ["b1", "b2", "b3", "b4", "b5", "b0"];
+const VIEWS = ["fin", "b1", "b2", "b3", "b4", "b5", "b0"];
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "b1";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "fin";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 
