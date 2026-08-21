@@ -11,6 +11,15 @@
   anatomy. Search works live over a static corpus built from the real map.
   Every tap shows WHERE it would land; every link is dead on purpose.
   Switch via ?v=, width via ?w=, color via ?mode=. V6 language from #519.
+
+  DECIDED (round 1, all as recommended): variant 1, the lens overlay.
+  A lens button in every screen's header opens a full-screen search over
+  the current screen — no nav slot taken, the frame stays with #560.
+  The row is the kind word column: every row names its kind in a word.
+  The landing rule holds: a ticket or a chat hit opens the ticket's chat
+  thread, a map opens the maps screen, a journal hit opens the feed at
+  that entry, a decision opens the resolution on GitHub.
+  Variants 2 and 3 stay behind for reference.
 -->
 <style>
 /* ============ shell (not part of the design) ============ */
@@ -192,7 +201,7 @@ a { color:inherit; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv v1" data-view="v1" data-name="1 · The lens overlay"></section>
+<section class="view mv v1" data-view="v1" data-name="✓ · The lens overlay (decided)"></section>
 <section class="view mv v2" data-view="v2" data-name="2 · The search screen"></section>
 <section class="view mv v3" data-view="v3" data-name="3 · On the home"></section>
 
