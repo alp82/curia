@@ -1,0 +1,8 @@
+ /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75df92bd7/scratchpad/ms
+ -pi/home/.pi/agent/bin/fd
+ Warning: tmux extended-keys is off. Modified Enter keys may not work. Add `set
+ -g extended-keys on` to ~/.tmux.conf and restart tmux.
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75df92bd7/scratchpad/m...
+0.0%/128k (auto)                                                       standin-1

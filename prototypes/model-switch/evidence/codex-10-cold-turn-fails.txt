@@ -1,0 +1,8 @@
+  performance.
+› Say elder and stop.
+⚠ Model metadata for `standin-cold` not found. Defaulting to fallback metadata;
+  this can degrade performance and cause issues.
+■ unexpected status 404 Not Found: The model `standin-cold` does not exist or
+you do not have access to it., url: http://127.0.0.1:9106/v1/responses
+› Explain this codebase
+  standin-cold medium · /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb…

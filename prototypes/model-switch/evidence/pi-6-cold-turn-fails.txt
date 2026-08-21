@@ -1,0 +1,10 @@
+ ok (req 3, model standin-2)
+ Model: standin-cold
+ Say cherry and stop.
+ Error: 404: {"message":"The model `standin-cold` does not exist or you do not
+ have access to
+ it.","type":"invalid_request_error","param":"model","code":"model_not_found"}
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75df92bd7/scratchpad/m...
+0.0%/128k (auto)                                                    standin-cold

@@ -1,0 +1,20 @@
+
+✻ Sautéed for 0s
+
+❯ /model standin-2
+  ⎿  Unable to validate model: undefined is not an object (evaluating
+     'z.usage.input_tokens')
+
+❯ /model standin-2
+
+────────────────────────────────────────────────────────────────────────────────
+  Switch model?
+  Your next response will be slower and use more tokens
+
+  This conversation is cached for the current model. Switching to standin-2
+  means the full history gets re-read on your next message.
+
+  ❯ 1. Yes, switch to standin-2
+    2. No, go back
+
+

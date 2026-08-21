@@ -1,0 +1,4 @@
+one rollout file: rollout-2026-08-20T20-34-01-01a020e1-75cd-70f0-9b85-2e2ac39428df.jsonl
+turn_context model: standin-1 effort: null
+turn_context model: standin-1 effort: null
+turn_context model: gpt-5.6-terra effort: medium

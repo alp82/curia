@@ -1,0 +1,5 @@
+typed: /model opus
+pane: Set model to Opus 5 and saved as your default for new sessions
+wire (req-16): model claude-opus-5
+settings.json: "model": "opus"
+transcript last assistant model: claude-opus-5

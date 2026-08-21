@@ -1,0 +1,24 @@
+╭─── Claude Code v2.1.220 ─────────────────────────────────────────────────────╮
+│                                   │ Tips for getting started                 │
+│           Welcome back!           │ Ask Claude to create a new app or clone… │
+│                                   │ ──────────────────────────────────────── │
+│              ▐▛███▜▌              │ What's new                               │
+│             ▝▜█████▛▘             │ Check the Claude Code changelog for upd… │
+│               ▘▘ ▝▝               │                                          │
+│                                   │                                          │
+│   standin-1 · API Usage Billing   │                                          │
+│    /…/scratchpad/ms-claude/cwd    │                                          │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+
+────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and re…
+
+
+
+
+
+

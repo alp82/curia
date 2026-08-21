@@ -1,0 +1,8 @@
+ Say banana and stop.
+ ok (req 2, model standin-2)
+ remember the pelican/model
+ ok (req 3, model standin-2)
+────────────────────────────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75df92bd7/scratchpad/m...
+0.0%/128k (auto)                                                       standin-2

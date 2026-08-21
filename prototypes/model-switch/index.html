@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#561 — The model-switch prototype</title>
+<style>
+  /* PROTOTYPE — throwaway mock for alp82/curia#561. Not production code. */
+  :root {
+    --bg: #16181d; --panel: #1e2128; --line: #2f333d; --ink: #e3e6ea;
+    --dim: #98a0ad; --accent: #57f287; --link: #7fb2ff; --warn: #fee75c;
+    --chat: #313338; --chat-ink: #dbdee1; --chat-dim: #949ba4; --chat-name: #f2f3f5;
+    --bot-badge: #5865f2; --btn-secondary: #4e5058; --btn-success: #248046;
+    --btn-danger: #da373c; --code-bg: #2b2d31;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --gg: "gg sans", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 0 0 4rem; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%; }
+  header.page { padding: 1.6rem 1.1rem 1.3rem; border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg)); }
+  header.page h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header.page .tag { display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--accent); letter-spacing: .04em; }
+  header.page p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2.sec { margin: 2.6rem 0 .4rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700; }
+  h2.sec .n { color: var(--accent); margin-right: .4rem; }
+  p.lead { margin: .2rem 0 1rem; color: var(--dim); font-size: .93rem; }
+  p.lead b { color: var(--ink); }
+  code { background: var(--code-bg); border-radius: 4px; padding: .06rem .3rem; font: .84em var(--mono); }
+
+  /* verdict table */
+  table.verdict { width: 100%; border-collapse: collapse; font-size: .85rem; margin: .6rem 0 1rem; }
+  table.verdict th, table.verdict td { text-align: left; padding: .45rem .5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.verdict th { color: var(--dim); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  table.verdict td.h { font-family: var(--mono); color: var(--accent); white-space: nowrap; }
+  table.verdict .ok { color: var(--accent); }
+  table.verdict .warn { color: var(--warn); }
+  .wrap { overflow-x: auto; }
+
+  /* Discord transcript chrome (the #520 method) */
+  .thread { background: var(--chat); border: 1px solid #232428; border-radius: 12px;
+    padding: 0 0 .8rem; margin: 0 0 1rem; overflow: hidden; font-family: var(--gg); }
+  .thread-top { padding: .55rem .9rem .5rem; border-bottom: 1px solid #26282c;
+    font-size: .86rem; color: var(--chat-dim); display: flex; gap: .45rem; align-items: center; }
+  .thread-top .tname { color: var(--chat-name); font-weight: 600; }
+  .msg { padding: .6rem .9rem 0; display: flex; gap: .75rem; }
+  .avatar { flex: 0 0 2.3rem; width: 2.3rem; height: 2.3rem; border-radius: 50%;
+    display: grid; place-items: center; font-size: .95rem; font-weight: 700;
+    user-select: none; color: #fff; font-family: var(--gg); }
+  .avatar.curia { background: #23508d; }
+  .avatar.agent { background: #5b3e8f; }
+  .avatar.op { background: #7a5c2e; }
+  .body { min-width: 0; flex: 1; }
+  .who { font-size: .93rem; color: var(--chat-name); font-weight: 600; }
+  .who .app { background: var(--bot-badge); color: #fff; border-radius: 4px;
+    font-size: .6rem; font-weight: 700; padding: .1rem .3rem; margin-left: .35rem;
+    vertical-align: 2px; letter-spacing: .02em; }
+  .who .ts { color: var(--chat-dim); font-weight: 400; font-size: .72rem; margin-left: .45rem; }
+  .txt { color: var(--chat-ink); font-size: .92rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .txt p { margin: .3rem 0; }
+  .txt .small { font-size: .78rem; color: var(--chat-dim); }
+  .txt a { color: var(--link); text-decoration: none; }
+  .edited { color: var(--chat-dim); font-size: .68rem; margin-left: .3rem; }
+  .btnrow { display: flex; gap: .45rem; flex-wrap: wrap; margin: .5rem 0 .15rem; }
+  .btn { border: none; border-radius: 6px; padding: .42rem .8rem;
+    font: 500 .8rem/1.1 var(--gg); color: #fff; cursor: default; white-space: nowrap; }
+  .btn.sec { background: var(--btn-secondary); }
+  .btn.ok { background: var(--btn-success); }
+  .btn.no { background: var(--btn-danger); }
+  .edits { margin: .4rem 0 0; padding: .4rem .55rem; border-radius: 6px;
+    background: #2b2d31; font-size: .76rem; color: var(--chat-dim); }
+  .edits b { color: var(--chat-ink); font-weight: 600; }
+  .edits .st { display: block; padding: .06rem 0; }
+  .edits .st::before { content: "· "; color: #4e5058; }
+  .note { margin: .6rem .9rem .2rem; padding: .5rem .65rem; border-radius: 6px;
+    background: rgba(87,242,135,.06); border: 1px solid rgba(87,242,135,.18);
+    color: var(--dim); font-size: .8rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .note b { color: var(--accent); }
+  .note.warn { background: rgba(254,231,92,.05); border-color: rgba(254,231,92,.2); }
+  .note.warn b { color: var(--warn); }
+
+  /* the Discord select menu, as #431 built it */
+  .selwrap { margin: .45rem 0 .1rem; max-width: 26rem; }
+  .selbtn { width: 100%; text-align: left; background: #1e1f22; color: var(--chat-ink);
+    border: 1px solid #26282c; border-radius: 8px; padding: .5rem .7rem;
+    font: 500 .84rem/1.2 var(--gg); display: flex; justify-content: space-between; }
+  .selbtn .caret { color: var(--chat-dim); }
+  .selmenu { background: #1e1f22; border: 1px solid #26282c; border-radius: 8px;
+    margin-top: .25rem; overflow: hidden; }
+  .selopt { padding: .5rem .7rem; font-size: .84rem; border-bottom: 1px solid #26282c; }
+  .selopt:last-child { border-bottom: none; }
+  .selopt .l { color: var(--chat-name); font-weight: 600; }
+  .selopt .d { color: var(--chat-dim); font-size: .76rem; }
+  .selopt.dis { opacity: .45; }
+  .selopt.now { background: rgba(88,101,242,.12); }
+
+  /* evidence panels */
+  .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: .8rem .95rem; margin: 0 0 .85rem; }
+  .lane h3 { margin: 0 0 .35rem; font-size: .95rem; display: flex; gap: .5rem; align-items: baseline; }
+  .lane h3 code { color: var(--accent); background: none; padding: 0; }
+  .lane h3 .v { color: var(--dim); font: 500 .74rem/1 var(--mono); }
+  .lane ul { margin: .3rem 0 .1rem; padding-left: 1.1rem; font-size: .86rem; color: var(--ink); }
+  .lane li { margin: .22rem 0; }
+  .lane li b { color: var(--accent); }
+  .lane li b.w { color: var(--warn); }
+  .lane .pane { background: #0f1115; border: 1px solid var(--line); border-radius: 6px;
+    padding: .5rem .6rem; margin: .45rem 0; font: .74rem/1.5 var(--mono);
+    color: #b9c0cc; overflow-x: auto; white-space: pre; }
+  .lane .pending { color: var(--warn); font-size: .86rem; }
+  nav.toc { margin: 1rem 0 0; font-size: .9rem; }
+  nav.toc a { color: var(--link); text-decoration: none; display: inline-block; margin: 0 .9rem .3rem 0; }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <span class="tag">alp82/curia#561</span>
+  <h1>The model-switch prototype: changing a live agent's model, per harness</h1>
+  <p>Every harness claim on this page comes off a real run in this container: a harness in a
+     detached tmux pane, driven blind through the daemon's own paced write path, talking to a
+     local stand-in server that logs every request whole. The model a turn states is read off
+     the wire, never off the pane. <code>findings.md</code> beside this file is the note the
+     build handoff reads.</p>
+  <nav class="toc">
+    <a href="#verdict">1 · Verdict</a>
+    <a href="#mock">2 · The switch on the status line</a>
+    <a href="#lanes">3 · The evidence, per lane</a>
+  </nav>
+</header>
+
+<main>
+
+<h2 class="sec" id="verdict"><span class="n">1</span> Verdict at a glance</h2>
+<div class="wrap">
+<table class="verdict">
+  <tr><th>lane</th><th>mid-session switch</th><th>refused model</th><th>meter survives</th></tr>
+  <tr>
+    <td class="h">claude</td>
+    <td><span class="ok">yes</span> — <code>/model &lt;id&gt;</code> + one confirm</td>
+    <td><span class="ok">refused at the switch</span>, API error in the pane</td>
+    <td><span class="ok">yes</span> — same file, <code>message.model</code> flips</td>
+  </tr>
+  <tr>
+    <td class="h">codex</td>
+    <td><span class="ok">yes</span> — the <code>/model</code> picker (catalog only)</td>
+    <td><span class="warn">accepted; the NEXT turn fails</span> with the API error</td>
+    <td><span class="ok">yes</span> — same rollout, <code>turn_context.model</code> flips</td>
+  </tr>
+  <tr>
+    <td class="h">opencode</td>
+    <td><span class="ok">yes</span> — the <code>/models</code> picker, type-to-filter</td>
+    <td><span class="warn">accepted; the NEXT turn fails</span> with the API error</td>
+    <td><span class="ok">yes</span> — same store, <code>modelID</code> per message</td>
+  </tr>
+  <tr>
+    <td class="h">pi</td>
+    <td><span class="ok">yes</span> — the <code>/model</code> picker, type-to-filter</td>
+    <td><span class="warn">accepted; the NEXT turn fails</span> with the API error</td>
+    <td><span class="ok">yes</span> — same session file, <code>model_change</code> events</td>
+  </tr>
+</table>
+</div>
+<p class="lead">One hazard holds on all four lanes: a command typed into a non-empty
+   composer concatenates with the queued text and goes to the model as prose. The cure is the
+   same everywhere — <b>Ctrl+U cuts the composer, the switch runs, then the queued text goes
+   back</b>: Ctrl+Y pastes it on claude, codex and pi, and on opencode the daemon retypes
+   it.</p>
+
+<h2 class="sec" id="mock"><span class="n">2</span> The switch on the Discord status line</h2>
+<p class="lead">The #544 moment, retold with the control in place: the agent hits the Fable
+   cap mid-ticket. The status line already carries the mechanics and the buttons (#520,
+   shape S3), so the switch is one more button there — <b>model</b> — and it opens a select
+   of routing labels, the same vocabulary <code>/start</code> speaks.</p>
+
+<div class="thread">
+  <div class="thread-top">🧵 <span class="tname">🎫 544 · curia · task</span></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">13:58</span></div>
+    <div class="txt"><p class="small">⚠️ <code>fable capped</code> · claude-fable-5 · ctx 41% · 7d 🟥 ▓▓▓▓▓▓▓▓▓┃█ 100% <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">🔗 preview</button><button class="btn sec">chat</button><button class="btn sec">ticket</button><button class="btn sec">model</button></div>
+      <div class="edits"><b>The status line, one small-print message edited in place.</b>
+        <span class="st">the model on the line is what the transcript states — the model-name rule</span>
+        <span class="st">the <b>model</b> button is new; the rest is #520 as decided</span></div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar agent">544</div><div class="body">
+    <div class="who">curia-544 <span class="app">APP</span><span class="ts">13:58</span></div>
+    <div class="txt"><p>⚠️ The provider refused the turn: "You've reached your Fable 5 limit." The work stands at the failing test.</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar op">R</div><div class="body">
+    <div class="who">rakyi <span class="ts">14:01</span></div>
+    <div class="txt"><p class="small"><i>presses <b>model</b> on the status line</i></p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">14:01</span></div>
+    <div class="txt">
+      <p>Switch <code>curia-544</code> to which model? The conversation and the worktree stand either way.</p>
+      <div class="selwrap">
+        <div class="selbtn"><span>Pick a model…</span><span class="caret">▾</span></div>
+        <div class="selmenu">
+          <div class="selopt now"><div class="l">fable — running now</div><div class="d">claude-fable-5 · 7d window spent, cooling until Mon 09:00</div></div>
+          <div class="selopt"><div class="l">opus</div><div class="d">claude-opus-5 · the fallback chain's next step</div></div>
+          <div class="selopt"><div class="l">sonnet</div><div class="d">claude-sonnet-5</div></div>
+          <div class="selopt"><div class="l">gpt</div><div class="d">gpt-5.6-sol · crosses to the openai account</div></div>
+        </div>
+      </div>
+      <p class="small">The labels are the routing vocabulary. The small print under each is
+      <code>models.&lt;label&gt;.id</code> — the name the harness is asked for.</p>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar op">R</div><div class="body">
+    <div class="who">rakyi <span class="ts">14:02</span></div>
+    <div class="txt"><p class="small"><i>picks <b>opus</b></i></p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">14:02</span></div>
+    <div class="txt">
+      <p>🔁 <b>curia-544 runs on opus now</b> (claude-opus-5, was fable). The conversation,
+         the worktree and the queued note stand. The switch holds for this session and every
+         respawn until the ticket ends or you switch again.</p>
+    </div>
+  </div></div>
+
+  <div class="note"><b>What the press drives in the pane</b>, per lane. claude: Ctrl+U cuts
+    whatever sits in the composer · types <code>/model claude-opus-5</code> · Enter · the CLI
+    validates live and asks one confirm · Enter · Ctrl+Y pastes the cut text back. codex: the
+    <code>/model</code> picker by arrows, or a kill + <code>resume -m &lt;id&gt;</code> for an
+    id the picker does not list. opencode and pi: the picker with type-to-filter — the daemon
+    types the id and presses Enter.</div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">14:02</span></div>
+    <div class="txt"><p class="small">💭 <code>rewrites the failing test</code> · claude-opus-5 · ctx 41% · 5h 🟩 ▓▓▓░░┃░░░░ 31% · 7d 🟨 ▓▓▓▓▓┃░░░░ 54% <span class="edited">(edited)</span></p>
+      <div class="btnrow"><button class="btn sec">🔗 preview</button><button class="btn sec">chat</button><button class="btn sec">ticket</button><button class="btn sec">model</button></div>
+      <div class="edits"><b>The status line after the switch.</b>
+        <span class="st">the model name flips when the transcript's next turn states it — never before</span>
+        <span class="st">the account bars flip to the window of the model that runs</span></div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar op">R</div><div class="body">
+    <div class="who">rakyi <span class="ts">14:03</span></div>
+    <div class="txt"><p class="small"><i>presses <b>model</b> again, picks <b>fable</b></i></p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">14:03</span></div>
+    <div class="txt">
+      <p>❌ <b>fable is cooling</b> — its 7d window is spent until <b>Mon 09:00</b>. The switch
+         is refused and <code>curia-544</code> stays on opus. Pick another model, or wait out
+         the hold.</p>
+    </div>
+  </div></div>
+
+  <div class="note warn"><b>The cooling refusal is the daemon's, not the harness's.</b> The
+    codex lane accepts any model and burns the operator's next turn finding out; the claude
+    lane checks live but spends a probe call doing it. The daemon already knows every hold, so
+    it refuses BEFORE the pane is touched, and names the lift time — the same numbers the
+    status line's bars already carry.</div>
+</div>
+
+<h2 class="sec" id="lanes"><span class="n">3</span> The evidence, per lane</h2>
+<p class="lead">Full detail in <code>findings.md</code>. Raw pane captures and wire logs sit
+   under <code>evidence/</code>.</p>
+
+<div class="lane">
+  <h3><code>claude</code> <span class="v">2.1.220 · POST /v1/messages</span></h3>
+  <ul>
+    <li><b>Switch:</b> <code>/model &lt;id&gt;</code> typed blind, one confirm. The CLI validates the
+        target with a one-token completion FIRST, so a refused model never lands.</li>
+    <li><b>Survives:</b> full history on the next request; one session JSONL throughout;
+        composer text via the cut-and-paste discipline.</li>
+    <li><b>Readback:</b> <code>/status</code> says the model, the transcript states
+        <code>message.model</code> per turn — the exact field the meter reads. The footer at
+        rest shows no model.</li>
+    <li><b class="w">Hazard:</b> the switch writes the model into the config dir's
+        <code>settings.json</code>, so a bare resume keeps it. The spawn template's
+        <code>--model</code> flag beats it, so the daemon's routing pick always wins a respawn.</li>
+  </ul>
+  <div class="pane">❯ /model standin-cold
+  ⎿  API error: 403
+     {"type":"error","error":{"type":"permission_error","message":"You do not
+     have access to the model standin-cold."}}</div>
+</div>
+
+<div class="lane">
+  <h3><code>codex</code> <span class="v">0.146.0 · POST /v1/responses</span></h3>
+  <ul>
+    <li><b>Switch:</b> the <code>/model</code> picker only — arrows + Enter, then the effort
+        submenu. The picker lists the built-in catalog alone; <code>/model &lt;id&gt;</code> with an
+        argument goes to the model as prose.</li>
+    <li><b>Out-of-catalog:</b> kill + <code>codex resume --last -m &lt;id&gt;</code>. The flag beats
+        the session record, which beats <code>config.toml</code>.</li>
+    <li><b>Survives:</b> full history after the switch; one rollout file;
+        <code>turn_context.model</code> states the model per turn. The footer shows
+        <code>&lt;model&gt; &lt;effort&gt;</code> permanently.</li>
+    <li><b class="w">Hazard:</b> any model is accepted at the switch; a refused one fails the
+        NEXT turn with a pane error, and that turn is lost. The daemon must refuse cooled or
+        unknown targets before driving the pane.</li>
+  </ul>
+  <div class="pane">■ unexpected status 404 Not Found: The model `standin-cold` does not
+exist or you do not have access to it., url: http://127.0.0.1:9106/v1/responses</div>
+</div>
+
+<div class="lane">
+  <h3><code>opencode</code> <span class="v">1.18.18 · POST /v1/chat/completions</span></h3>
+  <ul>
+    <li><b>Switch:</b> the <code>/models</code> picker — a SEARCH box filters the config's
+        models, Enter picks. No confirm; the footer flips at once.</li>
+    <li><b>Survives:</b> full history after the switch; one session in the store;
+        <code>opencode.db</code> records <code>modelID</code> per assistant message.
+        Ctrl+U clears the composer, but there is NO paste-back — the daemon retypes.</li>
+    <li><b>Resume:</b> the strictest lane. The resumed session ALWAYS continues on its own
+        last model: <code>--model</code>, the config and the state file all lose. A switch
+        made in the pane is durable by itself.</li>
+    <li><b class="w">Hazard:</b> any model is accepted at the switch; a refused one fails
+        the NEXT turn with the API's message in the pane, and that turn is lost.</li>
+  </ul>
+  <div class="pane">The model `standin-cold` does not exist or you do not have access to it.</div>
+</div>
+
+<div class="lane">
+  <h3><code>pi</code> <span class="v">0.84.2 · POST /v1/chat/completions</span></h3>
+  <ul>
+    <li><b>Switch:</b> the <code>/model</code> picker — type-to-filter over
+        <code>models.json</code> (a file curia writes), Enter picks. No confirm; the
+        footer flips at once.</li>
+    <li><b>Survives:</b> full history after the switch; one session JSONL; the richest
+        record of the four — a <code>model_change</code> event per switch plus
+        <code>model</code> on every assistant message. Ctrl+U cuts, Ctrl+Y pastes back.</li>
+    <li><b>Resume:</b> a bare <code>-c</code> keeps the switched model (the session record
+        replays); <code>--provider --model</code> on the resume wins over it.</li>
+    <li><b class="w">Hazard:</b> any model is accepted at the switch; a refused one fails
+        the NEXT turn with the API's message in the pane, and that turn is lost.</li>
+  </ul>
+  <div class="pane">Error: 404: {"message":"The model `standin-cold` does not exist or you
+ do not have access to it.", ... "code":"model_not_found"}</div>
+</div>
+
+</main>
+</body>
+</html>

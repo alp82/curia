@@ -1,0 +1,8 @@
+● ok (req 6, model standin-2)
+✻ Baked for 0s
+❯ /model standin-1
+  ⎿  Set model to standin-1 and saved as your default for new sessions
+────────────────────────────────────────────────────────────────────────────────
+❯ queued note for later
+────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ bypass permissions on (shift+tab to cycle)

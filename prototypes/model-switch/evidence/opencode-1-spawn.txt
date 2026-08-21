@@ -1,0 +1,10 @@
+                     █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀
+                     ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+   ┃
+   ┃  Ask anything... "Fix a TODO in the codebase"
+   ┃
+   ┃  Build · standin-1 stand-in
+   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   tab agents  ctrl+p commands
+  /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75df92bd7/    1.18.18
+  scratchpad/ms-opencode/cwd

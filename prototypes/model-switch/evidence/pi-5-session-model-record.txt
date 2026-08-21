@@ -1,0 +1,6 @@
+one session file: 2026-08-21T06-16-08-580Z_01a022f6-6684-7b71-b5b4-fc7ded6f2c3e.jsonl
+model_change: standin/standin-1 2026-08-21T06:16:08.688Z
+assistant model: standin-1
+model_change: standin/standin-2 2026-08-21T06:16:45.814Z
+assistant model: standin-2
+assistant model: standin-2

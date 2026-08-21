@@ -1,0 +1,4 @@
+❯ 
+────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on · ? for shortcuts · ← for agents
+  tmux focus-events off · add 'set -g focus-events on' to ~/.tmux.conf and re…
