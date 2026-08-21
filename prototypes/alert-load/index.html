@@ -11,6 +11,7 @@
   color mode via ?mode=. Static mock data, one shared item array.
 
   Views:
+    small  Home D — all 23 shown, top 3 full size, the excess much smaller (round-2 idea)
     rank   Home A — one attention-ranked list, map filter chips
     map    Home B — grouped by map, hottest map open, ranked within
     next   Home C — next up (top 3) full size, the rest compressed per map
@@ -157,6 +158,23 @@ svg { display:block; }
 .al .rest .row .ttl b { color:var(--ink); font-weight:600;
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:11px; }
 
+/* micro rows (home D): the excess over 3, all shown, much smaller */
+.al .micro { margin-top:12px; border-top:1px solid var(--line); padding-top:4px; }
+.al .mcap { font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--mut);
+  padding:6px 0 4px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .mrow { display:flex; align-items:center; gap:8px; padding:4px 0; text-decoration:none; }
+.al .mkind { flex:none; width:40px; font:700 8px/1.2 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--amber); }
+.al .mkind.a { color:var(--mut); }
+.al .mttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:11px; font-weight:500; }
+.al .mfam { flex:none; font:700 8px/1 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.08em; text-transform:uppercase; }
+.al .mwait { flex:none; font:10px/1 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--mut); font-variant-numeric:tabular-nums; }
+.al .mrow.stale { background:var(--staletint); margin:0 -20px; padding-left:20px; padding-right:20px; }
+.al .mrow.stale .mwait { color:var(--amber); font-weight:700; }
+
 /* ---- thread views ---- */
 .al .chead { display:flex; align-items:center; gap:10px; padding:16px 20px 12px;
   border-bottom:1px solid var(--line); }
@@ -239,6 +257,32 @@ svg { display:block; }
 <header class="proto-head"><b>alp82/curia#590</b> · The alert-load prototype · throwaway prototype, static mock data</header>
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<!-- ================= HOME D · all shown, excess small ================= -->
+<section class="view al" data-view="small" data-name="Home D · top 3 full, excess small">
+  <div class="inner">
+    <div class="ht"><span>curia · atlas</span><span>aug 21 · 14:07</span></div>
+    <div class="core">
+      <div class="ring">
+        <svg viewBox="0 0 84 84">
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="239 239" stroke-linecap="round"/>
+        </svg>
+        <div class="in"><span class="n" data-count></span><span class="k">need you</span></div>
+      </div>
+      <div class="facts" data-facts></div>
+    </div>
+    <div class="list">
+      <h2>Needs you · by attention</h2>
+      <div data-top3d></div>
+      <div class="micro">
+        <div class="mcap" data-mcap></div>
+        <div data-microlist></div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <!-- ================= HOME A · one ranked list ================= -->
 <section class="view al" data-view="rank" data-name="Home A · one ranked list">
@@ -479,6 +523,19 @@ function renderRank() {
 }
 renderRank();
 
+/* ---- home D: all shown, top 3 full size, the excess much smaller ---- */
+const top3d = ranked.slice(0, 3);
+const excess = ranked.slice(3);
+document.querySelector('[data-top3d]').innerHTML = top3d.map(it => rowHTML(it)).join('');
+document.querySelector('[data-mcap]').textContent = excess.length + ' more · same order';
+document.querySelector('[data-microlist]').innerHTML = excess.map(it =>
+  '<a class="mrow' + (it.wait >= STALE ? ' stale' : '') + '" href="#">' +
+  '<span class="mkind' + (it.kind === 'ask' ? ' a' : '') + '">' +
+  (it.kind === 'gate' ? 'gate' : 'ask' + (it.nq > 1 ? '·' + it.nq : '')) + '</span>' +
+  '<span class="mttl">' + it.t + '</span>' +
+  '<span class="mfam" style="color:' + FAM[it.fam].color + '">' + it.fam + '</span>' +
+  '<span class="mwait">' + fmt(it.wait) + '</span></a>').join('');
+
 /* ---- home B: grouped by map, hottest open ---- */
 const byFam = {};
 ranked.forEach(it => (byFam[it.fam] = byFam[it.fam] || []).push(it));
@@ -522,11 +579,11 @@ document.querySelector('[data-sheetlist]').innerHTML =
   after.slice(0, 3).map(it => rowHTML(it)).join('');
 
 /* ============ switcher chrome ============ */
-const VIEWS = ['rank', 'map', 'next', 'flow1', 'flow2'];
+const VIEWS = ['small', 'rank', 'map', 'next', 'flow1', 'flow2'];
 const frame = document.getElementById('frame');
 const wrap = document.getElementById('wrap');
 const q = new URLSearchParams(location.search);
-let d = VIEWS.includes(q.get('d')) ? q.get('d') : 'rank';
+let d = VIEWS.includes(q.get('d')) ? q.get('d') : 'small';
 let mode = q.get('mode') === 'light' ? 'light' : 'dark';
 let w = q.get('w') === 'desktop' ? 'desktop' : 'phone';
 
