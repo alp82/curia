@@ -1,0 +1,32 @@
+✻ Baked for 0s
+
+❯ ask multi
+
+● User answered Claude's questions:
+  ⎿  · Which screens should ship in the first cut? → Home, Feed
+
+● Answer received. Logged.
+
+✻ Churned for 0s
+
+❯ ask long
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Escalations
+
+The daemon found two ways to hold the escalation record across a restart, and the migration cost
+differs by an order of magnitude. Which one should the spec lock in before the handoff?
+
+❯ 1. Replay the journal from the last snapshot and rebuild the open set in memory on every boot
+     No schema change, but boot cost grows with journal length until the next snapshot rotation
+     lands.
+  2. Write the open set to its own table and treat the journal as history only
+     A schema migration now, constant boot cost forever, and the table is one more thing backup must
+     carry.
+  3. Keep both for one release and diff them on every boot
+     The safest read, the most code, and a diff that only pays off if the two ever disagree.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+

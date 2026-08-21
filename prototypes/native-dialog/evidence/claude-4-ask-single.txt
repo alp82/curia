@@ -1,0 +1,32 @@
+ ▐▛███▜▌   Claude Code v2.1.220
+▝▜█████▛▘  Opus 5 (1M context) · API Usage Billing
+  ▘▘ ▝▝    /…/claude-1000/-workspace/fb2b15a6-18ba-4fa5-90ea-d8d1522b9ba3/scratchpad/538lab/work
+
+
+❯ ask single
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Cache
+
+Which storage backend should the feed cache use?
+
+❯ 1. SQLite (Recommended)
+     One file next to the journal, no new daemon.
+  2. Redis
+     Fast, but a second process to babysit.
+  3. In-memory only
+     Free, dies with the daemon.
+  4. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+

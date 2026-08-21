@@ -1,0 +1,32 @@
+
+● Answer received. Logged.
+
+✻ Churned for 0s
+
+❯ ask long
+
+● User answered Claude's questions:
+  ⎿  · The daemon found two ways to hold the escalation record across a restart, and the migration
+     cost differs by an order of magnitude. Which one should the spec lock in before the handoff? →
+     Write the open set to its own table and treat the journal as history only
+
+● Answer received. Logged.
+
+✻ Churned for 0s
+
+❯ ask two
+────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Preview  ☐ Terminal  ✔ Submit  →
+
+Should the preview link open in a new tab?
+
+❯ 1. New tab
+     The chat stays where it was.
+  2. Same tab
+     Back returns to the chat.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+

@@ -1,0 +1,32 @@
+
+
+❯ ask single
+
+● User answered Claude's questions:
+  ⎿  · Which storage backend should the feed cache use? → Redis
+
+● Answer received. Logged.
+
+✻ Baked for 0s
+
+❯ ask multi
+────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Scope  ✔ Submit  →
+
+Which screens should ship in the first cut?
+
+❯ 1. [✔] Home
+  The verdict ring and needs-you.
+  2. [ ] Chat
+  The per-agent conversation.
+  3. [ ] Feed
+  The wire at two altitudes.
+  4. [ ] Settings
+  Four rows, drill-in.
+  5. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
