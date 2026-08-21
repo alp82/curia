@@ -52,7 +52,7 @@ p.lede b { color:var(--ink); }
   border-radius:999px; font:600 12px/1 var(--mono); padding:9px 12px; cursor:pointer;
   min-height:36px; }
 .chips button.on { background:var(--dim); border-color:var(--amber); color:var(--amber); }
-.chips button.fail.on { border-color:var(--red); color:var(--red); }
+.chips button.fail.on { border-color:var(--amber); color:var(--amber); }
 
 /* the three panels */
 .panel { border:1px solid var(--line); border-radius:10px; margin-top:14px; overflow:hidden; }
@@ -723,15 +723,15 @@ function renderCard(fx, menu) {
       <div class="guard">⚠ A native dialog owns the terminal. The chat cannot answer it.
         <a href="#" onclick="return false">terminal ↗</a></div>
       <div class="failnote" style="margin-top:12px">
-        <span class="no">parseDialog(pane) → null.</span><br>
-        The footer chrome matched, but no menu the page can read whole did — so there is no card
-        to draw. <b>The banner is the fallback</b>: same amber, same terminal link, same send
-        veto. The web copy never guesses at a menu it cannot read.
+        <b>This is the designed fallback, not a fault.</b> The pane shows one entry of a longer
+        menu, so the page cannot read the choices to draw. A card that guessed here would answer
+        the wrong thing — so the guard banner stays, with the terminal link, exactly as #515
+        decided. Every other fixture on this page parses and draws.
       </div>`
     return
   }
   const hasType = menu.options.some((o) => o.synth === 'type')
-  const state = { checked: new Map(menu.options.map((o) => [o.n, o.checked === true])), note: null }
+  const state = { checked: new Map(menu.options.map((o) => [o.n, o.checked === true])), note: null, picked: null }
   const draw = (wireInner) => {
     const tabsHtml = menu.tabs ? `<div class="tabsline">`
       + menu.tabs.map((t, i) => `<span class="tb ${i === 0 ? 'cur' : ''}">${esc(t)}</span>`).join('')
@@ -740,13 +740,13 @@ function renderCard(fx, menu) {
       : menu.kind === 'confirm' ? 'confirm' : menu.kind === 'slider' ? 'adjust' : 'pick one')
     const rows = menu.kind === 'slider'
       ? `<div class="stops">`
-        + menu.options.map((o) => `<button class="${o.selected ? 'cur' : ''}" data-n="${o.n}">${esc(o.label)}</button>`).join('')
+        + menu.options.map((o) => `<button class="${(state.picked ?? menu.options.find((x) => x.selected)?.n) === o.n ? 'cur' : ''}" data-n="${o.n}">${esc(o.label)}</button>`).join('')
         + (menu.extras.length ? `<span class="ann">${esc(menu.extras.join(' · '))}</span>` : '')
         + `</div>`
       : menu.options.filter((o) => o.synth !== 'chat').map((o) => {
         const isBox = o.checked !== null
         const cls = ['opt', o.selected ? 'sel' : '', o.synth ? 'synth' : '',
-          state.checked.get(o.n) ? 'checked' : ''].join(' ')
+          state.checked.get(o.n) || state.picked === o.n ? 'checked' : ''].join(' ')
         return `<div class="${cls}" data-n="${o.n}">
           <span class="mark ${isBox ? 'box' : ''}"></span>
           <span class="ob">
@@ -808,6 +808,7 @@ function renderCard(fx, menu) {
         draw(inner)
         return
       }
+      state.picked = n
       if (menu.tabs && menu.tabs.length > 1) {
         inner += `<span class="rcv">✔ the next question's tab opens in the pane; the card redraws from the next probe. The last digit lands on the review screen, and Enter submits every answer.</span>`
       } else {
@@ -845,6 +846,8 @@ function renderCard(fx, menu) {
     }))
     const tx = el.querySelector('#notetx')
     if (tx) { tx.focus(); tx.selectionStart = tx.value.length }
+    const wireEl = wireInner ? el.querySelector('#wire') : null
+    if (wireEl && typeof wireEl.scrollIntoView === 'function') wireEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }
   draw(null)
 }
