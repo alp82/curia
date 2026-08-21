@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#590 The alert-load prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#590 "The alert-load prototype".
+  The home Needs-you list and the thread flow at 23 open items at once,
+  in the V6 synthesis language (#519). Switchable via ?d=, width via ?w=,
+  color mode via ?mode=. Static mock data, one shared item array.
+
+  Views:
+    small  Home D — all 23 shown, top 3 full size, the excess much smaller (round-2 idea)
+    rank   Home A — one attention-ranked list, map filter chips
+    map    Home B — grouped by map, hottest map open, ranked within
+    next   Home C — next up (top 3) full size, the rest compressed per map
+    flow1  Thread flow A — a queue strip rides the thread, next in place
+    flow2  Thread flow B — plain thread, a handoff sheet after the answer
+
+  No batch answer flow anywhere: the operator refused one. Every answer
+  happens inside its own thread, with that thread's context. The flow
+  views move the operator BETWEEN threads, they never answer FOR one.
+
+  VERDICT (operator, 2026-08-21): home D wins as mocked — the cut at 3,
+  small rows with kind, title, map and wait. Thread flow B wins — the
+  handoff sheet after the answer. The rank rule stays: wait leads, each
+  unblocked ticket adds 90 min, a gate adds 20, amber tint past 4 h.
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+  position:relative;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:200px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+
+/* ============ V6 synthesis language (#519) ============ */
+.al { background:var(--bg); color:var(--ink); min-height:820px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding-bottom:44px; }
+.frame.dark .al { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); --dim:#14161c;
+  --staletint:rgba(255,180,84,.07); }
+.frame.light .al { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; --dim:#eeeeeb; --staletint:rgba(184,134,11,.08); }
+.al .mono, .al h2, .al .num, .al time, .al .ht, .al .chip, .al .fam, .al .sub,
+.al .rk, .al .why, .al .strip, .al .meta, .al .qhead
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+.al .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; padding:20px 20px 0; }
+.al h2 { font-size:9px; letter-spacing:.3em; text-transform:uppercase; color:var(--mut);
+  margin:26px 0 4px; font-weight:600; }
+.al .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.al .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.al .go { flex:none; font-size:12px; color:var(--cyan); text-decoration:none; }
+
+/* condensed core: the ring shrinks, the count still leads */
+.al .core { display:flex; align-items:center; gap:18px; padding:18px 20px 4px; }
+.al .ring { flex:none; width:84px; height:84px; position:relative; }
+.al .ring svg { position:absolute; inset:0; }
+.al .ring .in { position:absolute; inset:0; display:flex; flex-direction:column;
+  justify-content:center; align-items:center; }
+.al .ring .n { font-size:28px; font-weight:700; color:var(--amber); text-shadow:var(--glow); line-height:1;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .ring .k { font-size:7px; letter-spacing:.24em; color:var(--mut); text-transform:uppercase; margin-top:3px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .core .facts { font-size:12px; color:var(--mut); line-height:1.7;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .core .facts b { color:var(--ink); font-weight:600; }
+.al .core .facts .warn { color:var(--amber); }
+
+/* list rows */
+.al .list { padding:0 20px 8px; }
+.al .row { display:flex; align-items:center; gap:10px; padding:11px 0;
+  border-top:1px solid var(--line); font-size:14px; text-decoration:none; }
+.al h2 + .row { border-top:0; }
+.al .row .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.al .row .sub { display:block; font-size:10px; color:var(--mut); font-weight:400; margin-top:3px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.al .row .wait { flex:none; font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .row.stale { background:var(--staletint); margin:0 -20px; padding-left:20px; padding-right:20px; }
+.al .row.stale .wait { color:var(--amber); font-weight:700; }
+.al .rk { flex:none; width:18px; font-size:10px; color:var(--mut); text-align:right;
+  font-variant-numeric:tabular-nums; }
+.al .fam { flex:none; font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+  padding:3px 6px; border-radius:4px; border:1px solid var(--fc, var(--mut)); color:var(--fc, var(--mut)); }
+.al .chip.ask { background:transparent; color:var(--amber); border:1px solid var(--amber); box-shadow:none; }
+
+/* filter chips (home A) */
+.al .filters { display:flex; gap:6px; padding:16px 20px 0; flex-wrap:wrap; }
+.al .filters button { border:1px solid var(--line); background:transparent; color:var(--mut);
+  border-radius:999px; font:600 10px/1 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.08em; text-transform:uppercase; padding:7px 10px; cursor:pointer; }
+.al .filters button.on { background:var(--dim); color:var(--ink); border-color:var(--mut); }
+
+/* map groups (home B) */
+.al details.grp { border-top:1px solid var(--line); }
+.al details.grp:first-of-type { border-top:0; }
+.al details.grp summary { list-style:none; cursor:pointer; display:flex; align-items:center;
+  gap:10px; padding:13px 0; font-size:14px; }
+.al details.grp summary::-webkit-details-marker { display:none; }
+.al details.grp summary .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font-weight:600; }
+.al details.grp summary .cnt { flex:none; font-size:11px; font-weight:700; color:var(--amber);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al details.grp summary .old { flex:none; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al details.grp summary .tw { flex:none; color:var(--mut); font-size:10px;
+  transition:transform .15s; font-family:ui-monospace,monospace; }
+.al details.grp[open] summary .tw { transform:rotate(90deg); }
+.al details.grp .grows { padding:0 0 6px 14px; border-left:2px solid var(--line); margin-left:3px; }
+.al details.grp .grows .row:first-child { border-top:0; }
+.al details.grp .grows .row.stale { margin:0 0 0 -16px; padding-left:16px; padding-right:0; }
+
+/* next up (home C) */
+.al .nx { border:1px solid var(--line); border-left:3px solid var(--amber); border-radius:8px;
+  padding:12px 14px; margin-top:10px; display:block; text-decoration:none; }
+.al .nx .l1 { display:flex; align-items:center; gap:10px; }
+.al .nx .ttl { flex:1; min-width:0; font-weight:650; font-size:14px; }
+.al .nx .why { font-size:10px; color:var(--mut); margin-top:6px; line-height:1.6; }
+.al .nx .why .warn { color:var(--amber); font-weight:700; }
+.al .nx .go { margin-left:auto; }
+.al .rest .row { font-size:13px; }
+.al .rest .row .ttl { font-weight:400; color:var(--mut); }
+.al .rest .row .ttl b { color:var(--ink); font-weight:600;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:11px; }
+
+/* micro rows (home D): the excess over 3, all shown, much smaller */
+.al .micro { margin-top:12px; border-top:1px solid var(--line); padding-top:4px; }
+.al .mcap { font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--mut);
+  padding:6px 0 4px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .mrow { display:flex; align-items:center; gap:8px; padding:4px 0; text-decoration:none; }
+.al .mkind { flex:none; width:40px; font:700 8px/1.2 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.08em; text-transform:uppercase; color:var(--amber); }
+.al .mkind.a { color:var(--mut); }
+.al .mttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:11px; font-weight:500; }
+.al .mfam { flex:none; font:700 8px/1 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.08em; text-transform:uppercase; }
+.al .mwait { flex:none; font:10px/1 ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--mut); font-variant-numeric:tabular-nums; }
+.al .mrow.stale { background:var(--staletint); margin:0 -20px; padding-left:20px; padding-right:20px; }
+.al .mrow.stale .mwait { color:var(--amber); font-weight:700; }
+
+/* ---- thread views ---- */
+.al .chead { display:flex; align-items:center; gap:10px; padding:16px 20px 12px;
+  border-bottom:1px solid var(--line); }
+.al .back { flex:none; font-size:13px; color:var(--cyan); text-decoration:none; }
+.al .chead .cttl { flex:1; min-width:0; }
+.al .chead .t1 { font-size:15px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.al .chead .t2 { font-size:10px; color:var(--mut); margin-top:3px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .chead .t2 .need { color:var(--amber); }
+.al .links { flex:none; display:flex; gap:12px; font-size:11px; }
+.al .links a { color:var(--cyan); text-decoration:none;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* queue strip (flow A) */
+.al .strip { display:flex; align-items:center; gap:8px; padding:8px 20px;
+  border-bottom:1px solid var(--line); background:var(--dim);
+  font-size:10px; color:var(--mut); }
+.al .strip .pos { flex:none; color:var(--amber); font-weight:700; letter-spacing:.08em; }
+.al .strip .nt { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.al .strip .nt b { color:var(--ink); font-weight:600; }
+.al .strip a { flex:none; color:var(--cyan); text-decoration:none; }
+
+.al .tl { padding:8px 20px 24px; max-width:760px; }
+.al .meta { font-size:10px; color:var(--mut); margin:16px 0 4px; }
+.al .meta.you { text-align:right; }
+.al .say { font-size:14px; line-height:1.55; }
+.al .rcpt { border:1px solid var(--line); border-left:3px solid var(--green); border-radius:8px;
+  margin-top:6px; padding:10px 14px; }
+.al .rcpt .rh { font-size:11px; color:var(--green);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .rcpt .rl { font-size:12px; margin-top:6px; color:var(--ink); }
+.al .rcpt .rnote { font-size:10px; color:var(--mut); margin-top:6px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* next-in-place block (flow A) */
+.al .nextblock { border:1px solid var(--line); border-left:3px solid var(--amber); border-radius:8px;
+  margin-top:22px; padding:12px 14px; }
+.al .nextblock .qhead { font-size:9px; letter-spacing:.24em; text-transform:uppercase; color:var(--amber); }
+.al .nextblock .l1 { display:flex; align-items:center; gap:10px; margin-top:8px; }
+.al .nextblock .ttl { flex:1; min-width:0; font-weight:650; font-size:14px; }
+.al .nextblock .why { font-size:10px; color:var(--mut); margin-top:6px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .nextblock .acts { display:flex; gap:8px; margin-top:12px; }
+.al .btn { border:1px solid var(--line); background:transparent; color:var(--ink);
+  border-radius:999px; font-size:12px; font-weight:600; padding:9px 14px; cursor:pointer;
+  text-decoration:none; display:inline-block; }
+.al .btn.prime { background:var(--amber); color:var(--amberink); border-color:var(--amber);
+  box-shadow:var(--glow); }
+
+/* composer */
+.al .comp { display:flex; gap:8px; padding:12px 20px 20px; max-width:760px; }
+.al .comp input { flex:1; min-width:0; background:transparent; border:1px solid var(--line);
+  border-radius:999px; padding:11px 16px; color:var(--ink); font-size:13px; }
+.al .comp input::placeholder { color:var(--mut); }
+.al .comp button { flex:none; width:40px; height:40px; border-radius:50%; border:0;
+  background:var(--cyan); color:var(--bg); font-size:15px; cursor:pointer; }
+
+/* handoff sheet (flow B) */
+.al .sheet { position:absolute; left:0; right:0; bottom:0; z-index:5;
+  background:var(--bg); border-top:1px solid var(--line); border-radius:14px 14px 0 0;
+  box-shadow:0 -10px 40px rgba(0,0,0,.45); padding:6px 20px 18px; }
+.al .sheet .grab { width:36px; height:4px; border-radius:2px; background:var(--line); margin:6px auto 10px; }
+.al .sheet .sh { display:flex; align-items:baseline; gap:10px; }
+.al .sheet .sh .n { font-size:22px; font-weight:700; color:var(--amber); text-shadow:var(--glow);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .sheet .sh .k { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.al .sheet .sh .go { margin-left:auto; }
+.al .sheet .row:first-of-type { border-top:0; }
+.al .scrim { position:absolute; inset:0; background:rgba(0,0,0,.35); z-index:4; }
+
+/* desktop: one calm centered column, the phone layout is the design */
+@container frame (min-width:700px) {
+  .al > .inner { max-width:760px; margin:0 auto; }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#590</b> · The alert-load prototype · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<!-- ================= HOME D · all shown, excess small ================= -->
+<section class="view al" data-view="small" data-name="Home D · top 3 full, excess small">
+  <div class="inner">
+    <div class="ht"><span>curia · atlas</span><span>aug 21 · 14:07</span></div>
+    <div class="core">
+      <div class="ring">
+        <svg viewBox="0 0 84 84">
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="239 239" stroke-linecap="round"/>
+        </svg>
+        <div class="in"><span class="n" data-count></span><span class="k">need you</span></div>
+      </div>
+      <div class="facts" data-facts></div>
+    </div>
+    <div class="list">
+      <h2>Needs you · by attention</h2>
+      <div data-top3d></div>
+      <div class="micro">
+        <div class="mcap" data-mcap></div>
+        <div data-microlist></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HOME A · one ranked list ================= -->
+<section class="view al" data-view="rank" data-name="Home A · one ranked list">
+  <div class="inner">
+    <div class="ht"><span>curia · atlas</span><span>aug 21 · 14:07</span></div>
+    <div class="core">
+      <div class="ring">
+        <svg viewBox="0 0 84 84">
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="239 239" stroke-linecap="round"/>
+        </svg>
+        <div class="in"><span class="n" data-count></span><span class="k">need you</span></div>
+      </div>
+      <div class="facts" data-facts></div>
+    </div>
+    <div class="filters" data-filters></div>
+    <div class="list">
+      <h2>Needs you · by attention</h2>
+      <div data-ranklist></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HOME B · grouped by map ================= -->
+<section class="view al" data-view="map" data-name="Home B · grouped by map">
+  <div class="inner">
+    <div class="ht"><span>curia · atlas</span><span>aug 21 · 14:07</span></div>
+    <div class="core">
+      <div class="ring">
+        <svg viewBox="0 0 84 84">
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="239 239" stroke-linecap="round"/>
+        </svg>
+        <div class="in"><span class="n" data-count></span><span class="k">need you</span></div>
+      </div>
+      <div class="facts" data-facts></div>
+    </div>
+    <div class="list">
+      <h2>Needs you · by map</h2>
+      <div data-maplist></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= HOME C · next up + the rest ================= -->
+<section class="view al" data-view="next" data-name="Home C · next up + the rest">
+  <div class="inner">
+    <div class="ht"><span>curia · atlas</span><span>aug 21 · 14:07</span></div>
+    <div class="core">
+      <div class="ring">
+        <svg viewBox="0 0 84 84">
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="42" cy="42" r="38" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="239 239" stroke-linecap="round"/>
+        </svg>
+        <div class="in"><span class="n" data-count></span><span class="k">need you</span></div>
+      </div>
+      <div class="facts" data-facts></div>
+    </div>
+    <div class="list">
+      <h2>Next up</h2>
+      <div data-nextup></div>
+      <h2 style="margin-top:30px">The rest · <span data-restcount></span></h2>
+      <div class="rest" data-restlist></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= FLOW A · queue strip on the thread ================= -->
+<section class="view al" data-view="flow1" data-name="Flow A · queue strip">
+  <div class="inner">
+    <div class="chead">
+      <a class="back" href="#">‹</a>
+      <div class="cttl">
+        <div class="t1">The deploy window for the tracker migration</div>
+        <div class="t2">#408 · claude · <span class="need">ask · waits 9 h 20</span></div>
+      </div>
+      <div class="links"><a href="#">ticket</a><a href="#">term</a></div>
+    </div>
+    <div class="strip">
+      <span class="pos">1 / 23</span>
+      <span class="nt">next · <b>Hand the map to the build</b> · ask · 6 h 40</span>
+      <a href="#">skip →</a>
+    </div>
+    <div class="tl">
+      <div class="meta">claude · 04:47</div>
+      <div class="say">The tracker migration locks the issue table for about four minutes. Every dispatch in that window fails its claim. I need the window from you.</div>
+      <div class="meta you">you · 14:07</div>
+      <div class="rcpt">
+        <div class="rh">✓ answered · all as recommended</div>
+        <div class="rl"><span class="num">1.</span>Tonight 02:00 · the dispatcher sleeps first</div>
+        <div class="rnote">receipt on the status line · take back until the agent reads it</div>
+      </div>
+      <div class="nextblock">
+        <div class="qhead">next needs you · 2 of 23</div>
+        <div class="l1"><span class="chip ask">Ask · 1</span><span class="ttl">Hand the map to the build</span></div>
+        <div class="why"><span style="color:var(--amber);font-weight:700">waits 6 h 40</span> · #533 · claude · unblocks 4 tickets · The UX map</div>
+        <div class="acts">
+          <a class="btn prime" href="#">open thread →</a>
+          <a class="btn" href="#">atlas</a>
+        </div>
+      </div>
+    </div>
+    <div class="comp"><input placeholder="Message claude…"><button>↑</button></div>
+  </div>
+</section>
+
+<!-- ================= FLOW B · handoff sheet after the answer ================= -->
+<section class="view al" data-view="flow2" data-name="Flow B · handoff sheet">
+  <div class="inner">
+    <div class="chead">
+      <a class="back" href="#">‹</a>
+      <div class="cttl">
+        <div class="t1">The deploy window for the tracker migration</div>
+        <div class="t2">#408 · claude · <span class="need">ask · waits 9 h 20</span></div>
+      </div>
+      <div class="links"><a href="#">ticket</a><a href="#">term</a></div>
+    </div>
+    <div class="tl">
+      <div class="meta">claude · 04:47</div>
+      <div class="say">The tracker migration locks the issue table for about four minutes. Every dispatch in that window fails its claim. I need the window from you.</div>
+      <div class="meta you">you · 14:07</div>
+      <div class="rcpt">
+        <div class="rh">✓ answered · all as recommended</div>
+        <div class="rl"><span class="num">1.</span>Tonight 02:00 · the dispatcher sleeps first</div>
+        <div class="rnote">receipt on the status line · take back until the agent reads it</div>
+      </div>
+    </div>
+    <div class="comp"><input placeholder="Message claude…"><button>↑</button></div>
+  </div>
+  <div class="scrim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="sh"><span class="n" data-sheetcount></span><span class="k">still need you</span><a class="go" href="#">atlas →</a></div>
+    <div data-sheetlist></div>
+  </div>
+</section>
+
+</div></div></div>
+
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button class="tog" id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button class="tog" id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* ============ one shared data set: 23 open items ============ */
+const FAM = {
+  ux:      { name:'The UX map',       color:'#5ec8e5' },
+  deploy:  { name:'Deploy pipeline',  color:'#b48ef0' },
+  journal: { name:'Journal mining',   color:'#41d98d' },
+  auth:    { name:'The auth rework',  color:'#f078a0' },
+  ovs:     { name:'Overseer',         color:'#e6c25a' },
+};
+/* kind: gate = review gate holds the agent · ask = escalation round of nq questions */
+const ITEMS = [
+  { id:'#408', t:'The deploy window for the tracker migration', fam:'deploy',  kind:'ask',  nq:1, agent:'claude',   wait:560, unblocks:3 },
+  { id:'#533', t:'Hand the map to the build',                   fam:'ux',      kind:'ask',  nq:1, agent:'claude',   wait:400, unblocks:4 },
+  { id:'#549', t:'Mine the production journal for misrouted turns', fam:'journal', kind:'gate', nq:0, agent:'claude', wait:370, unblocks:2 },
+  { id:'#402', t:'The canary verdict on the worker image',      fam:'deploy',  kind:'gate', nq:0, agent:'codex',    wait:290, unblocks:2 },
+  { id:'',     t:'Chart the auth follow-up map',                fam:'ovs',     kind:'ask',  nq:1, agent:'overseer', wait:210, unblocks:0 },
+  { id:'#588', t:'The frontier visual',                         fam:'ux',      kind:'gate', nq:0, agent:'codex',    wait:190, unblocks:1 },
+  { id:'#311', t:'The session cookie on the identity proxy',    fam:'auth',    kind:'gate', nq:0, agent:'codex',    wait:160, unblocks:2 },
+  { id:'#589', t:'The global search bar',                       fam:'ux',      kind:'gate', nq:0, agent:'claude',   wait:145, unblocks:1 },
+  { id:'#401', t:'The registry credential rotation',            fam:'deploy',  kind:'ask',  nq:1, agent:'pi',       wait:125, unblocks:0 },
+  { id:'#552', t:'The journal schema for pane events',          fam:'journal', kind:'gate', nq:0, agent:'claude',   wait:105, unblocks:1 },
+  { id:'#405', t:'The rollback story for a half-applied migration', fam:'deploy', kind:'ask', nq:2, agent:'claude', wait:90,  unblocks:0 },
+  { id:'#314', t:'The device grant for the phone attach',       fam:'auth',    kind:'ask',  nq:2, agent:'claude',   wait:75,  unblocks:0 },
+  { id:'#560', t:'The main layout and the page navigation',     fam:'ux',      kind:'ask',  nq:2, agent:'claude',   wait:65,  unblocks:0 },
+  { id:'#599', t:'The maps-screen band counts',                 fam:'ux',      kind:'gate', nq:0, agent:'codex',    wait:55,  unblocks:0 },
+  { id:'#551', t:'The retention cut for boot replays',          fam:'journal', kind:'ask',  nq:2, agent:'codex',    wait:50,  unblocks:0 },
+  { id:'#596', t:'The feed density strip at volume',            fam:'ux',      kind:'ask',  nq:3, agent:'opencode', wait:42,  unblocks:0 },
+  { id:'',     t:'The deploy preflight question',               fam:'ovs',     kind:'ask',  nq:1, agent:'overseer', wait:33,  unblocks:0 },
+  { id:'#554', t:'The misroute taxonomy',                       fam:'journal', kind:'ask',  nq:4, agent:'claude',   wait:30,  unblocks:0 },
+  { id:'#410', t:'The smoke suite on the arm runner',           fam:'deploy',  kind:'gate', nq:0, agent:'codex',    wait:25,  unblocks:0 },
+  { id:'#597', t:'The chat picker at forty threads',            fam:'ux',      kind:'gate', nq:0, agent:'pi',       wait:18,  unblocks:0 },
+  { id:'#590', t:'The alert-load prototype',                    fam:'ux',      kind:'ask',  nq:3, agent:'claude',   wait:12,  unblocks:1 },
+  { id:'#598', t:'The settings restart chip',                   fam:'ux',      kind:'ask',  nq:1, agent:'claude',   wait:8,   unblocks:0 },
+  { id:'#317', t:'The token scope for the terminal sidecar',    fam:'auth',    kind:'ask',  nq:1, agent:'opencode', wait:5,   unblocks:0 },
+];
+const STALE = 240; /* minutes: past this, you are the bottleneck */
+
+/* attention score: wait leads, an unblocked frontier weighs in, a gate a little */
+const score = it => it.wait + it.unblocks * 90 + (it.kind === 'gate' ? 20 : 0);
+const ranked = [...ITEMS].sort((a, b) => score(b) - score(a));
+
+const fmt = m => m >= 60 ? Math.floor(m/60) + ' h' + (m%60 ? ' ' + String(m%60).padStart(2,'0') : '')
+                         : m + ' m';
+const chip = it => it.kind === 'gate'
+  ? '<span class="chip">Gate</span>'
+  : '<span class="chip ask">Ask · ' + it.nq + '</span>';
+const fam = f => '<span class="fam" style="--fc:' + FAM[f].color + '">' + f + '</span>';
+const subline = it => [it.id, it.agent, it.unblocks ? 'unblocks ' + it.unblocks : null]
+  .filter(Boolean).join(' · ');
+
+/* header facts, same on every home view */
+const gates = ITEMS.filter(i => i.kind === 'gate').length;
+const asks = ITEMS.length - gates;
+const stale = ITEMS.filter(i => i.wait >= STALE).length;
+const oldest = Math.max(...ITEMS.map(i => i.wait));
+document.querySelectorAll('[data-count]').forEach(el => el.textContent = ITEMS.length);
+document.querySelectorAll('[data-facts]').forEach(el => el.innerHTML =
+  '<b>' + gates + '</b> gates · <b>' + asks + '</b> asks<br>' +
+  '<span class="warn">' + stale + ' waited over 4 h</span><br>' +
+  'oldest waits ' + fmt(oldest));
+
+/* ---- home A: one ranked list + filter chips ---- */
+function rowHTML(it, rk) {
+  return '<a class="row' + (it.wait >= STALE ? ' stale' : '') + '" href="#">' +
+    (rk ? '<span class="rk">' + rk + '</span>' : '') +
+    chip(it) +
+    '<span class="ttl">' + it.t + '<span class="sub">' + subline(it) + '</span></span>' +
+    fam(it.fam) +
+    '<span class="wait">' + fmt(it.wait) + '</span></a>';
+}
+const rankEl = document.querySelector('[data-ranklist]');
+const filtersEl = document.querySelector('[data-filters]');
+let filter = 'all';
+function renderRank() {
+  const shown = ranked.filter(it => filter === 'all' || it.fam === filter);
+  rankEl.innerHTML = shown.map(it => rowHTML(it, ranked.indexOf(it) + 1)).join('');
+  const counts = {};
+  ITEMS.forEach(i => counts[i.fam] = (counts[i.fam] || 0) + 1);
+  filtersEl.innerHTML =
+    '<button data-f="all" class="' + (filter === 'all' ? 'on' : '') + '">all · ' + ITEMS.length + '</button>' +
+    Object.keys(FAM).map(f =>
+      '<button data-f="' + f + '" class="' + (filter === f ? 'on' : '') + '" style="--fc:' + FAM[f].color + '">' +
+      f + ' · ' + counts[f] + '</button>').join('');
+  filtersEl.querySelectorAll('button').forEach(b =>
+    b.onclick = () => { filter = b.dataset.f; renderRank(); });
+}
+renderRank();
+
+/* ---- home D: all shown, top 3 full size, the excess much smaller ---- */
+const top3d = ranked.slice(0, 3);
+const excess = ranked.slice(3);
+document.querySelector('[data-top3d]').innerHTML = top3d.map(it => rowHTML(it)).join('');
+document.querySelector('[data-mcap]').textContent = excess.length + ' more · same order';
+document.querySelector('[data-microlist]').innerHTML = excess.map(it =>
+  '<a class="mrow' + (it.wait >= STALE ? ' stale' : '') + '" href="#">' +
+  '<span class="mkind' + (it.kind === 'ask' ? ' a' : '') + '">' +
+  (it.kind === 'gate' ? 'gate' : 'ask' + (it.nq > 1 ? '·' + it.nq : '')) + '</span>' +
+  '<span class="mttl">' + it.t + '</span>' +
+  '<span class="mfam" style="color:' + FAM[it.fam].color + '">' + it.fam + '</span>' +
+  '<span class="mwait">' + fmt(it.wait) + '</span></a>').join('');
+
+/* ---- home B: grouped by map, hottest open ---- */
+const byFam = {};
+ranked.forEach(it => (byFam[it.fam] = byFam[it.fam] || []).push(it));
+const famOrder = Object.keys(byFam).sort((a, b) => score(byFam[b][0]) - score(byFam[a][0]));
+document.querySelector('[data-maplist]').innerHTML = famOrder.map((f, i) => {
+  const its = byFam[f];
+  const old = Math.max(...its.map(x => x.wait));
+  return '<details class="grp"' + (i === 0 ? ' open' : '') + '><summary>' +
+    fam(f) + '<span class="ttl">' + FAM[f].name + '</span>' +
+    '<span class="cnt">' + its.length + '</span>' +
+    '<span class="old">oldest ' + fmt(old) + '</span><span class="tw">›</span></summary>' +
+    '<div class="grows">' + its.map(it => rowHTML(it)).join('') + '</div></details>';
+}).join('');
+
+/* ---- home C: next up (top 3) + the rest compressed per map ---- */
+const top3 = ranked.slice(0, 3);
+const rest = ranked.slice(3);
+document.querySelector('[data-nextup]').innerHTML = top3.map(it =>
+  '<a class="nx" href="#"><div class="l1">' + chip(it) +
+  '<span class="ttl">' + it.t + '</span><span class="go">thread →</span></div>' +
+  '<div class="why"><span class="warn">waits ' + fmt(it.wait) + '</span> · ' + subline(it) +
+  ' · ' + FAM[it.fam].name + '</div></a>').join('');
+document.querySelector('[data-restcount]').textContent = rest.length;
+const restByFam = {};
+rest.forEach(it => (restByFam[it.fam] = restByFam[it.fam] || []).push(it));
+document.querySelector('[data-restlist]').innerHTML = famOrder
+  .filter(f => restByFam[f])
+  .map(f => {
+    const its = restByFam[f];
+    return '<a class="row" href="#">' + fam(f) +
+      '<span class="ttl"><b>' + its.length + '</b> · ' + FAM[f].name +
+      '<span class="sub">' + its.slice(0, 2).map(x => x.t).join(' · ') +
+      (its.length > 2 ? ' · …' : '') + '</span></span>' +
+      '<span class="wait">oldest ' + fmt(Math.max(...its.map(x => x.wait))) + '</span></a>';
+  }).join('');
+
+/* ---- flow B sheet: the next three by rank, after #408 is answered ---- */
+const after = ranked.filter(it => it.id !== '#408');
+document.querySelector('[data-sheetcount]').textContent = after.length;
+document.querySelector('[data-sheetlist]').innerHTML =
+  after.slice(0, 3).map(it => rowHTML(it)).join('');
+
+/* ============ switcher chrome ============ */
+const VIEWS = ['small', 'rank', 'map', 'next', 'flow1', 'flow2'];
+const frame = document.getElementById('frame');
+const wrap = document.getElementById('wrap');
+const q = new URLSearchParams(location.search);
+let d = VIEWS.includes(q.get('d')) ? q.get('d') : 'small';
+let mode = q.get('mode') === 'light' ? 'light' : 'dark';
+let w = q.get('w') === 'desktop' ? 'desktop' : 'phone';
+
+function render() {
+  document.querySelectorAll('.view').forEach(v =>
+    v.classList.toggle('active', v.dataset.view === d));
+  frame.className = 'frame w-' + w + ' ' + mode;
+  document.getElementById('vname').textContent =
+    document.querySelector('.view.active').dataset.name;
+  document.getElementById('mode').textContent = mode === 'dark' ? '☾' : '☀';
+  document.getElementById('width').textContent = w === 'phone' ? '📱' : '🖥';
+  history.replaceState(null, '', '?' + new URLSearchParams({d, mode, w}));
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === 'desktop' ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = 'scale(' + s + ')';
+  wrap.style.height = (frame.offsetHeight * s) + 'px';
+}
+function cycle(dir) {
+  d = VIEWS[(VIEWS.indexOf(d) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById('prev').onclick = () => cycle(-1);
+document.getElementById('next').onclick = () => cycle(1);
+document.getElementById('mode').onclick = () => { mode = mode === 'dark' ? 'light' : 'dark'; render(); };
+document.getElementById('width').onclick = () => { w = w === 'phone' ? 'desktop' : 'phone'; render(); };
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft') cycle(-1);
+  if (e.key === 'ArrowRight') cycle(1);
+});
+window.addEventListener('resize', rescale);
+render();
+</script>
+</body>
+</html>
