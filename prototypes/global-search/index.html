@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#589 The global search — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#589 "The global search prototype".
+  One bar over tickets and maps, past decisions, the journal history and
+  chat transcripts. Three placements to compare, each with its own result
+  anatomy. Search works live over a static corpus built from the real map.
+  Every tap shows WHERE it would land; every link is dead on purpose.
+  Switch via ?v=, width via ?w=, color via ?mode=. V6 language from #519.
+
+  DECIDED (round 1, all as recommended): variant 1, the lens overlay.
+  A lens button in every screen's header opens a full-screen search over
+  the current screen — no nav slot taken, the frame stays with #560.
+  The row is the kind word column: every row names its kind in a word.
+  The landing rule holds: a ticket or a chat hit opens the ticket's chat
+  thread, a map opens the maps screen, a journal hit opens the feed at
+  that entry, a decision opens the resolution on GitHub.
+  Variants 2 and 3 stay behind for reference.
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+  position:relative;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:190px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+
+/* ============ V6 base tokens (from #519, rules this screen) ============ */
+.mv { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:28px 24px 72px; }
+.frame.dark .mv { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); --dim:rgba(11,12,16,.72); }
+.frame.light .mv { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; --dim:rgba(246,246,244,.8); }
+.mv .ht, .mv .num, .mv .word, .mv .kword, .mv .phead, .mv .fchip, .mv .go,
+.mv .sinput, .mv .dest, .mv .mfrac, .mv .hint, .mv .toast
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .ht { display:flex; align-items:center; gap:12px; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; margin-bottom:26px; }
+.mv .ht .sp { flex:1; }
+.mv .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.mv .go { flex:none; font-size:11px; color:var(--cyan); text-decoration:none; white-space:nowrap; }
+.mv .word { font-size:10px; color:var(--mut); letter-spacing:.08em; text-transform:uppercase; }
+.mv .phead { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut); }
+.mv .chip { flex:none; font-size:9px; font-weight:800; letter-spacing:.12em; text-transform:uppercase;
+  padding:4px 8px; border-radius:4px; background:var(--amber); color:var(--amberink); box-shadow:var(--glow); }
+.mv .fchip { font-size:11px; padding:6px 10px; border-radius:999px; cursor:pointer;
+  background:transparent; border:1px solid var(--line); color:var(--mut); }
+.mv .fchip.on { border-color:var(--cyan); color:var(--cyan); font-weight:600; }
+.mv .fnone { padding:24px 0; color:var(--mut); font-size:13px; }
+
+/* ============ the search bar ============ */
+.mv .sbox { display:flex; align-items:center; gap:10px; border:1px solid var(--line);
+  border-radius:10px; padding:0 12px; background:transparent; }
+.mv .sbox:focus-within { border-color:var(--cyan); }
+.mv .sbox .lens { color:var(--mut); font-size:14px; flex:none; }
+.mv .sinput { flex:1; min-width:0; background:transparent; border:0; outline:0;
+  color:var(--ink); font-size:14px; padding:12px 0; }
+.mv .sinput::placeholder { color:var(--mut); opacity:.7; }
+.mv .sclear { flex:none; border:0; background:transparent; color:var(--mut);
+  font-size:14px; cursor:pointer; padding:6px; }
+.mv .hint { font-size:10px; color:var(--mut); letter-spacing:.08em; margin-top:10px; }
+
+/* ============ result rows ============ */
+.mv .srow { display:flex; gap:12px; padding:12px 0; cursor:pointer; align-items:baseline; }
+.mv .srow + .srow { border-top:1px solid var(--line); }
+.mv .srow .kword { flex:none; width:64px; font-size:9px; letter-spacing:.14em;
+  text-transform:uppercase; color:var(--mut); padding-top:3px; }
+.mv .srow .kword.needs { color:var(--amber); text-shadow:var(--glow); font-weight:800; }
+.mv .srow .glyph { flex:none; width:18px; text-align:center; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; font-size:12px; padding-top:2px; }
+.mv .srow .main { flex:1; min-width:0; }
+.mv .srow .rt { font-size:14px; font-weight:600; line-height:1.35;
+  display:flex; align-items:baseline; gap:8px; }
+.mv .srow .rt .t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.mv .srow .snip { font-size:12px; color:var(--mut); margin-top:4px; line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
+  overflow-wrap:anywhere; }
+.mv .srow .snip .who { color:var(--ink); font-weight:600; }
+.mv .hit { color:var(--cyan); font-weight:700; font-style:normal; background:transparent; }
+.mv .srow .meta { flex:none; text-align:right; display:flex; flex-direction:column;
+  align-items:flex-end; gap:5px; }
+.mv .dest { font-size:10px; color:var(--cyan); white-space:nowrap; }
+.mv .srow.dim .rt { font-weight:400; color:var(--mut); }
+
+/* ============ v1 — the overlay ============ */
+.v1 .base { transition:opacity .15s; }
+.v1 .base.dimmed { opacity:.16; pointer-events:none; }
+.v1 .sheet { position:absolute; inset:0; z-index:10; background:var(--dim);
+  backdrop-filter: blur(2px); display:none; }
+.v1 .sheet.open { display:block; }
+.v1 .sheet .inner { background:var(--bg); min-height:100%; padding:20px 24px 72px; }
+.v1 .lensbtn { border:1px solid var(--line); background:transparent; color:var(--mut);
+  border-radius:8px; font-size:12px; padding:6px 10px; cursor:pointer; letter-spacing:.1em;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v1 .srchead { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+.v1 .srchead .sbox { flex:1; }
+.v1 .srchead .sclose { border:0; background:transparent; color:var(--mut); cursor:pointer;
+  font-size:16px; padding:8px; }
+.v1 .basemap { margin-top:34px; }
+.v1 .basemap .nm { font-size:14px; font-weight:700; }
+.v1 .basemap .meta { font-size:10px; color:var(--mut); margin-top:4px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* the micro band, borrowed from the maps screen for the backdrop */
+.mv .band { display:flex; gap:2px; margin-top:10px; height:14px; }
+.mv .bseg { border:0; border-radius:3px; min-width:10px; }
+.mv .b-walk { background:var(--cyan); }
+.mv .b-flight { background:var(--green); }
+.mv .b-flight.needs { background:var(--amber); box-shadow:var(--glow); }
+.mv .b-take { background:transparent; border:1.5px solid var(--cyan); }
+.mv .b-wait { background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.mv .b-fog { background:transparent; border:1.5px dotted var(--mut); }
+
+/* ============ v2 — the screen ============ */
+.v2 .tabs { display:flex; gap:2px; margin-bottom:22px; border-bottom:1px solid var(--line); }
+.v2 .tab { flex:1; text-align:center; font-size:10px; letter-spacing:.14em; text-transform:uppercase;
+  color:var(--mut); padding:10px 0; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v2 .tab.on { color:var(--ink); font-weight:700; border-bottom:2px solid var(--cyan); }
+.v2 .sec { margin-top:26px; }
+.v2 .sec .shead { display:flex; align-items:baseline; gap:10px; }
+.v2 .sec .shead .num { margin-left:auto; }
+.v2 .more { display:block; padding:10px 0 0; font-size:11px; color:var(--cyan);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; cursor:pointer;
+  background:transparent; border:0; }
+
+/* ============ v3 — on home ============ */
+.v3 .verdict { display:flex; align-items:baseline; gap:26px; margin:0 0 18px; }
+.v3 .verdict .v { font-size:26px; font-weight:700; line-height:1;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v3 .verdict .v.need { color:var(--amber); text-shadow:var(--glow); }
+.v3 .verdict .v.take { color:var(--cyan); }
+.v3 .verdict .k { display:block; font-size:9px; letter-spacing:.2em; color:var(--mut);
+  text-transform:uppercase; margin-top:6px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v3 .kchips { display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+.v3 .homerow { display:flex; align-items:center; gap:14px; margin-top:16px; }
+.v3 .homerow .nm { flex:none; width:88px; font-size:12px; font-weight:600; color:var(--mut);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.v3 .homerow .bw { flex:1; min-width:0; }
+.v3 .homerow .bw .band { margin-top:0; }
+.v3 .homerow .frac { flex:none; font-size:13px; font-weight:700;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v3 .homeblock { margin-top:30px; }
+
+/* ============ the landing toast ============ */
+.mv .toast { position:absolute; left:50%; bottom:20px; transform:translateX(-50%);
+  z-index:30; background:var(--ink); color:var(--bg); font-size:11px; padding:10px 16px;
+  border-radius:8px; white-space:nowrap; opacity:0; pointer-events:none;
+  transition:opacity .2s; max-width:92%; overflow:hidden; text-overflow:ellipsis; }
+.mv .toast.show { opacity:.96; }
+
+/* desktop: one centered column */
+@container frame (min-width:700px) {
+  .mv .col { max-width:680px; margin:0 auto; }
+  .v1 .sheet .inner > * { max-width:680px; margin-left:auto; margin-right:auto; }
+}
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#589</b> · The global search · throwaway prototype, static corpus, dead links</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<section class="view mv v1" data-view="v1" data-name="✓ · The lens overlay (decided)"></section>
+<section class="view mv v2" data-view="v2" data-name="2 · The search screen"></section>
+<section class="view mv v3" data-view="v3" data-name="3 · On the home"></section>
+
+</div></div></div>
+
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* ================================================================
+   THE CORPUS — static mock, built from the real #511 map.
+   kind: ticket | map | decision | journal | chat
+   dest: where a tap lands, shown on the row and in the toast.
+   ================================================================ */
+const C = [
+  /* --- tickets and maps --- */
+  { kind:"map", title:"The UX map: the dashboard, Discord, and the way between them",
+    num:"#511", text:"18 of 24 walked, 2 in the fog. Destination: a decided UX direction for curia's operator surfaces.",
+    ago:"12m", m:12, dest:"maps", state:"open" },
+  { kind:"map", title:"The deploy pipeline", num:"#480",
+    text:"11 of 12 walked. The rollback drill on the staging box is takeable.",
+    ago:"3h", m:180, dest:"maps", state:"open" },
+  { kind:"ticket", title:"The main layout and the page navigation structure", num:"#560",
+    text:"Prototype the dashboard's main layout and the navigation between its pages, after every screen exists on its own.",
+    ago:"2d", m:2880, dest:"chat", state:"open" },
+  { kind:"ticket", title:"The frontier visual", num:"#588",
+    text:"One iteration prototype starts from the maps screen mockup. It either confirms the mock or sharpens the frontier rendering.",
+    ago:"2d", m:2900, dest:"chat", state:"open" },
+  { kind:"ticket", title:"The alert load", num:"#590",
+    text:"A mock shows the Needs-you list and the thread flow at 20 or more open items, with grouping by map and attention ranking.",
+    ago:"2d", m:2910, dest:"chat", state:"needs" },
+  { kind:"ticket", title:"The maps screen", num:"#522",
+    text:"Decide the maps screen: every map's frontier at a glance, then the drill-down into one map.",
+    ago:"6d", m:8640, dest:"chat", state:"closed" },
+  { kind:"ticket", title:"The pane-driven rewind", num:"#542",
+    text:"Can a keystroke stream into the agent pane take back the last exchange, on all four harness lanes?",
+    ago:"9d", m:12960, dest:"chat", state:"closed" },
+  { kind:"ticket", title:"The model-switch prototype: changing a live agent's model, per harness", num:"#561",
+    text:"Can the operator change a live agent's model from the dashboard, and does the conversation survive it?",
+    ago:"2d", m:2600, dest:"chat", state:"closed" },
+  { kind:"ticket", title:"The embedded terminal", num:"#537",
+    text:"A browser terminal inside the dashboard: ttyd behind the identity proxy, touch keys on phones.",
+    ago:"12d", m:17280, dest:"chat", state:"closed" },
+
+  /* --- past decisions (resolution gists, from Decisions-so-far) --- */
+  { kind:"decision", title:"The maps screen", num:"#522",
+    text:"One band per map: walked, in flight, takeable, blocked, fog, with counts. Needs-you maps first, then most recent event. Repo chips as the filters. Tap a segment for the detail with the routed model.",
+    ago:"1d", m:1440, dest:"github" },
+  { kind:"decision", title:"The chat screen", num:"#524",
+    text:"One picker screen with two sections, Tickets and Overseer. The escalation card answers in place with its options open and the round's All-as-recommended button.",
+    ago:"8d", m:11520, dest:"github" },
+  { kind:"decision", title:"The pane-driven rewind", num:"#542",
+    text:"All four lanes pass on blind keystrokes: claude and opencode restore files with the conversation, codex and pi restore the conversation only, and curia clears the prefilled composer on every lane.",
+    ago:"8d", m:11530, dest:"github" },
+  { kind:"decision", title:"Taking back a message", num:"#516",
+    text:"The take back is the harness rewind on user turns, and a correction everywhere a rewind cannot land. ADR-0021.",
+    ago:"16d", m:23040, dest:"github" },
+  { kind:"decision", title:"The model-switch prototype: changing a live agent's model, per harness", num:"#561",
+    text:"All four lanes switch a live model in the pane and the conversation survives: claude by /model plus a confirm, the other three by their picker. One composer discipline everywhere: Ctrl+U cuts first.",
+    ago:"1d", m:1500, dest:"github" },
+  { kind:"decision", title:"The feed screen", num:"#523",
+    text:"The Wire wins: one stream at two altitudes, news full size and mechanics compressed, needs-you tinted, a since-you-left marker, family chips and a 24-hour density strip.",
+    ago:"7d", m:10080, dest:"github" },
+
+  /* --- the journal history --- */
+  { kind:"journal", title:"The gate opened on The subagent prototype",
+    text:"request_review on #544. The pull request #571 and the preview wait for your verdict.",
+    ago:"26m", m:26, dest:"feed" },
+  { kind:"journal", title:"curia merged The maps screen",
+    text:"#522 resolved. The squash landed as #575 and the branch curia/522 is gone.",
+    ago:"1d", m:1450, dest:"feed" },
+  { kind:"journal", title:"claude started on The global search prototype",
+    text:"#589 claimed on the UX map. Branch curia/589, model claude-fable-5.",
+    ago:"3h", m:190, dest:"feed" },
+  { kind:"journal", title:"A cross-check verdict landed on The overseer terminal",
+    text:"The reviewer on the other provider read #570 and returned two notes, no blocker.",
+    ago:"2d", m:2700, dest:"feed" },
+  { kind:"journal", title:"The rollback drill went quiet",
+    text:"#491 on The deploy pipeline waits 40m on a tool retry. No answer needed yet.",
+    ago:"5h", m:300, dest:"feed" },
+
+  /* --- chat transcripts --- */
+  { kind:"chat", title:"The ingest cut-over", who:"operator",
+    text:"Keep the raw rows after the cut? The gauges only need the hourly rollup.",
+    ago:"8m", m:8, dest:"chat" },
+  { kind:"chat", title:"The pane-driven rewind", who:"claude",
+    text:"The rewind lands on the third user turn. Claude restores the files with the conversation, codex restores the conversation only.",
+    ago:"9d", m:12970, dest:"chat" },
+  { kind:"chat", title:"The subagent prototype", who:"curia",
+    text:"The gate is open. The pull request #571 carries the meter and the bounds, and the preview shows both.",
+    ago:"28m", m:28, dest:"chat" },
+  { kind:"chat", title:"The embedded terminal", who:"operator",
+    text:"Variant a Screen wins. Retire port 8443 after the sidecar proxy passes the research checks.",
+    ago:"11d", m:15840, dest:"chat" },
+  { kind:"chat", title:"The model-switch prototype", who:"claude",
+    text:"The fable cap hit on #544. Switching the live agent's model from the status line would have saved the turn.",
+    ago:"2d", m:2650, dest:"chat" }
+];
+
+const KINDS = ["ticket","map","decision","journal","chat"];
+const KWORD = { ticket:"ticket", map:"map", decision:"decided", journal:"journal", chat:"chat" };
+const GLYPH = { ticket:"#", map:"◫", decision:"✓", journal:"·", chat:"»" };
+const DESTWORD = { chat:"chat →", maps:"maps →", feed:"feed →", github:"github →" };
+
+/* ================================================================
+   SEARCH — substring match over title + text, title hits first,
+   then the newest. The snippet centers on the first hit.
+   ================================================================ */
+function esc(s) { return s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
+function mark(s, q) {
+  if (!q) return esc(s);
+  const i = s.toLowerCase().indexOf(q.toLowerCase());
+  if (i < 0) return esc(s);
+  return esc(s.slice(0, i)) + '<i class="hit">' + esc(s.slice(i, i + q.length)) + "</i>"
+    + mark(s.slice(i + q.length), q);
+}
+function snippet(e, q) {
+  const t = e.text;
+  const i = q ? t.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  let s = t, pre = "";
+  if (i > 50) { s = t.slice(t.lastIndexOf(" ", i - 36) + 1); pre = "… "; }
+  const who = e.who ? `<span class="who">${e.who}:</span> ` : "";
+  return who + pre + mark(s, q);
+}
+function search(q, kind) {
+  q = q.trim();
+  let pool = C.filter(e => kind === "all" || e.kind === kind);
+  if (!q) return pool.slice().sort((a, b) => a.m - b.m).slice(0, 8);
+  const ql = q.toLowerCase();
+  return pool
+    .map(e => {
+      const inTitle = (e.title + " " + (e.num || "")).toLowerCase().includes(ql);
+      const inText = e.text.toLowerCase().includes(ql) || (e.who || "").toLowerCase().includes(ql);
+      return { e, w: inTitle ? 2 : inText ? 1 : 0 };
+    })
+    .filter(x => x.w > 0)
+    .sort((a, b) => b.w - a.w || a.e.m - b.e.m)
+    .map(x => x.e);
+}
+const countBy = q => Object.fromEntries(KINDS.map(k => [k, search(q, k).length]));
+
+/* ---------- the landing toast ---------- */
+let toastT = null;
+function land(sec, e) {
+  const el = sec.querySelector(".toast");
+  const where = { chat: "chat · " + e.title, maps: "maps · " + e.title,
+    feed: "the feed, at this entry", github: e.num + " on github, the resolution" }[e.dest];
+  el.textContent = "opens " + where;
+  el.classList.add("show");
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.classList.remove("show"), 1800);
+}
+
+/* ---------- rows ---------- */
+function rowV1(e, q) {
+  return `<div class="srow" data-id="${C.indexOf(e)}">
+    <span class="kword ${e.state === "needs" ? "needs" : ""}">${e.state === "needs" ? "needs you" : KWORD[e.kind]}</span>
+    <span class="main">
+      <span class="rt"><span class="t">${mark(e.title, q)}</span>${e.num ? `<span class="num">${e.num}</span>` : ""}</span>
+      <span class="snip">${snippet(e, q)}</span>
+    </span>
+    <span class="meta"><span class="num">${e.ago}</span><span class="dest">${DESTWORD[e.dest]}</span></span>
+  </div>`;
+}
+function rowV2(e, q) {
+  return `<div class="srow" data-id="${C.indexOf(e)}">
+    <span class="main">
+      <span class="rt"><span class="t">${mark(e.title, q)}</span>${e.num ? `<span class="num">${e.num}</span>` : ""}
+        ${e.state === "needs" ? '<span class="chip">needs you</span>' : ""}</span>
+      <span class="snip">${snippet(e, q)}</span>
+    </span>
+    <span class="meta"><span class="num">${e.ago}</span><span class="dest">${DESTWORD[e.dest]}</span></span>
+  </div>`;
+}
+function rowV3(e, q) {
+  return `<div class="srow ${e.kind === "journal" ? "dim" : ""}" data-id="${C.indexOf(e)}">
+    <span class="glyph">${GLYPH[e.kind]}</span>
+    <span class="main">
+      <span class="rt"><span class="t">${mark(e.title, q)}</span>${e.num ? `<span class="num">${e.num}</span>` : ""}</span>
+      <span class="snip">${snippet(e, q)}</span>
+    </span>
+    <span class="meta"><span class="num">${e.ago}</span><span class="dest">${DESTWORD[e.dest]}</span></span>
+  </div>`;
+}
+
+const sbox = (q, ph) => `<div class="sbox"><span class="lens">⌕</span>
+  <input class="sinput" type="search" autocomplete="off" value="${esc(q)}" placeholder="${ph}">
+  ${q ? '<button class="sclear" aria-label="clear">✕</button>' : ""}</div>`;
+
+/* a tiny atlas backdrop for v1 and v3, borrowed from the decided maps screen */
+const microBand = segs => `<div class="band">${segs.map(s =>
+  `<span class="bseg ${s[0]}" style="flex-grow:${s[1]}"></span>`).join("")}</div>`;
+const BACKDROP = [
+  { nm:"ux map", frac:"18/24+2", segs:[["b-walk",18],["b-flight needs",2],["b-take",3],["b-wait",1],["b-fog",2]] },
+  { nm:"deploy", frac:"11/12", segs:[["b-walk",11],["b-take",1]] },
+  { nm:"measured", frac:"3/9+4", segs:[["b-walk",3],["b-flight",1],["b-take",2],["b-wait",3],["b-fog",4]] }
+];
+
+/* ================================================================
+   V1 — THE LENS OVERLAY
+   The bar sits nowhere: a lens button in every screen's header opens
+   a full-screen overlay above the current screen. One blended list,
+   ranked. The kind is a word on the left of each row.
+   ================================================================ */
+function renderV1(sec, st) {
+  const open = st.open;
+  sec.innerHTML = `
+    <div class="base ${open ? "dimmed" : ""}">
+      <div class="ht"><span>curia · atlas</span><span class="sp"></span>
+        <button class="lensbtn" data-open>⌕ search</button></div>
+      <div class="col">
+      ${BACKDROP.map(b => `<div class="basemap">
+        <div class="nm">${b.nm}</div>
+        <div class="meta">${b.frac}</div>
+        ${microBand(b.segs)}</div>`).join("")}
+      </div>
+    </div>
+    <div class="sheet ${open ? "open" : ""}"><div class="inner">
+      <div class="srchead">${sbox(st.q, "tickets · decisions · journal · chat")}
+        <button class="sclose" data-close aria-label="close">✕</button></div>
+      ${st.q ? "" : '<div class="hint">everything curia remembers: tickets and maps · past decisions · the journal · chat</div>'}
+      <div class="results">${search(st.q, "all").map(e => rowV1(e, st.q)).join("")
+        || '<div class="fnone">nothing matches</div>'}</div>
+    </div></div>
+    <div class="toast"></div>`;
+}
+
+/* ================================================================
+   V2 — THE SEARCH SCREEN
+   The bar is a page of its own in the nav, beside the other screens.
+   Results grouped by kind, each section capped at three with a
+   "+n more" line. The section carries the kind, the row stays clean.
+   ================================================================ */
+function renderV2(sec, st) {
+  const groups = [["ticket", "tickets and maps", ["ticket","map"]],
+    ["decision", "past decisions", ["decision"]],
+    ["journal", "the journal", ["journal"]],
+    ["chat", "chat", ["chat"]]];
+  const body = groups.map(([key, label, kinds]) => {
+    const rs = kinds.flatMap(k => search(st.q, k));
+    if (!rs.length) return "";
+    const lim = st.more[key] ? rs.length : 3;
+    return `<div class="sec">
+      <div class="shead"><span class="phead">${label}</span><span class="num">${rs.length}</span></div>
+      ${rs.slice(0, lim).map(e => rowV2(e, st.q)).join("")}
+      ${rs.length > lim ? `<button class="more" data-more="${key}">+ ${rs.length - lim} more →</button>` : ""}
+    </div>`;
+  }).join("");
+  sec.innerHTML = `
+    <div class="ht"><span>curia · atlas · search</span><span class="sp"></span><span>fri 21 aug · 09:12</span></div>
+    <div class="col">
+      <div class="tabs"><span class="tab">home</span><span class="tab">maps</span><span class="tab">agents</span>
+        <span class="tab">feed</span><span class="tab on">search</span></div>
+      ${sbox(st.q, "search everything curia remembers")}
+      ${body || '<div class="fnone">nothing matches</div>'}
+    </div>
+    <div class="toast"></div>`;
+}
+
+/* ================================================================
+   V3 — ON THE HOME
+   The bar sits on the Atlas home, under the verdict. Typing turns
+   the home into results; kind chips cut the list. A glyph carries
+   the kind. Clearing brings the home back.
+   ================================================================ */
+function renderV3(sec, st) {
+  const searching = st.q.trim().length > 0;
+  const n = countBy(st.q);
+  const chips = `<div class="kchips">
+    <button class="fchip ${st.kind === "all" ? "on" : ""}" data-kind="all">all</button>
+    ${KINDS.map(k => `<button class="fchip ${st.kind === k ? "on" : ""}" data-kind="${k}">${k} ${n[k]}</button>`).join("")}
+  </div>`;
+  sec.innerHTML = `
+    <div class="ht"><span>curia · atlas</span><span class="sp"></span><span>fri 21 aug · 09:12</span></div>
+    <div class="col">
+      <div class="verdict">
+        <div><span class="v need">2</span><span class="k">need you</span></div>
+        <div><span class="v take">6</span><span class="k">takeable</span></div>
+        <div><span class="v">3</span><span class="k">maps</span></div>
+      </div>
+      ${sbox(st.q, "find a ticket, a decision, a chat line")}
+      ${searching ? chips : ""}
+      ${searching
+        ? `<div class="results">${search(st.q, st.kind).map(e => rowV3(e, st.q)).join("")
+            || '<div class="fnone">nothing matches</div>'}</div>`
+        : `<div class="homeblock">
+            ${BACKDROP.map(b => `<div class="homerow">
+              <span class="nm">${b.nm}</span>
+              <span class="bw">${microBand(b.segs)}</span>
+              <span class="frac">${b.frac}</span></div>`).join("")}
+          </div>`}
+    </div>
+    <div class="toast"></div>`;
+}
+
+/* ================================================================
+   shell wiring
+   ================================================================ */
+const VIEWS = ["v1", "v2", "v3"];
+const RENDER = { v1: renderV1, v2: renderV2, v3: renderV3 };
+const ST = {
+  v1: { q: "rewind", open: true },
+  v2: { q: "rewind", more: {} },
+  v3: { q: "", kind: "all" }
+};
+const frame = document.getElementById("frame");
+const wrap = document.getElementById("wrap");
+const qp = new URLSearchParams(location.search);
+let v = VIEWS.includes(qp.get("v")) ? qp.get("v") : "v1";
+let mode = qp.get("mode") === "light" ? "light" : "dark";
+let w = qp.get("w") === "desktop" ? "desktop" : "phone";
+
+function render(keepFocus) {
+  document.querySelectorAll(".view").forEach(sec => {
+    const on = sec.dataset.view === v;
+    sec.classList.toggle("active", on);
+    if (!on) return;
+    const st = ST[v];
+    RENDER[v](sec, st);
+    const input = sec.querySelector(".sinput");
+    if (input) {
+      input.oninput = () => { st.q = input.value; if (v === "v2") st.more = {}; render(true); };
+      if (keepFocus) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+    }
+    const clear = sec.querySelector(".sclear");
+    if (clear) clear.onclick = () => { st.q = ""; render(true); };
+    sec.querySelectorAll("[data-open]").forEach(b => b.onclick = () => { st.open = true; render(true); });
+    sec.querySelectorAll("[data-close]").forEach(b => b.onclick = () => { st.open = false; render(); });
+    sec.querySelectorAll("[data-kind]").forEach(b => b.onclick = () => { st.kind = b.dataset.kind; render(); });
+    sec.querySelectorAll("[data-more]").forEach(b => b.onclick = () => { st.more[b.dataset.more] = true; render(); });
+    sec.querySelectorAll(".srow").forEach(r => r.onclick = () => land(sec, C[+r.dataset.id]));
+  });
+  frame.className = "frame w-" + w + " " + mode;
+  document.getElementById("vname").textContent =
+    document.querySelector(".view.active").dataset.name;
+  document.getElementById("mode").textContent = mode === "dark" ? "☾" : "☀";
+  document.getElementById("width").textContent = w === "phone" ? "📱" : "🖥";
+  const p = new URLSearchParams({ v, mode, w });
+  history.replaceState(null, "", "?" + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === "desktop" ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = "scale(" + s + ")";
+  wrap.style.height = (frame.offsetHeight * s) + "px";
+}
+function cycle(dir) {
+  v = VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+document.getElementById("mode").onclick = () => { mode = mode === "dark" ? "light" : "dark"; render(); };
+document.getElementById("width").onclick = () => { w = w === "phone" ? "desktop" : "phone"; render(); };
+window.addEventListener("keydown", e => {
+  const t = e.target;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+window.addEventListener("resize", rescale);
+render();
+</script>
+</body>
+</html>
