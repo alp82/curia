@@ -6,14 +6,15 @@
 <title>#560 · the main layout and the page navigation</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#560 · the main layout and the page navigation structure.
-  Five navigation-frame variants around simplified copies of the six approved screens
-  (#519 #521 #522 #523 #524 #525):
-    A · the tab row   — bottom tabs, a left rail on desktop
-    B · the hub       — no standing chrome, home is the way to everything
-    C · the pane line — a tmux status line with window numbers
-    D · the board     — no pages: all six screens on one scroll, a jump rail at the edge
-    E · the dial      — the verdict ring floats, and the six pages fan out of it
-  The screens are the approved material; only the frame differs per variant.
+  Round 3: the operator ruled for the tab row, always visible, in traditional forms.
+  Six variants around simplified copies of the six approved screens (#519 #521 #522 #523 #524 #525):
+    A · bottom tabs · words   — six mono words, left rail on desktop
+    B · bottom tabs · icons   — the classic app bar, a glyph over each label
+    C · the floating dock     — the six words in a floating pill over every screen
+    D · top tabs              — the tab row at the top, under the wordmark
+    E · the drawer            — a top bar with the burger, desktop pins the drawer open
+    F · the icon rail         — a Discord-style left rail with six marks
+  The chrome never yields: it stays beside the composer, the settings dock, and the terminal.
   Switch variants with the ‹ › controls, color mode and frame width beside them.
   The two ⇢ buttons play the Discord deep links (#526).
 -->
@@ -32,7 +33,7 @@ html,body{background:#08090c}
 .ph-ttl{font-weight:700;letter-spacing:.06em;margin-right:auto}
 .ph-btn{background:#171b22;border:1px solid #262c36;color:#cfd6e2;border-radius:7px;
   padding:5px 9px;font:11px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
-.ph-btn.wide{min-width:110px;text-align:center}
+.ph-btn.wide{min-width:130px;text-align:center}
 .ph-note{margin-top:6px;color:#8a93a3;line-height:1.5}
 .stage{display:flex;justify-content:center;padding:22px 12px 60px}
 .frame{position:relative;border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.5);overflow:hidden;
@@ -40,11 +41,13 @@ html,body{background:#08090c}
   font-family:ui-sans-serif,system-ui,sans-serif;color:var(--ink)}
 .frame.w-phone{width:390px;height:800px}
 .frame.w-desktop{width:1280px;height:820px}
-.frame.w-desktop.v-a{flex-direction:row}
+.frame.v-f{flex-direction:row}
+.frame.w-desktop.v-a,.frame.w-desktop.v-b,.frame.w-desktop.v-e{flex-direction:row}
 @media (max-width:480px){
   .stage{padding:0}
   .frame,.frame.w-phone,.frame.w-desktop{width:100%;height:calc(100dvh - 58px);border-radius:0;box-shadow:none}
-  .frame.w-desktop.v-a{flex-direction:column}
+  .frame.w-desktop.v-a,.frame.w-desktop.v-b,.frame.w-desktop.v-e{flex-direction:column}
+  .frame.v-f{flex-direction:row}
   .ph-hide-sm{display:none}
 }
 
@@ -59,11 +62,13 @@ html,body{background:#08090c}
   --glow:none}
 
 /* ---------- viewport ---------- */
-.viewport{flex:1;overflow-y:auto;position:relative;background:var(--bg)}
+.viewport{flex:1;overflow-y:auto;position:relative;background:var(--bg);min-width:0}
 .scr{min-height:100%;padding:20px 20px 44px}
 .scr.fill{height:100%;display:flex;flex-direction:column;padding:0;min-height:0}
 .w-desktop .scr{padding:26px 44px 60px}
 .w-desktop .scr.fill{padding:0}
+.v-c .scr{padding-bottom:120px}
+.v-c .scr.fill{padding-bottom:74px}
 
 /* ---------- shared atoms (from the approved screens) ---------- */
 .mono,h2,.num,time,.ht,.chip,.sub,.dsub,.reads,.meta,.state .st,.fchip,.word,.tglance
@@ -73,7 +78,6 @@ html,body{background:#08090c}
 .ht a{color:var(--cyan);text-decoration:none;text-transform:uppercase}
 h2{font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);
   font-weight:600;margin:30px 0 4px}
-h2 a{color:var(--cyan);text-decoration:none;letter-spacing:.1em;float:right}
 .row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line);font-size:14px}
 h2+.row,h2+.quest,h2+.srow{border-top:0}
 .ttl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
@@ -190,8 +194,6 @@ time{color:var(--mut)}
 .w-desktop .mp .md{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,4fr);gap:0 64px}
 .w-desktop .mp .detailpane{display:block;position:sticky;top:24px;margin-top:34px}
 .w-desktop .mp .inlinepanel{display:none}
-.board .mp .detailpane{display:none}
-.board .mp .inlinepanel{display:block}
 
 /* ---------- feed (the Wire, #523) ---------- */
 .fd .screen{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:18px 0 2px}
@@ -228,7 +230,6 @@ time{color:var(--mut)}
   font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);line-height:1.6}
 .fd .hiddenrow{display:none}
 .w-desktop .fd .wrap{max-width:760px;margin:0 auto}
-.board .fd .wrap{max-width:none}
 
 /* ---------- chats (#524) ---------- */
 .ch .list{padding-bottom:20px}
@@ -292,8 +293,7 @@ time{color:var(--mut)}
 .term .tscreen{flex:1;overflow:hidden;margin:0;padding:14px 16px;
   font:400 11px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:#9fe8b8;white-space:pre-wrap}
 .term .tscreen .tdim{color:#57606f}
-.term .tkeys{flex:none;display:flex;gap:8px;padding:10px 14px calc(10px + env(safe-area-inset-bottom));
-  border-top:1px solid var(--line)}
+.term .tkeys{flex:none;display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
 .term .tkeys span{flex:1;text-align:center;font:600 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   color:var(--mut);border:1px solid var(--line);border-radius:7px;padding:8px 0}
 .w-desktop .term .tkeys{display:none}
@@ -322,6 +322,7 @@ time{color:var(--mut)}
 .dock{position:sticky;bottom:14px;z-index:6;width:max-content;max-width:100%;margin:28px auto 0;
   display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;
   background:var(--float);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35)}
+.v-c .dock{bottom:84px}
 .dock .toast{font-size:13px;color:var(--mut)}
 .dock .toast b{color:var(--ink)}
 .dock .okw{color:var(--green);font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -333,7 +334,13 @@ time{color:var(--mut)}
 .w-desktop .st .back{display:none}
 .w-desktop .st .sec-body{max-width:560px}
 
-/* ---------- variant A · the tab row ---------- */
+/* ---------- glance badges (shared by all chromes) ---------- */
+.tglance{font-size:9px;margin-left:4px}
+.tglance.g-need{background:var(--amber);color:var(--amberink);font-weight:800;
+  padding:1px 5px;border-radius:3px;box-shadow:var(--glow)}
+.tglance.g-run{color:var(--green)}
+
+/* ---------- A/B · bottom tab rows ---------- */
 .tabbar{flex:none;display:flex;border-top:1px solid var(--line);background:var(--bg);
   padding:10px 6px calc(10px + env(safe-area-inset-bottom))}
 .tabbar .tab{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
@@ -341,10 +348,14 @@ time{color:var(--mut)}
   padding:4px 0}
 .tabbar .tab.cur{color:var(--ink)}
 .tabbar .tab.cur::before{content:"";position:absolute;top:-11px;left:22%;right:22%;border-top:2px solid var(--cyan)}
-.tglance{font-size:9px;margin-left:4px}
-.tglance.g-need{background:var(--amber);color:var(--amberink);font-weight:800;
-  padding:1px 5px;border-radius:3px;box-shadow:var(--glow)}
-.tglance.g-run{color:var(--green)}
+.tabbar.icons{padding-top:8px}
+.tabbar.icons .tab{font-size:8px;letter-spacing:.08em}
+.tabbar.icons .tab .ic{display:block;font-size:16px;line-height:1;margin-bottom:4px;position:relative}
+.tabbar.icons .tab .ic .tglance{position:absolute;top:-5px;margin-left:2px}
+.tabbar.icons .tab.cur{color:var(--cyan)}
+.tabbar.icons .tab.cur::before{display:none}
+
+/* ---------- A/B desktop · left rail ---------- */
 .rail{flex:none;width:200px;border-right:1px solid var(--line);background:var(--bg);
   padding:24px 20px;display:flex;flex-direction:column;gap:4px}
 .rail .wm{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
@@ -354,57 +365,66 @@ time{color:var(--mut)}
 .rail .tab{position:relative;text-decoration:none;color:var(--mut);padding:9px 0 9px 12px;margin-left:-12px;
   font:600 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}
 .rail .tab.cur{color:var(--ink);border-left:2px solid var(--cyan);padding-left:10px}
+.rail .tab .ric{display:inline-block;width:22px;font-size:13px;letter-spacing:0}
 .rail .rdate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
 
-/* ---------- variant C · the pane line ---------- */
-.paneline{flex:none;display:flex;align-items:center;gap:14px;background:var(--dim);
-  border-top:1px solid var(--line);padding:9px 12px calc(9px + env(safe-area-inset-bottom));
-  font:600 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em;
-  color:var(--mut);overflow-x:auto;white-space:nowrap;scrollbar-width:none}
-.paneline::-webkit-scrollbar{display:none}
-.paneline .sess{color:var(--cyan);flex:none}
-.paneline .pw{flex:none;text-decoration:none;color:var(--mut)}
-.paneline .pw.cur{color:var(--ink);font-weight:800}
-.paneline .pw .flag{color:var(--green)}
-.paneline .pw .cnt{background:var(--amber);color:var(--amberink);font-weight:800;
-  padding:0 4px;border-radius:3px;margin-left:3px;box-shadow:var(--glow)}
-.paneline .ptime{flex:none;margin-left:auto;color:var(--mut);letter-spacing:.18em}
+/* ---------- C · the floating dock ---------- */
+.navdock{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:14;
+  display:flex;gap:2px;background:var(--float);border:1px solid var(--line);border-radius:999px;
+  padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:calc(100% - 16px)}
+.navdock a{position:relative;text-decoration:none;color:var(--mut);white-space:nowrap;
+  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;
+  padding:9px 9px;border-radius:999px}
+.navdock a.cur{background:var(--cyan);color:var(--bg)}
+.navdock a .tglance{margin-left:3px}
 
-/* ---------- variant D · the board ---------- */
-.board .bdiv{display:flex;align-items:center;gap:12px;margin:44px 0 2px;
-  font:700 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.3em;
-  text-transform:uppercase;color:var(--ink);scroll-margin-top:12px}
-.board .bdiv::after{content:"";flex:1;border-top:1px solid var(--line)}
-.board .bdiv .bmark{color:var(--mut);font-weight:400;letter-spacing:.1em}
-.board #sec-home{scroll-margin-top:12px}
-.w-desktop .board .bwrap{max-width:880px;margin:0 auto}
-.jumprail{position:absolute;right:4px;top:50%;transform:translateY(-50%);z-index:8;
-  display:flex;flex-direction:column;gap:6px;padding:10px 5px;border-radius:10px;
-  background:color-mix(in srgb, var(--bg) 72%, transparent)}
-.jumprail a{display:block;width:22px;text-align:center;text-decoration:none;
-  font:700 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);padding:4px 0}
-.jumprail a:hover{color:var(--ink)}
-.jumprail a.jn{color:var(--amberw)}
+/* ---------- D · top tabs ---------- */
+.toptabs{flex:none;background:var(--bg);border-bottom:1px solid var(--line)}
+.toptabs .tt-head{display:flex;justify-content:space-between;padding:12px 16px 8px;
+  font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--mut)}
+.toptabs .tt-head .need{color:var(--amberw);font-weight:700;letter-spacing:.12em;text-decoration:none}
+.toptabs .tt-row{display:flex}
+.toptabs .tt-row a{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
+  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;
+  padding:9px 0 11px;border-bottom:2px solid transparent}
+.toptabs .tt-row a.cur{color:var(--ink);border-bottom-color:var(--cyan)}
 
-/* ---------- variant E · the dial ---------- */
-.dialwrap{position:absolute;right:18px;bottom:18px;z-index:12}
-.dialwrap.lift{bottom:96px}
-.dialbtn{position:relative;width:58px;height:58px;border-radius:50%;border:0;background:var(--bg);
-  box-shadow:0 8px 26px rgba(0,0,0,.45)}
-.dialbtn svg{position:absolute;inset:0}
-.dialbtn .dn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font:700 19px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--amber);text-shadow:var(--glow)}
-.dialscrim{position:absolute;inset:0;z-index:11;background:color-mix(in srgb, var(--bg) 62%, transparent)}
-.dialmenu{position:absolute;right:29px;bottom:29px;z-index:12}
-.dialmenu a{position:absolute;transform:translate(-50%,-50%);text-decoration:none;
-  font:700 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;
-  color:var(--ink);background:var(--float);border:1px solid var(--line);border-radius:999px;
-  padding:8px 13px;box-shadow:0 6px 20px rgba(0,0,0,.4);white-space:nowrap}
-.dialmenu a.cur{border-color:var(--cyan);color:var(--cyan)}
-.dialmenu a .cnt{background:var(--amber);color:var(--amberink);font-weight:800;
-  padding:0 4px;border-radius:3px;margin-left:4px}
-.dialmenu a .flag{color:var(--green);margin-left:4px}
+/* ---------- E · the drawer ---------- */
+.appbar{flex:none;display:flex;align-items:center;gap:14px;padding:13px 16px;
+  border-bottom:1px solid var(--line);background:var(--bg)}
+.appbar .burger{background:none;border:0;color:var(--ink);font-size:17px;line-height:1;padding:2px 4px}
+.appbar .abt{flex:1;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.24em;text-transform:uppercase;color:var(--mut)}
+.appbar .abneed{font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--amberw);text-decoration:none}
+.drawerscrim{position:absolute;inset:0;z-index:19;background:rgba(0,0,0,.45)}
+.drawer{position:absolute;top:0;bottom:0;left:0;width:270px;z-index:20;background:var(--bg);
+  border-right:1px solid var(--line);padding:22px 20px;display:flex;flex-direction:column;gap:2px;
+  box-shadow:12px 0 40px rgba(0,0,0,.4)}
+.drawer.pinned{position:static;width:230px;z-index:auto;box-shadow:none;flex:none}
+.drawer .dwm{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--mut);margin-bottom:18px}
+.drawer a.drow{display:flex;justify-content:space-between;align-items:center;text-decoration:none;
+  color:var(--ink);font:600 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.1em;
+  text-transform:uppercase;padding:13px 10px;border-radius:8px}
+.drawer a.drow.cur{background:var(--dim);color:var(--cyan)}
+.drawer .ddate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
+
+/* ---------- F · the icon rail ---------- */
+.iconrail{flex:none;width:58px;border-right:1px solid var(--line);background:var(--dim);
+  display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;overflow-y:auto}
+.iconrail .logo{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font:800 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--bg);background:var(--ink);margin-bottom:6px}
+.iconrail a{position:relative;width:40px;height:40px;border-radius:12px;display:flex;align-items:center;
+  justify-content:center;text-decoration:none;color:var(--mut);
+  font:700 13px ui-monospace,"SF Mono",Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line)}
+.iconrail a.cur{color:var(--bg);background:var(--cyan);border-color:var(--cyan)}
+.iconrail a .bdg{position:absolute;top:-5px;right:-5px;background:var(--amber);color:var(--amberink);
+  font:800 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:1px 4px;border-radius:6px;box-shadow:var(--glow)}
+.iconrail a .rundot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:var(--green)}
 </style>
 </head>
 <body>
@@ -413,7 +433,7 @@ time{color:var(--mut)}
   <div class="ph-row">
     <span class="ph-ttl">#560 · the main layout and the page navigation</span>
     <button class="ph-btn" id="bPrev">‹</button>
-    <button class="ph-btn wide" id="bVar">A · tab row</button>
+    <button class="ph-btn wide" id="bVar">A · bottom · words</button>
     <button class="ph-btn" id="bNext">›</button>
     <button class="ph-btn" id="bMode">light</button>
     <button class="ph-btn ph-hide-sm" id="bWidth">desktop</button>
@@ -434,15 +454,16 @@ time{color:var(--mut)}
    state
 ---------------------------------------------------------------------- */
 const NOTES = {
-  a: 'A · the tab row — six tabs under the thumb, one press between pages. The bar yields to the composer and the terminal. The settings dock stacks above it. Desktop turns it into a left rail.',
-  b: 'B · the hub — no standing chrome. Home is the glance, and every road runs through it: one press out, two presses between pages. Settings rides in the header strip.',
-  c: 'C · the pane line — a tmux status line closes the frame: session name, six window numbers, the needs-you count as a flag. It stays on every screen, even the terminal, and it reads like the panes the agents live in.',
-  d: 'D · the board — no pages at all: the six screens stack on one scroll, home on top as the masthead. The rail on the right jumps between sections. Conversations, the terminal and a settings section push over the board.',
-  e: 'E · the dial — the verdict ring leaves home and floats over every screen, carrying the needs-you count. Tap it and the six pages fan out around it. No other chrome exists.'
+  a: 'A · bottom tabs · words — six mono words under the thumb, always visible: beside the composer, under the settings dock, below the terminal keys. Desktop turns it into a left rail.',
+  b: 'B · bottom tabs · icons — the classic app tab bar: a glyph over each label, active in cyan. Same six pages, always visible. Desktop turns it into a left rail with icons.',
+  c: 'C · the floating dock — the six words ride in a floating pill over every screen. The composer, the terminal keys and the settings dock sit above it.',
+  d: 'D · top tabs — the tab row sits at the top under the wordmark and the needs-you count, always visible. The bottom edge stays free for the composer and the terminal keys.',
+  e: 'E · the drawer — a top bar with the burger, the wordmark and the needs-you count. The six pages live in a drawer that slides over the screen. Desktop pins the drawer open.',
+  f: 'F · the icon rail — a Discord-style left rail: six marks, always visible on every screen, the amber count on chats, the green dot on agents. The screens keep their own header.'
 };
 const S = {
-  v: 'a',                      // variant a|b|c|d|e
-  page: 'home',                // home agents maps feed chats chat terminal settings board
+  v: 'a',                      // variant a|b|c|d|e|f
+  page: 'home',                // home agents maps feed chats chat terminal settings
   chatId: '519',
   agentsSel: 'a1',
   mapsSel: { map:'m1', group:'flight' },
@@ -451,10 +472,10 @@ const S = {
   setPhase: 'clean',           // clean | dirty | applied
   setDirty: 0,
   termFrom: '519',
-  dialOpen: false
+  drawerOpen: false
 };
 const q = new URLSearchParams(location.search);
-if (['a','b','c','d','e'].includes(q.get('v'))) S.v = q.get('v');
+if (['a','b','c','d','e','f'].includes(q.get('v'))) S.v = q.get('v');
 
 /* ----------------------------------------------------------------------
    data — the fictional world of the approved screens
@@ -532,20 +553,12 @@ const el = id => document.getElementById(id);
 const frame = el('frame');
 const DATE = 'fri 21 aug · 14:07';
 function ht(title){
-  if (S.v === 'b'){
-    if (S.page === 'home')
-      return `<div class="ht"><span>curia · atlas</span><span><a data-go="page:settings">settings</a> · ${DATE}</span></div>`;
-    return `<div class="ht"><span><a data-go="page:home">‹ atlas</a> · ${title}</span><span>${DATE}</span></div>`;
-  }
+  if (S.v === 'd' || S.v === 'e') return '';   /* their top bar carries the wordmark */
   return `<div class="ht"><span>curia · ${title}</span><span>${DATE}</span></div>`;
-}
-function h2link(txt, go){
-  if (S.v === 'b' && go) return `<h2>${txt}<a data-go="${go}">open →</a></h2>`;
-  return `<h2>${txt}</h2>`;
 }
 
 /* ----------------------------------------------------------------------
-   screen bodies (shared by the pages and by the board)
+   screen bodies
 ---------------------------------------------------------------------- */
 function bodyHome(){
   const needRows = `
@@ -589,17 +602,17 @@ function bodyHome(){
           <div><div class="v">96</div><div class="k">events · 24 h</div><svg class="spark" data-spark="3,2,4,6,5,8,6,7" width="72" height="14"></svg></div>
         </div>
       </div>
-      <div class="s-need">${h2link('Needs you','page:chats')}${needRows}</div>
-      <div class="s-agents">${h2link('Agents','page:agents')}
+      <div class="s-need"><h2>Needs you</h2>${needRows}</div>
+      <div class="s-agents"><h2>Agents</h2>
         ${agentRow(AGENTS.a1,'2,4,3,5,6,4,8,7')}${agentRow(AGENTS.a2,'5,4,6,3,4,2,3,2')}
         ${agentRow(AGENTS.a3,'1,2,3,4,4,5,6,7')}${agentRow(AGENTS.a4,'4,6,7,8,8,9,9,9')}${agentRow(AGENTS.a5,'3,3,2,2,1,1,1,1')}
       </div>
-      <div class="s-maps">${h2link('Maps','page:maps')}
+      <div class="s-maps"><h2>Maps</h2>
         ${quest('The UX map', '18<span style="color:var(--mut)">/24</span> <span style="color:var(--mut);font-size:11px">+2</span>', 75, 88, 8)}
         ${quest('The measured layer', '3<span style="color:var(--mut)">/9</span> <span style="color:var(--mut);font-size:11px">+4</span>', 33, 70, 22)}
         ${quest('The deploy pipeline', '11<span style="color:var(--mut)">/12</span>', 92, 0, 0)}
       </div>
-      <div class="s-log log">${h2link('Log','page:feed')}
+      <div class="s-log log"><h2>Log</h2>
         <div class="row"><time>13:22</time><span class="ttl">resolved · The pane-driven rewind, all four lanes pass</span></div>
         <div class="row"><time>12:56</time><span class="ttl">died · codex on The subagent meter, worktree stands</span></div>
         <div class="row"><time>12:40</time><span class="ttl">landed · deploy daemon 669ed83, green suite</span></div>
@@ -821,10 +834,9 @@ function chatPane(id){
   const foot = c.live
     ? `<div class="comp"><input placeholder="Message ${c.kind === 'ov' ? 'the overseer' : 'claude'}…"><button class="send">➤</button></div>`
     : `<div class="ro-note">this session ended · read-only · the record stays</div>`;
-  const backGo = S.v === 'd' ? 'page:chats' : 'page:chats';
   return `<div class="chpane">
     <div class="chead">
-      <a class="back" data-go="${backGo}">‹ chats</a>
+      <a class="back" data-go="page:chats">‹ chats</a>
       <div class="t1">${c.t1}</div><div class="t2">${c.t2}</div>
       ${links}
     </div>
@@ -905,11 +917,10 @@ function scrSettings(){
     <button class="btn prime" data-save>Save</button><a class="discard" data-discard>discard</a></div>`;
   if (S.setPhase === 'applied') dock = `<div class="dock"><span class="okw">saved ✓</span><span class="toast">The daemon is running it.</span></div>`;
   const desktop = frame.classList.contains('w-desktop');
-  const backLabel = S.v === 'd' ? '‹ the board' : '‹ settings';
   const body = desktop
     ? `<div class="st-grid">${bodySettingsHome()}<div class="sec-body">${secs[S.setSec || 'routing']}</div></div>`
     : (S.setSec
-        ? `<a class="back" data-go="set:home">${backLabel}</a><div class="sec-body">${secs[S.setSec]}</div>`
+        ? `<a class="back" data-go="set:home">‹ settings</a><div class="sec-body">${secs[S.setSec]}</div>`
         : bodySettingsHome());
   return `<section class="scr st"><div class="scr-inner">
     ${ht('settings')}
@@ -918,104 +929,85 @@ function scrSettings(){
   </div></section>`;
 }
 
-/* ---------- variant D · the board ---------- */
-function scrBoard(){
-  return `<section class="scr board">
-    <div class="bwrap">
-      <div class="ht"><span>curia · atlas</span><span>${DATE}</span></div>
-      <div id="sec-home" class="home">${bodyHome()}</div>
-      <div class="bdiv" id="sec-agents">agents <span class="bmark">5 live · 2 need you</span></div>
-      <div class="ag">${bodyAgents()}</div>
-      <div class="bdiv" id="sec-maps">maps <span class="bmark">3 in walk</span></div>
-      <div class="mp">${bodyMaps()}</div>
-      <div class="bdiv" id="sec-feed">feed <span class="bmark">96 events · 24 h</span></div>
-      <div class="fd">${bodyFeed()}</div>
-      <div class="bdiv" id="sec-chats">chats <span class="bmark">2 wait</span></div>
-      <div class="ch">${chatList()}</div>
-      <div class="bdiv" id="sec-settings">settings</div>
-      <div class="st">${bodySettingsHome()}</div>
-    </div>
-  </section>`;
-}
-
 /* ----------------------------------------------------------------------
-   chrome per variant
+   chrome per variant — always visible, per the round-2 ruling
 ---------------------------------------------------------------------- */
 const PAGES = [['home','home'],['agents','agents'],['maps','maps'],['feed','feed'],['chats','chats'],['settings','settings']];
+const GLYPH = { home:'⌂', agents:'◎', maps:'▦', feed:'≡', chats:'◆', settings:'⚙' };
 function curTop(){
   if (S.page === 'chat' || S.page === 'terminal') return 'chats';
-  if (S.page === 'board') return 'home';
   return S.page;
 }
-function tabItems(cls){
+function badge(p){
+  if (p === 'chats') return '<i class="tglance g-need">2</i>';
+  if (p === 'agents') return '<i class="tglance g-run">●</i>';
+  return '';
+}
+function tabItems(cls, withGlyph){
   return PAGES.map(([p,label]) => {
-    let badge = '';
-    if (p === 'chats') badge = '<i class="tglance g-need">2</i>';
-    if (p === 'agents') badge = '<i class="tglance g-run">●</i>';
-    return `<a class="${cls} ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${label}${badge}</a>`;
+    const ic = withGlyph ? `<span class="ic">${GLYPH[p]}${badge(p)}</span>` : '';
+    const bdg = withGlyph ? '' : badge(p);
+    return `<a class="${cls} ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${ic}${label}${bdg}</a>`;
   }).join('');
 }
-function chromeBottom(){
-  if (S.v === 'a'){
-    if (S.page === 'chat' || S.page === 'terminal') return '';   /* the bar yields */
-    if (frame.classList.contains('w-desktop')) return '';
-    return `<nav class="tabbar">${tabItems('tab')}</nav>`;
+function isDesktop(){ return frame.classList.contains('w-desktop'); }
+function chromeLeft(){
+  if ((S.v === 'a' || S.v === 'b') && isDesktop()){
+    const glyph = S.v === 'b';
+    const items = PAGES.map(([p,label]) =>
+      `<a class="tab ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${glyph ? `<span class="ric">${GLYPH[p]}</span>` : ''}${label}${badge(p)}</a>`).join('');
+    return `<nav class="rail"><span class="wm">curia · atlas</span>
+      <a class="rneed" data-go="page:chats">2 need you</a>
+      ${items}
+      <span class="rdate">${DATE}</span></nav>`;
   }
-  if (S.v === 'c'){
-    const win = (i,p,label,extra) =>
-      `<a class="pw ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${i}:${label}${curTop() === p ? '*' : ''}${extra || ''}</a>`;
-    return `<nav class="paneline">
-      <span class="sess">[atlas]</span>
-      ${win(0,'home','home')}${win(1,'agents','agents','<span class="flag">●</span>')}${win(2,'maps','maps')}
-      ${win(3,'feed','feed')}${win(4,'chats','chats','<span class="cnt">2</span>')}${win(5,'settings','set')}
-      <span class="ptime">14:07</span>
+  if (S.v === 'e' && isDesktop()){
+    return `<nav class="drawer pinned">
+      <span class="dwm">curia · atlas</span>
+      ${PAGES.map(([p,label]) => `<a class="drow ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+        <span>${label}</span><span>${badge(p)}</span></a>`).join('')}
+      <span class="ddate">${DATE}</span></nav>`;
+  }
+  if (S.v === 'f'){
+    const letters = { home:'H', agents:'A', maps:'M', feed:'F', chats:'C', settings:'S' };
+    const mark = p => p === 'chats' ? '<span class="bdg">2</span>' : (p === 'agents' ? '<span class="rundot"></span>' : '');
+    return `<nav class="iconrail"><span class="logo">cu</span>
+      ${PAGES.map(([p]) => `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${letters[p]}${mark(p)}</a>`).join('')}
     </nav>`;
   }
   return '';
 }
-function chromeRail(){
-  if (S.v !== 'a' || !frame.classList.contains('w-desktop')) return '';
-  return `<nav class="rail"><span class="wm">curia · atlas</span>
-    <a class="rneed" data-go="page:chats">2 need you</a>
-    ${tabItems('tab')}
-    <span class="rdate">${DATE}</span></nav>`;
-}
-function chromeOverlay(){
-  if (S.v === 'd' && S.page === 'board'){
-    return `<div class="jumprail">
-      <a data-jump="home" title="home">◉</a><a data-jump="agents" title="agents">A</a>
-      <a data-jump="maps" title="maps">M</a><a data-jump="feed" title="feed">F</a>
-      <a data-jump="chats" title="chats" class="jn">C</a><a data-jump="settings" title="settings">S</a>
+function chromeTop(){
+  if (S.v === 'd'){
+    return `<div class="toptabs">
+      <div class="tt-head"><span>curia · atlas</span>
+        <span><a class="need" data-go="page:chats">2 need you</a> · 14:07</span></div>
+      <div class="tt-row">${tabItems('', false)}</div>
     </div>`;
   }
-  if (S.v === 'e'){
-    const lift = (S.page === 'chat' || S.page === 'terminal' ||
-      (S.page === 'chats' && frame.classList.contains('w-desktop'))) ? 'lift' : '';
-    let menu = '';
-    if (S.dialOpen){
-      const R = 118;
-      const items = PAGES.map(([p,label], i) => {
-        const th = (90 + i*18) * Math.PI / 180;
-        const tx = Math.cos(th) * R, ty = -Math.sin(th) * R;
-        let badge = '';
-        if (p === 'chats') badge = '<span class="cnt">2</span>';
-        if (p === 'agents') badge = '<span class="flag">●</span>';
-        return `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}"
-          style="transform:translate(calc(-50% + ${tx.toFixed(0)}px), calc(-50% + ${ty.toFixed(0)}px))">${label}${badge}</a>`;
-      }).join('');
-      menu = `<div class="dialscrim" data-dialclose></div><div class="dialmenu ${lift ? 'lift' : ''}"
-        style="${lift ? 'bottom:107px' : ''}">${items}</div>`;
-    }
-    return `${menu}<div class="dialwrap ${lift}">
-      <button class="dialbtn" data-dial aria-label="navigation dial · 2 need you">
-        <svg viewBox="0 0 58 58">
-          <circle cx="29" cy="29" r="25" fill="none" stroke="var(--line)" stroke-width="3"/>
-          <circle cx="29" cy="29" r="25" fill="none" stroke="var(--amber)" stroke-width="3"
-            stroke-dasharray="39 118" stroke-dashoffset="-20" stroke-linecap="round"/>
-        </svg>
-        <span class="dn">2</span>
-      </button>
+  if (S.v === 'e' && !isDesktop()){
+    return `<div class="appbar">
+      <button class="burger" data-drawer>☰</button>
+      <span class="abt">curia · atlas</span>
+      <a class="abneed" data-go="page:chats">2 need you</a>
     </div>`;
+  }
+  return '';
+}
+function chromeBottom(){
+  if (S.v === 'a' && !isDesktop()) return `<nav class="tabbar">${tabItems('tab', false)}</nav>`;
+  if (S.v === 'b' && !isDesktop()) return `<nav class="tabbar icons">${tabItems('tab', true)}</nav>`;
+  return '';
+}
+function chromeOverlay(){
+  if (S.v === 'c') return `<div class="navdock">${tabItems('', false)}</div>`;
+  if (S.v === 'e' && !isDesktop() && S.drawerOpen){
+    return `<div class="drawerscrim" data-drawerclose></div>
+      <nav class="drawer">
+        <span class="dwm">curia · atlas</span>
+        ${PAGES.map(([p,label]) => `<a class="drow ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+          <span>${label}</span><span>${badge(p)}</span></a>`).join('')}
+        <span class="ddate">${DATE}</span></nav>`;
   }
   return '';
 }
@@ -1023,9 +1015,11 @@ function chromeOverlay(){
 /* ----------------------------------------------------------------------
    render
 ---------------------------------------------------------------------- */
+function scrHome(){
+  return `<section class="scr home">${ht('atlas')}${bodyHome()}</section>`;
+}
 function screen(){
   switch (S.page){
-    case 'board': return scrBoard();
     case 'home': return scrHome();
     case 'agents': return `<section class="scr ag">${ht('agents')}${bodyAgents()}</section>`;
     case 'maps': return `<section class="scr mp">${ht('atlas · maps')}${bodyMaps()}</section>`;
@@ -1036,17 +1030,14 @@ function screen(){
     case 'settings': return scrSettings();
   }
 }
-function scrHome(){
-  return `<section class="scr home">${ht('atlas')}${bodyHome()}</section>`;
-}
 function render(){
-  if (S.v === 'd' && S.page === 'home') S.page = 'board';
-  if (S.v !== 'd' && S.page === 'board') S.page = 'home';
-  frame.className = frame.className.replace(/v-[abcde]/,'v-' + S.v);
-  frame.innerHTML = chromeRail() +
+  frame.className = frame.className.replace(/v-[abcdef]/,'v-' + S.v);
+  frame.innerHTML = chromeLeft() + chromeTop() +
     `<div class="viewport" id="vp">${screen()}</div>` + chromeBottom() + chromeOverlay();
   el('phNote').textContent = NOTES[S.v];
-  el('bVar').textContent = { a:'A · tab row', b:'B · the hub', c:'C · pane line', d:'D · the board', e:'E · the dial' }[S.v];
+  el('bVar').textContent = {
+    a:'A · bottom · words', b:'B · bottom · icons', c:'C · floating dock',
+    d:'D · top tabs', e:'E · the drawer', f:'F · icon rail' }[S.v];
   buildSparks(); buildDens();
   const u = new URL(location); u.searchParams.set('v', S.v); history.replaceState(null,'',u);
 }
@@ -1076,10 +1067,6 @@ function buildDens(){
 /* ----------------------------------------------------------------------
    events
 ---------------------------------------------------------------------- */
-function gotoSection(sec){
-  const t = document.getElementById('sec-' + sec);
-  if (t) t.scrollIntoView({ behavior:'smooth', block:'start' });
-}
 frame.addEventListener('click', ev => {
   const opt = ev.target.closest('[data-opt]');
   if (opt){
@@ -1088,10 +1075,8 @@ frame.addEventListener('click', ev => {
     opt.classList.add('picked');
     return;
   }
-  if (ev.target.closest('[data-dial]')){ S.dialOpen = !S.dialOpen; render(); return; }
-  if (ev.target.closest('[data-dialclose]')){ S.dialOpen = false; render(); return; }
-  const jump = ev.target.closest('[data-jump]');
-  if (jump){ gotoSection(jump.dataset.jump); return; }
+  if (ev.target.closest('[data-drawer]')){ S.drawerOpen = true; render(); return; }
+  if (ev.target.closest('[data-drawerclose]')){ S.drawerOpen = false; render(); return; }
   const save = ev.target.closest('[data-save]');
   if (save){ S.setPhase = 'applied'; render(); return; }
   const disc = ev.target.closest('[data-discard]');
@@ -1105,23 +1090,12 @@ frame.addEventListener('click', ev => {
   const go = ev.target.closest('[data-go]');
   if (!go) return;
   ev.preventDefault();
-  S.dialOpen = false;
+  S.drawerOpen = false;
   const [kind, arg] = go.dataset.go.split(':');
-  if (kind === 'page'){
-    if (S.v === 'd' && PAGES.some(([p]) => p === arg)){
-      S.page = 'board'; render(); gotoSection(arg); return;
-    }
-    S.page = arg; if (arg === 'settings') S.setSec = null; scrollTop();
-  }
-  else if (kind === 'chat'){ S.page = frame.classList.contains('w-desktop') ? 'chats' : 'chat'; S.chatId = arg; scrollTop(); }
+  if (kind === 'page'){ S.page = arg; if (arg === 'settings') S.setSec = null; scrollTop(); }
+  else if (kind === 'chat'){ S.page = isDesktop() ? 'chats' : 'chat'; S.chatId = arg; scrollTop(); }
   else if (kind === 'terminal'){ S.page = 'terminal'; S.termFrom = arg || S.chatId; }
-  else if (kind === 'set'){
-    if (arg === 'home'){
-      if (S.v === 'd'){ S.page = 'board'; render(); gotoSection('settings'); return; }
-      S.setSec = null;
-    } else { S.page = 'settings'; S.setSec = arg; }
-    scrollTop();
-  }
+  else if (kind === 'set'){ S.setSec = arg === 'home' ? null : arg; if (arg !== 'home') S.page = 'settings'; scrollTop(); }
   render();
 });
 frame.addEventListener('change', ev => {
@@ -1137,9 +1111,9 @@ frame.addEventListener('change', ev => {
 });
 function scrollTop(){ const vp = el('vp'); if (vp) vp.scrollTop = 0; }
 
-const VARS = ['a','b','c','d','e'];
-el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; S.dialOpen = false; render(); };
-el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; S.dialOpen = false; render(); };
+const VARS = ['a','b','c','d','e','f'];
+el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; S.drawerOpen = false; render(); };
+el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; S.drawerOpen = false; render(); };
 el('bVar').onclick = () => el('bNext').onclick();
 el('bMode').onclick = () => {
   const dark = frame.classList.toggle('dark');
@@ -1155,12 +1129,11 @@ el('bWidth').onclick = () => {
 };
 el('bDlChat').onclick = () => {   /* Discord → one agent's chat (#526) */
   S.chatId = '519';
-  S.page = frame.classList.contains('w-desktop') ? 'chats' : 'chat';
+  S.page = isDesktop() ? 'chats' : 'chat';
   render();
 };
 el('bDlHome').onclick = () => {   /* Discord → plain Atlas home (#526) */
-  S.page = S.v === 'd' ? 'board' : 'home';
-  render(); scrollTop();
+  S.page = 'home'; render(); scrollTop();
 };
 
 render();
