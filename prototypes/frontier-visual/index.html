@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#588 The frontier visual — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#588 "The frontier visual, iterated
+  from the maps mock". Five cuts of the frontier rendering on the decided
+  maps screen (#522): the frontier line, blocked items, the two-level
+  tree. Cut 0 is the decided mock itself, kept as the confirm option.
+  Phone width first. V6 tokens from #519. Switch via ?v=, width via ?w=,
+  color via ?mode=. Static mock data shaped like the real #511 map,
+  including one ticket blocked by three at once. Every link is dead on
+  purpose.
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:190px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+
+/* ============ V6 base tokens (from #519, rules this screen) ============ */
+.mv { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:28px 24px 72px; }
+.frame.dark .mv { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); --edgeglow:0 0 12px rgba(94,200,229,.45); }
+.frame.light .mv { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; --edgeglow:none; }
+.mv h2, .mv .num, .mv .ht, .mv .route, .mv .go, .mv .word, .mv .mfrac, .mv .frontlbl
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; margin-bottom:26px; }
+
+/* shared atoms (from the #522 mock) */
+.mv .dot { flex:none; width:8px; height:8px; border-radius:50%; }
+.mv .dot.on { background:var(--green); }
+.mv .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.mv .go { flex:none; font-size:11px; color:var(--cyan); text-decoration:none; white-space:nowrap; }
+.mv .route { font-size:10px; color:var(--mut); white-space:nowrap; }
+.mv .route b { color:var(--cyan); font-weight:600; }
+.mv .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.mv .ttl .sub { display:block; font-size:11px; color:var(--mut); font-weight:400; margin-top:4px;
+  overflow:hidden; text-overflow:ellipsis; }
+.mv .word { font-size:10px; color:var(--mut); letter-spacing:.08em; text-transform:uppercase; }
+.mv .word.run { color:var(--green); }
+.mv .word.take { color:var(--cyan); }
+.mv .g-take { flex:none; width:12px; height:12px; border-radius:50%; border:2.5px solid var(--cyan); background:var(--bg); }
+.mv .g-wait { flex:none; width:4px; height:11px; background:var(--mut); opacity:.5; }
+.mv .mhead { display:flex; align-items:center; gap:16px; }
+.mv .mfrac { flex:none; font-size:24px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+.mv .mfrac .of { color:var(--mut); font-weight:400; }
+.mv .mfrac .fogn { color:var(--mut); font-weight:400; font-size:14px; }
+.mv .mtt { flex:1; min-width:0; }
+.mv .mtt .nm { display:block; font-size:15px; font-weight:700; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.mv .mtt .meta { display:block; font-size:10px; color:var(--mut); margin-top:4px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .mtt .meta a { color:var(--cyan); text-decoration:none; }
+.mv .map { margin-top:44px; }
+.mv .map:first-child { margin-top:0; }
+
+/* the band (decided in #522) */
+.mv .band { display:flex; gap:3px; margin-top:14px; height:34px; }
+.mv .bseg { position:relative; border:0; cursor:pointer; border-radius:5px; min-width:34px;
+  display:flex; align-items:center; justify-content:center; gap:6px; overflow:hidden;
+  font: 700 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace; padding:0 8px; white-space:nowrap; }
+.mv .bseg .wd { font-weight:400; font-size:10px; letter-spacing:.08em; }
+.mv .bseg.sel { outline:2px solid var(--mut); outline-offset:3px; }
+.mv .b-walk { background:var(--cyan); color:var(--bg); }
+.mv .b-flight { background:var(--green); color:var(--bg); }
+.mv .b-take { background:transparent; border:2px solid var(--cyan); color:var(--cyan); }
+.mv .b-wait { background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px);
+  color:var(--mut); }
+.mv .b-fog { background:transparent; border:2px dotted var(--mut); color:var(--mut); }
+
+/* the detail panel (v0, v2) */
+.mv .panel { margin-top:14px; border-left:2px solid var(--line); padding:4px 0 4px 16px; }
+.mv .prow { display:flex; align-items:center; gap:12px; padding:9px 0; font-size:14px; }
+.mv .prow.dim { color:var(--mut); }
+.mv .prow.dim .ttl { font-weight:400; }
+.mv .detailpane { display:none; }
+@container frame (min-width:700px) {
+  .mv .md { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,4fr); gap:0 64px; align-items:start; }
+  .mv .detailpane { display:block; position:sticky; top:24px; margin-top:44px; }
+  .mv .inlinepanel { display:none; }
+  .mv .phead { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+    margin-bottom:6px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+}
+
+/* ---- v1: the route line ---- */
+.v1 .rl { margin-top:18px; }
+.v1 .rrow { position:relative; display:flex; align-items:center; gap:12px;
+  padding:10px 0 10px 30px; font-size:14px; }
+.v1 .rrow::before { content:""; position:absolute; left:5px; top:0; bottom:0; width:2px;
+  background:var(--cyan); }
+.v1 .rrow.below::before { background:none;
+  background-image:linear-gradient(var(--mut) 45%, transparent 45%);
+  background-size:2px 9px; opacity:.55; }
+.v1 .rrow.fogr::before { background:none;
+  background-image:linear-gradient(var(--mut) 25%, transparent 25%);
+  background-size:2px 12px; opacity:.4; }
+.v1 .rrow .stop { position:absolute; left:0; top:50%; transform:translateY(-50%); }
+.v1 .s-walk { width:12px; height:12px; border-radius:50%; background:var(--cyan); }
+.v1 .s-run { width:12px; height:12px; border-radius:50%; background:var(--green); }
+.v1 .s-take { width:12px; height:12px; border-radius:50%; border:2.5px solid var(--cyan); background:var(--bg); }
+.v1 .s-wait { width:10px; height:10px; margin-left:1px; border-radius:2px; background:var(--line);
+  border:1px solid var(--mut); opacity:.8; }
+.v1 .s-fog { width:12px; height:12px; border-radius:50%; border:2px dotted var(--mut); background:transparent; }
+.v1 .front { position:relative; display:flex; align-items:center; gap:10px; margin:6px 0; }
+.v1 .front .frontlbl { flex:none; font-size:10px; font-weight:700; letter-spacing:.24em;
+  text-transform:uppercase; color:var(--cyan); }
+.v1 .front .frule { flex:1; height:2px; background:var(--cyan); box-shadow:var(--edgeglow); }
+.v1 .front .fcap { flex:none; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v1 .rrow.dim { color:var(--mut); }
+.v1 .rrow.dim .ttl { font-weight:400; }
+
+/* ---- v2: the tree ---- */
+.v2 .tree { margin-top:16px; }
+.v2 .tp { display:flex; align-items:center; gap:12px; padding:10px 0 4px; font-size:14px; }
+.v2 .tmeta { display:flex; align-items:center; gap:12px; padding:0 0 6px 24px; }
+.v2 .kid { position:relative; display:flex; align-items:center; gap:10px;
+  margin-left:5px; padding:7px 0 7px 22px; font-size:13px; color:var(--mut); }
+.v2 .kid::before { content:""; position:absolute; left:0; top:0; bottom:50%; width:14px;
+  border-left:2px solid var(--line); border-bottom:2px solid var(--line);
+  border-bottom-left-radius:8px; }
+.v2 .kid.more::after { content:""; position:absolute; left:0; top:50%; bottom:0;
+  border-left:2px solid var(--line); }
+.v2 .kid .ttl { font-weight:400; }
+.v2 .keys { flex:none; font-size:10px; color:var(--mut); letter-spacing:.06em;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v2 .keys b { color:var(--ink); font-weight:600; }
+.v2 .rest { margin-top:18px; }
+.v2 .resthead { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+  margin-bottom:2px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* ---- v3: the edge ---- */
+.v3 .terrain { margin-top:14px; position:relative; border-radius:8px; overflow:hidden; }
+.v3 .tlegend { display:flex; gap:14px; margin-top:10px; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
+.v3 .tlegend b { font-weight:600; color:var(--ink); }
+.v3 .tlist { margin-top:16px; }
+
+/* ---- v4: the unlock cards ---- */
+.v4 .calm { display:flex; align-items:center; gap:14px; margin-top:12px; font-size:11px;
+  color:var(--mut); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v4 .calm .cw { color:var(--cyan); }
+.v4 .calm .cr { color:var(--green); }
+.v4 .sect { font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--cyan);
+  margin:20px 0 2px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v4 .stack { position:relative; margin-top:14px; }
+.v4 .card { position:relative; z-index:2; border:1.5px solid var(--cyan); border-radius:10px;
+  padding:14px 16px 12px; background:var(--bg); }
+.v4 .stack.deep1 .card { margin-bottom:6px; }
+.v4 .stack.deep1::after { content:""; position:absolute; z-index:1; left:10px; right:10px;
+  bottom:0; height:12px; border:1.5px solid var(--line); border-radius:10px; }
+.v4 .stack.deep2 .card { margin-bottom:11px; }
+.v4 .stack.deep2::before { content:""; position:absolute; z-index:1; left:10px; right:10px;
+  bottom:5px; height:12px; border:1.5px solid var(--line); border-radius:10px; background:var(--bg); }
+.v4 .stack.deep2::after { content:""; position:absolute; z-index:0; left:18px; right:18px;
+  bottom:0; height:12px; border:1.5px solid var(--line); border-radius:10px; }
+.v4 .crow { display:flex; align-items:center; gap:12px; font-size:14px; }
+.v4 .cmeta { display:flex; align-items:center; gap:12px; margin-top:8px; }
+.v4 .opens { display:flex; align-items:baseline; gap:8px; margin-top:10px; padding-top:9px;
+  border-top:1px dashed var(--line); font-size:12px; color:var(--mut); }
+.v4 .opens .k { flex:none; font-size:9px; letter-spacing:.16em; text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v4 .opens .names { min-width:0; }
+.v4 .opens .keys { white-space:nowrap; font-size:10px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v4 .fogcard { border:1.5px dotted var(--mut); border-radius:10px; padding:12px 16px;
+  margin-top:14px; color:var(--mut); font-size:12px; }
+.v4 .fogcard .k { font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; display:block; margin-bottom:6px; }
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#588</b> · The frontier visual · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<section class="view mv v0" data-view="v0" data-name="0 · The mock (#522)"><div data-body></div></section>
+<section class="view mv v1" data-view="v1" data-name="1 · The route line"><div data-body></div></section>
+<section class="view mv v2" data-view="v2" data-name="2 · The tree"><div data-body></div></section>
+<section class="view mv v3" data-view="v3" data-name="3 · The edge"><div data-body></div></section>
+<section class="view mv v4" data-view="v4" data-name="4 · The unlock cards"><div data-body></div></section>
+
+</div></div></div>
+
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* ---------- mock data, shaped like the real #511 map ---------- */
+const MAPS = [
+  {
+    repo:"alp82/curia", num:"#511",
+    name:"The UX map: the dashboard, Discord, and the way between them",
+    short:"ux map", closed:26, total:33, fog:5, ago:"9m",
+    recent:[
+      { t:"#570", title:"The overseer terminal prototype" },
+      { t:"#522", title:"The maps screen" }
+    ],
+    flight:[
+      { t:"#588", title:"The frontier visual, iterated from the maps mock",
+        typ:"prototype", agent:"claude", mins:41 }
+    ],
+    frontier:[
+      { t:"#589", title:"The global search bar", typ:"prototype", model:"claude-opus-5" },
+      { t:"#590", title:"The alert load at volume", typ:"prototype", model:"claude-opus-5" },
+      { t:"#560", title:"The main layout and the page navigation", typ:"grilling", model:"claude-opus-5" }
+    ],
+    blocked:[
+      { t:"#533", title:"Hand the map to the build", behind:["#588","#589","#590"] },
+      { t:"#563", title:"The chat page draws the dialog card", behind:["#560"] },
+      { t:"#565", title:"The nav lands in every screen mock", behind:["#560"] }
+    ],
+    fogNotes:["reasoning-effort routing","the branch-aware pane read","the build handoff shape",
+      "the last-visit stamp","live updates in the browser"]
+  },
+  {
+    repo:"alp82/aistack", num:"#29",
+    name:"The measured layer", short:"measured",
+    closed:3, total:9, fog:4, ago:"3h",
+    recent:[ { t:"#28", title:"The neighbors survey" } ],
+    flight:[],
+    frontier:[
+      { t:"#31", title:"The measured layer gets a freshness stamp", typ:"task", model:"claude-sonnet-5" },
+      { t:"#35", title:"Pick the store for the readings", typ:"grilling", model:"claude-opus-5" }
+    ],
+    blocked:[
+      { t:"#32", title:"Stale readings gray out", behind:["#31"] },
+      { t:"#33", title:"The gauge legend", behind:["#31"] }
+    ],
+    fogNotes:["alert thresholds","the export shape","backfill","retention"]
+  }
+];
+
+/* ---------- helpers ---------- */
+const allOpen = m => [...m.flight, ...m.frontier];
+const titleOf = (m, id) => (allOpen(m).find(x => x.t === id) || { title:id }).title;
+const kidsOf = (m, id) => m.blocked.filter(b => b.behind.includes(id));
+const gh = t => `<a class="go" href="#" onclick="return false">${t} →</a>`;
+const start = () => `<a class="go" href="#" onclick="return false">start →</a>`;
+const route = f => `<span class="route">→ <b>${f.model}</b></span>`;
+const head = m => `<div class="mhead">
+  <div class="mfrac">${m.closed}<span class="of">/${m.total}</span>${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</div>
+  <div class="mtt"><span class="nm">${m.name}</span>
+    <span class="meta">${m.repo} · ${m.ago} ago · <a href="#" onclick="return false">${m.num} →</a></span></div>
+</div>`;
+const ht = `<div class="ht"><span>curia · atlas · maps</span><span>fri 21 aug · 09:12</span></div>`;
+
+/* the band, as decided in #522 */
+function bandHTML(m, selKey, mapKey) {
+  const segs = [
+    { key:"walk", cls:"b-walk", n:m.closed, word:"walked" },
+    { key:"flight", cls:"b-flight", n:m.flight.length, word:"in flight" },
+    { key:"take", cls:"b-take", n:m.frontier.length, word:"takeable" },
+    { key:"wait", cls:"b-wait", n:m.blocked.length, word:"blocked" },
+    { key:"fog", cls:"b-fog", n:m.fog, word:"fog" }
+  ].filter(x => x.n > 0);
+  const total = segs.reduce((a, x) => a + x.n, 0);
+  return `<div class="band">${segs.map(x => `<button
+    class="bseg ${x.cls} ${selKey && sel && sel.map === mapKey && sel.key === x.key ? "sel" : ""}"
+    style="flex-grow:${x.n}" data-sel="${mapKey}|${x.key}" aria-label="${x.word} ${x.n}">${x.n}${
+      x.n / total >= .2 ? `<span class="wd">${x.word}</span>` : ""}</button>`).join("")}</div>`;
+}
+
+/* ================================================================
+   V0 — THE MOCK: the decided #522 drill-down, kept as the confirm
+   option. Tap a segment; takeable and blocked come back as flat rows.
+   ================================================================ */
+let sel = { map:"#511", key:"take" };
+function rowsFor(m, key) {
+  if (key === "walk") return `
+    ${m.recent.map(r => `<div class="prow dim"><span class="num">✓</span><span class="ttl">${r.title}</span>${gh(r.t)}</div>`).join("")}
+    <div class="prow dim"><span class="num">… ${m.closed - m.recent.length} more on GitHub</span></div>`;
+  if (key === "fog") return m.fogNotes.map(n =>
+    `<div class="prow dim"><span class="num">╌</span><span class="ttl">${n}</span><span class="word">not yet specified</span></div>`).join("");
+  if (key === "flight") return m.flight.map(f => `
+    <div class="prow"><span class="dot on"></span><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+    <div class="prow dim"><span class="word run">runs</span><span class="ttl">${f.agent} · ${f.mins}m</span></div>`).join("")
+    || `<div class="prow dim"><span class="ttl">nothing in flight</span></div>`;
+  if (key === "take") return m.frontier.map(f => `
+    <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+    <div class="prow dim"><span class="ttl">${f.typ} · ${route(f)}</span>${start()}</div>
+    ${kidsOf(m, f.t).map(k => `<div class="prow dim"><span class="word">unblocks</span><span class="ttl">${k.title}</span>${gh(k.t)}</div>`).join("")}`).join("")
+    || `<div class="prow dim"><span class="ttl">nothing takeable</span></div>`;
+  return m.blocked.map(b => `
+    <div class="prow dim"><i class="g-wait"></i><span class="ttl">${b.title}<span class="sub">${b.t} · behind ${b.behind.join(" ")}</span></span></div>`).join("")
+    || `<div class="prow dim"><span class="ttl">nothing blocked</span></div>`;
+}
+function renderV0() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    ${bandHTML(m, true, m.num)}
+    ${sel && sel.map === m.num ? `<div class="panel">${rowsFor(m, sel.key)}</div>` : ""}
+  </div>`).join("");
+}
+
+/* ================================================================
+   V1 — THE ROUTE LINE: the map as one vertical line. Walked collapses
+   to one stop, the frontier is a labeled rule across the page, the
+   takeable stops sit right under it, the blocked hang further down a
+   dashed line, and the line dissolves into the fog.
+   ================================================================ */
+function renderV1() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="rl">
+      <div class="rrow dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+      ${m.flight.map(f => `<div class="rrow"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span>
+        <span class="fcap">${m.frontier.length} takeable</span></div>
+      ${m.frontier.map(f => `<div class="rrow below"><span class="stop s-take"></span>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+      ${m.blocked.map(b => `<div class="rrow below dim"><span class="stop s-wait"></span>
+        <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => titleOf(m, x)).join(" · ")}</span></span></div>`).join("")}
+      <div class="rrow fogr dim"><span class="stop s-fog"></span>
+        <span class="ttl">${m.fog} in the fog<span class="sub">${m.fogNotes.join(" · ")}</span></span></div>
+    </div>
+  </div>`).join("");
+}
+
+/* ================================================================
+   V2 — THE TREE: the band stays, and under it the frontier is always
+   open as a two-level tree. Each takeable ticket carries the tickets
+   it opens. A ticket behind several keys says which key this is.
+   ================================================================ */
+function renderV2() {
+  return ht + MAPS.map(m => {
+    const shown = new Set();
+    return `<div class="map">
+    ${head(m)}
+    ${bandHTML(m, false, m.num)}
+    <div class="tree">
+      ${m.frontier.map(f => {
+        const kids = kidsOf(m, f.t);
+        kids.forEach(k => shown.add(k.t));
+        return `
+        <div class="tp"><i class="g-take"></i><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+        <div class="tmeta"><span class="route">${f.typ} · → <b>${f.model}</b></span>${start()}</div>
+        ${kids.map((k, i) => `<div class="kid ${i < kids.length - 1 ? "more" : ""}">
+          <span class="ttl">opens ${k.title}</span>
+          ${k.behind.length > 1 ? `<span class="keys">key <b>${k.behind.indexOf(f.t) + 1}</b>/${k.behind.length}</span>` : ""}
+        </div>`).join("")}`;
+      }).join("")}
+      ${(() => {
+        const rest = m.blocked.filter(b => !shown.has(b.t));
+        return rest.length ? `<div class="rest"><div class="resthead">further back</div>
+          ${rest.map(b => `<div class="prow dim"><i class="g-wait"></i><span class="ttl">${b.title}<span class="sub">behind ${b.behind.join(" ")}</span></span></div>`).join("")}</div>` : "";
+      })()}
+    </div>
+  </div>`; }).join("");
+}
+
+/* ================================================================
+   V3 — THE EDGE: the band grows into terrain. Walked is solid ground,
+   a glowing edge is the frontier, the takeable sit on the edge, the
+   blocked float beyond on thin threads, and the fog is dotted haze.
+   The list below stays for the taps.
+   ================================================================ */
+function terrainSVG(m) {
+  const W = 342, edgeX = 118;
+  const rows = Math.max(m.frontier.length, m.blocked.length, 1);
+  const H = Math.max(96, rows * 34 + 28);
+  const yTake = i => 24 + i * ((H - 44) / Math.max(m.frontier.length - 1, 1) || 0);
+  const yWait = i => 24 + i * ((H - 44) / Math.max(m.blocked.length - 1, 1) || 0);
+  const waitX = W - 116, fogX = W - 58;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img"
+      aria-label="walked ${m.closed}, in flight ${m.flight.length}, takeable ${m.frontier.length}, blocked ${m.blocked.length}, fog ${m.fog}">
+    <rect x="0" y="0" width="${edgeX - 22}" height="${H}" rx="6" fill="var(--cyan)" opacity="0.92"/>
+    <text x="16" y="${H / 2 + 8}" fill="var(--bg)" font-size="22" font-weight="700"
+      font-family="ui-monospace,Menlo,monospace">${m.closed}</text>
+    <text x="16" y="${H / 2 + 24}" fill="var(--bg)" font-size="9" letter-spacing="1"
+      font-family="ui-monospace,Menlo,monospace">WALKED</text>
+    ${m.flight.map((f, i) => `<circle cx="${edgeX - 36}" cy="${20 + i * 18}" r="6" fill="var(--green)"/>`).join("")}
+    <line x1="${edgeX}" y1="6" x2="${edgeX}" y2="${H - 6}" stroke="var(--cyan)" stroke-width="3"/>
+    ${m.frontier.map((f, i) => {
+      const links = kidsOf(m, f.t).map(k => {
+        const j = m.blocked.indexOf(k);
+        return `<line x1="${edgeX + 7}" y1="${yTake(i)}" x2="${waitX - 6}" y2="${yWait(j)}"
+          stroke="var(--mut)" stroke-width="1" opacity="0.5" stroke-dasharray="3 3"/>`;
+      }).join("");
+      return links + `<circle cx="${edgeX}" cy="${yTake(i)}" r="7" fill="var(--bg)"
+        stroke="var(--cyan)" stroke-width="2.5"/>`;
+    }).join("")}
+    ${m.blocked.map((b, i) => `<rect x="${waitX - 5}" y="${yWait(i) - 5}" width="10" height="10" rx="2"
+      fill="var(--line)" stroke="var(--mut)" stroke-width="1" opacity="0.85"/>`).join("")}
+    ${Array.from({ length: m.fog * 2 }, (_, i) => `<circle
+      cx="${fogX + (i * 37) % 46}" cy="${(14 + i * 26.7) % (H - 16) + 8}" r="2.5"
+      fill="none" stroke="var(--mut)" stroke-width="1" opacity="0.55"/>`).join("")}
+  </svg>`;
+}
+function renderV3() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="terrain">${terrainSVG(m)}</div>
+    <div class="tlegend"><span><b>${m.closed}</b> walked</span><span><b>${m.flight.length}</b> in flight</span>
+      <span><b>${m.frontier.length}</b> takeable</span><span><b>${m.blocked.length}</b> blocked</span>
+      <span><b>${m.fog}</b> fog</span></div>
+    <div class="tlist">
+      ${m.frontier.map(f => `
+        <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+    </div>
+  </div>`).join("");
+}
+
+/* ================================================================
+   V4 — THE UNLOCK CARDS: each takeable ticket is a card, and the
+   tickets it opens peek out beneath it as a stack. A ticket behind
+   several keys says so on every card that holds one. Walked and
+   in-flight compress to one calm line. Blocked has no section of its
+   own: it exists only as what a card opens.
+   ================================================================ */
+function renderV4() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="calm"><span class="cw">■ ${m.closed} walked</span>
+      ${m.flight.length ? `<span class="cr">● ${m.flight.length} in flight</span>` : ""}
+      <span>▫ ${m.blocked.length} blocked</span></div>
+    <div class="sect">takeable — ${m.frontier.length}</div>
+    ${m.frontier.map(f => {
+      const kids = kidsOf(m, f.t);
+      return `<div class="stack deep${Math.min(kids.length, 2)}">
+      <div class="card">
+        <div class="crow"><i class="g-take"></i><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+        <div class="cmeta"><span class="route">${f.typ} · → <b>${f.model}</b></span><span style="flex:1"></span>${start()}</div>
+        ${kids.length ? `<div class="opens"><span class="k">opens</span>
+          <span class="names">${kids.map(k => k.title).join(" · ")}</span>
+          ${kids.some(k => k.behind.length > 1) ? `<span class="keys">${kids.filter(k => k.behind.length > 1)
+            .map(k => `key ${k.behind.indexOf(f.t) + 1}/${k.behind.length}`).join(" · ")}</span>` : ""}
+        </div>` : ""}
+      </div>
+    </div>`; }).join("")}
+    <div class="fogcard"><span class="k">the fog · ${m.fog}</span>${m.fogNotes.join(" · ")}</div>
+  </div>`).join("");
+}
+
+/* ---------- shell wiring ---------- */
+const RENDER = { v0: renderV0, v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4 };
+const VIEWS = ["v0", "v1", "v2", "v3", "v4"];
+const frame = document.getElementById("frame");
+const wrap = document.getElementById("wrap");
+const q = new URLSearchParams(location.search);
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "v0";
+let mode = q.get("mode") === "light" ? "light" : "dark";
+let w = q.get("w") === "desktop" ? "desktop" : "phone";
+
+function render() {
+  document.querySelectorAll(".view").forEach(sec => {
+    const on = sec.dataset.view === v;
+    sec.classList.toggle("active", on);
+    if (!on) return;
+    sec.querySelector("[data-body]").innerHTML = RENDER[v]();
+    sec.querySelectorAll("[data-sel]").forEach(b =>
+      b.onclick = e => {
+        e.stopPropagation();
+        const [mn, k] = b.dataset.sel.split("|");
+        sel = sel && sel.map === mn && sel.key === k ? null : { map: mn, key: k };
+        render();
+      });
+  });
+  frame.className = "frame w-" + w + " " + mode;
+  document.getElementById("vname").textContent =
+    document.querySelector(".view.active").dataset.name;
+  document.getElementById("mode").textContent = mode === "dark" ? "☾" : "☀";
+  document.getElementById("width").textContent = w === "phone" ? "📱" : "🖥";
+  const p = new URLSearchParams({ v, mode, w });
+  history.replaceState(null, "", "?" + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === "desktop" ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = "scale(" + s + ")";
+  wrap.style.height = (frame.offsetHeight * s) + "px";
+}
+function cycle(dir) {
+  v = VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+document.getElementById("mode").onclick = () => { mode = mode === "dark" ? "light" : "dark"; render(); };
+document.getElementById("width").onclick = () => { w = w === "phone" ? "desktop" : "phone"; render(); };
+window.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+window.addEventListener("resize", rescale);
+render();
+</script>
+</body>
+</html>
