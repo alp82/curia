@@ -24,10 +24,13 @@
 svg{display:block}
 a{cursor:pointer}
 button{cursor:pointer;font-family:inherit}
-html,body{background:#08090c}
+html,body{background:#08090c;height:100%;overflow:hidden}
+body{display:flex;flex-direction:column}
 
 /* ---------- prototype shell (not part of the design) ---------- */
-.proto-head{position:sticky;top:0;z-index:40;background:#0e1013;border-bottom:1px solid #1c2027;
+/* the page never scrolls: the shell head is a fixed band, the frame fills the rest,
+   so every navigation bar stays inside the visual viewport at all times */
+.proto-head{flex:none;z-index:40;background:#0e1013;border-bottom:1px solid #1c2027;
   padding:8px 12px;color:#cfd6e2;font:11px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .ph-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .ph-ttl{font-weight:700;letter-spacing:.06em;margin-right:auto}
@@ -35,17 +38,18 @@ html,body{background:#08090c}
   padding:5px 9px;font:11px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
 .ph-btn.wide{min-width:130px;text-align:center}
 .ph-note{margin-top:6px;color:#8a93a3;line-height:1.5}
-.stage{display:flex;justify-content:center;padding:22px 12px 60px}
+.stage{flex:1;min-height:0;display:flex;justify-content:center;align-items:flex-start;
+  padding:14px 12px;overflow:auto}
 .frame{position:relative;border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.5);overflow:hidden;
   display:flex;flex-direction:column;background:var(--bg);
   font-family:ui-sans-serif,system-ui,sans-serif;color:var(--ink)}
-.frame.w-phone{width:390px;height:800px}
-.frame.w-desktop{width:1280px;height:820px}
+.frame.w-phone{width:390px;height:100%;max-height:820px}
+.frame.w-desktop{width:1280px;height:100%;max-height:820px}
 .frame.v-f{flex-direction:row}
 .frame.w-desktop.v-a,.frame.w-desktop.v-b,.frame.w-desktop.v-e{flex-direction:row}
 @media (max-width:480px){
   .stage{padding:0}
-  .frame,.frame.w-phone,.frame.w-desktop{width:100%;height:calc(100dvh - 58px);border-radius:0;box-shadow:none}
+  .frame,.frame.w-phone,.frame.w-desktop{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none}
   .frame.w-desktop.v-a,.frame.w-desktop.v-b,.frame.w-desktop.v-e{flex-direction:column}
   .frame.v-f{flex-direction:row}
   .ph-hide-sm{display:none}
