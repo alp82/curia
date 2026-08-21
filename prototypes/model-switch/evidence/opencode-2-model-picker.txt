@@ -1,0 +1,16 @@
+  ┃  Say the word apple and stop.
+  ┃
+     ok (req 3, model standin-1)
+     ▣  Bu    Select model                                     esc
+              Search
+              Big Pickle                                      Free
+              stand-in
+            ● standin-1
+              standin-2
+  ┃           standin-cold
+  ┃
+  ┃           Connect provider ctrl+a  Favorite ctrl+f
+  ┃  Build
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1- tab       ctrl+p
+   efb75df92bd7/scratchpad/ms-opencode/cwd              agents    commands

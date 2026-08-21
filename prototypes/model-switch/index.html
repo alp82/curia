@@ -156,18 +156,23 @@
   </tr>
   <tr>
     <td class="h">opencode</td>
-    <td colspan="3"><span class="warn">pending — the pinned CLI awaits the operator's answer</span></td>
+    <td><span class="ok">yes</span> — the <code>/models</code> picker, type-to-filter</td>
+    <td><span class="warn">accepted; the NEXT turn fails</span> with the API error</td>
+    <td><span class="ok">yes</span> — same store, <code>modelID</code> per message</td>
   </tr>
   <tr>
     <td class="h">pi</td>
-    <td colspan="3"><span class="warn">pending — the pinned CLI awaits the operator's answer</span></td>
+    <td><span class="ok">yes</span> — the <code>/model</code> picker, type-to-filter</td>
+    <td><span class="warn">accepted; the NEXT turn fails</span> with the API error</td>
+    <td><span class="ok">yes</span> — same session file, <code>model_change</code> events</td>
   </tr>
 </table>
 </div>
-<p class="lead">One hazard holds on every proven lane: a command typed into a non-empty
+<p class="lead">One hazard holds on all four lanes: a command typed into a non-empty
    composer concatenates with the queued text and goes to the model as prose. The cure is the
-   same everywhere — <b>Ctrl+U cuts the composer, the switch runs, Ctrl+Y pastes the text
-   back</b>. Both keys are proven on both installed lanes.</p>
+   same everywhere — <b>Ctrl+U cuts the composer, the switch runs, then the queued text goes
+   back</b>: Ctrl+Y pastes it on claude, codex and pi, and on opencode the daemon retypes
+   it.</p>
 
 <h2 class="sec" id="mock"><span class="n">2</span> The switch on the Discord status line</h2>
 <p class="lead">The #544 moment, retold with the control in place: the agent hits the Fable
@@ -230,11 +235,12 @@
     </div>
   </div></div>
 
-  <div class="note"><b>What the press drives in the pane</b>, on the claude lane: Ctrl+U cuts
+  <div class="note"><b>What the press drives in the pane</b>, per lane. claude: Ctrl+U cuts
     whatever sits in the composer · types <code>/model claude-opus-5</code> · Enter · the CLI
-    validates the model live and asks one confirm · Enter · Ctrl+Y pastes the cut text back.
-    On the codex lane the same press drives the picker by arrow count, or a kill +
-    <code>resume -m &lt;id&gt;</code> for an id the picker does not list.</div>
+    validates live and asks one confirm · Enter · Ctrl+Y pastes the cut text back. codex: the
+    <code>/model</code> picker by arrows, or a kill + <code>resume -m &lt;id&gt;</code> for an
+    id the picker does not list. opencode and pi: the picker with type-to-filter — the daemon
+    types the id and presses Enter.</div>
 
   <div class="msg"><div class="avatar curia">C</div><div class="body">
     <div class="who">CuriaBot <span class="app">APP</span><span class="ts">14:02</span></div>
@@ -311,14 +317,38 @@ exist or you do not have access to it., url: http://127.0.0.1:9106/v1/responses<
 </div>
 
 <div class="lane">
-  <h3><code>opencode</code> <span class="v">pending</span></h3>
-  <p class="pending">The container ships no opencode CLI. The lane runs after the operator
-     answers the install question.</p>
+  <h3><code>opencode</code> <span class="v">1.18.18 · POST /v1/chat/completions</span></h3>
+  <ul>
+    <li><b>Switch:</b> the <code>/models</code> picker — a SEARCH box filters the config's
+        models, Enter picks. No confirm; the footer flips at once.</li>
+    <li><b>Survives:</b> full history after the switch; one session in the store;
+        <code>opencode.db</code> records <code>modelID</code> per assistant message.
+        Ctrl+U clears the composer, but there is NO paste-back — the daemon retypes.</li>
+    <li><b>Resume:</b> the strictest lane. The resumed session ALWAYS continues on its own
+        last model: <code>--model</code>, the config and the state file all lose. A switch
+        made in the pane is durable by itself.</li>
+    <li><b class="w">Hazard:</b> any model is accepted at the switch; a refused one fails
+        the NEXT turn with the API's message in the pane, and that turn is lost.</li>
+  </ul>
+  <div class="pane">The model `standin-cold` does not exist or you do not have access to it.</div>
 </div>
 
 <div class="lane">
-  <h3><code>pi</code> <span class="v">pending</span></h3>
-  <p class="pending">Same: the pinned pi CLI awaits the operator's answer.</p>
+  <h3><code>pi</code> <span class="v">0.84.2 · POST /v1/chat/completions</span></h3>
+  <ul>
+    <li><b>Switch:</b> the <code>/model</code> picker — type-to-filter over
+        <code>models.json</code> (a file curia writes), Enter picks. No confirm; the
+        footer flips at once.</li>
+    <li><b>Survives:</b> full history after the switch; one session JSONL; the richest
+        record of the four — a <code>model_change</code> event per switch plus
+        <code>model</code> on every assistant message. Ctrl+U cuts, Ctrl+Y pastes back.</li>
+    <li><b>Resume:</b> a bare <code>-c</code> keeps the switched model (the session record
+        replays); <code>--provider --model</code> on the resume wins over it.</li>
+    <li><b class="w">Hazard:</b> any model is accepted at the switch; a refused one fails
+        the NEXT turn with the API's message in the pane, and that turn is lost.</li>
+  </ul>
+  <div class="pane">Error: 404: {"message":"The model `standin-cold` does not exist or you
+ do not have access to it.", ... "code":"model_not_found"}</div>
 </div>
 
 </main>

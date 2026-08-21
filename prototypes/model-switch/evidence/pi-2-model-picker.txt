@@ -1,0 +1,12 @@
+ ok (req 1, model standin-1)
+────────────────────────────────────────────────────────────────────────────────
+Only showing models from configured providers. Use /login to add providers.
+>
+→ standin-1 [standin] ✓
+  standin-2 [standin]
+  standin-cold [standin]
+  Model Name: standin-1
+  Model catalogs refreshed.
+────────────────────────────────────────────────────────────────────────────────
+/tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1-efb75df92bd7/scratchpad/m...
+0.0%/128k (auto)                                                       standin-1

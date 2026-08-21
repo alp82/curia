@@ -91,28 +91,94 @@ shape, so the cooled-model failure is measured and not imagined.
   with `-m <id>`, which takes the id directly and is positionless. The rollout states the
   id back, and `modelName()` renders it.
 
-## opencode (pending)
+## opencode 1.18.18 (wire: `POST /v1/chat/completions`, field `model`)
 
-The container ships no opencode CLI. The operator's answer on installing the pinned
-CLI decides whether this lane runs — the round is open.
+Installed pinned after the operator's approval, as the #559 probe was.
 
-## pi (pending)
+- **Mechanism.** The `/models` picker, and it is the ONE mechanism that works on a live
+  session. It lists the config-declared models plus the catalog, and it has a SEARCH box:
+  the daemon types the model name to filter and presses Enter — deterministic, no arrow
+  counting (`opencode-2-model-picker.txt`). No confirm dialog; the footer flips at once.
+- **Survives.** The conversation: the post-switch request carries the full history
+  (`opencode-wire/req-4`, 4 messages on `standin-2`). One session in the store throughout.
+  The queued composer text: `Ctrl+U` clears, but `Ctrl+Y` does NOT paste back on this
+  lane — the daemon must retype the queued text itself.
+- **Readback.** The footer shows `Build · <model> <provider>` permanently and follows the
+  switch. The store (`opencode.db`, table `message`) records `modelID` and `providerID`
+  on every assistant message (`opencode-5-db-model.txt`) — a per-turn surface, though not
+  one `usage.mjs` reads today. The per-user state file
+  (`~/.local/state/opencode/model.json`) records the last pick.
+- **Failure shape.** The quiet one: the picker accepts `standin-cold`, the footer says it,
+  and the NEXT turn fails with the API's message printed in the conversation area
+  (`opencode-6-cold-turn-fails.txt`). The turn is lost; the conversation stands.
+- **Resume.** The strictest lane: the RESUMED session always continues on its own last
+  model. A bare `--continue` kept the switch (`req-9`). `--model` on the resume command
+  LOST to the session record (`opencode-8-resume-flag-loses.txt`, `req-10`), and a
+  rewrite of `model.json` lost too (`req-11`). `--model` works on a FRESH session
+  (`req-12`). So a daemon-driven switch on this lane must go through the pane picker,
+  and once made it survives every respawn by itself — nothing outside the pane can
+  override it afterward.
+- **Vocabulary.** The picker speaks the config's own model ids, and curia writes that
+  config (`opencode.json`), so label→id is curia's own file; the db states the id back.
 
-Same as opencode: the pinned CLI awaits the operator's answer.
+## pi 0.84.2 (wire: `POST /v1/chat/completions`, field `model`)
+
+Installed pinned after the operator's approval (`@earendil-works/pi-coding-agent`).
+
+- **Mechanism.** `/model` opens a picker with a type-to-filter prompt over the models of
+  `~/.pi/agent/models.json` — a file curia would write. The daemon types the name and
+  presses Enter (`pi-2-model-picker.txt`). No confirm; the footer flips at once. `--models`
+  patterns also enable Ctrl+P cycling, but the picker needs no such pre-declaration.
+- **Survives.** The conversation: the post-switch request carries the full history
+  (`pi-wire/req-2`, 4 messages). ONE session JSONL throughout. The queued composer text:
+  the same concatenation hazard (`pi-4-queued-eaten.txt`), and the same cure — `Ctrl+U`
+  cuts, `Ctrl+Y` pastes back, both proven.
+- **Readback.** The best transcript of the four: the session JSONL records an explicit
+  `model_change` event (provider + modelId + timestamp) on every switch, AND `model` on
+  every assistant message (`pi-5-session-model-record.txt`). The footer names the model
+  permanently.
+- **Failure shape.** The picker accepts `standin-cold`; the next turn prints
+  `Error: 404: {...model_not_found...}` in the pane (`pi-6-cold-turn-fails.txt`). The
+  turn is lost; the conversation stands.
+- **Resume.** A bare `-c` resume KEEPS the switched model — the session record replays
+  its `model_change` (`req-5`, unlike effort, which #559 showed falling back to the
+  default). `--provider <p> --model <id>` on the resume wins over the record (`req-6`).
+- **Vocabulary.** The picker and the flags speak the ids of `models.json`, which curia
+  authors — the seam is curia's own file in both directions, as on opencode.
 
 ## What the design at #553's build can settle on this evidence
 
-- **A pane-driven switch is real on both installed lanes, with one discipline.** Cut the
-  composer (`Ctrl+U`), drive the switch, paste back (`Ctrl+Y`). Typing a command into a
-  non-empty composer sends the concatenation to the model as text on BOTH lanes — the
-  same class of hazard ADR-0021's rewind prototype found, with the same cure.
-- **The daemon must validate the target before driving the switch.** claude self-checks
-  (a refused model never lands); codex accepts anything and burns the next turn. One
-  boot-time/cooling check in the daemon covers both.
-- **The meter survives on both lanes.** One transcript file per session on both; the
-  per-turn model is stated in it (`message.model` / `turn_context.model`), which is the
-  field `usage.mjs` already keys on.
-- **A switch does not survive a respawn by itself on codex, and survives by accident on
-  claude.** The rule that works everywhere: the daemon records the switched label and
-  states it explicitly on every later spawn/resume command, exactly as #559 concluded
-  for effort.
+- **A pane-driven switch is real on all four lanes.** claude: `/model <id>` typed as
+  text plus one confirm. codex: the `/model` picker by arrows (catalog models only;
+  out-of-catalog ids ride a kill + `resume -m`). opencode: the `/models` picker with
+  type-to-filter. pi: the `/model` picker with type-to-filter.
+- **One composer discipline everywhere.** Typing into a non-empty composer concatenates
+  and sends the whole line to the model as prose — proven on all four lanes. The cure:
+  `Ctrl+U` cuts first. `Ctrl+Y` pastes the cut text back on claude, codex and pi;
+  opencode has no paste-back, so the daemon retypes the queued text there. This is the
+  same hazard class ADR-0021's rewind prototype found, with the same cure.
+- **The daemon must refuse a cooled or unknown target BEFORE driving the pane.** Only
+  claude validates at the switch (and only for ids it does not know as aliases); codex,
+  opencode and pi all accept the switch and burn the operator's next turn on the API
+  error. The refusal is readable off the pane on every lane, but by then the turn is
+  lost. The daemon already knows every hold, so the check is one lookup.
+- **The conversation and the transcript identity survive on every lane.** One
+  transcript/rollout/store/session file before and after; the full history rides the
+  first post-switch request. The per-turn model is stated on every lane: claude
+  `message.model` and codex `turn_context.model` (the fields `usage.mjs` already keys
+  on), opencode `message.modelID` in `opencode.db`, pi `model_change` events plus
+  `model` per assistant message.
+- **The readback differs at rest.** codex, opencode and pi name the model in the footer
+  permanently. claude's footer at rest names none — `/status` and the transcript are its
+  surfaces. The status line should therefore read the transcript, never the pane.
+- **The resume rule is per lane, and #559's conclusion generalizes with one exception.**
+  State the model explicitly on every spawn and resume: claude `--model` beats its own
+  settings persistence, codex `-m` beats the session record, pi `--model` beats the
+  replayed `model_change`. The exception is opencode: the resumed session ALWAYS
+  continues on its own last model — flag, config and state file all lose — so there the
+  switch itself is durable and the daemon must drive the picker again to change it.
+- **The vocabulary seam holds on all four.** claude resolves its own aliases (typed
+  `opus`, wire said `claude-opus-5`) and validates unknown ids live. codex speaks its
+  catalog ids, which are exactly `models.<label>.id`. opencode and pi speak the ids of
+  config files curia itself writes. Every lane states the concrete id back on a per-turn
+  record, which is the direction `modelName()` renders.

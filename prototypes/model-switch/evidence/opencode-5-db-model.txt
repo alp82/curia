@@ -1,0 +1,5 @@
+state model.json: {"recent":[{"providerID":"standin","modelID":"standin-2"}],"favorite":[],"variant":{"standin/standin-1":"default"}}
+one session; messages: 6
+assistant modelID: standin-1
+assistant modelID: standin-2
+assistant modelID: standin-2

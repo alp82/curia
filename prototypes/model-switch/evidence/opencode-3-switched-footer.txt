@@ -1,0 +1,8 @@
+     ▣  Build · standin-1 · 3.3s
+  ┃
+  ┃
+  ┃
+  ┃  Build · standin-2 stand-in
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   /tmp/claude-1000/-workspace/6598d728-cdc8-4aef-a3c1- tab       ctrl+p
+   efb75df92bd7/scratchpad/ms-opencode/cwd              agents    commands
