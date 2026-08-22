@@ -64,8 +64,48 @@ line stays without the manual-today clause. positioning.md records the overrides
 
 **Round 4.** Two drifts against locked decisions, named before the gate: the picked dogfood line
 carries no regenerated count and no pull-request link, which the storyboard locked, and the three
-claim bold lines no longer carry the claim wording that positioning.md keeps.
+claim bold lines no longer carry the claim wording that positioning.md keeps. The operator ruled:
+the dogfood line stays without a count, with "planned, decided" linked to the tickets and
+"written" linked to the pull requests. The claim wording is confirmed, and the scene 3 story line
+takes the GitHub tail. positioning.md records both with this ticket.
 
 ## The verdict
 
-<!-- Filled when the operator locks the words. -->
+**The words of every scene are locked.** The final build ([#551](https://github.com/alp82/curia/issues/551),
+on the map [Ship the story landing page](https://github.com/alp82/curia/issues/600)) builds these
+lines and no others:
+
+1. **The first screen** — kicker: "self-hosted agent dispatcher" · headline: "Coding agents
+   controlled from your phone" · paragraph: "Curia knows about all your projects and tells you
+   what to build next. It helps you dispatch parallel agents without losing track." · skills
+   line: "Built on Matt Pocock’s skills." · buttons: "Set it up · GitHub".
+2. **Into the mess** — "The backlog panic grows".
+3. **Maps bring order** — bold: "Maps turn the pile into a queue." · story: "Blocked tickets
+   wait. Open ones light up, and agents take them in order, straight from your GitHub issues." ·
+   no fact line.
+4. **The grilling** — bold: "Answer from the couch." · story: "An agent hits a real decision and
+   asks you in Discord." · fact: "one thread per ticket · parallel chats".
+5. **The preview** — "Live previews from your phone or workstation" · fact: "A secure link on
+   your tailnet".
+6. **The atlas** — "A dashboard that shows where every map stands and which agents are currently
+   running."
+7. **The harness, live** — "Watch the agent type in your browser tab." · fact: "Claude Code,
+   Codex, Pi and Opencode are supported". The operator says this support lands soon. The build
+   checks `config/routing.yaml` on build day: today it ships `claude` and `codex` only, and the
+   line must not ship ahead of the code.
+8. **One ticket on GitHub** — bold: "You are in charge" · climax caption: "Your approval merges
+   the pull request and closes the ticket" · fact: "just type your rejection reasons if you
+   don't agree with the result" · dogfood: "This page itself was planned, decided and written by
+   curia agents.", with "planned, decided" linked to the tickets and "written" linked to the
+   merged pull requests. No count.
+9. **Your VPS** — bold: "Your VPS is enough." · fact: "four agents at once on a small box ·
+   about 0.5 GB each".
+10. **Open source** — bold: "Open source." · fact: "Your box, your subscription, your keys."
+11. **Set it up** — heading: "Set it up" · what you need: "One Linux box with Docker, Tailscale,
+    a Discord server and your coding agent subscription" · closing line: "All steps are described
+    in the set up guide", linking the README.
+12. **Footer** — "curia · source on GitHub".
+
+No line on the page regenerates on build day any more: the counts left with the dogfood pick and
+the cut scene 3 fact line. The overrides of earlier decisions are recorded in
+[positioning.md](../../docs/landing-page/positioning.md) by this ticket.

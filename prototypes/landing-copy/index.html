@@ -87,10 +87,9 @@
   <header class="top">
     <h1>The words of every scene</h1>
     <p><a href="https://github.com/alp82/curia/issues/587">Choose the words of every scene of the final page — alp82/curia#587</a>,
-       on the map <a href="https://github.com/alp82/curia/issues/109">The curia landing page</a>. Throwaway prototype, round 3.
-       A <code>picked</code> badge marks the operator's round 2 pick, selected by default, so
-       every panel reads as the picked page. An <code>R</code> row is a proposed fix beside a
-       picked line, on the table in round 3.</p>
+       on the map <a href="https://github.com/alp82/curia/issues/109">The curia landing page</a>. Throwaway prototype.
+       The words are locked after four rounds: a <code>picked</code> badge marks a locked line,
+       selected by default, so every panel reads as the final page. NOTES.md holds the verdict.</p>
     <p>The twelve scenes are locked by the storyboard. This page decides only the words.
        Tap a candidate and the panel above it shows the scene with that line in place.
        Each slot has a <code>mine</code> row: type your own line there and it becomes the pick.
@@ -379,7 +378,7 @@ var SCENES = [
 var PICKED = {
   '1.kicker': 'A', '1.headline': 'P', '1.sub': 'R', '1.skills': 'B', '1.btns': 'C',
   '2.line': 'P',
-  '3.bold': 'E', '3.line': 'B', '3.fact': 'E',
+  '3.bold': 'E', '3.line': 'R', '3.fact': 'E',
   '4.bold': 'D', '4.line': 'P', '4.fact': 'P',
   '5.line': 'P', '5.fact': 'P',
   '6.line': 'P',
@@ -401,6 +400,7 @@ var ADDED = {
     { l: 'R', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatch parallel agents without losing track.' }
   ],
   '2.line': [{ l: 'P', t: 'The backlog panic grows', pick: true }],
+  '3.line': [{ l: 'R', t: 'Blocked tickets wait. Open ones light up, and agents take them in order, straight from your GitHub issues.' }],
   '4.line': [{ l: 'P', t: 'An agent hits a real decision and asks you in Discord.', pick: true }],
   '4.fact': [{ l: 'P', t: 'one thread per ticket · parallel chats', pick: true }],
   '5.line': [{ l: 'P', t: 'Live previews from your phone or workstation', pick: true }],
