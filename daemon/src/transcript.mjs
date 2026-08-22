@@ -71,6 +71,27 @@ function claudeFiles(cfgDir) {
   return files
 }
 
+// A spawned codex subagent writes a second rollout into its parent's config
+// directory. Its first line identifies it, so it must not win the parent's
+// newest-file lookup while the parent waits (#544, #545).
+function codexThreadSource(file) {
+  let fd
+  try { fd = fs.openSync(file, 'r') } catch { return null }
+  try {
+    const size = Math.min(fs.fstatSync(fd).size, 16 * 1024)
+    const buf = Buffer.alloc(size)
+    fs.readSync(fd, buf, 0, size, 0)
+    const first = buf.toString('utf8').split('\n').find((line) => line.trim())
+    if (!first) return null
+    const event = JSON.parse(first)
+    return event?.type === 'session_meta' ? event.payload?.thread_source ?? null : null
+  } catch {
+    return null
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
 function codexFiles(cfgDir) {
   // sessions/<year>/<month>/<day>/rollout-*.jsonl
   const files = []
@@ -78,7 +99,9 @@ function codexFiles(cfgDir) {
     for (const entry of readdirSafe(dir)) {
       const p = path.join(dir, entry)
       if (depth < 3) walk(p, depth + 1)
-      else if (entry.startsWith('rollout-') && entry.endsWith('.jsonl')) files.push(p)
+      else if (entry.startsWith('rollout-') && entry.endsWith('.jsonl') && codexThreadSource(p) !== 'subagent') {
+        files.push(p)
+      }
     }
   }
   walk(path.join(cfgDir, 'sessions'), 0)
@@ -98,11 +121,12 @@ const NAMES_SESSION = {
   codex: (base, id) => base.startsWith('rollout-') && base.endsWith(`-${id}.jsonl`),
 }
 
-// The newest transcript in a config dir, by mtime.
+// The newest root transcript in a config dir, by mtime.
 //
-// This answers for a PANE, and the precondition is that the dir holds one
-// agent: curia gives every agent its own config dir, so an agent's re-dispatch
-// writes a new file and "newest" is the live run (spike shape, unchanged).
+// This answers for a PANE. Curia gives every root agent its own config dir, so
+// an agent's re-dispatch writes a new file and "newest" is the live root run.
+// A codex subagent shares that config dir, but codexThreadSource removes its
+// rollout before the mtime comparison (#544, #545).
 // A dir that holds many CONVERSATIONS breaks that precondition — use
 // transcriptForSession there.
 export function findTranscript(harness, cfgDir) {
