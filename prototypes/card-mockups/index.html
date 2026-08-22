@@ -1,0 +1,577 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#606 — The Discord cards, redressed</title>
+<style>
+  /* PROTOTYPE — throwaway mock for alp82/curia#606. Not production code. */
+  :root {
+    --bg: #16181d;
+    --panel: #1e2128;
+    --line: #2f333d;
+    --ink: #e3e6ea;
+    --dim: #98a0ad;
+    --accent: #57f287;
+    --link: #7fb2ff;
+    --chat: #313338;
+    --chat-ink: #dbdee1;
+    --chat-dim: #949ba4;
+    --chat-name: #f2f3f5;
+    --bot-badge: #5865f2;
+    --btn-secondary: #4e5058;
+    --btn-success: #248046;
+    --btn-danger: #da373c;
+    --btn-primary: #5865f2;
+    --code-bg: #2b2d31;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --gg: "gg sans", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 4rem;
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header.page {
+    padding: 1.6rem 1.1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg));
+  }
+  header.page h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header.page .tag {
+    display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--accent); letter-spacing: .04em;
+  }
+  header.page p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2.sec {
+    margin: 2.6rem 0 .4rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700;
+  }
+  h2.sec .n { color: var(--accent); margin-right: .4rem; }
+  p.lead { margin: .2rem 0 1rem; color: var(--dim); font-size: .93rem; }
+  p.lead b { color: var(--ink); }
+
+  /* ---- Discord transcript chrome ---- */
+  .thread {
+    background: var(--chat); border: 1px solid #232428; border-radius: 12px;
+    padding: .3rem 0 .8rem; margin: 0 0 1rem; overflow: hidden;
+    font-family: var(--gg);
+  }
+  .msg { padding: .6rem .9rem 0; display: flex; gap: .75rem; }
+  .avatar {
+    flex: 0 0 2.3rem; width: 2.3rem; height: 2.3rem; border-radius: 50%;
+    display: grid; place-items: center; font-size: .95rem; font-weight: 700;
+    user-select: none; color: #fff; font-family: var(--gg);
+  }
+  .avatar.curia { background: #23508d; }
+  .avatar.agent { background: #5b3e8f; }
+  .avatar.op { background: #7a5c2e; }
+  .body { min-width: 0; flex: 1; }
+  .who { font-size: .93rem; color: var(--chat-name); font-weight: 600; }
+  .who .app {
+    background: var(--bot-badge); color: #fff; border-radius: 4px;
+    font-size: .6rem; font-weight: 700; padding: .1rem .3rem; margin-left: .35rem;
+    vertical-align: 2px; letter-spacing: .02em;
+  }
+  .who .ts { color: var(--chat-dim); font-weight: 400; font-size: .72rem; margin-left: .45rem; }
+  .txt { color: var(--chat-ink); font-size: .92rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .txt p { margin: .3rem 0; }
+  .txt .small, .txt .subtext { font-size: .78rem; color: var(--chat-dim); }
+  .txt a { color: var(--link); text-decoration: none; }
+  .txt code, .cand code {
+    background: var(--code-bg); border-radius: 4px; padding: .06rem .3rem;
+    font: .84em var(--mono);
+  }
+  .txt .spoil {
+    background: #232428; border-radius: 4px; padding: 0 .3rem;
+    color: var(--chat-dim); border: 1px dashed #3f4147;
+  }
+  .edited { color: var(--chat-dim); font-size: .68rem; margin-left: .3rem; }
+  .btnrow { display: flex; gap: .45rem; flex-wrap: wrap; margin: .5rem 0 .15rem; }
+  .btn {
+    border: none; border-radius: 6px; padding: .42rem .8rem;
+    font: 500 .8rem/1.1 var(--gg); color: #fff; cursor: default; white-space: nowrap;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .btn.sec { background: var(--btn-secondary); }
+  .btn.ok { background: var(--btn-success); }
+  .btn.no { background: var(--btn-danger); }
+  .btn.pri { background: var(--btn-primary); }
+  .select {
+    margin: .5rem 0 .15rem; max-width: 25rem;
+    background: #1e1f22; border: 1px solid #101114; border-radius: 6px;
+    padding: .5rem .7rem; color: var(--chat-dim); font-size: .85rem;
+    display: flex; justify-content: space-between; align-items: center; gap: .6rem;
+  }
+  .select .chev { color: var(--chat-dim); font-size: .7rem; }
+  .attachbox {
+    margin: .4rem 0 .1rem; padding: .5rem .65rem; border-radius: 8px;
+    background: #2b2d31; border: 1px solid #232428; max-width: 22rem;
+    display: flex; gap: .55rem; align-items: center; font-size: .85rem;
+  }
+  .attachbox .icon { font-size: 1.2rem; }
+  .attachbox .fname { color: var(--link); }
+  .attachbox .fsize { color: var(--chat-dim); font-size: .72rem; }
+  .edits {
+    margin: .4rem 0 0; padding: .4rem .55rem; border-radius: 6px;
+    background: #2b2d31; font-size: .76rem; color: var(--chat-dim);
+  }
+  .edits b { color: var(--chat-ink); font-weight: 600; }
+  .edits .st { display: block; padding: .06rem 0; }
+  .edits .st::before { content: "· "; color: #4e5058; }
+  .note {
+    margin: .6rem .9rem .2rem; padding: .5rem .65rem; border-radius: 6px;
+    background: rgba(87,242,135,.06); border: 1px solid rgba(87,242,135,.18);
+    color: var(--dim); font-size: .8rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .note b { color: var(--accent); }
+  .note.warn { background: rgba(254,231,92,.05); border-color: rgba(254,231,92,.2); }
+  .note.warn b { color: #fee75c; }
+  .note.out { margin: .6rem 0 .85rem; }
+
+  /* candidate frames */
+  .cand {
+    background: var(--chat); border: 1px solid #232428; border-radius: 10px;
+    padding: .35rem .2rem .85rem; margin: 0 0 .85rem; font-family: var(--gg);
+  }
+  .cand h3 {
+    margin: .35rem .7rem .1rem; font-size: .98rem; color: var(--chat-name);
+    display: flex; gap: .5rem; align-items: baseline;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .cand h3 .n { color: var(--dim); font: 600 .78rem/1 var(--mono); }
+  .cand h3 .picked { color: var(--accent); font: 600 .78rem/1 var(--mono); }
+  .cand p.why {
+    margin: .55rem .7rem 0; color: var(--dim); font-size: .84rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .cand p.why b { color: var(--ink); }
+
+  /* the parity pair */
+  .pair { display: grid; grid-template-columns: 1fr; gap: .85rem; }
+  @media (min-width: 44rem) { .pair { grid-template-columns: 1fr 1fr; } }
+  .chatcard {
+    background: #0f1319; border: 1px solid #263041; border-radius: 10px;
+    padding: .7rem .8rem .8rem; font-family: var(--gg); font-size: .85rem;
+    color: #cdd6e4;
+  }
+  .chatcard .chip {
+    display: inline-block; background: #2a3a55; color: #9fc1ff; border-radius: 999px;
+    font-size: .68rem; font-weight: 700; padding: .12rem .5rem; margin-bottom: .4rem;
+  }
+  .chatcard .eid { float: right; color: #66718a; font-size: .72rem; }
+  .chatcard .q { font-weight: 700; color: #eef2f8; margin: .15rem 0 .4rem; }
+  .chatcard .opt {
+    display: flex; gap: .5rem; padding: .34rem 0; border-top: 1px solid #1d2534;
+    align-items: baseline;
+  }
+  .chatcard .radio {
+    flex: 0 0 .8rem; width: .8rem; height: .8rem; border: 2px solid #3c4a63;
+    border-radius: 50%; position: relative; top: .12rem;
+  }
+  .chatcard .ol { color: #e6ecf5; font-weight: 600; }
+  .chatcard .rec { color: #57f287; font-size: .7rem; font-weight: 700; margin-left: .3rem; }
+  .chatcard .oc { display: block; color: #8b96ab; font-size: .78rem; }
+  .chatcard .foot { margin-top: .55rem; display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+  .chatcard .cbtn {
+    background: #2f7d46; border: none; color: #fff; border-radius: 6px;
+    padding: .4rem .7rem; font-size: .78rem; font-weight: 600;
+  }
+  .chatcard .cbtn.ghost { background: #232c3c; color: #b9c4d6; }
+  .chatcard .fvw { color: #66718a; font-size: .7rem; }
+  ul.contract { margin: .3rem 0 1rem; padding-left: 1.2rem; color: var(--dim); font-size: .9rem; }
+  ul.contract li { margin: .3rem 0; }
+  ul.contract b { color: var(--ink); }
+
+  nav.toc { margin: 1rem 0 0; font-size: .9rem; }
+  nav.toc a { color: var(--link); text-decoration: none; display: inline-block; margin: 0 .9rem .3rem 0; }
+  b, strong { color: inherit; }
+  s { color: var(--chat-dim); }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <span class="tag">alp82/curia#606</span>
+  <h1>The Discord cards, redressed</h1>
+  <p>The thread dressing is decided (ADR-0021), and the story is decided (ADR-0020).
+     This page carries the picks onto the <b>interactive cards</b>: the choice card, the
+     option bands, the review gate, the verdict, and the marks. Section 7 puts the Discord
+     card beside the dashboard chat card. The subjects are real past escalations, retold.
+     Pick by taste.</p>
+  <nav class="toc">
+    <a href="#today">1 · The choice card today</a>
+    <a href="#redressed">2 · Redressed, three button cuts</a>
+    <a href="#bands">3 · The bands and the cap</a>
+    <a href="#gate">4 · The gate, with waves</a>
+    <a href="#verdict">5 · The verdict</a>
+    <a href="#marks">6 · The marks and the ending</a>
+    <a href="#parity">7 · One card, two surfaces</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="today"><span class="n">1</span> The choice card today</h2>
+<p class="lead">The control. The typed card of #415 and #418, rendered as the bridge renders
+   it now: the card head names the agent, the buttons repeat the full option labels, and the
+   answer instruction is full-weight italics. The subject is the cooling escalation of
+   ticket #377, the same card #415 was judged on.</p>
+
+<div class="thread">
+  <div class="msg"><div class="avatar curia">C</div><div class="body">
+    <div class="who">CuriaBot <span class="app">APP</span><span class="ts">11:02</span></div>
+    <div class="txt">
+      <p><b>[esc-1]</b> <code>curia-377</code> asks (<i>choice</i>):</p>
+      <p><b>A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?</b></p>
+      <p><b>A. From the journal.</b> Re-read the caps curia already landed.<br>
+         ↳ curia waits at the next start and spends no container. A guessed reset can hold at most 55 minutes too long.</p>
+      <p><b>B. From a fresh account reading.</b> Ask the provider at boot.<br>
+         ↳ This answers "am I near the cap", not "did I hit one". It costs one API call per boot.<br>
+         › The boot reading says 41% used, so curia starts the ticket. The cap that landed at 09:00 is invisible, and the container dies on it.</p>
+      <p><b>C. Leave it in memory.</b> A restart clears cooling.<br>
+         ↳ Every deploy inside a window costs one container. This is the behavior today.</p>
+      <p>Recommendation: <b>A</b>.</p>
+      <p>Details: <span class="spoil">The journal already carries provider_cooling and model_cooling with reset_at.</span></p>
+      <div class="btnrow"><button class="btn pri">A. From the journal.</button><button class="btn pri">B. From a fresh account reading.</button><button class="btn pri">C. Leave it in memory.</button></div>
+    </div>
+  </div></div>
+
+  <div class="note warn"><b>Three duplications.</b> The head says who asks, which the one
+    voice already says. The buttons repeat the option labels the body just printed. A long
+    label makes a wide button, and the row wraps on a phone.</div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="redressed"><span class="n">2</span> Redressed, three button cuts</h2>
+<p class="lead">The same card under ADR-0021: the head dies, ❓ carries the signal, the esc id
+   drops to the subtext, and the answer instruction is small print. The instruction also
+   names the file path: a reply may carry files, and they reach the agent as paths. The three
+   candidates differ <b>only in what the buttons say</b>.</p>
+
+<div class="cand">
+  <h3><span class="n">E1</span> The full label, as today</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">11:02</span></div>
+    <div class="txt">
+      <p>❓ <b>A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?</b></p>
+      <p><b>A. From the journal.</b> Re-read the caps I already landed.<br>
+         ↳ I wait at the next start and spend no container. A guessed reset can hold at most 55 minutes too long.</p>
+      <p><b>B. From a fresh account reading.</b> Ask the provider at boot.<br>
+         ↳ This answers "am I near the cap", not "did I hit one". It costs one API call per boot.<br>
+         › The boot reading says 41% used, so I start the ticket. The cap that landed at 09:00 is invisible, and the container dies on it.</p>
+      <p><b>C. Leave it in memory.</b> A restart clears cooling.<br>
+         ↳ Every deploy inside a window costs one container. This is the behavior today.</p>
+      <p>Recommendation: <b>A</b>.</p>
+      <p>Details: <span class="spoil">The journal already carries provider_cooling and model_cooling with reset_at.</span></p>
+      <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+      <p class="subtext">esc-1</p>
+      <div class="btnrow"><button class="btn pri">A. From the journal.</button><button class="btn pri">B. From a fresh account reading.</button><button class="btn pri">C. Leave it in memory.</button></div>
+    </div>
+  </div></div>
+  <p class="why">Nothing to learn: the button says the whole option. <b>The cost:</b> the same
+     words print twice on one card, and three long labels wrap into three button rows on a
+     phone.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">E2</span> The letter and a handle</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">11:02</span></div>
+    <div class="txt">
+      <p>❓ <b>A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?</b></p>
+      <p><b>A. From the journal.</b> Re-read the caps I already landed.<br>
+         ↳ I wait at the next start and spend no container. A guessed reset can hold at most 55 minutes too long.</p>
+      <p><b>B. From a fresh account reading.</b> Ask the provider at boot.<br>
+         ↳ This answers "am I near the cap", not "did I hit one". It costs one API call per boot.</p>
+      <p><b>C. Leave it in memory.</b> A restart clears cooling.<br>
+         ↳ Every deploy inside a window costs one container. This is the behavior today.</p>
+      <p>Recommendation: <b>A</b>.</p>
+      <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+      <p class="subtext">esc-1</p>
+      <div class="btnrow"><button class="btn pri">A · journal</button><button class="btn pri">B · account reading</button><button class="btn pri">C · memory</button></div>
+    </div>
+  </div></div>
+  <p class="why">The body holds the full words, so the button carries a handle: the letter and
+     the label's first noun. One row fits a phone, and the letter matches a typed reply.
+     <b>The cost:</b> the handle is a second, shorter name for each option, and the agent
+     must cut it well.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">E3</span> The letter alone</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">11:02</span></div>
+    <div class="txt">
+      <p>❓ <b>A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?</b></p>
+      <p><b>A. From the journal.</b> ↳ I wait at the next start and spend no container.</p>
+      <p><b>B. From a fresh account reading.</b> ↳ One API call per boot, and a landed cap stays invisible.</p>
+      <p><b>C. Leave it in memory.</b> ↳ Every deploy inside a window costs one container.</p>
+      <p>Recommendation: <b>A</b>.</p>
+      <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+      <p class="subtext">esc-1</p>
+      <div class="btnrow"><button class="btn pri">A</button><button class="btn pri">B</button><button class="btn pri">C</button></div>
+    </div>
+  </div></div>
+  <p class="why">The smallest row there is, and it never wraps. <b>The cost:</b> a bare letter
+     under the thumb, so a fat-finger press picks a policy with no second cue. The letter is
+     legible only while the body is on screen.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="bands"><span class="n">3</span> The bands and the cap</h2>
+<p class="lead">Today's rule: <b>2 to 4 options are buttons, 5 to 25 are one select menu,
+   past 25 the numbered list stays</b>, and 25 is the ceiling of a menu. The redressing moves
+   the head and the instructions, and touches no band edge. Section 2 showed the button band.
+   Here are the other two, redressed.</p>
+
+<div class="thread">
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">13:15</span></div>
+    <div class="txt">
+      <p>❓ <b>Six stores can hold the session. Which one backs the settings page?</b></p>
+      <p><b>A. The signed cookie.</b> ↳ No new store. The payload cap is 4 KB.</p>
+      <p><b>B. Redis.</b> ↳ One new service to run and to back up.</p>
+      <p><b>C. A Postgres table.</b> ↳ The store the app already has. One migration.</p>
+      <p><b>D. A JWT.</b> ↳ No server state. A revoked session lives until expiry.</p>
+      <p><b>E. Process memory.</b> ↳ A deploy logs every operator out.</p>
+      <p><b>F. A file on disk.</b> ↳ Works on one host and breaks on two.</p>
+      <p>Recommendation: <b>C</b>.</p>
+      <p class="small">Pick from the menu below. A reply with a letter answers too.</p>
+      <p class="subtext">esc-4</p>
+      <div class="select"><span>Pick one</span><span class="chev">▼</span></div>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The menu band, 5 to 25.</b> The body still prints every option with its
+    cost, because the closed menu shows nothing. The menu is the press surface, not the
+    question.</div>
+</div>
+
+<div class="thread">
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">08:40</span></div>
+    <div class="txt">
+      <p>❓ <b>Thirty-one journal days can seed the replay. Which day do I take?</b></p>
+      <p><b>1.</b> 2026-07-01 · 214 turns<br>
+         <b>2.</b> 2026-07-02 · 180 turns<br>
+         <b>3.</b> 2026-07-03 · 12 turns<br>
+         <b>4.</b> 2026-07-04 · 305 turns<br>
+         <s>… 26 more lines. The mock clips them. The real card prints all 31.</s><br>
+         <b>31.</b> 2026-07-31 · 44 turns</p>
+      <p class="small">Reply with a number. No menu holds 31.</p>
+      <p class="subtext">esc-2</p>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The list band, past 25.</b> The surface of last resort. It loses no
+    option, which a menu that dropped number 26 would. It has no press surface at all: the
+    reply is the answer.</div>
+</div>
+
+<p class="lead"><b>The proposal:</b> the bands and the 25 cap survive unchanged. The 25 is
+   Discord's own ceiling on a string select, so the alternative to keeping it is a second
+   menu, and two menus for one question split one answer surface in two.</p>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="gate"><span class="n">4</span> The gate, with waves</h2>
+<p class="lead">ADR-0021 fixed the gate heads (What changed, Charting) and moved the link
+   buttons to the status line. ADR-0023 picked wave grouping for the skill gate, on mock G2 of
+   the prose-skill page. The ticket gate never had that mock: here it is. The charting
+   proposes five tickets, and the card numbers them itself. The real issue numbers exist only
+   after approval, on the receipt.</p>
+
+<div class="thread">
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">10:03</span></div>
+    <div class="txt">
+      <p>❓ <b>Is #612 done?</b> — The settings page auth flow</p>
+      <p><b>What changed</b><br>The settings page keeps the session cookie. The token move is
+         charted below, not built.</p>
+      <p><b>Charting</b><br>Close #612. Add the cookie decision under Decisions so far.
+         Create five tickets:</p>
+      <p class="small">wave 1 — nothing blocks these</p>
+      <p><b>1.</b> The refresh endpoint · ready-for-agent<br>
+         <b>2.</b> The cookie flag audit · ready-for-agent<br>
+         <b>3.</b> Rotate the session secret in the provider dashboard · ready-for-human</p>
+      <p class="small">wave 2</p>
+      <p><b>4.</b> The bearer-token move · after 1 · ready-for-agent<br>
+         <b>5.</b> Delete the /login redirect · after 2 · ready-for-agent</p>
+      <p>3 files · +64 −18 · biggest: daemon/src/auth.mjs +41 −12 · pull request <b>OPEN</b></p>
+      <p class="small">✅ Approve to merge, resolve and publish the charting. A reply is a
+         rejection, and I take your words as the change list.</p>
+      <p class="subtext">esc-12</p>
+      <div class="btnrow"><button class="btn ok">✅ Approve</button><button class="btn no">❌ Reject</button><button class="btn sec">🔎 Cross-check</button></div>
+    </div>
+  </div></div>
+
+  <div class="note"><b>What moved.</b> The "Look at" link block died: preview, chat and ticket
+    are buttons on the status line. The digest line stays, because it is a fact curia
+    measured. A charting with no new tickets keeps its plain prose lines and no wave heads.</div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="verdict"><span class="n">5</span> The verdict</h2>
+<p class="lead">The cross-check verdict, two cuts. The reviewer is a real second actor, so it
+   is named by its role in both. They differ in what leads: the reviewer's status, or what
+   the reviewer found.</p>
+
+<div class="cand">
+  <h3><span class="n">V1</span> The status leads, as today</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">10:28</span></div>
+    <div class="txt">
+      <p>🔎 the cross-check reports <b>resolved</b></p>
+      <p><b>The cookie path is sound. One concern on the refresh test.</b></p>
+      <p>⚠️ <b>concerns</b> — 1 concern, 1 note</p>
+      <p><b>1. concern</b><br>daemon/test/auth.test.mjs:88 stubs the clock and never advances
+         it, so the expiry branch runs under no test.</p>
+      <p><b>2. note</b> (out of scope)<br>The cookie flag audit belongs to a ticket of its
+         own, and the builder's charting already names it.</p>
+      <p>Details: <span class="spoil">Read the full diff, 3 files. The concern is test-only.</span></p>
+    </div>
+  </div></div>
+  <p class="why">Faithful to the report shape: the status leads, because a reviewer that
+     reports blocked never read the diff. <b>The cost:</b> on the common resolved verdict,
+     the first line says the reviewer finished, which is not the news.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">V2</span> The finding leads, the status is small print</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">10:28</span></div>
+    <div class="txt">
+      <p>🔎 the cross-check found: <b>The cookie path is sound. One concern on the refresh test.</b></p>
+      <p>⚠️ <b>concerns</b> — 1 concern, 1 note</p>
+      <p><b>1. concern</b><br>daemon/test/auth.test.mjs:88 stubs the clock and never advances
+         it, so the expiry branch runs under no test.</p>
+      <p><b>2. note</b> (out of scope)<br>The cookie flag audit belongs to a ticket of its
+         own, and the builder's charting already names it.</p>
+      <p>Details: <span class="spoil">Read the full diff, 3 files. The concern is test-only.</span></p>
+      <p class="small">cross-check resolved — the reviewer read the whole diff</p>
+    </div>
+  </div></div>
+  <p class="why">The grade and the headline are the news, so they lead. The status drops to
+     mechanics small print. A blocked reviewer still leads with 🔎 <b>blocked</b> at full
+     weight, because there the status is the news. <b>The cost:</b> two shapes for one
+     message kind, split by status.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="marks"><span class="n">6</span> The marks and the ending</h2>
+<p class="lead">A card is the only record of its answer, so the mark edits onto the card where
+   the buttons were. Today the mark is full weight. The proposal drops it to small print: a
+   mark is mechanics, and the receipt already reads that way. The ending report itself is
+   decided (ADR-0021) and shown last, for contrast.</p>
+
+<div class="thread">
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">11:02</span></div>
+    <div class="txt">
+      <p>❓ <b>A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?</b></p>
+      <p class="small">… the card body stands unchanged above the mark …</p>
+      <p class="small">✅ answered — <a href="#">@alp82</a> · button · <code>A</code> <span class="edited">(edited)</span></p>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">11:09</span></div>
+    <div class="txt"><p>B, and cap the boot call at one retry. The sketch says where.</p>
+      <div class="attachbox"><span class="icon">🖼️</span><span><span class="fname">boot-arm-sketch.png</span><br><span class="fsize">212 KB</span></span></div>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">11:09</span></div>
+    <div class="txt">
+      <p class="small">✅ answered — <a href="#">@alp82</a> · reply · <code>B, and cap the boot call at one retry. The sketch says where.</code> · 1 file <span class="edited">(edited)</span></p>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The file path.</b> A reply's files ride the answer: curia stores each
+    one and hands the agent its path, every file, in reply order. The mark counts them, so
+    the card records that the answer carried more than words.</div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">11:40</span></div>
+    <div class="txt">
+      <p>❓ <b>Keep the /login smoke test?</b></p>
+      <p class="small">… the card body stands unchanged above the mark …</p>
+      <p class="small">⚰️ cancelled — its agent is gone. Nothing waits on this question. <span class="edited">(edited)</span></p>
+    </div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">12:04</span></div>
+    <div class="txt">
+      <p>✅ <b>resolved</b> — <b>Cooling re-arms at boot from a fresh account reading, capped at one retry.</b></p>
+      <p>I armed the boot path from the provider reading and capped the call. The journal
+         stays the record of landed caps.</p>
+      <p>Details: <span class="spoil">2 files, +38 −6. The retry cap is config.</span></p>
+    </div>
+  </div></div>
+
+  <div class="note"><b>The ending card, decided.</b> ✅ resolved, then the typed headline: the
+    one closing line of ADR-0020. The same line leads the resolution comment and the map
+    pointer. Shown here only so the marks above sit in their thread.</div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="parity"><span class="n">7</span> One card, two surfaces</h2>
+<p class="lead">The chat screen answers the same escalation in place, with its options open
+   (#524). The two surfaces must not drift, so the proposal is a contract, not a copy: one
+   payload, two renderings.</p>
+
+<div class="pair">
+  <div class="thread" style="margin:0">
+    <div class="msg"><div class="avatar curia">cu</div><div class="body">
+      <div class="who">curia <span class="app">APP</span><span class="ts">11:02</span></div>
+      <div class="txt">
+        <p>❓ <b>Re-arm cooling at boot, and from what?</b></p>
+        <p><b>A. From the journal.</b><br>↳ No container spent. A guessed reset holds at most 55 minutes.</p>
+        <p><b>B. A fresh account reading.</b><br>↳ One API call per boot. A landed cap stays invisible.</p>
+        <p><b>C. Leave it in memory.</b><br>↳ Every deploy inside a window costs one container.</p>
+        <p>Recommendation: <b>A</b>.</p>
+        <p class="subtext">esc-1</p>
+        <div class="btnrow"><button class="btn pri">A · journal</button><button class="btn pri">B · account reading</button><button class="btn pri">C · memory</button></div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="chatcard">
+    <span class="chip">Ask · choice</span><span class="eid">esc-1 · waits 3 min</span>
+    <div class="q">Re-arm cooling at boot, and from what?</div>
+    <div class="opt"><span class="radio"></span><span><span class="ol">A · From the journal <span class="rec">✦ recommended</span></span>
+      <span class="oc">No container spent. A guessed reset holds at most 55 minutes.</span></span></div>
+    <div class="opt"><span class="radio"></span><span><span class="ol">B · A fresh account reading</span>
+      <span class="oc">One API call per boot. A landed cap stays invisible.</span></span></div>
+    <div class="opt"><span class="radio"></span><span><span class="ol">C · Leave it in memory</span>
+      <span class="oc">Every deploy inside a window costs one container.</span></span></div>
+    <div class="foot"><button class="cbtn">Answer A · as recommended</button>
+      <button class="cbtn ghost">Answer myself</button>
+      <span class="fvw">first valid answer wins — here or in the thread</span></div>
+  </div>
+</div>
+
+<p class="lead" style="margin-top:1rem"><b>The contract, four lines:</b></p>
+<ul class="contract">
+  <li><b>One payload.</b> Both surfaces render the typed card: headline, options,
+      consequences, recommendation, detail. Neither invents a word.</li>
+  <li><b>Same markers.</b> The letters and the numbers match, so a thread reply of "A", a
+      Discord press and a chat tap resolve to the same pick, by the same index.</li>
+  <li><b>First valid answer wins.</b> One answer path behind both surfaces. The second
+      surface shows the receipt, never a second question.</li>
+  <li><b>One receipt.</b> Who answered, where, and what: the same mark text on the card, the
+      chat and the record. Presentation may fold options on the chat, the words may not
+      change.</li>
+</ul>
+
+</main>
+</body>
+</html>
