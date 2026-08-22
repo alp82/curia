@@ -6,9 +6,9 @@
 <title>#588 The frontier visual — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#588 "The frontier visual, iterated
-  from the maps mock". Round 5: red-hinted blocked and striped fog on
-  the bare rows (F1-F4, one simple pattern each, never the same
-  twice), plus the stops favorite carrying the same language (F5).
+  from the maps mock". Round 6, the finals at volume: F1, F4 and F5
+  over two stress maps — a crowded one (eight takeable, six blocked)
+  and a drained one (empty frontier). The decider round.
   Earlier rounds sit behind for reference.
   Decided maps screen (#522), V6 tokens (#519).
   Switch via ?v=, width via ?w=, color via ?mode=.
@@ -410,11 +410,14 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv r4 r5 r6" data-view="r6f1" data-name="F1 · Red dashes, grey stripes"><div data-body></div></section>
-<section class="view mv r4 r5 r6" data-view="r6f2" data-name="F2 · Red crosshatch"><div data-body></div></section>
-<section class="view mv r4 r5 r6" data-view="r6f3" data-name="F3 · Red wash"><div data-body></div></section>
-<section class="view mv r4 r5 r6" data-view="r6f4" data-name="F4 · Red rail, no boxes"><div data-body></div></section>
-<section class="view mv r4c r5 r6" data-view="r6f5" data-name="F5 · Stops, red and stripes"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r7f1" data-name="F1 · Red dashes, at volume"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r7f4" data-name="F4 · Red rail, at volume"><div data-body></div></section>
+<section class="view mv r4c r5 r6" data-view="r7f5" data-name="F5 · Stops, at volume"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f1" data-name="r5 · F1 Red dashes"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f2" data-name="r5 · F2 Red crosshatch"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f3" data-name="r5 · F3 Red wash"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f4" data-name="r5 · F4 Red rail"><div data-body></div></section>
+<section class="view mv r4c r5 r6" data-view="r6f5" data-name="r5 · F5 Stops, red"><div data-body></div></section>
 <section class="view mv r4 r5" data-view="r5a2" data-name="r4 · A2 Quiet strata"><div data-body></div></section>
 <section class="view mv r4 r5" data-view="r5a3" data-name="r4 · A3 Bare rows"><div data-body></div></section>
 <section class="view mv r4c r5" data-view="r5c2" data-name="r4 · C2 Stops with buttons"><div data-body></div></section>
@@ -1221,6 +1224,102 @@ function renderR6f5() {
 }
 
 /* ================================================================
+   ROUND 6 — THE FINALS AT VOLUME. F1, F4 and F5 all work and the
+   operator cannot pick. The decider: the same three cuts over two
+   stress maps — a crowded one with eight takeable and six blocked,
+   and a drained one with an empty frontier.
+   ================================================================ */
+const CROWD = {
+  repo:"alp82/curia", num:"#601",
+  name:"The build map: the decided UX ships", short:"build map",
+  closed:9, total:31, fog:8, ago:"41m",
+  recent:[ { t:"#607", title:"The atlas shell skeleton" } ],
+  flight:[
+    { t:"#611", title:"The chat page card seam", typ:"task", agent:"codex", mins:18 },
+    { t:"#612", title:"The maps overview route", typ:"task", agent:"claude", mins:55 }
+  ],
+  frontier:[
+    { t:"#613", title:"The atlas shell and the nav", typ:"task", model:"claude-sonnet-5" },
+    { t:"#614", title:"The feed endpoint", typ:"task", model:"claude-sonnet-5" },
+    { t:"#615", title:"The bands on the maps screen", typ:"task", model:"claude-sonnet-5" },
+    { t:"#616", title:"The agents roster", typ:"task", model:"claude-sonnet-5" },
+    { t:"#617", title:"The settings drill-in", typ:"task", model:"claude-haiku-4-5" },
+    { t:"#618", title:"The alert grouping", typ:"task", model:"claude-opus-5" },
+    { t:"#619", title:"The search index", typ:"task", model:"claude-opus-5" },
+    { t:"#620", title:"The last-visit stamp", typ:"task", model:"claude-haiku-4-5" }
+  ],
+  blocked:[
+    { t:"#621", title:"The feed screen wires the endpoint", behind:["#614","#613"] },
+    { t:"#622", title:"The maps detail pane", behind:["#615","#612"] },
+    { t:"#623", title:"The needs-you ordering", behind:["#618"] },
+    { t:"#624", title:"The search results page", behind:["#619"] },
+    { t:"#625", title:"The chat header links", behind:["#613"] },
+    { t:"#626", title:"The since-you-left marker", behind:["#620","#614"] }
+  ],
+  fogNotes:["the push channel","the app manifest flow","the terminal proxy retire",
+    "the overseer pane rehydration","the model-switch control","the effort routing",
+    "the worker image CLIs","the dialog card seam"]
+};
+const DRAIN = {
+  repo:"alp82/aistack", num:"#40",
+  name:"The importer hardening", short:"importer",
+  closed:6, total:9, fog:1, ago:"12m",
+  recent:[ { t:"#39", title:"The checksum gate" } ],
+  flight:[ { t:"#41", title:"The retry ladder", typ:"task", agent:"pi", mins:66 } ],
+  frontier:[],
+  blocked:[
+    { t:"#42", title:"The dead-letter drawer", behind:["#41"] },
+    { t:"#43", title:"The alert on the third failure", behind:["#41"] }
+  ],
+  fogNotes:["the backfill window"]
+};
+const STRESS = [...MAPS, CROWD, DRAIN];
+const noTake = `<div class="prow dim"><span class="ttl">nothing takeable. the way is in flight</span></div>`;
+const bareTakeS = m => `<div class="frontline"><span class="frontlbl">the frontier</span></div>
+  <div class="bare">${m.frontier.length ? m.frontier.map(f => `<div class="prow"><i class="g-take"></i>
+    <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+    <a class="btn" href="#" onclick="return false">start →</a></div>`).join("") : noTake}</div>`;
+const r6pageOn = (maps, right) => ht + `<div class="colw">${maps.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>${right(m)}</div>
+  </div></div>`).join("")}</div>`;
+function renderR7f1() {
+  return r6pageOn(STRESS, m => `${bareTakeS(m)}
+    <div class="waitr dashes"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+    ${fogBox(m)}`);
+}
+function renderR7f4() {
+  return r6pageOn(STRESS, m => `${bareTakeS(m)}
+    <div style="margin-top:8px">${m.blocked.map(b => `<div class="prow dim prowB"><i class="s-waitr"></i>
+      <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}</div>
+    <div class="fogs" style="border:0;margin-top:12px"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`);
+}
+function renderR7f5() {
+  return ht + `<div class="colw">${STRESS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}
+      <div class="rl">
+        <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+        ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+          <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="rl">
+        <div class="front" style="margin-top:18px"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+        ${m.frontier.length ? m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+          <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+          <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")
+          : `<div class="rrow below dim"><span class="stop s-fog"></span><span class="ttl">nothing takeable. the way is in flight</span></div>`}
+        ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-waitr"></span>
+          <span class="ttl">${b.title}<span class="sub" style="color:var(--red);opacity:.75">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+        <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+          <span class="ttl"><span class="fogstrip">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></span></div>
+      </div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* ================================================================
    round 1, kept for reference
    ================================================================ */
 function renderV0() {
@@ -1312,13 +1411,15 @@ function renderV4() {
 }
 
 /* ---------- shell wiring ---------- */
-const RENDER = { r6f1: renderR6f1, r6f2: renderR6f2, r6f3: renderR6f3, r6f4: renderR6f4, r6f5: renderR6f5,
+const RENDER = { r7f1: renderR7f1, r7f4: renderR7f4, r7f5: renderR7f5,
+  r6f1: renderR6f1, r6f2: renderR6f2, r6f3: renderR6f3, r6f4: renderR6f4, r6f5: renderR6f5,
   r5a2: renderR5a2, r5a3: renderR5a3, r5c2: renderR5c2, r5m: renderR5m,
   r4a: renderR4a, r4b: renderR4b, r4c: renderR4c, r4d: renderR4d, r4e: renderR4e,
   r1a: renderR1a, r1b: renderR1b, r1c: renderR1c, r1d: renderR1d, r1e: renderR1e,
   r3a: renderR3a, r3b: renderR3b, r3c: renderR3c, r3d: renderR3d, r3e: renderR3e,
   v0: renderV0, v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4 };
-const VIEWS = ["r6f1", "r6f2", "r6f3", "r6f4", "r6f5",
+const VIEWS = ["r7f1", "r7f4", "r7f5",
+  "r6f1", "r6f2", "r6f3", "r6f4", "r6f5",
   "r5a2", "r5a3", "r5c2", "r5m",
   "r4a", "r4b", "r4c", "r4d", "r4e",
   "r1a", "r1b", "r1c", "r1d", "r1e", "r3a", "r3b", "r3c", "r3d", "r3e",
@@ -1326,7 +1427,7 @@ const VIEWS = ["r6f1", "r6f2", "r6f3", "r6f4", "r6f5",
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r6f1";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r7f1";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 
