@@ -324,10 +324,9 @@ export class SelfDeploy {
     return state
   }
 
-  // The story of the LAST attempt, out of deploy.log — the `[self-deploy ...]`
-  // narration plus error lines, never the docker build noise between them.
-  // Scan in bounded chunks so a long rollback build cannot push the first
-  // failure out of the excerpt.
+  // Read the last deploy attempt from deploy.log.
+  // Keep `[self-deploy ...]` lines and error lines. Skip Docker build output.
+  // Read bounded chunks. A long rollback build cannot exclude the first error.
   logExcerpt() {
     let fd
     try {
