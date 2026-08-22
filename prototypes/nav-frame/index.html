@@ -6,14 +6,16 @@
 <title>#560 · the main layout and the page navigation</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#560 · the main layout and the page navigation structure.
-  Round 3: the operator ruled for the tab row, always visible, in traditional forms.
-  Six variants around simplified copies of the six approved screens (#519 #521 #522 #523 #524 #525):
-    A · bottom tabs · words   — six mono words, left rail on desktop
-    B · bottom tabs · icons   — the classic app bar, a glyph over each label
-    C · the floating dock     — the six words in a floating pill over every screen
-    D · top tabs              — the tab row at the top, under the wordmark
-    E · the drawer            — a top bar with the burger, desktop pins the drawer open
-    F · the icon rail         — a Discord-style left rail with six marks
+  Round 4: the operator ruled the pinned drawer for desktop, and icon bar or floating
+  dock for mobile, with bolder ideas welcome. Desktop shows the drawer in every variant.
+  Six mobile variants around simplified copies of the six approved screens
+  (#519 #521 #522 #523 #524 #525):
+    A · icons, classic  — the app tab bar, a glyph over each label
+    B · icons, bold     — taller bar, the active page as a filled pill
+    C · dock, words     — the floating pill with the six words
+    D · dock, icons     — six round icon keys, badges on top
+    E · the ring dock   — the verdict ring in the middle of the dock is the chats key
+    F · the sheet       — a glance handle that opens a sheet with pages and needs-you rows
   The chrome never yields: it stays beside the composer, the settings dock, and the terminal.
   Switch variants with the ‹ › controls, color mode and frame width beside them.
   The two ⇢ buttons play the Discord deep links (#526).
@@ -45,14 +47,12 @@ body{display:flex;flex-direction:column}
   font-family:ui-sans-serif,system-ui,sans-serif;color:var(--ink)}
 .frame.w-phone{width:390px;height:100%;max-height:820px}
 .frame.w-desktop{width:1280px;height:100%;max-height:820px}
-.frame.v-f{flex-direction:row}
-.frame.w-desktop.v-a,.frame.w-desktop.v-b,.frame.w-desktop.v-e{flex-direction:row}
+.frame.w-desktop{flex-direction:row}
 @media (max-width:480px){
   .stage{padding:0}
   .frame,.frame.w-phone,.frame.w-desktop{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none}
   .frame.w-desktop.v-a,.frame.w-desktop.v-b,.frame.w-desktop.v-e{flex-direction:column}
-  .frame.v-f{flex-direction:row}
-  .ph-hide-sm{display:none}
+    .ph-hide-sm{display:none}
 }
 
 /* ---------- tokens ---------- */
@@ -71,8 +71,10 @@ body{display:flex;flex-direction:column}
 .scr.fill{height:100%;display:flex;flex-direction:column;padding:0;min-height:0}
 .w-desktop .scr{padding:26px 44px 60px}
 .w-desktop .scr.fill{padding:0}
-.v-c .scr{padding-bottom:120px}
-.v-c .scr.fill{padding-bottom:74px}
+.v-c .scr,.v-d .scr,.v-e .scr,.v-f .scr{padding-bottom:130px}
+.v-c .scr.fill,.v-d .scr.fill,.v-e .scr.fill,.v-f .scr.fill{padding-bottom:78px}
+.w-desktop .scr{padding-bottom:60px !important}
+.w-desktop .scr.fill{padding-bottom:0 !important}
 
 /* ---------- shared atoms (from the approved screens) ---------- */
 .mono,h2,.num,time,.ht,.chip,.sub,.dsub,.reads,.meta,.state .st,.fchip,.word,.tglance
@@ -326,7 +328,8 @@ time{color:var(--mut)}
 .dock{position:sticky;bottom:14px;z-index:6;width:max-content;max-width:100%;margin:28px auto 0;
   display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;
   background:var(--float);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.v-c .dock{bottom:84px}
+.v-c .dock,.v-d .dock,.v-e .dock,.v-f .dock{bottom:84px}
+.w-desktop .dock{bottom:14px !important}
 .dock .toast{font-size:13px;color:var(--mut)}
 .dock .toast b{color:var(--ink)}
 .dock .okw{color:var(--green);font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -344,70 +347,24 @@ time{color:var(--mut)}
   padding:1px 5px;border-radius:3px;box-shadow:var(--glow)}
 .tglance.g-run{color:var(--green)}
 
-/* ---------- A/B · bottom tab rows ---------- */
+/* ---------- A/B Â· bottom icon bars (phone) ---------- */
 .tabbar{flex:none;display:flex;border-top:1px solid var(--line);background:var(--bg);
-  padding:10px 6px calc(10px + env(safe-area-inset-bottom))}
+  padding:8px 6px calc(10px + env(safe-area-inset-bottom))}
 .tabbar .tab{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;
-  padding:4px 0}
-.tabbar .tab.cur{color:var(--ink)}
-.tabbar .tab.cur::before{content:"";position:absolute;top:-11px;left:22%;right:22%;border-top:2px solid var(--cyan)}
-.tabbar.icons{padding-top:8px}
-.tabbar.icons .tab{font-size:8px;letter-spacing:.08em}
-.tabbar.icons .tab .ic{display:block;font-size:16px;line-height:1;margin-bottom:4px;position:relative}
-.tabbar.icons .tab .ic .tglance{position:absolute;top:-5px;margin-left:2px}
-.tabbar.icons .tab.cur{color:var(--cyan)}
-.tabbar.icons .tab.cur::before{display:none}
+  font:600 8px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;
+  text-transform:uppercase;padding:4px 0}
+.tabbar .tab .ic{display:block;font-size:16px;line-height:1;margin-bottom:4px;position:relative}
+.tabbar .tab .ic .tglance{position:absolute;top:-5px;margin-left:2px}
+.tabbar .tab.cur{color:var(--cyan)}
+.tabbar.big{background:var(--dim);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
+.tabbar.big .tab{font-size:9px;padding:8px 0 7px;border-radius:14px;margin:0 2px}
+.tabbar.big .tab .ic{font-size:20px;margin-bottom:5px}
+.tabbar.big .tab.cur{background:var(--cyan);color:var(--bg)}
+.tabbar.big .tab.cur .tglance.g-run{color:var(--bg)}
 
-/* ---------- A/B desktop · left rail ---------- */
-.rail{flex:none;width:200px;border-right:1px solid var(--line);background:var(--bg);
-  padding:24px 20px;display:flex;flex-direction:column;gap:4px}
-.rail .wm{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
-  text-transform:uppercase;color:var(--mut)}
-.rail .rneed{margin:18px 0 10px;font:700 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  color:var(--amberw);text-decoration:none}
-.rail .tab{position:relative;text-decoration:none;color:var(--mut);padding:9px 0 9px 12px;margin-left:-12px;
-  font:600 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}
-.rail .tab.cur{color:var(--ink);border-left:2px solid var(--cyan);padding-left:10px}
-.rail .tab .ric{display:inline-block;width:22px;font-size:13px;letter-spacing:0}
-.rail .rdate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
-
-/* ---------- C · the floating dock ---------- */
-.navdock{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:14;
-  display:flex;gap:2px;background:var(--float);border:1px solid var(--line);border-radius:999px;
-  padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:calc(100% - 16px)}
-.navdock a{position:relative;text-decoration:none;color:var(--mut);white-space:nowrap;
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;
-  padding:9px 9px;border-radius:999px}
-.navdock a.cur{background:var(--cyan);color:var(--bg)}
-.navdock a .tglance{margin-left:3px}
-
-/* ---------- D · top tabs ---------- */
-.toptabs{flex:none;background:var(--bg);border-bottom:1px solid var(--line)}
-.toptabs .tt-head{display:flex;justify-content:space-between;padding:12px 16px 8px;
-  font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
-  text-transform:uppercase;color:var(--mut)}
-.toptabs .tt-head .need{color:var(--amberw);font-weight:700;letter-spacing:.12em;text-decoration:none}
-.toptabs .tt-row{display:flex}
-.toptabs .tt-row a{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase;
-  padding:9px 0 11px;border-bottom:2px solid transparent}
-.toptabs .tt-row a.cur{color:var(--ink);border-bottom-color:var(--cyan)}
-
-/* ---------- E · the drawer ---------- */
-.appbar{flex:none;display:flex;align-items:center;gap:14px;padding:13px 16px;
-  border-bottom:1px solid var(--line);background:var(--bg)}
-.appbar .burger{background:none;border:0;color:var(--ink);font-size:17px;line-height:1;padding:2px 4px}
-.appbar .abt{flex:1;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  letter-spacing:.24em;text-transform:uppercase;color:var(--mut)}
-.appbar .abneed{font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  color:var(--amberw);text-decoration:none}
-.drawerscrim{position:absolute;inset:0;z-index:19;background:rgba(0,0,0,.45)}
-.drawer{position:absolute;top:0;bottom:0;left:0;width:270px;z-index:20;background:var(--bg);
-  border-right:1px solid var(--line);padding:22px 20px;display:flex;flex-direction:column;gap:2px;
-  box-shadow:12px 0 40px rgba(0,0,0,.4)}
-.drawer.pinned{position:static;width:230px;z-index:auto;box-shadow:none;flex:none}
+/* ---------- desktop Â· the pinned drawer (ruled in round 4) ---------- */
+.drawer{flex:none;width:230px;border-right:1px solid var(--line);background:var(--bg);
+  padding:22px 20px;display:flex;flex-direction:column;gap:2px}
 .drawer .dwm{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
   text-transform:uppercase;color:var(--mut);margin-bottom:18px}
 .drawer a.drow{display:flex;justify-content:space-between;align-items:center;text-decoration:none;
@@ -417,18 +374,58 @@ time{color:var(--mut)}
 .drawer .ddate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
 
-/* ---------- F · the icon rail ---------- */
-.iconrail{flex:none;width:58px;border-right:1px solid var(--line);background:var(--dim);
-  display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0;overflow-y:auto}
-.iconrail .logo{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  font:800 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--bg);background:var(--ink);margin-bottom:6px}
-.iconrail a{position:relative;width:40px;height:40px;border-radius:12px;display:flex;align-items:center;
-  justify-content:center;text-decoration:none;color:var(--mut);
-  font:700 13px ui-monospace,"SF Mono",Menlo,Consolas,monospace;background:var(--bg);border:1px solid var(--line)}
-.iconrail a.cur{color:var(--bg);background:var(--cyan);border-color:var(--cyan)}
-.iconrail a .bdg{position:absolute;top:-5px;right:-5px;background:var(--amber);color:var(--amberink);
+/* ---------- C/D Â· floating docks (phone) ---------- */
+.navdock{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:14;
+  display:flex;gap:2px;background:var(--float);border:1px solid var(--line);border-radius:999px;
+  padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:calc(100% - 16px)}
+.navdock a{position:relative;text-decoration:none;color:var(--mut);white-space:nowrap;
+  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;
+  text-transform:uppercase;padding:9px 9px;border-radius:999px}
+.navdock a.cur{background:var(--cyan);color:var(--bg)}
+.navdock a .tglance{margin-left:3px}
+.navdock.round{gap:6px;padding:6px}
+.navdock.round a{width:44px;height:44px;display:flex;align-items:center;justify-content:center;
+  font-size:17px;padding:0;border-radius:50%}
+.navdock.round a .bdg{position:absolute;top:-3px;right:-3px;background:var(--amber);color:var(--amberink);
   font:800 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:1px 4px;border-radius:6px;box-shadow:var(--glow)}
-.iconrail a .rundot{position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:var(--green)}
+.navdock.round a .rundot{position:absolute;top:0;right:0;width:8px;height:8px;border-radius:50%;background:var(--green)}
+
+/* ---------- E Â· the ring dock (phone) ---------- */
+.ringdock{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:14;
+  display:flex;align-items:center;gap:4px;background:var(--float);border:1px solid var(--line);
+  border-radius:999px;padding:6px 10px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
+.ringdock a.k{position:relative;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:16px;color:var(--mut);text-decoration:none}
+.ringdock a.k.cur{background:var(--cyan);color:var(--bg)}
+.ringdock a.k .rundot{position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--green)}
+.ringdock a.ring{position:relative;width:54px;height:54px;margin:0 4px;text-decoration:none}
+.ringdock a.ring svg{position:absolute;inset:0}
+.ringdock a.ring .rn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font:700 19px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--amber);text-shadow:var(--glow)}
+.ringdock a.ring.cur{outline:2px solid var(--cyan);outline-offset:2px;border-radius:50%}
+
+/* ---------- F Â· the sheet (phone) ---------- */
+.handle{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:14;border:1px solid var(--line);
+  display:flex;align-items:center;gap:10px;background:var(--float);border-radius:999px;padding:10px 16px;
+  box-shadow:0 10px 30px rgba(0,0,0,.45);font:600 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--mut);white-space:nowrap}
+.handle .grab{width:26px;height:4px;border-radius:2px;background:var(--mut);opacity:.5}
+.handle .hneed{color:var(--amberw);font-weight:800}
+.sheetscrim{position:absolute;inset:0;z-index:15;background:rgba(0,0,0,.45)}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:16;background:var(--bg);
+  border-top:1px solid var(--line);border-radius:18px 18px 0 0;
+  padding:12px 20px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -12px 40px rgba(0,0,0,.5)}
+.sheet .sgrab{width:36px;height:4px;border-radius:2px;background:var(--mut);opacity:.5;margin:0 auto 14px}
+.sheet .pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.sheet .pgrid a{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;
+  padding:14px 0 12px;border:1px solid var(--line);border-radius:12px;text-decoration:none;color:var(--ink);
+  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}
+.sheet .pgrid a .ic{font-size:19px}
+.sheet .pgrid a.cur{border-color:var(--cyan);color:var(--cyan)}
+.sheet .pgrid a .bdg{position:absolute;top:-5px;right:-5px;background:var(--amber);color:var(--amberink);
+  font:800 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:1px 4px;border-radius:6px;box-shadow:var(--glow)}
+.sheet .pgrid a .rundot{position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--green)}
+.sheet h2{margin:20px 0 4px}
 </style>
 </head>
 <body>
@@ -437,7 +434,7 @@ time{color:var(--mut)}
   <div class="ph-row">
     <span class="ph-ttl">#560 · the main layout and the page navigation</span>
     <button class="ph-btn" id="bPrev">‹</button>
-    <button class="ph-btn wide" id="bVar">A · bottom · words</button>
+    <button class="ph-btn wide" id="bVar">A · icons · classic</button>
     <button class="ph-btn" id="bNext">›</button>
     <button class="ph-btn" id="bMode">light</button>
     <button class="ph-btn ph-hide-sm" id="bWidth">desktop</button>
@@ -458,12 +455,12 @@ time{color:var(--mut)}
    state
 ---------------------------------------------------------------------- */
 const NOTES = {
-  a: 'A · bottom tabs · words — six mono words under the thumb, always visible: beside the composer, under the settings dock, below the terminal keys. Desktop turns it into a left rail.',
-  b: 'B · bottom tabs · icons — the classic app tab bar: a glyph over each label, active in cyan. Same six pages, always visible. Desktop turns it into a left rail with icons.',
-  c: 'C · the floating dock — the six words ride in a floating pill over every screen. The composer, the terminal keys and the settings dock sit above it.',
-  d: 'D · top tabs — the tab row sits at the top under the wordmark and the needs-you count, always visible. The bottom edge stays free for the composer and the terminal keys.',
-  e: 'E · the drawer — a top bar with the burger, the wordmark and the needs-you count. The six pages live in a drawer that slides over the screen. Desktop pins the drawer open.',
-  f: 'F · the icon rail — a Discord-style left rail: six marks, always visible on every screen, the amber count on chats, the green dot on agents. The screens keep their own header.'
+  a: 'A · icons, classic — the app tab bar: a glyph over each label, active in cyan, always visible. Desktop: the pinned drawer, as ruled.',
+  b: 'B · icons, bold — a taller bar on its own surface, the active page as a filled cyan pill, the amber count riding the chats tab. Desktop: the pinned drawer.',
+  c: 'C · dock, words — the floating pill with the six words, riding over every screen. Desktop: the pinned drawer.',
+  d: 'D · dock, icons — the floating dock as six round icon keys, badges on top, no labels. Desktop: the pinned drawer.',
+  e: 'E · the ring dock — bolder: the verdict ring sits in the middle of the dock and is the chats key, the count inside it, five marks around it. Desktop: the pinned drawer.',
+  f: 'F · the sheet — boldest: a slim glance handle floats at the bottom. One tap opens a sheet with the six pages and the needs-you rows. Desktop: the pinned drawer.'
 };
 const S = {
   v: 'a',                      // variant a|b|c|d|e|f
@@ -476,7 +473,7 @@ const S = {
   setPhase: 'clean',           // clean | dirty | applied
   setDirty: 0,
   termFrom: '519',
-  drawerOpen: false
+  sheetOpen: false
 };
 const q = new URLSearchParams(location.search);
 if (['a','b','c','d','e','f'].includes(q.get('v'))) S.v = q.get('v');
@@ -557,7 +554,6 @@ const el = id => document.getElementById(id);
 const frame = el('frame');
 const DATE = 'fri 21 aug · 14:07';
 function ht(title){
-  if (S.v === 'd' || S.v === 'e') return '';   /* their top bar carries the wordmark */
   return `<div class="ht"><span>curia · ${title}</span><span>${DATE}</span></div>`;
 }
 
@@ -947,71 +943,72 @@ function badge(p){
   if (p === 'agents') return '<i class="tglance g-run">●</i>';
   return '';
 }
-function tabItems(cls, withGlyph){
-  return PAGES.map(([p,label]) => {
-    const ic = withGlyph ? `<span class="ic">${GLYPH[p]}${badge(p)}</span>` : '';
-    const bdg = withGlyph ? '' : badge(p);
-    return `<a class="${cls} ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${ic}${label}${bdg}</a>`;
-  }).join('');
-}
 function isDesktop(){ return frame.classList.contains('w-desktop'); }
-function chromeLeft(){
-  if ((S.v === 'a' || S.v === 'b') && isDesktop()){
-    const glyph = S.v === 'b';
-    const items = PAGES.map(([p,label]) =>
-      `<a class="tab ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${glyph ? `<span class="ric">${GLYPH[p]}</span>` : ''}${label}${badge(p)}</a>`).join('');
-    return `<nav class="rail"><span class="wm">curia · atlas</span>
-      <a class="rneed" data-go="page:chats">2 need you</a>
-      ${items}
-      <span class="rdate">${DATE}</span></nav>`;
-  }
-  if (S.v === 'e' && isDesktop()){
-    return `<nav class="drawer pinned">
-      <span class="dwm">curia · atlas</span>
-      ${PAGES.map(([p,label]) => `<a class="drow ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
-        <span>${label}</span><span>${badge(p)}</span></a>`).join('')}
-      <span class="ddate">${DATE}</span></nav>`;
-  }
-  if (S.v === 'f'){
-    const letters = { home:'H', agents:'A', maps:'M', feed:'F', chats:'C', settings:'S' };
-    const mark = p => p === 'chats' ? '<span class="bdg">2</span>' : (p === 'agents' ? '<span class="rundot"></span>' : '');
-    return `<nav class="iconrail"><span class="logo">cu</span>
-      ${PAGES.map(([p]) => `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${letters[p]}${mark(p)}</a>`).join('')}
-    </nav>`;
-  }
+function roundMark(p){
+  if (p === 'chats') return '<span class="bdg">2</span>';
+  if (p === 'agents') return '<span class="rundot"></span>';
   return '';
 }
-function chromeTop(){
-  if (S.v === 'd'){
-    return `<div class="toptabs">
-      <div class="tt-head"><span>curia · atlas</span>
-        <span><a class="need" data-go="page:chats">2 need you</a> · 14:07</span></div>
-      <div class="tt-row">${tabItems('', false)}</div>
-    </div>`;
-  }
-  if (S.v === 'e' && !isDesktop()){
-    return `<div class="appbar">
-      <button class="burger" data-drawer>☰</button>
-      <span class="abt">curia · atlas</span>
-      <a class="abneed" data-go="page:chats">2 need you</a>
-    </div>`;
-  }
-  return '';
+function chromeLeft(){
+  /* desktop: the pinned drawer, ruled in round 4, for every variant */
+  if (!isDesktop()) return '';
+  return `<nav class="drawer">
+    <span class="dwm">curia · atlas</span>
+    ${PAGES.map(([p,label]) => `<a class="drow ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+      <span>${label}</span><span>${badge(p)}</span></a>`).join('')}
+    <span class="ddate">${DATE}</span></nav>`;
+}
+function iconTabs(){
+  return PAGES.map(([p,label]) =>
+    `<a class="tab ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+      <span class="ic">${GLYPH[p]}${badge(p)}</span>${label}</a>`).join('');
 }
 function chromeBottom(){
-  if (S.v === 'a' && !isDesktop()) return `<nav class="tabbar">${tabItems('tab', false)}</nav>`;
-  if (S.v === 'b' && !isDesktop()) return `<nav class="tabbar icons">${tabItems('tab', true)}</nav>`;
+  if (isDesktop()) return '';
+  if (S.v === 'a') return `<nav class="tabbar">${iconTabs()}</nav>`;
+  if (S.v === 'b') return `<nav class="tabbar big">${iconTabs()}</nav>`;
   return '';
 }
 function chromeOverlay(){
-  if (S.v === 'c') return `<div class="navdock">${tabItems('', false)}</div>`;
-  if (S.v === 'e' && !isDesktop() && S.drawerOpen){
-    return `<div class="drawerscrim" data-drawerclose></div>
-      <nav class="drawer">
-        <span class="dwm">curia · atlas</span>
-        ${PAGES.map(([p,label]) => `<a class="drow ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
-          <span>${label}</span><span>${badge(p)}</span></a>`).join('')}
-        <span class="ddate">${DATE}</span></nav>`;
+  if (isDesktop()) return '';
+  if (S.v === 'c'){
+    return `<div class="navdock">${PAGES.map(([p,label]) =>
+      `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${label}${badge(p)}</a>`).join('')}</div>`;
+  }
+  if (S.v === 'd'){
+    return `<div class="navdock round">${PAGES.map(([p]) =>
+      `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${GLYPH[p]}${roundMark(p)}</a>`).join('')}</div>`;
+  }
+  if (S.v === 'e'){
+    const key = p => `<a class="k ${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${GLYPH[p]}${p === 'agents' ? '<span class="rundot"></span>' : ''}</a>`;
+    return `<div class="ringdock">
+      ${key('home')}${key('agents')}${key('maps')}
+      <a class="ring ${curTop() === 'chats' ? 'cur' : ''}" data-go="page:chats" title="chats · 2 need you">
+        <svg viewBox="0 0 54 54">
+          <circle cx="27" cy="27" r="23" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="27" cy="27" r="23" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="36 109" stroke-dashoffset="-18" stroke-linecap="round"/>
+        </svg><span class="rn">2</span>
+      </a>
+      ${key('feed')}${key('settings')}
+    </div>`;
+  }
+  if (S.v === 'f'){
+    if (!S.sheetOpen){
+      return `<div class="handle" data-sheet><span class="grab"></span>
+        <span class="hneed">2 need you</span><span>·</span><span>5 live</span><span>·</span><span>${curTop()}</span></div>`;
+    }
+    const cell = (p,label) => `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+      <span class="ic">${GLYPH[p]}</span>${label}${roundMark(p)}</a>`;
+    return `<div class="sheetscrim" data-sheetclose></div>
+      <div class="sheet"><div class="sgrab"></div>
+        <div class="pgrid">${PAGES.map(([p,label]) => cell(p,label)).join('')}</div>
+        <h2>Needs you</h2>
+        <div class="row tap" data-go="chat:519"><span class="chip">Ask · 2</span>
+          <span class="ttl">Home-screen design directions<span class="sub">#519 · claude · waits 5 min</span></span></div>
+        <div class="row tap" data-go="chat:544"><span class="chip">Gate</span>
+          <span class="ttl">The subagent meter and the bounds<span class="sub">#544 · codex · waits 26 min</span></span></div>
+      </div>`;
   }
   return '';
 }
@@ -1036,12 +1033,12 @@ function screen(){
 }
 function render(){
   frame.className = frame.className.replace(/v-[abcdef]/,'v-' + S.v);
-  frame.innerHTML = chromeLeft() + chromeTop() +
+  frame.innerHTML = chromeLeft() +
     `<div class="viewport" id="vp">${screen()}</div>` + chromeBottom() + chromeOverlay();
   el('phNote').textContent = NOTES[S.v];
   el('bVar').textContent = {
-    a:'A · bottom · words', b:'B · bottom · icons', c:'C · floating dock',
-    d:'D · top tabs', e:'E · the drawer', f:'F · icon rail' }[S.v];
+    a:'A · icons · classic', b:'B · icons · bold', c:'C · dock · words',
+    d:'D · dock · icons', e:'E · ring dock', f:'F · the sheet' }[S.v];
   buildSparks(); buildDens();
   const u = new URL(location); u.searchParams.set('v', S.v); history.replaceState(null,'',u);
 }
@@ -1079,8 +1076,8 @@ frame.addEventListener('click', ev => {
     opt.classList.add('picked');
     return;
   }
-  if (ev.target.closest('[data-drawer]')){ S.drawerOpen = true; render(); return; }
-  if (ev.target.closest('[data-drawerclose]')){ S.drawerOpen = false; render(); return; }
+  if (ev.target.closest('[data-sheet]')){ S.sheetOpen = true; render(); return; }
+  if (ev.target.closest('[data-sheetclose]')){ S.sheetOpen = false; render(); return; }
   const save = ev.target.closest('[data-save]');
   if (save){ S.setPhase = 'applied'; render(); return; }
   const disc = ev.target.closest('[data-discard]');
@@ -1094,7 +1091,7 @@ frame.addEventListener('click', ev => {
   const go = ev.target.closest('[data-go]');
   if (!go) return;
   ev.preventDefault();
-  S.drawerOpen = false;
+  S.sheetOpen = false;
   const [kind, arg] = go.dataset.go.split(':');
   if (kind === 'page'){ S.page = arg; if (arg === 'settings') S.setSec = null; scrollTop(); }
   else if (kind === 'chat'){ S.page = isDesktop() ? 'chats' : 'chat'; S.chatId = arg; scrollTop(); }
@@ -1116,8 +1113,8 @@ frame.addEventListener('change', ev => {
 function scrollTop(){ const vp = el('vp'); if (vp) vp.scrollTop = 0; }
 
 const VARS = ['a','b','c','d','e','f'];
-el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; S.drawerOpen = false; render(); };
-el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; S.drawerOpen = false; render(); };
+el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; S.sheetOpen = false; render(); };
+el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; S.sheetOpen = false; render(); };
 el('bVar').onclick = () => el('bNext').onclick();
 el('bMode').onclick = () => {
   const dark = frame.classList.toggle('dark');
