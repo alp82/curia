@@ -536,7 +536,7 @@ export class DiscordBridge {
     this.channel = await this.#ensureChannel(this.channelName)
     await this.#registerSlashCommands()
     this.client.on('interactionCreate', (i) => this.handleInteraction(i).catch((e) => this.log('interaction error', e)))
-    this.client.on('messageCreate', (m) => this.#onMessage(m).catch((e) => this.log('message error', e)))
+    this.client.on('messageCreate', (m) => this.handleMessage(m).catch((e) => this.log('message error', e)))
     this.#watchGateway()
     this.#setHealth('up', { reason: 'ready' })
     this.log(`[bridge] ready: guild=${this.guild.name} channel=#${this.channel.name}`)
@@ -1648,7 +1648,10 @@ export class DiscordBridge {
     let i = 0
     for (const a of attachments.values()) {
       fs.mkdirSync(dir, { recursive: true })
-      const dest = path.join(dir, safeLeaf(a.name, `attachment-${++i}`))
+      const leaf = safeLeaf(a.name, 'attachment')
+      const ext = path.extname(leaf)
+      const stem = ext ? leaf.slice(0, -ext.length) : leaf
+      const dest = path.join(dir, `${stem}-${++i}${ext}`)
       const res = await fetch(a.url)
       await finished(Readable.fromWeb(res.body).pipe(fs.createWriteStream(dest)))
       saved.push(dest)
@@ -1805,7 +1808,9 @@ export class DiscordBridge {
     await this.#sendAs('curia', thread, { content: text })
   }
 
-  async #onMessage(m) {
+  // Public because message capture is a transport boundary worth testing. The
+  // gateway calls this method, and a test can supply one Discord message.
+  async handleMessage(m) {
     if (m.author.bot) return
     if (!this.authorized(m.author.id)) return
     // Top-level prose in #curia always opens a fresh conversation thread (#89).
