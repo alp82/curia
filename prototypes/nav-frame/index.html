@@ -6,14 +6,10 @@
 <title>#560 · the main layout and the page navigation</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#560 · the main layout and the page navigation structure.
-  Round 6: the operator kept the island, the notch and the readout, and asked for
-  readability and symmetry. Two variations of each, desktop always the pinned drawer:
-    A · island, large type   — six equal cells, bigger glyphs and labels
-    B · island, twin pods    — two symmetric pods of three
-    C · notch, ring center   — 3 + ring + 3, the amber ring is the needs-you jump
-    D · notch, beacon center — 3 + amber beacon cell + 3, the flat sibling of C
-    E · readout, numbers     — no icons, each tab is its word over its number
-    F · readout, island      — the readout carried into the floating island
+  Round 7: the notch ring won. Two versions to compare, desktop always the pinned drawer:
+    A · notch ring, six tabs  — the round-6 winner as it stood, the ring jumps into chats
+    B · notch ring, four tabs — chats and agents leave the row, the ring is the agents key,
+                                chats sit one press behind agents
   The chrome never yields: it stays beside the composer, the settings dock, and the terminal.
   Switch variants with the ‹ › controls, color mode and frame width beside them.
   The two ⇢ buttons play the Discord deep links (#526).
@@ -69,10 +65,7 @@ body{display:flex;flex-direction:column}
 .scr.fill{height:100%;display:flex;flex-direction:column;padding:0;min-height:0}
 .w-desktop .scr{padding:26px 44px 60px}
 .w-desktop .scr.fill{padding:0}
-.v-a .scr,.v-b .scr,.v-f .scr{padding-bottom:130px}
-.v-a .scr.fill,.v-b .scr.fill,.v-f .scr.fill{padding-bottom:82px}
-.w-desktop .scr{padding-bottom:60px !important}
-.w-desktop .scr.fill{padding-bottom:0 !important}
+
 
 /* ---------- shared atoms (from the approved screens) ---------- */
 .mono,h2,.num,time,.ht,.chip,.sub,.dsub,.reads,.meta,.state .st,.fchip,.word,.tglance
@@ -326,8 +319,7 @@ time{color:var(--mut)}
 .dock{position:sticky;bottom:14px;z-index:6;width:max-content;max-width:100%;margin:28px auto 0;
   display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;
   background:var(--float);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.v-a .dock,.v-b .dock,.v-f .dock{bottom:92px}
-.w-desktop .dock{bottom:14px !important}
+
 .dock .toast{font-size:13px;color:var(--mut)}
 .dock .toast b{color:var(--ink)}
 .dock .okw{color:var(--green);font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -357,31 +349,7 @@ time{color:var(--mut)}
 .drawer .ddate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
 
-/* ---------- A Â· island, large type (phone) ---------- */
-.islandxl{position:absolute;left:10px;right:10px;bottom:10px;z-index:14;display:flex;gap:2px;
-  background:var(--float);border:1px solid var(--line);border-radius:20px;padding:9px 6px;
-  box-shadow:0 12px 34px rgba(0,0,0,.5)}
-.islandxl a{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;
-  padding:9px 0 8px;border-radius:14px;text-decoration:none;color:var(--mut);
-  font:600 9.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.03em;text-transform:uppercase}
-.islandxl a .ic{font-size:20px;line-height:1;position:relative}
-.islandxl a .ic .tglance{position:absolute;top:-7px;margin-left:2px}
-.islandxl a.cur{background:var(--cyan);color:var(--bg)}
-.islandxl a.cur .tglance.g-run{color:var(--bg)}
-
-/* ---------- B Â· island, twin pods (phone) ---------- */
-.podbar{position:absolute;left:10px;right:10px;bottom:10px;z-index:14;display:flex;gap:12px}
-.podbar .pod{flex:1;display:flex;gap:2px;background:var(--float);border:1px solid var(--line);
-  border-radius:18px;padding:8px 5px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
-.podbar .pod a{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;
-  padding:8px 0 7px;border-radius:13px;text-decoration:none;color:var(--mut);
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.03em;text-transform:uppercase}
-.podbar .pod a .ic{font-size:18px;line-height:1;position:relative}
-.podbar .pod a .ic .tglance{position:absolute;top:-6px;margin-left:2px}
-.podbar .pod a.cur{background:var(--cyan);color:var(--bg)}
-.podbar .pod a.cur .tglance.g-run{color:var(--bg)}
-
-/* ---------- C Â· notch, ring center (phone) ---------- */
+/* ---------- the notch ring bar (phone) ---------- */
 .ringbar{flex:none;position:relative;display:flex;border-top:1px solid var(--line);background:var(--bg);
   padding:10px 6px calc(12px + env(safe-area-inset-bottom))}
 .ringbar .tab{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
@@ -401,50 +369,9 @@ time{color:var(--mut)}
 .ringbar .ringkey .rl{font:800 6.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-top:1px}
 .ringbar .ringkey.cur{outline:2px solid var(--cyan);outline-offset:2px}
+.v-b .ringbar .tab{font-size:10px}
+.v-b .ringbar .tab .ic{font-size:19px}
 
-/* ---------- D Â· notch, beacon center (phone) ---------- */
-.beaconbar{flex:none;display:flex;align-items:stretch;gap:2px;border-top:1px solid var(--line);
-  background:var(--bg);padding:10px 6px calc(12px + env(safe-area-inset-bottom))}
-.beaconbar .tab{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
-  font:600 8.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.03em;
-  text-transform:uppercase;padding:4px 0;align-self:center}
-.beaconbar .tab .ic{display:block;font-size:17px;line-height:1;margin-bottom:4px;position:relative}
-.beaconbar .tab .ic .tglance{position:absolute;top:-5px;margin-left:2px}
-.beaconbar .tab.cur{color:var(--cyan)}
-.beaconbar .beacon{flex:none;width:84px;margin:0 4px;border-radius:14px;background:var(--amber);
-  color:var(--amberink);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;
-  text-decoration:none;font:800 16px ui-monospace,"SF Mono",Menlo,Consolas,monospace;box-shadow:var(--glow)}
-.beaconbar .beacon .bl{font:800 7.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  letter-spacing:.08em;text-transform:uppercase}
-.beaconbar .beacon.cur{outline:3px solid var(--cyan);outline-offset:2px}
-
-/* ---------- E Â· readout, numbers (phone) ---------- */
-.numbar{flex:none;display:flex;border-top:1px solid var(--line);background:var(--bg);
-  padding:11px 4px calc(12px + env(safe-area-inset-bottom))}
-.numbar a{flex:1;text-align:center;text-decoration:none;color:var(--mut);
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em;
-  text-transform:uppercase;padding:4px 0;border-radius:10px;margin:0 2px}
-.numbar a .rd{display:block;margin-top:4px;font:700 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  font-variant-numeric:tabular-nums;color:var(--ink);text-transform:none;letter-spacing:0}
-.numbar a .rd.amberv{color:var(--amberw)}
-.numbar a .rd.greenv{color:var(--green)}
-.numbar a.cur{color:var(--cyan)}
-.numbar a.cur .rd{color:var(--cyan)}
-
-/* ---------- F Â· readout, island (phone) ---------- */
-.statisland{position:absolute;left:10px;right:10px;bottom:10px;z-index:14;display:flex;gap:2px;
-  background:var(--float);border:1px solid var(--line);border-radius:20px;padding:9px 5px;
-  box-shadow:0 12px 34px rgba(0,0,0,.5)}
-.statisland a{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
-  padding:8px 0 7px;border-radius:14px;text-decoration:none;color:var(--mut);
-  font:600 8.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.03em;text-transform:uppercase}
-.statisland a .ic{font-size:16px;line-height:1}
-.statisland a .rd{font:700 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  font-variant-numeric:tabular-nums;color:var(--ink);text-transform:none;letter-spacing:0}
-.statisland a .rd.amberv{color:var(--amberw)}
-.statisland a .rd.greenv{color:var(--green)}
-.statisland a.cur{background:var(--cyan);color:var(--bg)}
-.statisland a.cur .rd{color:var(--bg)}
 </style>
 </head>
 <body>
@@ -453,7 +380,7 @@ time{color:var(--mut)}
   <div class="ph-row">
     <span class="ph-ttl">#560 · the main layout and the page navigation</span>
     <button class="ph-btn" id="bPrev">‹</button>
-    <button class="ph-btn wide" id="bVar">A · island · type</button>
+    <button class="ph-btn wide" id="bVar">A · ring · six tabs</button>
     <button class="ph-btn" id="bNext">›</button>
     <button class="ph-btn" id="bMode">light</button>
     <button class="ph-btn ph-hide-sm" id="bWidth">desktop</button>
@@ -474,12 +401,8 @@ time{color:var(--mut)}
    state
 ---------------------------------------------------------------------- */
 const NOTES = {
-  a: 'A · island, large type — the island with bigger glyphs and 9.5 px labels, six equal cells, the active page a filled cyan pill. Desktop: the pinned drawer, as ruled.',
-  b: 'B · island, twin pods — the island split into two symmetric pods of three, a centered gap between them. Desktop: the pinned drawer.',
-  c: 'C · notch, ring center — six symmetric tabs, three each side, and the amber ring in the middle as a seventh key: the needs-you jump into chats. Desktop: the pinned drawer.',
-  d: 'D · notch, beacon center — the flat sibling of C: the center is an amber beacon cell with the count and the words, three tabs each side. Desktop: the pinned drawer.',
-  e: 'E · readout, numbers — no icons: each tab is its word over its own number, tabular and aligned, amber where it needs you. Desktop: the pinned drawer.',
-  f: 'F · readout, island — the readout carried into the floating island: glyph, label and a short number in each cell. Desktop: the pinned drawer.'
+  a: 'A · notch ring, six tabs — the round-6 winner as it stood: three tabs each side, the amber ring jumps into chats. Desktop: the pinned drawer, as ruled.',
+  b: 'B · notch ring, four tabs — chats and agents leave the row. The ring is the agents key and carries the count. Chats sit one press behind agents: the chats link by the roster, or open chat on an agent. The drawer keeps all six, it has the room.'
 };
 const S = {
   v: 'a',                      // variant a|b|c|d|e|f
@@ -494,7 +417,7 @@ const S = {
   termFrom: '519'
 };
 const q = new URLSearchParams(location.search);
-if (['a','b','c','d','e','f'].includes(q.get('v'))) S.v = q.get('v');
+if (['a','b'].includes(q.get('v'))) S.v = q.get('v');
 
 /* ----------------------------------------------------------------------
    data — the fictional world of the approved screens
@@ -664,7 +587,7 @@ function bodyAgents(){
   return `<div class="grid-ag">
       <div class="s-list">
         <div class="reads"><b>5 live</b> · <span class="hot">2 need you</span> · <b>412k tok today</b></div>
-        <h2>Agents</h2>
+        <h2>Agents${S.v === 'b' ? '<a data-go="page:chats">chats · 2 →</a>' : ''}</h2>
         ${Object.values(AGENTS).map(row).join('')}
         <div class="phone-hint">tap a row to open it</div>
       </div>
@@ -980,64 +903,31 @@ function iconTab(cls, p, label){
   return `<a class="${cls} ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
     <span class="ic">${GLYPH[p]}${badge(p)}</span>${label}</a>`;
 }
-const RD_LONG = {
-  home:['2 need','amberv'], agents:['5 live','greenv'], maps:['18/24',''],
-  feed:['96·24h',''], chats:['2 wait','amberv'], settings:['in step','greenv'] };
-function ringKey(cls){
-  return `<a class="ringkey ${curTop() === 'chats' ? 'cur' : ''}" data-go="page:chats" title="needs you · 2 · opens chats">
+function ringKey(target, label, cur){
+  return `<a class="ringkey ${cur ? 'cur' : ''}" data-go="page:${target}" title="${label} · 2 need you">
     <svg viewBox="0 0 60 60">
       <circle cx="30" cy="30" r="25" fill="none" stroke="var(--line)" stroke-width="3"/>
       <circle cx="30" cy="30" r="25" fill="none" stroke="var(--amber)" stroke-width="3"
         stroke-dasharray="39 118" stroke-dashoffset="-19" stroke-linecap="round"/>
-    </svg><span class="rn">2<span class="rl">need</span></span>
+    </svg><span class="rn">2<span class="rl">${label}</span></span>
   </a>`;
 }
 function chromeBottom(){
   if (isDesktop()) return '';
-  if (S.v === 'c'){
-    const tab = p => iconTab('tab', p, p);
+  const tab = p => iconTab('tab', p, p);
+  if (S.v === 'a'){
     return `<nav class="ringbar">
       ${tab('home')}${tab('agents')}${tab('maps')}<span class="mid"></span>${tab('feed')}${tab('chats')}${tab('settings')}
-      ${ringKey()}
+      ${ringKey('chats', 'need', curTop() === 'chats')}
     </nav>`;
   }
-  if (S.v === 'd'){
-    const tab = p => iconTab('tab', p, p);
-    return `<nav class="beaconbar">
-      ${tab('home')}${tab('agents')}${tab('maps')}
-      <a class="beacon ${curTop() === 'chats' ? 'cur' : ''}" data-go="page:chats" title="needs you · 2 · opens chats">2<span class="bl">need you</span></a>
-      ${tab('feed')}${tab('chats')}${tab('settings')}
-    </nav>`;
-  }
-  if (S.v === 'e'){
-    return `<nav class="numbar">${PAGES.map(([p,label]) => `
-      <a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${label}<span class="rd ${RD_LONG[p][1]}">${RD_LONG[p][0]}</span></a>`).join('')}
-    </nav>`;
-  }
-  return '';
+  /* b: chats and agents leave the row — the ring is the agents key, chats one press behind it */
+  return `<nav class="ringbar">
+    ${tab('home')}${tab('maps')}<span class="mid"></span>${tab('feed')}${tab('settings')}
+    ${ringKey('agents', 'agents', curTop() === 'agents' || curTop() === 'chats')}
+  </nav>`;
 }
-function chromeOverlay(){
-  if (isDesktop()) return '';
-  if (S.v === 'a'){
-    return `<div class="islandxl">${PAGES.map(([p,label]) => iconTab('', p, label)).join('')}</div>`;
-  }
-  if (S.v === 'b'){
-    const cell = (p,label) => iconTab('', p, label);
-    return `<div class="podbar">
-      <div class="pod">${cell('home','home')}${cell('agents','agents')}${cell('maps','maps')}</div>
-      <div class="pod">${cell('feed','feed')}${cell('chats','chats')}${cell('settings','settings')}</div>
-    </div>`;
-  }
-  if (S.v === 'f'){
-    const RD_SHORT = {
-      home:['2!','amberv'], agents:['5','greenv'], maps:['18/24',''],
-      feed:['96',''], chats:['2','amberv'], settings:['ok','greenv'] };
-    return `<div class="statisland">${PAGES.map(([p,label]) => `
-      <a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
-        <span class="ic">${GLYPH[p]}</span>${label}<span class="rd ${RD_SHORT[p][1]}">${RD_SHORT[p][0]}</span></a>`).join('')}</div>`;
-  }
-  return '';
-}
+function chromeOverlay(){ return ''; }
 
 /* ----------------------------------------------------------------------
    render
@@ -1058,13 +948,12 @@ function screen(){
   }
 }
 function render(){
-  frame.className = frame.className.replace(/v-[abcdef]/,'v-' + S.v);
+  frame.className = frame.className.replace(/v-[ab]\b/,'v-' + S.v);
   frame.innerHTML = chromeLeft() +
     `<div class="viewport" id="vp">${screen()}</div>` + chromeBottom() + chromeOverlay();
   el('phNote').textContent = NOTES[S.v];
   el('bVar').textContent = {
-    a:'A · island · type', b:'B · island · pods', c:'C · notch · ring',
-    d:'D · notch · beacon', e:'E · readout · numbers', f:'F · readout · island' }[S.v];
+    a:'A · ring · six tabs', b:'B · ring · four tabs' }[S.v];
   buildSparks(); buildDens();
   const u = new URL(location); u.searchParams.set('v', S.v); history.replaceState(null,'',u);
 }
@@ -1135,7 +1024,7 @@ frame.addEventListener('change', ev => {
 });
 function scrollTop(){ const vp = el('vp'); if (vp) vp.scrollTop = 0; }
 
-const VARS = ['a','b','c','d','e','f'];
+const VARS = ['a','b'];
 el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; render(); };
 el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; render(); };
 el('bVar').onclick = () => el('bNext').onclick();
