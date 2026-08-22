@@ -28,6 +28,13 @@ Ruled out, on purpose:
 
 **Many repos, one queue, driven from a phone.**
 
+**Changed at [Choose the words of every scene of the final page](https://github.com/alp82/curia/issues/587),
+2026-08-22.** The headline of the final page is the operator's own line: **"Coding agents
+controlled from your phone"**. The many-repos and one-queue words leave the headline. The
+paragraph under it carries them: "Curia knows about all your projects and tells you what to
+build next. It helps you dispatch parallel agents without losing track." The promise itself
+stands unchanged as the thing the first screen sells.
+
 The first screen makes this promise and no other. The reader's tickets sit across every repo they
 watch; curia reads what is takeable in dependency order, runs the work, and brings every moment
 that needs a human to whatever device they are holding.
@@ -144,6 +151,12 @@ stay true and stay on the page, but they live in the guide: its what-you-need li
 Tailscale, Discord and the harness login, and the setup line stays honest that setup is manual
 with packaging coming. The where-it-sits paragraph below no longer applies.
 
+**Changed at [Choose the words of every scene of the final page](https://github.com/alp82/curia/issues/587),
+2026-08-22.** The manual-today and packaging-coming clause leaves the page too. The guide's
+what-you-need line is "One Linux box with Docker, Tailscale, a Discord server and your coding
+agent subscription", and its closing line is "All steps are described in the set up guide",
+linking the README. The facts stay true and live in the README, which the page links.
+
 Three things stay true, and a reader finds them out in the first evening:
 
 - Tailscale and Discord are required. There is no web UI.
@@ -179,6 +192,17 @@ The operator judged the current lines machine made, and ordered a rewrite for th
 - ~~The five saga acts are the starting spine.~~ The storyboard settled the scene order: the
   twelve scenes recorded in
   [prototypes/landing-storyboard/NOTES.md](../../prototypes/landing-storyboard/NOTES.md).
+- **The words of every scene are locked** at
+  [Choose the words of every scene of the final page](https://github.com/alp82/curia/issues/587),
+  2026-08-22, over four operator rounds. The verdict list is
+  [prototypes/landing-copy/NOTES.md](../../prototypes/landing-copy/NOTES.md). The build writes
+  these lines and no others. Changes recorded with that ticket: the three claims wear new words
+  ("Maps turn the pile into a queue", "Answer from the couch", "You are in charge") and keep
+  their meanings. The dogfood line carries no count: "planned, decided" links the tickets and
+  "written" links the merged pull requests, so nothing on the page regenerates on build day.
+  Scene 7 names Pi and Opencode as supported on the operator's word that support lands soon.
+  `config/routing.yaml` ships `claude` and `codex` today, and the build must check that file on
+  build day so the line does not ship ahead of the code.
 - No sound and no bottom bar. The system reduced-motion setting decides motion.
 - The banned words, the banned moves and the two failure modes below still hold.
 
