@@ -333,7 +333,7 @@ describe('sweep', () => {
 })
 
 describe('restart recovery (#563)', () => {
-  test('a persisted preview for a live ticket keeps its URL and reopens its gate', async () => {
+  test('a persisted preview for a live ticket keeps its URL and reopens its identity proxy', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
     const firstExec = fakeExec()
     const first = mkReg({ dataDir, exec: firstExec.exec, isLive: alwaysLive, log: () => {} })
@@ -351,7 +351,7 @@ describe('restart recovery (#563)', () => {
     ))
   })
 
-  test('the recovered gate serves the same preview page after a restart', async () => {
+  test('the recovered identity proxy serves the same preview page after a restart', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
     const range = { from: 18520, to: 18529 }
     const proxyFrom = 17720
@@ -418,7 +418,7 @@ describe('restart recovery (#563)', () => {
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'previews.json'), 'utf8')), [])
   })
 
-  test('a preview whose gate cannot recover loses its rule', async () => {
+  test('a preview whose identity proxy cannot recover loses its rule', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
     const first = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
     const published = await first.publish('7', 4321, { base: BASE })
