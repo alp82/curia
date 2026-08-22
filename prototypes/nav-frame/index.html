@@ -1,0 +1,1055 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>#560 · the main layout and the page navigation</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#560 · the main layout and the page navigation structure.
+  Round 7: the notch ring won. Two versions to compare, desktop always the pinned drawer:
+    A · notch ring, six tabs  — the round-6 winner as it stood, the ring jumps into chats
+    B · notch ring, four tabs — chats and agents leave the row, the ring is the agents key,
+                                chats sit one press behind agents
+  The chrome never yields: it stays beside the composer, the settings dock, and the terminal.
+  Switch variants with the ‹ › controls, color mode and frame width beside them.
+  The two ⇢ buttons play the Discord deep links (#526).
+-->
+<style>
+/* ---------- reset ---------- */
+*{margin:0;padding:0;box-sizing:border-box}
+svg{display:block}
+a{cursor:pointer}
+button{cursor:pointer;font-family:inherit}
+html,body{background:#08090c;height:100%;overflow:hidden}
+body{display:flex;flex-direction:column}
+
+/* ---------- prototype shell (not part of the design) ---------- */
+/* the page never scrolls: the shell head is a fixed band, the frame fills the rest,
+   so every navigation bar stays inside the visual viewport at all times */
+.proto-head{flex:none;z-index:40;background:#0e1013;border-bottom:1px solid #1c2027;
+  padding:8px 12px;color:#cfd6e2;font:11px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ph-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ph-ttl{font-weight:700;letter-spacing:.06em;margin-right:auto}
+.ph-btn{background:#171b22;border:1px solid #262c36;color:#cfd6e2;border-radius:7px;
+  padding:5px 9px;font:11px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ph-btn.wide{min-width:130px;text-align:center}
+.ph-note{margin-top:6px;color:#8a93a3;line-height:1.5}
+.stage{flex:1;min-height:0;display:flex;justify-content:center;align-items:flex-start;
+  padding:14px 12px;overflow:auto}
+.frame{position:relative;border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.5);overflow:hidden;
+  display:flex;flex-direction:column;background:var(--bg);
+  font-family:ui-sans-serif,system-ui,sans-serif;color:var(--ink)}
+.frame.w-phone{width:390px;height:100%;max-height:820px}
+.frame.w-desktop{width:1280px;height:100%;max-height:820px}
+.frame.w-desktop{flex-direction:row}
+@media (max-width:480px){
+  .stage{padding:0}
+  .frame,.frame.w-phone,.frame.w-desktop{width:100%;height:100%;max-height:none;border-radius:0;box-shadow:none}
+  .frame.w-desktop.v-a,.frame.w-desktop.v-b,.frame.w-desktop.v-e{flex-direction:column}
+    .ph-hide-sm{display:none}
+}
+
+/* ---------- tokens ---------- */
+.frame.dark{--bg:#0b0c10;--ink:#e6e9ef;--mut:#8a93a3;--line:#20242c;
+  --amber:#ffb454;--amberw:#ffb454;--amberink:#231a00;--green:#41d98d;--cyan:#5ec8e5;
+  --crit:#f07a7a;--needbg:rgba(255,180,84,.07);--dim:#14161c;--field:#13161d;--float:#13161d;
+  --glow:0 0 14px rgba(255,180,84,.35)}
+.frame.light{--bg:#f6f6f4;--ink:#17181c;--mut:#6b7280;--line:#e3e3e0;
+  --amber:#ffc233;--amberw:#b97900;--amberink:#231a00;--green:#1fbf6b;--cyan:#0b6f8f;
+  --crit:#b3323a;--needbg:rgba(185,121,0,.08);--dim:#eeeeeb;--field:#ffffff;--float:#ffffff;
+  --glow:none}
+
+/* ---------- viewport ---------- */
+.viewport{flex:1;overflow-y:auto;position:relative;background:var(--bg);min-width:0}
+.scr{min-height:100%;padding:20px 20px 44px}
+.scr.fill{height:100%;display:flex;flex-direction:column;padding:0;min-height:0}
+.w-desktop .scr{padding:26px 44px 60px}
+.w-desktop .scr.fill{padding:0}
+
+
+/* ---------- shared atoms (from the approved screens) ---------- */
+.mono,h2,.num,time,.ht,.chip,.sub,.dsub,.reads,.meta,.state .st,.fchip,.word,.tglance
+  {font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ht{display:flex;justify-content:space-between;font:10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  text-transform:uppercase;letter-spacing:.24em;color:var(--mut)}
+.ht a{color:var(--cyan);text-decoration:none;text-transform:uppercase}
+h2{font-size:9px;letter-spacing:.3em;text-transform:uppercase;color:var(--mut);
+  font-weight:600;margin:30px 0 4px}
+.row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line);font-size:14px}
+h2+.row,h2+.quest,h2+.srow{border-top:0}
+.ttl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.ttl .sub{display:block;font-size:10px;color:var(--mut);font-weight:400;margin-top:2px}
+.num{font-size:11px;color:var(--mut);font-variant-numeric:tabular-nums}
+.go{flex:none;font-size:12px;color:var(--cyan);text-decoration:none}
+.go.dimmed{color:var(--mut)}
+.dot{flex:none;width:8px;height:8px;border-radius:50%}
+.dot.on{background:var(--green)}
+.dot.dim{background:var(--mut);opacity:.4}
+.chip{flex:none;font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;
+  padding:4px 8px;border-radius:4px;background:var(--amber);color:var(--amberink);box-shadow:var(--glow)}
+time{color:var(--mut)}
+.spark polyline{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;stroke:var(--green)}
+.reads-strip .spark polyline{stroke:var(--cyan)}
+.tap{cursor:pointer}
+
+/* ---------- home (V6 synthesis, #519) ---------- */
+.home .core{text-align:center;padding:24px 0 8px}
+.home .ring{width:150px;height:150px;margin:0 auto;position:relative}
+.home .ring svg{position:absolute;inset:0}
+.home .ring .in{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center}
+.home .ring .n{font:700 52px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--amber);
+  text-shadow:var(--glow);line-height:1}
+.home .ring .k{font:400 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.3em;
+  color:var(--mut);text-transform:uppercase;margin-top:6px}
+.home .core .csub{margin-top:10px;font-size:12px;color:var(--mut)}
+.home .reads-strip{display:flex;justify-content:center;gap:32px;margin-top:16px}
+.home .reads-strip .v{font:700 17px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.home .reads-strip .k{font:400 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--mut);margin:2px 0 5px}
+.home .quest{padding:11px 0;border-top:1px solid var(--line)}
+.home .quest .l1{display:flex;align-items:baseline;gap:10px;font-size:14px}
+.home .quest .l1 .qt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.home .qbar{height:2px;margin-top:8px;background:var(--line);position:relative}
+.home .qbar i{position:absolute;top:0;bottom:0;left:0;background:var(--cyan)}
+.home .qbar .fog{position:absolute;top:0;bottom:0;border-top:2px dotted var(--mut);opacity:.6}
+.home .log .row{font-size:12px;color:var(--mut);padding:7px 0}
+.home .log .row .ttl{font-weight:400;white-space:normal}
+.home time{flex:none;width:44px;font-size:10px}
+.w-desktop .home .grid6{display:grid;grid-template-columns:340px minmax(0,1fr) minmax(0,1fr);
+  gap:0 44px;align-items:start}
+.w-desktop .home .core{grid-column:1;grid-row:1/span 3;padding-top:52px}
+.w-desktop .home .s-need{grid-column:2/span 2}
+.w-desktop .home .s-agents{grid-column:2}
+.w-desktop .home .s-maps{grid-column:3}
+.w-desktop .home .s-log{grid-column:2/span 2}
+
+/* ---------- agents (Focus, #521) ---------- */
+.ag .reads{text-align:center;font-size:12px;color:var(--mut);margin-top:18px}
+.ag .reads b{color:var(--ink);font-weight:600}
+.ag .reads .hot{color:var(--amberw);font-weight:700}
+.ag .row.pick{cursor:pointer}
+.ag .row.sel{border-left:3px solid var(--cyan);padding-left:11px;margin-left:-14px}
+.ag .phone-hint{font-size:10px;color:var(--mut);margin-top:8px;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ag .dtt{font-size:17px;font-weight:700;margin-top:2px}
+.ag .dsub{font-size:11px;color:var(--mut);margin-top:4px}
+.ag .state{font-size:14px;margin-top:12px}
+.ag .state .st{font-weight:700}
+.ag .state .st.need{color:var(--amberw)}
+.ag .mgrid{display:flex;gap:26px;flex-wrap:wrap;margin-top:16px}
+.ag .mgrid .v{font:700 15px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.ag .mgrid .v.hot{color:var(--amberw)}
+.ag .mgrid .k{font:400 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--mut);margin-top:3px}
+.ag .story .row{font-size:12px;color:var(--mut);padding:7px 0}
+.ag .story .row .ttl{font-weight:400;white-space:normal}
+.ag time{flex:none;width:44px;font-size:10px}
+.ag .acts{display:flex;gap:18px;margin-top:20px}
+.w-desktop .ag .grid-ag{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:0 56px}
+.w-desktop .ag .s-list{grid-column:1}
+.w-desktop .ag .s-done{grid-column:1}
+.w-desktop .ag .s-detail{grid-column:2;grid-row:1/span 2;border-left:1px solid var(--line);
+  padding-left:44px;min-height:520px}
+.w-desktop .ag .phone-hint{display:none}
+
+/* ---------- maps (#522) ---------- */
+.mp .filters{display:flex;gap:10px;margin:22px 0 8px;flex-wrap:wrap}
+.fchip{font-size:11px;padding:6px 10px;border-radius:999px;background:transparent;
+  border:1px solid var(--line);color:var(--mut)}
+.fchip.on{border-color:var(--cyan);color:var(--cyan);font-weight:600}
+.mp .map{margin-top:34px}
+.mp .mhead{display:flex;align-items:baseline;gap:14px}
+.mp .mfrac{font:700 24px ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums}
+.mp .mfrac .of{color:var(--mut)}
+.mp .mfrac .fogn{color:var(--mut);font-size:14px}
+.mp .mtt{min-width:0}
+.mp .mtt .nm{display:block;font-size:15px;font-weight:700}
+.mp .mtt .meta{display:block;font-size:10px;color:var(--mut);margin-top:3px}
+.mp .mtt .meta a{color:var(--cyan);text-decoration:none}
+.mp .band{display:flex;gap:3px;margin-top:14px;height:34px}
+.mp .bseg{border:0;border-radius:5px;min-width:34px;display:flex;align-items:center;justify-content:center;
+  gap:6px;overflow:hidden;font:700 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:0 8px;white-space:nowrap}
+.mp .bseg .wd{font-weight:400;font-size:10px;letter-spacing:.08em}
+.mp .bseg.selseg{outline:2px solid var(--mut);outline-offset:3px}
+.mp .b-walk{background:var(--cyan);color:var(--bg)}
+.mp .b-flight{background:var(--green);color:var(--bg)}
+.mp .b-flight.needs{background:var(--amber);color:var(--amberink);box-shadow:var(--glow)}
+.mp .b-take{background:transparent;border:2px solid var(--cyan);color:var(--cyan)}
+.mp .b-wait{background:repeating-linear-gradient(45deg,var(--line) 0 4px,transparent 4px 8px);color:var(--mut)}
+.mp .b-fog{background:transparent;border:2px dotted var(--mut);color:var(--mut)}
+.mp .panel{margin-top:14px;border-left:2px solid var(--line);padding:4px 0 4px 16px}
+.mp .phead{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.2em;
+  text-transform:uppercase;color:var(--mut)}
+.mp .prow{display:flex;align-items:center;gap:12px;padding:9px 0;font-size:14px;min-width:0}
+.mp .prow .pt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mp .prow.dim{color:var(--mut);font-size:12px}
+.mp .prow .word{font-size:11px;font-weight:700}
+.mp .word.run{color:var(--green)}
+.mp .word.take{color:var(--cyan)}
+.mp .g-take{flex:none;width:12px;height:12px;border-radius:50%;border:2.5px solid var(--cyan);background:var(--bg)}
+.mp .g-wait{flex:none;width:4px;height:11px;background:var(--mut);opacity:.5}
+.mp .detailpane{display:none}
+.w-desktop .mp .md{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,4fr);gap:0 64px}
+.w-desktop .mp .detailpane{display:block;position:sticky;top:24px;margin-top:34px}
+.w-desktop .mp .inlinepanel{display:none}
+
+/* ---------- feed (the Wire, #523) ---------- */
+.fd .screen{font-size:22px;font-weight:700;letter-spacing:-.01em;margin:18px 0 2px}
+.fd .fsub{font-size:12px;color:var(--mut)}
+.fd .pulse{display:flex;align-items:flex-end;gap:14px;margin-top:14px}
+.fd .pulse .k{font:400 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--mut);margin-bottom:4px}
+.fd .dens{display:flex;align-items:flex-end;gap:2px;height:26px}
+.fd .dens i{width:6px;background:var(--cyan);opacity:.85;border-radius:1px 1px 0 0}
+.fd .fchips{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
+.fd .fchips .fchip{font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+.fd .fchips .fchip.on{color:var(--ink);border-color:var(--mut)}
+.fd .news{display:flex;align-items:flex-start;gap:12px;padding:14px 0;border-top:1px solid var(--line)}
+.fd .news time{flex:none;width:44px;font-size:10px}
+.fd .news .bd{flex:1;min-width:0}
+.fd .news .l1{font-size:14px;font-weight:600;line-height:1.4}
+.fd .news .l1 .word{font-size:11px;font-weight:700;margin-right:6px}
+.fd .news .l2{font:400 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);margin-top:3px}
+.fd .word.ok{color:var(--green)}
+.fd .word.bad{color:var(--crit)}
+.fd .word.warn{color:var(--amberw)}
+.fd .word.info{color:var(--cyan)}
+.fd .news.need{background:var(--needbg);border-top-color:transparent;margin:0 -10px;
+  padding-left:10px;padding-right:10px;border-radius:6px}
+.fd .news.calm-ok{border-left:2px solid var(--green);padding-left:12px;margin-left:-14px}
+.fd .news.calm-bad{border-left:2px solid var(--crit);padding-left:12px;margin-left:-14px}
+.fd .micro{padding:2px 0 2px 54px}
+.fd .micro .m{display:flex;gap:10px;align-items:baseline;padding:4px 0;font:400 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut)}
+.fd .micro time{flex:none;width:38px;font-size:9px}
+.fd .mark{display:flex;align-items:center;gap:10px;margin:24px 0 4px;
+  font:400 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;text-transform:uppercase;color:var(--cyan)}
+.fd .mark::before,.fd .mark::after{content:"";flex:1;border-top:1px dashed var(--cyan);opacity:.5}
+.fd .tailnote{margin-top:26px;padding-top:10px;border-top:1px solid var(--line);
+  font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);line-height:1.6}
+.fd .hiddenrow{display:none}
+.w-desktop .fd .wrap{max-width:760px;margin:0 auto}
+
+/* ---------- chats (#524) ---------- */
+.ch .list{padding-bottom:20px}
+.ch .row .state{flex:none;font-size:10px;color:var(--mut)}
+.ch .row{cursor:pointer}
+.chpane{height:100%;display:flex;flex-direction:column;min-height:0}
+.chead{flex:none;padding:16px 20px 12px;border-bottom:1px solid var(--line)}
+.chead .back{display:inline-block;color:var(--cyan);font-size:13px;text-decoration:none;margin-bottom:8px}
+.chead .t1{font-size:16px;font-weight:700}
+.chead .t2{font:400 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);margin-top:3px}
+.chead .t2 .need{color:var(--amberw);font-weight:700}
+.chead .links{display:flex;gap:16px;margin-top:10px}
+.chead .links a{font:400 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--cyan);text-decoration:none}
+.tl{flex:1;overflow-y:auto;padding:8px 20px 24px;min-height:0}
+.tl .meta{font-size:10px;color:var(--mut);margin:16px 0 4px}
+.tl .say{font-size:14px;line-height:1.55}
+.tl .think{font-size:12px;color:var(--mut);font-style:italic}
+.tl .tool{font:400 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);padding:2px 0}
+.tl .prompt{font-size:14px;line-height:1.5;border-right:3px solid var(--cyan);
+  padding-right:10px;margin-left:15%;text-align:right}
+.esc{border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:8px;
+  margin-top:8px;padding:12px 14px}
+.esc .ehead{display:flex;align-items:center;gap:10px}
+.esc .enum{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut)}
+.esc .q{margin-top:12px}
+.esc .qn{font:400 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--mut)}
+.esc .qh{font-size:14px;font-weight:600;margin-top:3px}
+.esc .opt{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-top:1px solid var(--line);
+  margin-top:6px;cursor:pointer;font-size:13px}
+.esc .opt .radio{flex:none;width:16px;height:16px;border-radius:50%;border:1.5px solid var(--mut);margin-top:1px}
+.esc .opt.picked .radio{border-color:var(--amber);background:var(--amber);box-shadow:inset 0 0 0 3px var(--bg)}
+.esc .opt .rec{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--amberw);margin-left:6px}
+.esc .opt .oc{display:block;font-size:11px;color:var(--mut);font-weight:400;margin-top:2px}
+.esc .other{display:inline-block;font-size:11px;color:var(--cyan);margin-top:8px;text-decoration:none}
+.esc .efoot{display:flex;align-items:center;gap:10px;margin-top:14px;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:transparent;color:var(--ink);
+  font:600 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.1em;text-transform:uppercase;
+  padding:9px 15px;border-radius:7px}
+.btn.prime{background:var(--amber);color:var(--amberink);border-color:var(--amber);
+  box-shadow:var(--glow);font-weight:800;border-radius:999px}
+.esc .fvw{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut)}
+.comp{flex:none;display:flex;gap:10px;padding:12px 20px 20px;align-items:center}
+.comp input{flex:1;background:var(--field);border:1px solid var(--line);border-radius:999px;
+  padding:11px 16px;font-size:14px;color:var(--ink)}
+.comp .send{flex:none;width:40px;height:40px;border-radius:50%;border:0;background:var(--cyan);
+  color:var(--bg);font-size:15px}
+.ro-note{flex:none;padding:12px 20px 20px;font:400 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut)}
+.w-desktop .chduo{display:grid;grid-template-columns:340px minmax(0,1fr);height:100%;min-height:0}
+.w-desktop .chduo .chrail{border-right:1px solid var(--line);overflow-y:auto;padding:20px 20px 40px}
+.w-desktop .chduo .chpane{min-width:0}
+.w-desktop .chduo .chead .back{display:none}
+.w-desktop .ch .row.sel{border-left:3px solid var(--cyan);padding-left:10px;margin-left:-13px}
+
+/* ---------- terminal (#537) ---------- */
+.term{background:#0a0b0e}
+.term .thead{flex:none;display:flex;align-items:center;gap:12px;padding:14px 20px 10px;
+  border-bottom:1px solid var(--line)}
+.term .thead .back{color:var(--cyan);font-size:13px;text-decoration:none}
+.term .thead .tt{flex:1;font:400 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut)}
+.term .tscreen{flex:1;overflow:hidden;margin:0;padding:14px 16px;
+  font:400 11px/1.55 ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:#9fe8b8;white-space:pre-wrap}
+.term .tscreen .tdim{color:#57606f}
+.term .tkeys{flex:none;display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.term .tkeys span{flex:1;text-align:center;font:600 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--mut);border:1px solid var(--line);border-radius:7px;padding:8px 0}
+.w-desktop .term .tkeys{display:none}
+
+/* ---------- settings (drill-in, #525) ---------- */
+.st .sec-row{display:flex;align-items:center;gap:14px;padding:20px 2px;border-top:1px solid var(--line);
+  text-decoration:none;color:var(--ink)}
+.st .sec-row:first-of-type{border-top:0}
+.st .sec-row .t{font-size:16px;font-weight:600}
+.st .sec-row .g{display:block;font:400 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--mut);margin-top:5px}
+.st .sec-row .g.okw{color:var(--green)}
+.st .sec-row .chev{margin-left:auto;font-size:18px;color:var(--mut)}
+.st .back{display:inline-block;color:var(--cyan);font-size:14px;margin:6px 0 22px;text-decoration:none}
+.st .srow{display:flex;align-items:center;gap:14px;padding:15px 0;border-top:1px solid var(--line);font-size:14px}
+.st .key{font:400 13px ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.st .grow{flex:1;min-width:0}
+.st select,.st input[type=number]{background:var(--field);border:1px solid var(--line);border-radius:7px;
+  padding:7px 10px;font:400 13px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--ink)}
+.st input[type=number]{width:76px}
+.st input[type=checkbox]{width:17px;height:17px;accent-color:var(--green)}
+.st .hint{font:400 12px/1.6 ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--mut);
+  padding:2px 0 12px;max-width:520px}
+.st .btn.hot{background:var(--amber);color:var(--amberink);border-color:var(--amber);
+  box-shadow:var(--glow);font-weight:800}
+.dock{position:sticky;bottom:14px;z-index:6;width:max-content;max-width:100%;margin:28px auto 0;
+  display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;
+  background:var(--float);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35)}
+
+.dock .toast{font-size:13px;color:var(--mut)}
+.dock .toast b{color:var(--ink)}
+.dock .okw{color:var(--green);font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  text-transform:uppercase;letter-spacing:.08em}
+.dock .discard{font-size:12px;color:var(--mut);text-decoration:none}
+.st .scr-inner{padding-bottom:90px}
+.w-desktop .st .st-grid{display:grid;grid-template-columns:320px minmax(0,1fr);gap:0 64px}
+.w-desktop .st .st-home{position:sticky;top:20px;align-self:start}
+.w-desktop .st .back{display:none}
+.w-desktop .st .sec-body{max-width:560px}
+
+/* ---------- glance badges (shared by all chromes) ---------- */
+.tglance{font-size:9px;margin-left:4px}
+.tglance.g-need{background:var(--amber);color:var(--amberink);font-weight:800;
+  padding:1px 5px;border-radius:3px;box-shadow:var(--glow)}
+.tglance.g-run{color:var(--green)}
+
+/* ---------- desktop Â· the pinned drawer (ruled in round 4) ---------- */
+.drawer{flex:none;width:230px;border-right:1px solid var(--line);background:var(--bg);
+  padding:22px 20px;display:flex;flex-direction:column;gap:2px}
+.drawer .dwm{font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.24em;
+  text-transform:uppercase;color:var(--mut);margin-bottom:18px}
+.drawer a.drow{display:flex;justify-content:space-between;align-items:center;text-decoration:none;
+  color:var(--ink);font:600 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.1em;
+  text-transform:uppercase;padding:13px 10px;border-radius:8px}
+.drawer a.drow.cur{background:var(--dim);color:var(--cyan)}
+.drawer .ddate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
+
+/* ---------- the notch ring bar (phone) ---------- */
+.ringbar{flex:none;position:relative;display:flex;border-top:1px solid var(--line);background:var(--bg);
+  padding:10px 6px calc(12px + env(safe-area-inset-bottom))}
+.ringbar .tab{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
+  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.04em;
+  text-transform:uppercase;padding:4px 0}
+.ringbar .tab .ic{display:block;font-size:17px;line-height:1;margin-bottom:4px;position:relative}
+.ringbar .tab .ic .tglance{position:absolute;top:-5px;margin-left:2px}
+.ringbar .tab.cur{color:var(--cyan)}
+.ringbar .mid{flex:none;width:72px}
+.ringbar .ringkey{position:absolute;left:50%;bottom:calc(16px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);width:60px;height:60px;border-radius:50%;background:var(--float);
+  border:1px solid var(--line);box-shadow:0 10px 26px rgba(0,0,0,.45);text-decoration:none;z-index:15}
+.ringbar .ringkey svg{position:absolute;inset:0}
+.ringbar .ringkey .rn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;font:700 17px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--amber);text-shadow:var(--glow)}
+.ringbar .ringkey .rl{font:800 6.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-top:1px}
+.ringbar .ringkey.cur{outline:2px solid var(--cyan);outline-offset:2px}
+.v-b .ringbar .tab{font-size:10px}
+.v-b .ringbar .tab .ic{font-size:19px}
+
+</style>
+</head>
+<body>
+
+<header class="proto-head">
+  <div class="ph-row">
+    <span class="ph-ttl">#560 · the main layout and the page navigation</span>
+    <button class="ph-btn" id="bPrev">‹</button>
+    <button class="ph-btn wide" id="bVar">A · ring · six tabs</button>
+    <button class="ph-btn" id="bNext">›</button>
+    <button class="ph-btn" id="bMode">light</button>
+    <button class="ph-btn ph-hide-sm" id="bWidth">desktop</button>
+    <button class="ph-btn" id="bDlChat" title="the Discord deep link into one agent's chat">⇢ chat</button>
+    <button class="ph-btn" id="bDlHome" title="the Discord deep link to Atlas home">⇢ home</button>
+  </div>
+  <div class="ph-note" id="phNote"></div>
+</header>
+
+<div class="stage">
+  <div class="frame dark w-phone v-a" id="frame"></div>
+</div>
+
+<script>
+'use strict';
+
+/* ----------------------------------------------------------------------
+   state
+---------------------------------------------------------------------- */
+const NOTES = {
+  a: 'A · notch ring, six tabs — the round-6 winner as it stood: three tabs each side, the amber ring jumps into chats. Desktop: the pinned drawer, as ruled.',
+  b: 'B · notch ring, four tabs — chats and agents leave the row. The ring is the agents key and carries the count. Chats sit one press behind agents: the chats link by the roster, or open chat on an agent. The drawer keeps all six, it has the room.'
+};
+const S = {
+  v: 'a',                      // variant a|b|c|d|e|f
+  page: 'home',                // home agents maps feed chats chat terminal settings
+  chatId: '519',
+  agentsSel: 'a1',
+  mapsSel: { map:'m1', group:'flight' },
+  feedFam: 'all',
+  setSec: null,                // null | routing | projects | dispatch | maint
+  setPhase: 'clean',           // clean | dirty | applied
+  setDirty: 0,
+  termFrom: '519'
+};
+const q = new URLSearchParams(location.search);
+if (['a','b'].includes(q.get('v'))) S.v = q.get('v');
+
+/* ----------------------------------------------------------------------
+   data — the fictional world of the approved screens
+---------------------------------------------------------------------- */
+const AGENTS = {
+  a1:{ id:'a1', chat:'519', lead:'chip', chipTxt:'Ask · 2', title:'Home-screen design directions',
+       sub:'claude · waits for you 5 min', num:'34m', dtt:'Home-screen design directions',
+       dsub:'alp82/curia#519 · branch curia/519 · dispatched 09:07',
+       state:'<span class="st need">asks you</span> · round 3 · waits 5 min',
+       m:[['claude','lane'],['fable-5','model'],['high','effort'],['61%','context'],['128k','tok']],
+       story:[['13:33','dispatched · /wayfinder #519'],['13:52','commit · four directions stand'],
+              ['14:01','preview · port 9018'],['14:02','ask · round 3, two questions']] },
+  a2:{ id:'a2', chat:'544', lead:'chip', chipTxt:'Gate', title:'The subagent meter and the bounds',
+       sub:'codex · waits for you 26 min', num:'26m', dtt:'The subagent meter and the bounds',
+       dsub:'alp82/curia#544 · branch curia/544 · dispatched 09:15',
+       state:'<span class="st need">at the gate</span> · review requested · waits 26 min',
+       m:[['codex','lane'],['gpt-5.3','model'],['medium','effort'],['38%','context'],['96k','tok']],
+       story:[['09:36','gate · review requested, pull request 571 open'],
+              ['09:31','commit · the meter reads the rollout file'],['09:15','dispatched · /prototype #544']] },
+  a3:{ id:'a3', chat:'549', lead:'dot on', title:'Mine the production journal',
+       sub:'claude · runs 12 min', num:'12m', dtt:'Mine the production journal',
+       dsub:'alp82/curia#549 · branch curia/549 · dispatched 09:29',
+       state:'<span class="st">works</span> · reads the journal in slices',
+       m:[['claude','lane'],['fable-5','model'],['high','effort'],['22%','context'],['41k','tok']],
+       story:[['09:41','working · 3 of 9 slices read'],['09:29','dispatched · /research #549']] },
+  a4:{ id:'a4', chat:'525', lead:'dot on', title:'The settings screen',
+       sub:'opencode · runs 1 h 12', num:'1h12', dtt:'The settings screen',
+       dsub:'alp82/curia#525 · branch curia/525 · dispatched 08:29',
+       state:'<span class="st">works</span> · context runs <span class="st need">86% hot</span>',
+       m:[['opencode','lane'],['sonnet-5','model'],['medium','effort'],['86% hot','context'],['204k','tok'],['2','subagents']],
+       story:[['09:12','subagent · the dock states, delegated'],['08:29','dispatched · /prototype #525']] },
+  a5:{ id:'a5', chat:'554', lead:'dot dim', title:'The aistack-machine prototype',
+       sub:'pi · parked 41 min', num:'41m', dtt:'The aistack-machine prototype',
+       dsub:'alp82/aistack#554 · branch curia/554 · dispatched 08:47',
+       state:'<span class="st">parked</span> · waits on the ingest cut-over',
+       m:[['pi','lane'],['gpt-5.3','model'],['medium','effort'],['54%','context'],['88k','tok']],
+       story:[['09:02','parked · blocked by #30'],['08:47','dispatched · /task #554']] }
+};
+const CHATS = {
+  '519':{ kind:'ticket', t1:'Home-screen design directions',
+          t2:'#519 · claude · runs 34 min · <span class="need">asks you · round 3</span>', live:true, esc:true },
+  '544':{ kind:'ticket', t1:'The subagent meter and the bounds',
+          t2:'#544 · codex · <span class="need">at the gate · waits 26 min</span>', live:true,
+          body:[['meta','codex · 09:36'],['say','The pull request is open, and the preview stands. The gate holds until you answer it.'],
+                ['tool','⚙ open_pull_request · #571'],['tool','⚙ request_review · gate up']] },
+  '549':{ kind:'ticket', t1:'Mine the production journal',
+          t2:'#549 · claude · runs 12 min', live:true,
+          body:[['meta','claude · 09:41'],['say','Three of nine journal slices read. The misroutes cluster on bare numbers, as #528 guessed.'],
+                ['tool','⚙ Read journal/2026-08-14.jsonl · slice 3 of 9']] },
+  '525':{ kind:'ticket', t1:'The settings screen',
+          t2:'#525 · opencode · runs 1 h 12 · context 86% hot', live:true,
+          body:[['meta','opencode · 09:12'],['say','The dock states are drafted. A subagent carries the light-mode pass while I hold the main thread.'],
+                ['tool','⚙ subagent · the dock states · 2 running']] },
+  '554':{ kind:'ticket', t1:'The aistack-machine prototype',
+          t2:'#554 · pi · parked 41 min', live:true,
+          body:[['meta','pi · 09:02'],['say','Parked. The ingest cut-over (#30) must land before this box can be measured.']] },
+  '542':{ kind:'ticket', t1:'The pane-driven rewind',
+          t2:'#542 · claude · ended Mon · read-only', live:false,
+          body:[['meta','claude · Mon 13:22'],['say','All four lanes pass on blind keystrokes. Resolution posted, branch merged.'],
+                ['tool','⚙ report_result · resolved']] },
+  '562':{ kind:'ticket', t1:'The deploy verdict references its real issue',
+          t2:'#562 · codex · ended Mon · read-only', live:false,
+          body:[['meta','codex · Mon 14:02'],['say','The verdict now names the issue it verifies. Merged at 14:02.']] },
+  'ov1':{ kind:'ov', t1:'The deploy preflight verdict', t2:'overseer · last word 14:02', live:true,
+          body:[['meta','you · 13:57'],['prompt','why did the deploy refuse?'],
+                ['meta','overseer · 14:02'],['say','A dirty daemon/package-lock.json rode in the worktree, so the preflight refused commit 669ed83. Clean it and ask again.']] },
+  'ov2':{ kind:'ov', t1:'Chart the journal mining map', t2:'overseer · last word Mon', live:true,
+          body:[['meta','overseer · Mon 18:20'],['say','The map stands with six tickets, three on the frontier. Say the word and I dispatch the first.']] }
+};
+
+/* ----------------------------------------------------------------------
+   small helpers
+---------------------------------------------------------------------- */
+const el = id => document.getElementById(id);
+const frame = el('frame');
+const DATE = 'fri 21 aug · 14:07';
+function ht(title){
+  return `<div class="ht"><span>curia · ${title}</span><span>${DATE}</span></div>`;
+}
+
+/* ----------------------------------------------------------------------
+   screen bodies
+---------------------------------------------------------------------- */
+function bodyHome(){
+  const needRows = `
+    <div class="row tap" data-go="chat:519">
+      <span class="chip">Ask · 2</span>
+      <span class="ttl">Home-screen design directions<span class="sub">#519 · claude · waits 5 min</span></span>
+      <a class="go">thread →</a>
+    </div>
+    <div class="row tap" data-go="chat:544">
+      <span class="chip">Gate</span>
+      <span class="ttl">The subagent meter and the bounds<span class="sub">#544 · codex · waits 26 min</span></span>
+      <a class="go">thread →</a>
+    </div>`;
+  const agentRow = (a, sp) => `
+    <div class="row tap" data-go="chat:${a.chat}">
+      <span class="dot ${a.lead === 'dot dim' ? 'dim' : 'on'}"></span>
+      <span class="ttl">${a.sub.split(' ·')[0]} · ${a.title}</span>
+      <svg class="spark" data-spark="${sp}" width="52" height="12"></svg>
+      <span class="num">${a.num}</span>
+      <a class="go">chat →</a>
+    </div>`;
+  const quest = (nm, frac, w, fogL, fogW) => `
+    <div class="quest tap" data-go="page:maps">
+      <div class="l1"><span class="qt">${nm}</span><span class="num">${frac}</span></div>
+      <div class="qbar"><i style="width:${w}%"></i>${fogL ? `<span class="fog" style="left:${fogL}%;width:${fogW}%"></span>` : ''}</div>
+    </div>`;
+  return `<div class="grid6">
+      <div class="core">
+        <div class="ring">
+          <svg viewBox="0 0 150 150">
+            <circle cx="75" cy="75" r="68" fill="none" stroke="var(--line)" stroke-width="3"/>
+            <circle cx="75" cy="75" r="68" fill="none" stroke="var(--amber)" stroke-width="3"
+              stroke-dasharray="107 320" stroke-dashoffset="-54" stroke-linecap="round"/>
+          </svg>
+          <div class="in"><span class="n">2</span><span class="k">need you</span></div>
+        </div>
+        <div class="csub">5 agents live · oldest waits 26 min</div>
+        <div class="reads-strip">
+          <div><div class="v">9</div><div class="k">resolved · wk</div><svg class="spark" data-spark="2,4,3,5,6,4,8,9" width="72" height="14"></svg></div>
+          <div><div class="v">412k</div><div class="k">tok · today</div><svg class="spark" data-spark="1,2,4,3,6,8,7,9" width="72" height="14"></svg></div>
+          <div><div class="v">96</div><div class="k">events · 24 h</div><svg class="spark" data-spark="3,2,4,6,5,8,6,7" width="72" height="14"></svg></div>
+        </div>
+      </div>
+      <div class="s-need"><h2>Needs you</h2>${needRows}</div>
+      <div class="s-agents"><h2>Agents</h2>
+        ${agentRow(AGENTS.a1,'2,4,3,5,6,4,8,7')}${agentRow(AGENTS.a2,'5,4,6,3,4,2,3,2')}
+        ${agentRow(AGENTS.a3,'1,2,3,4,4,5,6,7')}${agentRow(AGENTS.a4,'4,6,7,8,8,9,9,9')}${agentRow(AGENTS.a5,'3,3,2,2,1,1,1,1')}
+      </div>
+      <div class="s-maps"><h2>Maps</h2>
+        ${quest('The UX map', '18<span style="color:var(--mut)">/24</span> <span style="color:var(--mut);font-size:11px">+2</span>', 75, 88, 8)}
+        ${quest('The measured layer', '3<span style="color:var(--mut)">/9</span> <span style="color:var(--mut);font-size:11px">+4</span>', 33, 70, 22)}
+        ${quest('The deploy pipeline', '11<span style="color:var(--mut)">/12</span>', 92, 0, 0)}
+      </div>
+      <div class="s-log log"><h2>Log</h2>
+        <div class="row"><time>13:22</time><span class="ttl">resolved · The pane-driven rewind, all four lanes pass</span></div>
+        <div class="row"><time>12:56</time><span class="ttl">died · codex on The subagent meter, worktree stands</span></div>
+        <div class="row"><time>12:40</time><span class="ttl">landed · deploy daemon 669ed83, green suite</span></div>
+        <div class="row"><time>11:20</time><span class="ttl">preview · The feed screen on port 9012</span></div>
+      </div>
+    </div>`;
+}
+
+function bodyAgents(){
+  const row = a => `
+    <div class="row pick ${S.agentsSel === a.id ? 'sel' : ''}" data-agent="${a.id}">
+      ${a.lead === 'chip' ? `<span class="chip">${a.chipTxt}</span>` : `<span class="dot ${a.lead === 'dot dim' ? 'dim' : 'on'}"></span>`}
+      <span class="ttl">${a.title}<span class="sub">${a.sub}</span></span>
+      <span class="num">${a.num}</span>
+    </div>`;
+  const a = AGENTS[S.agentsSel];
+  const detail = `
+    <h2>Selected</h2>
+    <div class="dtt">${a.dtt}</div>
+    <div class="dsub">${a.dsub}</div>
+    <div class="state">${a.state}</div>
+    <div class="mgrid">${a.m.map(([v,k]) => `<div><div class="v ${v.includes('hot') ? 'hot' : ''}">${v}</div><div class="k">${k}</div></div>`).join('')}</div>
+    <div class="story"><h2>Story</h2>
+      ${a.story.map(([t,s]) => `<div class="row"><time>${t}</time><span class="ttl">${s}</span></div>`).join('')}
+    </div>
+    <div class="acts">
+      <a class="go" data-go="chat:${a.chat}">open chat →</a>
+      <a class="go dimmed">thread →</a>
+      <a class="go dimmed">ticket →</a>
+    </div>`;
+  return `<div class="grid-ag">
+      <div class="s-list">
+        <div class="reads"><b>5 live</b> · <span class="hot">2 need you</span> · <b>412k tok today</b></div>
+        <h2>Agents${S.v === 'b' ? '<a data-go="page:chats">chats · 2 →</a>' : ''}</h2>
+        ${Object.values(AGENTS).map(row).join('')}
+        <div class="phone-hint">tap a row to open it</div>
+      </div>
+      <div class="s-detail">${detail}</div>
+      <div class="s-done"><h2>Ended today</h2>
+        <div class="row"><time>14:02</time><span class="ttl">merged · The deploy verdict references its real issue</span><a class="go" data-go="chat:562">chat →</a></div>
+        <div class="row"><time>12:40</time><span class="ttl">resolved · The pane-driven rewind</span><a class="go" data-go="chat:542">chat →</a></div>
+      </div>
+    </div>`;
+}
+
+const MAPS = {
+  m1:{ nm:'The UX map: the dashboard, Discord, and the way between them',
+       frac:'18<span class="of">/24</span><span class="fogn">+2</span>', meta:'alp82/curia · 12m ago · <a>#511 →</a>',
+       segs:[['walk',18,'walked'],['flight',2,'needs you','needs'],['take',3,'takeable'],['fog',2,'the fog']] },
+  m2:{ nm:'The measured layer',
+       frac:'3<span class="of">/9</span><span class="fogn">+4</span>', meta:'alp82/aistack · 8m ago · <a>#29 →</a>',
+       segs:[['walk',3,'walked'],['flight',1,'in flight'],['take',2,'takeable'],['wait',3,'blocked'],['fog',4,'the fog']] },
+  m3:{ nm:'The deploy pipeline',
+       frac:'11<span class="of">/12</span>', meta:'alp82/curia · 3h ago · <a>#480 →</a>',
+       segs:[['walk',11,'walked'],['take',1,'takeable']] }
+};
+function mapPanel(mapId, group){
+  if (mapId === 'm1' && group === 'flight') return `
+    <div class="phead">ux map · in flight</div>
+    <div class="panel">
+      <div class="prow"><span class="chip">gate</span><span class="pt">The subagent meter and the bounds</span><a class="go">#544 →</a></div>
+      <div class="prow dim"><span class="pt">waits 26 m for your review</span><a class="go">pr #571 →</a><a class="go">preview →</a></div>
+      <div class="prow"><span class="dot on"></span><span class="pt">The maps screen</span><a class="go">#522 →</a></div>
+      <div class="prow dim"><span class="word run">runs</span><span class="pt">claude · 34 m</span><a class="go">pr #574 draft →</a></div>
+    </div>`;
+  if (mapId === 'm1' && group === 'take') return `
+    <div class="phead">ux map · takeable</div>
+    <div class="panel">
+      <div class="prow"><i class="g-take"></i><span class="pt">The chat screen</span><a class="go">#523 →</a></div>
+      <div class="prow dim"><span class="pt">prototype · → <b style="color:var(--cyan)">claude-opus-5</b></span><a class="go">start →</a></div>
+      <div class="prow"><i class="g-take"></i><span class="pt">The delegation paragraph</span><a class="go">#545 →</a></div>
+      <div class="prow dim"><span class="pt">grilling · → <b style="color:var(--cyan)">claude-opus-5</b></span><a class="go">start →</a></div>
+    </div>`;
+  if (mapId === 'm1' && group === 'walk') return `
+    <div class="phead">ux map · walked</div>
+    <div class="panel">
+      <div class="prow"><span>✓</span><span class="pt">The pane-driven rewind</span><a class="go">#542 →</a></div>
+      <div class="prow"><span>✓</span><span class="pt">The embedded terminal</span><a class="go">#537 →</a></div>
+      <div class="prow dim"><span class="pt">… 16 more on GitHub</span></div>
+    </div>`;
+  if (mapId === 'm1' && group === 'fog') return `
+    <div class="phead">ux map · the fog</div>
+    <div class="panel">
+      <div class="prow dim"><span>╌</span><span class="pt">reasoning-effort routing</span><span class="num">not yet specified</span></div>
+      <div class="prow dim"><span>╌</span><span class="pt">the shape of the build handoff</span><span class="num">not yet specified</span></div>
+    </div>`;
+  if (mapId === 'm2') return `
+    <div class="phead">measured · in flight</div>
+    <div class="panel">
+      <div class="prow"><span class="dot on"></span><span class="pt">The ingest cut-over</span><a class="go">#30 →</a></div>
+      <div class="prow dim"><span class="word run">runs</span><span class="pt">codex · 12 m</span></div>
+      <div class="prow dim"><span class="chip">ask</span><span class="pt">Keep the raw rows after the cut?</span><span class="num">8 m</span><a class="go">answer →</a></div>
+    </div>`;
+  return `
+    <div class="phead">deploy · takeable</div>
+    <div class="panel">
+      <div class="prow"><i class="g-take"></i><span class="pt">The rollback drill on the staging box</span><a class="go">#491 →</a></div>
+      <div class="prow dim"><span class="pt">task · → <b style="color:var(--cyan)">gpt-5.6-sol</b></span><a class="go">start →</a></div>
+    </div>`;
+}
+function bodyMaps(){
+  const band = (id, m) => `
+    <div class="band">${m.segs.map(([g,n,wd,extra]) => `
+      <button class="bseg b-${g} ${extra || ''} ${S.mapsSel.map === id && S.mapsSel.group === g ? 'selseg' : ''}"
+        style="flex-grow:${n}" data-seg="${id}|${g}" aria-label="${wd} ${n}">${n}<span class="wd">${wd}</span></button>`).join('')}
+    </div>`;
+  const mapBlock = (id) => {
+    const m = MAPS[id];
+    const inline = S.mapsSel.map === id ? `<div class="inlinepanel">${mapPanel(id, S.mapsSel.group)}</div>` : '';
+    return `<div class="map">
+      <div class="mhead"><div class="mfrac">${m.frac}</div>
+        <div class="mtt"><span class="nm">${m.nm}</span><span class="meta">${m.meta}</span></div></div>
+      ${band(id, m)}${inline}
+    </div>`;
+  };
+  return `<div class="filters">
+      <button class="fchip on">all projects</button><button class="fchip">curia</button><button class="fchip">aistack</button>
+    </div>
+    <div class="md">
+      <div class="master">${mapBlock('m1')}${mapBlock('m2')}${mapBlock('m3')}</div>
+      <div class="detailpane">${mapPanel(S.mapsSel.map, S.mapsSel.group)}</div>
+    </div>`;
+}
+
+const FEED = [
+  { alt:'news', fam:'need', cls:'need', t:'13:58', w:'', chip:'Gate', l1:'The embedded terminal #537', l2:'review requested · waits 9 min', go:1 },
+  { alt:'micro', fam:'command', t:'14:07', txt:'command · start 559 · alp82' },
+  { alt:'micro', fam:'agent', t:'14:02', txt:'pr_opened · The effort prototype #559' },
+  { alt:'news', fam:'need', cls:'need', t:'13:41', chip:'Ask · 2', l1:'Home-screen design directions #519', l2:'round 3 · both carry a recommendation', go:1 },
+  { alt:'news', fam:'agent', cls:'calm-ok', t:'13:22', w:'ok', word:'resolved', l1:'The pane-driven rewind #542', l2:'all four lanes pass on blind keystrokes · merged', go:1 },
+  { alt:'news', fam:'agent', cls:'calm-bad', t:'12:56', w:'bad', word:'died', l1:'codex · The subagent meter #544', l2:'context exhausted · worktree stands · resume 544', go:1 },
+  { alt:'news', fam:'deploy', cls:'calm-ok', t:'12:40', w:'ok', word:'landed', l1:'deploy · daemon 669ed83', l2:'41 s · green suite · requested by alp82 12:31', go:0 },
+  { alt:'mark' },
+  { alt:'news', fam:'agent', cls:'calm-ok', t:'23:12', w:'ok', word:'resolved', l1:'The effort prototype #559', l2:'all four lanes take a spawn-time effort · findings.md is ground truth', go:1 },
+  { alt:'news', fam:'system', cls:'calm-bad', t:'19:44', w:'warn', word:'held', l1:'The maps screen #522', l2:'two dispatch failures · your start clears it · no thread bound', go:0 }
+];
+function bodyFeed(){
+  const rows = FEED.map(e => {
+    if (e.alt === 'mark') return `<div class="mark">your last visit · yesterday 22:50</div>`;
+    const hide = S.feedFam !== 'all' && e.fam !== S.feedFam ? 'hiddenrow' : '';
+    if (e.alt === 'micro')
+      return `<div class="micro ${hide}"><div class="m"><time>${e.t}</time><span>${e.txt}</span></div></div>`;
+    const lead = e.chip ? `<span class="chip">${e.chip}</span> ` : (e.word ? `<span class="word ${e.w}">${e.word}</span>` : '');
+    return `<div class="news ${e.cls || ''} ${hide}">
+      <time>${e.t}</time>
+      <div class="bd"><div class="l1">${lead}${e.l1}</div><div class="l2">${e.l2}</div></div>
+      ${e.go ? '<a class="go">thread →</a>' : ''}
+    </div>`;
+  }).join('');
+  const chips = [['all','all'],['agents','agent'],['needs you','need'],['deploys','deploy'],['commands','command'],['system','system']]
+    .map(([t,f]) => `<button class="fchip ${S.feedFam === f ? 'on' : ''}" data-fam="${f}">${t}</button>`).join('');
+  return `<div class="wrap">
+      <div class="screen">Feed</div>
+      <div class="fsub">One stream, two altitudes. News at full size, mechanics compressed between.</div>
+      <div class="pulse"><div><div class="k">24 h · 96 events</div>
+        <div class="dens" data-dens="1,0,0,0,0,0,2,4,3,6,8,5,7,9,4,6,11,8,3,2,5,4,2,1"></div></div></div>
+      <div class="fchips">${chips}</div>
+      ${rows}
+      <div class="tailnote">news = gate, ask, verdict, death, deploy, hold — everything else rides compressed<br>
+      an entry with no thread link never had a thread bound (#526)</div>
+    </div>`;
+}
+
+function chatRow(id, lead, ttl, sub, state){
+  const sel = S.chatId === id && (S.page === 'chat' || S.page === 'chats') ? 'sel' : '';
+  return `<a class="row ${sel}" data-go="chat:${id}">${lead}
+    <span class="ttl">${ttl}<span class="sub">${sub}</span></span><span class="state">${state}</span></a>`;
+}
+function chatList(){
+  return `<h2>Tickets</h2>
+    ${chatRow('519','<span class="chip">Ask · 2</span>','Home-screen design directions','#519 · claude · waits for you 5 min','runs')}
+    ${chatRow('544','<span class="chip">Gate</span>','The subagent meter and the bounds','#544 · codex · waits for you 26 min','holds')}
+    ${chatRow('549','<span class="dot on"></span>','Mine the production journal','#549 · claude · runs 12 min','runs')}
+    ${chatRow('542','<span class="dot dim"></span>','The pane-driven rewind','#542 · claude · ended Mon · read-only','Mon')}
+    ${chatRow('562','<span class="dot dim"></span>','The deploy verdict references its real issue','#562 · codex · ended Mon · read-only','Mon')}
+    <h2>Overseer</h2>
+    ${chatRow('ov1','<span class="dot on"></span>','The deploy preflight verdict','last word 14:02','14:02')}
+    ${chatRow('ov2','<span class="dot dim"></span>','Chart the journal mining map','last word Mon','Mon')}`;
+}
+function escCard(){
+  return `<div class="esc">
+    <div class="ehead"><span class="chip">Ask · 2</span><span class="enum">esc-7 · round 3 · waits 5 min</span></div>
+    <div class="q"><div class="qn">1 of 2</div>
+      <div class="qh">Which round-2 variation rules the home screen?</div>
+      <div class="opt picked" data-opt><span class="radio"></span><span>A · V6 synthesis<span class="rec">✦ recommended</span>
+        <span class="oc">One direction rules every screen prototype after this one.</span></span></div>
+      <div class="opt" data-opt><span class="radio"></span><span>B · V1 · HUD × chips
+        <span class="oc">The ring stays, and the chips carry every state.</span></span></div>
+      <a class="other">✎ other — write an answer</a></div>
+    <div class="q"><div class="qn">2 of 2</div>
+      <div class="qh">May color alone carry a fact?</div>
+      <div class="opt picked" data-opt><span class="radio"></span><span>A · No · color pairs with a word<span class="rec">✦ recommended</span></span></div>
+      <div class="opt" data-opt><span class="radio"></span><span>B · Yes · a dot may stand alone</span></div>
+      <a class="other">✎ other — write an answer</a></div>
+    <div class="efoot"><button class="btn prime">✅ All as recommended</button>
+      <button class="btn">Answer · 2 picked</button>
+      <span class="fvw">first valid answer wins — here or in the thread</span></div>
+  </div>`;
+}
+function chatPane(id){
+  const c = CHATS[id];
+  const links = c.kind === 'ov'
+    ? `<div class="links"><a>⟲ take back</a></div>`
+    : `<div class="links"><a>ticket ↗</a><a>thread ↗</a><a data-go="terminal:${id}">terminal ↗</a></div>`;
+  let body = '';
+  if (c.esc) body = `
+    <div class="meta">you · 13:33 · dispatch</div>
+    <div class="prompt">/wayfinder #519 — four directions of the Atlas home screen, phone and desktop width.</div>
+    <div class="meta">claude · 13:34</div>
+    <div class="say">I read the map and the inspiration verdict. Engineered calm rules the vibe. I build four directions now.</div>
+    <div class="meta">claude · 13:52</div>
+    <div class="think">✻ thought 41 s — the signage chips need an amber that survives grayscale…</div>
+    <div class="meta">claude · 14:01</div>
+    <div class="tool">⚙ Write prototypes/home-directions/index.html · 1,148 lines</div>
+    <div class="tool">⚙ publish_preview · port 9018 · /index.html</div>
+    <div class="say">Four directions stand, phone and desktop, both color modes. Round 3 is one question pair.</div>
+    <div class="meta">claude asks · 14:02</div>${escCard()}`;
+  else body = (c.body || []).map(([k,txt]) => `<div class="${k}">${txt}</div>`).join('');
+  const foot = c.live
+    ? `<div class="comp"><input placeholder="Message ${c.kind === 'ov' ? 'the overseer' : 'claude'}…"><button class="send">➤</button></div>`
+    : `<div class="ro-note">this session ended · read-only · the record stays</div>`;
+  return `<div class="chpane">
+    <div class="chead">
+      <a class="back" data-go="page:chats">‹ chats</a>
+      <div class="t1">${c.t1}</div><div class="t2">${c.t2}</div>
+      ${links}
+    </div>
+    <div class="tl">${body}</div>
+    ${foot}
+  </div>`;
+}
+function scrChats(){
+  const desktop = frame.classList.contains('w-desktop');
+  if (desktop) return `<section class="scr fill ch">
+    <div class="chduo">
+      <div class="chrail">${ht('chats')}${chatList()}</div>
+      ${chatPane(S.chatId)}
+    </div>
+  </section>`;
+  if (S.page === 'chat') return `<section class="scr fill ch">${chatPane(S.chatId)}</section>`;
+  return `<section class="scr ch">
+    ${ht('chats')}
+    <div class="list">${chatList()}</div>
+  </section>`;
+}
+
+function scrTerminal(){
+  return `<section class="scr fill term">
+    <div class="thead">
+      <a class="back" data-go="chat:${S.termFrom}">‹ chat</a>
+      <span class="tt">#${S.termFrom} · claude · pane 34 m · tmux</span>
+    </div>
+    <pre class="tscreen">╭─ claude · curia/519 ────────────────────╮
+│ ✻ Round 3 is open. Two questions wait.  │
+│                                         │
+│ &gt; the escalation card answers in        │
+│   place; the thread carries the same    │
+│   round under first-valid-wins.         │
+╰─────────────────────────────────────────╯
+<span class="tdim">? for shortcuts                 61% context</span>
+
+$ git log --oneline -3
+9b41c2e four directions stand
+77aa019 the ring carries the count
+5d2f8ab scaffold the stage
+
+<span class="tdim">[curia] 0:claude*  “atlas” 14:07 fri 21 aug</span></pre>
+    <div class="tkeys"><span>esc</span><span>⇥</span><span>ctrl</span><span>↑</span><span>↓</span><span>←</span><span>→</span><span>⏎</span></div>
+  </section>`;
+}
+
+function bodySettingsHome(){
+  return `<div class="st-home">
+      <a class="sec-row" data-go="set:routing"><span><span class="t">Routing</span><span class="g">opus · research → gpt · map → fable</span></span><span class="chev">›</span></a>
+      <a class="sec-row" data-go="set:projects"><span><span class="t">Projects</span><span class="g">4 repos · alp82</span></span><span class="chev">›</span></a>
+      <a class="sec-row" data-go="set:dispatch"><span><span class="t">Dispatch</span><span class="g">manual · 6 agents · 60 s</span></span><span class="chev">›</span></a>
+      <a class="sec-row" data-go="set:maint"><span><span class="t">Maintenance</span><span class="g okw">in step · read 4 min ago</span></span><span class="chev">›</span></a>
+    </div>`;
+}
+function scrSettings(){
+  const secs = {
+    routing: `<h2>Routing</h2>
+      ${[['grilling','opus'],['prototype','opus'],['research','gpt'],['task','opus'],['untyped','opus'],['map','fable']]
+        .map(([k,v]) => `<div class="srow"><span class="key grow">${k}</span>
+          <select data-set>${['fable','opus','sonnet','gpt'].map(m => `<option ${m === v ? 'selected' : ''}>${m}</option>`).join('')}</select></div>`).join('')}
+      <div class="hint" style="margin-top:10px">The model each ticket type gets when no label on the ticket says otherwise.</div>`,
+    projects: `<h2>Projects</h2>
+      ${['getalfredo/landing-page','alp82/alperortac.com','alp82/aistack','alp82/curia']
+        .map(r => `<div class="srow"><span class="key grow">${r}</span><a class="go dimmed">remove</a></div>`).join('')}
+      <div class="hint" style="margin-top:10px">curia dispatches only against watched repos. GitHub is connected as alp82.</div>`,
+    dispatch: `<h2>Dispatch</h2>
+      <div class="srow"><span class="key grow">auto_dispatch</span><input type="checkbox" data-set></div>
+      <div class="srow"><span class="key grow">max_concurrent</span><input type="number" value="6" data-set></div>
+      <div class="srow"><span class="key grow">poll_interval_s</span><input type="number" value="60" data-set></div>`,
+    maint: `<h2>Maintenance</h2>
+      <div class="srow"><span class="dot on"></span><span class="grow" style="font-size:13px">The daemon is running these files. It read them 4 min ago.</span></div>
+      <div class="srow"><span class="key grow">restart</span><button class="btn">Restart daemon</button></div>
+      <div class="hint" style="margin-top:10px">A restart is for the keys a save cannot apply: the ports, workspace_root, sandbox, identity.</div>`
+  };
+  let dock = '';
+  if (S.setPhase === 'dirty') dock = `<div class="dock"><span class="toast"><b>${S.setDirty}</b> unsaved change${S.setDirty > 1 ? 's' : ''}</span>
+    <button class="btn prime" data-save>Save</button><a class="discard" data-discard>discard</a></div>`;
+  if (S.setPhase === 'applied') dock = `<div class="dock"><span class="okw">saved ✓</span><span class="toast">The daemon is running it.</span></div>`;
+  const desktop = frame.classList.contains('w-desktop');
+  const body = desktop
+    ? `<div class="st-grid">${bodySettingsHome()}<div class="sec-body">${secs[S.setSec || 'routing']}</div></div>`
+    : (S.setSec
+        ? `<a class="back" data-go="set:home">‹ settings</a><div class="sec-body">${secs[S.setSec]}</div>`
+        : bodySettingsHome());
+  return `<section class="scr st"><div class="scr-inner">
+    ${ht('settings')}
+    ${body}
+    ${dock}
+  </div></section>`;
+}
+
+/* ----------------------------------------------------------------------
+   chrome per variant — always visible, per the round-2 ruling
+---------------------------------------------------------------------- */
+const PAGES = [['home','home'],['agents','agents'],['maps','maps'],['feed','feed'],['chats','chats'],['settings','settings']];
+const GLYPH = { home:'⌂', agents:'◎', maps:'▦', feed:'≡', chats:'◆', settings:'⚙' };
+function curTop(){
+  if (S.page === 'chat' || S.page === 'terminal') return 'chats';
+  return S.page;
+}
+function badge(p){
+  if (p === 'chats') return '<i class="tglance g-need">2</i>';
+  if (p === 'agents') return '<i class="tglance g-run">●</i>';
+  return '';
+}
+function isDesktop(){ return frame.classList.contains('w-desktop'); }
+function roundMark(p){
+  if (p === 'chats') return '<span class="bdg">2</span>';
+  if (p === 'agents') return '<span class="rundot"></span>';
+  return '';
+}
+function chromeLeft(){
+  /* desktop: the pinned drawer, ruled in round 4, for every variant */
+  if (!isDesktop()) return '';
+  return `<nav class="drawer">
+    <span class="dwm">curia · atlas</span>
+    ${PAGES.map(([p,label]) => `<a class="drow ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+      <span>${label}</span><span>${badge(p)}</span></a>`).join('')}
+    <span class="ddate">${DATE}</span></nav>`;
+}
+function iconTab(cls, p, label){
+  return `<a class="${cls} ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+    <span class="ic">${GLYPH[p]}${badge(p)}</span>${label}</a>`;
+}
+function ringKey(target, label, cur){
+  return `<a class="ringkey ${cur ? 'cur' : ''}" data-go="page:${target}" title="${label} · 2 need you">
+    <svg viewBox="0 0 60 60">
+      <circle cx="30" cy="30" r="25" fill="none" stroke="var(--line)" stroke-width="3"/>
+      <circle cx="30" cy="30" r="25" fill="none" stroke="var(--amber)" stroke-width="3"
+        stroke-dasharray="39 118" stroke-dashoffset="-19" stroke-linecap="round"/>
+    </svg><span class="rn">2<span class="rl">${label}</span></span>
+  </a>`;
+}
+function chromeBottom(){
+  if (isDesktop()) return '';
+  const tab = p => iconTab('tab', p, p);
+  if (S.v === 'a'){
+    return `<nav class="ringbar">
+      ${tab('home')}${tab('agents')}${tab('maps')}<span class="mid"></span>${tab('feed')}${tab('chats')}${tab('settings')}
+      ${ringKey('chats', 'need', curTop() === 'chats')}
+    </nav>`;
+  }
+  /* b: chats and agents leave the row — the ring is the agents key, chats one press behind it */
+  return `<nav class="ringbar">
+    ${tab('home')}${tab('maps')}<span class="mid"></span>${tab('feed')}${tab('settings')}
+    ${ringKey('agents', 'agents', curTop() === 'agents' || curTop() === 'chats')}
+  </nav>`;
+}
+function chromeOverlay(){ return ''; }
+
+/* ----------------------------------------------------------------------
+   render
+---------------------------------------------------------------------- */
+function scrHome(){
+  return `<section class="scr home">${ht('atlas')}${bodyHome()}</section>`;
+}
+function screen(){
+  switch (S.page){
+    case 'home': return scrHome();
+    case 'agents': return `<section class="scr ag">${ht('agents')}${bodyAgents()}</section>`;
+    case 'maps': return `<section class="scr mp">${ht('atlas · maps')}${bodyMaps()}</section>`;
+    case 'feed': return `<section class="scr fd">${ht('atlas · feed')}${bodyFeed()}</section>`;
+    case 'chats':
+    case 'chat': return scrChats();
+    case 'terminal': return scrTerminal();
+    case 'settings': return scrSettings();
+  }
+}
+function render(){
+  frame.className = frame.className.replace(/v-[ab]\b/,'v-' + S.v);
+  frame.innerHTML = chromeLeft() +
+    `<div class="viewport" id="vp">${screen()}</div>` + chromeBottom() + chromeOverlay();
+  el('phNote').textContent = NOTES[S.v];
+  el('bVar').textContent = {
+    a:'A · ring · six tabs', b:'B · ring · four tabs' }[S.v];
+  buildSparks(); buildDens();
+  const u = new URL(location); u.searchParams.set('v', S.v); history.replaceState(null,'',u);
+}
+function buildSparks(){
+  frame.querySelectorAll('svg[data-spark]').forEach(svg => {
+    const vals = svg.dataset.spark.split(',').map(Number);
+    const W = +svg.getAttribute('width'), H = +svg.getAttribute('height');
+    const max = Math.max(...vals), min = Math.min(...vals);
+    const pts = vals.map((v,i) => {
+      const x = (i/(vals.length-1))*(W-4)+2;
+      const y = H-2-((v-min)/((max-min)||1))*(H-4);
+      return x.toFixed(1)+','+y.toFixed(1);
+    }).join(' ');
+    svg.setAttribute('viewBox','0 0 '+W+' '+H);
+    const pl = document.createElementNS('http://www.w3.org/2000/svg','polyline');
+    pl.setAttribute('points', pts);
+    svg.appendChild(pl);
+  });
+}
+function buildDens(){
+  frame.querySelectorAll('.dens[data-dens]').forEach(d => {
+    const vals = d.dataset.dens.split(',').map(Number), max = Math.max(...vals);
+    d.innerHTML = vals.map(v => `<i style="height:${Math.max(2, v/max*26)}px;opacity:${v === 0 ? .18 : .85}"></i>`).join('');
+  });
+}
+
+/* ----------------------------------------------------------------------
+   events
+---------------------------------------------------------------------- */
+frame.addEventListener('click', ev => {
+  const opt = ev.target.closest('[data-opt]');
+  if (opt){
+    const qBlock = opt.closest('.q');
+    qBlock.querySelectorAll('.opt').forEach(o => o.classList.remove('picked'));
+    opt.classList.add('picked');
+    return;
+  }
+  const save = ev.target.closest('[data-save]');
+  if (save){ S.setPhase = 'applied'; render(); return; }
+  const disc = ev.target.closest('[data-discard]');
+  if (disc){ S.setPhase = 'clean'; S.setDirty = 0; render(); return; }
+  const agent = ev.target.closest('[data-agent]');
+  if (agent && !ev.target.closest('[data-go]')){ S.agentsSel = agent.dataset.agent; render(); return; }
+  const seg = ev.target.closest('[data-seg]');
+  if (seg){ const [m,g] = seg.dataset.seg.split('|'); S.mapsSel = { map:m, group:g }; render(); return; }
+  const fam = ev.target.closest('[data-fam]');
+  if (fam){ S.feedFam = fam.dataset.fam; render(); return; }
+  const go = ev.target.closest('[data-go]');
+  if (!go) return;
+  ev.preventDefault();
+  const [kind, arg] = go.dataset.go.split(':');
+  if (kind === 'page'){ S.page = arg; if (arg === 'settings') S.setSec = null; scrollTop(); }
+  else if (kind === 'chat'){ S.page = isDesktop() ? 'chats' : 'chat'; S.chatId = arg; scrollTop(); }
+  else if (kind === 'terminal'){ S.page = 'terminal'; S.termFrom = arg || S.chatId; }
+  else if (kind === 'set'){ S.setSec = arg === 'home' ? null : arg; if (arg !== 'home') S.page = 'settings'; scrollTop(); }
+  render();
+});
+frame.addEventListener('change', ev => {
+  if (ev.target.closest('[data-set]')){
+    S.setDirty += 1; S.setPhase = 'dirty';
+    /* re-render would wipe the operator's edit — flip only the dock */
+    const inner = frame.querySelector('.scr-inner');
+    const old = inner.querySelector('.dock'); if (old) old.remove();
+    inner.insertAdjacentHTML('beforeend',
+      `<div class="dock"><span class="toast"><b>${S.setDirty}</b> unsaved change${S.setDirty > 1 ? 's' : ''}</span>
+       <button class="btn prime" data-save>Save</button><a class="discard" data-discard>discard</a></div>`);
+  }
+});
+function scrollTop(){ const vp = el('vp'); if (vp) vp.scrollTop = 0; }
+
+const VARS = ['a','b'];
+el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; render(); };
+el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; render(); };
+el('bVar').onclick = () => el('bNext').onclick();
+el('bMode').onclick = () => {
+  const dark = frame.classList.toggle('dark');
+  frame.classList.toggle('light', !dark);
+  el('bMode').textContent = dark ? 'light' : 'dark';
+};
+el('bWidth').onclick = () => {
+  const desk = frame.classList.toggle('w-desktop');
+  frame.classList.toggle('w-phone', !desk);
+  el('bWidth').textContent = desk ? 'phone' : 'desktop';
+  if (S.page === 'chat' && desk) S.page = 'chats';
+  render();
+};
+el('bDlChat').onclick = () => {   /* Discord → one agent's chat (#526) */
+  S.chatId = '519';
+  S.page = isDesktop() ? 'chats' : 'chat';
+  render();
+};
+el('bDlHome').onclick = () => {   /* Discord → plain Atlas home (#526) */
+  S.page = 'home'; render(); scrollTop();
+};
+
+render();
+</script>
+</body>
+</html>
