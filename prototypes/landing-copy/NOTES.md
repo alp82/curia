@@ -46,6 +46,17 @@ questions return in round 2.
 each named after its quality (the promise, motion, presence, rigor, the pipeline, ownership,
 with "Nothing lands without you." as the rigor one), a `mine` input row on every slot, a copy
 button on every row, and a Copy-my-picks bar that copies every pick on the page in one block.
+The operator answered with a full pick block: sixteen of their own lines, and picks on every
+other slot. The headline is their own: "Coding agents controlled from your phone". The picks are
+applied in `index.html` as the round 2 overlay, so every panel reads as the picked page.
+
+**Round 3.** Six findings on the picked lines, each with a proposed `R` fix beside the pick:
+the headline drops "many repos, one queue" from the promise (a positioning.md change to record),
+a grammar slip in the first-screen paragraph, the harness fact line names Pi and Opencode which
+`config/routing.yaml` does not ship today, "PR" beside a page that says pull request, a "just"
+plus a contraction in the rejection fact line, and the honesty line dropping "manual today,
+packaging coming" which positioning.md keeps. Docker in the need line checked out: the README
+setup path is the compose stack now.
 
 ## The verdict
 

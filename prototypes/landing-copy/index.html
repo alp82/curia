@@ -64,6 +64,7 @@
   .cand .cp:active { color: var(--accent); border-color: var(--accent); }
   .badge { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.05em; border-radius: 4px; padding: 0.05rem 0.3rem; vertical-align: 0.1em; margin-left: 0.4rem; }
   .badge.cur { color: var(--dim); border: 1px solid var(--line); }
+  .badge.pick { color: #0b0d10; background: var(--accent); border: 1px solid var(--accent); }
   .badge.new { color: var(--new); border: 1px solid var(--new); }
   .badge.rec { color: var(--accent); border: 1px solid var(--accent); }
   .qual { display: block; color: var(--dim); font-size: 0.72rem; font-family: var(--mono); margin-top: 0.1rem; }
@@ -86,7 +87,10 @@
   <header class="top">
     <h1>The words of every scene</h1>
     <p><a href="https://github.com/alp82/curia/issues/587">Choose the words of every scene of the final page — alp82/curia#587</a>,
-       on the map <a href="https://github.com/alp82/curia/issues/109">The curia landing page</a>. Throwaway prototype, round 2.</p>
+       on the map <a href="https://github.com/alp82/curia/issues/109">The curia landing page</a>. Throwaway prototype, round 3.
+       A <code>picked</code> badge marks the operator's round 2 pick, selected by default, so
+       every panel reads as the picked page. An <code>R</code> row is a proposed fix beside a
+       picked line, on the table in round 3.</p>
     <p>The twelve scenes are locked by the storyboard. This page decides only the words.
        Tap a candidate and the panel above it shows the scene with that line in place.
        Each slot has a <code>mine</code> row: type your own line there and it becomes the pick.
@@ -365,6 +369,82 @@ var SCENES = [
     ]}
 ];
 
+/* ================================================================
+   ROUND 2 — the operator's picks, pasted from the thread, applied
+   as an overlay. A letter picks an existing candidate. An added P
+   row is a line the operator typed. An added R row is this ticket's
+   proposed fix beside a picked line, on the table in round 3.
+   ================================================================ */
+
+var PICKED = {
+  '1.kicker': 'A', '1.headline': 'P', '1.sub': 'P', '1.skills': 'B', '1.btns': 'C',
+  '2.line': 'P',
+  '3.bold': 'E', '3.line': 'B', '3.fact': 'E',
+  '4.bold': 'D', '4.line': 'P', '4.fact': 'P',
+  '5.line': 'P', '5.fact': 'P',
+  '6.line': 'P',
+  '7.line': 'P', '7.fact': 'P',
+  '8.bold': 'P', '8.caption': 'P', '8.fact': 'P', '8.dogfood': 'P',
+  '9.bold': 'E', '9.fact': 'P',
+  '10.bold': 'C', '10.fact': 'P',
+  '11.heading': 'A', '11.need': 'P', '11.honesty': 'P',
+  '12.foot': 'D'
+};
+
+var ADDED = {
+  '1.headline': [
+    { l: 'P', t: 'Coding agents controlled from your phone', pick: true },
+    { l: 'R', t: 'Your coding agents, controlled from your phone.' }
+  ],
+  '1.sub': [
+    { l: 'P', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatching parallel agent without losing track.', pick: true },
+    { l: 'R', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatch parallel agents without losing track.' }
+  ],
+  '2.line': [{ l: 'P', t: 'The backlog panic grows', pick: true }],
+  '4.line': [{ l: 'P', t: 'An agent hits a real decision and asks you in Discord.', pick: true }],
+  '4.fact': [{ l: 'P', t: 'one thread per ticket · parallel chats', pick: true }],
+  '5.line': [{ l: 'P', t: 'Live previews from your phone or workstation', pick: true }],
+  '5.fact': [{ l: 'P', t: 'A secure link on your tailnet', pick: true }],
+  '6.line': [{ l: 'P', t: 'A dashboard that shows where every map stands and which agents are currently running.', pick: true }],
+  '7.line': [{ l: 'P', t: 'Watch the agent type in your browser tab.', pick: true }],
+  '7.fact': [
+    { l: 'P', t: 'Claude Code, Codex, Pi and Opencode are supported', pick: true },
+    { l: 'R', t: 'Claude Code and Codex today · Pi and Opencode next' }
+  ],
+  '8.bold': [{ l: 'P', t: 'You are in charge', pick: true }],
+  '8.caption': [
+    { l: 'P', t: 'Your approval merges the PR and closes the ticket', pick: true },
+    { l: 'R', t: 'Your approval merges the pull request and closes the ticket' }
+  ],
+  '8.fact': [
+    { l: 'P', t: 'just type your rejection reasons if you don\'t agree with the result', pick: true },
+    { l: 'R', t: 'type your rejection reasons if you do not agree · they become new commits on the same pull request' }
+  ],
+  '8.dogfood': [{ l: 'P', t: 'This page itself was planned, decided and written by curia agents.', pick: true }],
+  '9.fact': [{ l: 'P', t: 'four agents at once on a small box · about 0.5 GB each', pick: true }],
+  '10.fact': [{ l: 'P', t: 'Your box, your subscription, your keys.', pick: true }],
+  '11.need': [
+    { l: 'P', t: 'One Linux box, Docker, Tailscale, Discord, your coding agent subscription', pick: true },
+    { l: 'R', t: 'One Linux box with Docker, Tailscale, a Discord server, your coding agent subscription, and an evening.' }
+  ],
+  '11.honesty': [
+    { l: 'P', t: 'All steps are described in the set up guide', pick: true },
+    { l: 'R', t: 'All steps are in the setup guide. Setup is manual today, and packaging is coming.' }
+  ]
+};
+
+(function applyRound2() {
+  SCENES.forEach(function (sc) {
+    sc.slots.forEach(function (sl) {
+      var k = sc.n + '.' + sl.id;
+      sl.cands.forEach(function (c) { delete c.rec; });
+      (ADDED[k] || []).forEach(function (c) { sl.cands.push(c); });
+      var p = PICKED[k];
+      if (p) sl.cands.forEach(function (c) { if (c.l === p) c.pick = true; });
+    });
+  });
+})();
+
 /* ---- state ---- */
 
 var picks = {};   // "n.slot" -> candidate index, or 'mine'
@@ -459,6 +539,7 @@ function renderScene(sc) {
       if (c.cur) t.appendChild(h('span', { class: 'badge cur', text: 'current' }));
       else if (!c.cut) t.appendChild(h('span', { class: 'badge new', text: 'new' }));
       if (c.rec) t.appendChild(h('span', { class: 'badge rec', text: 'rec' }));
+      if (c.pick) t.appendChild(h('span', { class: 'badge pick', text: 'picked' }));
       if (c.q) t.appendChild(h('span', { class: 'qual', text: c.q }));
       var cp = h('button', { class: 'cp', text: 'copy', onclick: function (ev) {
         ev.stopPropagation();
@@ -495,6 +576,7 @@ function renderScene(sc) {
 function defaultPick(sl) {
   var r = 0;
   sl.cands.forEach(function (c, i) { if (c.rec) r = i; });
+  sl.cands.forEach(function (c, i) { if (c.pick) r = i; });
   return r;
 }
 
