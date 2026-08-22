@@ -21,6 +21,9 @@ import {
 } from '../src/preview.mjs'
 import { IdentityProxy, LOGIN_HEADER, serveHosts } from '../src/identity.mjs'
 import http from 'node:http'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 // The exact shape `tailscale serve status --json` returned on the box.
 const REAL_STATUS = {
@@ -326,6 +329,83 @@ describe('sweep', () => {
     assert.deepEqual(r.swept, [])
     assert.ok(reg.get('7'), 'an indeterminate read must never be treated as "no live tickets"')
     assert.equal(calls.filter((c) => c.includes('off')).length, 0)
+  })
+})
+
+describe('restart recovery (#563)', () => {
+  test('a persisted preview for a live ticket keeps its URL and reopens its gate', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const firstExec = fakeExec()
+    const first = mkReg({ dataDir, exec: firstExec.exec, isLive: alwaysLive, log: () => {} })
+    const published = await first.publish('7', 4321, { base: BASE, path: '/curia-check' })
+
+    const secondExec = fakeExec()
+    const second = mkReg({ dataDir, exec: secondExec.exec, isLive: alwaysLive, log: () => {} })
+    const recovered = await second.recover(['7'])
+
+    assert.deepEqual(recovered, { recovered: ['7'], dropped: [] })
+    assert.equal(second.get('7').url, published.url)
+    assert.equal(FakeProxy.made.at(-1).targetPort, 4321)
+    assert.ok(secondExec.calls.includes(
+      `tailscale serve --bg --https=${published.servePort} http://127.0.0.1:${published.proxyPort}`,
+    ))
+  })
+
+  test('a persisted preview with a dead server loses its rule and its entry', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const first = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
+    const published = await first.publish('7', 4321, { base: BASE })
+
+    const secondExec = fakeExec()
+    const second = mkReg({
+      dataDir,
+      exec: secondExec.exec,
+      isLive: alwaysLive,
+      probe: async () => ({ ok: false, error: 'ECONNREFUSED' }),
+      log: () => {},
+    })
+    const recovered = await second.recover(['7'])
+
+    assert.deepEqual(recovered, { recovered: [], dropped: ['7'] })
+    assert.equal(second.get('7'), null)
+    assert.ok(secondExec.calls.includes(`tailscale serve --https=${published.servePort} off`))
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'previews.json'), 'utf8')), [])
+  })
+
+  test('a preview whose gate cannot recover loses its rule', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const first = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
+    const published = await first.publish('7', 4321, { base: BASE })
+
+    const secondExec = fakeExec()
+    const second = mkReg({ dataDir, exec: secondExec.exec, Proxy: DeadProxy, log: () => {} })
+    const recovered = await second.recover(['7'])
+
+    assert.deepEqual(recovered, { recovered: [], dropped: ['7'] })
+    assert.ok(secondExec.calls.includes(`tailscale serve --https=${published.servePort} off`))
+    assert.equal(second.get('7'), null)
+  })
+
+  test('withdraw removes the persisted entry', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const reg = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
+    await reg.publish('7', 4321, { base: BASE })
+
+    await reg.withdraw('7')
+
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'previews.json'), 'utf8')), [])
+  })
+
+  test('sweep removes dead tickets from the persisted entries', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const reg = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
+    await reg.publish('7', 4321, { base: BASE })
+    await reg.publish('8', 4322, { base: BASE })
+
+    await reg.sweep(['8'])
+
+    const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'previews.json'), 'utf8'))
+    assert.deepEqual(persisted.map((entry) => entry.ticket), ['8'])
   })
 })
 

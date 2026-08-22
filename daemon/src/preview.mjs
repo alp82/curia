@@ -32,10 +32,11 @@
 //   - the Serve port comes from the configured range only, never from the
 //     agent.
 //
-// State posture (#9): the registry is an ephemeral cache. The durable truth is
-// tailscaled's own serve config, which SURVIVES daemon restarts — so a rule
-// outlives the process that made it, and reconcile must re-derive and sweep
-// (the same orphan discipline as the tmux sweep in #33/#19).
+// State posture (#563): the registry entries persist in the daemon data dir.
+// The identity proxies stay process-local. Boot recovery probes each live dev
+// server, reopens its proxy, and reasserts its Serve rule before the orphan
+// sweep. Tailscaled's config still supplies the orphan evidence for rules that
+// no persisted live ticket claims.
 //
 // #168 put the identity check (#151, ADR-0011) in front of this surface too —
 // the third and last thing curia publishes through Serve, and the one ADR-0011
@@ -73,6 +74,8 @@
 
 import net from 'node:net'
 import http from 'node:http'
+import fs from 'node:fs'
+import path from 'node:path'
 import { execFileP } from './exec.mjs'
 import { IdentityProxy, serveHosts, tailnetSelf } from './identity.mjs'
 
@@ -233,6 +236,7 @@ export class PreviewRegistry {
     Proxy = IdentityProxy,
     probe = probePreviewPage,
     journal = () => {},
+    dataDir = null,
   } = {}) {
     this.range = range
     this.reserved = new Set(reserved.filter((p) => Number.isInteger(p)))
@@ -245,8 +249,28 @@ export class PreviewRegistry {
     this.Proxy = Proxy
     this.probe = probe
     this.journal = journal
-    this.byTicket = new Map() // ticket -> { servePort, devPort } — ephemeral (#9)
-    this.proxies = new Map() // servePort -> IdentityProxy — ephemeral, same as above
+    this.stateFile = dataDir ? path.join(dataDir, 'previews.json') : null
+    this.byTicket = new Map()
+    this.proxies = new Map() // IdentityProxy instances stay process-local.
+  }
+
+  #persist() {
+    if (!this.stateFile) return
+    fs.mkdirSync(path.dirname(this.stateFile), { recursive: true })
+    const temporary = `${this.stateFile}.tmp`
+    fs.writeFileSync(temporary, `${JSON.stringify(this.list(), null, 2)}\n`)
+    fs.renameSync(temporary, this.stateFile)
+  }
+
+  #persisted() {
+    if (!this.stateFile) return []
+    try {
+      const value = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'))
+      return Array.isArray(value) ? value : []
+    } catch (e) {
+      if (e.code !== 'ENOENT') this.log(`preview recovery ignored unreadable state: ${e.message}`)
+      return []
+    }
   }
 
   // The pairing. One line, deliberately, because every other part of the design
@@ -328,6 +352,7 @@ export class PreviewRegistry {
       }
       const entry = { ...existing, path, url: previewUrl(base, existing.servePort, path) }
       this.byTicket.set(key, entry)
+      this.#persist()
       return { ok: true, ...entry, reused: true, probeStatus: p.status ?? null }
     }
     // The published-port case skips the probe, because on a published port the
@@ -404,6 +429,7 @@ export class PreviewRegistry {
     // blocking tool.
     const url = previewUrl(base, servePort, path)
     this.byTicket.set(key, { servePort, devPort, target, path, url, proxyPort: gate.proxyPort })
+    this.#persist()
     this.log(`preview for ticket ${key}: ${url} -> proxy :${gate.proxyPort} -> ${target}:${devPort} (page answered ${page.slow ? 'slowly — probe timed out' : `HTTP ${page.status}`})`)
     return { ok: true, servePort, devPort, target, path, url, proxyPort: gate.proxyPort, reused: false, probeStatus: page.status ?? null }
   }
@@ -481,6 +507,46 @@ export class PreviewRegistry {
     }
   }
 
+  async recover(liveTickets) {
+    const live = new Set([...liveTickets].map(String))
+    const entries = this.#persisted()
+    const probes = await Promise.all(entries.map(async (entry) => ({
+      entry,
+      page: live.has(String(entry.ticket))
+        ? await this.probe(entry.target, entry.devPort, { path: entry.path })
+        : null,
+    })))
+    const recovered = []
+    const dropped = []
+    for (const { entry, page } of probes) {
+      const ticket = String(entry.ticket)
+      if (!live.has(ticket) || !page?.ok) {
+        await this.#serveOff(entry.servePort).catch((e) => this.log(`preview recovery withdraw for ${ticket} failed: ${e.message}`))
+        dropped.push(ticket)
+        continue
+      }
+      const gate = await this.#openGate(entry.servePort, entry.target, entry.devPort)
+      if (!gate.ok) {
+        await this.#serveOff(entry.servePort).catch((e) => this.log(`preview recovery withdraw for ${ticket} failed: ${e.message}`))
+        dropped.push(ticket)
+        continue
+      }
+      try {
+        await this.exec('tailscale', ['serve', '--bg', `--https=${entry.servePort}`, `http://127.0.0.1:${gate.proxyPort}`])
+      } catch (e) {
+        await this.#serveOff(entry.servePort).catch(() => {})
+        this.#stopProxy(entry.servePort)
+        this.log(`preview recovery for ${ticket} failed: ${e.message}`)
+        dropped.push(ticket)
+        continue
+      }
+      this.byTicket.set(ticket, { ...entry, proxyPort: gate.proxyPort })
+      recovered.push(ticket)
+    }
+    this.#persist()
+    return { recovered, dropped }
+  }
+
   async withdraw(ticket) {
     const key = String(ticket)
     const entry = this.byTicket.get(key)
@@ -498,6 +564,7 @@ export class PreviewRegistry {
     }
     this.#stopProxy(entry.servePort)
     this.byTicket.delete(key)
+    this.#persist()
     return { ok: true, withdrawn: true, servePort: entry.servePort }
   }
 
@@ -556,6 +623,7 @@ export class PreviewRegistry {
       this.log(`swept orphan preview rule on :${port} (no live ticket claims it)`)
       swept.push({ servePort: port, ticket: null })
     }
+    this.#persist()
     return { swept, skipped: false }
   }
 }
