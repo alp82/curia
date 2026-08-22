@@ -18,6 +18,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [herdr-handson.md](herdr-handson.md) | herdr booted against the Orca rubric | Superseded — refines [herdr.md](herdr.md); herdr dropped by ADR-0003 |
 | [hermes-agent.md](hermes-agent.md) | Hermes Agent as an adoptable dispatcher platform | Rejected — ADR-0002 keeps the daemon thin, ADR-0001 forbids a second tracker |
 | [hermes-agent-handson.md](hermes-agent-handson.md) | Booting the Hermes dispatcher, kanban, and Discord bridge | Superseded — refines [hermes-agent.md](hermes-agent.md); the adoption branch was dropped |
+| [github-app-manifest.md](github-app-manifest.md) | GitHub App manifest flow for setup from curia's tailnet dashboard | Informational - the flow works, but installation remains a separate operator step |
 | [landscape-scan.md](landscape-scan.md) | Sweep of daemons, bridges, orchestrators, and muxes | Informational — found no replacement candidates |
 | [matt-pocock-skills.md](matt-pocock-skills.md) | The Pocock skill set as worker procedure grammar | Adopted — ADR-0006 vendors the set at `skills/` and installs it into worker configs |
 | [misunderstood-prose.md](misunderstood-prose.md) | Why prose in the main channel is misunderstood: router misparses, wrong handlers, overseer misreads | Informational — grounds the decision on [#518](https://github.com/alp82/curia/issues/518); recommends a grilling ticket on the overseer's command understanding |

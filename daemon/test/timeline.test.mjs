@@ -295,6 +295,24 @@ describe('harness detection + transcript discovery', () => {
     assert.equal(findTranscript('codex', c), path.join(day, 'rollout-2026-07-30T00-00-00-x.jsonl'))
     assert.equal(findTranscript('codex', path.join(tmp, 'cfg', 'empty')), null)
   })
+
+  test('a newer codex subagent rollout does not replace the parent rollout (#545)', () => {
+    const c = path.join(tmp, 'cfg', 'curia-5')
+    const day = path.join(c, 'sessions', '2026', '08', '19')
+    fs.mkdirSync(day, { recursive: true })
+    const parent = path.join(day, 'rollout-2026-08-19T09-01-52-parent.jsonl')
+    const child = path.join(day, 'rollout-2026-08-19T09-01-58-child.jsonl')
+    fs.writeFileSync(parent, `${JSON.stringify({
+      type: 'session_meta', payload: { id: 'parent', thread_source: 'user' },
+    })}\n`)
+    fs.writeFileSync(child, `${JSON.stringify({
+      type: 'session_meta', payload: { id: 'child', thread_source: 'subagent', parent_thread_id: 'parent' },
+    })}\n`)
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(parent, old, old)
+
+    assert.equal(findTranscript('codex', c), parent)
+  })
 })
 
 // ---------------------------------------------------------------------------

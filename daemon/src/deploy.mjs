@@ -79,7 +79,7 @@ export class SelfDeploy {
   // `home` is curia's own HOME, and compose is what states it: `home/` inside
   // the workspace root (#473). The fallback repeats that rule for a run outside
   // compose, where nothing sets HOME — it names no box's home directory.
-  constructor({ repoRoot, dataDir, workRoot, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? path.join(workRoot, 'home'), dockerSocket = '/var/run/docker.sock' }) {
+  constructor({ repoRoot, dataDir, workRoot, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? path.join(workRoot, 'home'), env = process.env, dockerSocket = '/var/run/docker.sock' }) {
     this.repoRoot = repoRoot
     this.dataDir = dataDir
     this.workRoot = workRoot
@@ -88,6 +88,7 @@ export class SelfDeploy {
     this.exec = exec
     this.port = port
     this.home = home
+    this.env = env
     this.dockerSocket = dockerSocket
     this.markerPath = path.join(dataDir, 'deploy.json')
     this.logPath = path.join(dataDir, 'deploy.log')
@@ -123,6 +124,24 @@ export class SelfDeploy {
     const pending = this.readMarker()
     if (pending && !TERMINAL.has(pending.state)) {
       return `⚙️ a deploy is already in flight (${short(pending.prev)} → ${short(pending.next)}, state **${pending.state}**) — its outcome lands in the channel`
+    }
+    // The gate approval uses the operator login from curia's HOME (#564).
+    // Check it at deploy time, before a later gate press needs it.
+    // Remove every override that can make gh ignore that HOME.
+    const hostGhEnv = { ...this.env, HOME: this.home }
+    for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME']) delete hostGhEnv[key]
+    try {
+      await this.exec('gh', ['auth', 'status', '--hostname', 'github.com', '--active'], {
+        env: hostGhEnv,
+        timeout: 30_000,
+      })
+    } catch {
+      return [
+        `❌ deploy refused: gh could not verify curia's GitHub login in \`${this.home}/.config/gh\`.`,
+        `Run \`HOME=${this.home} gh auth status --hostname github.com --active\` over ssh.`,
+        'If the login is absent, seed it as docs/deploy.md says.',
+        'If the login is invalid, repair it.',
+      ].join('\n')
     }
     // The tree, before anything else (#292). A modified tracked file makes the
     // sibling's `git merge --ff-only` refuse the moment an incoming commit
