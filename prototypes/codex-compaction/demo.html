@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#577 — the codex skill catalog under compaction</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --page: #f9f9f7;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --border: rgba(11,11,11,0.10);
+    --good: #0ca30c;
+    --serious: #ec835a;
+    --s1: #2a78d6;  /* developer prefix and messages */
+    --s2: #eb6834;  /* skill catalog */
+    --s3: #1baf7a;  /* standing orders (AGENTS.md) */
+    --s4: #eda100;  /* tool-output bulk */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --page: #0d0d0d; --ink: #ffffff; --ink-2: #c3c2b7;
+      --muted: #898781; --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --page: #0d0d0d; --ink: #ffffff; --ink-2: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --border: rgba(255,255,255,0.10);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--page); color: var(--ink);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 16px 14px 48px; }
+  header h1 { font-size: 19px; line-height: 1.3; margin: 8px 0 2px; }
+  header .ticket { color: var(--ink-2); font-size: 13px; }
+  .verdict {
+    margin: 14px 0 20px; padding: 12px 14px; border-radius: 10px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-left: 4px solid var(--good); font-weight: 600;
+  }
+  .verdict small { display: block; font-weight: 400; color: var(--ink-2); margin-top: 4px; }
+  .tiles { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 22px; }
+  .tile {
+    flex: 1 1 140px; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .tile b { display: block; font-size: 22px; }
+  .tile span { color: var(--ink-2); font-size: 12.5px; line-height: 1.35; display: block; }
+  h2 { font-size: 16px; margin: 26px 0 6px; }
+  p, li { color: var(--ink-2); }
+  p b, li b { color: var(--ink); }
+  .legend { display: flex; gap: 12px 16px; flex-wrap: wrap; margin: 8px 0 10px; font-size: 12.5px; color: var(--ink-2); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  .chart { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px 12px; }
+  .row { display: grid; grid-template-columns: 88px 1fr 58px; gap: 8px; align-items: center; padding: 3px 0; }
+  .row .lbl { font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .row .lbl .compact-badge { color: var(--serious); font-weight: 600; }
+  .row .total { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .bar { display: flex; height: 15px; }
+  .seg { height: 100%; }
+  .seg + .seg { margin-left: 2px; }
+  .seg:last-child { border-radius: 0 4px 4px 0; }
+  .s1 { background: var(--s1); } .s2 { background: var(--s2); }
+  .s3 { background: var(--s3); } .s4 { background: var(--s4); }
+  .cut {
+    margin: 6px 0; padding: 2px 0 2px 96px; font-size: 12px; color: var(--serious);
+    border-bottom: 1px dashed var(--serious);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--grid); }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  details { margin: 10px 0 0; }
+  summary { cursor: pointer; color: var(--ink-2); font-size: 13.5px; }
+  .scroll { overflow-x: auto; }
+  .floorstrip { display: flex; gap: 3px; margin: 10px 0 6px; }
+  .cell { flex: 1; height: 26px; border-radius: 4px; background: var(--s1); position: relative; }
+  .cell.compaction { background: var(--serious); }
+  .cell .t { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--muted); padding-top: 2px; }
+  .band {
+    margin: 22px 0 4px; height: 15px; border-radius: 4px; background: var(--s2);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 11.5px; font-weight: 600;
+  }
+  code { background: var(--surface-1); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; font-size: 13px; }
+  footer { margin-top: 30px; font-size: 12.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div class="ticket">alp82/curia#577 · wayfinder:prototype · codex 0.146.0 · 2026-08-22</div>
+  <h1>Whether the codex skill catalog survives a compaction</h1>
+</header>
+
+<div class="verdict">
+  The catalog survives every compaction, byte for byte. The standing orders survive with it.
+  <small>Eleven compactions across two sessions. The skill catalog was byte-identical on all
+  32 requests, and the AGENTS.md message never lost a character. The #399 pointer mechanism
+  holds under load.</small>
+</div>
+
+<div class="tiles">
+  <div class="tile"><b>11</b><span>compactions forced, real codex CLI, no credential</span></div>
+  <div class="tile"><b>32 / 32</b><span>requests with a byte-identical skill catalog</span></div>
+  <div class="tile"><b>0</b><span>characters lost from the standing orders (AGENTS.md)</span></div>
+</div>
+
+<h2>The main reading: grow, compact, grow again</h2>
+<p>A real <code>codex exec</code> session against a stub model provider. The stub reports the
+token counts codex trusts, and the limit is set to 30,000 tokens. Each turn the scripted model
+reads a 40,000-character file, so the transcript carries bulk a compaction can cut. Every bar
+is one request the model would have read, decomposed by what is in it.</p>
+
+<div class="legend">
+  <span><i class="s1"></i>developer prefix and messages</span>
+  <span><i class="s2"></i>skill catalog</span>
+  <span><i class="s3"></i>standing orders (AGENTS.md)</span>
+  <span><i class="s4"></i>tool-output bulk</span>
+</div>
+
+<div class="chart" id="mainChart"></div>
+
+<p style="font-size:13px">The dashed lines mark the three compactions. After each one the
+bulk is gone, the input falls from about 124,000 characters to about 43,000, and the orange
+catalog segment comes back unchanged: 7,525 characters, identical to request one.</p>
+
+<details>
+  <summary>The numbers behind the bars (table view)</summary>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>req</th><th>turn</th><th>kind</th><th class="n">catalog</th><th class="n">identical</th><th class="n">AGENTS.md</th><th class="n">bulk</th><th class="n">input chars</th></tr></thead>
+    <tbody id="mainTable"></tbody>
+  </table>
+  </div>
+</details>
+
+<h2>The stress case: eight compactions in nine turns</h2>
+<p>The limit is set to 9,000 tokens, below the developer prefix itself, so codex must compact
+on every turn and can never win. It compacts once per turn and proceeds. The eighth compaction
+behaves exactly like the first.</p>
+
+<div class="floorstrip" id="floorStrip"></div>
+<div style="height:16px"></div>
+<div class="legend">
+  <span><i style="background:var(--s1)"></i>ordinary request</span>
+  <span><i style="background:var(--serious)"></i>compaction request</span>
+</div>
+<div class="band">skill catalog: 7,469 chars, byte-identical on all 17 requests</div>
+
+<h2>Why it survives</h2>
+<p>The reason is structural, read off the wire. Codex rebuilds its developer prefix fresh on
+every request. The catalog is world state, not conversation. A compaction cuts conversation
+only. The first request after a compaction:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>item</th><th class="n">chars</th><th>fate</th></tr></thead>
+  <tbody>
+    <tr><td>base instructions</td><td class="n">17,730</td><td>rebuilt fresh, unchanged</td></tr>
+    <tr><td>first user message (the dispatch anchor)</td><td class="n">31</td><td><b>kept verbatim</b></td></tr>
+    <tr><td>permissions + <b>skill catalog</b></td><td class="n">362 + 7,525</td><td>rebuilt fresh, unchanged</td></tr>
+    <tr><td>team and multi-agent notes</td><td class="n">2,454</td><td>rebuilt fresh, unchanged</td></tr>
+    <tr><td><b>AGENTS.md instructions</b> + environment</td><td class="n">14,138 + 387</td><td>rebuilt fresh, unchanged</td></tr>
+    <tr><td>the turn's user message</td><td class="n">20</td><td>kept</td></tr>
+    <tr><td>summary bridge</td><td class="n">648</td><td>new: wraps the handoff summary</td></tr>
+    <tr><td>assistant messages, tool calls, tool results</td><td class="n">80,000+</td><td><b>cut</b></td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>What follows for curia</h2>
+<ul>
+  <li><b>Nothing has to be rethought.</b> The pointer re-arms on every turn, before and after
+  any number of compactions.</li>
+  <li><b>The dispatch anchor survives.</b> Codex keeps the first user message verbatim, so a
+  dispatch never loses the line that names <code>prompt.md</code>.</li>
+  <li><b>Skill bodies do not survive.</b> A skill file read is conversation, so a compaction
+  cuts it. The catalog pointer then tells the model to read the file again. That is the
+  mechanism working as designed.</li>
+</ul>
+
+<h2>What this does not answer</h2>
+<ul>
+  <li>A real model's choices after a compaction. The stub scripts the model, so re-read
+  frequency after a cut needs a credential, as #461's frequency did.</li>
+  <li>The TUI lane. This is <code>codex exec</code> plus <code>resume</code>, the lane curia
+  dispatches on.</li>
+  <li>A future codex. The rebuild lives in the CLI, so a version bump owes a re-run. The
+  probe is committed beside this page.</li>
+</ul>
+
+<footer>
+  Instrument: #399's stub Responses API, plus two levers: the stub reports the usage codex
+  trusts, and <code>model_auto_compact_token_limit</code> forces the crossing. Compactions
+  were recognized by codex's own instruction text on the wire and corroborated by eight
+  <code>compacted</code> records in the rollout. Re-run:
+  <code>node prototypes/codex-compaction/probe.mjs all</code>
+</footer>
+</main>
+
+<script>
+  // The compact case, off the wire: [req, turn, kind, catalog, agents, bulk, summary, total]
+  const CATALOG = 7525, AGENTS = 14138;
+  const rows = [
+    [1, 1, 'turn', 0, 0, 42627],
+    [2, 1, 'turn', 40232, 0, 82859],
+    [3, 2, 'turn', 40232, 0, 82881],
+    [4, 2, 'compaction', 80464, 0, 123539],
+    [5, 2, 'turn', 0, 648, 43295],
+    [6, 3, 'turn', 0, 648, 43319],
+    [7, 3, 'turn', 40232, 648, 83551],
+    [8, 4, 'turn', 40232, 648, 83574],
+    [9, 4, 'compaction', 80464, 648, 124232],
+    [10, 4, 'turn', 0, 648, 43338],
+    [11, 5, 'turn', 0, 648, 43361],
+    [12, 5, 'turn', 40232, 648, 83593],
+    [13, 6, 'turn', 40232, 648, 83615],
+    [14, 6, 'compaction', 80464, 648, 124273],
+    [15, 6, 'turn', 0, 648, 43379],
+  ];
+  const MAX = 124273;
+  const chart = document.getElementById('mainChart');
+  const tbody = document.getElementById('mainTable');
+  const fmt = (n) => n.toLocaleString('en-US');
+  rows.forEach(([req, turn, kind, bulk, summary, total]) => {
+    const other = total - CATALOG - AGENTS - bulk;
+    const row = document.createElement('div');
+    row.className = 'row';
+    const segs = [[other, 's1', 'developer prefix and messages'], [CATALOG, 's2', 'skill catalog'],
+                  [AGENTS, 's3', 'standing orders'], [bulk, 's4', 'tool-output bulk']]
+      .filter(([v]) => v > 0)
+      .map(([v, c, name]) => `<div class="seg ${c}" style="width:${(v / MAX * 100).toFixed(2)}%" title="req ${req}: ${name} — ${fmt(v)} chars"></div>`)
+      .join('');
+    const badge = kind === 'compaction' ? ' <span class="compact-badge">⟲ compaction</span>' : '';
+    row.innerHTML = `<div class="lbl">req ${req} · t${turn}${badge}</div><div class="bar">${segs}</div><div class="total">${fmt(total)}</div>`;
+    chart.appendChild(row);
+    if (kind === 'compaction') {
+      const cut = document.createElement('div');
+      cut.className = 'cut';
+      cut.textContent = `compaction: ${fmt(bulk)} chars of bulk cut, catalog unchanged`;
+      chart.appendChild(cut);
+    }
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${req}</td><td>${turn}</td><td>${kind}</td><td class="n">${fmt(CATALOG)}</td>` +
+      `<td class="n">yes</td><td class="n">${fmt(AGENTS)}</td><td class="n">${fmt(bulk)}</td><td class="n">${fmt(total)}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  // The floor case: 17 requests, compactions at every even request from 2 to 16.
+  const strip = document.getElementById('floorStrip');
+  for (let i = 1; i <= 17; i += 1) {
+    const compaction = i >= 2 && i <= 16 && i % 2 === 0;
+    const cell = document.createElement('div');
+    cell.className = 'cell' + (compaction ? ' compaction' : '');
+    cell.title = `request ${i}: ${compaction ? 'compaction' : 'ordinary turn'}, catalog 7,469 chars, identical`;
+    if (i === 1 || i === 17) cell.innerHTML = `<span class="t">${i}</span>`;
+    strip.appendChild(cell);
+  }
+</script>
+</body>
+</html>
