@@ -56,7 +56,15 @@ a grammar slip in the first-screen paragraph, the harness fact line names Pi and
 `config/routing.yaml` does not ship today, "PR" beside a page that says pull request, a "just"
 plus a contraction in the rejection fact line, and the honesty line dropping "manual today,
 packaging coming" which positioning.md keeps. Docker in the need line checked out: the README
-setup path is the compose stack now.
+setup path is the compose stack now. The operator ruled: the headline stays their line, the
+grammar fix is taken, the four-harness line stays as written because support is there soon, the
+caption fix is taken but the rejection line stays as written, the need line becomes "One Linux
+box with Docker, Tailscale, a Discord server and your coding agent subscription", and the honesty
+line stays without the manual-today clause. positioning.md records the overrides with this ticket.
+
+**Round 4.** Two drifts against locked decisions, named before the gate: the picked dogfood line
+carries no regenerated count and no pull-request link, which the storyboard locked, and the three
+claim bold lines no longer carry the claim wording that positioning.md keeps.
 
 ## The verdict
 

@@ -377,14 +377,14 @@ var SCENES = [
    ================================================================ */
 
 var PICKED = {
-  '1.kicker': 'A', '1.headline': 'P', '1.sub': 'P', '1.skills': 'B', '1.btns': 'C',
+  '1.kicker': 'A', '1.headline': 'P', '1.sub': 'R', '1.skills': 'B', '1.btns': 'C',
   '2.line': 'P',
   '3.bold': 'E', '3.line': 'B', '3.fact': 'E',
   '4.bold': 'D', '4.line': 'P', '4.fact': 'P',
   '5.line': 'P', '5.fact': 'P',
   '6.line': 'P',
   '7.line': 'P', '7.fact': 'P',
-  '8.bold': 'P', '8.caption': 'P', '8.fact': 'P', '8.dogfood': 'P',
+  '8.bold': 'P', '8.caption': 'R', '8.fact': 'P', '8.dogfood': 'P',
   '9.bold': 'E', '9.fact': 'P',
   '10.bold': 'C', '10.fact': 'P',
   '11.heading': 'A', '11.need': 'P', '11.honesty': 'P',
@@ -397,7 +397,7 @@ var ADDED = {
     { l: 'R', t: 'Your coding agents, controlled from your phone.' }
   ],
   '1.sub': [
-    { l: 'P', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatching parallel agent without losing track.', pick: true },
+    { l: 'P', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatching parallel agent without losing track.' },
     { l: 'R', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatch parallel agents without losing track.' }
   ],
   '2.line': [{ l: 'P', t: 'The backlog panic grows', pick: true }],
@@ -413,7 +413,7 @@ var ADDED = {
   ],
   '8.bold': [{ l: 'P', t: 'You are in charge', pick: true }],
   '8.caption': [
-    { l: 'P', t: 'Your approval merges the PR and closes the ticket', pick: true },
+    { l: 'P', t: 'Your approval merges the PR and closes the ticket' },
     { l: 'R', t: 'Your approval merges the pull request and closes the ticket' }
   ],
   '8.fact': [
@@ -424,8 +424,7 @@ var ADDED = {
   '9.fact': [{ l: 'P', t: 'four agents at once on a small box · about 0.5 GB each', pick: true }],
   '10.fact': [{ l: 'P', t: 'Your box, your subscription, your keys.', pick: true }],
   '11.need': [
-    { l: 'P', t: 'One Linux box, Docker, Tailscale, Discord, your coding agent subscription', pick: true },
-    { l: 'R', t: 'One Linux box with Docker, Tailscale, a Discord server, your coding agent subscription, and an evening.' }
+    { l: 'P', t: 'One Linux box with Docker, Tailscale, a Discord server and your coding agent subscription', pick: true }
   ],
   '11.honesty': [
     { l: 'P', t: 'All steps are described in the set up guide', pick: true },
