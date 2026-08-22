@@ -29,10 +29,16 @@ function fakeStore() {
 // A git/docker double: answers rev-parse from `shas`, throws where the
 // scenario says so, and records every docker invocation. `dirty` is what
 // `git status --porcelain` prints — the clean tree is the empty string.
-function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', show = {} } = {}) {
+function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', show = {}, ghAuthOk = true } = {}) {
   const docker = []
   const git = []
-  const exec = async (file, args) => {
+  const gh = []
+  const exec = async (file, args, options = {}) => {
+    if (file === 'gh') {
+      gh.push({ args, options })
+      if (!ghAuthOk) throw new Error('not logged into any GitHub hosts')
+      return { stdout: '' }
+    }
     if (file === 'git') {
       git.push(args)
       const verb = args[0]
@@ -59,7 +65,7 @@ function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null,
     }
     throw new Error(`unexpected exec: ${file} ${args.join(' ')}`)
   }
-  return { exec, docker, git }
+  return { exec, docker, git, gh }
 }
 
 function build(opts = {}) {
@@ -68,12 +74,17 @@ function build(opts = {}) {
   const sock = path.join(dataDir, 'docker.sock')
   fs.writeFileSync(sock, '')
   const reduction = fakeStore()
-  const { exec, docker, git } = fakeExec(opts)
+  const { exec, docker, git, gh } = fakeExec(opts)
   const deploy = new SelfDeploy({
     repoRoot: opts.repoRoot ?? '/home/alp/curia', dataDir, workRoot: '/home/alp/curia-work', reduction, exec,
-    log: () => {}, port: 4271, home: '/home/alp', dockerSocket: sock,
+    log: () => {}, port: 4271, home: '/home/alp/curia-work/home',
+    env: {
+      PATH: '/usr/bin', GH_TOKEN: 'minted', GITHUB_TOKEN: 'fallback',
+      GH_CONFIG_DIR: '/wrong/gh', XDG_CONFIG_HOME: '/wrong/xdg',
+    },
+    dockerSocket: sock,
   })
-  return { deploy, reduction, docker, git, dataDir }
+  return { deploy, reduction, docker, git, gh, dataDir }
 }
 
 describe('parse and expansion', () => {
@@ -89,6 +100,29 @@ describe('parse and expansion', () => {
 })
 
 describe('the daemon half: preflight and hand-off', () => {
+  test('the preflight checks the active host login from curia home', async () => {
+    const { deploy, gh, docker } = build()
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /deploy handed off/)
+    assert.equal(gh.length, 1)
+    assert.deepEqual(gh[0].args, ['auth', 'status', '--hostname', 'github.com', '--active'])
+    assert.equal(gh[0].options.env.HOME, '/home/alp/curia-work/home')
+    for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME']) {
+      assert.equal(Object.hasOwn(gh[0].options.env, key), false, key)
+    }
+    assert.equal(docker.length, 1)
+  })
+
+  test('a missing or invalid host login refuses the deploy before git runs', async () => {
+    const { deploy, git, docker } = build({ ghAuthOk: false })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /deploy refused: gh could not verify curia's GitHub login/)
+    assert.match(reply, /HOME=\/home\/alp\/curia-work\/home gh auth status/)
+    assert.equal(git.length, 0)
+    assert.equal(docker.length, 0)
+    assert.equal(deploy.readMarker(), null)
+  })
+
   test('an up-to-date checkout deploys nothing', async () => {
     const { deploy, reduction, docker } = build({ head: PREV, origin: PREV })
     const reply = await deploy.run({ by: 'u1' })
