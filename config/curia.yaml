@@ -20,7 +20,9 @@ dispatch:
   # number now: ~0.3-0.5 GB per agent plus ~0.3 GB per preview dev server
   # against 8 GB. Quota stays bounded separately by #13's reactive cooling.
   # The long-lived tenant is a grilling ticket (N blocking questions), not review.
-  max_concurrent: 6
+  # #571: the operator raised the default to 10 with the overseer-pane decision
+  # (ADR-0024). Live overseer panes have their own cap, a settings default of 3.
+  max_concurrent: 10
   poll_interval_s: 60
   workspace_root: /home/alp/curia-work # daemon-owned; never Alp's working tree
   ready_timeout_s: 45

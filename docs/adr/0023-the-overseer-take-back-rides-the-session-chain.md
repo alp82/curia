@@ -1,6 +1,6 @@
 # ADR-0023: The overseer take back rides the session chain
 
-**Status**: accepted (2026-08)
+**Status**: superseded by [ADR-0024](0024-the-overseer-chat-is-a-pane.md) (2026-08). The take-back policy stands and ADR-0024 carries it. The journal-append mechanism retires.
 **Provenance**: [The overseer chat rewind, and the two chat handlings (#543)](https://github.com/alp82/curia/issues/543), on [map #511](https://github.com/alp82/curia/issues/511), extending [ADR-0021](0021-the-take-back-is-the-harness-rewind.md) (#516).
 
 ## Context
