@@ -31,6 +31,14 @@ python3 -m http.server 9000 --bind 0.0.0.0 --directory prototypes/story-page
 
 <!-- One entry per operator round: what was offered, what came back. -->
 
+**Round 1.** The full page against the preview, and four decisions. The operator took all four
+recommendations in one reply. The scene 7 line keeps the four harness names, and the cutover
+ticket ([#604](https://github.com/alp82/curia/issues/604)) checks `config/routing.yaml` on cutover
+day: if `pi` and `opencode` have not landed, the line becomes a two-name line before the page goes
+live. The dogfood links stand: "planned, decided" points at map #109, which chains to map #600,
+and "written" points at the merged pull request list. The five condensed setup steps, new words of
+this ticket, stand as shown. No scene needs another round.
+
 ## The verdict
 
 <!-- Filled at resolution. -->
