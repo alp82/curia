@@ -138,6 +138,8 @@ export class Reduction {
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
     this.spawnFailures = new Map() // ticket -> its consecutive failed spawns (#444)
+    this.releasedDeathCountsByTicket = new Map() // ticket -> released deaths after tool traffic (#578)
+    this.speakingAgents = new Set() // agents whose current epoch reached the tool channel (#578)
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
     this.tokenWarnings = new Map() // credential key -> the last warning curia said about it (#380)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
@@ -272,6 +274,24 @@ export class Reduction {
     }
     if (ev.ticket != null && (ev.type === 'agent_mcp_first' || (ev.type === 'dispatch_claimed' && ev.by !== 'auto'))) {
       this.spawnFailures.delete(String(ev.ticket))
+    }
+
+    // A released death after tool traffic gets one automatic resume (#578).
+    // The second such death holds the ticket for an operator command.
+    if (ev.agent && (ev.type === 'dispatch_claimed' || ev.type === 'agent_spawned')) {
+      this.speakingAgents.delete(ev.agent)
+    }
+    if (ev.agent && ev.type === 'agent_mcp_first') this.speakingAgents.add(ev.agent)
+    if (ev.ticket != null && ev.type === 'agent_died_released') {
+      const key = String(ev.ticket)
+      const held = this.releasedDeathCountsByTicket.get(key)
+      this.releasedDeathCountsByTicket.set(key, {
+        repo: ev.repo ?? held?.repo ?? null,
+        count: (held?.count ?? 0) + 1,
+      })
+    }
+    if (ev.ticket != null && ev.type === 'dispatch_claimed' && ev.by !== 'auto') {
+      this.releasedDeathCountsByTicket.delete(String(ev.ticket))
     }
 
     // The cooling curia has already MEASURED (#377). A reduction for the reason
@@ -1278,6 +1298,21 @@ export class Reduction {
   // the auto loop steps over, and one operator press is what clears each.
   spawnFailureCounts() {
     return [...this.spawnFailures.entries()].map(([ticket, v]) => ({ ticket, repo: v.repo, failures: v.count }))
+  }
+
+  // Whether this agent reached the tool channel in its current dispatch.
+  agentSpoke(agent) {
+    return this.speakingAgents.has(agent)
+  }
+
+  // Released deaths after tool traffic, since the last typed dispatch (#578).
+  releasedDeaths(ticket) {
+    return this.releasedDeathCountsByTicket.get(String(ticket))?.count ?? 0
+  }
+
+  releasedDeathCounts() {
+    return [...this.releasedDeathCountsByTicket.entries()]
+      .map(([ticket, v]) => ({ ticket, repo: v.repo, deaths: v.count }))
   }
 
   // Every landed cap the journal states, as `{ models, providers }` of

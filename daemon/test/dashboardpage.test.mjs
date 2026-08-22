@@ -322,6 +322,14 @@ describe('the read screens (#264)', () => {
       assert.equal(page.needsYou(one.overview), 3)
     })
 
+    test('a ticket whose automatic resume died names that cause on the attention list', () => {
+      const one = payload({ dispatch_holds: [{ ticket: '578', repo: 'alp82/curia', deaths: 2 }] })
+      const t = text(page.screenHome(one))
+      assert.match(t, /automatic resume also died, so auto-dispatch steps over it/)
+      assert.match(t, /resume you type dispatches it again and clears the count/)
+      assert.equal(page.needsYou(one.overview), 3)
+    })
+
     test('the needs-you count is escalations plus the gate, and the tab title carries it', () => {
       assert.equal(page.needsYou(payload().overview), 2)
       assert.equal(page.needsYou(payload({ escalations: [], review_gate: [] }).overview), 0)

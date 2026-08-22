@@ -166,6 +166,9 @@ function makeDispatcher(deps = {}, {
     // deploy allowed in between.
     failedSpawns: (ticket) => journal.failedSpawns(ticket),
     spawnFailureCounts: () => journal.spawnFailureCounts(),
+    releasedDeaths: (ticket) => journal.releasedDeaths(ticket),
+    releasedDeathCounts: () => journal.releasedDeathCounts(),
+    agentSpoke: (agent) => journal.agentSpoke(agent),
     // #377, for the same reason: the cooling the dispatcher seeds itself from
     // at construction is the real reduction over the real journal.
     armedCoolings: () => journal.armedCoolings(),
@@ -5671,6 +5674,51 @@ describe('agent-liveness sweep (#138)', () => {
     const d = makeDispatcher()
     const { recent } = await d.status()
     assert.deepEqual(recent, [{ kind: 'died', repo: 'o/r', ticket: '7' }])
+  })
+
+  test('one auto resume follows a released death, then a second released death holds the ticket', async () => {
+    const MAP = [{ number: 1, state: 'open', labels: [{ name: 'wayfinder:map' }] }]
+    const child = {
+      number: 42, state: 'open', assignees: [], labels: [{ name: 'wayfinder:task' }],
+      issue_dependencies_summary: { blocked_by: 0 },
+    }
+    let assigned = false
+    let live = false
+    let claims = 0
+    const d = makeDispatcher({
+      repoMaps: async () => MAP,
+      mapFrontier: async () => [child],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: assigned ? [{ login: 'me' }] : [] }),
+      claim: async () => { assigned = true; claims += 1 },
+      unclaim: async () => { assigned = false },
+      hasSession: async () => live,
+      newSession: async () => { live = true },
+    })
+
+    await d.start('42', { repo: 'o/r', by: 'alp82' })
+    d.onMcpCall('curia-42')
+    live = false
+    await d.livenessSweep()
+
+    assert.equal(d.reduction.releasedDeaths('42'), 1)
+    assert.deepEqual(d.dispatchHolds(), [], 'the first death buys one automatic resume')
+
+    await d.resume('42', { repo: 'o/r', by: 'auto' })
+    d.onMcpCall('curia-42')
+    live = false
+    await d.livenessSweep()
+
+    assert.equal(d.reduction.releasedDeaths('42'), 2)
+    assert.deepEqual(d.dispatchHolds(), [{ ticket: '42', repo: 'o/r', deaths: 2 }])
+    assert.equal(events.filter((e) => e.type === 'death_resume_held').length, 1)
+    assert.equal(notifies.filter((n) => /automatic resume also died/.test(n.message)).length, 1)
+
+    d.config.dispatch.auto_dispatch = true
+    d.config.dispatch.poll_interval_s = 0.05
+    d.startAutoLoop()
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    d.stopAutoLoop()
+    assert.equal(claims, 2, 'later ticks spend no claim or container')
   })
 })
 

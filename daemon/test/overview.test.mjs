@@ -625,6 +625,48 @@ describe('the failed spawns of a ticket (#444)', () => {
   })
 })
 
+describe('the released deaths of a ticket (#578)', () => {
+  let dir
+  const reduction = () => new Reduction(dir)
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-578-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('the count is per ticket and survives a daemon restart', () => {
+    const s = reduction()
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 43, agent: 'curia-43' })
+
+    assert.equal(reduction().releasedDeaths(42), 2)
+    assert.deepEqual(reduction().releasedDeathCounts(), [
+      { ticket: '42', repo: 'o/r', deaths: 2 },
+      { ticket: '43', repo: 'o/r', deaths: 1 },
+    ])
+  })
+
+  test('a typed dispatch clears the count and an auto dispatch does not', () => {
+    const s = reduction()
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    assert.equal(s.releasedDeaths(42), 1)
+
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'alp82' })
+    assert.equal(s.releasedDeaths(42), 0)
+  })
+
+  test('tool traffic belongs only to the current dispatch and survives a daemon restart', () => {
+    const s = reduction()
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    s.journal('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('agent_mcp_first', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    assert.equal(reduction().agentSpoke('curia-42'), true)
+
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    assert.equal(s.agentSpoke('curia-42'), false)
+  })
+})
+
 // The cap has to outlive the process that measured it (#377), for the reason
 // the arm above does: a 5-hour window outlives a deploy. Both events already
 // carried `reset_at`; this is the read side.

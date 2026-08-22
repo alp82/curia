@@ -144,6 +144,11 @@ It binds the AUTO LOOP only. A `start` or a `resume` the operator types dispatch
 Three surfaces name it: the journal events `dispatch_failed` and `dispatch_held`, one line in the ticket thread at the instant the step-over arms, and a row on the dashboard Needs-you list beside a line in Discord `status`. It is COUNTED in Needs-you, where a cooling hold is not, because an operator act is the only thing that ends it. Two is the cap the operator settled on. One would park a ticket on a single GitHub blip, and the loop cannot tell a blip from a fault. See [#444](https://github.com/alp82/curia/issues/444).
 _Avoid_: backoff, retry cap.
 
+**Death-resume step-over**:
+The rule that stops repeated automatic resumes after an agent reached the tool channel and died. The first released death gets one automatic resume. If that agent also dies after tool traffic, the auto loop steps over the ticket.
+It binds only the auto loop. A `start` or `resume` command from the operator clears the count. The journal stores `agent_died_released` and `death_resume_held`, so a daemon restart does not lose the count. The thread states the hold once. Discord status and the dashboard Needs-you list keep the hold visible. See [#578](https://github.com/alp82/curia/issues/578).
+_Avoid_: failed spawn (that agent never reached the tool channel).
+
 **Overseer**:
 The command brain of curia. The standing design is one brain with three skins (Discord, text, voice). The shipped daemon uses a deterministic router instead.
 

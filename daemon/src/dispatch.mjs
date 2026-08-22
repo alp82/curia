@@ -261,6 +261,10 @@ export const CHARTING_WRITE_PREFIX = 'docs/research/'
 // containers and then nothing.
 export const FAILED_SPAWN_CAP = 2
 
+// One released death gets one automatic resume. A second death needs an
+// operator command, which starts a new count.
+export const RELEASED_DEATH_CAP = 2
+
 // How many trailing pane lines the two pane classifiers are allowed to see.
 const PANE_TAIL_LINES = 20
 
@@ -2925,10 +2929,22 @@ export class Dispatcher {
     this.notify(n, `⚠️ ${repo ? `${repo}#${n}` : `#${n}`} died at the spawn ${failures} times in a row, so auto-dispatch steps over it now. Fix the cause, then \`start ${n}\` or \`resume ${n}\` — a dispatch you type clears the count, and so does an agent that reaches its curia tools.`)
   }
 
+  // Record a death after tool traffic. The first death buys one automatic
+  // resume. The second death stops the auto loop until the operator acts.
+  #releasedDeath({ repo, ticket, agent }) {
+    const n = String(ticket)
+    this.reduction.journal('agent_died_released', { repo, ticket: n, agent })
+    const deaths = this.reduction.releasedDeaths?.(n) ?? 0
+    if (deaths !== RELEASED_DEATH_CAP) return
+    this.reduction.journal('death_resume_held', { repo, ticket: n, deaths })
+    this.notify(n, `⚠️ ${repo ? `${repo}#${n}` : `#${n}`} died after it spoke, and its automatic resume also died. Auto-dispatch steps over it now. Type \`resume ${n}\` to try again and clear the count.`)
+  }
+
   // Does the auto loop step over this ticket? The count is the journal's, so the
   // answer survives the deploy that happens between the failures and the tick.
   #steppedOver(ticket) {
     return (this.reduction.failedSpawns?.(ticket) ?? 0) >= FAILED_SPAWN_CAP
+      || (this.reduction.releasedDeaths?.(ticket) ?? 0) >= RELEASED_DEATH_CAP
   }
 
   // Every ticket the auto loop steps over, for the surfaces that say so (#444):
@@ -2936,8 +2952,12 @@ export class Dispatcher {
   // operator act, which is what puts it on the Needs-you list where a cooling
   // hold does not belong.
   dispatchHolds() {
-    return (this.reduction.spawnFailureCounts?.() ?? [])
+    const spawns = (this.reduction.spawnFailureCounts?.() ?? [])
       .filter((r) => r.failures >= FAILED_SPAWN_CAP)
+    const heldTickets = new Set(spawns.map((r) => String(r.ticket)))
+    const deaths = (this.reduction.releasedDeathCounts?.() ?? [])
+      .filter((r) => r.deaths >= RELEASED_DEATH_CAP && !heldTickets.has(String(r.ticket)))
+    return [...spawns, ...deaths]
   }
 
   // What a failure message says about the claim after #releaseClaim ran. Two
@@ -5675,6 +5695,7 @@ export class Dispatcher {
   // evidence.
   async #onAgentDied(w, { status = null, excerpt = '' } = {}) {
     const { session, ticket, repo } = w
+    const spoke = Boolean(w.mcpSeenAt) || Boolean(this.reduction.agentSpoke?.(session))
     // How the death reads in the thread: measured when the marker gave one,
     // and the old wording when only the absence is known.
     const cause = status !== null
@@ -5748,6 +5769,7 @@ export class Dispatcher {
         // resumes it as #376 says. A kept claim is off the frontier already.
         if (outcome === 'released') {
           this.#failedSpawn({ repo, ticket, agent: session, reason: 'the agent died without reporting a result' })
+          if (spoke) this.#releasedDeath({ repo, ticket, agent: session })
         }
       } catch (e) {
         claimLine = `the claim decision failed (${e.message}) — reconcile will retry`
