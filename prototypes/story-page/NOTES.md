@@ -39,6 +39,24 @@ live. The dogfood links stand: "planned, decided" points at map #109, which chai
 and "written" points at the merged pull request list. The five condensed setup steps, new words of
 this ticket, stand as shown. No scene needs another round.
 
+**Round 2.** The review gate came back rejected, with notes across the whole page: the hero
+animation is too small and too spread, the mess scene does not transport, the order scene is not
+narrated and misses the blocked tickets, the section titles have no design or visual identity,
+titles must come before their evidence, the Discord scene must look 100% real and assemble on
+scroll, the phone preview needs real content and an auto-cycling switcher, the atlas should show
+one map with its tickets, the two TUIs must match their real counterparts, the horizontal
+scroll hijack of scene 8 is bad, the VPS scene explains too little, and the whole page needs a
+unique visual identity. The operator also wants the Matt Pocock wrapper claim promoted into the
+hero title, which would override the locked headline of #587. The operator did not want these
+groups iterated in one session, so the iteration splits into follow-up tickets on the map.
+
+**Round 3.** The split is confirmed, all as recommended: eight follow-up tickets on the map, one
+identity ticket first and then one per scene group, chained one at a time. The last one unblocks
+the cutover ([#604](https://github.com/alp82/curia/issues/604)). This ticket merges the baseline
+candidate and closes, so every follow-up edits the same base. The hero-title override is
+confirmed: the opening-arc ticket offers titles that lead with the Matt Pocock wrapper claim, and
+positioning.md records the change with that ticket.
+
 ## The verdict
 
 <!-- Filled at resolution. -->
