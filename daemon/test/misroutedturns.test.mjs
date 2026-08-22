@@ -90,6 +90,7 @@ describe('the production journal scan (#549)', () => {
   test('the scan lists the three requested event classes', () => {
     const file = journal([
       { ts: '2026-08-01T23:00:00.000Z', type: 'command', canonical: 'cancel curia#1', by: 'operator' },
+      { ts: '2026-08-04T21:00:00.000Z', type: 'command', canonical: 'start curia#1 -- update the map', by: 'operator' },
       { ts: '2026-08-06T10:00:00.000Z', type: 'command', canonical: 'map 147 add one ticket', by: 'overseer' },
       { ts: '2026-08-12T10:00:00.000Z', type: 'command', canonical: 'cancel curia#2', by: 'operator' },
       { ts: '2026-08-12T10:01:00.000Z', type: 'command', canonical: 'status', by: 'operator' },
@@ -108,7 +109,7 @@ describe('the production journal scan (#549)', () => {
     ])
     assert.deepEqual(result.typedVerbThreads.map((event) => event.prompt), ['status'])
     assert.deepEqual(result.commandShapedNotes.map((event) => event.text), ['cancel 2'])
-    assert.equal(result.unavailable.commandReplies, 3)
+    assert.equal(result.unavailable.commandReplies, 4)
     assert.equal(result.unavailable.refusedNoteTexts, 1)
   })
 

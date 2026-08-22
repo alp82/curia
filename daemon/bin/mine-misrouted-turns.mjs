@@ -15,6 +15,8 @@ export const DEFAULT_AFTER = '2026-08-01T23:59:59.999Z'
 // that this rule finds. The journal does not record the deployed Git ref until
 // self-deploy arrives, so the commit time is the available boundary.
 const MAP_SEPARATOR_RETIRED_AT = '2026-08-10T11:08:42.000Z'
+const START_INSTRUCTION_RETIRED_AT = '2026-08-05T08:59:11.000Z'
+const BACKEND_OPTION_RETIRED_AT = '2026-08-04T23:48:41.000Z'
 
 const REPOISH_RE = /^[\w./-]+$/
 const CHAT_HANDLE_RE = /^chat-\d+$/
@@ -138,8 +140,24 @@ function historicalMapRefusal(text, ts) {
   return tail.some((part) => !/^model=[\w.-]+$/.test(part))
 }
 
+function historicalStartAccepted(text, ts) {
+  const parts = (text ?? '').trim().split(/\s+/).filter(Boolean)
+  if (parts[0] !== 'start' || !/^(\d+|[\w.-]+(?:\/[\w.-]+)?#\d+)$/.test(parts[1] ?? '')) return false
+  const tail = parts.slice(2)
+  const separator = tail.indexOf('--')
+  const options = separator === -1 ? tail : tail.slice(0, separator)
+  if (options.some((part) => !/^(model|backend)=[\w.-]+$/.test(part))) return false
+  const usesBackend = options.some((part) => part.startsWith('backend='))
+  const usesInstruction = separator !== -1 && tail.slice(separator + 1).join(' ').trim()
+  if (separator !== -1 && !usesInstruction) return false
+  if (usesBackend && ts >= BACKEND_OPTION_RETIRED_AT) return false
+  if (usesInstruction && ts >= START_INSTRUCTION_RETIRED_AT) return false
+  return Boolean(usesBackend || usesInstruction)
+}
+
 function commandRefusal(event) {
   if (historicalMapRefusal(event.canonical, event.ts)) return 'the historical map parser required --'
+  if (historicalStartAccepted(event.canonical, event.ts)) return null
   if (!parseCurrentCommand(event.canonical)) return 'the current parser refuses this line'
   return null
 }
@@ -249,7 +267,7 @@ export function formatReport(result) {
     '### Data limits',
     '',
     `- The journal stores ${result.unavailable.commandReplies} command inputs without their replies. Semantic refusals are unavailable.`,
-    '- Historical map refusals use the grammar change commit time. Early rows store no deployed Git ref.',
+    '- Historical grammar changes use commit times. Early rows store no deployed Git ref.',
     `- ${result.unavailable.earlyThreadPrompts} early overseer sessions have no stored prompt. Their typed verbs are unavailable.`,
     `- ${result.unavailable.refusedNoteTexts} refused agent notes have no stored text. Their command shape is unavailable.`,
   ]
