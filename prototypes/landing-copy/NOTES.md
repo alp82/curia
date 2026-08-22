@@ -36,9 +36,16 @@ python3 -m http.server 9021 --bind 0.0.0.0 --directory prototypes/landing-copy
 <!-- One entry per operator round: what was offered, what came back. -->
 
 **Round 1.** Twelve questions, one per scene, against the preview. Each slot offered the current
-line beside new candidates, with a recommendation per scene: keep the approved claim lines and the
-promise, shorten the first-screen paragraph, take the personal mess line, and fold the stats into
-one dogfood line with the count regenerated on build day.
+line beside two or three new candidates, with a recommendation per scene. The operator redirected
+the round: the headline candidates were all rejected, and the operator asked for different
+directions after different qualities, five variations per slot, a free-type row for their own
+lines, a "nothing lands" headline choice, and copy buttons to report picks with. The eleven other
+questions return in round 2.
+
+**Round 2.** The page rebuilt: five to six candidates per slot, the headline in six directions
+each named after its quality (the promise, motion, presence, rigor, the pipeline, ownership,
+with "Nothing lands without you." as the rigor one), a `mine` input row on every slot, a copy
+button on every row, and a Copy-my-picks bar that copies every pick on the page in one block.
 
 ## The verdict
 
