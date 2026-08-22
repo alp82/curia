@@ -6,11 +6,11 @@
 <title>#588 The frontier visual — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#588 "The frontier visual, iterated
-  from the maps mock". Round 2: five layouts of the route line (1a-1e)
-  and five of the edge (3a-3e), on the decided maps screen (#522), V6
-  tokens from #519. The round-1 cuts sit behind them for reference.
-  Desktop now caps the content column, which was the round-1 sizing
-  fault on the edge. Switch via ?v=, width via ?w=, color via ?mode=.
+  from the maps mock". Round 3: five cuts with the frontier in focus
+  (A-E), after the operator reversed the cross-section and pulled the
+  eye off the walked block. Rounds 1 and 2 sit behind for reference.
+  Decided maps screen (#522), V6 tokens (#519).
+  Switch via ?v=, width via ?w=, color via ?mode=.
   Static mock data shaped like the real #511 map, including one ticket
   blocked by three at once. Every link is dead on purpose.
 -->
@@ -238,6 +238,78 @@ svg { display:block; }
   font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; margin-bottom:2px; }
 .c3e .prow { padding:7px 0; }
 
+/* ---- round 3: the frontier in focus, the order reversed ---- */
+.frame.dark .mv { --cyanwash:rgba(94,200,229,.08); }
+.frame.light .mv { --cyanwash:rgba(11,111,143,.06); }
+.r4 .walkcap { display:flex; align-items:center; gap:10px; margin-top:16px; color:var(--mut);
+  font-size:11px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4 .walkcap .cdot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--cyan); opacity:.7; }
+.r4 .walkcap .crule { flex:1; height:1px; background:var(--line); }
+.r4 .strata { margin-top:0; max-width:520px; }
+.r4 .stratum { padding:10px 14px; }
+.r4 .stratum.flightb { border:0; padding-left:0; padding-right:0; }
+.r4 .frontline { height:2px; background:var(--cyan); box-shadow:var(--edgeglow); position:relative;
+  margin:6px 0 0; }
+.r4 .frontline .frontlbl { position:absolute; left:0; top:-16px; font-size:9px; font-weight:700;
+  letter-spacing:.22em; text-transform:uppercase; color:var(--cyan); }
+.r4 .frontline .fcap { position:absolute; right:0; top:-16px; font-size:9px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4 .stratum.takeb { border:1.5px solid var(--cyan); border-top:0; border-radius:0 0 10px 10px;
+  padding:8px 14px 10px; }
+.r4 .stratum.takeb .prow { font-size:15px; }
+.r4 .stratum.waitb { border:1px solid var(--line); border-radius:8px; margin-top:8px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.r4 .stratum.fogb { border:1.5px dotted var(--mut); border-radius:8px; border-top-width:1.5px;
+  color:var(--mut); font-size:12px; margin-top:8px; }
+.r4 .slbl { font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; margin-bottom:2px; }
+.r4 .prow { padding:7px 0; }
+/* B: the spotlight */
+.r4b .stratum.takeb { background:var(--cyanwash); border:1.5px solid var(--cyan); border-radius:10px;
+  box-shadow:var(--edgeglow); }
+.r4b .frontline { margin-bottom:8px; }
+.r4b .stratum.waitb, .r4b .stratum.fogb { transform:none; font-size:11px; }
+.r4b .stratum.waitb .prow { font-size:12px; padding:5px 0; }
+.r4b .stratum.fogb { padding:8px 14px; }
+/* C: the stops, focused */
+.r4c .rrow.take { font-size:15px; padding:12px 0 12px 30px; }
+.r4c .rrow.take .stop { width:14px; height:14px; border-width:3px; }
+.r4c .startpill { flex:none; font-size:11px; color:var(--cyan); text-decoration:none;
+  border:1px solid var(--cyan); border-radius:999px; padding:6px 12px; white-space:nowrap;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4c .rrow.small { font-size:12px; padding:6px 0 6px 30px; }
+/* D: the rail through the strata */
+.r4d .railwrap { position:relative; margin-top:16px; max-width:520px; }
+.r4d .railwrap::before { content:""; position:absolute; left:5px; top:8px; bottom:14px; width:2px;
+  background:linear-gradient(var(--cyan) 0, var(--cyan) var(--railsolid, 30%),
+    transparent var(--railsolid, 30%));
+  background-color:transparent; }
+.r4d .sbox { position:relative; margin-left:26px; }
+.r4d .sbox .stop { position:absolute; left:-26px; top:50%; transform:translateY(-50%); }
+.r4d .sbox.takeb2 { border:1.5px solid var(--cyan); border-radius:10px; padding:8px 14px;
+  margin-top:10px; }
+.r4d .sbox.takeb2 .prow { font-size:15px; }
+.r4d .sbox.waitb2 { border:1px solid var(--line); border-radius:8px; padding:8px 14px; margin-top:10px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.r4d .sbox.fogb2 { border:1.5px dotted var(--mut); border-radius:8px; padding:8px 14px; margin-top:10px;
+  color:var(--mut); font-size:12px; }
+.r4d .rrow2 { position:relative; display:flex; align-items:center; gap:12px; padding:8px 0;
+  font-size:13px; margin-left:26px; }
+.r4d .rrow2 .stop { position:absolute; left:-26px; top:50%; transform:translateY(-50%); }
+.r4d .front2 { position:relative; display:flex; align-items:center; gap:10px; margin:8px 0 2px 26px; }
+.r4d .front2 .frontlbl { flex:none; font-size:10px; font-weight:700; letter-spacing:.24em;
+  text-transform:uppercase; color:var(--cyan); }
+.r4d .front2 .frule { flex:1; height:2px; background:var(--cyan); box-shadow:var(--edgeglow); }
+/* E: frontier first */
+.r4e .taketop { font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--cyan);
+  margin-top:18px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4e .hero { padding:4px 0 2px; }
+.r4e .hero .prow { font-size:15px; padding:10px 0; }
+.r4e .receipt { display:flex; align-items:center; gap:14px; margin-top:14px; font-size:11px;
+  color:var(--mut); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4e .receipt .cw { color:var(--cyan); }
+.r4e .receipt .cr { color:var(--green); }
+
 /* round-1 leftovers */
 .v2k .keys { flex:none; font-size:10px; color:var(--mut); letter-spacing:.06em; }
 .v2k .keys b { color:var(--ink); font-weight:600; }
@@ -292,16 +364,21 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv" data-view="r1a" data-name="1a · The stops"><div data-body></div></section>
-<section class="view mv" data-view="r1b" data-name="1b · The branching line"><div data-body></div></section>
-<section class="view mv c1c" data-view="r1c" data-name="1c · The sections"><div data-body></div></section>
-<section class="view mv" data-view="r1d" data-name="1d · The ascent"><div data-body></div></section>
-<section class="view mv c1e" data-view="r1e" data-name="1e · The metro band"><div data-body></div></section>
-<section class="view mv" data-view="r3a" data-name="3a · The edge, sized"><div data-body></div></section>
-<section class="view mv" data-view="r3b" data-name="3b · The labeled chart"><div data-body></div></section>
-<section class="view mv" data-view="r3c" data-name="3c · The coastline"><div data-body></div></section>
-<section class="view mv c3d" data-view="r3d" data-name="3d · The columns"><div data-body></div></section>
-<section class="view mv c3e" data-view="r3e" data-name="3e · The cross-section"><div data-body></div></section>
+<section class="view mv r4" data-view="r4a" data-name="A · Cross-section reversed"><div data-body></div></section>
+<section class="view mv r4 r4b" data-view="r4b" data-name="B · The spotlight"><div data-body></div></section>
+<section class="view mv r4c" data-view="r4c" data-name="C · The stops, focused"><div data-body></div></section>
+<section class="view mv r4d" data-view="r4d" data-name="D · The rail and the strata"><div data-body></div></section>
+<section class="view mv r4e" data-view="r4e" data-name="E · Frontier first"><div data-body></div></section>
+<section class="view mv" data-view="r1a" data-name="r2 · 1a The stops"><div data-body></div></section>
+<section class="view mv" data-view="r1b" data-name="r2 · 1b The branching line"><div data-body></div></section>
+<section class="view mv c1c" data-view="r1c" data-name="r2 · 1c The sections"><div data-body></div></section>
+<section class="view mv" data-view="r1d" data-name="r2 · 1d The ascent"><div data-body></div></section>
+<section class="view mv c1e" data-view="r1e" data-name="r2 · 1e The metro band"><div data-body></div></section>
+<section class="view mv" data-view="r3a" data-name="r2 · 3a The edge, sized"><div data-body></div></section>
+<section class="view mv" data-view="r3b" data-name="r2 · 3b The labeled chart"><div data-body></div></section>
+<section class="view mv" data-view="r3c" data-name="r2 · 3c The coastline"><div data-body></div></section>
+<section class="view mv c3d" data-view="r3d" data-name="r2 · 3d The columns"><div data-body></div></section>
+<section class="view mv c3e" data-view="r3e" data-name="r2 · 3e The cross-section"><div data-body></div></section>
 <section class="view mv" data-view="v0" data-name="r1 · 0 The mock (#522)"><div data-body></div></section>
 <section class="view mv" data-view="v1" data-name="r1 · 1 The route line"><div data-body></div></section>
 <section class="view mv v2k" data-view="v2" data-name="r1 · 2 The tree"><div data-body></div></section>
@@ -815,6 +892,115 @@ function renderR3e() {
 }
 
 /* ================================================================
+   ROUND 3 — the frontier in focus. The operator ruled: reverse the
+   cross-section, and pull the eye off the walked block onto the
+   frontier. The stops stay in the mix for their simplicity.
+   ================================================================ */
+
+/* shared round-3 pieces */
+const walkCap = m => `<div class="walkcap"><span class="cdot"></span>
+  <span>${m.closed} walked${m.flight.length ? ` · ${m.flight.length} in flight` : ""}</span>
+  <span class="crule"></span>${gh(m.num)}</div>`;
+const takeRows = (m, big) => m.frontier.map(f => `<div class="prow">
+  <i class="g-take"></i><span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("");
+const waitRows = m => m.blocked.map(b => `<div class="prow dim"><i class="g-wait"></i>
+  <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("");
+
+/* A — THE CROSS-SECTION, REVERSED: walked shrinks to one thin cap on
+   top, the frontier line follows, and the takeable stratum hangs on
+   it as the one framed box. Blocked and fog sink below. */
+function renderR4a() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="strata">
+      ${walkCap(m)}
+      ${m.flight.map(f => `<div class="stratum flightb"><div class="prow"><span class="dot on"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div></div>`).join("")}
+      <div class="frontline"><span class="frontlbl">the frontier</span><span class="fcap">${m.frontier.length} takeable</span></div>
+      <div class="stratum takeb">${takeRows(m)}</div>
+      <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="stratum fogb"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* B — THE SPOTLIGHT: the takeable stratum gets the wash and the glow,
+   and everything else steps back a size. */
+function renderR4b() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="strata">
+      ${walkCap(m)}
+      ${m.flight.map(f => `<div class="stratum flightb"><div class="prow dim"><span class="dot on"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div></div>`).join("")}
+      <div class="frontline"><span class="frontlbl">the frontier</span><span class="fcap">${m.frontier.length} takeable</span></div>
+      <div class="stratum takeb">${takeRows(m)}</div>
+      <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="stratum fogb">the fog · ${m.fog} — ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? ` · +${m.fogNotes.length - 3}` : ""}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* C — THE STOPS, FOCUSED: the simple line, re-weighted. Walked is one
+   dim stop, the takeable stops grow and carry a start pill, the rest
+   stays quiet. */
+function renderR4c() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="rl">
+      <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+      ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span>
+        <span class="fcap">${m.frontier.length} takeable</span></div>
+      ${m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+        <a class="startpill" href="#" onclick="return false">start →</a></div>`).join("")}
+      ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-wait"></span>
+        <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+      <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+        <span class="ttl">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></div>
+    </div>
+  </div>`).join(""));
+}
+
+/* D — THE RAIL AND THE STRATA: the stops line carries framed boxes.
+   The rail runs solid to the frontier rule, the takeable box hangs on
+   it framed cyan, the blocked and fog boxes fade below. */
+function renderR4d() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="railwrap" style="--railsolid:${m.flight.length ? "18%" : "9%"}">
+      <div class="rrow2 dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+      ${m.flight.map(f => `<div class="rrow2"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="front2"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+      <div class="sbox takeb2"><span class="stop s-take"></span>${takeRows(m)}</div>
+      <div class="sbox waitb2"><span class="stop s-wait"></span><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="sbox fogb2"><span class="stop s-fog"></span><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* E — FRONTIER FIRST: the takeable rows open the map, the frontier
+   rule closes them, and history is one receipt line at the bottom. */
+function renderR4e() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="taketop">takeable · ${m.frontier.length}</div>
+    <div class="hero">${takeRows(m)}</div>
+    <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+    <div class="panel" style="border-left:0;padding-left:0">
+      ${waitRows(m)}
+      <div class="prow dim"><span class="num">╌</span><span class="ttl">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></div>
+    </div>
+    <div class="receipt"><span class="cw">■ ${m.closed} walked</span>
+      ${m.flight.length ? `<span class="cr">● ${m.flight.length} in flight</span>` : ""}
+      <span style="flex:1"></span>${gh(m.num)}</div>
+  </div>`).join(""));
+}
+
+/* ================================================================
    round 1, kept for reference
    ================================================================ */
 function renderV0() {
@@ -906,15 +1092,17 @@ function renderV4() {
 }
 
 /* ---------- shell wiring ---------- */
-const RENDER = { r1a: renderR1a, r1b: renderR1b, r1c: renderR1c, r1d: renderR1d, r1e: renderR1e,
+const RENDER = { r4a: renderR4a, r4b: renderR4b, r4c: renderR4c, r4d: renderR4d, r4e: renderR4e,
+  r1a: renderR1a, r1b: renderR1b, r1c: renderR1c, r1d: renderR1d, r1e: renderR1e,
   r3a: renderR3a, r3b: renderR3b, r3c: renderR3c, r3d: renderR3d, r3e: renderR3e,
   v0: renderV0, v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4 };
-const VIEWS = ["r1a", "r1b", "r1c", "r1d", "r1e", "r3a", "r3b", "r3c", "r3d", "r3e",
+const VIEWS = ["r4a", "r4b", "r4c", "r4d", "r4e",
+  "r1a", "r1b", "r1c", "r1d", "r1e", "r3a", "r3b", "r3c", "r3d", "r3e",
   "v0", "v1", "v2", "v3", "v4"];
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r1a";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r4a";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 
