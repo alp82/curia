@@ -1,6 +1,10 @@
 <!doctype html>
 <!--
   alp82/curia#551 — Prototype the final landing page from the saga baseline.
+  alp82/curia#624 — The visual identity of the story page: the claim comes
+  first in every scene, scenes alternate sides, and three candidate skins
+  ride ?id=a|b|c behind a switcher pill. The winning skin stays at
+  resolution; the losers and the switcher leave the file.
   On the map alp82/curia#600 — Ship the story landing page.
 
   THE CANDIDATE for https://curia.sh. One self-contained file: no build step,
@@ -128,6 +132,105 @@
     line-height: 1.9; margin-top: 0.9rem; overflow-wrap: break-word;
   }
   .fact .n { color: var(--accent); }
+
+  /* ================================================================
+     #624 — the identity frame. The claim comes first: kicker, then
+     the bold line, then the evidence under it. Scenes alternate
+     sides: .sL docks left, .sR docks right, and the evidence leans
+     toward the other side. Three candidate skins ride ?id=a|b|c;
+     the winner stays at resolution, the losers leave the file.
+     ================================================================ */
+  .scene { position: relative; }
+  .claim { margin: 0 0 1rem; }
+  .claim .bold { margin-bottom: 0; }
+  .kick { margin: 0 0 0.55rem; font-family: var(--mono); color: var(--dim); font-size: 0.72rem; }
+  .kick .kn { margin-right: 0.55rem; }
+  .kick .kname { text-transform: uppercase; letter-spacing: 0.18em; }
+  .sR .claim, .sR .fact, .sR .story { text-align: right; }
+  .sR .story { margin-left: auto; }
+  .scene .shot { margin: 1.7rem 0 0.8rem; padding: 0 1.1rem; }
+  .sL .shot { justify-content: flex-end; }
+  .sR .shot { justify-content: flex-start; }
+
+  /* Skin A — pipeline. Every scene wears the stage color of the
+     ticket pipeline: take, agent, gate, merged. A mono number and a
+     stage-colored rule sit above every claim. */
+  .id-a [data-stage="take"] { --sc: var(--st-take); }
+  .id-a [data-stage="agent"] { --sc: var(--st-agent); }
+  .id-a [data-stage="gate"] { --sc: var(--st-gate); }
+  .id-a [data-stage="merged"] { --sc: var(--st-merged); }
+  .id-a .kick { display: flex; align-items: center; gap: 0.65rem; font-weight: 600; letter-spacing: 0.12em; color: var(--sc, var(--dim)); }
+  .id-a .kick .kn { margin: 0; }
+  .id-a .sR .kick { flex-direction: row-reverse; }
+  .id-a .kick::after { content: ""; flex: 1; height: 2px; border-radius: 2px; background: linear-gradient(to right, var(--sc, var(--dim)), transparent 75%); opacity: 0.75; }
+  .id-a .sR .kick::after { background: linear-gradient(to left, var(--sc, var(--dim)), transparent 75%); }
+  .id-a .kick .kname { display: none; }
+
+  /* Skin B — ledger. A hairline between scenes carries the scene
+     name; an oversized outlined numeral bleeds off the docking edge;
+     evidence tilts in from the other side. */
+  .id-b .scene { border-top: 1px solid var(--line); margin-top: 3vh; }
+  .id-b .scene::after {
+    content: attr(data-name); position: absolute; top: -0.6em;
+    font: 600 0.6rem var(--mono); letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--dim); background: var(--bg); padding: 0 0.5rem;
+  }
+  .id-b .sL::after { left: 0.85rem; }
+  .id-b .sR::after { right: 0.85rem; }
+  .id-b .scene.cont { border-top: none; margin-top: 0; }
+  .id-b .scene.cont::after { content: none; }
+  .id-b .wrap { padding-left: 1.25rem; }
+  .id-b .kick .kn {
+    display: block; font-size: clamp(3.4rem, 16vw, 6rem); font-weight: 750; line-height: 1;
+    letter-spacing: -0.04em; color: #10151d; -webkit-text-stroke: 1px #414b5c;
+    margin: 0.6rem 0 0.1rem;
+  }
+  .id-b .kick .kname { display: none; }
+  .id-b .bold { font-size: clamp(1.7rem, 7vw, 3rem); letter-spacing: -0.03em; }
+  .id-b .kick.sm .kn { font-size: clamp(2rem, 9vw, 3rem); margin: 0; }
+
+  /* Skin C — chart. A dashed route line runs down the docking edge,
+     and every claim sits in a dashed map-card frame with an accent
+     badge — the same language as the map cards of the hero canvas. */
+  .id-c .wrap { padding-left: 1.25rem; }
+  .id-c .sL .wrap { padding-left: 2rem; }
+  .id-c .sR .wrap { padding-right: 2rem; }
+  .id-c .sL::before, .id-c .sR::before {
+    content: ""; position: absolute; top: 0; bottom: 0;
+    border-left: 2px dashed rgba(125, 211, 160, 0.22);
+  }
+  .id-c .sL::before { left: 0.7rem; }
+  .id-c .sR::before { left: auto; right: 0.7rem; border-left: none; border-right: 2px dashed rgba(125, 211, 160, 0.22); }
+  .id-c .claim {
+    position: relative; width: fit-content; max-width: 100%;
+    border: 1.5px dashed rgba(125, 211, 160, 0.5); border-radius: 10px;
+    background: rgba(13, 16, 21, 0.82); padding: 0.75rem 0.95rem 0.85rem;
+  }
+  .id-c .sR .claim { margin-left: auto; }
+  .id-c .claim::after {
+    content: "◆"; position: absolute; top: -0.6rem; font-size: 0.7rem;
+    color: var(--accent); background: var(--bg); padding: 0 0.2rem; line-height: 1;
+  }
+  .id-c .sL .claim::after { left: 0.8rem; }
+  .id-c .sR .claim::after { right: 0.8rem; }
+  .id-c .kick { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
+  .id-c .sR .kick { justify-content: flex-end; }
+  .id-c .kick .kn { background: var(--accent); color: #06231a; border-radius: 4px; padding: 0.1rem 0.4rem; font-weight: 700; font-size: 0.62rem; margin: 0; }
+  .id-c .kick .kname { font-size: 0.64rem; }
+  .id-c .bold { font-size: clamp(1.35rem, 5.4vw, 2.2rem); }
+
+  /* The skin switcher pill — prototype chrome, not part of the
+     design under judgment. It leaves the file at resolution. */
+  .skinbar {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: max(0.8rem, env(safe-area-inset-bottom)); z-index: 80;
+    display: flex; align-items: center; gap: 0.2rem;
+    background: #f2f3f5; color: #08090c; border-radius: 999px;
+    padding: 0.25rem 0.45rem; font: 600 0.78rem var(--mono);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+  }
+  .skinbar button { border: 0; background: none; font: inherit; color: inherit; padding: 0.3rem 0.55rem; cursor: pointer; }
+  .skinbar .lbl { min-width: 8.5rem; text-align: center; }
 
   /* Panels sit beside the story: each one redraws a real curia screen
      in that product's own colors (#601: built HTML, as realistic as
@@ -371,10 +474,6 @@
      Scene 11 — set it up. Five condensed steps; the thirteen live in
      the README.
      ================================================================ */
-  h2.sec {
-    font-family: var(--mono); font-size: 0.72rem; font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.16em; color: var(--dim); margin: 0 0 1.5rem;
-  }
   .need {
     border-radius: 8px; padding: 1rem 1.15rem; margin: 0 0 2rem;
     box-shadow: inset 0 0 0 1px var(--line); color: var(--body); font-size: 0.95rem;
@@ -401,10 +500,21 @@
   .js .rv.in { opacity: 1; transform: none; transition: opacity 0.9s var(--ease), transform 0.9s var(--ease); }
   .js .tw { opacity: 0; transform: translateY(0.8rem); }
   .js .tw.in { opacity: 1; transform: none; transition: opacity 0.6s var(--ease), transform 0.6s var(--ease); }
+  /* #624: inside a sided scene, elements assemble from their own
+     side, and the evidence from the opposite one. */
+  .js .sL .rv:not(.in) { transform: translateX(-2.4rem); }
+  .js .sR .rv:not(.in) { transform: translateX(2.4rem); }
+  .js .sL .shot.rv:not(.in) { transform: translateX(2.4rem); }
+  .js .sR .shot.rv:not(.in) { transform: translateX(-2.4rem); }
+  .js .id-b .sL .shot.rv:not(.in) { transform: translateX(2.6rem) rotate(1.2deg); }
+  .js .id-b .sR .shot.rv:not(.in) { transform: translateX(-2.6rem) rotate(-1.2deg); }
 
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .js .rv, .js .tw { opacity: 1; transform: none; }
+    .js .rv, .js .tw,
+    .js .sL .rv:not(.in), .js .sR .rv:not(.in),
+    .js .sL .shot.rv:not(.in), .js .sR .shot.rv:not(.in),
+    .js .id-b .sL .shot.rv:not(.in), .js .id-b .sR .shot.rv:not(.in) { opacity: 1; transform: none; }
     * { animation-duration: 0.001ms !important; }
     .room { height: 3rem; }
     .room.tall { height: 3rem; }
@@ -440,28 +550,41 @@
     </div>
   </header>
 
-  <!-- Scene 2 · into the mess -->
-  <section class="scene">
-    <div class="room" id="room-mess" aria-hidden="true"></div>
+  <!-- Scene 2 · into the mess. The claim first, the drift under it. -->
+  <section class="scene sL" data-stage="take" data-name="into the mess">
     <div class="wrap">
-      <h2 class="bold rv">The backlog panic grows</h2>
+      <header class="claim rv">
+        <p class="kick"><span class="kn">02</span><span class="kname">into the mess</span></p>
+        <h2 class="bold">The backlog panic grows</h2>
+      </header>
     </div>
+    <div class="room" id="room-mess" aria-hidden="true"></div>
   </section>
 
   <!-- Scene 3 · maps bring order -->
-  <section class="scene">
-    <div class="room tall" id="room-order" aria-hidden="true"></div>
+  <section class="scene sR" data-stage="take" data-name="maps bring order">
     <div class="wrap">
-      <h2 class="bold rv">Maps turn the pile into a queue.</h2>
+      <header class="claim rv">
+        <p class="kick"><span class="kn">03</span><span class="kname">maps bring order</span></p>
+        <h2 class="bold">Maps turn the pile into a queue.</h2>
+      </header>
       <p class="story rv">Blocked tickets wait. Open ones light up, and agents take them in
         order, straight from your GitHub issues.</p>
     </div>
+    <div class="room tall" id="room-order" aria-hidden="true"></div>
   </section>
 
   <!-- Scene 4 · the grilling. The question is a real escalation on this
        repo (curia#377), in the card shape the operator picked at #415.
        The real answer was A: the journal. -->
-  <section class="scene">
+  <section class="scene sL" data-stage="agent" data-name="the grilling">
+    <div class="wrap">
+      <header class="claim rv">
+        <p class="kick"><span class="kn">04</span><span class="kname">the grilling</span></p>
+        <h2 class="bold">Answer from the couch.</h2>
+      </header>
+      <p class="story rv">An agent hits a real decision and asks you in Discord.</p>
+    </div>
     <div class="shot rv">
       <div class="discord" id="grill">
         <div class="d-top">🎫 377 · Cooling dies with the daemon</div>
@@ -490,8 +613,6 @@
       </div>
     </div>
     <div class="wrap">
-      <h2 class="bold rv">Answer from the couch.</h2>
-      <p class="story rv">An agent hits a real decision and asks you in Discord.</p>
       <p class="fact rv">one thread per ticket · parallel chats</p>
     </div>
   </section>
@@ -499,7 +620,13 @@
   <!-- Scene 5 · the preview. Inside the phone: this page itself,
        served from the box over the tailnet — which is how the
        operator judged every round of it. -->
-  <section class="scene">
+  <section class="scene sR" data-stage="agent" data-name="the preview">
+    <div class="wrap">
+      <header class="claim rv">
+        <p class="kick"><span class="kn">05</span><span class="kname">the preview</span></p>
+        <h2 class="bold">Live previews from your phone or workstation</h2>
+      </header>
+    </div>
     <div class="shot rv">
       <div class="phone" id="phone">
         <div class="ph-screen">
@@ -520,14 +647,20 @@
       </div>
     </div>
     <div class="wrap">
-      <h2 class="bold rv">Live previews from your phone or workstation</h2>
       <p class="fact rv">A secure link on your tailnet</p>
     </div>
   </section>
 
   <!-- Scene 6 · the atlas. Real maps of this repo, real counts on the
        day this file was written. -->
-  <section class="scene">
+  <section class="scene sL" data-stage="agent" data-name="the atlas">
+    <div class="wrap">
+      <header class="claim rv">
+        <p class="kick"><span class="kn">06</span><span class="kname">the atlas</span></p>
+        <h2 class="bold">A dashboard that shows where every map stands and which agents are
+          currently running.</h2>
+      </header>
+    </div>
     <div class="shot rv">
       <div class="atlas">
         <div class="at-ht"><span>curia · atlas · maps</span><span class="needs">1 needs you</span></div>
@@ -559,15 +692,17 @@
         <div class="at-legend">walked · needs you · in flight · blocked · fog</div>
       </div>
     </div>
-    <div class="wrap">
-      <h2 class="bold rv">A dashboard that shows where every map stands and which agents are
-        currently running.</h2>
-    </div>
   </section>
 
   <!-- Scene 7 · the harness, live. The pane is this ticket's own
        session. The toggle switches the harness. -->
-  <section class="scene">
+  <section class="scene sR" data-stage="agent" data-name="the harness, live">
+    <div class="wrap">
+      <header class="claim rv">
+        <p class="kick"><span class="kn">07</span><span class="kname">the harness, live</span></p>
+        <h2 class="bold">Watch the agent type in your browser tab.</h2>
+      </header>
+    </div>
     <div class="shot rv">
       <div class="term">
         <div class="term-head"><span class="sess">curia-551</span>
@@ -600,7 +735,6 @@
       </div>
     </div>
     <div class="wrap">
-      <h2 class="bold rv">Watch the agent type in your browser tab.</h2>
       <p class="fact rv">Claude Code, Codex, Pi and Opencode are supported</p>
     </div>
   </section>
@@ -608,9 +742,14 @@
   <!-- Scene 8 · one ticket on GitHub. The real run of #587, the ticket
        that locked this page's words, merged as pull request #597 on
        22 Aug 2026. The approve button is the climax. -->
-  <section class="scene run-pin" id="run-pin">
+  <section class="scene run-pin sL" id="run-pin" data-stage="gate" data-name="one ticket on GitHub">
     <div class="run-sticky">
-    <div class="wrap"><h2 class="bold rv">You are in charge</h2></div>
+    <div class="wrap">
+      <header class="claim rv">
+        <p class="kick sm"><span class="kn">08</span><span class="kname">one ticket on GitHub</span></p>
+        <h2 class="bold">You are in charge</h2>
+      </header>
+    </div>
     <div class="run-track" id="run-track">
       <div class="gh tw">
         <div class="lab">the ticket</div>
@@ -658,7 +797,7 @@
   </section>
 
   <!-- Scene 8, the close: the fact line and the dogfood line. -->
-  <section class="scene" style="padding-top:0">
+  <section class="scene cont sL" data-stage="gate" style="padding-top:0">
     <div class="wrap">
       <p class="fact rv">just type your rejection reasons if you don't agree with the result</p>
       <p class="dogfood rv">This page itself was
@@ -669,7 +808,13 @@
   </section>
 
   <!-- Scene 9 · your VPS. Four real sessions of this repo's last week. -->
-  <section class="scene">
+  <section class="scene sR" data-stage="merged" data-name="your VPS">
+    <div class="wrap">
+      <header class="claim rv">
+        <p class="kick"><span class="kn">09</span><span class="kname">your VPS</span></p>
+        <h2 class="bold">Your VPS is enough.</h2>
+      </header>
+    </div>
     <div class="shot rv">
       <div class="box">
         <div class="bx-head"><span>one small box</span><span>4 agents · ~2 GB</span></div>
@@ -680,15 +825,17 @@
       </div>
     </div>
     <div class="wrap">
-      <h2 class="bold rv">Your VPS is enough.</h2>
       <p class="fact rv">four agents at once on a small box · about 0.5 GB each</p>
     </div>
   </section>
 
   <!-- Scene 10 · open source -->
-  <section class="scene">
+  <section class="scene sL" data-stage="merged" data-name="open source">
     <div class="wrap">
-      <h2 class="bold rv">Open source.</h2>
+      <header class="claim rv">
+        <p class="kick"><span class="kn">10</span><span class="kname">open source</span></p>
+        <h2 class="bold">Open source.</h2>
+      </header>
       <p class="fact rv">Your box, your subscription, your keys.</p>
       <p class="clone rv" style="margin-top:1.4rem">git clone https://github.com/alp82/curia.git</p>
     </div>
@@ -696,9 +843,12 @@
 
   <!-- Scene 11 · set it up. Five condensed steps; the complete
        thirteen live in the README, which the closing line links. -->
-  <section class="scene" id="setup">
+  <section class="scene sR" id="setup" data-stage="merged" data-name="the guide">
     <div class="wrap">
-      <h2 class="sec rv">Set it up</h2>
+      <header class="claim rv">
+        <p class="kick"><span class="kn">11</span><span class="kname">the guide</span></p>
+        <h2 class="bold">Set it up</h2>
+      </header>
       <p class="need rv"><b>What you need:</b> One Linux box with Docker, Tailscale, a Discord
         server and your coding agent subscription</p>
       <div class="step rv">
@@ -812,6 +962,41 @@ if (prefersStill || !window.IntersectionObserver) {
     document.getElementById('pane-codex').hidden = pick !== 'codex';
   });
 });
+
+/* ---- #624: the skin switcher. Prototype chrome for the identity
+   rounds — it leaves the file with the losing skins at resolution.
+   ?id=a|b|c picks a skin; the pill cycles them. ---- */
+
+var SKINS = [
+  { k: 'a', name: 'pipeline' },
+  { k: 'b', name: 'ledger' },
+  { k: 'c', name: 'chart' }
+];
+var skinIdx = 0;
+try {
+  var qid = new URLSearchParams(location.search).get('id');
+  SKINS.forEach(function (s, i) { if (s.k === qid) skinIdx = i; });
+} catch (e) {}
+var skinbar = document.createElement('div');
+skinbar.className = 'skinbar';
+skinbar.innerHTML = '<button type="button" aria-label="previous skin">‹</button>' +
+  '<span class="lbl"></span>' +
+  '<button type="button" aria-label="next skin">›</button>';
+document.body.appendChild(skinbar);
+function applySkin() {
+  var s = SKINS[skinIdx];
+  SKINS.forEach(function (o) { document.body.classList.remove('id-' + o.k); });
+  document.body.classList.add('id-' + s.k);
+  skinbar.querySelector('.lbl').textContent = s.k.toUpperCase() + ' — ' + s.name;
+  try { history.replaceState(null, '', '?id=' + s.k); } catch (e) {}
+}
+skinbar.querySelectorAll('button')[0].addEventListener('click', function () {
+  skinIdx = (skinIdx + SKINS.length - 1) % SKINS.length; applySkin();
+});
+skinbar.querySelectorAll('button')[1].addEventListener('click', function () {
+  skinIdx = (skinIdx + 1) % SKINS.length; applySkin();
+});
+applySkin();
 
 /* ---- scene 8: the vertical scroll walks the run sideways ---- */
 
@@ -1088,8 +1273,9 @@ function frame(ts) {
     }
   }
 
-  /* Below scene 3 the line runs on down the left edge, plain. */
-  if (rOrder.bottom < H) {
+  /* Below scene 3 the line runs on down the left edge, plain.
+     Skin A only: B and C carry their own frame lines (#624). */
+  if (rOrder.bottom < H && document.body.classList.contains('id-a')) {
     ctx.strokeStyle = accent(0.16);
     ctx.beginPath(); ctx.moveTo(16, Math.max(0, rOrder.bottom)); ctx.lineTo(16, H); ctx.stroke();
   }
