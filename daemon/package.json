@@ -20,5 +20,8 @@
     "discord.js": "^14.16.0",
     "yaml": "^2.6.0",
     "zod": "^4.4.3"
+  },
+  "overrides": {
+    "ip-address": "10.3.1"
   }
 }
