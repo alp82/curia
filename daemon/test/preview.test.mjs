@@ -351,6 +351,52 @@ describe('restart recovery (#563)', () => {
     ))
   })
 
+  test('the recovered gate serves the same preview page after a restart', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const range = { from: 18520, to: 18529 }
+    const proxyFrom = 17720
+    const allow = new Set(['alp@example.com'])
+    const self = async () => ({ dnsName: 'box.tail0000.ts.net', ips: [] })
+    const dev = http.createServer((_req, res) => { res.writeHead(200); res.end('the recovered page') })
+    await new Promise((resolve) => dev.listen(0, '127.0.0.1', resolve))
+    const devPort = dev.address().port
+    let second = null
+    try {
+      const first = new PreviewRegistry({
+        dataDir, range, proxyFrom, allow, self, exec: fakeExec().exec, log: () => {},
+      })
+      const published = await first.publish('7', devPort, { base: BASE, path: '/curia-check' })
+      first.proxies.get(published.servePort).stop()
+      first.proxies.clear()
+
+      second = new PreviewRegistry({
+        dataDir, range, proxyFrom, allow, self, exec: fakeExec().exec, log: () => {},
+      })
+      await second.recover(['7'])
+      const page = await new Promise((resolve) => {
+        http.get({
+          host: '127.0.0.1',
+          port: proxyFrom,
+          path: '/curia-check',
+          headers: {
+            host: `box.tail0000.ts.net:${range.from}`,
+            [LOGIN_HEADER]: 'alp@example.com',
+          },
+        }, (res) => {
+          let body = ''
+          res.on('data', (chunk) => { body += chunk })
+          res.on('end', () => resolve({ status: res.statusCode, body }))
+        })
+      })
+
+      assert.equal(second.get('7').url, published.url)
+      assert.deepEqual(page, { status: 200, body: 'the recovered page' })
+    } finally {
+      await second?.withdraw('7').catch(() => {})
+      dev.close()
+    }
+  })
+
   test('a persisted preview with a dead server loses its rule and its entry', async () => {
     const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
     const first = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
@@ -384,6 +430,66 @@ describe('restart recovery (#563)', () => {
     assert.deepEqual(recovered, { recovered: [], dropped: ['7'] })
     assert.ok(secondExec.calls.includes(`tailscale serve --https=${published.servePort} off`))
     assert.equal(second.get('7'), null)
+  })
+
+  test('a timed-out recovery probe withdraws the rule and drops the entry', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const first = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
+    const published = await first.publish('7', 4321, { base: BASE })
+
+    const secondExec = fakeExec()
+    const second = mkReg({
+      dataDir,
+      exec: secondExec.exec,
+      probe: async () => ({ ok: true, status: null, slow: true }),
+      log: () => {},
+    })
+    const recovered = await second.recover(['7'])
+
+    assert.deepEqual(recovered, { recovered: [], dropped: ['7'] })
+    assert.ok(secondExec.calls.includes(`tailscale serve --https=${published.servePort} off`))
+    assert.equal(second.get('7'), null)
+  })
+
+  test('a failed recovery withdrawal keeps the entry for the next sweep', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    const first = mkReg({ dataDir, exec: fakeExec().exec, isLive: alwaysLive, log: () => {} })
+    await first.publish('7', 4321, { base: BASE })
+
+    const second = mkReg({
+      dataDir,
+      exec: fakeExec({ failServe: 'tailscaled is down' }).exec,
+      Proxy: DeadProxy,
+      log: () => {},
+    })
+    const recovered = await second.recover(['7'])
+    await second.sweep(['7'])
+
+    assert.deepEqual(recovered, { recovered: [], dropped: [] })
+    assert.equal(second.get('7').devPort, 4321)
+    const persisted = JSON.parse(fs.readFileSync(path.join(dataDir, 'previews.json'), 'utf8'))
+    assert.deepEqual(persisted.map((entry) => entry.ticket), ['7'])
+  })
+
+  test('a failed move removes the withdrawn preview from persisted state', async () => {
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-preview-'))
+    let probes = 0
+    const reg = mkReg({
+      dataDir,
+      exec: fakeExec().exec,
+      isLive: alwaysLive,
+      probe: async () => (++probes === 1
+        ? { ok: true, status: 200 }
+        : { ok: false, error: 'ECONNREFUSED' }),
+      log: () => {},
+    })
+    await reg.publish('7', 4321, { base: BASE })
+
+    const moved = await reg.publish('7', 4322, { base: BASE })
+
+    assert.equal(moved.ok, false)
+    assert.equal(reg.get('7'), null)
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'previews.json'), 'utf8')), [])
   })
 
   test('withdraw removes the persisted entry', async () => {
@@ -898,6 +1004,17 @@ describe('#239: the preview link opens the app, not a block page', () => {
       assert.ok(p.error, 'the socket error is the cause the agent is handed')
     } finally {
       trap.close()
+    }
+  })
+
+  test('probePreviewPage: a wedged server reaches the bounded timeout', async () => {
+    const dev = http.createServer(() => {})
+    await new Promise((resolve) => dev.listen(0, '127.0.0.1', resolve))
+    try {
+      const p = await probePreviewPage('127.0.0.1', dev.address().port, { timeout: 25 })
+      assert.deepEqual(p, { ok: true, status: null, slow: true })
+    } finally {
+      dev.close()
     }
   })
 
