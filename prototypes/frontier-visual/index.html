@@ -1,0 +1,1486 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#588 The frontier visual — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#588 "The frontier visual, iterated
+  from the maps mock". DECIDED after six rounds: the stops line (F5)
+  wins — one route line per map, takeable stops with start buttons,
+  red blocked stops, the striped fog strip, an empty-frontier line,
+  and a two-column desktop split. The red-dashes cut (F1) is kept on
+  record as the alternate. Both lead the cycle over four maps, two of
+  them stress maps. Earlier rounds sit behind for reference.
+  Decided maps screen (#522), V6 tokens (#519).
+  Switch via ?v=, width via ?w=, color via ?mode=.
+  Static mock data shaped like the real #511 map, including one ticket
+  blocked by three at once. Every link is dead on purpose.
+-->
+<style>
+/* ============ shell (not part of the design) ============ */
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color:inherit; }
+svg { display:block; }
+.proto-head {
+  position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  padding:8px 12px; letter-spacing:.04em; border-bottom:1px solid #23272f;
+}
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.stage { padding:16px 8px 110px; display:flex; justify-content:center; }
+.stagewrap { transform-origin: top center; }
+.frame {
+  container-type: inline-size; container-name: frame;
+  box-shadow: 0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden;
+}
+.frame.w-phone { width:390px; }
+.frame.w-desktop { width:1280px; }
+.view { display:none; }
+.view.active { display:block; }
+.bar {
+  position:fixed; left:50%; bottom:14px; transform:translateX(-50%); z-index:50;
+  display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px;
+  box-shadow:0 6px 24px rgba(0,0,0,.55);
+  font: 12px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color:#cdd5e0;
+  white-space:nowrap;
+}
+.bar button {
+  min-width:44px; min-height:44px; border:0; border-radius:999px; cursor:pointer;
+  background:transparent; color:#cdd5e0; font:inherit; padding:0 10px;
+}
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:190px; text-align:center; font-weight:600; letter-spacing:.02em; }
+.bar .sep { width:1px; height:22px; background:#2c313b; margin:0 2px; }
+
+/* ============ V6 base tokens (from #519, rules this screen) ============ */
+.mv { background:var(--bg); color:var(--ink); min-height:800px;
+  font-family:ui-sans-serif,system-ui,sans-serif; padding:28px 24px 72px; }
+.frame.dark .mv { --bg:#0b0c10; --ink:#e6e9ef; --mut:#8a93a3; --line:#20242c;
+  --amber:#ffb454; --amberink:#231a00; --green:#41d98d; --cyan:#5ec8e5;
+  --glow:0 0 14px rgba(255,180,84,.35); --edgeglow:0 0 12px rgba(94,200,229,.45); }
+.frame.light .mv { --bg:#f6f6f4; --ink:#17181c; --mut:#6b7280; --line:#e3e3e0;
+  --amber:#ffc233; --amberink:#231a00; --green:#1fbf6b; --cyan:#0b6f8f;
+  --glow:none; --edgeglow:none; }
+.mv h2, .mv .num, .mv .ht, .mv .route, .mv .go, .mv .word, .mv .mfrac, .mv .frontlbl,
+.mv .seclbl, .mv .keys, .mv .mn
+  { font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .ht { display:flex; justify-content:space-between; font-size:10px; letter-spacing:.24em;
+  color:var(--mut); text-transform:uppercase; margin-bottom:26px; }
+/* the desktop sizing fix: one capped column instead of a full-bleed stretch */
+.mv .col { max-width:100%; }
+@container frame (min-width:700px) {
+  .mv .col { max-width:720px; margin:0 auto; }
+}
+
+/* shared atoms (from the #522 mock) */
+.mv .dot { flex:none; width:8px; height:8px; border-radius:50%; }
+.mv .dot.on { background:var(--green); }
+.mv .num { font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums; }
+.mv .go { flex:none; font-size:11px; color:var(--cyan); text-decoration:none; white-space:nowrap; }
+.mv .route { font-size:10px; color:var(--mut); white-space:nowrap; }
+.mv .route b { color:var(--cyan); font-weight:600; }
+.mv .ttl { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.mv .ttl .sub { display:block; font-size:11px; color:var(--mut); font-weight:400; margin-top:4px;
+  overflow:hidden; text-overflow:ellipsis; }
+.mv .word { font-size:10px; color:var(--mut); letter-spacing:.08em; text-transform:uppercase; }
+.mv .word.run { color:var(--green); }
+.mv .word.take { color:var(--cyan); }
+.mv .g-take { flex:none; width:12px; height:12px; border-radius:50%; border:2.5px solid var(--cyan); background:var(--bg); }
+.mv .g-wait { flex:none; width:4px; height:11px; background:var(--mut); opacity:.5; }
+.mv .mhead { display:flex; align-items:center; gap:16px; }
+.mv .mfrac { flex:none; font-size:24px; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+.mv .mfrac .of { color:var(--mut); font-weight:400; }
+.mv .mfrac .fogn { color:var(--mut); font-weight:400; font-size:14px; }
+.mv .mtt { flex:1; min-width:0; }
+.mv .mtt .nm { display:block; font-size:15px; font-weight:700; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap; }
+.mv .mtt .meta { display:block; font-size:10px; color:var(--mut); margin-top:4px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .mtt .meta a { color:var(--cyan); text-decoration:none; }
+.mv .map { margin-top:44px; }
+.mv .map:first-child { margin-top:0; }
+
+/* the band (decided in #522) */
+.mv .band { display:flex; gap:3px; margin-top:14px; height:34px; }
+.mv .bseg { position:relative; border:0; cursor:pointer; border-radius:5px; min-width:34px;
+  display:flex; align-items:center; justify-content:center; gap:6px; overflow:hidden;
+  font: 700 12px ui-monospace,"SF Mono",Menlo,Consolas,monospace; padding:0 8px; white-space:nowrap; }
+.mv .bseg .wd { font-weight:400; font-size:10px; letter-spacing:.08em; }
+.mv .bseg.sel { outline:2px solid var(--mut); outline-offset:3px; }
+.mv .b-walk { background:var(--cyan); color:var(--bg); }
+.mv .b-flight { background:var(--green); color:var(--bg); }
+.mv .b-take { background:transparent; border:2px solid var(--cyan); color:var(--cyan); }
+.mv .b-wait { background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px);
+  color:var(--mut); }
+.mv .b-fog { background:transparent; border:2px dotted var(--mut); color:var(--mut); }
+
+/* the detail panel */
+.mv .panel { margin-top:14px; border-left:2px solid var(--line); padding:4px 0 4px 16px; }
+.mv .prow { display:flex; align-items:center; gap:12px; padding:9px 0; font-size:14px; }
+.mv .prow.dim { color:var(--mut); }
+.mv .prow.dim .ttl { font-weight:400; }
+.mv .detailpane { display:none; }
+@container frame (min-width:700px) {
+  .mv .md { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,4fr); gap:0 64px; align-items:start; }
+  .mv .detailpane { display:block; position:sticky; top:24px; margin-top:44px; }
+  .mv .inlinepanel { display:none; }
+}
+
+/* ---- the route-line family: shared rail rows ---- */
+.mv .rl { margin-top:18px; }
+.mv .rrow { position:relative; display:flex; align-items:center; gap:12px;
+  padding:10px 0 10px 30px; font-size:14px; }
+.mv .rrow::before { content:""; position:absolute; left:5px; top:0; bottom:0; width:2px;
+  background:var(--cyan); }
+.mv .rrow.below::before { background:none;
+  background-image:linear-gradient(var(--mut) 45%, transparent 45%);
+  background-size:2px 9px; opacity:.55; }
+.mv .rrow.fogr::before { background:none;
+  background-image:linear-gradient(var(--mut) 25%, transparent 25%);
+  background-size:2px 12px; opacity:.4; }
+.mv .rrow.bare::before { background:none; }
+.mv .rrow .stop { position:absolute; left:0; top:50%; transform:translateY(-50%); }
+.mv .s-walk { width:12px; height:12px; border-radius:50%; background:var(--cyan); }
+.mv .s-run { width:12px; height:12px; border-radius:50%; background:var(--green); }
+.mv .s-take { width:12px; height:12px; border-radius:50%; border:2.5px solid var(--cyan); background:var(--bg); }
+.mv .s-wait { width:10px; height:10px; margin-left:1px; border-radius:2px; background:var(--line);
+  border:1px solid var(--mut); opacity:.8; }
+.mv .s-fog { width:12px; height:12px; border-radius:50%; border:2px dotted var(--mut); background:transparent; }
+.mv .s-dest { color:var(--cyan); font-size:13px; line-height:1; left:-1px; }
+.mv .front { position:relative; display:flex; align-items:center; gap:10px; margin:6px 0; }
+.mv .front .frontlbl { flex:none; font-size:10px; font-weight:700; letter-spacing:.24em;
+  text-transform:uppercase; color:var(--cyan); }
+.mv .front .frule { flex:1; height:2px; background:var(--cyan); box-shadow:var(--edgeglow); }
+.mv .front .fcap { flex:none; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.mv .rrow.dim { color:var(--mut); }
+.mv .rrow.dim .ttl { font-weight:400; }
+
+/* 1c: the sections line */
+.c1c .seclbl { position:relative; font-size:10px; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--mut); padding:16px 0 6px 30px; }
+.c1c .seclbl::before { content:""; position:absolute; left:5px; top:0; bottom:0; width:2px;
+  background:var(--cyan); }
+.c1c .seclbl.below::before { background:none;
+  background-image:linear-gradient(var(--mut) 45%, transparent 45%); background-size:2px 9px; opacity:.55; }
+.c1c .tcard { position:relative; margin:8px 0 8px 30px; border:1px solid var(--line);
+  border-radius:10px; padding:12px 14px; }
+.c1c .tcard::before { content:""; position:absolute; left:-25px; top:0; bottom:0; width:2px;
+  background-image:linear-gradient(var(--mut) 45%, transparent 45%); background-size:2px 9px; opacity:.55; }
+.c1c .tcard .stop { position:absolute; left:-31px; top:50%; transform:translateY(-50%); }
+.c1c .crow { display:flex; align-items:center; gap:12px; font-size:14px; }
+.c1c .cmeta { display:flex; align-items:center; gap:12px; margin-top:8px; }
+.c1c .bchips { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+.c1c .bchip { font-size:10px; padding:3px 8px; border-radius:999px; border:1px solid var(--line);
+  color:var(--mut); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* 1e: the metro strip */
+.c1e .metro { position:relative; display:flex; align-items:flex-start; gap:0;
+  justify-content:space-between; margin-top:18px; padding:0 2px; }
+.c1e .metro::before { content:""; position:absolute; left:6px; right:6px; top:11px; height:2px;
+  background:linear-gradient(90deg, var(--cyan) 0 52%, var(--line) 52%); }
+.c1e .mstop { position:relative; z-index:1; display:flex; flex-direction:column; align-items:center;
+  gap:7px; border:0; background:none; cursor:pointer; padding:0 6px; min-width:34px; }
+.c1e .mstop .mn { font-size:11px; font-weight:700; color:var(--mut); font-variant-numeric:tabular-nums; }
+.c1e .mstop .mw { font-size:8px; letter-spacing:.1em; text-transform:uppercase; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.c1e .mstop.sel .mn { color:var(--ink); }
+.c1e .micon { width:24px; height:24px; display:flex; align-items:center; justify-content:center; }
+.c1e .ftick { position:relative; z-index:1; width:3px; height:24px; background:var(--cyan);
+  box-shadow:var(--edgeglow); border-radius:2px; margin-top:0; }
+.c1e .ftickwrap { display:flex; flex-direction:column; align-items:center; gap:7px; }
+.c1e .ftickwrap .mw { font-size:8px; letter-spacing:.1em; text-transform:uppercase; color:var(--cyan);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+
+/* ---- the edge family ---- */
+.mv .terrain { margin-top:14px; position:relative; border-radius:8px; overflow:hidden; max-width:520px; }
+.mv .tlegend { display:flex; gap:14px; margin-top:10px; font-size:10px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; flex-wrap:wrap; }
+.mv .tlegend b { font-weight:600; color:var(--ink); }
+.mv .tlist { margin-top:16px; }
+
+/* 3d: the columns */
+.c3d .lanes { display:flex; gap:3px; margin-top:14px; max-width:520px; }
+.c3d .lane { flex:1; min-width:0; border-radius:6px; padding:10px 6px 12px; text-align:center; }
+.c3d .lane .lc { font-size:18px; font-weight:700; font-variant-numeric:tabular-nums;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.c3d .lane .lw { font-size:8px; letter-spacing:.1em; text-transform:uppercase; margin-top:4px;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.c3d .lane .marks { display:flex; flex-direction:column; align-items:center; gap:8px; margin-top:12px; }
+.c3d .lane.walk { background:var(--cyan); color:var(--bg); }
+.c3d .lane.flight { color:var(--green); border:1px solid var(--line); }
+.c3d .lane.take { color:var(--cyan); border:1px solid var(--line);
+  border-left:3px solid var(--cyan); box-shadow:-4px 0 10px -4px var(--cyan); border-radius:0 6px 6px 0; }
+.c3d .lane.wait { color:var(--mut); border:1px solid var(--line);
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.c3d .lane.fog { color:var(--mut); border:1px dotted var(--mut); }
+
+/* 3e: the cross-section */
+.c3e .strata { margin-top:14px; max-width:520px; }
+.c3e .stratum { padding:10px 14px; }
+.c3e .stratum.fogb { border:1.5px dotted var(--mut); border-radius:8px 8px 0 0; color:var(--mut);
+  font-size:12px; border-bottom:0; }
+.c3e .stratum.waitb { border:1px solid var(--line);
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.c3e .stratum.takeb { border:1px solid var(--line); border-bottom:0; }
+.c3e .frontline { height:2px; background:var(--cyan); box-shadow:var(--edgeglow); position:relative; }
+.c3e .frontline .frontlbl { position:absolute; right:0; top:-16px; font-size:9px; font-weight:700;
+  letter-spacing:.22em; text-transform:uppercase; color:var(--cyan); }
+.c3e .stratum.flightb { border:1px solid var(--line); border-top:0; border-bottom:0; }
+.c3e .stratum.walkb { background:var(--cyan); color:var(--bg); border-radius:0 0 8px 8px;
+  display:flex; align-items:baseline; gap:10px; }
+.c3e .stratum.walkb .big { font-size:22px; font-weight:700;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.c3e .stratum.walkb .w { font-size:9px; letter-spacing:.18em; text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.c3e .slbl { font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; margin-bottom:2px; }
+.c3e .prow { padding:7px 0; }
+
+/* ---- round 3: the frontier in focus, the order reversed ---- */
+.frame.dark .mv { --cyanwash:rgba(94,200,229,.08); }
+.frame.light .mv { --cyanwash:rgba(11,111,143,.06); }
+.r4 .walkcap { display:flex; align-items:center; gap:10px; margin-top:16px; color:var(--mut);
+  font-size:11px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4 .walkcap .cdot { flex:none; width:8px; height:8px; border-radius:50%; background:var(--cyan); opacity:.7; }
+.r4 .walkcap .crule { flex:1; height:1px; background:var(--line); }
+.r4 .strata { margin-top:0; max-width:520px; }
+.r4 .stratum { padding:10px 14px; }
+.r4 .stratum.flightb { border:0; padding-left:0; padding-right:0; }
+.r4 .frontline { height:2px; background:var(--cyan); box-shadow:var(--edgeglow); position:relative;
+  margin:6px 0 0; }
+.r4 .frontline .frontlbl { position:absolute; left:0; top:-16px; font-size:9px; font-weight:700;
+  letter-spacing:.22em; text-transform:uppercase; color:var(--cyan); }
+.r4 .frontline .fcap { position:absolute; right:0; top:-16px; font-size:9px; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4 .stratum.takeb { border:1.5px solid var(--cyan); border-top:0; border-radius:0 0 10px 10px;
+  padding:8px 14px 10px; }
+.r4 .stratum.takeb .prow { font-size:15px; }
+.r4 .stratum.waitb { border:1px solid var(--line); border-radius:8px; margin-top:8px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.r4 .stratum.fogb { border:1.5px dotted var(--mut); border-radius:8px; border-top-width:1.5px;
+  color:var(--mut); font-size:12px; margin-top:8px; }
+.r4 .slbl { font-size:9px; letter-spacing:.18em; text-transform:uppercase; color:var(--mut);
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; margin-bottom:2px; }
+.r4 .prow { padding:7px 0; }
+/* B: the spotlight */
+.r4b .stratum.takeb { background:var(--cyanwash); border:1.5px solid var(--cyan); border-radius:10px;
+  box-shadow:var(--edgeglow); }
+.r4b .frontline { margin-bottom:8px; }
+.r4b .stratum.waitb, .r4b .stratum.fogb { transform:none; font-size:11px; }
+.r4b .stratum.waitb .prow { font-size:12px; padding:5px 0; }
+.r4b .stratum.fogb { padding:8px 14px; }
+/* C: the stops, focused */
+.r4c .rrow.take { font-size:15px; padding:12px 0 12px 30px; }
+.r4c .rrow.take .stop { width:14px; height:14px; border-width:3px; }
+.r4c .startpill { flex:none; font-size:11px; color:var(--cyan); text-decoration:none;
+  border:1px solid var(--cyan); border-radius:999px; padding:6px 12px; white-space:nowrap;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4c .rrow.small { font-size:12px; padding:6px 0 6px 30px; }
+/* D: the rail through the strata */
+.r4d .railwrap { position:relative; margin-top:16px; max-width:520px; }
+.r4d .railwrap::before { content:""; position:absolute; left:5px; top:8px; bottom:14px; width:2px;
+  background:linear-gradient(var(--cyan) 0, var(--cyan) var(--railsolid, 30%),
+    transparent var(--railsolid, 30%));
+  background-color:transparent; }
+.r4d .sbox { position:relative; margin-left:26px; }
+.r4d .sbox .stop { position:absolute; left:-26px; top:50%; transform:translateY(-50%); }
+.r4d .sbox.takeb2 { border:1.5px solid var(--cyan); border-radius:10px; padding:8px 14px;
+  margin-top:10px; }
+.r4d .sbox.takeb2 .prow { font-size:15px; }
+.r4d .sbox.waitb2 { border:1px solid var(--line); border-radius:8px; padding:8px 14px; margin-top:10px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.r4d .sbox.fogb2 { border:1.5px dotted var(--mut); border-radius:8px; padding:8px 14px; margin-top:10px;
+  color:var(--mut); font-size:12px; }
+.r4d .rrow2 { position:relative; display:flex; align-items:center; gap:12px; padding:8px 0;
+  font-size:13px; margin-left:26px; }
+.r4d .rrow2 .stop { position:absolute; left:-26px; top:50%; transform:translateY(-50%); }
+.r4d .front2 { position:relative; display:flex; align-items:center; gap:10px; margin:8px 0 2px 26px; }
+.r4d .front2 .frontlbl { flex:none; font-size:10px; font-weight:700; letter-spacing:.24em;
+  text-transform:uppercase; color:var(--cyan); }
+.r4d .front2 .frule { flex:1; height:2px; background:var(--cyan); box-shadow:var(--edgeglow); }
+/* E: frontier first */
+.r4e .taketop { font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--cyan);
+  margin-top:18px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4e .hero { padding:4px 0 2px; }
+.r4e .hero .prow { font-size:15px; padding:10px 0; }
+.r4e .receipt { display:flex; align-items:center; gap:14px; margin-top:14px; font-size:11px;
+  color:var(--mut); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.r4e .receipt .cw { color:var(--cyan); }
+.r4e .receipt .cr { color:var(--green); }
+
+/* ---- round 4: the quiet frontier, real buttons, a real desktop ---- */
+.mv .btn { flex:none; font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--bg); background:var(--cyan); border:0; border-radius:999px; padding:8px 14px;
+  text-decoration:none; cursor:pointer; white-space:nowrap; }
+.mv .colw { max-width:100%; }
+.r5 .frontline { margin-top:24px; }
+.r5 .takeq { border:1px solid var(--cyan); border-top:0; border-radius:0 0 12px 12px;
+  padding:4px 16px 8px; }
+.r5 .takeq .prow { font-size:15px; padding:11px 0; }
+.r5 .bare { padding:2px 0 6px; }
+.r5 .bare .prow { font-size:15px; padding:12px 0; }
+.r5m .mcard { cursor:pointer; }
+.r5m .mcard.on .band { outline:2px solid var(--mut); outline-offset:4px; border-radius:6px; }
+.r5m .phead2 { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+  margin-bottom:6px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+@container frame (min-width:700px) {
+  .mv .colw { max-width:1080px; margin:0 auto; }
+  .r5 .map2 { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr);
+    gap:0 64px; align-items:start; }
+  .r5m .mdgrid { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,4fr);
+    gap:0 64px; align-items:start; }
+  .r5m .dpane { position:sticky; top:24px; }
+}
+
+/* ---- round 5: red-hinted blocked, striped fog ---- */
+.frame.dark .mv { --red:#f2707a; --redwash:rgba(242,112,122,.10); --redbord:rgba(242,112,122,.45); }
+.frame.light .mv { --red:#c0303c; --redwash:rgba(192,48,60,.07); --redbord:rgba(192,48,60,.4); }
+.r6 .fogs { border:1px solid var(--line); border-radius:8px; padding:8px 14px; margin-top:8px;
+  color:var(--mut); font-size:12px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.r6 .fogs .slbl { margin-bottom:2px; }
+.r6 .waitr { border:1px solid var(--redbord); border-radius:8px; padding:8px 14px; margin-top:8px; }
+.r6 .waitr .slbl { color:var(--red); }
+.r6 .waitr .g-wait { background:var(--red); opacity:.55; }
+.r6 .waitr.dashes { background:repeating-linear-gradient(0deg, var(--redwash) 0 2px, transparent 2px 9px); }
+.r6 .waitr.cross { background:
+  repeating-linear-gradient(45deg, var(--redwash) 0 3px, transparent 3px 10px),
+  repeating-linear-gradient(-45deg, var(--redwash) 0 3px, transparent 3px 10px); }
+.r6 .waitr.wash { background:var(--redwash); }
+.r6 .prowB { border-left:3px solid var(--redbord); padding-left:12px; }
+.r6 .s-waitr { flex:none; width:10px; height:10px; margin-left:1px; border-radius:2px;
+  background:var(--redwash); border:1px solid var(--red); }
+.r6 .fogstrip { display:inline-block; border-radius:6px; padding:5px 10px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+
+/* round-1 leftovers */
+.v2k .keys { flex:none; font-size:10px; color:var(--mut); letter-spacing:.06em; }
+.v2k .keys b { color:var(--ink); font-weight:600; }
+.v4c .calm { display:flex; align-items:center; gap:14px; margin-top:12px; font-size:11px;
+  color:var(--mut); font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v4c .calm .cw { color:var(--cyan); }
+.v4c .calm .cr { color:var(--green); }
+.v4c .sect { font-size:10px; letter-spacing:.22em; text-transform:uppercase; color:var(--cyan);
+  margin:20px 0 2px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v4c .stack { position:relative; margin-top:14px; }
+.v4c .card { position:relative; z-index:2; border:1.5px solid var(--cyan); border-radius:10px;
+  padding:14px 16px 12px; background:var(--bg); }
+.v4c .stack.deep1 .card { margin-bottom:6px; }
+.v4c .stack.deep1::after { content:""; position:absolute; z-index:1; left:10px; right:10px;
+  bottom:0; height:12px; border:1.5px solid var(--line); border-radius:10px; }
+.v4c .stack.deep2 .card { margin-bottom:11px; }
+.v4c .stack.deep2::before { content:""; position:absolute; z-index:1; left:10px; right:10px;
+  bottom:5px; height:12px; border:1.5px solid var(--line); border-radius:10px; background:var(--bg); }
+.v4c .stack.deep2::after { content:""; position:absolute; z-index:0; left:18px; right:18px;
+  bottom:0; height:12px; border:1.5px solid var(--line); border-radius:10px; }
+.v4c .crow { display:flex; align-items:center; gap:12px; font-size:14px; }
+.v4c .cmeta { display:flex; align-items:center; gap:12px; margin-top:8px; }
+.v4c .opens { display:flex; align-items:baseline; gap:8px; margin-top:10px; padding-top:9px;
+  border-top:1px dashed var(--line); font-size:12px; color:var(--mut); }
+.v4c .opens .k { flex:none; font-size:9px; letter-spacing:.16em; text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+.v4c .opens .names { min-width:0; }
+.v4c .opens .keys { white-space:nowrap; font-size:10px; }
+.v4c .fogcard { border:1.5px dotted var(--mut); border-radius:10px; padding:12px 16px;
+  margin-top:14px; color:var(--mut); font-size:12px; }
+.v4c .fogcard .k { font-size:10px; letter-spacing:.18em; text-transform:uppercase;
+  font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; display:block; margin-bottom:6px; }
+.v2k .tree { margin-top:16px; }
+.v2k .tp { display:flex; align-items:center; gap:12px; padding:10px 0 4px; font-size:14px; }
+.v2k .tmeta { display:flex; align-items:center; gap:12px; padding:0 0 6px 24px; }
+.v2k .kid { position:relative; display:flex; align-items:center; gap:10px;
+  margin-left:5px; padding:7px 0 7px 22px; font-size:13px; color:var(--mut); }
+.v2k .kid::before { content:""; position:absolute; left:0; top:0; bottom:50%; width:14px;
+  border-left:2px solid var(--line); border-bottom:2px solid var(--line);
+  border-bottom-left-radius:8px; }
+.v2k .kid.more::after { content:""; position:absolute; left:0; top:50%; bottom:0;
+  border-left:2px solid var(--line); }
+.v2k .kid .ttl { font-weight:400; }
+.v2k .rest { margin-top:18px; }
+.v2k .resthead { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+  margin-bottom:2px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+</style>
+</head>
+<body>
+
+<header class="proto-head"><b>alp82/curia#588</b> · The frontier visual · round 2 · throwaway prototype, static mock data</header>
+
+<div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
+
+<section class="view mv r4 r5 r6" data-view="r7f1" data-name="◦ · Red dashes (kept)"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r7f4" data-name="r6 · F4 Red rail"><div data-body></div></section>
+<section class="view mv r4c r5 r6" data-view="r7f5" data-name="✓ · The stops (decided)"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f1" data-name="r5 · F1 Red dashes"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f2" data-name="r5 · F2 Red crosshatch"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f3" data-name="r5 · F3 Red wash"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f4" data-name="r5 · F4 Red rail"><div data-body></div></section>
+<section class="view mv r4c r5 r6" data-view="r6f5" data-name="r5 · F5 Stops, red"><div data-body></div></section>
+<section class="view mv r4 r5" data-view="r5a2" data-name="r4 · A2 Quiet strata"><div data-body></div></section>
+<section class="view mv r4 r5" data-view="r5a3" data-name="r4 · A3 Bare rows"><div data-body></div></section>
+<section class="view mv r4c r5" data-view="r5c2" data-name="r4 · C2 Stops with buttons"><div data-body></div></section>
+<section class="view mv r4 r5 r5m" data-view="r5m" data-name="r4 · M In the maps screen"><div data-body></div></section>
+<section class="view mv r4" data-view="r4a" data-name="r3 · A Cross-section reversed"><div data-body></div></section>
+<section class="view mv r4 r4b" data-view="r4b" data-name="r3 · B The spotlight"><div data-body></div></section>
+<section class="view mv r4c" data-view="r4c" data-name="r3 · C The stops, focused"><div data-body></div></section>
+<section class="view mv r4d" data-view="r4d" data-name="r3 · D The rail and the strata"><div data-body></div></section>
+<section class="view mv r4e" data-view="r4e" data-name="r3 · E Frontier first"><div data-body></div></section>
+<section class="view mv" data-view="r1a" data-name="r2 · 1a The stops"><div data-body></div></section>
+<section class="view mv" data-view="r1b" data-name="r2 · 1b The branching line"><div data-body></div></section>
+<section class="view mv c1c" data-view="r1c" data-name="r2 · 1c The sections"><div data-body></div></section>
+<section class="view mv" data-view="r1d" data-name="r2 · 1d The ascent"><div data-body></div></section>
+<section class="view mv c1e" data-view="r1e" data-name="r2 · 1e The metro band"><div data-body></div></section>
+<section class="view mv" data-view="r3a" data-name="r2 · 3a The edge, sized"><div data-body></div></section>
+<section class="view mv" data-view="r3b" data-name="r2 · 3b The labeled chart"><div data-body></div></section>
+<section class="view mv" data-view="r3c" data-name="r2 · 3c The coastline"><div data-body></div></section>
+<section class="view mv c3d" data-view="r3d" data-name="r2 · 3d The columns"><div data-body></div></section>
+<section class="view mv c3e" data-view="r3e" data-name="r2 · 3e The cross-section"><div data-body></div></section>
+<section class="view mv" data-view="v0" data-name="r1 · 0 The mock (#522)"><div data-body></div></section>
+<section class="view mv" data-view="v1" data-name="r1 · 1 The route line"><div data-body></div></section>
+<section class="view mv v2k" data-view="v2" data-name="r1 · 2 The tree"><div data-body></div></section>
+<section class="view mv" data-view="v3" data-name="r1 · 3 The edge"><div data-body></div></section>
+<section class="view mv v4c" data-view="v4" data-name="r1 · 4 The unlock cards"><div data-body></div></section>
+
+</div></div></div>
+
+<nav class="bar">
+  <button id="prev" aria-label="previous">◀</button>
+  <span class="name" id="vname"></span>
+  <button id="next" aria-label="next">▶</button>
+  <span class="sep"></span>
+  <button id="mode" aria-label="color mode">☾</button>
+  <span class="sep"></span>
+  <button id="width" aria-label="width">📱</button>
+</nav>
+
+<script>
+/* ---------- mock data, shaped like the real #511 map ---------- */
+const MAPS = [
+  {
+    repo:"alp82/curia", num:"#511",
+    name:"The UX map: the dashboard, Discord, and the way between them",
+    short:"ux map", dest:"the decided UX direction, ready for the build handoff",
+    closed:26, total:33, fog:5, ago:"9m",
+    recent:[
+      { t:"#570", title:"The overseer terminal prototype" },
+      { t:"#522", title:"The maps screen" }
+    ],
+    flight:[
+      { t:"#588", title:"The frontier visual, iterated from the maps mock",
+        typ:"prototype", agent:"claude", mins:41 }
+    ],
+    frontier:[
+      { t:"#589", title:"The global search bar", typ:"prototype", model:"claude-opus-5" },
+      { t:"#590", title:"The alert load at volume", typ:"prototype", model:"claude-opus-5" },
+      { t:"#560", title:"The main layout and the page navigation", typ:"grilling", model:"claude-opus-5" }
+    ],
+    blocked:[
+      { t:"#533", title:"Hand the map to the build", behind:["#588","#589","#590"] },
+      { t:"#563", title:"The chat page draws the dialog card", behind:["#560"] },
+      { t:"#565", title:"The nav lands in every screen mock", behind:["#560"] }
+    ],
+    fogNotes:["reasoning-effort routing","the branch-aware pane read","the build handoff shape",
+      "the last-visit stamp","live updates in the browser"]
+  },
+  {
+    repo:"alp82/aistack", num:"#29",
+    name:"The measured layer", short:"measured",
+    dest:"readings with a freshness stamp and a decided store",
+    closed:3, total:9, fog:4, ago:"3h",
+    recent:[ { t:"#28", title:"The neighbors survey" } ],
+    flight:[],
+    frontier:[
+      { t:"#31", title:"The measured layer gets a freshness stamp", typ:"task", model:"claude-sonnet-5" },
+      { t:"#35", title:"Pick the store for the readings", typ:"grilling", model:"claude-opus-5" }
+    ],
+    blocked:[
+      { t:"#32", title:"Stale readings gray out", behind:["#31"] },
+      { t:"#33", title:"The gauge legend", behind:["#31"] }
+    ],
+    fogNotes:["alert thresholds","the export shape","backfill","retention"]
+  }
+];
+
+/* ---------- helpers ---------- */
+const allOpen = m => [...m.flight, ...m.frontier];
+const titleOf = (m, id) => (allOpen(m).find(x => x.t === id) || { title:id }).title;
+const kidsOf = (m, id) => m.blocked.filter(b => b.behind.includes(id));
+const cutTxt = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+const gh = t => `<a class="go" href="#" onclick="return false">${t} →</a>`;
+const start = () => `<a class="go" href="#" onclick="return false">start →</a>`;
+const route = f => `<span class="route">${f.typ} · → <b>${f.model}</b></span>`;
+const head = m => `<div class="mhead">
+  <div class="mfrac">${m.closed}<span class="of">/${m.total}</span>${m.fog ? `<span class="fogn">+${m.fog}</span>` : ""}</div>
+  <div class="mtt"><span class="nm">${m.name}</span>
+    <span class="meta">${m.repo} · ${m.ago} ago · <a href="#" onclick="return false">${m.num} →</a></span></div>
+</div>`;
+const ht = `<div class="ht"><span>curia · atlas · maps</span><span>sat 22 aug · 09:12</span></div>`;
+const col = inner => `<div class="col">${inner}</div>`;
+
+/* the band, as decided in #522 */
+let sel = { map:"#511", key:"take" };
+function bandHTML(m, selOn, mapKey) {
+  const segs = [
+    { key:"walk", cls:"b-walk", n:m.closed, word:"walked" },
+    { key:"flight", cls:"b-flight", n:m.flight.length, word:"in flight" },
+    { key:"take", cls:"b-take", n:m.frontier.length, word:"takeable" },
+    { key:"wait", cls:"b-wait", n:m.blocked.length, word:"blocked" },
+    { key:"fog", cls:"b-fog", n:m.fog, word:"fog" }
+  ].filter(x => x.n > 0);
+  const total = segs.reduce((a, x) => a + x.n, 0);
+  return `<div class="band">${segs.map(x => `<button
+    class="bseg ${x.cls} ${selOn && sel && sel.map === mapKey && sel.key === x.key ? "sel" : ""}"
+    style="flex-grow:${x.n}" data-sel="${mapKey}|${x.key}" aria-label="${x.word} ${x.n}">${x.n}${
+      x.n / total >= .2 ? `<span class="wd">${x.word}</span>` : ""}</button>`).join("")}</div>`;
+}
+function rowsFor(m, key) {
+  if (key === "walk") return `
+    ${m.recent.map(r => `<div class="prow dim"><span class="num">✓</span><span class="ttl">${r.title}</span>${gh(r.t)}</div>`).join("")}
+    <div class="prow dim"><span class="num">… ${m.closed - m.recent.length} more on GitHub</span></div>`;
+  if (key === "fog") return m.fogNotes.map(n =>
+    `<div class="prow dim"><span class="num">╌</span><span class="ttl">${n}</span><span class="word">not yet specified</span></div>`).join("");
+  if (key === "flight") return m.flight.map(f => `
+    <div class="prow"><span class="dot on"></span><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+    <div class="prow dim"><span class="word run">runs</span><span class="ttl">${f.agent} · ${f.mins}m</span></div>`).join("")
+    || `<div class="prow dim"><span class="ttl">nothing in flight</span></div>`;
+  if (key === "take") return m.frontier.map(f => `
+    <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+    <div class="prow dim"><span class="ttl">${f.typ} · ${route(f)}</span>${start()}</div>
+    ${kidsOf(m, f.t).map(k => `<div class="prow dim"><span class="word">unblocks</span><span class="ttl">${k.title}</span>${gh(k.t)}</div>`).join("")}`).join("")
+    || `<div class="prow dim"><span class="ttl">nothing takeable</span></div>`;
+  return m.blocked.map(b => `
+    <div class="prow dim"><i class="g-wait"></i><span class="ttl">${b.title}<span class="sub">${b.t} · behind ${b.behind.join(" ")}</span></span></div>`).join("")
+    || `<div class="prow dim"><span class="ttl">nothing blocked</span></div>`;
+}
+
+/* ================================================================
+   1a — THE STOPS: the round-1 line, refined. Walked collapses to one
+   dim stop, the rule carries the takeable count, the takeable stops
+   carry start, the blocked say whom they wait for by name.
+   ================================================================ */
+function renderR1a() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="rl">
+      <div class="rrow dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+      ${m.flight.map(f => `<div class="rrow"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span>
+        <span class="fcap">${m.frontier.length} takeable</span></div>
+      ${m.frontier.map(f => `<div class="rrow below"><span class="stop s-take"></span>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+      ${m.blocked.map(b => `<div class="rrow below dim"><span class="stop s-wait"></span>
+        <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+      <div class="rrow fogr dim"><span class="stop s-fog"></span>
+        <span class="ttl">${m.fog} in the fog<span class="sub">${m.fogNotes.join(" · ")}</span></span></div>
+    </div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   1b — THE BRANCHING LINE: the line as a graph. Blocked tickets hang
+   on a second rail, and a curve runs from every ticket that holds one
+   of their keys — so the handoff shows its three converging edges.
+   ================================================================ */
+function branchSVG(m) {
+  const W = 342, rail = 10, rail2 = 30, rowH = 44;
+  let y = 24; const frag = []; const yOf = {};
+  frag.push(`<circle cx="${rail}" cy="${y}" r="6" fill="var(--cyan)"/>
+    <text x="${rail2 + 14}" y="${y + 4}" fill="var(--mut)" font-size="13">${m.closed} walked</text>`);
+  y += rowH;
+  m.flight.forEach(f => {
+    yOf[f.t] = y;
+    frag.push(`<circle cx="${rail}" cy="${y}" r="6" fill="var(--green)"/>
+      <text x="${rail2 + 14}" y="${y}" fill="var(--ink)" font-size="13" font-weight="600">${cutTxt(f.title, 34)}</text>
+      <text x="${rail2 + 14}" y="${y + 15}" fill="var(--mut)" font-size="10"
+        font-family="ui-monospace,Menlo,monospace">runs · ${f.agent} · ${f.mins}m</text>`);
+    y += rowH;
+  });
+  const yRule = y - 12;
+  frag.push(`<line x1="0" y1="${yRule}" x2="${W}" y2="${yRule}" stroke="var(--cyan)" stroke-width="2"/>
+    <text x="0" y="${yRule - 8}" fill="var(--cyan)" font-size="9" letter-spacing="2.5"
+      font-family="ui-monospace,Menlo,monospace">THE FRONTIER</text>`);
+  y += 18;
+  m.frontier.forEach(f => {
+    yOf[f.t] = y;
+    frag.push(`<circle cx="${rail}" cy="${y}" r="6" fill="var(--bg)" stroke="var(--cyan)" stroke-width="2.5"/>
+      <text x="${rail2 + 14}" y="${y}" fill="var(--ink)" font-size="13" font-weight="600">${cutTxt(f.title, 30)}</text>
+      <text x="${rail2 + 14}" y="${y + 15}" fill="var(--mut)" font-size="10"
+        font-family="ui-monospace,Menlo,monospace">${f.typ} · → ${f.model}</text>
+      <text x="${W - 4}" y="${y + 4}" fill="var(--cyan)" font-size="11" text-anchor="end"
+        font-family="ui-monospace,Menlo,monospace">start →</text>`);
+    y += rowH;
+  });
+  y += 4;
+  m.blocked.forEach(b => {
+    const edges = b.behind.map(id => yOf[id] !== undefined
+      ? `<path d="M ${rail} ${yOf[id] + 8} C ${rail} ${yOf[id] + 30}, ${rail2} ${y - 30}, ${rail2} ${y - 8}"
+          fill="none" stroke="var(--mut)" stroke-width="1.2" stroke-dasharray="3 3" opacity="0.55"/>` : "").join("");
+    frag.push(edges + `<rect x="${rail2 - 5}" y="${y - 5}" width="10" height="10" rx="2"
+        fill="var(--line)" stroke="var(--mut)" opacity="0.85"/>
+      <text x="${rail2 + 14 + 20}" y="${y}" fill="var(--mut)" font-size="13">${cutTxt(b.title, 30)}</text>
+      <text x="${rail2 + 14 + 20}" y="${y + 15}" fill="var(--mut)" font-size="10" opacity="0.8"
+        font-family="ui-monospace,Menlo,monospace">${b.behind.length} ${b.behind.length > 1 ? "keys" : "key"} to turn</text>`);
+    y += rowH;
+  });
+  frag.push(`<circle cx="${rail}" cy="${y}" r="6" fill="none" stroke="var(--mut)"
+      stroke-width="1.5" stroke-dasharray="2 3"/>
+    <text x="${rail2 + 14}" y="${y + 4}" fill="var(--mut)" font-size="13">${m.fog} in the fog</text>`);
+  const H = y + 22;
+  const lines = `<line x1="${rail}" y1="24" x2="${rail}" y2="${yRule}" stroke="var(--cyan)" stroke-width="2"/>
+    <line x1="${rail}" y1="${yRule}" x2="${rail}" y2="${yOf[m.frontier[m.frontier.length - 1].t] || yRule}"
+      stroke="var(--mut)" stroke-width="2" stroke-dasharray="2 5" opacity="0.6"/>
+    <line x1="${rail}" y1="${yOf[m.frontier[m.frontier.length - 1].t] || yRule}" x2="${rail}" y2="${y - 8}"
+      stroke="var(--mut)" stroke-width="2" stroke-dasharray="1 7" opacity="0.4"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px">${lines}${frag.join("")}</svg>`;
+}
+function renderR1b() {
+  return ht + col(MAPS.map(m => `<div class="map">${head(m)}
+    <div style="margin-top:12px">${branchSVG(m)}</div></div>`).join(""));
+}
+
+/* ================================================================
+   1c — THE SECTIONS: the line runs through labeled stations. The
+   takeable are cards hanging on the line, the blocked are chips on
+   the card that opens them.
+   ================================================================ */
+function renderR1c() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="rl">
+      <div class="seclbl">walked · ${m.closed}</div>
+      <div class="rrow dim"><span class="stop s-walk"></span>
+        <span class="ttl">latest: ${m.recent[0].title}</span>${gh(m.recent[0].t)}</div>
+      ${m.flight.length ? `<div class="seclbl">in flight · ${m.flight.length}</div>
+      ${m.flight.map(f => `<div class="rrow"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}` : ""}
+      <div class="front" style="margin-top:14px"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+      ${m.frontier.map(f => {
+        const kids = kidsOf(m, f.t);
+        return `<div class="tcard"><span class="stop s-take"></span>
+        <div class="crow"><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+        <div class="cmeta">${route(f)}<span style="flex:1"></span>${start()}</div>
+        ${kids.length ? `<div class="bchips"><span class="word">opens</span>
+          ${kids.map(k => `<span class="bchip">${cutTxt(k.title, 26)}${k.behind.length > 1 ? ` · ${k.behind.length} keys` : ""}</span>`).join("")}</div>` : ""}
+      </div>`; }).join("")}
+      <div class="seclbl below">the fog · ${m.fog}</div>
+      <div class="rrow fogr dim"><span class="stop s-fog"></span>
+        <span class="ttl">${m.fogNotes.join(" · ")}</span></div>
+    </div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   1d — THE ASCENT: the line turned upside down. The destination flies
+   at the top, the fog and the blocked hang under it, the takeable sit
+   right above the frontier rule, and the walked ground closes the map.
+   Reading order is the future first.
+   ================================================================ */
+function renderR1d() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="rl">
+      <div class="rrow bare dim"><span class="stop s-dest">⚑</span>
+        <span class="ttl" style="color:var(--cyan);font-weight:600">${m.dest}</span></div>
+      <div class="rrow fogr dim"><span class="stop s-fog"></span>
+        <span class="ttl">${m.fog} in the fog<span class="sub">${m.fogNotes.join(" · ")}</span></span></div>
+      ${m.blocked.map(b => `<div class="rrow fogr dim"><span class="stop s-wait"></span>
+        <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+      ${m.frontier.map(f => `<div class="rrow below"><span class="stop s-take"></span>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+      <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span>
+        <span class="fcap">${m.frontier.length} takeable</span></div>
+      ${m.flight.map(f => `<div class="rrow"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="rrow"><span class="stop s-walk"></span><span class="ttl" >${m.closed} walked</span>${gh(m.num)}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   1e — THE METRO BAND: the decided band, sharpened into a line. One
+   horizontal strip of stops per map: the walked terminus, the running
+   dots, the frontier tick, one ring per takeable, the blocked, the
+   fog. A tap opens the same panel the mock has.
+   ================================================================ */
+function renderR1e() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="metro">
+      <button class="mstop ${sel && sel.map === m.num && sel.key === "walk" ? "sel" : ""}" data-sel="${m.num}|walk">
+        <span class="micon"><i class="s-walk" style="display:block"></i></span>
+        <span class="mn">${m.closed}</span><span class="mw">walked</span></button>
+      ${m.flight.length ? `<button class="mstop ${sel && sel.map === m.num && sel.key === "flight" ? "sel" : ""}" data-sel="${m.num}|flight">
+        <span class="micon"><i class="s-run" style="display:block"></i></span>
+        <span class="mn">${m.flight.length}</span><span class="mw">flight</span></button>` : ""}
+      <span class="ftickwrap"><span class="ftick"></span><span class="mw">frontier</span></span>
+      ${m.frontier.map(() => `<button class="mstop ${sel && sel.map === m.num && sel.key === "take" ? "sel" : ""}" data-sel="${m.num}|take">
+        <span class="micon"><i class="s-take" style="display:block"></i></span></button>`).join("")}
+      ${m.blocked.length ? `<button class="mstop ${sel && sel.map === m.num && sel.key === "wait" ? "sel" : ""}" data-sel="${m.num}|wait">
+        <span class="micon"><i class="s-wait" style="display:block"></i></span>
+        <span class="mn">${m.blocked.length}</span><span class="mw">blocked</span></button>` : ""}
+      <button class="mstop ${sel && sel.map === m.num && sel.key === "fog" ? "sel" : ""}" data-sel="${m.num}|fog">
+        <span class="micon"><i class="s-fog" style="display:block"></i></span>
+        <span class="mn">${m.fog}</span><span class="mw">fog</span></button>
+    </div>
+    ${sel && sel.map === m.num ? `<div class="panel">${rowsFor(m, sel.key)}</div>` : ""}
+  </div>`).join(""));
+}
+
+/* ================================================================
+   3a — THE EDGE, SIZED: the round-1 terrain with the desktop fault
+   fixed. The picture caps at 520px and the page keeps one column.
+   ================================================================ */
+function terrainSVG(m) {
+  const W = 342, edgeX = 118;
+  const rows = Math.max(m.frontier.length, m.blocked.length, 1);
+  const H = Math.max(96, rows * 34 + 28);
+  const yTake = i => 24 + i * ((H - 44) / Math.max(m.frontier.length - 1, 1) || 0);
+  const yWait = i => 24 + i * ((H - 44) / Math.max(m.blocked.length - 1, 1) || 0);
+  const waitX = W - 116, fogX = W - 58;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img"
+      aria-label="walked ${m.closed}, in flight ${m.flight.length}, takeable ${m.frontier.length}, blocked ${m.blocked.length}, fog ${m.fog}">
+    <rect x="0" y="0" width="${edgeX - 22}" height="${H}" rx="6" fill="var(--cyan)" opacity="0.92"/>
+    <text x="16" y="${H / 2 + 8}" fill="var(--bg)" font-size="22" font-weight="700"
+      font-family="ui-monospace,Menlo,monospace">${m.closed}</text>
+    <text x="16" y="${H / 2 + 24}" fill="var(--bg)" font-size="9" letter-spacing="1"
+      font-family="ui-monospace,Menlo,monospace">WALKED</text>
+    ${m.flight.map((f, i) => `<circle cx="${edgeX - 36}" cy="${20 + i * 18}" r="6" fill="var(--green)"/>`).join("")}
+    <line x1="${edgeX}" y1="6" x2="${edgeX}" y2="${H - 6}" stroke="var(--cyan)" stroke-width="3"/>
+    ${m.frontier.map((f, i) => {
+      const links = kidsOf(m, f.t).map(k => {
+        const j = m.blocked.indexOf(k);
+        return `<line x1="${edgeX + 7}" y1="${yTake(i)}" x2="${waitX - 6}" y2="${yWait(j)}"
+          stroke="var(--mut)" stroke-width="1" opacity="0.5" stroke-dasharray="3 3"/>`;
+      }).join("");
+      return links + `<circle cx="${edgeX}" cy="${yTake(i)}" r="7" fill="var(--bg)"
+        stroke="var(--cyan)" stroke-width="2.5"/>`;
+    }).join("")}
+    ${m.blocked.map((b, i) => `<rect x="${waitX - 5}" y="${yWait(i) - 5}" width="10" height="10" rx="2"
+      fill="var(--line)" stroke="var(--mut)" stroke-width="1" opacity="0.85"/>`).join("")}
+    ${Array.from({ length: m.fog * 2 }, (_, i) => `<circle
+      cx="${fogX + (i * 37) % 46}" cy="${(14 + i * 26.7) % (H - 16) + 8}" r="2.5"
+      fill="none" stroke="var(--mut)" stroke-width="1" opacity="0.55"/>`).join("")}
+  </svg>`;
+}
+function renderR3a() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="terrain">${terrainSVG(m)}</div>
+    <div class="tlegend"><span><b>${m.closed}</b> walked</span><span><b>${m.flight.length}</b> in flight</span>
+      <span><b>${m.frontier.length}</b> takeable</span><span><b>${m.blocked.length}</b> blocked</span>
+      <span><b>${m.fog}</b> fog</span></div>
+    <div class="tlist">
+      ${m.frontier.map(f => `
+        <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+    </div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   3b — THE LABELED CHART: the terrain carries its own names. No list
+   below: the picture is the whole read, tall enough for text.
+   ================================================================ */
+function labeledSVG(m) {
+  const W = 342, edgeX = 96, tx = edgeX + 18, rowH = 42;
+  let y = 26; const frag = []; const yOf = {};
+  m.frontier.forEach(f => {
+    yOf[f.t] = y;
+    frag.push(`<circle cx="${edgeX}" cy="${y}" r="7" fill="var(--bg)" stroke="var(--cyan)" stroke-width="2.5"/>
+      <text x="${tx}" y="${y}" fill="var(--ink)" font-size="13" font-weight="600">${cutTxt(f.title, 26)}</text>
+      <text x="${tx}" y="${y + 15}" fill="var(--mut)" font-size="10"
+        font-family="ui-monospace,Menlo,monospace">→ ${f.model}</text>
+      <text x="${W - 4}" y="${y + 2}" fill="var(--cyan)" font-size="11" text-anchor="end"
+        font-family="ui-monospace,Menlo,monospace">start →</text>`);
+    y += rowH;
+  });
+  y += 6;
+  m.blocked.forEach(b => {
+    const edges = b.behind.map(id => yOf[id] !== undefined
+      ? `<path d="M ${edgeX} ${yOf[id] + 8} C ${edgeX} ${yOf[id] + 26}, ${edgeX + 12} ${y - 24}, ${edgeX + 12} ${y - 7}"
+          fill="none" stroke="var(--mut)" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>` : "").join("");
+    frag.push(edges + `<rect x="${edgeX + 7}" y="${y - 5}" width="10" height="10" rx="2"
+        fill="var(--line)" stroke="var(--mut)" opacity="0.85"/>
+      <text x="${tx + 12}" y="${y}" fill="var(--mut)" font-size="12">${cutTxt(b.title, 28)}</text>
+      <text x="${tx + 12}" y="${y + 14}" fill="var(--mut)" font-size="9" opacity="0.8"
+        font-family="ui-monospace,Menlo,monospace">${b.behind.length} ${b.behind.length > 1 ? "keys" : "key"} to turn</text>`);
+    y += rowH;
+  });
+  m.fogNotes.slice(0, 3).forEach(n => {
+    frag.push(`<circle cx="${edgeX + 12}" cy="${y - 2}" r="5" fill="none" stroke="var(--mut)"
+        stroke-width="1.2" stroke-dasharray="2 3" opacity="0.7"/>
+      <text x="${tx + 12}" y="${y + 2}" fill="var(--mut)" font-size="11" opacity="0.75">${cutTxt(n, 30)}</text>`);
+    y += 26;
+  });
+  if (m.fogNotes.length > 3) {
+    frag.push(`<text x="${tx + 12}" y="${y}" fill="var(--mut)" font-size="10" opacity="0.6"
+      font-family="ui-monospace,Menlo,monospace">+${m.fogNotes.length - 3} more in the fog</text>`);
+    y += 22;
+  }
+  const H = y + 8;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px" role="img"
+      aria-label="the frontier of ${m.short}">
+    <rect x="0" y="0" width="${edgeX - 20}" height="${H}" rx="6" fill="var(--cyan)" opacity="0.92"/>
+    <text x="14" y="${H / 2}" fill="var(--bg)" font-size="22" font-weight="700"
+      font-family="ui-monospace,Menlo,monospace">${m.closed}</text>
+    <text x="14" y="${H / 2 + 16}" fill="var(--bg)" font-size="9" letter-spacing="1"
+      font-family="ui-monospace,Menlo,monospace">WALKED</text>
+    ${m.flight.map((f, i) => `<circle cx="${edgeX - 34}" cy="${18 + i * 16}" r="5" fill="var(--green)"/>`).join("")}
+    <line x1="${edgeX}" y1="6" x2="${edgeX}" y2="${H - 6}" stroke="var(--cyan)" stroke-width="3"/>
+    ${frag.join("")}
+  </svg>`;
+}
+function renderR3b() {
+  return ht + col(MAPS.map(m => `<div class="map">${head(m)}
+    <div style="margin-top:12px">${labeledSVG(m)}</div></div>`).join(""));
+}
+
+/* ================================================================
+   3c — THE COASTLINE: the edge goes organic. Walked is the landmass,
+   the takeable are harbors on the coast, the blocked are islands on
+   dashed ferry lines, and the fog is the open sea.
+   ================================================================ */
+function coastSVG(m) {
+  const W = 342, H = 190;
+  const coastX = y => 118 + 16 * Math.sin(y / 30) + 8 * Math.sin(y / 71);
+  let landPath = "M 0 0 ";
+  for (let y = 0; y <= H; y += 8) landPath += `L ${coastX(y).toFixed(1)} ${y} `;
+  landPath += `L 0 ${H} Z`;
+  const yTake = i => 30 + i * ((H - 60) / Math.max(m.frontier.length - 1, 1) || 0);
+  const yWait = i => 40 + i * ((H - 80) / Math.max(m.blocked.length - 1, 1) || 0);
+  const islX = 236;
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px" role="img"
+      aria-label="walked ${m.closed}, takeable ${m.frontier.length}, blocked ${m.blocked.length}, fog ${m.fog}">
+    <path d="${landPath}" fill="var(--cyan)" opacity="0.92"/>
+    <text x="16" y="${H / 2}" fill="var(--bg)" font-size="22" font-weight="700"
+      font-family="ui-monospace,Menlo,monospace">${m.closed}</text>
+    <text x="16" y="${H / 2 + 16}" fill="var(--bg)" font-size="9" letter-spacing="1"
+      font-family="ui-monospace,Menlo,monospace">WALKED</text>
+    ${m.flight.map((f, i) => `<circle cx="${coastX(30 + i * 22) - 22}" cy="${30 + i * 22}" r="6" fill="var(--green)"/>`).join("")}
+    ${m.frontier.map((f, i) => {
+      const y = yTake(i);
+      const links = kidsOf(m, f.t).map(k => {
+        const j = m.blocked.indexOf(k);
+        return `<line x1="${coastX(y) + 6}" y1="${y}" x2="${islX - 8}" y2="${yWait(j)}"
+          stroke="var(--mut)" stroke-width="1" opacity="0.5" stroke-dasharray="4 4"/>`;
+      }).join("");
+      return links + `<circle cx="${coastX(y)}" cy="${y}" r="7" fill="var(--bg)"
+        stroke="var(--cyan)" stroke-width="2.5"/>`;
+    }).join("")}
+    ${m.blocked.map((b, i) => `<rect x="${islX - 7}" y="${yWait(i) - 6}" width="14" height="12" rx="5"
+      fill="var(--line)" stroke="var(--mut)" opacity="0.9"/>`).join("")}
+    ${Array.from({ length: m.fog * 3 }, (_, i) => `<circle
+      cx="${292 + (i * 29) % 44}" cy="${(16 + i * 21.3) % (H - 20) + 10}" r="2.2"
+      fill="none" stroke="var(--mut)" stroke-width="1" opacity="0.5"/>`).join("")}
+    <text x="${W - 6}" y="${H - 8}" fill="var(--mut)" font-size="9" text-anchor="end" opacity="0.8"
+      letter-spacing="1.5" font-family="ui-monospace,Menlo,monospace">THE FOG</text>
+  </svg>`;
+}
+function renderR3c() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="terrain">${coastSVG(m)}</div>
+    <div class="tlist">
+      ${m.frontier.map(f => `
+        <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+      ${m.blocked.map(b => `
+        <div class="prow dim"><i class="g-wait"></i><span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+    </div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   3d — THE COLUMNS: five lanes, and the frontier is the glowing wall
+   between the flight lane and the takeable lane. Marks stack in each
+   lane, names live in the list below.
+   ================================================================ */
+function laneMarks(n, icon, max = 7) {
+  const shown = Math.min(n, max);
+  return Array.from({ length: shown }, () => icon).join("") +
+    (n > max ? `<span class="num">+${n - max}</span>` : "");
+}
+function renderR3d() {
+  const ic = cls => `<i class="${cls}" style="display:block"></i>`;
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="lanes">
+      <div class="lane walk"><div class="lc">${m.closed}</div><div class="lw">walked</div></div>
+      <div class="lane flight"><div class="lc">${m.flight.length}</div><div class="lw">flight</div>
+        <div class="marks">${laneMarks(m.flight.length, ic("s-run"))}</div></div>
+      <div class="lane take"><div class="lc">${m.frontier.length}</div><div class="lw">takeable</div>
+        <div class="marks">${laneMarks(m.frontier.length, ic("s-take"))}</div></div>
+      <div class="lane wait"><div class="lc">${m.blocked.length}</div><div class="lw">blocked</div>
+        <div class="marks">${laneMarks(m.blocked.length, ic("s-wait"))}</div></div>
+      <div class="lane fog"><div class="lc">${m.fog}</div><div class="lw">fog</div>
+        <div class="marks">${laneMarks(m.fog, ic("s-fog"))}</div></div>
+    </div>
+    <div class="tlist">
+      ${m.frontier.map(f => `
+        <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+    </div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   3e — THE CROSS-SECTION: the map as strata. Fog on top, blocked
+   under it, the takeable resting on the glowing frontier line, the
+   flight beneath, and the walked ground carrying it all.
+   ================================================================ */
+function renderR3e() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="strata">
+      <div class="stratum fogb"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>
+      <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>
+        ${m.blocked.map(b => `<div class="prow dim"><i class="g-wait"></i>
+          <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}</div>
+      <div class="stratum takeb"><div class="slbl" style="color:var(--cyan)">takeable · ${m.frontier.length}</div>
+        ${m.frontier.map(f => `<div class="prow"><i class="g-take"></i>
+          <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}</div>
+      <div class="frontline"><span class="frontlbl">the frontier</span></div>
+      ${m.flight.length ? `<div class="stratum flightb"><div class="slbl" style="color:var(--green)">in flight · ${m.flight.length}</div>
+        ${m.flight.map(f => `<div class="prow"><span class="dot on"></span>
+          <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}</div>` : ""}
+      <div class="stratum walkb"><span class="big">${m.closed}</span><span class="w">walked</span>
+        <span style="flex:1"></span>${gh(m.num)}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   ROUND 3 — the frontier in focus. The operator ruled: reverse the
+   cross-section, and pull the eye off the walked block onto the
+   frontier. The stops stay in the mix for their simplicity.
+   ================================================================ */
+
+/* shared round-3 pieces */
+const walkCap = m => `<div class="walkcap"><span class="cdot"></span>
+  <span>${m.closed} walked${m.flight.length ? ` · ${m.flight.length} in flight` : ""}</span>
+  <span class="crule"></span>${gh(m.num)}</div>`;
+const takeRows = (m, big) => m.frontier.map(f => `<div class="prow">
+  <i class="g-take"></i><span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("");
+const waitRows = m => m.blocked.map(b => `<div class="prow dim"><i class="g-wait"></i>
+  <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("");
+
+/* A — THE CROSS-SECTION, REVERSED: walked shrinks to one thin cap on
+   top, the frontier line follows, and the takeable stratum hangs on
+   it as the one framed box. Blocked and fog sink below. */
+function renderR4a() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="strata">
+      ${walkCap(m)}
+      ${m.flight.map(f => `<div class="stratum flightb"><div class="prow"><span class="dot on"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div></div>`).join("")}
+      <div class="frontline"><span class="frontlbl">the frontier</span><span class="fcap">${m.frontier.length} takeable</span></div>
+      <div class="stratum takeb">${takeRows(m)}</div>
+      <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="stratum fogb"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* B — THE SPOTLIGHT: the takeable stratum gets the wash and the glow,
+   and everything else steps back a size. */
+function renderR4b() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="strata">
+      ${walkCap(m)}
+      ${m.flight.map(f => `<div class="stratum flightb"><div class="prow dim"><span class="dot on"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div></div>`).join("")}
+      <div class="frontline"><span class="frontlbl">the frontier</span><span class="fcap">${m.frontier.length} takeable</span></div>
+      <div class="stratum takeb">${takeRows(m)}</div>
+      <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="stratum fogb">the fog · ${m.fog} — ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? ` · +${m.fogNotes.length - 3}` : ""}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* C — THE STOPS, FOCUSED: the simple line, re-weighted. Walked is one
+   dim stop, the takeable stops grow and carry a start pill, the rest
+   stays quiet. */
+function renderR4c() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="rl">
+      <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+      ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span>
+        <span class="fcap">${m.frontier.length} takeable</span></div>
+      ${m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+        <a class="startpill" href="#" onclick="return false">start →</a></div>`).join("")}
+      ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-wait"></span>
+        <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+      <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+        <span class="ttl">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></div>
+    </div>
+  </div>`).join(""));
+}
+
+/* D — THE RAIL AND THE STRATA: the stops line carries framed boxes.
+   The rail runs solid to the frontier rule, the takeable box hangs on
+   it framed cyan, the blocked and fog boxes fade below. */
+function renderR4d() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="railwrap" style="--railsolid:${m.flight.length ? "18%" : "9%"}">
+      <div class="rrow2 dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+      ${m.flight.map(f => `<div class="rrow2"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="front2"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+      <div class="sbox takeb2"><span class="stop s-take"></span>${takeRows(m)}</div>
+      <div class="sbox waitb2"><span class="stop s-wait"></span><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="sbox fogb2"><span class="stop s-fog"></span><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>
+    </div>
+  </div>`).join(""));
+}
+
+/* E — FRONTIER FIRST: the takeable rows open the map, the frontier
+   rule closes them, and history is one receipt line at the bottom. */
+function renderR4e() {
+  return ht + col(MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="taketop">takeable · ${m.frontier.length}</div>
+    <div class="hero">${takeRows(m)}</div>
+    <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+    <div class="panel" style="border-left:0;padding-left:0">
+      ${waitRows(m)}
+      <div class="prow dim"><span class="num">╌</span><span class="ttl">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></div>
+    </div>
+    <div class="receipt"><span class="cw">■ ${m.closed} walked</span>
+      ${m.flight.length ? `<span class="cr">● ${m.flight.length} in flight</span>` : ""}
+      <span style="flex:1"></span>${gh(m.num)}</div>
+  </div>`).join(""));
+}
+
+/* ================================================================
+   ROUND 4 — the quiet frontier. The operator ruled on round 3: A leads
+   on blocked and fog, but the frontier stratum carries clutter, start
+   must look like a button, C stays in the mix, and every cut needs a
+   real desktop. Two de-clutter treatments of A, C with buttons, and
+   the master-detail that puts the frontier pane in the maps screen.
+   ================================================================ */
+let selMap = "#511";
+const flightRows = m => m.flight.map(f => `<div class="stratum flightb"><div class="prow">
+  <span class="dot on"></span><span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div></div>`).join("");
+/* the frontier pane, quiet: no rings, no counts, one button per row */
+const strataQuiet = m => `<div class="frontline"><span class="frontlbl">the frontier</span></div>
+  <div class="takeq">${m.frontier.map(f => `<div class="prow">
+    <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+    <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}</div>
+  <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+  <div class="stratum fogb"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`;
+const bandStatic = m => {
+  const segs = [
+    { cls:"b-walk", n:m.closed, word:"walked" },
+    { cls:"b-flight", n:m.flight.length, word:"in flight" },
+    { cls:"b-take", n:m.frontier.length, word:"takeable" },
+    { cls:"b-wait", n:m.blocked.length, word:"blocked" },
+    { cls:"b-fog", n:m.fog, word:"fog" }
+  ].filter(x => x.n > 0);
+  const total = segs.reduce((a, x) => a + x.n, 0);
+  return `<div class="band">${segs.map(x => `<span class="bseg ${x.cls}"
+    style="flex-grow:${x.n}" aria-label="${x.word} ${x.n}">${x.n}${
+      x.n / total >= .2 ? `<span class="wd">${x.word}</span>` : ""}</span>`).join("")}</div>`;
+};
+
+/* A2 — QUIET STRATA: the reversed cross-section with the noise gone.
+   Desktop: the map context left, the frontier right. */
+function renderR5a2() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>${strataQuiet(m)}</div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* A3 — BARE ROWS: the takeable rows hang on the line with no frame at
+   all. Blocked and fog keep their boxes, which already read well. */
+function renderR5a3() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>
+      <div class="frontline"><span class="frontlbl">the frontier</span></div>
+      <div class="bare">${m.frontier.map(f => `<div class="prow"><i class="g-take"></i>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+        <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}</div>
+      <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="stratum fogb"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* C2 — STOPS WITH BUTTONS: the simple line, and start is a button.
+   Desktop: history rides left, the frontier rides right. */
+function renderR5c2() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}
+      <div class="rl">
+        <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+        ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+          <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="rl">
+        <div class="front" style="margin-top:18px"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+        ${m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+          <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+          <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}
+        ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-wait"></span>
+          <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+        <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+          <span class="ttl">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></div>
+      </div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* M — IN THE MAPS SCREEN: the decided #522 screen carries the quiet
+   frontier pane. Phone: tap a band, the pane opens under it. Desktop:
+   master-detail, the pane sits sticky on the right. */
+function renderR5m() {
+  if (w === "desktop") {
+    const m = MAPS.find(x => x.num === selMap) || MAPS[0];
+    return ht + `<div class="colw"><div class="mdgrid">
+      <div>${MAPS.map(mm => `<div class="map mcard ${mm.num === m.num ? "on" : ""}" data-selmap="${mm.num}">
+        ${head(mm)}${bandStatic(mm)}</div>`).join("")}</div>
+      <div class="dpane"><div class="phead2">${m.short} · the frontier</div>${strataQuiet(m)}</div>
+    </div></div>`;
+  }
+  return ht + MAPS.map(mm => `<div class="map">
+    ${head(mm)}
+    <div class="mcard ${selMap === mm.num ? "on" : ""}" data-selmap="${mm.num}">${bandStatic(mm)}</div>
+    ${selMap === mm.num ? strataQuiet(mm) : ""}
+  </div>`).join("");
+}
+
+/* ================================================================
+   ROUND 5 — the operator ruled on round 4: vary the bare rows with a
+   red hint on blocked and grey diagonal stripes on fog, one simple
+   pattern each, never the same twice. The stops stay in the mix.
+   ================================================================ */
+const bareTake = m => `<div class="frontline"><span class="frontlbl">the frontier</span></div>
+  <div class="bare">${m.frontier.map(f => `<div class="prow"><i class="g-take"></i>
+    <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+    <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}</div>`;
+const fogBox = m => `<div class="fogs"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`;
+const bareVariant = (m, waitCls) => `${bareTake(m)}
+  <div class="waitr ${waitCls}"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+  ${fogBox(m)}`;
+const r6page = right => ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>${right(m)}</div>
+  </div></div>`).join("")}</div>`;
+
+/* F1 — RED DASHES: blocked wears thin horizontal red dashes, fog
+   wears the grey diagonal stripes. */
+function renderR6f1() { return r6page(m => bareVariant(m, "dashes")); }
+
+/* F2 — RED CROSSHATCH: blocked weaves red both ways. */
+function renderR6f2() { return r6page(m => bareVariant(m, "cross")); }
+
+/* F3 — RED WASH: blocked carries a plain red tint, no pattern. */
+function renderR6f3() { return r6page(m => bareVariant(m, "wash")); }
+
+/* F4 — RED RAIL, NO BOXES: blocked rows lean on a red rail, the fog
+   is one striped strip, and nothing wears a frame. */
+function renderR6f4() {
+  return r6page(m => `${bareTake(m)}
+    <div style="margin-top:8px">${m.blocked.map(b => `<div class="prow dim prowB"><i class="s-waitr"></i>
+      <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}</div>
+    <div class="fogs" style="border:0;margin-top:12px"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`);
+}
+
+/* F5 — THE STOPS, RED AND STRIPES: the favorite line keeps its stops
+   and buttons, blocked stops turn red, and the fog row sits on the
+   striped strip. */
+function renderR6f5() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}
+      <div class="rl">
+        <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+        ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+          <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="rl">
+        <div class="front" style="margin-top:18px"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+        ${m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+          <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+          <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}
+        ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-waitr"></span>
+          <span class="ttl">${b.title}<span class="sub" style="color:var(--red);opacity:.75">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+        <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+          <span class="ttl"><span class="fogstrip">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></span></div>
+      </div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* ================================================================
+   ROUND 6 — THE FINALS AT VOLUME. F1, F4 and F5 all work and the
+   operator cannot pick. The decider: the same three cuts over two
+   stress maps — a crowded one with eight takeable and six blocked,
+   and a drained one with an empty frontier.
+   ================================================================ */
+const CROWD = {
+  repo:"alp82/curia", num:"#601",
+  name:"The build map: the decided UX ships", short:"build map",
+  closed:9, total:31, fog:8, ago:"41m",
+  recent:[ { t:"#607", title:"The atlas shell skeleton" } ],
+  flight:[
+    { t:"#611", title:"The chat page card seam", typ:"task", agent:"codex", mins:18 },
+    { t:"#612", title:"The maps overview route", typ:"task", agent:"claude", mins:55 }
+  ],
+  frontier:[
+    { t:"#613", title:"The atlas shell and the nav", typ:"task", model:"claude-sonnet-5" },
+    { t:"#614", title:"The feed endpoint", typ:"task", model:"claude-sonnet-5" },
+    { t:"#615", title:"The bands on the maps screen", typ:"task", model:"claude-sonnet-5" },
+    { t:"#616", title:"The agents roster", typ:"task", model:"claude-sonnet-5" },
+    { t:"#617", title:"The settings drill-in", typ:"task", model:"claude-haiku-4-5" },
+    { t:"#618", title:"The alert grouping", typ:"task", model:"claude-opus-5" },
+    { t:"#619", title:"The search index", typ:"task", model:"claude-opus-5" },
+    { t:"#620", title:"The last-visit stamp", typ:"task", model:"claude-haiku-4-5" }
+  ],
+  blocked:[
+    { t:"#621", title:"The feed screen wires the endpoint", behind:["#614","#613"] },
+    { t:"#622", title:"The maps detail pane", behind:["#615","#612"] },
+    { t:"#623", title:"The needs-you ordering", behind:["#618"] },
+    { t:"#624", title:"The search results page", behind:["#619"] },
+    { t:"#625", title:"The chat header links", behind:["#613"] },
+    { t:"#626", title:"The since-you-left marker", behind:["#620","#614"] }
+  ],
+  fogNotes:["the push channel","the app manifest flow","the terminal proxy retire",
+    "the overseer pane rehydration","the model-switch control","the effort routing",
+    "the worker image CLIs","the dialog card seam"]
+};
+const DRAIN = {
+  repo:"alp82/aistack", num:"#40",
+  name:"The importer hardening", short:"importer",
+  closed:6, total:9, fog:1, ago:"12m",
+  recent:[ { t:"#39", title:"The checksum gate" } ],
+  flight:[ { t:"#41", title:"The retry ladder", typ:"task", agent:"pi", mins:66 } ],
+  frontier:[],
+  blocked:[
+    { t:"#42", title:"The dead-letter drawer", behind:["#41"] },
+    { t:"#43", title:"The alert on the third failure", behind:["#41"] }
+  ],
+  fogNotes:["the backfill window"]
+};
+const STRESS = [...MAPS, CROWD, DRAIN];
+const noTake = `<div class="prow dim"><span class="ttl">nothing takeable. the way is in flight</span></div>`;
+const bareTakeS = m => `<div class="frontline"><span class="frontlbl">the frontier</span></div>
+  <div class="bare">${m.frontier.length ? m.frontier.map(f => `<div class="prow"><i class="g-take"></i>
+    <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+    <a class="btn" href="#" onclick="return false">start →</a></div>`).join("") : noTake}</div>`;
+const r6pageOn = (maps, right) => ht + `<div class="colw">${maps.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>${right(m)}</div>
+  </div></div>`).join("")}</div>`;
+function renderR7f1() {
+  return r6pageOn(STRESS, m => `${bareTakeS(m)}
+    <div class="waitr dashes"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+    ${fogBox(m)}`);
+}
+function renderR7f4() {
+  return r6pageOn(STRESS, m => `${bareTakeS(m)}
+    <div style="margin-top:8px">${m.blocked.map(b => `<div class="prow dim prowB"><i class="s-waitr"></i>
+      <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}</div>
+    <div class="fogs" style="border:0;margin-top:12px"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`);
+}
+function renderR7f5() {
+  return ht + `<div class="colw">${STRESS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}
+      <div class="rl">
+        <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+        ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+          <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="rl">
+        <div class="front" style="margin-top:18px"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+        ${m.frontier.length ? m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+          <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+          <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")
+          : `<div class="rrow below dim"><span class="stop s-fog"></span><span class="ttl">nothing takeable. the way is in flight</span></div>`}
+        ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-waitr"></span>
+          <span class="ttl">${b.title}<span class="sub" style="color:var(--red);opacity:.75">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+        <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+          <span class="ttl"><span class="fogstrip">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></span></div>
+      </div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* ================================================================
+   round 1, kept for reference
+   ================================================================ */
+function renderV0() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    ${bandHTML(m, true, m.num)}
+    ${sel && sel.map === m.num ? `<div class="panel">${rowsFor(m, sel.key)}</div>` : ""}
+  </div>`).join("");
+}
+function renderV1() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="rl">
+      <div class="rrow dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+      ${m.flight.map(f => `<div class="rrow"><span class="stop s-run"></span>
+        <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span>
+        <span class="fcap">${m.frontier.length} takeable</span></div>
+      ${m.frontier.map(f => `<div class="rrow below"><span class="stop s-take"></span>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+      ${m.blocked.map(b => `<div class="rrow below dim"><span class="stop s-wait"></span>
+        <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => titleOf(m, x)).join(" · ")}</span></span></div>`).join("")}
+      <div class="rrow fogr dim"><span class="stop s-fog"></span>
+        <span class="ttl">${m.fog} in the fog<span class="sub">${m.fogNotes.join(" · ")}</span></span></div>
+    </div>
+  </div>`).join("");
+}
+function renderV2() {
+  return ht + MAPS.map(m => {
+    const shown = new Set();
+    return `<div class="map">
+    ${head(m)}
+    ${bandHTML(m, false, m.num)}
+    <div class="tree">
+      ${m.frontier.map(f => {
+        const kids = kidsOf(m, f.t);
+        kids.forEach(k => shown.add(k.t));
+        return `
+        <div class="tp"><i class="g-take"></i><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+        <div class="tmeta">${route(f)}${start()}</div>
+        ${kids.map((k, i) => `<div class="kid ${i < kids.length - 1 ? "more" : ""}">
+          <span class="ttl">opens ${k.title}</span>
+          ${k.behind.length > 1 ? `<span class="keys">key <b>${k.behind.indexOf(f.t) + 1}</b>/${k.behind.length}</span>` : ""}
+        </div>`).join("")}`;
+      }).join("")}
+      ${(() => {
+        const rest = m.blocked.filter(b => !shown.has(b.t));
+        return rest.length ? `<div class="rest"><div class="resthead">further back</div>
+          ${rest.map(b => `<div class="prow dim"><i class="g-wait"></i><span class="ttl">${b.title}<span class="sub">behind ${b.behind.join(" ")}</span></span></div>`).join("")}</div>` : "";
+      })()}
+    </div>
+  </div>`; }).join("");
+}
+function renderV3() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="terrain" style="max-width:none">${terrainSVG(m)}</div>
+    <div class="tlegend"><span><b>${m.closed}</b> walked</span><span><b>${m.flight.length}</b> in flight</span>
+      <span><b>${m.frontier.length}</b> takeable</span><span><b>${m.blocked.length}</b> blocked</span>
+      <span><b>${m.fog}</b> fog</span></div>
+    <div class="tlist">
+      ${m.frontier.map(f => `
+        <div class="prow"><i class="g-take"></i><span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>${start()}</div>`).join("")}
+    </div>
+  </div>`).join("");
+}
+function renderV4() {
+  return ht + MAPS.map(m => `<div class="map">
+    ${head(m)}
+    <div class="calm"><span class="cw">■ ${m.closed} walked</span>
+      ${m.flight.length ? `<span class="cr">● ${m.flight.length} in flight</span>` : ""}
+      <span>▫ ${m.blocked.length} blocked</span></div>
+    <div class="sect">takeable — ${m.frontier.length}</div>
+    ${m.frontier.map(f => {
+      const kids = kidsOf(m, f.t);
+      return `<div class="stack deep${Math.min(kids.length, 2)}">
+      <div class="card">
+        <div class="crow"><i class="g-take"></i><span class="ttl">${f.title}</span>${gh(f.t)}</div>
+        <div class="cmeta">${route(f)}<span style="flex:1"></span>${start()}</div>
+        ${kids.length ? `<div class="opens"><span class="k">opens</span>
+          <span class="names">${kids.map(k => k.title).join(" · ")}</span>
+          ${kids.some(k => k.behind.length > 1) ? `<span class="keys">${kids.filter(k => k.behind.length > 1)
+            .map(k => `key ${k.behind.indexOf(f.t) + 1}/${k.behind.length}`).join(" · ")}</span>` : ""}
+        </div>` : ""}
+      </div>
+    </div>`; }).join("")}
+    <div class="fogcard"><span class="k">the fog · ${m.fog}</span>${m.fogNotes.join(" · ")}</div>
+  </div>`).join("");
+}
+
+/* ---------- shell wiring ---------- */
+const RENDER = { r7f1: renderR7f1, r7f4: renderR7f4, r7f5: renderR7f5,
+  r6f1: renderR6f1, r6f2: renderR6f2, r6f3: renderR6f3, r6f4: renderR6f4, r6f5: renderR6f5,
+  r5a2: renderR5a2, r5a3: renderR5a3, r5c2: renderR5c2, r5m: renderR5m,
+  r4a: renderR4a, r4b: renderR4b, r4c: renderR4c, r4d: renderR4d, r4e: renderR4e,
+  r1a: renderR1a, r1b: renderR1b, r1c: renderR1c, r1d: renderR1d, r1e: renderR1e,
+  r3a: renderR3a, r3b: renderR3b, r3c: renderR3c, r3d: renderR3d, r3e: renderR3e,
+  v0: renderV0, v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4 };
+const VIEWS = ["r7f5", "r7f1", "r7f4",
+  "r6f1", "r6f2", "r6f3", "r6f4", "r6f5",
+  "r5a2", "r5a3", "r5c2", "r5m",
+  "r4a", "r4b", "r4c", "r4d", "r4e",
+  "r1a", "r1b", "r1c", "r1d", "r1e", "r3a", "r3b", "r3c", "r3d", "r3e",
+  "v0", "v1", "v2", "v3", "v4"];
+const frame = document.getElementById("frame");
+const wrap = document.getElementById("wrap");
+const q = new URLSearchParams(location.search);
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r7f5";
+let mode = q.get("mode") === "light" ? "light" : "dark";
+let w = q.get("w") === "desktop" ? "desktop" : "phone";
+
+function render() {
+  document.querySelectorAll(".view").forEach(sec => {
+    const on = sec.dataset.view === v;
+    sec.classList.toggle("active", on);
+    if (!on) return;
+    sec.querySelector("[data-body]").innerHTML = RENDER[v]();
+    sec.querySelectorAll("[data-sel]").forEach(b =>
+      b.onclick = e => {
+        e.stopPropagation();
+        const [mn, k] = b.dataset.sel.split("|");
+        sel = sel && sel.map === mn && sel.key === k ? null : { map: mn, key: k };
+        render();
+      });
+    sec.querySelectorAll("[data-selmap]").forEach(b =>
+      b.onclick = () => {
+        selMap = w !== "desktop" && selMap === b.dataset.selmap ? null : b.dataset.selmap;
+        render();
+      });
+  });
+  frame.className = "frame w-" + w + " " + mode;
+  document.getElementById("vname").textContent =
+    document.querySelector(".view.active").dataset.name;
+  document.getElementById("mode").textContent = mode === "dark" ? "☾" : "☀";
+  document.getElementById("width").textContent = w === "phone" ? "📱" : "🖥";
+  const p = new URLSearchParams({ v, mode, w });
+  history.replaceState(null, "", "?" + p);
+  requestAnimationFrame(rescale);
+}
+function rescale() {
+  const fw = w === "desktop" ? 1280 : 390;
+  const s = Math.min(1, (window.innerWidth - 16) / fw);
+  wrap.style.transform = "scale(" + s + ")";
+  wrap.style.height = (frame.offsetHeight * s) + "px";
+}
+function cycle(dir) {
+  v = VIEWS[(VIEWS.indexOf(v) + dir + VIEWS.length) % VIEWS.length];
+  render();
+}
+document.getElementById("prev").onclick = () => cycle(-1);
+document.getElementById("next").onclick = () => cycle(1);
+document.getElementById("mode").onclick = () => { mode = mode === "dark" ? "light" : "dark"; render(); };
+document.getElementById("width").onclick = () => { w = w === "phone" ? "desktop" : "phone"; render(); };
+window.addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft") cycle(-1);
+  if (e.key === "ArrowRight") cycle(1);
+});
+window.addEventListener("resize", rescale);
+render();
+</script>
+</body>
+</html>
