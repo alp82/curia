@@ -6,9 +6,11 @@
 <title>#588 The frontier visual — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#588 "The frontier visual, iterated
-  from the maps mock". Round 3: five cuts with the frontier in focus
-  (A-E), after the operator reversed the cross-section and pulled the
-  eye off the walked block. Rounds 1 and 2 sit behind for reference.
+  from the maps mock". Round 4: the quiet frontier. Two de-clutter
+  treatments of the reversed cross-section (A2, A3), the stops with
+  real buttons (C2), and the master-detail cut (M) that puts the
+  frontier pane inside the decided maps screen — each with a real
+  desktop layout. Earlier rounds sit behind for reference.
   Decided maps screen (#522), V6 tokens (#519).
   Switch via ?v=, width via ?w=, color via ?mode=.
   Static mock data shaped like the real #511 map, including one ticket
@@ -310,6 +312,30 @@ svg { display:block; }
 .r4e .receipt .cw { color:var(--cyan); }
 .r4e .receipt .cr { color:var(--green); }
 
+/* ---- round 4: the quiet frontier, real buttons, a real desktop ---- */
+.mv .btn { flex:none; font:700 11px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--bg); background:var(--cyan); border:0; border-radius:999px; padding:8px 14px;
+  text-decoration:none; cursor:pointer; white-space:nowrap; }
+.mv .colw { max-width:100%; }
+.r5 .frontline { margin-top:24px; }
+.r5 .takeq { border:1px solid var(--cyan); border-top:0; border-radius:0 0 12px 12px;
+  padding:4px 16px 8px; }
+.r5 .takeq .prow { font-size:15px; padding:11px 0; }
+.r5 .bare { padding:2px 0 6px; }
+.r5 .bare .prow { font-size:15px; padding:12px 0; }
+.r5m .mcard { cursor:pointer; }
+.r5m .mcard.on .band { outline:2px solid var(--mut); outline-offset:4px; border-radius:6px; }
+.r5m .phead2 { font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--mut);
+  margin-bottom:6px; font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace; }
+@container frame (min-width:700px) {
+  .mv .colw { max-width:1080px; margin:0 auto; }
+  .r5 .map2 { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,3fr);
+    gap:0 64px; align-items:start; }
+  .r5m .mdgrid { display:grid; grid-template-columns:minmax(0,5fr) minmax(0,4fr);
+    gap:0 64px; align-items:start; }
+  .r5m .dpane { position:sticky; top:24px; }
+}
+
 /* round-1 leftovers */
 .v2k .keys { flex:none; font-size:10px; color:var(--mut); letter-spacing:.06em; }
 .v2k .keys b { color:var(--ink); font-weight:600; }
@@ -364,11 +390,15 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv r4" data-view="r4a" data-name="A · Cross-section reversed"><div data-body></div></section>
-<section class="view mv r4 r4b" data-view="r4b" data-name="B · The spotlight"><div data-body></div></section>
-<section class="view mv r4c" data-view="r4c" data-name="C · The stops, focused"><div data-body></div></section>
-<section class="view mv r4d" data-view="r4d" data-name="D · The rail and the strata"><div data-body></div></section>
-<section class="view mv r4e" data-view="r4e" data-name="E · Frontier first"><div data-body></div></section>
+<section class="view mv r4 r5" data-view="r5a2" data-name="A2 · Quiet strata"><div data-body></div></section>
+<section class="view mv r4 r5" data-view="r5a3" data-name="A3 · Bare rows"><div data-body></div></section>
+<section class="view mv r4c r5" data-view="r5c2" data-name="C2 · Stops with buttons"><div data-body></div></section>
+<section class="view mv r4 r5 r5m" data-view="r5m" data-name="M · In the maps screen"><div data-body></div></section>
+<section class="view mv r4" data-view="r4a" data-name="r3 · A Cross-section reversed"><div data-body></div></section>
+<section class="view mv r4 r4b" data-view="r4b" data-name="r3 · B The spotlight"><div data-body></div></section>
+<section class="view mv r4c" data-view="r4c" data-name="r3 · C The stops, focused"><div data-body></div></section>
+<section class="view mv r4d" data-view="r4d" data-name="r3 · D The rail and the strata"><div data-body></div></section>
+<section class="view mv r4e" data-view="r4e" data-name="r3 · E Frontier first"><div data-body></div></section>
 <section class="view mv" data-view="r1a" data-name="r2 · 1a The stops"><div data-body></div></section>
 <section class="view mv" data-view="r1b" data-name="r2 · 1b The branching line"><div data-body></div></section>
 <section class="view mv c1c" data-view="r1c" data-name="r2 · 1c The sections"><div data-body></div></section>
@@ -1001,6 +1031,107 @@ function renderR4e() {
 }
 
 /* ================================================================
+   ROUND 4 — the quiet frontier. The operator ruled on round 3: A leads
+   on blocked and fog, but the frontier stratum carries clutter, start
+   must look like a button, C stays in the mix, and every cut needs a
+   real desktop. Two de-clutter treatments of A, C with buttons, and
+   the master-detail that puts the frontier pane in the maps screen.
+   ================================================================ */
+let selMap = "#511";
+const flightRows = m => m.flight.map(f => `<div class="stratum flightb"><div class="prow">
+  <span class="dot on"></span><span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div></div>`).join("");
+/* the frontier pane, quiet: no rings, no counts, one button per row */
+const strataQuiet = m => `<div class="frontline"><span class="frontlbl">the frontier</span></div>
+  <div class="takeq">${m.frontier.map(f => `<div class="prow">
+    <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+    <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}</div>
+  <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+  <div class="stratum fogb"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`;
+const bandStatic = m => {
+  const segs = [
+    { cls:"b-walk", n:m.closed, word:"walked" },
+    { cls:"b-flight", n:m.flight.length, word:"in flight" },
+    { cls:"b-take", n:m.frontier.length, word:"takeable" },
+    { cls:"b-wait", n:m.blocked.length, word:"blocked" },
+    { cls:"b-fog", n:m.fog, word:"fog" }
+  ].filter(x => x.n > 0);
+  const total = segs.reduce((a, x) => a + x.n, 0);
+  return `<div class="band">${segs.map(x => `<span class="bseg ${x.cls}"
+    style="flex-grow:${x.n}" aria-label="${x.word} ${x.n}">${x.n}${
+      x.n / total >= .2 ? `<span class="wd">${x.word}</span>` : ""}</span>`).join("")}</div>`;
+};
+
+/* A2 — QUIET STRATA: the reversed cross-section with the noise gone.
+   Desktop: the map context left, the frontier right. */
+function renderR5a2() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>${strataQuiet(m)}</div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* A3 — BARE ROWS: the takeable rows hang on the line with no frame at
+   all. Blocked and fog keep their boxes, which already read well. */
+function renderR5a3() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>
+      <div class="frontline"><span class="frontlbl">the frontier</span></div>
+      <div class="bare">${m.frontier.map(f => `<div class="prow"><i class="g-take"></i>
+        <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+        <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}</div>
+      <div class="stratum waitb"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+      <div class="stratum fogb"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* C2 — STOPS WITH BUTTONS: the simple line, and start is a button.
+   Desktop: history rides left, the frontier rides right. */
+function renderR5c2() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}
+      <div class="rl">
+        <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+        ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+          <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="rl">
+        <div class="front" style="margin-top:18px"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+        ${m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+          <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+          <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}
+        ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-wait"></span>
+          <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+        <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+          <span class="ttl">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></div>
+      </div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* M — IN THE MAPS SCREEN: the decided #522 screen carries the quiet
+   frontier pane. Phone: tap a band, the pane opens under it. Desktop:
+   master-detail, the pane sits sticky on the right. */
+function renderR5m() {
+  if (w === "desktop") {
+    const m = MAPS.find(x => x.num === selMap) || MAPS[0];
+    return ht + `<div class="colw"><div class="mdgrid">
+      <div>${MAPS.map(mm => `<div class="map mcard ${mm.num === m.num ? "on" : ""}" data-selmap="${mm.num}">
+        ${head(mm)}${bandStatic(mm)}</div>`).join("")}</div>
+      <div class="dpane"><div class="phead2">${m.short} · the frontier</div>${strataQuiet(m)}</div>
+    </div></div>`;
+  }
+  return ht + MAPS.map(mm => `<div class="map">
+    ${head(mm)}
+    <div class="mcard ${selMap === mm.num ? "on" : ""}" data-selmap="${mm.num}">${bandStatic(mm)}</div>
+    ${selMap === mm.num ? strataQuiet(mm) : ""}
+  </div>`).join("");
+}
+
+/* ================================================================
    round 1, kept for reference
    ================================================================ */
 function renderV0() {
@@ -1092,17 +1223,19 @@ function renderV4() {
 }
 
 /* ---------- shell wiring ---------- */
-const RENDER = { r4a: renderR4a, r4b: renderR4b, r4c: renderR4c, r4d: renderR4d, r4e: renderR4e,
+const RENDER = { r5a2: renderR5a2, r5a3: renderR5a3, r5c2: renderR5c2, r5m: renderR5m,
+  r4a: renderR4a, r4b: renderR4b, r4c: renderR4c, r4d: renderR4d, r4e: renderR4e,
   r1a: renderR1a, r1b: renderR1b, r1c: renderR1c, r1d: renderR1d, r1e: renderR1e,
   r3a: renderR3a, r3b: renderR3b, r3c: renderR3c, r3d: renderR3d, r3e: renderR3e,
   v0: renderV0, v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4 };
-const VIEWS = ["r4a", "r4b", "r4c", "r4d", "r4e",
+const VIEWS = ["r5a2", "r5a3", "r5c2", "r5m",
+  "r4a", "r4b", "r4c", "r4d", "r4e",
   "r1a", "r1b", "r1c", "r1d", "r1e", "r3a", "r3b", "r3c", "r3d", "r3e",
   "v0", "v1", "v2", "v3", "v4"];
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r4a";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r5a2";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 
@@ -1117,6 +1250,11 @@ function render() {
         e.stopPropagation();
         const [mn, k] = b.dataset.sel.split("|");
         sel = sel && sel.map === mn && sel.key === k ? null : { map: mn, key: k };
+        render();
+      });
+    sec.querySelectorAll("[data-selmap]").forEach(b =>
+      b.onclick = () => {
+        selMap = w !== "desktop" && selMap === b.dataset.selmap ? null : b.dataset.selmap;
         render();
       });
   });
