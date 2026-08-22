@@ -1645,14 +1645,14 @@ export class DiscordBridge {
   async #downloadAttachments(escalationId, attachments) {
     const dir = path.join(this.dataDir, 'attachments', escalationId)
     const saved = []
-    let i = 0
-    for (const a of attachments.values()) {
+    let attachmentNumber = 0
+    for (const attachment of attachments.values()) {
       fs.mkdirSync(dir, { recursive: true })
-      const leaf = safeLeaf(a.name, 'attachment')
+      const leaf = safeLeaf(attachment.name, 'attachment')
       const ext = path.extname(leaf)
       const stem = ext ? leaf.slice(0, -ext.length) : leaf
-      const dest = path.join(dir, `${stem}-${++i}${ext}`)
-      const res = await fetch(a.url)
+      const dest = path.join(dir, `${stem}-${++attachmentNumber}${ext}`)
+      const res = await fetch(attachment.url)
       await finished(Readable.fromWeb(res.body).pipe(fs.createWriteStream(dest)))
       saved.push(dest)
     }
