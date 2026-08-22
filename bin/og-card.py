@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Render the Open Graph card for https://curia.sh into docs/og.png.
+"""Render the image assets for https://curia.sh.
 
 The box that runs this has no image library and no browser, so everything here
 is Python's standard library: a TrueType reader, a scanline rasterizer and a
-PNG writer. Re-run it whenever the card's words change.
+PNG writer. Re-run it whenever either image changes.
 
     python3 bin/og-card.py
 
-The card is 1200x630, the size every link preview crops to.
+The card is 1200x630, the size every link preview crops to. The favicon is a
+192x192 PNG that uses the page palette and the lowercase c from its wordmark.
 """
 
 import os
@@ -29,6 +30,7 @@ DIM = (0x96, 0x9B, 0xA5)
 ACCENT = (0x7D, 0xD3, 0xA0)
 
 W, H = 1200, 630
+FAVICON_SIZE = 192
 SS = 4  # vertical supersampling; horizontal coverage is exact
 
 
@@ -454,6 +456,29 @@ def ink_box(font, text, size):
     return min(xs), min(ys), max(xs), max(ys)
 
 
+def polygon_bounds(polys):
+    """Return the bounding box for a nonempty polygon list."""
+    points = [point for contour in polys for point in contour]
+    if not points:
+        raise SystemExit("self-test: favicon glyph has no outline")
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def favicon_glyph(font):
+    """Transform the lowercase c glyph into the centered favicon geometry."""
+    scale = 200.0 / font.units_per_em
+    polys = [
+        [(x * scale, -y * scale) for x, y in contour]
+        for contour in font.outline(font.glyph_id("c"))
+    ]
+    x0, y0, x1, y1 = polygon_bounds(polys)
+    dx = (FAVICON_SIZE - (x1 - x0)) / 2.0 - x0
+    dy = (FAVICON_SIZE - (y1 - y0)) / 2.0 - y0
+    return [[(x + dx, y + dy) for x, y in contour] for contour in polys]
+
+
 def self_test(font):
     """Catch a flipped or mis-scaled transform without looking at the output.
 
@@ -482,8 +507,20 @@ def self_test(font):
     if not (0.35 < cover < 0.85):
         raise SystemExit("self-test: 'H' coverage %.2f is not glyph-shaped" % cover)
 
+    favicon_polys = favicon_glyph(font)
+    x0, y0, x1, y1 = polygon_bounds(favicon_polys)
+    if not (40 < x0 < 55 and 135 < x1 < 155):
+        raise SystemExit("self-test: favicon glyph is not centered horizontally")
+    if not (35 < y0 < 50 and 145 < y1 < 160):
+        raise SystemExit("self-test: favicon glyph is not centered vertically")
+    ink = sum(1 for value in rasterize(
+        favicon_polys, FAVICON_SIZE, FAVICON_SIZE
+    ) if value > 127)
+    if not (3500 < ink < 7000):
+        raise SystemExit("self-test: favicon has %d inked pixels" % ink)
 
-# ------------------------------------------------------------------- card ---
+
+# ----------------------------------------------------------------- assets ---
 
 def build():
     sans = Font(SANS_BOLD)
@@ -531,6 +568,19 @@ def build():
         raise SystemExit("card looks empty: only %d inked pixels" % ink)
     print("wrote %s (%d bytes, %d inked pixels, headline %.0fpx)"
           % (out, os.path.getsize(out), ink, size))
+
+    favicon = Canvas(FAVICON_SIZE, FAVICON_SIZE, BG)
+    favicon_alpha = rasterize(
+        favicon_glyph(sans), FAVICON_SIZE, FAVICON_SIZE
+    )
+    favicon.blend(
+        0, 0, favicon_alpha, FAVICON_SIZE, FAVICON_SIZE, ACCENT
+    )
+    favicon_out = os.path.join(ROOT, "docs", "favicon.png")
+    favicon.png(favicon_out)
+    favicon_ink = sum(1 for value in favicon_alpha if value > 127)
+    print("wrote %s (%d bytes, %d inked pixels)"
+          % (favicon_out, os.path.getsize(favicon_out), favicon_ink))
 
 
 if __name__ == "__main__":
