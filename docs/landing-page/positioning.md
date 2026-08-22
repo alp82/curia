@@ -133,8 +133,10 @@ agent regenerates from GitHub and the journal. `proof.md` holds the detail.
 The four-frame strip and the dated stats line leave the final page:
 
 - Proof moments sit inside the story, one per scene where one fits, instead of one strip. The
-  storyboard prototype names the moments. Each moment may be a captured screenshot or built HTML,
-  and [Capture the four proof frames](https://github.com/alp82/curia/issues/135) waits on that call.
+  storyboard prototype names the moments. **Every moment is built HTML, ruled at
+  [Choose the medium of every proof moment](https://github.com/alp82/curia/issues/601),
+  2026-08-22.** No scene shows a screenshot, and the build makes each scene as realistic as the
+  medium allows. The detail is in [`proof.md`](proof.md).
 - The stats line becomes one dogfood line in the merged act. It absorbs the written-by-curia line:
   curia improved itself over about 300 tickets driven from Discord. The build regenerates the real
   count on build day and links the merged pull requests.
