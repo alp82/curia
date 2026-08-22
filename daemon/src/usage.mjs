@@ -838,8 +838,9 @@ export function modelName(model, spec, stated = null) {
 // line.
 //
 // `transcript` names the file to read (#332, building ADR-0016). OMIT it for an
-// AGENT: curia gives every agent its own config dir, so the newest file in that
-// dir is the agent's live run. PASS it for a CONVERSATION, resolved with
+// AGENT: curia gives every root agent its own config dir, so transcript
+// discovery finds its newest root run and skips codex subagent rollouts (#545).
+// PASS it for a CONVERSATION, resolved with
 // transcript.transcriptForSession — every overseer conversation shares one
 // config dir, so only the session id its key is bound to names its file. Null
 // there is a conversation with no turn yet, and it reads NOTHING: the last
