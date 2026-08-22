@@ -6,11 +6,10 @@
 <title>#588 The frontier visual — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#588 "The frontier visual, iterated
-  from the maps mock". Round 4: the quiet frontier. Two de-clutter
-  treatments of the reversed cross-section (A2, A3), the stops with
-  real buttons (C2), and the master-detail cut (M) that puts the
-  frontier pane inside the decided maps screen — each with a real
-  desktop layout. Earlier rounds sit behind for reference.
+  from the maps mock". Round 5: red-hinted blocked and striped fog on
+  the bare rows (F1-F4, one simple pattern each, never the same
+  twice), plus the stops favorite carrying the same language (F5).
+  Earlier rounds sit behind for reference.
   Decided maps screen (#522), V6 tokens (#519).
   Switch via ?v=, width via ?w=, color via ?mode=.
   Static mock data shaped like the real #511 map, including one ticket
@@ -336,6 +335,27 @@ svg { display:block; }
   .r5m .dpane { position:sticky; top:24px; }
 }
 
+/* ---- round 5: red-hinted blocked, striped fog ---- */
+.frame.dark .mv { --red:#f2707a; --redwash:rgba(242,112,122,.10); --redbord:rgba(242,112,122,.45); }
+.frame.light .mv { --red:#c0303c; --redwash:rgba(192,48,60,.07); --redbord:rgba(192,48,60,.4); }
+.r6 .fogs { border:1px solid var(--line); border-radius:8px; padding:8px 14px; margin-top:8px;
+  color:var(--mut); font-size:12px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+.r6 .fogs .slbl { margin-bottom:2px; }
+.r6 .waitr { border:1px solid var(--redbord); border-radius:8px; padding:8px 14px; margin-top:8px; }
+.r6 .waitr .slbl { color:var(--red); }
+.r6 .waitr .g-wait { background:var(--red); opacity:.55; }
+.r6 .waitr.dashes { background:repeating-linear-gradient(0deg, var(--redwash) 0 2px, transparent 2px 9px); }
+.r6 .waitr.cross { background:
+  repeating-linear-gradient(45deg, var(--redwash) 0 3px, transparent 3px 10px),
+  repeating-linear-gradient(-45deg, var(--redwash) 0 3px, transparent 3px 10px); }
+.r6 .waitr.wash { background:var(--redwash); }
+.r6 .prowB { border-left:3px solid var(--redbord); padding-left:12px; }
+.r6 .s-waitr { flex:none; width:10px; height:10px; margin-left:1px; border-radius:2px;
+  background:var(--redwash); border:1px solid var(--red); }
+.r6 .fogstrip { display:inline-block; border-radius:6px; padding:5px 10px;
+  background:repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+
 /* round-1 leftovers */
 .v2k .keys { flex:none; font-size:10px; color:var(--mut); letter-spacing:.06em; }
 .v2k .keys b { color:var(--ink); font-weight:600; }
@@ -390,10 +410,15 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv r4 r5" data-view="r5a2" data-name="A2 · Quiet strata"><div data-body></div></section>
-<section class="view mv r4 r5" data-view="r5a3" data-name="A3 · Bare rows"><div data-body></div></section>
-<section class="view mv r4c r5" data-view="r5c2" data-name="C2 · Stops with buttons"><div data-body></div></section>
-<section class="view mv r4 r5 r5m" data-view="r5m" data-name="M · In the maps screen"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f1" data-name="F1 · Red dashes, grey stripes"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f2" data-name="F2 · Red crosshatch"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f3" data-name="F3 · Red wash"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r6f4" data-name="F4 · Red rail, no boxes"><div data-body></div></section>
+<section class="view mv r4c r5 r6" data-view="r6f5" data-name="F5 · Stops, red and stripes"><div data-body></div></section>
+<section class="view mv r4 r5" data-view="r5a2" data-name="r4 · A2 Quiet strata"><div data-body></div></section>
+<section class="view mv r4 r5" data-view="r5a3" data-name="r4 · A3 Bare rows"><div data-body></div></section>
+<section class="view mv r4c r5" data-view="r5c2" data-name="r4 · C2 Stops with buttons"><div data-body></div></section>
+<section class="view mv r4 r5 r5m" data-view="r5m" data-name="r4 · M In the maps screen"><div data-body></div></section>
 <section class="view mv r4" data-view="r4a" data-name="r3 · A Cross-section reversed"><div data-body></div></section>
 <section class="view mv r4 r4b" data-view="r4b" data-name="r3 · B The spotlight"><div data-body></div></section>
 <section class="view mv r4c" data-view="r4c" data-name="r3 · C The stops, focused"><div data-body></div></section>
@@ -1132,6 +1157,70 @@ function renderR5m() {
 }
 
 /* ================================================================
+   ROUND 5 — the operator ruled on round 4: vary the bare rows with a
+   red hint on blocked and grey diagonal stripes on fog, one simple
+   pattern each, never the same twice. The stops stay in the mix.
+   ================================================================ */
+const bareTake = m => `<div class="frontline"><span class="frontlbl">the frontier</span></div>
+  <div class="bare">${m.frontier.map(f => `<div class="prow"><i class="g-take"></i>
+    <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+    <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}</div>`;
+const fogBox = m => `<div class="fogs"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`;
+const bareVariant = (m, waitCls) => `${bareTake(m)}
+  <div class="waitr ${waitCls}"><div class="slbl">blocked · ${m.blocked.length}</div>${waitRows(m)}</div>
+  ${fogBox(m)}`;
+const r6page = right => ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}${walkCap(m)}${flightRows(m)}</div>
+    <div>${right(m)}</div>
+  </div></div>`).join("")}</div>`;
+
+/* F1 — RED DASHES: blocked wears thin horizontal red dashes, fog
+   wears the grey diagonal stripes. */
+function renderR6f1() { return r6page(m => bareVariant(m, "dashes")); }
+
+/* F2 — RED CROSSHATCH: blocked weaves red both ways. */
+function renderR6f2() { return r6page(m => bareVariant(m, "cross")); }
+
+/* F3 — RED WASH: blocked carries a plain red tint, no pattern. */
+function renderR6f3() { return r6page(m => bareVariant(m, "wash")); }
+
+/* F4 — RED RAIL, NO BOXES: blocked rows lean on a red rail, the fog
+   is one striped strip, and nothing wears a frame. */
+function renderR6f4() {
+  return r6page(m => `${bareTake(m)}
+    <div style="margin-top:8px">${m.blocked.map(b => `<div class="prow dim prowB"><i class="s-waitr"></i>
+      <span class="ttl">${b.title}<span class="sub">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}</div>
+    <div class="fogs" style="border:0;margin-top:12px"><div class="slbl">the fog · ${m.fog}</div>${m.fogNotes.join(" · ")}</div>`);
+}
+
+/* F5 — THE STOPS, RED AND STRIPES: the favorite line keeps its stops
+   and buttons, blocked stops turn red, and the fog row sits on the
+   striped strip. */
+function renderR6f5() {
+  return ht + `<div class="colw">${MAPS.map(m => `<div class="map"><div class="map2">
+    <div>${head(m)}
+      <div class="rl">
+        <div class="rrow small dim"><span class="stop s-walk"></span><span class="ttl">${m.closed} walked</span>${gh(m.num)}</div>
+        ${m.flight.map(f => `<div class="rrow small"><span class="stop s-run"></span>
+          <span class="ttl">${f.title}<span class="sub">runs · ${f.agent} · ${f.mins}m</span></span>${gh(f.t)}</div>`).join("")}
+      </div>
+    </div>
+    <div>
+      <div class="rl">
+        <div class="front" style="margin-top:18px"><span class="frontlbl">the frontier</span><span class="frule"></span></div>
+        ${m.frontier.map(f => `<div class="rrow take below"><span class="stop s-take"></span>
+          <span class="ttl">${f.title}<span class="sub">${f.typ} · → ${f.model}</span></span>
+          <a class="btn" href="#" onclick="return false">start →</a></div>`).join("")}
+        ${m.blocked.map(b => `<div class="rrow small below dim"><span class="stop s-waitr"></span>
+          <span class="ttl">${b.title}<span class="sub" style="color:var(--red);opacity:.75">behind ${b.behind.map(x => cutTxt(titleOf(m, x), 24)).join(" · ")}</span></span></div>`).join("")}
+        <div class="rrow small fogr dim"><span class="stop s-fog"></span>
+          <span class="ttl"><span class="fogstrip">${m.fog} in the fog · ${m.fogNotes.slice(0, 3).join(" · ")}${m.fogNotes.length > 3 ? " …" : ""}</span></span></div>
+      </div>
+    </div>
+  </div></div>`).join("")}</div>`;
+}
+
+/* ================================================================
    round 1, kept for reference
    ================================================================ */
 function renderV0() {
@@ -1223,19 +1312,21 @@ function renderV4() {
 }
 
 /* ---------- shell wiring ---------- */
-const RENDER = { r5a2: renderR5a2, r5a3: renderR5a3, r5c2: renderR5c2, r5m: renderR5m,
+const RENDER = { r6f1: renderR6f1, r6f2: renderR6f2, r6f3: renderR6f3, r6f4: renderR6f4, r6f5: renderR6f5,
+  r5a2: renderR5a2, r5a3: renderR5a3, r5c2: renderR5c2, r5m: renderR5m,
   r4a: renderR4a, r4b: renderR4b, r4c: renderR4c, r4d: renderR4d, r4e: renderR4e,
   r1a: renderR1a, r1b: renderR1b, r1c: renderR1c, r1d: renderR1d, r1e: renderR1e,
   r3a: renderR3a, r3b: renderR3b, r3c: renderR3c, r3d: renderR3d, r3e: renderR3e,
   v0: renderV0, v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4 };
-const VIEWS = ["r5a2", "r5a3", "r5c2", "r5m",
+const VIEWS = ["r6f1", "r6f2", "r6f3", "r6f4", "r6f5",
+  "r5a2", "r5a3", "r5c2", "r5m",
   "r4a", "r4b", "r4c", "r4d", "r4e",
   "r1a", "r1b", "r1c", "r1d", "r1e", "r3a", "r3b", "r3c", "r3d", "r3e",
   "v0", "v1", "v2", "v3", "v4"];
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r5a2";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r6f1";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 
