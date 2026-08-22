@@ -1,6 +1,6 @@
 # ADR-0015: The overseer is a service, not an agent-shaped pane
 
-**Status**: accepted (2026-08). Built. The service and its image are [#327](https://github.com/alp82/curia/issues/327), and the replay below is [#388](https://github.com/alp82/curia/issues/388) — the last decision here that nothing had built.
+**Status**: accepted (2026-08). Built. The service and its image are [#327](https://github.com/alp82/curia/issues/327), and the replay below is [#388](https://github.com/alp82/curia/issues/388) — the last decision here that nothing had built. Amended by [ADR-0024](0024-the-overseer-chat-is-a-pane.md) (2026-08): the service stands, and the no-pane rule retires — each live conversation runs as a pane that execs into the service.
 **Provenance**: [The chat and the overseer become one thing, in a container (#301)](https://github.com/alp82/curia/issues/301), [The hosting shape: a service, a pane, or one container per thread (#310)](https://github.com/alp82/curia/issues/310)
 
 ## Context

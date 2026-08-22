@@ -13,7 +13,8 @@ One file per standing decision. A decision earns an ADR when it still constrains
 - [ADR-0003](0003-tmux-ttyd-tailscale-worker-host.md): Agents live in bare tmux, attach is one shared ttyd behind Tailscale Serve, workspaces are per-ticket worktrees.
 - [ADR-0012](0012-one-container-per-worker.md): Each agent runs in its own Docker container, started by its own tmux pane, holding its own clone and nothing else of the box.
 - [ADR-0014](0014-the-overseer-in-its-own-container.md): The overseer leaves the daemon process for its own container. It reads a checkout of every watched repo, and a read-only token replaces the tool surface as its boundary. Decided, not built.
-- [ADR-0015](0015-the-overseer-is-a-service.md): That container is a persistent compose service, not an agent-shaped pane and not one container per conversation. Compose owns its liveness, and a turn a restart kills is replayed rather than retyped. Decided, not built.
+- [ADR-0015](0015-the-overseer-is-a-service.md): That container is a persistent compose service, not an agent-shaped pane and not one container per conversation. Compose owns its liveness, and a turn a restart kills is replayed rather than retyped. Amended by ADR-0024: the no-pane rule retires. Built.
+- [ADR-0024](0024-the-overseer-chat-is-a-pane.md): The overseer chat is a pane, parked when idle. Both chat kinds share the pane runtime and the ADR-0021 take back, live panes get a settings cap of 3, a deploy is a forced park, and rehydration returns a pane on the next message. Decided, not built.
 - [ADR-0016](0016-the-conversation-key.md): A conversation is keyed on a Discord thread snowflake or on `console-<n>`, the daemon owns that key, and the container holds no conversation state. A transcript is found by key, never by mtime. Decided, not built.
 
 ## Dispatch and routing
