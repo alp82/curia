@@ -29,24 +29,28 @@ function fakeStore() {
 // A git/docker double: answers rev-parse from `shas`, throws where the
 // scenario says so, and records every docker invocation. `dirty` is what
 // `git status --porcelain` prints — the clean tree is the empty string.
-function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', show = {} } = {}) {
+function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', blobIds = {} } = {}) {
   const docker = []
   const git = []
-  const exec = async (file, args, options = {}) => {
+  const exec = async (file, args) => {
     if (file === 'git') {
       git.push(args)
       const verb = args[0]
       if (verb === 'status') return { stdout: dirty }
       if (verb === 'checkout') return { stdout: '' }
       if (verb === 'fetch') return { stdout: '' }
-      if (verb === 'rev-parse') return { stdout: `${args[1] === 'HEAD' ? head : origin}\n` }
+      if (verb === 'rev-parse') {
+        if (args[1].includes(':')) {
+          const f = args[1].split(':').slice(1).join(':')
+          return { stdout: `${blobIds[f]?.incoming ?? 'incoming-blob'}\n` }
+        }
+        return { stdout: `${args[1] === 'HEAD' ? head : origin}\n` }
+      }
       if (verb === 'ls-files') return { stdout: untracked }
       if (verb === 'diff') return { stdout: added }
-      if (verb === 'show') {
-        const f = args[1].split(':').slice(1).join(':')
-        if (show[f] === undefined) throw new Error(`fatal: path '${f}' does not exist`)
-        const value = show[f]
-        return { stdout: options.encoding === 'buffer' ? Buffer.from(value) : Buffer.from(value).toString('utf8') }
+      if (verb === 'hash-object') {
+        const f = args.at(-1)
+        return { stdout: `${blobIds[f]?.local ?? 'local-blob'}\n` }
       }
       if (verb === 'merge-base') {
         if (!ffOk) throw new Error('exit 1')
@@ -168,11 +172,11 @@ describe('the daemon half: preflight and hand-off', () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-repo-'))
     fs.mkdirSync(path.join(repoRoot, 'docs'))
     fs.writeFileSync(path.join(repoRoot, 'docs/check.sh'), 'same bytes\n')
-    const { deploy, reduction, docker } = build({
+    const { deploy, reduction, docker, git } = build({
       repoRoot,
       untracked: 'docs/check.sh\n',
       added: 'docs/check.sh\nsome/other-new-file.mjs\n',
-      show: { 'docs/check.sh': 'same bytes\n' },
+      blobIds: { 'docs/check.sh': { incoming: 'same-blob', local: 'same-blob' } },
     })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /removed untracked docs\/check\.sh/)
@@ -180,6 +184,7 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.equal(fs.existsSync(path.join(repoRoot, 'docs/check.sh')), false)
     assert.equal(reduction.events[0].type, 'deploy_untracked_dup_discarded')
     assert.deepEqual(reduction.events[0].files, ['docs/check.sh'])
+    assert.equal(deployGitComparesBlobIds(git), true)
     assert.equal(docker.length, 1)
   })
 
@@ -191,7 +196,7 @@ describe('the daemon half: preflight and hand-off', () => {
       repoRoot,
       untracked: 'docs/check.sh\n',
       added: 'docs/check.sh\n',
-      show: { 'docs/check.sh': 'the incoming edition\n' },
+      blobIds: { 'docs/check.sh': { incoming: 'incoming-blob', local: 'local-blob' } },
     })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /untracked files that b{7} adds as tracked, with DIFFERENT content: docs\/check\.sh/)
@@ -209,7 +214,7 @@ describe('the daemon half: preflight and hand-off', () => {
       repoRoot,
       untracked: 'docs/check.bin\n',
       added: 'docs/check.bin\n',
-      show: { 'docs/check.bin': Buffer.from([0x81]) },
+      blobIds: { 'docs/check.bin': { incoming: 'incoming-blob', local: 'local-blob' } },
     })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /DIFFERENT content: docs\/check\.bin/)
@@ -365,7 +370,7 @@ describe('the surviving daemon half: resolution', () => {
     fs.writeFileSync(deploy.lastPath, '{not json')
     const status = deploy.status()
     assert.equal(status.last, null)
-    assert.match(status.last_error, /last deploy verdict is unreadable/)
+    assert.match(status.verdict_read_error, /last deploy verdict is unreadable/)
   })
 
   // The excerpt keeps the sibling's narration and the error lines, and drops
@@ -379,8 +384,11 @@ describe('the surviving daemon half: resolution', () => {
       'error: The following untracked working tree files would be overwritten by merge:',
       '\tdocs/live-checks/461-rollout-copy.sh',
       'Please move or remove them before you merge.',
+      "validating compose.yaml: services.daemon additional properties 'bogus' not allowed",
+      'unable to prepare context: path "/missing" not found',
       '#30 [daemon stage-3 8/9] RUN mkdir -p /run/curia-tmux',
       '#30 CACHED',
+      `#31 ${'build noise '.repeat(7_000)}`,
       'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?',
       'curl: (7) Failed to connect to 127.0.0.1 port 4271',
       '[self-deploy 2026-08-19T19:21:00Z] rolled back to aaaaaaa',
@@ -389,6 +397,8 @@ describe('the surviving daemon half: resolution', () => {
     assert.match(out, /deploy aaaaaaa -> bbbbbbb/)
     assert.match(out, /would be overwritten/)
     assert.match(out, /461-rollout-copy\.sh/)
+    assert.match(out, /additional properties 'bogus' not allowed/)
+    assert.match(out, /unable to prepare context/)
     assert.match(out, /Cannot connect to the Docker daemon/)
     assert.match(out, /curl: \(7\)/)
     assert.doesNotMatch(out, /stage-3/)
@@ -405,6 +415,12 @@ describe('the surviving daemon half: resolution', () => {
     assert.equal(deploy.readMarker(), null)
   })
 })
+
+function deployGitComparesBlobIds(git) {
+  return git.some((args) => args[0] === 'hash-object')
+    && git.some((args) => args[0] === 'rev-parse' && args[1].includes(':'))
+    && !git.some((args) => args[0] === 'show')
+}
 
 describe('the sibling script holds the deploy rule', () => {
   const text = fs.readFileSync(SCRIPT, 'utf8')

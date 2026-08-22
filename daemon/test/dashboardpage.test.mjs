@@ -136,7 +136,7 @@ const OVERVIEW = () => ({
     { ts: at(400), type: 'esc_open', id: 'esc-7', agent: 'curia-255', ticket: '255', kind: 'choice', prompt: 'Two notes race the same expiry line.' },
     { ts: at(60), type: 'credentials_swept', agent: 'curia-263', ticket: '263', repo: 'alp82/curia' },
   ],
-  deploy: { in_flight: null, last: null, last_error: null },
+  deploy: { in_flight: null, last: null, verdict_read_error: null },
   frontier: {
     computed_at: at(120),
     repos: [
@@ -198,7 +198,7 @@ describe('the read screens (#264)', () => {
         deploy: {
           in_flight: { prev: 'a'.repeat(40), next: 'b'.repeat(40), state: 'rolling-back' },
           last: null,
-          last_error: null,
+          verdict_read_error: null,
         },
       })))
       assert.match(t, /Deploy/)
@@ -215,7 +215,7 @@ describe('the read screens (#264)', () => {
             reason: 'docker compose could not recreate the services', by: 'u1',
             resolved_at: at(30), log: 'Cannot connect to the Docker daemon',
           },
-          last_error: null,
+          verdict_read_error: null,
         },
       })))
       assert.match(t, /Last deploy/)
@@ -226,7 +226,7 @@ describe('the read screens (#264)', () => {
 
     test('an unreadable deploy verdict is not an empty deploy history', () => {
       const t = text(page.screenHome(payload({
-        deploy: { in_flight: null, last: null, last_error: 'the last deploy verdict is unreadable: invalid JSON' },
+        deploy: { in_flight: null, last: null, verdict_read_error: 'the last deploy verdict is unreadable: invalid JSON' },
       })))
       assert.match(t, /Last deploy/)
       assert.match(t, /the last deploy verdict is unreadable: invalid JSON/)
