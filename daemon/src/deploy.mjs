@@ -38,6 +38,8 @@ import { execFileP } from './exec.mjs'
 // deploy is still in flight (daemon: handed-off; sibling: deploying,
 // rolling-back).
 const TERMINAL = new Set(['landed', 'rolled-back', 'lockout', 'merge-refused'])
+const DEPLOY_LOG_CHUNK_BYTES = 64 * 1024
+const DEPLOY_LOG_EXCERPT_LINES = 30
 
 const short = (sha) => String(sha).slice(0, 7)
 
@@ -212,17 +214,17 @@ export class SelfDeploy {
       for (const f of untracked.filter((u) => added.has(u))) {
         let incoming = null
         try {
-          incoming = (await this.#git('show', `origin/main:${f}`)).stdout
+          incoming = (await this.#git('rev-parse', `origin/main:${f}`)).stdout.trim()
         } catch {
           incoming = null
         }
         let local = null
         try {
-          local = fs.readFileSync(path.join(this.repoRoot, f), 'utf8')
+          local = (await this.#git('hash-object', '--no-filters', '--', f)).stdout.trim()
         } catch {
           local = null
         }
-        if (incoming !== null && local !== null && incoming === local) dupes.push(f)
+        if (incoming && local && incoming === local) dupes.push(f)
         else diverged.push(f)
       }
       if (diverged.length) {
@@ -321,10 +323,13 @@ export class SelfDeploy {
     }
     // The dashboard's record (#562), written before the marker goes away.
     try {
-      fs.writeFileSync(this.lastPath, JSON.stringify({
+      const last = JSON.stringify({
         state, prev, next, reason, by: marker.by ?? null, ts: marker.ts ?? null,
         resolved_at: new Date().toISOString(), text, log: this.logExcerpt(),
-      }, null, 2))
+      }, null, 2)
+      const temporary = `${this.lastPath}.tmp`
+      fs.writeFileSync(temporary, last)
+      fs.renameSync(temporary, this.lastPath)
     } catch (e) {
       this.log(`could not write ${this.lastPath}: ${e.message}`)
     }
@@ -338,40 +343,40 @@ export class SelfDeploy {
     return state
   }
 
-  // The story of the LAST attempt, out of deploy.log — the `[self-deploy ...]`
-  // narration plus git's and curl's own error lines, never the docker build
-  // noise between them. Read from the file's tail: the log is append-only and
-  // a build dumps megabytes, so this reads a bounded window, once, at resolve
-  // time — not on the dashboard's poll.
-  logExcerpt({ maxBytes = 64 * 1024, maxLines = 30 } = {}) {
-    let tail
+  // Read the last deploy attempt from deploy.log.
+  // Keep `[self-deploy ...]` lines and error lines. Skip Docker build output.
+  // Read bounded chunks. A long rollback build cannot exclude the first error.
+  logExcerpt() {
+    let fd
     try {
-      const fd = fs.openSync(this.logPath, 'r')
-      try {
-        const size = fs.fstatSync(fd).size
-        const start = Math.max(0, size - maxBytes)
-        const buf = Buffer.alloc(size - start)
-        fs.readSync(fd, buf, 0, buf.length, start)
-        tail = buf.toString('utf8')
-      } finally {
-        fs.closeSync(fd)
-      }
+      fd = fs.openSync(this.logPath, 'r')
     } catch {
       return ''
     }
-    const lines = tail.split('\n')
-    // The last attempt starts at the last "deploy <sha> -> <sha>" line.
-    let from = 0
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-      if (/\[self-deploy .*\] deploy [0-9a-f]{7,} -> [0-9a-f]{7,}/.test(lines[i])) { from = i; break }
+    const kept = []
+    const deployStart = /\[self-deploy .*\] deploy [0-9a-f]{7,} -> [0-9a-f]{7,}/
+    const errorLine = /\b(?:error|fatal|fail(?:ed|ure)?|cannot|denied|invalid|missing|not found|no such file|required|undefined|refused|aborting|not allowed|must be|unable to)\b/i
+    const readLine = (line) => {
+      if (deployStart.test(line)) kept.length = 0
+      if (kept.length < DEPLOY_LOG_EXCERPT_LINES && (/\[self-deploy /.test(line) || errorLine.test(line) || /^\t\S/.test(line))) kept.push(line)
     }
-    const kept = lines.slice(from).filter((l) =>
-      /\[self-deploy /.test(l)
-      || /^(error|fatal):/i.test(l)
-      || /^curl: /.test(l)
-      || /would be overwritten|Please move or remove|Aborting/.test(l)
-      || /^\t\S/.test(l)) // git indents the files it refuses over with a tab
-    return kept.slice(0, maxLines).join('\n')
+    let carry = ''
+    const buffer = Buffer.alloc(DEPLOY_LOG_CHUNK_BYTES)
+    try {
+      let position = 0
+      for (;;) {
+        const count = fs.readSync(fd, buffer, 0, buffer.length, position)
+        if (!count) break
+        position += count
+        const lines = (carry + buffer.subarray(0, count).toString('utf8')).split('\n')
+        carry = lines.pop() ?? ''
+        for (const line of lines) readLine(line)
+      }
+      if (carry) readLine(carry)
+    } finally {
+      fs.closeSync(fd)
+    }
+    return kept.join('\n')
   }
 
   // What the dashboard draws (#562): the in-flight marker if one stands, and
@@ -380,14 +385,17 @@ export class SelfDeploy {
   status() {
     const marker = this.readMarker()
     let last = null
+    let lastError = null
     try {
       last = JSON.parse(fs.readFileSync(this.lastPath, 'utf8'))
-    } catch {
+    } catch (e) {
       last = null
+      if (e.code !== 'ENOENT') lastError = `the last deploy verdict is unreadable: ${e.message}`
     }
     return {
       in_flight: marker && !TERMINAL.has(marker.state) ? marker : null,
       last,
+      verdict_read_error: lastError,
     }
   }
 }

@@ -168,7 +168,7 @@ The sibling logs to `daemon/data/deploy.log`. The fixed container name refuses a
 
 Before it reads the checkout, the deploy preflight checks the active `github.com` login in curia's HOME. It refuses the deploy if `gh auth status` cannot verify the login.
 
-Two checkout states also cause a refusal before the deploy order. These states are local commits and uncommitted changes to a tracked file. Both states need ssh. Untracked files do not cause a refusal. This rule lets the dashboard keep its override files in `config/`.
+Local commits and uncommitted changes to a tracked file also cause a refusal before the deploy order. Both states need ssh. An untracked file causes a refusal when `origin/main` adds different content at the same path. The preflight removes a byte-identical copy and records the removal. Other untracked files do not cause a refusal. This rule lets the dashboard keep its override files in `config/`.
 
 Both paths were proven live on 2026-08-10: the verb rolled back a deliberate boot crash on its own, and then landed the revert as a real deploy.
 
