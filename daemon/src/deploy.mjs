@@ -38,6 +38,8 @@ import { execFileP } from './exec.mjs'
 // deploy is still in flight (daemon: handed-off; sibling: deploying,
 // rolling-back).
 const TERMINAL = new Set(['landed', 'rolled-back', 'lockout', 'merge-refused'])
+const DEPLOY_LOG_CHUNK_BYTES = 64 * 1024
+const DEPLOY_LOG_EXCERPT_LINES = 30
 
 const short = (sha) => String(sha).slice(0, 7)
 
@@ -326,7 +328,7 @@ export class SelfDeploy {
   // narration plus error lines, never the docker build noise between them.
   // Scan in bounded chunks so a long rollback build cannot push the first
   // failure out of the excerpt.
-  logExcerpt({ chunkBytes = 64 * 1024, maxLines = 30 } = {}) {
+  logExcerpt() {
     let fd
     try {
       fd = fs.openSync(this.logPath, 'r')
@@ -338,10 +340,10 @@ export class SelfDeploy {
     const errorLine = /\b(?:error|fatal|fail(?:ed|ure)?|cannot|denied|invalid|missing|not found|no such file|required|undefined|refused|aborting|not allowed|must be|unable to)\b/i
     const readLine = (line) => {
       if (deployStart.test(line)) kept.length = 0
-      if (kept.length < maxLines && (/\[self-deploy /.test(line) || errorLine.test(line) || /^\t\S/.test(line))) kept.push(line)
+      if (kept.length < DEPLOY_LOG_EXCERPT_LINES && (/\[self-deploy /.test(line) || errorLine.test(line) || /^\t\S/.test(line))) kept.push(line)
     }
     let carry = ''
-    const buffer = Buffer.alloc(chunkBytes)
+    const buffer = Buffer.alloc(DEPLOY_LOG_CHUNK_BYTES)
     try {
       let position = 0
       for (;;) {
