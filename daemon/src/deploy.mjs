@@ -112,6 +112,10 @@ export class SelfDeploy {
     return this.exec('git', args, { cwd: this.repoRoot, timeout: 60_000 })
   }
 
+  #gitBlob(ref) {
+    return this.exec('git', ['show', ref], { cwd: this.repoRoot, timeout: 60_000, encoding: 'buffer' })
+  }
+
   // The daemon's half: preflight, order, hand off. Everything after the
   // `docker run` returns happens without this process.
   async run({ by, interpreted = false } = {}) {
@@ -193,17 +197,17 @@ export class SelfDeploy {
       for (const f of untracked.filter((u) => added.has(u))) {
         let incoming = null
         try {
-          incoming = (await this.#git('show', `origin/main:${f}`)).stdout
+          incoming = (await this.#gitBlob(`origin/main:${f}`)).stdout
         } catch {
           incoming = null
         }
         let local = null
         try {
-          local = fs.readFileSync(path.join(this.repoRoot, f), 'utf8')
+          local = fs.readFileSync(path.join(this.repoRoot, f))
         } catch {
           local = null
         }
-        if (incoming !== null && local !== null && incoming === local) dupes.push(f)
+        if (Buffer.isBuffer(incoming) && Buffer.isBuffer(local) && incoming.equals(local)) dupes.push(f)
         else diverged.push(f)
       }
       if (diverged.length) {
@@ -302,10 +306,13 @@ export class SelfDeploy {
     }
     // The dashboard's record (#562), written before the marker goes away.
     try {
-      fs.writeFileSync(this.lastPath, JSON.stringify({
+      const last = JSON.stringify({
         state, prev, next, reason, by: marker.by ?? null, ts: marker.ts ?? null,
         resolved_at: new Date().toISOString(), text, log: this.logExcerpt(),
-      }, null, 2))
+      }, null, 2)
+      const temporary = `${this.lastPath}.tmp`
+      fs.writeFileSync(temporary, last)
+      fs.renameSync(temporary, this.lastPath)
     } catch (e) {
       this.log(`could not write ${this.lastPath}: ${e.message}`)
     }
@@ -350,6 +357,7 @@ export class SelfDeploy {
       /\[self-deploy /.test(l)
       || /^(error|fatal):/i.test(l)
       || /^curl: /.test(l)
+      || /Cannot connect to the Docker daemon|Error response from daemon|failed to solve|permission denied while trying to connect to the Docker daemon/i.test(l)
       || /would be overwritten|Please move or remove|Aborting/.test(l)
       || /^\t\S/.test(l)) // git indents the files it refuses over with a tab
     return kept.slice(0, maxLines).join('\n')
@@ -361,14 +369,17 @@ export class SelfDeploy {
   status() {
     const marker = this.readMarker()
     let last = null
+    let lastError = null
     try {
       last = JSON.parse(fs.readFileSync(this.lastPath, 'utf8'))
-    } catch {
+    } catch (e) {
       last = null
+      if (e.code !== 'ENOENT') lastError = `the last deploy verdict is unreadable: ${e.message}`
     }
     return {
       in_flight: marker && !TERMINAL.has(marker.state) ? marker : null,
       last,
+      last_error: lastError,
     }
   }
 }

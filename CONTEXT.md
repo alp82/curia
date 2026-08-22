@@ -557,7 +557,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the standing credential warnings, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the standing credential warnings, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. It also carries the current deploy and the last deploy verdict with a short error excerpt. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.

@@ -1266,11 +1266,15 @@ function screenHome(p) {
    runs. Nothing here is a verb: `deploy` stays typed-only (#270). */
 function deployCard(o) {
   const d = o.deploy;
-  if (!d || (!d.in_flight && !d.last)) return "";
+  if (!d || (!d.in_flight && !d.last && !d.last_error)) return "";
   const sh = (s) => String(s ?? "").slice(0, 7);
   if (d.in_flight) {
     return `<div class="h-sect"><h3>Deploy</h3>
       <div class="unread">a deploy is in flight: ${esc(sh(d.in_flight.prev))} → ${esc(sh(d.in_flight.next))} — state ${esc(d.in_flight.state)}. The daemon restarts if it lands; this page keeps its last snapshot through that.</div></div>`;
+  }
+  if (d.last_error) {
+    return `<div class="h-sect"><h3>Last deploy</h3>
+      <div class="unread">${esc(d.last_error)}</div></div>`;
   }
   const l = d.last;
   const word = { landed: "landed", "rolled-back": "ROLLED BACK", "merge-refused": "refused", lockout: "LOCKOUT" }[l.state] ?? l.state;
