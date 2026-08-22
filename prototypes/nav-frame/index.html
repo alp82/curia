@@ -6,16 +6,16 @@
 <title>#560 · the main layout and the page navigation</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#560 · the main layout and the page navigation structure.
-  Round 4: the operator ruled the pinned drawer for desktop, and icon bar or floating
-  dock for mobile, with bolder ideas welcome. Desktop shows the drawer in every variant.
+  Round 5: every mobile bar is a fresh derivative of the two picks, the icon bar and the
+  floating dock, several of them bolder. Desktop shows the pinned drawer in every variant.
   Six mobile variants around simplified copies of the six approved screens
   (#519 #521 #522 #523 #524 #525):
-    A · icons, classic  — the app tab bar, a glyph over each label
-    B · icons, bold     — taller bar, the active page as a filled pill
-    C · dock, words     — the floating pill with the six words
-    D · dock, icons     — six round icon keys, badges on top
-    E · the ring dock   — the verdict ring in the middle of the dock is the chats key
-    F · the sheet       — a glance handle that opens a sheet with pages and needs-you rows
+    A · the island      — the icon bar cut loose as a detached full-width slab
+    B · the key dock    — six square keys, the chats key rimmed amber with the count
+    C · the split dock  — an icon pod plus the needs-you count as its own amber key
+    D · the notch bar   — the icon bar with a raised center ring that opens chats
+    E · the readout bar — every tab carries its own number under its label
+    F · the edge dock   — the dock turned vertical on the thumb edge
   The chrome never yields: it stays beside the composer, the settings dock, and the terminal.
   Switch variants with the ‹ › controls, color mode and frame width beside them.
   The two ⇢ buttons play the Discord deep links (#526).
@@ -71,8 +71,8 @@ body{display:flex;flex-direction:column}
 .scr.fill{height:100%;display:flex;flex-direction:column;padding:0;min-height:0}
 .w-desktop .scr{padding:26px 44px 60px}
 .w-desktop .scr.fill{padding:0}
-.v-c .scr,.v-d .scr,.v-e .scr,.v-f .scr{padding-bottom:130px}
-.v-c .scr.fill,.v-d .scr.fill,.v-e .scr.fill,.v-f .scr.fill{padding-bottom:78px}
+.v-a .scr,.v-b .scr,.v-c .scr{padding-bottom:130px}
+.v-a .scr.fill,.v-b .scr.fill,.v-c .scr.fill{padding-bottom:82px}
 .w-desktop .scr{padding-bottom:60px !important}
 .w-desktop .scr.fill{padding-bottom:0 !important}
 
@@ -328,7 +328,7 @@ time{color:var(--mut)}
 .dock{position:sticky;bottom:14px;z-index:6;width:max-content;max-width:100%;margin:28px auto 0;
   display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;
   background:var(--float);border:1px solid var(--line);box-shadow:0 8px 28px rgba(0,0,0,.35)}
-.v-c .dock,.v-d .dock,.v-e .dock,.v-f .dock{bottom:84px}
+.v-a .dock,.v-b .dock,.v-c .dock{bottom:92px}
 .w-desktop .dock{bottom:14px !important}
 .dock .toast{font-size:13px;color:var(--mut)}
 .dock .toast b{color:var(--ink)}
@@ -347,21 +347,6 @@ time{color:var(--mut)}
   padding:1px 5px;border-radius:3px;box-shadow:var(--glow)}
 .tglance.g-run{color:var(--green)}
 
-/* ---------- A/B Â· bottom icon bars (phone) ---------- */
-.tabbar{flex:none;display:flex;border-top:1px solid var(--line);background:var(--bg);
-  padding:8px 6px calc(10px + env(safe-area-inset-bottom))}
-.tabbar .tab{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
-  font:600 8px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;
-  text-transform:uppercase;padding:4px 0}
-.tabbar .tab .ic{display:block;font-size:16px;line-height:1;margin-bottom:4px;position:relative}
-.tabbar .tab .ic .tglance{position:absolute;top:-5px;margin-left:2px}
-.tabbar .tab.cur{color:var(--cyan)}
-.tabbar.big{background:var(--dim);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}
-.tabbar.big .tab{font-size:9px;padding:8px 0 7px;border-radius:14px;margin:0 2px}
-.tabbar.big .tab .ic{font-size:20px;margin-bottom:5px}
-.tabbar.big .tab.cur{background:var(--cyan);color:var(--bg)}
-.tabbar.big .tab.cur .tglance.g-run{color:var(--bg)}
-
 /* ---------- desktop Â· the pinned drawer (ruled in round 4) ---------- */
 .drawer{flex:none;width:230px;border-right:1px solid var(--line);background:var(--bg);
   padding:22px 20px;display:flex;flex-direction:column;gap:2px}
@@ -374,58 +359,93 @@ time{color:var(--mut)}
 .drawer .ddate{margin-top:auto;font:400 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
   letter-spacing:.18em;text-transform:uppercase;color:var(--mut)}
 
-/* ---------- C/D Â· floating docks (phone) ---------- */
-.navdock{position:absolute;left:50%;transform:translateX(-50%);bottom:14px;z-index:14;
-  display:flex;gap:2px;background:var(--float);border:1px solid var(--line);border-radius:999px;
-  padding:5px;box-shadow:0 10px 30px rgba(0,0,0,.45);max-width:calc(100% - 16px)}
-.navdock a{position:relative;text-decoration:none;color:var(--mut);white-space:nowrap;
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;
-  text-transform:uppercase;padding:9px 9px;border-radius:999px}
-.navdock a.cur{background:var(--cyan);color:var(--bg)}
-.navdock a .tglance{margin-left:3px}
-.navdock.round{gap:6px;padding:6px}
-.navdock.round a{width:44px;height:44px;display:flex;align-items:center;justify-content:center;
-  font-size:17px;padding:0;border-radius:50%}
-.navdock.round a .bdg{position:absolute;top:-3px;right:-3px;background:var(--amber);color:var(--amberink);
-  font:800 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:1px 4px;border-radius:6px;box-shadow:var(--glow)}
-.navdock.round a .rundot{position:absolute;top:0;right:0;width:8px;height:8px;border-radius:50%;background:var(--green)}
+/* ---------- A Â· the island (phone) ---------- */
+.island{position:absolute;left:10px;right:10px;bottom:10px;z-index:14;display:flex;gap:2px;
+  background:var(--float);border:1px solid var(--line);border-radius:20px;padding:8px 6px;
+  box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.island a{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:8px 0 7px;border-radius:14px;text-decoration:none;color:var(--mut);
+  font:600 8px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase}
+.island a .ic{font-size:18px;line-height:1;position:relative}
+.island a .ic .tglance{position:absolute;top:-6px;margin-left:2px}
+.island a.cur{background:var(--cyan);color:var(--bg)}
+.island a.cur .tglance.g-run{color:var(--bg)}
 
-/* ---------- E Â· the ring dock (phone) ---------- */
-.ringdock{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:14;
-  display:flex;align-items:center;gap:4px;background:var(--float);border:1px solid var(--line);
-  border-radius:999px;padding:6px 10px;box-shadow:0 10px 30px rgba(0,0,0,.45)}
-.ringdock a.k{position:relative;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
+/* ---------- B Â· the key dock (phone) ---------- */
+.keydock{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:14;display:flex;gap:6px;
+  background:var(--float);border:1px solid var(--line);border-radius:18px;padding:7px;
+  box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.keydock a{position:relative;width:52px;height:54px;border-radius:12px;border:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  text-decoration:none;color:var(--mut);background:var(--bg);
+  font:600 7.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.05em;text-transform:uppercase}
+.keydock a .ic{font-size:17px;line-height:1}
+.keydock a.cur{background:var(--cyan);border-color:var(--cyan);color:var(--bg)}
+.keydock a.needkey{border-color:var(--amber);color:var(--amberw);box-shadow:var(--glow)}
+.keydock a .bdg{position:absolute;top:-6px;right:-6px;background:var(--amber);color:var(--amberink);
+  font:800 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:1px 4px;border-radius:6px;box-shadow:var(--glow)}
+.keydock a .rundot{position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--green)}
+
+/* ---------- C Â· the split dock (phone) ---------- */
+.splitdock{position:absolute;left:12px;right:12px;bottom:12px;z-index:14;display:flex;align-items:center;gap:10px}
+.splitdock .pod{flex:1;display:flex;justify-content:space-around;background:var(--float);
+  border:1px solid var(--line);border-radius:999px;padding:8px 6px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.splitdock .pod a{position:relative;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:17px;color:var(--mut);text-decoration:none}
+.splitdock .pod a.cur{background:var(--cyan);color:var(--bg)}
+.splitdock .pod a .rundot{position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--green)}
+.splitdock .needfab{flex:none;width:60px;height:60px;border-radius:50%;background:var(--amber);color:var(--amberink);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;text-decoration:none;
+  font:800 17px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  box-shadow:var(--glow),0 10px 26px rgba(0,0,0,.4)}
+.splitdock .needfab .lbl{font:800 7px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.08em;text-transform:uppercase;margin-top:1px}
+.splitdock .needfab.cur{outline:3px solid var(--cyan);outline-offset:2px}
+
+/* ---------- D Â· the notch bar (phone) ---------- */
+.notchbar{flex:none;position:relative;display:flex;border-top:1px solid var(--line);background:var(--bg);
+  padding:10px 6px calc(10px + env(safe-area-inset-bottom))}
+.notchbar .tab{flex:1;position:relative;text-align:center;text-decoration:none;color:var(--mut);
+  font:600 8px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.08em;
+  text-transform:uppercase;padding:4px 0}
+.notchbar .tab .ic{display:block;font-size:16px;line-height:1;margin-bottom:4px;position:relative}
+.notchbar .tab .ic .tglance{position:absolute;top:-5px;margin-left:2px}
+.notchbar .tab.cur{color:var(--cyan)}
+.notchbar .mid{flex:none;width:74px}
+.notchbar .ringkey{position:absolute;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);width:62px;height:62px;border-radius:50%;background:var(--float);
+  border:1px solid var(--line);box-shadow:0 10px 26px rgba(0,0,0,.45);text-decoration:none;z-index:15}
+.notchbar .ringkey svg{position:absolute;inset:0}
+.notchbar .ringkey .rn{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;font:700 17px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--amber);text-shadow:var(--glow)}
+.notchbar .ringkey .rl{font:800 6.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  letter-spacing:.12em;text-transform:uppercase;color:var(--mut);margin-top:1px}
+.notchbar .ringkey.cur{outline:2px solid var(--cyan);outline-offset:2px}
+
+/* ---------- E Â· the readout bar (phone) ---------- */
+.statbar{flex:none;display:flex;border-top:1px solid var(--line);background:var(--dim);
+  padding:9px 4px calc(9px + env(safe-area-inset-bottom))}
+.statbar a{flex:1;text-align:center;text-decoration:none;color:var(--mut);
+  font:600 7.5px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.05em;
+  text-transform:uppercase;padding:5px 0 4px;border-radius:12px;margin:0 2px}
+.statbar a .ic{display:block;font-size:15px;line-height:1;margin-bottom:3px}
+.statbar a .rd{display:block;margin-top:3px;font:700 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  color:var(--ink);letter-spacing:0;text-transform:none}
+.statbar a .rd.amberv{color:var(--amberw)}
+.statbar a .rd.greenv{color:var(--green)}
+.statbar a.cur{background:var(--bg);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+
+/* ---------- F Â· the edge dock (phone) ---------- */
+.edgedock{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:14;
+  display:flex;flex-direction:column;gap:8px;background:var(--float);border:1px solid var(--line);
+  border-radius:999px;padding:8px 6px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+.edgedock a{position:relative;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;
   justify-content:center;font-size:16px;color:var(--mut);text-decoration:none}
-.ringdock a.k.cur{background:var(--cyan);color:var(--bg)}
-.ringdock a.k .rundot{position:absolute;top:2px;right:2px;width:8px;height:8px;border-radius:50%;background:var(--green)}
-.ringdock a.ring{position:relative;width:54px;height:54px;margin:0 4px;text-decoration:none}
-.ringdock a.ring svg{position:absolute;inset:0}
-.ringdock a.ring .rn{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font:700 19px ui-monospace,"SF Mono",Menlo,Consolas,monospace;color:var(--amber);text-shadow:var(--glow)}
-.ringdock a.ring.cur{outline:2px solid var(--cyan);outline-offset:2px;border-radius:50%}
-
-/* ---------- F Â· the sheet (phone) ---------- */
-.handle{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;z-index:14;border:1px solid var(--line);
-  display:flex;align-items:center;gap:10px;background:var(--float);border-radius:999px;padding:10px 16px;
-  box-shadow:0 10px 30px rgba(0,0,0,.45);font:600 10px ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  letter-spacing:.08em;text-transform:uppercase;color:var(--mut);white-space:nowrap}
-.handle .grab{width:26px;height:4px;border-radius:2px;background:var(--mut);opacity:.5}
-.handle .hneed{color:var(--amberw);font-weight:800}
-.sheetscrim{position:absolute;inset:0;z-index:15;background:rgba(0,0,0,.45)}
-.sheet{position:absolute;left:0;right:0;bottom:0;z-index:16;background:var(--bg);
-  border-top:1px solid var(--line);border-radius:18px 18px 0 0;
-  padding:12px 20px calc(18px + env(safe-area-inset-bottom));box-shadow:0 -12px 40px rgba(0,0,0,.5)}
-.sheet .sgrab{width:36px;height:4px;border-radius:2px;background:var(--mut);opacity:.5;margin:0 auto 14px}
-.sheet .pgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.sheet .pgrid a{position:relative;display:flex;flex-direction:column;align-items:center;gap:7px;
-  padding:14px 0 12px;border:1px solid var(--line);border-radius:12px;text-decoration:none;color:var(--ink);
-  font:600 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}
-.sheet .pgrid a .ic{font-size:19px}
-.sheet .pgrid a.cur{border-color:var(--cyan);color:var(--cyan)}
-.sheet .pgrid a .bdg{position:absolute;top:-5px;right:-5px;background:var(--amber);color:var(--amberink);
+.edgedock a.cur{background:var(--cyan);color:var(--bg)}
+.edgedock a .bdg{position:absolute;top:-4px;right:-4px;background:var(--amber);color:var(--amberink);
   font:800 9px ui-monospace,"SF Mono",Menlo,Consolas,monospace;padding:1px 4px;border-radius:6px;box-shadow:var(--glow)}
-.sheet .pgrid a .rundot{position:absolute;top:-3px;right:-3px;width:8px;height:8px;border-radius:50%;background:var(--green)}
-.sheet h2{margin:20px 0 4px}
+.edgedock a .rundot{position:absolute;top:0;right:0;width:8px;height:8px;border-radius:50%;background:var(--green)}
 </style>
 </head>
 <body>
@@ -434,7 +454,7 @@ time{color:var(--mut)}
   <div class="ph-row">
     <span class="ph-ttl">#560 · the main layout and the page navigation</span>
     <button class="ph-btn" id="bPrev">‹</button>
-    <button class="ph-btn wide" id="bVar">A · icons · classic</button>
+    <button class="ph-btn wide" id="bVar">A · the island</button>
     <button class="ph-btn" id="bNext">›</button>
     <button class="ph-btn" id="bMode">light</button>
     <button class="ph-btn ph-hide-sm" id="bWidth">desktop</button>
@@ -455,12 +475,12 @@ time{color:var(--mut)}
    state
 ---------------------------------------------------------------------- */
 const NOTES = {
-  a: 'A · icons, classic — the app tab bar: a glyph over each label, active in cyan, always visible. Desktop: the pinned drawer, as ruled.',
-  b: 'B · icons, bold — a taller bar on its own surface, the active page as a filled cyan pill, the amber count riding the chats tab. Desktop: the pinned drawer.',
-  c: 'C · dock, words — the floating pill with the six words, riding over every screen. Desktop: the pinned drawer.',
-  d: 'D · dock, icons — the floating dock as six round icon keys, badges on top, no labels. Desktop: the pinned drawer.',
-  e: 'E · the ring dock — bolder: the verdict ring sits in the middle of the dock and is the chats key, the count inside it, five marks around it. Desktop: the pinned drawer.',
-  f: 'F · the sheet — boldest: a slim glance handle floats at the bottom. One tap opens a sheet with the six pages and the needs-you rows. Desktop: the pinned drawer.'
+  a: 'A · the island — the icon bar cut loose: a detached full-width slab, glyph and label, the active page a filled cyan pill. Desktop: the pinned drawer, as ruled.',
+  b: 'B · the key dock — the dock grown into six square keys, glyph and label in each, the chats key rimmed amber and carrying the count. Desktop: the pinned drawer.',
+  c: 'C · the split dock — an icon pod for five pages, and the needs-you count as its own big amber key that opens chats. Desktop: the pinned drawer.',
+  d: 'D · the notch bar — the icon bar with a raised center ring: the count lives in the ring, and the ring opens chats. Desktop: the pinned drawer.',
+  e: 'E · the readout bar — the bar as a dashboard: every tab carries its own number under its label, amber where it needs you. Desktop: the pinned drawer.',
+  f: 'F · the edge dock — the dock turned vertical on the thumb edge, six round keys stacked. The bottom stays free for the composer. Desktop: the pinned drawer.'
 };
 const S = {
   v: 'a',                      // variant a|b|c|d|e|f
@@ -472,8 +492,7 @@ const S = {
   setSec: null,                // null | routing | projects | dispatch | maint
   setPhase: 'clean',           // clean | dirty | applied
   setDirty: 0,
-  termFrom: '519',
-  sheetOpen: false
+  termFrom: '519'
 };
 const q = new URLSearchParams(location.search);
 if (['a','b','c','d','e','f'].includes(q.get('v'))) S.v = q.get('v');
@@ -958,57 +977,56 @@ function chromeLeft(){
       <span>${label}</span><span>${badge(p)}</span></a>`).join('')}
     <span class="ddate">${DATE}</span></nav>`;
 }
-function iconTabs(){
-  return PAGES.map(([p,label]) =>
-    `<a class="tab ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
-      <span class="ic">${GLYPH[p]}${badge(p)}</span>${label}</a>`).join('');
+function iconTab(cls, p, label){
+  return `<a class="${cls} ${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+    <span class="ic">${GLYPH[p]}${badge(p)}</span>${label}</a>`;
 }
 function chromeBottom(){
   if (isDesktop()) return '';
-  if (S.v === 'a') return `<nav class="tabbar">${iconTabs()}</nav>`;
-  if (S.v === 'b') return `<nav class="tabbar big">${iconTabs()}</nav>`;
+  if (S.v === 'd'){
+    const tab = p => iconTab('tab', p, p);
+    return `<nav class="notchbar">
+      ${tab('home')}${tab('agents')}${tab('maps')}<span class="mid"></span>${tab('feed')}${tab('settings')}
+      <a class="ringkey ${curTop() === 'chats' ? 'cur' : ''}" data-go="page:chats" title="chats · 2 need you">
+        <svg viewBox="0 0 62 62">
+          <circle cx="31" cy="31" r="26" fill="none" stroke="var(--line)" stroke-width="3"/>
+          <circle cx="31" cy="31" r="26" fill="none" stroke="var(--amber)" stroke-width="3"
+            stroke-dasharray="41 122" stroke-dashoffset="-20" stroke-linecap="round"/>
+        </svg><span class="rn">2<span class="rl">chats</span></span>
+      </a>
+    </nav>`;
+  }
+  if (S.v === 'e'){
+    const RD = {
+      home:['2 need','amberv'], agents:['5 live','greenv'], maps:['18/24',''],
+      feed:['96 · 24h',''], chats:['2 wait','amberv'], settings:['in step','greenv'] };
+    return `<nav class="statbar">${PAGES.map(([p,label]) => `
+      <a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
+        <span class="ic">${GLYPH[p]}</span>${label}<span class="rd ${RD[p][1]}">${RD[p][0]}</span></a>`).join('')}
+    </nav>`;
+  }
   return '';
 }
 function chromeOverlay(){
   if (isDesktop()) return '';
+  if (S.v === 'a'){
+    return `<div class="island">${PAGES.map(([p,label]) => iconTab('', p, label)).join('')}</div>`;
+  }
+  if (S.v === 'b'){
+    return `<div class="keydock">${PAGES.map(([p,label]) => `
+      <a class="${curTop() === p ? 'cur' : ''} ${p === 'chats' && curTop() !== 'chats' ? 'needkey' : ''}"
+        data-go="page:${p}"><span class="ic">${GLYPH[p]}</span>${label}${roundMark(p)}</a>`).join('')}</div>`;
+  }
   if (S.v === 'c'){
-    return `<div class="navdock">${PAGES.map(([p,label]) =>
-      `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}">${label}${badge(p)}</a>`).join('')}</div>`;
-  }
-  if (S.v === 'd'){
-    return `<div class="navdock round">${PAGES.map(([p]) =>
-      `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${GLYPH[p]}${roundMark(p)}</a>`).join('')}</div>`;
-  }
-  if (S.v === 'e'){
-    const key = p => `<a class="k ${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${GLYPH[p]}${p === 'agents' ? '<span class="rundot"></span>' : ''}</a>`;
-    return `<div class="ringdock">
-      ${key('home')}${key('agents')}${key('maps')}
-      <a class="ring ${curTop() === 'chats' ? 'cur' : ''}" data-go="page:chats" title="chats · 2 need you">
-        <svg viewBox="0 0 54 54">
-          <circle cx="27" cy="27" r="23" fill="none" stroke="var(--line)" stroke-width="3"/>
-          <circle cx="27" cy="27" r="23" fill="none" stroke="var(--amber)" stroke-width="3"
-            stroke-dasharray="36 109" stroke-dashoffset="-18" stroke-linecap="round"/>
-        </svg><span class="rn">2</span>
-      </a>
-      ${key('feed')}${key('settings')}
+    const key = p => `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${GLYPH[p]}${p === 'agents' ? '<span class="rundot"></span>' : ''}</a>`;
+    return `<div class="splitdock">
+      <div class="pod">${key('home')}${key('agents')}${key('maps')}${key('feed')}${key('settings')}</div>
+      <a class="needfab ${curTop() === 'chats' ? 'cur' : ''}" data-go="page:chats" title="chats · 2 need you">2<span class="lbl">chats</span></a>
     </div>`;
   }
   if (S.v === 'f'){
-    if (!S.sheetOpen){
-      return `<div class="handle" data-sheet><span class="grab"></span>
-        <span class="hneed">2 need you</span><span>·</span><span>5 live</span><span>·</span><span>${curTop()}</span></div>`;
-    }
-    const cell = (p,label) => `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}">
-      <span class="ic">${GLYPH[p]}</span>${label}${roundMark(p)}</a>`;
-    return `<div class="sheetscrim" data-sheetclose></div>
-      <div class="sheet"><div class="sgrab"></div>
-        <div class="pgrid">${PAGES.map(([p,label]) => cell(p,label)).join('')}</div>
-        <h2>Needs you</h2>
-        <div class="row tap" data-go="chat:519"><span class="chip">Ask · 2</span>
-          <span class="ttl">Home-screen design directions<span class="sub">#519 · claude · waits 5 min</span></span></div>
-        <div class="row tap" data-go="chat:544"><span class="chip">Gate</span>
-          <span class="ttl">The subagent meter and the bounds<span class="sub">#544 · codex · waits 26 min</span></span></div>
-      </div>`;
+    return `<div class="edgedock">${PAGES.map(([p]) =>
+      `<a class="${curTop() === p ? 'cur' : ''}" data-go="page:${p}" title="${p}">${GLYPH[p]}${roundMark(p)}</a>`).join('')}</div>`;
   }
   return '';
 }
@@ -1037,8 +1055,8 @@ function render(){
     `<div class="viewport" id="vp">${screen()}</div>` + chromeBottom() + chromeOverlay();
   el('phNote').textContent = NOTES[S.v];
   el('bVar').textContent = {
-    a:'A · icons · classic', b:'B · icons · bold', c:'C · dock · words',
-    d:'D · dock · icons', e:'E · ring dock', f:'F · the sheet' }[S.v];
+    a:'A · the island', b:'B · the key dock', c:'C · the split dock',
+    d:'D · the notch bar', e:'E · the readout bar', f:'F · the edge dock' }[S.v];
   buildSparks(); buildDens();
   const u = new URL(location); u.searchParams.set('v', S.v); history.replaceState(null,'',u);
 }
@@ -1076,8 +1094,6 @@ frame.addEventListener('click', ev => {
     opt.classList.add('picked');
     return;
   }
-  if (ev.target.closest('[data-sheet]')){ S.sheetOpen = true; render(); return; }
-  if (ev.target.closest('[data-sheetclose]')){ S.sheetOpen = false; render(); return; }
   const save = ev.target.closest('[data-save]');
   if (save){ S.setPhase = 'applied'; render(); return; }
   const disc = ev.target.closest('[data-discard]');
@@ -1091,7 +1107,6 @@ frame.addEventListener('click', ev => {
   const go = ev.target.closest('[data-go]');
   if (!go) return;
   ev.preventDefault();
-  S.sheetOpen = false;
   const [kind, arg] = go.dataset.go.split(':');
   if (kind === 'page'){ S.page = arg; if (arg === 'settings') S.setSec = null; scrollTop(); }
   else if (kind === 'chat'){ S.page = isDesktop() ? 'chats' : 'chat'; S.chatId = arg; scrollTop(); }
@@ -1113,8 +1128,8 @@ frame.addEventListener('change', ev => {
 function scrollTop(){ const vp = el('vp'); if (vp) vp.scrollTop = 0; }
 
 const VARS = ['a','b','c','d','e','f'];
-el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; S.sheetOpen = false; render(); };
-el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; S.sheetOpen = false; render(); };
+el('bPrev').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+VARS.length-1)%VARS.length]; render(); };
+el('bNext').onclick = () => { S.v = VARS[(VARS.indexOf(S.v)+1)%VARS.length]; render(); };
 el('bVar').onclick = () => el('bNext').onclick();
 el('bMode').onclick = () => {
   const dark = frame.classList.toggle('dark');
