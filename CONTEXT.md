@@ -352,6 +352,10 @@ _Avoid_: batch.
 The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `visual`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. Since the flip (#422) every floor is mandatory: a call that omits a required field is refused, and the untyped `prompt`, the bare string option and the top-level `recommended` are refused with it. A refused call still reaches the operator at the cap, as a flagged send. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
 _Avoid_: structured payload, card schema.
 
+**Composite send**:
+One agent call that returns an ordered array of messages (#622). Each entry renders as its own Discord message, with its own typed format and its own optional attachments. At most one message decides, and it posts last, so the buttons sit at the thread bottom. A send carries at most four messages, a `curia.yaml` default with a settings row. The prose message holds the answer to an operator note at up to 1200 characters, and a question of a round may carry a 600-character background block. See [ADR-0026](docs/adr/0026-the-composite-send.md).
+_Avoid_: multi-part response, message batch.
+
 **Lint grade**:
 Which rules of `voice.md` a typed field is held to. Grade A is inline decision text: a hard character cap, one line, no markdown structure and no link. Grade B is block prose: a cap, at most 25 words per sentence, and no heading, table or blockquote. The `visual` field takes neither, because it is not prose. curia checks its width, its height and its fence.
 _Avoid_: strict lint, soft lint.
