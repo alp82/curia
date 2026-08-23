@@ -76,6 +76,13 @@ the four stage colors. The operator: smash is best, but the others deserve place
 page will likely vary its treatment across the scroll. The ask for round 3 is much more unique
 boldness. Background colors, transitions and layouts are all open, wild but with taste.
 
+**Round 3.** Five bolder composites led by smash: 1 acts (one cut per pipeline stage), 2 megatype
+(ghost numerals, poster titles), 3 fullflood (hard body-background hue journey), 4 slab (solid
+stage-color claim slabs), 5 poster (boxed uppercase titles). The operator: fullflood is the
+baseline for more exploration. Slab stays, but only as an accent of importance. The acts flow is
+liked. The flood must change: each section owns its color, so a color change never repaints an
+earlier section, and sections transition from and into grayscale, with opacity and blur in play.
+
 ## The verdict
 
 <!-- Filled at resolution. -->
