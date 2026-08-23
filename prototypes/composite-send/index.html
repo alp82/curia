@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#640 — The composite send, mocked</title>
+<style>
+  /* PROTOTYPE — throwaway mock for alp82/curia#640. Not production code. */
+  :root {
+    --bg: #16181d;
+    --panel: #1e2128;
+    --line: #2f333d;
+    --ink: #e3e6ea;
+    --dim: #98a0ad;
+    --accent: #57f287;
+    --amber: #fee75c;
+    --link: #7fb2ff;
+    --chat: #313338;
+    --chat-ink: #dbdee1;
+    --chat-dim: #949ba4;
+    --chat-name: #f2f3f5;
+    --bot-badge: #5865f2;
+    --btn-secondary: #4e5058;
+    --btn-success: #248046;
+    --btn-danger: #da373c;
+    --btn-primary: #5865f2;
+    --code-bg: #2b2d31;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --gg: "gg sans", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0 0 4rem;
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+  }
+  header.page {
+    padding: 1.6rem 1.1rem 1.3rem;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #1b1f27, var(--bg));
+  }
+  header.page h1 { margin: 0 0 .3rem; font-size: 1.35rem; line-height: 1.25; }
+  header.page .tag {
+    display: inline-block; margin-bottom: .55rem; padding: .18rem .5rem;
+    border: 1px solid var(--line); border-radius: 999px;
+    font: 600 .72rem/1 var(--mono); color: var(--accent); letter-spacing: .04em;
+  }
+  header.page p { margin: .5rem 0 0; color: var(--dim); font-size: .93rem; max-width: 46rem; }
+  header.page p b { color: var(--ink); }
+  main { padding: 0 1.1rem; max-width: 48rem; margin: 0 auto; }
+  h2.sec {
+    margin: 2.6rem 0 .4rem; font-size: .78rem; letter-spacing: .11em;
+    text-transform: uppercase; color: var(--dim); font-weight: 700;
+  }
+  h2.sec .n { color: var(--accent); margin-right: .4rem; }
+  p.lead { margin: .2rem 0 1rem; color: var(--dim); font-size: .93rem; }
+  p.lead b { color: var(--ink); }
+
+  /* ---- the boundary switch ---- */
+  .switch {
+    display: flex; gap: .55rem; align-items: center; margin: 1rem 0 0;
+    padding: .55rem .7rem; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel); font-size: .85rem; color: var(--dim);
+    max-width: 30rem;
+  }
+  .switch input { width: 1.05rem; height: 1.05rem; accent-color: var(--accent); }
+  .switch label { cursor: pointer; }
+  .switch b { color: var(--ink); }
+
+  /* ---- Discord transcript chrome ---- */
+  .thread {
+    background: var(--chat); border: 1px solid #232428; border-radius: 12px;
+    padding: .3rem 0 .8rem; margin: 0 0 1rem; overflow: hidden;
+    font-family: var(--gg);
+  }
+  .msg { padding: .6rem .9rem 0; display: flex; gap: .75rem; }
+  .msg.cont { padding-top: .1rem; }
+  .avatar {
+    flex: 0 0 2.3rem; width: 2.3rem; height: 2.3rem; border-radius: 50%;
+    display: grid; place-items: center; font-size: .95rem; font-weight: 700;
+    user-select: none; color: #fff; font-family: var(--gg);
+  }
+  .avatar.curia { background: #23508d; }
+  .avatar.op { background: #7a5c2e; }
+  .avatar.blank { background: none; }
+  .body { min-width: 0; flex: 1; }
+  .who { font-size: .93rem; color: var(--chat-name); font-weight: 600; }
+  .who .app {
+    background: var(--bot-badge); color: #fff; border-radius: 4px;
+    font-size: .6rem; font-weight: 700; padding: .1rem .3rem; margin-left: .35rem;
+    vertical-align: 2px; letter-spacing: .02em;
+  }
+  .who .ts { color: var(--chat-dim); font-weight: 400; font-size: .72rem; margin-left: .45rem; }
+  .txt { color: var(--chat-ink); font-size: .92rem; line-height: 1.45; overflow-wrap: anywhere; }
+  .txt p { margin: .3rem 0; }
+  .txt .small, .txt .subtext { font-size: .78rem; color: var(--chat-dim); }
+  .txt a { color: var(--link); text-decoration: none; }
+  .txt code, .cand code, p.lead code, .note code {
+    background: var(--code-bg); border-radius: 4px; padding: .06rem .3rem;
+    font: .84em var(--mono);
+  }
+  .txt pre {
+    background: var(--code-bg); border-radius: 4px; padding: .5rem .6rem;
+    margin: .4rem 0; overflow-x: auto; font: .78rem/1.4 var(--mono);
+    color: #d7dbe0; border: 1px solid #232428;
+  }
+  .txt .spoil {
+    background: #232428; border-radius: 4px; padding: 0 .3rem;
+    color: var(--chat-dim); border: 1px dashed #3f4147;
+  }
+  .txt blockquote {
+    margin: .35rem 0; padding: .05rem 0 .05rem .7rem;
+    border-left: 4px solid #4e5058; color: var(--chat-ink);
+  }
+  /* Discord headings, at Discord's own scale relative to body text */
+  .txt .h1d { font-size: 1.5em; font-weight: 700; margin: .45em 0 .2em; color: var(--chat-name); }
+  .txt .h2d { font-size: 1.25em; font-weight: 700; margin: .45em 0 .2em; color: var(--chat-name); }
+  .txt .h3d { font-size: 1.1em; font-weight: 700; margin: .45em 0 .2em; color: var(--chat-name); }
+  .edited { color: var(--chat-dim); font-size: .68rem; margin-left: .3rem; }
+  .btnrow { display: flex; gap: .45rem; flex-wrap: wrap; margin: .5rem 0 .15rem; }
+  .btn {
+    border: none; border-radius: 6px; padding: .42rem .8rem;
+    font: 500 .8rem/1.1 var(--gg); color: #fff; cursor: default; white-space: nowrap;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .btn.sec { background: var(--btn-secondary); }
+  .btn.ok { background: var(--btn-success); }
+  .btn.no { background: var(--btn-danger); }
+  .btn.pri { background: var(--btn-primary); }
+  .attachbox {
+    margin: .4rem 0 .1rem; padding: .5rem .65rem; border-radius: 8px;
+    background: #2b2d31; border: 1px solid #232428; max-width: 22rem;
+    display: flex; gap: .55rem; align-items: center; font-size: .85rem;
+  }
+  .attachbox .icon { font-size: 1.2rem; }
+  .attachbox .fname { color: var(--link); }
+  .attachbox .fsize { color: var(--chat-dim); font-size: .72rem; }
+  .imgbox {
+    margin: .4rem 0 .1rem; border-radius: 8px; overflow: hidden;
+    border: 1px solid #232428; max-width: 24rem; background: #202225;
+  }
+  .imgbox svg { display: block; width: 100%; height: auto; }
+  .note {
+    margin: .6rem .9rem .2rem; padding: .5rem .65rem; border-radius: 6px;
+    background: rgba(87,242,135,.06); border: 1px solid rgba(87,242,135,.18);
+    color: var(--dim); font-size: .8rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .note b { color: var(--accent); }
+  .note.warn { background: rgba(254,231,92,.05); border-color: rgba(254,231,92,.2); }
+  .note.warn b { color: var(--amber); }
+  .note.out { margin: .6rem 0 .85rem; }
+
+  /* candidate frames */
+  .cand {
+    background: var(--chat); border: 1px solid #232428; border-radius: 10px;
+    padding: .35rem .2rem .85rem; margin: 0 0 .85rem; font-family: var(--gg);
+  }
+  .cand h3 {
+    margin: .35rem .7rem .1rem; font-size: .98rem; color: var(--chat-name);
+    display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .cand h3 .n { color: var(--dim); font: 600 .78rem/1 var(--mono); }
+  .cand h3 .picked { color: var(--accent); font: 600 .78rem/1 var(--mono); }
+  .cand h3 .rec { color: var(--amber); font: 600 .78rem/1 var(--mono); }
+  .cand p.why {
+    margin: .55rem .7rem 0; color: var(--dim); font-size: .84rem;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  .cand p.why b { color: var(--ink); }
+
+  /* message boundaries, drawn only when the switch is on */
+  .m { position: relative; }
+  body.bounds .m {
+    border-top: 1px dashed #5a6472; margin-top: .5rem; padding-top: .45rem;
+  }
+  body.bounds .m::after {
+    content: attr(data-kind);
+    position: absolute; top: -.62rem; right: 0;
+    background: var(--chat); padding: 0 .35rem;
+    font: 600 .6rem/1 var(--mono); color: #7d8899; letter-spacing: .06em;
+  }
+  body.bounds .m.first { border-top: none; margin-top: 0; padding-top: 0; }
+  body.bounds .m.first::after { top: -.1rem; }
+
+  ul.plain { margin: .3rem 0 1rem; padding-left: 1.2rem; color: var(--dim); font-size: .9rem; }
+  ul.plain li { margin: .3rem 0; }
+  ul.plain b { color: var(--ink); }
+
+  nav.toc { margin: 1rem 0 0; font-size: .9rem; }
+  nav.toc a { color: var(--link); text-decoration: none; display: inline-block; margin: 0 .9rem .3rem 0; }
+  b, strong { color: inherit; }
+  s { color: var(--chat-dim); }
+</style>
+</head>
+<body>
+
+<header class="page">
+  <span class="tag">alp82/curia#640</span>
+  <h1>The composite send, mocked</h1>
+  <p><b>ADR-0026 fixed the structure.</b> One agent call returns an ordered array, each entry
+     renders as its own Discord message with its own rigid format, and the deciding message posts
+     last. At most four messages per send. What the structure left open is taste: the dressing, the
+     order, the render form of the prose message and the question background, and how images and
+     visuals carry intent. This page decides those, one round at a time.</p>
+  <p><b>Round 1 is on the page.</b> Five whole-send variations of one real exchange. Later rounds
+     take the winner's dressing and go on to the prose form, the composition rules and the image
+     use. <code>NOTES.md</code> records every round.</p>
+  <div class="switch">
+    <input type="checkbox" id="bounds">
+    <label for="bounds"><b>Show the message boundaries.</b> Discord groups messages from one
+      sender, so a send of three reads as one block. Turn this on to see where the real message
+      edges fall.</label>
+  </div>
+  <nav class="toc">
+    <a href="#today">1 · The send today</a>
+    <a href="#round1">2 · Round 1 — the dressing and the order</a>
+    <a href="#palette">3 · The palette, and what binds it</a>
+    <a href="#next">4 · What the later rounds decide</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="today"><span class="n">1</span> The send today</h2>
+<p class="lead">The control. The operator sent a note into the thread of
+   <b>The aistack-machine prototype</b> (#554), and it wants an explanation, not a card. Today the
+   agent has one message and no field for an answer, so the explanation goes into the spoiler,
+   which carries facts only. This is the fault ADR-0026 exists to fix.</p>
+
+<div class="thread">
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:31</span></div>
+    <div class="txt"><p>why does the box need its own stack? and what do I lose either way</p></div>
+  </div></div>
+
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt">
+      <p>❓ <b>Which stack does the box sync to?</b></p>
+      <p><b>A. Its own stack.</b> The box registers as <code>curia-box</code>.<br>
+         ↳ Two stacks to read, and no reading ever replaces another.</p>
+      <p><b>B. Your stack.</b> The box reports to <code>alp82</code>.<br>
+         ↳ One stack to read. The last sync of the day wins, and the other machine goes dark.</p>
+      <p><b>C. No recurring sync.</b> The box syncs when you ask.<br>
+         ↳ Nothing is replaced by surprise, and the box's numbers are stale most days.</p>
+      <p>Recommendation: <b>A</b>.</p>
+      <p>Details: <span class="spoil">A sync publishes one reading per machine per stack and a
+         second sync on the same stack replaces the first, so your laptop and the box overwrite
+         each other, measured 2026-08-18 at 14:02 when your 30-day numbers went to zero and came
+         back at 19:40.</span></p>
+      <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+      <p class="subtext">esc-3</p>
+      <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button><button class="btn pri">C · no sync</button></div>
+    </div>
+  </div></div>
+
+  <div class="note warn"><b>The answer never gets said.</b> The operator asked two things, and the
+    card answers neither. The explanation is folded into a spoiler that is meant for facts, on one
+    line, behind a tap. The alternative today is a <code>.md</code> attachment, which the operator
+    already named counterproductive.</div>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="round1"><span class="n">2</span> Round 1 — the dressing and the order</h2>
+<p class="lead">The same exchange as a composite send: <b>prose</b> answers the note,
+   <b>visual</b> carries the numbers, and the <b>choice</b> decides, last. The content is identical
+   in all five. They differ in the dressing — titles, small print, the signal emoji — and in
+   <b>V5</b> in the order too. Turn on the boundary switch at the top of the page to see the three
+   real messages inside each block.</p>
+
+<div class="cand">
+  <h3><span class="n">V1</span> The bare run</h3>
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:31</span></div>
+    <div class="txt"><p>why does the box need its own stack? and what do I lose either way</p></div>
+  </div></div>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
+           replaces the first. Your laptop and this box both report to <code>alp82</code>, so
+           whichever synced last is the reading you see.</p>
+        <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers went to
+           zero. They came back at 19:40, when your laptop synced and replaced mine. So the choice
+           is not about the box. It is about which machine owns the <code>alp82</code> reading.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>target stack     your 30d    box 30d
+--------------   ---------   -------
+alp82 (shared)   replaced    kept
+curia-box (own)  kept        kept</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p>❓ <b>Which stack does the box sync to?</b></p>
+        <p><b>A. Its own stack.</b> The box registers as <code>curia-box</code>.<br>
+           ↳ Two stacks to read, and no reading ever replaces another.</p>
+        <p><b>B. Your stack.</b> The box reports to <code>alp82</code>.<br>
+           ↳ One stack to read. The last sync of the day wins, and the other machine goes dark.</p>
+        <p><b>C. No recurring sync.</b> The box syncs when you ask.<br>
+           ↳ Nothing is replaced by surprise, and the box's numbers are stale most days.</p>
+        <p>Recommendation: <b>A</b>.</p>
+        <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+        <p class="subtext">esc-3</p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button><button class="btn pri">C · no sync</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">What ADR-0026 gives you with nothing added: three messages, no titles, no rail,
+     one ❓ on the card. Every word on screen is content. <b>The cost:</b> Discord groups the three
+     into one avatar and one timestamp, so the reader sees a wall and has to find the question
+     inside it. On a phone the ❓ is below the fold.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">V2</span> A title on every message</h3>
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:31</span></div>
+    <div class="txt"><p>why does the box need its own stack? and what do I lose either way</p></div>
+  </div></div>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <div class="h3d">The answer</div>
+        <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
+           replaces the first. Your laptop and this box both report to <code>alp82</code>, so
+           whichever synced last is the reading you see.</p>
+        <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers went to
+           zero. They came back at 19:40, when your laptop synced and replaced mine. So the choice
+           is not about the box. It is about which machine owns the <code>alp82</code> reading.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <div class="h3d">What each stack costs</div>
+        <pre>target stack     your 30d    box 30d
+--------------   ---------   -------
+alp82 (shared)   replaced    kept
+curia-box (own)  kept        kept</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <div class="h3d">❓ The decision</div>
+        <p><b>Which stack does the box sync to?</b></p>
+        <p><b>A. Its own stack.</b> The box registers as <code>curia-box</code>.<br>
+           ↳ Two stacks to read, and no reading ever replaces another.</p>
+        <p><b>B. Your stack.</b> The box reports to <code>alp82</code>.<br>
+           ↳ One stack to read. The last sync of the day wins, and the other machine goes dark.</p>
+        <p><b>C. No recurring sync.</b> The box syncs when you ask.<br>
+           ↳ Nothing is replaced by surprise, and the box's numbers are stale most days.</p>
+        <p>Recommendation: <b>A</b>.</p>
+        <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+        <p class="subtext">esc-3</p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button><button class="btn pri">C · no sync</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">Each message says its own job in a Discord H3, so the send has a table of
+     contents and the thumb can scroll to <b>The decision</b>. The titles are curia's words, not
+     the agent's, so no lint reads them. <b>The cost:</b> three headings in one block is a lot of
+     furniture for 400 words, and a two-message send gets a title it does not need.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">V3</span> The small-print rail <span class="rec">· recommended</span></h3>
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:31</span></div>
+    <div class="txt"><p>why does the box need its own stack? and what do I lose either way</p></div>
+  </div></div>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 3 · the answer</p>
+        <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
+           replaces the first. Your laptop and this box both report to <code>alp82</code>, so
+           whichever synced last is the reading you see.</p>
+        <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers went to
+           zero. They came back at 19:40, when your laptop synced and replaced mine. So the choice
+           is not about the box. It is about which machine owns the <code>alp82</code> reading.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <p class="small">2 of 3 · what each stack costs</p>
+        <pre>target stack     your 30d    box 30d
+--------------   ---------   -------
+alp82 (shared)   replaced    kept
+curia-box (own)  kept        kept</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">3 of 3 · decide</p>
+        <p>❓ <b>Which stack does the box sync to?</b></p>
+        <p><b>A. Its own stack.</b> The box registers as <code>curia-box</code>.<br>
+           ↳ Two stacks to read, and no reading ever replaces another.</p>
+        <p><b>B. Your stack.</b> The box reports to <code>alp82</code>.<br>
+           ↳ One stack to read. The last sync of the day wins, and the other machine goes dark.</p>
+        <p><b>C. No recurring sync.</b> The box syncs when you ask.<br>
+           ↳ Nothing is replaced by surprise, and the box's numbers are stale most days.</p>
+        <p>Recommendation: <b>A</b>.</p>
+        <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+        <p class="subtext">esc-3</p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button><button class="btn pri">C · no sync</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">One small-print line per message: its number in the send, and its job in three
+     words. The count tells the reader how far the send runs before it asks, which no other cut
+     says. Mechanics stay small print, which is the ADR-0021 rule already. <b>The cost:</b> the
+     rail is chrome the reader must learn once, and a send of two messages numbers itself for
+     nothing.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">V4</span> One intent line, then nothing</h3>
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:31</span></div>
+    <div class="txt"><p>why does the box need its own stack? and what do I lose either way</p></div>
+  </div></div>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p><b>Your two questions, then one decision at the end.</b></p>
+        <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
+           replaces the first. Your laptop and this box both report to <code>alp82</code>, so
+           whichever synced last is the reading you see.</p>
+        <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers went to
+           zero. They came back at 19:40, when your laptop synced and replaced mine. So the choice
+           is not about the box. It is about which machine owns the <code>alp82</code> reading.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>target stack     your 30d    box 30d
+--------------   ---------   -------
+alp82 (shared)   replaced    kept
+curia-box (own)  kept        kept</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p>❓ <b>Which stack does the box sync to?</b></p>
+        <p><b>A. Its own stack.</b> The box registers as <code>curia-box</code>.<br>
+           ↳ Two stacks to read, and no reading ever replaces another.</p>
+        <p><b>B. Your stack.</b> The box reports to <code>alp82</code>.<br>
+           ↳ One stack to read. The last sync of the day wins, and the other machine goes dark.</p>
+        <p><b>C. No recurring sync.</b> The box syncs when you ask.<br>
+           ↳ Nothing is replaced by surprise, and the box's numbers are stale most days.</p>
+        <p>Recommendation: <b>A</b>.</p>
+        <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+        <p class="subtext">esc-3</p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button><button class="btn pri">C · no sync</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">The agent writes one bold line that says what the whole send is for, and then no
+     message carries dressing at all. The intent is the agent's own words, so it fits the exchange
+     rather than a fixed label. <b>The cost:</b> it is prose, so it takes the word lint and one
+     attempt out of three. It also says what the send does instead of showing it, and a lazy agent
+     writes "here is my answer and a question".</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">V5</span> Evidence first, one title on the decision</h3>
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">14:31</span></div>
+    <div class="txt"><p>why does the box need its own stack? and what do I lose either way</p></div>
+  </div></div>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="visual">
+        <pre>2026-08-18, the alp82 stack
+14:02  box syncs    your 30d -> 0
+19:40  laptop syncs  box 30d -> 0
+
+one reading per machine per stack
+a second sync replaces the first</pre>
+      </div>
+      <div class="m" data-kind="prose">
+        <p>That is the whole answer. Your laptop and this box both report to <code>alp82</code>,
+           so whichever synced last is the reading you see, and the other machine goes dark until
+           it syncs again. Nothing is lost for good. It is invisible until the next sync.</p>
+        <p>So the choice is not about the box. It is about which machine owns the
+           <code>alp82</code> reading.</p>
+      </div>
+      <div class="m" data-kind="choice">
+        <div class="h2d">❓ Which stack does the box sync to?</div>
+        <p><b>A. Its own stack.</b> The box registers as <code>curia-box</code>.<br>
+           ↳ Two stacks to read, and no reading ever replaces another.</p>
+        <p><b>B. Your stack.</b> The box reports to <code>alp82</code>.<br>
+           ↳ One stack to read. The last sync of the day wins, and the other machine goes dark.</p>
+        <p><b>C. No recurring sync.</b> The box syncs when you ask.<br>
+           ↳ Nothing is replaced by surprise, and the box's numbers are stale most days.</p>
+        <p>Recommendation: <b>A</b>.</p>
+        <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+        <p class="subtext">esc-3</p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button><button class="btn pri">C · no sync</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">The order carries the intent instead of a label. The measurement leads as the
+     hook, the prose reads it, and the decision closes under the one heading in the send, an H2.
+     The prose gets shorter, because the table already said the numbers. <b>The cost:</b> a reader
+     who scrolls in cold meets a fence with no sentence over it, and the rule "evidence first"
+     does not fit a send whose first message is the answer to a plain question.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="palette"><span class="n">3</span> The palette, and what binds it</h2>
+<p class="lead">What the five cuts draw from, and the rules that already hold. A variation that
+   breaks one of these is not a candidate.</p>
+<ul class="plain">
+  <li><b>Titles.</b> Discord renders <code>#</code>, <code>##</code> and <code>###</code>. None of
+      them was tested in the render catalog of #414, so this page is their first judgment.</li>
+  <li><b>Small print.</b> <code>-#</code> is measured and kept. ADR-0019 holds it to one line,
+      never stacked, and every cut here obeys that.</li>
+  <li><b>The signal emoji.</b> The set is fixed: ⚙️ ✅ ❌ ⚠️ 🎫 ⚰️ 🔗 ❓, with 🔎 for the
+      cross-check and the six phase icons on the status line. Grade B prose refuses any emoji
+      outside it, so no cut here invents one.</li>
+  <li><b>The code-block table and the ASCII diagram.</b> Measured and kept, at most 42 columns,
+      under 1000 characters. Every visual on this page fits both.</li>
+  <li><b>The deciding message posts last.</b> ADR-0026. No cut moves it, and V5 reorders only the
+      two messages above it.</li>
+  <li><b>Dressing is curia's, not the agent's.</b> A title or a rail curia writes takes no lint
+      attempt. An intent line the agent writes does, which is the whole cost of V4.</li>
+</ul>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="next"><span class="n">4</span> What the later rounds decide</h2>
+<p class="lead">Round 1 fixes the dressing and the order. The rounds after it take the winner and
+   go on:</p>
+<ul class="plain">
+  <li><b>The prose message and the question background.</b> The render form of an answer that runs
+      to 1200 characters, and of the 600-character background under one question of a round.</li>
+  <li><b>Which calls compose what.</b> The composition rules: the answer plus a round, an image
+      beside a question, a files message that stands alone, and what a two-message send looks
+      like.</li>
+  <li><b>The image and the visual.</b> Where an image rides, when a diagram beats a table, and how
+      much a send may show before it asks.</li>
+</ul>
+
+</main>
+
+<script>
+  var box = document.getElementById('bounds')
+  box.addEventListener('change', function () {
+    document.body.classList.toggle('bounds', box.checked)
+  })
+</script>
+
+</body>
+</html>
