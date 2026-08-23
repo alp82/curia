@@ -165,60 +165,79 @@
   .scene[data-stage="merged"] { --sc: var(--st-merged); --scb: 125, 211, 160; }
   body[class*="id-"] .wrap { padding-left: 1.25rem; }
 
-  /* Skin 1 — smash. Hard cuts: every scene is a full-bleed panel in
-     its stage tint with a solid accent edge on the docking side, and
-     the title slams in heavy. */
-  .id-1 .scene { background: rgba(var(--scb), 0.07); padding-top: 6vh; }
-  .id-1 .scene.sL { border-left: 4px solid var(--sc); }
-  .id-1 .scene.sR { border-right: 4px solid var(--sc); }
-  .id-1 .scene.cont { padding-top: 0; }
+  /* Round 3 (#624): smash won as the base, the other cuts earn
+     places along the scroll, and the operator wants much more unique
+     boldness. Five bolder composites, each led by smash panels and
+     varying its treatment across the scroll. */
+
+  /* Skin 1 — acts. The literal composite: each stage of the pipeline
+     gets the round 2 cut that fits its beat. Take smashes, agent
+     floods, gate slashes and wipes, merged tilts. */
+  .id-1 .scene { padding-top: 6vh; }
   .id-1 .bold { font-size: clamp(1.9rem, 8vw, 3.2rem); font-weight: 800; letter-spacing: -0.04em; line-height: 1.02; }
   .id-1 .kick { font-weight: 800; }
   .id-1 .kick .kn { background: var(--sc); color: #08090c; padding: 0.15rem 0.5rem; margin: 0; }
+  .id-1 [data-stage="take"] { background: rgba(var(--scb), 0.1); }
+  .id-1 [data-stage="take"].sL { border-left: 4px solid var(--sc); }
+  .id-1 [data-stage="take"].sR { border-right: 4px solid var(--sc); }
+  .id-1 [data-stage="agent"] { background: linear-gradient(180deg, rgba(var(--scb), 0.18), rgba(var(--scb), 0.03)); }
+  .id-1 [data-stage="agent"] .shot { position: relative; }
+  .id-1 [data-stage="agent"] .shot::before { content: ""; position: absolute; inset: -14% -10%; background: radial-gradient(closest-side, rgba(var(--scb), 0.2), transparent 72%); }
+  .id-1 [data-stage="agent"] .shot > * { position: relative; }
+  .id-1 [data-stage="gate"] { background: rgba(var(--scb), 0.14); margin-top: calc(-1 * min(4vw, 2.5rem)); padding-top: calc(6vh + min(5vw, 3rem)); clip-path: polygon(0 min(5vw, 3rem), 100% 0, 100% 100%, 0 100%); }
+  .id-1 [data-stage="gate"].cont { clip-path: none; margin-top: 0; padding-top: 0; }
+  .id-1 [data-stage="gate"] .claim { position: relative; padding-top: 0.95rem; }
+  .id-1 [data-stage="gate"] .claim::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--sc); transform-origin: left; }
+  .id-1 [data-stage="merged"] { background: rgba(var(--scb), 0.09); }
+  .id-1 [data-stage="merged"] .bold { transform: rotate(-0.8deg); }
+  .id-1 [data-stage="merged"].sR .bold { transform: rotate(0.8deg); }
+  .id-1 [data-stage="merged"] .shot > * { transform: rotate(0.8deg); box-shadow: 0.55rem 0.55rem 0 rgba(var(--scb), 0.3); }
 
-  /* Skin 2 — slash. Diagonal cuts: each scene slices over the one
-     before it with a slanted top edge, direction alternating, in a
-     stronger stage tint. */
-  .id-2 .scene { background: rgba(var(--scb), 0.11); margin-top: calc(-1 * min(4vw, 2.5rem)); padding-top: calc(3vh + min(6vw, 4rem)); }
-  .id-2 .sL { clip-path: polygon(0 min(5vw, 3rem), 100% 0, 100% 100%, 0 100%); }
-  .id-2 .sR { clip-path: polygon(0 0, 100% min(5vw, 3rem), 100% 100%, 0 100%); }
-  .id-2 .scene.cont { clip-path: none; margin-top: 0; padding-top: 0; }
-  .id-2 .bold { font-size: clamp(1.7rem, 7vw, 2.8rem); font-weight: 750; transform: skewY(-1.2deg); }
-  .id-2 .sR .bold { transform: skewY(1.2deg); }
+  /* Skin 2 — megatype. Typography as the identity: a colossal ghost
+     number in the stage color, the title at poster scale pulled over
+     it, and the claim overlapping the evidence below. */
+  .id-2 .scene { background: rgba(var(--scb), 0.08); padding-top: 5vh; }
+  .id-2 .kick { margin: 0; }
+  .id-2 .kick .kn { display: block; font-size: clamp(4rem, 20vw, 8rem); font-weight: 900; line-height: 0.85; letter-spacing: -0.05em; color: rgba(var(--scb), 0.24); margin: 0; }
+  .id-2 .bold { font-size: clamp(2.1rem, 9.5vw, 4rem); font-weight: 900; letter-spacing: -0.045em; line-height: 0.98; margin-top: -0.55em; text-shadow: 0 2px 18px rgba(8, 9, 12, 0.85); }
+  .id-2 .claim { position: relative; z-index: 2; margin-bottom: -0.4em; }
+  .id-2 .scene .shot { margin-top: 0.4rem; }
+  .id-2 .story, .id-2 .fact { position: relative; z-index: 2; margin-top: 0.9rem; }
 
-  /* Skin 3 — flood. Color transitions: the page background floods
-     to the stage hue of the scene in view (JS), and a stage-colored
-     spotlight glows behind every piece of evidence. Titles wipe in. */
-  .id-3 { transition: background-color 0.5s var(--ease); }
+  /* Skin 3 — fullflood. The page is a color journey: the background
+     floods hard to the stage hue of the scene in view (JS), titles
+     take the stage color, spotlights burn behind the evidence. */
+  .id-3 { transition: background-color 0.6s var(--ease); }
+  .id-3 .scene { background: linear-gradient(180deg, transparent, rgba(var(--scb), 0.14)); }
+  .id-3 .bold { color: var(--sc); font-size: clamp(2rem, 8.5vw, 3.4rem); font-weight: 800; letter-spacing: -0.04em; }
+  .id-3 .kick .kn { background: var(--sc); color: #08090c; font-weight: 800; padding: 0.15rem 0.5rem; margin: 0; }
   .id-3 .shot { position: relative; }
-  .id-3 .shot::before {
-    content: ""; position: absolute; inset: -14% -10%;
-    background: radial-gradient(closest-side, rgba(var(--scb), 0.17), transparent 72%);
-  }
+  .id-3 .shot::before { content: ""; position: absolute; inset: -14% -10%; background: radial-gradient(closest-side, rgba(var(--scb), 0.26), transparent 72%); }
   .id-3 .shot > * { position: relative; }
-  .id-3 .bold { font-size: clamp(1.7rem, 7vw, 2.9rem); }
-  .id-3 .kick { color: var(--sc); font-weight: 700; }
 
-  /* Skin 4 — slate. Wipe cuts: a stage-colored bar wipes across the
-     top of every claim from the docking side, and evidence punches
-     in with a small zoom. A side gradient tints each scene. */
-  .id-4 .claim { position: relative; padding-top: 0.95rem; }
-  .id-4 .claim::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--sc); transform-origin: left; }
-  .id-4 .sR .claim::before { transform-origin: right; }
-  .id-4 .kick { color: var(--sc); font-weight: 700; }
-  .id-4 .scene.sL { background: linear-gradient(90deg, rgba(var(--scb), 0.1), transparent 65%); }
-  .id-4 .scene.sR { background: linear-gradient(270deg, rgba(var(--scb), 0.1), transparent 65%); }
-  .id-4 .bold { font-size: clamp(1.7rem, 7vw, 2.9rem); font-weight: 750; }
+  /* Skin 4 — slab. Layout as the identity: the whole claim sits on a
+     solid stage-color slab that bleeds off the docking edge, dark
+     text on it, and the evidence tucks under its corner. */
+  .id-4 .scene { background: rgba(var(--scb), 0.05); padding-top: 5vh; }
+  .id-4 .claim { background: var(--sc); color: #08090c; width: fit-content; max-width: 94%; padding: 1rem 1.15rem 1.1rem; position: relative; z-index: 2; }
+  .id-4 .sL .claim { margin-left: -1.25rem; padding-left: 2.5rem; border-radius: 0 14px 14px 0; box-shadow: 0.5rem 0.5rem 0 rgba(var(--scb), 0.25); }
+  .id-4 .sR .claim { margin-left: auto; margin-right: -1.25rem; padding-right: 2.5rem; border-radius: 14px 0 0 14px; box-shadow: -0.5rem 0.5rem 0 rgba(var(--scb), 0.25); }
+  .id-4 .claim .bold { color: #08090c; font-size: clamp(1.8rem, 7.5vw, 3rem); font-weight: 850; letter-spacing: -0.035em; }
+  .id-4 .claim .kick { color: rgba(8, 9, 12, 0.72); font-weight: 800; }
+  .id-4 .scene .shot { margin-top: -0.9rem; }
+  .id-4 .story { margin-top: 1.1rem; }
 
-  /* Skin 5 — montage. Zoom cuts: claims and evidence sit on tilted
-     planes with hard offset shadows, and everything punches in with
-     a fast scale drop. */
-  .id-5 .scene { background: rgba(var(--scb), 0.06); box-shadow: 0 -1px 0 rgba(var(--scb), 0.35); }
-  .id-5 .bold { font-size: clamp(1.7rem, 7vw, 2.9rem); font-weight: 750; transform: rotate(-0.8deg); }
-  .id-5 .sR .bold { transform: rotate(0.8deg); }
-  .id-5 .shot > * { transform: rotate(0.8deg); box-shadow: 0.55rem 0.55rem 0 rgba(var(--scb), 0.28); }
-  .id-5 .sR .shot > * { transform: rotate(-0.8deg); }
-  .id-5 #run-pin .bold, .id-5 #run-pin .gh, .id-5 #run-pin .gh.big { transform: none; }
+  /* Skin 5 — poster. Neo-brutal: titles boxed in hard stage-color
+     frames with offset block shadows, uppercase, everything outlined
+     and snapped to its side. */
+  .id-5 .scene { background: rgba(var(--scb), 0.07); border-top: 2px solid var(--sc); padding-top: 5vh; }
+  .id-5 .scene.cont { border-top: none; }
+  .id-5 .claim { background: #0b0d12; border: 2px solid var(--sc); box-shadow: 0.5rem 0.5rem 0 rgba(var(--scb), 0.45); width: fit-content; max-width: 94%; padding: 0.85rem 1rem 0.95rem; }
+  .id-5 .sR .claim { margin-left: auto; }
+  .id-5 .bold { text-transform: uppercase; font-size: clamp(1.55rem, 6.5vw, 2.6rem); font-weight: 800; letter-spacing: -0.01em; line-height: 1.05; }
+  .id-5 .kick { font-weight: 800; }
+  .id-5 .kick .kn { background: var(--sc); color: #08090c; padding: 0.12rem 0.45rem; margin-right: 0.55rem; }
+  .id-5 .shot > * { box-shadow: 0.6rem 0.6rem 0 rgba(var(--scb), 0.4); }
 
   /* The skin switcher pill — prototype chrome, not part of the
      design under judgment. It leaves the file at resolution. */
@@ -510,13 +529,11 @@
   /* Fast cuts (round 2): inside a skin, scene reveals snap. */
   body[class*="id-"] .scene .rv.in { transition-duration: 0.38s; }
   body[class*="id-"] .scene .tw.in { transition-duration: 0.3s; }
-  .js .id-2 .sL .shot.rv:not(.in) { transform: translate(2.6rem, 1.6rem); }
-  .js .id-2 .sR .shot.rv:not(.in) { transform: translate(-2.6rem, 1.6rem); }
+  .js .id-1 [data-stage="gate"] .claim.rv:not(.in)::before { transform: scaleX(0); }
+  .js .id-1 [data-stage="gate"] .claim.rv.in::before { transform: scaleX(1); transition: transform 0.5s var(--ease) 0.1s; }
   .js .id-3 .scene .claim.rv:not(.in) { transform: none; opacity: 1; clip-path: inset(0 100% 0 0); }
   .js .id-3 .sR .claim.rv:not(.in) { clip-path: inset(0 0 0 100%); }
   .js .id-3 .scene .claim.rv.in { clip-path: inset(0 0 0 0); transition: clip-path 0.5s var(--ease), opacity 0.3s; }
-  .js .id-4 .claim.rv:not(.in)::before { transform: scaleX(0); }
-  .js .id-4 .claim.rv.in::before { transform: scaleX(1); transition: transform 0.5s var(--ease) 0.1s; }
   .js .id-4 .scene .shot.rv:not(.in) { transform: scale(0.94); }
   .js .id-5 .scene .rv:not(.in) { transform: scale(1.07); }
 
@@ -977,11 +994,11 @@ if (prefersStill || !window.IntersectionObserver) {
    ?id=1..5 picks a skin; the pill cycles them. ---- */
 
 var SKINS = [
-  { k: '1', name: 'smash' },
-  { k: '2', name: 'slash' },
-  { k: '3', name: 'flood' },
-  { k: '4', name: 'slate' },
-  { k: '5', name: 'montage' }
+  { k: '1', name: 'acts' },
+  { k: '2', name: 'megatype' },
+  { k: '3', name: 'fullflood' },
+  { k: '4', name: 'slab' },
+  { k: '5', name: 'poster' }
 ];
 var skinIdx = 0;
 try {
@@ -1006,7 +1023,7 @@ function applySkin() {
 /* Skin 3: the page background floods to the stage hue of the scene
    nearest the middle of the screen. Very dark hues, so the canvas
    and every panel stay readable over any of them. */
-var FLOOD = { take: '#0b1017', agent: '#15100a', gate: '#0a0e19', merged: '#081209' };
+var FLOOD = { take: '#17233a', agent: '#2b2109', gate: '#14224a', merged: '#0c2b17' };
 var floodScenes = [].slice.call(document.querySelectorAll('.scene[data-stage]'));
 function floodTick() {
   if (!document.body.classList.contains('id-3')) {

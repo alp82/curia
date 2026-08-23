@@ -69,6 +69,13 @@ distinct variations built from the feedback so far. That default also becomes cu
 the grilling ticket [#635](https://github.com/alp82/curia/issues/635) decides the rule, and the
 task ticket [#636](https://github.com/alp82/curia/issues/636) applies it.
 
+**Round 2.** Five action-movie skins on `?id=1..5`: 1 smash (hard-cut stage panels), 2 slash
+(diagonal cuts), 3 flood (scroll-driven background hues, spotlights), 4 slate (wipe bars),
+5 montage (tilted planes, zoom cuts). All kept claim-first, alternation, numbering from 01 and
+the four stage colors. The operator: smash is best, but the others deserve places too, and the
+page will likely vary its treatment across the scroll. The ask for round 3 is much more unique
+boldness. Background colors, transitions and layouts are all open, wild but with taste.
+
 ## The verdict
 
 <!-- Filled at resolution. -->
