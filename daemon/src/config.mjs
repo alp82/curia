@@ -165,6 +165,12 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
   const d = cfg.dispatch
   if (!d || typeof d !== 'object') fail(src, '`dispatch` section missing')
   if (typeof d.auto_dispatch !== 'boolean') fail(src, 'dispatch.auto_dispatch must be a boolean')
+  // Older tracked configs take the shipped prototype-round default until the
+  // next deploy adds the settings row to their file.
+  d.prototype_variations = d.prototype_variations ?? 5
+  if (!Number.isInteger(d.prototype_variations) || d.prototype_variations <= 0) {
+    fail(src, 'dispatch.prototype_variations must be a positive integer')
+  }
   // stop_nudge_budget (#54 item 4) is optional with a default so a config
   // predating the merge-gated ending still boots. It must be > 0: a budget of
   // zero would disable the Stop-hook enforcement silently, and turning the

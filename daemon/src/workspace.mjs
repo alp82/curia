@@ -1585,7 +1585,14 @@ export function exchangeBlock(exchange = []) {
 // has to mean for an instruction that decides what the whole session does.
 // The text is never shell-substituted — the spawn template reads this file with
 // `$(cat …)` — so it needs no quoting rules of its own.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false, instruction = null, ports = null, harness = 'claude', exchange = [], handoff = false }) {
+export function writePrompt(cfgDir, issue, {
+  repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false,
+  instruction = null, ports = null, harness = 'claude', exchange = [], handoff = false,
+  prototypeVariations,
+}) {
+  if (type === 'wayfinder:prototype' && (!Number.isInteger(prototypeVariations) || prototypeVariations <= 0)) {
+    throw new Error('prototypeVariations must be a positive integer for a prototype dispatch')
+  }
   const promptFile = path.join(cfgDir, 'prompt.md')
   // An unknown harness would take the claude spelling of the invocation in
   // silence, which is the failure #173 exists to end. harnessDef throws on a
@@ -1892,6 +1899,14 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     // bytes, pinned in UPSTREAM.md, and an edit there would hide the deviation
     // in a tree whose whole point is that a bump shows up as a diff.
     ...(type === 'wayfinder:prototype' ? [
+      `- **Offer ${prototypeVariations} variations in each prototype round by default.** You may offer more or fewer`,
+      '  when the work warrants it, but state why. A logic walkthrough may warrant a different count.',
+      '  Vary along the dimensions the ticket opens, such as user interface, user experience, style, or',
+      '  application programming interface design. Palette or copy',
+      '  changes alone do not count.',
+      '- **Carry the operator\'s feedback into each new round.** Keep what the operator kept, avoid what the',
+      '  operator rejected, mix working patterns, and add new ideas. Record every round in `NOTES.md`, and',
+      '  keep earlier variations reachable for reference.',
       `- **Your throwaway branch is \`${branch}\`, the one you are already on.** The \`prototype\` skill says to`,
       '  capture the prototype on a throwaway branch out of main. That branch is THIS one: curia cuts it from',
       '  main and deletes it at the merge. Do not make a second branch, and do not push one.',

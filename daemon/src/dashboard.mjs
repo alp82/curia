@@ -721,7 +721,7 @@ export class DashboardSurface {
           await this.#guardWatchRemoval(patch)
           const out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
           // The save APPLIES (#362). The daemon re-reads both files and takes
-          // the six settings this screen writes, so the restart stops being
+          // every setting this screen writes, so the restart stops being
           // phase two of every save. A save that wrote nothing asks for
           // nothing: the file did not move, so there is nothing to reload.
           const reload = out.written.length

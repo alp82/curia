@@ -1,7 +1,7 @@
 // `POST /reload` (#362, building the hot-reload decision #347).
 //
 // A save applies now: the sidecar asks the daemon to re-read both files, and
-// the daemon takes the six settings the settings screen writes — without the
+// the daemon takes the settings the settings screen writes without the
 // restart that used to be phase two of every save.
 //
 // This is pinned against a REAL boot for the reason the CSRF gate and the
@@ -80,6 +80,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
       '  auto_dispatch: false',
       '  max_concurrent: 2',
       '  poll_interval_s: 60',
+      '  prototype_variations: 5',
       `  workspace_root: ${path.join(tmp, 'work')}`,
       '  claim_login: alp82',
       '  ready_timeout_s: 45',
@@ -138,15 +139,21 @@ describe('POST /reload (index.mjs, real boot)', () => {
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  test('the six apply, and the overview reports what the daemon is now running', async () => {
+  test('the settings apply, and overview reports what the daemon runs', async () => {
     const before = await running()
-    assert.deepEqual(before.config.dispatch, { auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60 })
+    assert.deepEqual(before.config.dispatch, {
+      auto_dispatch: false,
+      max_concurrent: 2,
+      poll_interval_s: 60,
+      prototype_variations: 5,
+    })
 
     write(overCuria(), [
       'dispatch:',
       '  auto_dispatch: true',
       '  max_concurrent: 4',
       '  poll_interval_s: 15',
+      '  prototype_variations: 7',
       'watch:',
       '  - repo: example/fixture',
       '  - repo: example/second',
@@ -164,11 +171,17 @@ describe('POST /reload (index.mjs, real boot)', () => {
     assert.equal(out.ok, true)
     assert.deepEqual(out.applied.sort(), [
       'dispatch.auto_dispatch', 'dispatch.max_concurrent', 'dispatch.poll_interval_s',
+      'dispatch.prototype_variations',
       'routing.defaults.untyped', 'routing.models.sonnet.active', 'watch',
     ])
 
     const after = await running()
-    assert.deepEqual(after.config.dispatch, { auto_dispatch: true, max_concurrent: 4, poll_interval_s: 15 })
+    assert.deepEqual(after.config.dispatch, {
+      auto_dispatch: true,
+      max_concurrent: 4,
+      poll_interval_s: 15,
+      prototype_variations: 7,
+    })
     assert.deepEqual(after.config.watch, [
       { repo: 'example/fixture', mode: 'auto' }, { repo: 'example/second', mode: 'map' },
     ])
