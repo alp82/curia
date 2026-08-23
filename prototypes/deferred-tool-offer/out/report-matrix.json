@@ -1,0 +1,793 @@
+{
+  "generated_at": "2026-08-22T23:53:56.414Z",
+  "rows": [
+    {
+      "name": "report-pane-1",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": null,
+      "sentinel": "curia-579-report-pane-1",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:47:59.892Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-pane-1",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 4,
+      "turn_tokens": [
+        {
+          "input_tokens": 12225,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 291,
+          "reasoning_output_tokens": 135,
+          "total_tokens": 12516
+        },
+        {
+          "input_tokens": 12568,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 128,
+          "reasoning_output_tokens": 81,
+          "total_tokens": 12696
+        },
+        {
+          "input_tokens": 12993,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 129,
+          "reasoning_output_tokens": 10,
+          "total_tokens": 13122
+        },
+        {
+          "input_tokens": 13156,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 13171
+        }
+      ],
+      "tokens": {
+        "input_tokens": 50942,
+        "cached_input_tokens": 46080,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 563,
+        "reasoning_output_tokens": 226,
+        "total_tokens": 51505
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 14152
+    },
+    {
+      "name": "report-pane-2",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": null,
+      "sentinel": "curia-579-report-pane-2",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:48:41.673Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-pane-2",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 5,
+      "turn_tokens": [
+        {
+          "input_tokens": 12225,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 369,
+          "reasoning_output_tokens": 146,
+          "total_tokens": 12594
+        },
+        {
+          "input_tokens": 12645,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 428,
+          "reasoning_output_tokens": 209,
+          "total_tokens": 13073
+        },
+        {
+          "input_tokens": 13120,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 89,
+          "reasoning_output_tokens": 45,
+          "total_tokens": 13209
+        },
+        {
+          "input_tokens": 13506,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 143,
+          "reasoning_output_tokens": 9,
+          "total_tokens": 13649
+        },
+        {
+          "input_tokens": 13683,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 30,
+          "reasoning_output_tokens": 13,
+          "total_tokens": 13713
+        }
+      ],
+      "tokens": {
+        "input_tokens": 65179,
+        "cached_input_tokens": 58112,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 1059,
+        "reasoning_output_tokens": 422,
+        "total_tokens": 66238
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 24201
+    },
+    {
+      "name": "report-pane-3",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": null,
+      "sentinel": "curia-579-report-pane-3",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:49:19.046Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-pane-3",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 4,
+      "turn_tokens": [
+        {
+          "input_tokens": 12225,
+          "cached_input_tokens": 6912,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 311,
+          "reasoning_output_tokens": 164,
+          "total_tokens": 12536
+        },
+        {
+          "input_tokens": 12588,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 276,
+          "reasoning_output_tokens": 145,
+          "total_tokens": 12864
+        },
+        {
+          "input_tokens": 13145,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 99,
+          "reasoning_output_tokens": 11,
+          "total_tokens": 13244
+        },
+        {
+          "input_tokens": 13278,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 13293
+        }
+      ],
+      "tokens": {
+        "input_tokens": 51236,
+        "cached_input_tokens": 43008,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 701,
+        "reasoning_output_tokens": 320,
+        "total_tokens": 51937
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 18777
+    },
+    {
+      "name": "report-pane-4",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": null,
+      "sentinel": "curia-579-report-pane-4",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:49:43.986Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-pane-4",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12225,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 293,
+          "reasoning_output_tokens": 127,
+          "total_tokens": 12518
+        },
+        {
+          "input_tokens": 12564,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 25,
+          "reasoning_output_tokens": 8,
+          "total_tokens": 12589
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24789,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 318,
+        "reasoning_output_tokens": 135,
+        "total_tokens": 25107
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 6809
+    },
+    {
+      "name": "report-pane-5",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": null,
+      "sentinel": "curia-579-report-pane-5",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:50:23.544Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-pane-5",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 4,
+      "turn_tokens": [
+        {
+          "input_tokens": 12225,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 408,
+          "reasoning_output_tokens": 270,
+          "total_tokens": 12633
+        },
+        {
+          "input_tokens": 12686,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 257,
+          "reasoning_output_tokens": 210,
+          "total_tokens": 12943
+        },
+        {
+          "input_tokens": 13240,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 96,
+          "reasoning_output_tokens": 9,
+          "total_tokens": 13336
+        },
+        {
+          "input_tokens": 13370,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 13385
+        }
+      ],
+      "tokens": {
+        "input_tokens": 51521,
+        "cached_input_tokens": 46080,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 776,
+        "reasoning_output_tokens": 489,
+        "total_tokens": 52297
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 21972
+    },
+    {
+      "name": "report-exec-1",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": 0,
+      "sentinel": "curia-579-report-exec-1",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:50:53.422Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-exec-1",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 3,
+      "turn_tokens": [
+        {
+          "input_tokens": 12049,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 272,
+          "reasoning_output_tokens": 166,
+          "total_tokens": 12321
+        },
+        {
+          "input_tokens": 12618,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 138,
+          "reasoning_output_tokens": 49,
+          "total_tokens": 12756
+        },
+        {
+          "input_tokens": 12790,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12805
+        }
+      ],
+      "tokens": {
+        "input_tokens": 37457,
+        "cached_input_tokens": 33024,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 425,
+        "reasoning_output_tokens": 215,
+        "total_tokens": 37882
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 11914
+    },
+    {
+      "name": "report-exec-2",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": 0,
+      "sentinel": "curia-579-report-exec-2",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:51:14.912Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-exec-2",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 3,
+      "turn_tokens": [
+        {
+          "input_tokens": 12049,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 319,
+          "reasoning_output_tokens": 109,
+          "total_tokens": 12368
+        },
+        {
+          "input_tokens": 12420,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 403,
+          "reasoning_output_tokens": 152,
+          "total_tokens": 12823
+        },
+        {
+          "input_tokens": 12857,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 31,
+          "reasoning_output_tokens": 14,
+          "total_tokens": 12888
+        }
+      ],
+      "tokens": {
+        "input_tokens": 37326,
+        "cached_input_tokens": 34048,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 753,
+        "reasoning_output_tokens": 275,
+        "total_tokens": 38079
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 16446
+    },
+    {
+      "name": "report-exec-3",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": 0,
+      "sentinel": "curia-579-report-exec-3",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:51:44.979Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-exec-3",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 4,
+      "turn_tokens": [
+        {
+          "input_tokens": 12049,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 480,
+          "reasoning_output_tokens": 322,
+          "total_tokens": 12529
+        },
+        {
+          "input_tokens": 12580,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 309,
+          "reasoning_output_tokens": 214,
+          "total_tokens": 12889
+        },
+        {
+          "input_tokens": 14346,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 95,
+          "reasoning_output_tokens": 9,
+          "total_tokens": 14441
+        },
+        {
+          "input_tokens": 14475,
+          "cached_input_tokens": 14080,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 14490
+        }
+      ],
+      "tokens": {
+        "input_tokens": 53450,
+        "cached_input_tokens": 48128,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 899,
+        "reasoning_output_tokens": 545,
+        "total_tokens": 54349
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 23993
+    },
+    {
+      "name": "report-exec-4",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": 0,
+      "sentinel": "curia-579-report-exec-4",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:52:02.472Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-exec-4",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 3,
+      "turn_tokens": [
+        {
+          "input_tokens": 12049,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 336,
+          "reasoning_output_tokens": 150,
+          "total_tokens": 12385
+        },
+        {
+          "input_tokens": 12706,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 176,
+          "reasoning_output_tokens": 50,
+          "total_tokens": 12882
+        },
+        {
+          "input_tokens": 12916,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12931
+        }
+      ],
+      "tokens": {
+        "input_tokens": 37671,
+        "cached_input_tokens": 34048,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 527,
+        "reasoning_output_tokens": 200,
+        "total_tokens": 38198
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 12727
+    },
+    {
+      "name": "report-exec-5",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "task": "report",
+      "exit_code": 0,
+      "sentinel": "curia-579-report-exec-5",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:52:19.560Z",
+          "name": "report_result",
+          "args": {
+            "status": "resolved",
+            "ticket": "579",
+            "headline": "curia-579-report-exec-5",
+            "summary": "The measurement is complete."
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 3,
+      "turn_tokens": [
+        {
+          "input_tokens": 12049,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 331,
+          "reasoning_output_tokens": 196,
+          "total_tokens": 12380
+        },
+        {
+          "input_tokens": 12690,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 175,
+          "reasoning_output_tokens": 55,
+          "total_tokens": 12865
+        },
+        {
+          "input_tokens": 12899,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12914
+        }
+      ],
+      "tokens": {
+        "input_tokens": 37638,
+        "cached_input_tokens": 33024,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 521,
+        "reasoning_output_tokens": 251,
+        "total_tokens": 38159
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 12378
+    }
+  ],
+  "totals": {
+    "pane": {
+      "runs": 5,
+      "obeyed": 5,
+      "searches": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "model_turns": [
+        4,
+        5,
+        4,
+        2,
+        4
+      ],
+      "discovery_modes": [
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog"
+      ],
+      "second_turn_tokens": [
+        12696,
+        13073,
+        12864,
+        12589,
+        12943
+      ],
+      "total_tokens": [
+        51505,
+        66238,
+        51937,
+        25107,
+        52297
+      ],
+      "first_tool_latency_ms": [
+        14152,
+        24201,
+        18777,
+        6809,
+        21972
+      ],
+      "median_total_tokens": 51937,
+      "median_input_tokens": 51236,
+      "median_cached_input_tokens": 46080,
+      "median_uncached_input_tokens": 5441,
+      "median_output_tokens": 701,
+      "median_reasoning_tokens": 320,
+      "median_first_tool_latency_ms": 18777
+    },
+    "exec": {
+      "runs": 5,
+      "obeyed": 5,
+      "searches": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "model_turns": [
+        3,
+        3,
+        4,
+        3,
+        3
+      ],
+      "discovery_modes": [
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog"
+      ],
+      "second_turn_tokens": [
+        12756,
+        12823,
+        12889,
+        12882,
+        12865
+      ],
+      "total_tokens": [
+        37882,
+        38079,
+        54349,
+        38198,
+        38159
+      ],
+      "first_tool_latency_ms": [
+        11914,
+        16446,
+        23993,
+        12727,
+        12378
+      ],
+      "median_total_tokens": 38159,
+      "median_input_tokens": 37638,
+      "median_cached_input_tokens": 34048,
+      "median_uncached_input_tokens": 4433,
+      "median_output_tokens": 527,
+      "median_reasoning_tokens": 251,
+      "median_first_tool_latency_ms": 12727
+    }
+  }
+}
