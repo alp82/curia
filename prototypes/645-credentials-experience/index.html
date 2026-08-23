@@ -1,0 +1,3142 @@
+<!-- PROTOTYPE — wayfinder #645, "what the operator sees, from the alarm to a
+     healed agent". BUILT from daemon/assets/dashboard.html by build.mjs; edit
+     pre.js / post.js / proto.css, never this file. Canned state, no daemon, no
+     network. Throwaway: do not wire, do not promote. -->
+<!doctype html>
+<meta charset="utf-8">
+<!-- The console (#263 the shell, #264 the read screens, #265 the settings write,
+     #266 the operator verbs), on the look settled by the prototype (#248):
+     dark-first tokens, system mono for data, one accent.
+
+     THE STAMP BELOW IS LOAD-BEARING. This page and daemon/src/dashboard.mjs are
+     two halves of one protocol, and there is no build step — the file on disk IS
+     the reviewed source. A pull that changes both halves with no sidecar restart
+     would leave an old server serving a new page, so the page declares what it
+     speaks and the server refuses anything else (#70's rule, as timeline.html
+     carries it).
+
+     The four read screens draw one payload: `GET /api/overview`, which is the
+     sidecar's held snapshot of the daemon's own `GET /overview` (#262). A chat
+     (#267) draws nothing: it is the timeline page, served at /chat. What the
+     Chat screen draws is the PICKER over the browser conversations (#333), off
+     a read of its own — `GET /api/console`, taken on arrival, not on the poll.
+
+     THE VERBS (#266) POST to the sidecar, never to the daemon. It composes each
+     daemon call from the fields the page sends, so this page names a ticket, an
+     escalation id or an agent — never a command line.
+
+     THE DIFF DIGEST (#355) follows that same seam and is the one read off the
+     poll: `GET /api/diff` names an escalation id or an agent, and a file only
+     by its place in the digest curia itself measured. Hunks are fetched per
+     file, once, when a card is opened.
+
+     TWO RULES RUN THROUGH EVERY SCREEN HERE.
+
+     1. Color marks attention, and nothing else. Warn and bad are spent on an
+        open question, the review gate and a spent usage window. A state, a
+        ticket type and a repo are told in words.
+     2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
+        nobody has computed is not an empty frontier. Every section that can fail
+        on its own says which of the two it is. -->
+<meta name="curia-dashboard" content="proto=6">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>curia</title>
+<style>
+  /* ---------- tokens: dark-first (#248) ---------- */
+  :root {
+    --bg: #111417; --bg-raise: #191e22; --bg-inset: #0c0f11;
+    --line: #262d33; --ink: #dde3e0; --ink-dim: #8a94a6; --ink-faint: #5a6472;
+    --accent: #4cc2a0; --accent-ink: #0c1512;
+    --warn: #e0a83c; --bad: #d95f57; --ok: #4cc2a0; --idle: #8a94a6;
+    --chip-warn-bg: #2b2114; --chip-bad-bg: #2b1715; --chip-ok-bg: #12241f;
+    --shadow: 0 6px 24px rgba(0,0,0,.45);
+    /* The diff's own two colors (#355) — a patch's vocabulary, not the
+       attention marking. Deliberately not --ok/--bad. */
+    --diff-add: #6fbf73; --diff-del: #d98b84;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #f2f4f3; --bg-raise: #ffffff; --bg-inset: #e8ebe9;
+      --line: #d5dad6; --ink: #1d2420; --ink-dim: #5b6570; --ink-faint: #8b939e;
+      --accent: #157a5f; --accent-ink: #f2fdf9;
+      --warn: #9a6a10; --bad: #b03a32; --ok: #157a5f; --idle: #5b6570;
+      --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
+      --shadow: 0 6px 24px rgba(30,40,35,.12);
+      --diff-add: #1f7a34; --diff-del: #a3352c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .mono, code { font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace; }
+  .num { font-variant-numeric: tabular-nums; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font: inherit; cursor: pointer; }
+  h1, h2, h3 { margin: 0; text-wrap: balance; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- shell ---------- */
+  .shell { display: grid; grid-template-columns: 172px 1fr; min-height: 100vh; }
+  .shell nav {
+    border-right: 1px solid var(--line); padding: 16px 10px; background: var(--bg-inset);
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .shell nav .brand { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; padding: 0 10px 12px; }
+  .shell nav button {
+    text-align: left; border: 0; background: none; color: var(--ink-dim);
+    padding: 8px 10px; border-radius: 7px; font-size: 13.5px;
+    display: flex; justify-content: space-between; align-items: baseline;
+  }
+  .shell nav button.on { background: var(--bg-raise); color: var(--ink); font-weight: 600; }
+  .shell nav button .n { color: var(--warn); font-weight: 700; }
+  .shell main { padding: 18px 22px; min-width: 0; }
+  .shell main h2 { font-size: 15px; }
+  .screen-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  @media (max-width: 760px) {
+    .shell { grid-template-columns: 1fr; }
+    .shell nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; align-items: center; }
+    .shell nav .brand { padding: 0 10px 0 4px; }
+    .shell nav button { flex: none; gap: 6px; }
+    .shell main { padding: 14px; }
+  }
+
+  /* ---------- the reading's own age ---------- */
+  .readbar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    font-size: 12px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace;
+    border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise);
+    padding: 8px 12px; margin-bottom: 14px;
+  }
+  .readbar .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+  .readbar.down { border-color: var(--warn); background: var(--chip-warn-bg); color: var(--warn); }
+  .readbar.down .dot { background: var(--warn); }
+  .readbar .why { color: var(--ink-dim); }
+  .readbar.down .why { color: var(--warn); opacity: .85; }
+  .readbar .spacer { flex: 1; }
+
+  /* ---------- shared atoms (#248) ---------- */
+  .eyebrow { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
+  .dim-note { font-size: 12px; color: var(--ink-faint); }
+  .empty { font-size: 13px; color: var(--ink-dim); padding: 6px 0; }
+  /* An unreadable section. It is a fact about the READ, so it is marked. */
+  .unread {
+    border-left: 3px solid var(--warn); background: var(--chip-warn-bg); color: var(--warn);
+    border-radius: 0 8px 8px 0; padding: 8px 12px; font-size: 13px; margin-bottom: 10px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; display: inline-block; }
+  .dot.attn { background: var(--warn); }
+  .dot.off { background: var(--ink-faint); }
+
+  .bar { position: relative; height: 7px; border-radius: 4px; background: var(--bg-inset); overflow: hidden; min-width: 60px; display: inline-block; }
+  .bar .fill { position: absolute; inset: 0 auto 0 0; border-radius: 4px; background: var(--ink-dim); }
+  .bar .fill.warn { background: var(--warn); } .bar .fill.bad { background: var(--bad); }
+  .bar .clock { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink-faint); }
+  .meter-row { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-dim); }
+  .meter-row .lbl { width: 2.2em; flex: none; font-family: ui-monospace, Menlo, monospace; }
+  .meter-row .pct { width: 3.4em; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* ---------- home ---------- */
+  .stat-tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+  .tile { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; box-shadow: var(--shadow); }
+  .tile .v { font-size: 22px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
+  .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-top: 2px; }
+  .tile.warn { border-color: var(--warn); } .tile.warn .v { color: var(--warn); }
+  .tile .v.none { color: var(--ink-faint); }
+
+  .split-cols { display: grid; grid-template-columns: 5fr 7fr; gap: 22px; align-items: start; margin-top: 16px; }
+  .split-cols > div { min-width: 0; }
+  @media (max-width: 900px) { .split-cols { grid-template-columns: 1fr; } }
+  .h-sect { margin: 16px 0; }
+  .h-sect:first-child { margin-top: 0; }
+  .h-sect > h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); margin-bottom: 6px; font-weight: 700; }
+  .h-sect > h3 .hot { color: var(--warn); }
+  .h-sect .more { display: block; margin-top: 8px; font-size: 12.5px; }
+
+  .att-item { border-left: 3px solid var(--warn); background: var(--chip-warn-bg); border-radius: 0 8px 8px 0; padding: 9px 12px; font-size: 13px; margin-bottom: 8px; }
+  .att-item .who { font-family: ui-monospace, Menlo, monospace; font-weight: 700; margin-right: 8px; }
+  .att-item .dim { color: var(--ink-dim); font-size: 12px; }
+  .att-item .opts { margin-top: 5px; font-size: 12.5px; color: var(--ink-dim); }
+  .att-item.gate { border-left-color: var(--accent); background: var(--chip-ok-bg); }
+  .att-item.limit { border-left-color: var(--bad); background: var(--chip-bad-bg); }
+  /* A credential that is dying reads as bad, not as a warning: nothing on this
+     page fixes it, and an agent meets it as a failed first `gh` call (#380). */
+  .att-item.token { border-left-color: var(--bad); background: var(--chip-bad-bg); }
+  /* #642: the one-time code, sized for the phone this is read on. Wide letter
+     spacing because the operator retypes it into another device by eye, and
+     `83CC-A4ZTO` is four characters that all rhyme at 13px. */
+  .reauth-code { display: inline-block; margin-top: 4px; font-family: ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; letter-spacing: 3px; user-select: all; }
+
+  /* The pre-emptive hold (#384). It sits at the top of Home, above everything,
+     because it explains a box that looks idle and is not: curia is dispatching
+     nothing on that provider on purpose. Warn and not bad — nothing is broken,
+     and it lifts on its own clock. */
+  .hold-banner {
+    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+    border: 1px solid var(--warn); background: var(--chip-warn-bg); border-radius: 9px;
+    padding: 9px 14px; margin-bottom: 14px; font-size: 13px;
+  }
+  .hold-banner .who { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+  .hold-banner .dim { color: var(--ink-dim); font-size: 12px; }
+
+  .prov-strip { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; margin-top: 14px; font-size: 12px; color: var(--ink-dim); }
+  .prov { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .prov > b { font-family: ui-monospace, Menlo, monospace; color: var(--ink); font-size: 12.5px; }
+  .prov .meter-row .bar { flex: none; width: 76px; }
+  .prov .pnote { color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .prov .pnote.hot { color: var(--bad); }
+
+  /* ---------- tables ---------- */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 9px; }
+  table.agents { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--bg-raise); }
+  table.agents.wide { min-width: 760px; }
+  table.agents.narrow { min-width: 520px; }
+  table.agents th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ink-faint); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.agents td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.agents tr:last-child td { border-bottom: 0; }
+  table.agents .sess { font-family: ui-monospace, Menlo, monospace; font-weight: 700; white-space: nowrap; }
+  table.agents .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
+  table.agents .state { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  table.agents .over { color: var(--warn); }
+  .esc-row td { background: var(--chip-warn-bg); }
+  .statusbar { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 14px; font-family: ui-monospace, Menlo, monospace; flex-wrap: wrap; }
+
+  /* ---------- feed ---------- */
+  .feed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .feed-list li { display: grid; grid-template-columns: 3.9em 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .feed-list li:last-child { border-bottom: 0; }
+  .feed-list time { color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; font-size: 12px; padding-top: 1px; }
+  .feed-list .ev b { font-weight: 600; }
+  .feed-list .tag { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--ink-dim); }
+  .feed-list li.warn .tag { color: var(--warn); }
+  .feed-list li.bad .tag { color: var(--bad); }
+
+  /* ---------- frontier ---------- */
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg-raise); }
+  .seg button { border: 0; background: none; color: var(--ink-dim); padding: 5px 12px; font-size: 12.5px; }
+  .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .frx-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .frx-filter .fchip { border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raise); color: var(--ink-dim); padding: 3px 12px; font-size: 12.5px; }
+  .frx-filter .fchip.on { border-color: var(--accent); color: var(--accent); background: var(--chip-ok-bg); font-weight: 600; }
+  .frx-filter select { padding: 3px 8px; }
+  .frx-filter .sep { color: var(--ink-faint); }
+  select {
+    background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
+  }
+  .frx-sect { margin: 4px 0 18px; }
+  .frx-sect > .eyebrow { display: block; margin-bottom: 8px; }
+  .frx-big { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .frx-card {
+    border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 10px;
+    background: var(--bg-raise); padding: 12px 14px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .frx-card .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .frx-card .t { font-family: ui-monospace, Menlo, monospace; font-weight: 700; color: var(--accent); }
+  .frx-card .typ { font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .frx-card .title { font-size: 13.5px; font-weight: 600; }
+  .frx-card .foot { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace; flex-wrap: wrap; }
+  .frx-dim { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+  .frx-dimcard { border: 1px solid var(--line); border-radius: 8px; background: var(--bg-inset); padding: 8px 11px; font-size: 12.5px; color: var(--ink-dim); }
+  .frx-dimcard .t { font-family: ui-monospace, Menlo, monospace; margin-right: 5px; }
+  .frx-dimcard .from { display: block; margin-top: 4px; font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .fr-repo { margin-bottom: 14px; }
+  .fr-repo > .eyebrow { margin-bottom: 6px; display: block; }
+  .fr-group { margin-bottom: 10px; }
+  .fr-node { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--bg-raise); border-radius: 7px; padding: 7px 10px; font-size: 13px; }
+  .fr-node .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
+  .fr-node .typ { float: right; font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; margin-left: 8px; }
+  .fr-kids { margin: 0 0 10px 14px; padding-left: 14px; border-left: 1px dashed var(--line); }
+  .fr-kid { position: relative; margin-top: 6px; font-size: 12.5px; color: var(--ink-dim); }
+  .fr-kid::before { content: "└─"; position: absolute; left: -16px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
+  .fr-kid .t { font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
+
+  /* ---------- settings (#265, on the #248 look) ---------- */
+  .btn {
+    border: 1px solid var(--line); background: var(--bg-raise); color: var(--ink);
+    border-radius: 7px; padding: 6px 14px;
+  }
+  .btn:hover { border-color: var(--accent); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
+  .btn.sm { padding: 2px 8px; font-size: 12px; }
+  /* The restart where it is the mitigation (#362): a save the daemon declined,
+     and the Maintenance button while the daemon and the files disagree. */
+  .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
+  .btn[disabled] { opacity: .55; cursor: default; }
+
+  input[type=text], input[type=number] {
+    background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
+  }
+  input[type=number] { width: 5.5em; }
+  input[type=checkbox] { accent-color: var(--accent); }
+
+  .set-subnav { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); overflow-x: auto; }
+  .set-subnav button { border: 0; background: none; color: var(--ink-dim); padding: 7px 14px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+  .set-subnav button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
+  .set-block { border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 12px 14px; }
+  .set-block h3 { font-size: 13px; margin-bottom: 8px; }
+  .set-block .hint { font-size: 12px; color: var(--ink-dim); margin: 0 0 10px; }
+  .set-block table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .set-block td, .set-block th { padding: 5px 8px 5px 0; text-align: left; vertical-align: middle; }
+  .set-block th { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+  .set-block tr.inactive td { color: var(--ink-faint); }
+  .set-block .right { text-align: right; }
+  .model-mgr { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .gh-connect { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 10px; flex-wrap: wrap; }
+
+  /* The banner sits at the TOP and states one act (#248, collapsed by #362):
+     the save, and what the daemon did with it. */
+  .save-banner {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    background: var(--bg-raise); border: 1px solid var(--line); border-radius: 9px;
+    padding: 9px 14px; margin-bottom: 14px;
+  }
+  .save-banner.saved { border-color: var(--accent); background: var(--chip-ok-bg); }
+  .save-banner.refused { border-color: var(--bad); background: var(--chip-bad-bg); }
+  .save-banner .toast { font-size: 12.5px; color: var(--ink-dim); }
+  .save-banner.saved .toast { color: var(--ok); }
+  .save-banner.refused .toast { color: var(--bad); }
+  .save-banner .toast.why { font-family: ui-monospace, Menlo, monospace; font-size: 12px; flex-basis: 100%; }
+
+  /* ---------- the operator verbs (#266, on the #248 shapes) ----------
+     No new color. A verb sits inside the card that already carries the fact it
+     acts on, so the attention marking around it is the marking rule's, not a
+     second one this section invents. */
+  .act-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 7px; }
+  .act-row input[type=text] { flex: 1; min-width: 130px; }
+  .act-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-inset); padding: 9px 11px; }
+  .act-box label { font-size: 12px; color: var(--ink-dim); display: inline-flex; align-items: center; gap: 5px; }
+  .act-box .act-row:first-child { margin-top: 0; }
+  .links { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; align-items: baseline; }
+  .links button {
+    color: var(--accent); background: none; border: 0; padding: 0;
+    font-size: 12px; text-decoration: none;
+  }
+  .links button:hover { text-decoration: underline; }
+  .links button.bad { color: var(--bad); }
+  .links button[disabled] { color: var(--ink-faint); cursor: default; text-decoration: none; }
+  /* What curia said back about the press. It is curia's OWN sentence, so it
+     sits where the press was rather than becoming a banner somewhere else. */
+  .said { margin-top: 7px; font-size: 12.5px; border-left: 3px solid var(--line); padding: 3px 0 3px 9px; white-space: pre-wrap; color: var(--ink-dim); }
+  .said.bad { border-left-color: var(--bad); color: var(--bad); }
+  .said code { background: var(--bg-inset); border-radius: 4px; padding: 0 4px; }
+  .said a { word-break: break-all; }
+  .copy { width: 100%; font: 12px ui-monospace, Menlo, monospace; }
+
+  /* ---------- the diff digest (#355, on #343's Diff-then-ship) ----------
+     Green and red here are NOT the attention marking. They are the diff's own
+     two-hundred-year-old vocabulary, and a reader who has ever seen a patch
+     reads them without a legend — so they stay off the warn/bad tokens that
+     mean "this wants you", and take their own dimmer pair. */
+  .diff { margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-inset); overflow: hidden; }
+  .diff-sum { padding: 8px 11px; font-size: 13px; border-bottom: 1px solid var(--line); }
+  .diff-rule { padding: 6px 11px; font-size: 11.5px; color: var(--ink-faint); border-bottom: 1px solid var(--line); }
+  .diff-file { border-bottom: 1px solid var(--line); }
+  .diff-file:last-child { border-bottom: 0; }
+  .diff-row {
+    display: flex; width: 100%; gap: 10px; align-items: baseline; justify-content: space-between;
+    background: none; border: 0; padding: 7px 11px 2px; color: var(--ink);
+    font: inherit; text-align: left; cursor: pointer;
+  }
+  .diff-row:hover { background: var(--bg-raise); }
+  .diff-row .path { font-size: 12.5px; word-break: break-all; }
+  .diff-row .nums { white-space: nowrap; font-size: 12px; }
+  .diff .cap { padding: 0 11px 7px; font-size: 11.5px; color: var(--ink-faint); }
+  .diff .say { padding: 0 11px 9px; font-size: 12px; color: var(--ink-dim); }
+  .diff .say a { word-break: break-all; }
+  .add { color: var(--diff-add); }
+  .del { color: var(--diff-del); }
+  pre.hunks {
+    margin: 0; padding: 8px 11px; overflow-x: auto; background: var(--bg);
+    border-top: 1px solid var(--line); font-size: 11.5px; line-height: 1.4;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  pre.hunks .hl { display: block; white-space: pre; }
+  pre.hunks .hl.add { color: var(--diff-add); }
+  pre.hunks .hl.del { color: var(--diff-del); }
+  pre.hunks .hl.at { color: var(--accent); }
+  pre.hunks .hl.meta { color: var(--ink-faint); }
+
+  /* ---------- the chat (#267) ----------
+     A door, not a room: the chat itself is the timeline page, served under this
+     surface's own address. Nothing here draws a message. */
+  .door { max-width: 620px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 14px 16px; }
+  .door p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-dim); }
+  .door p.lead { color: var(--ink); }
+  .door a.btn { display: inline-block; text-decoration: none; }
+  .door a.btn:hover { text-decoration: none; }
+  .door .cannot { font-size: 12.5px; color: var(--ink-faint); margin: 10px 0 0; }
+  /* The conversation picker (#333). A row is a tap target on a phone before it
+     is a table row, so the label runs full width and the two columns beside it
+     stay as narrow as their content. */
+  table.chats { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0 0 12px; }
+  table.chats td { padding: 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.chats td + td { padding-left: 12px; text-align: right; white-space: nowrap; width: 1%; }
+  table.chats tr:last-child td { border-bottom: 0; }
+  table.chats a { display: block; }
+  table.chats .over { color: var(--warn); }
+  /* The turn a restart killed on this conversation (#388). A browser
+     conversation has no thread, so its row is where that line goes. */
+  table.chats .killed { display: block; margin: 3px 0 0; font-size: 12px; color: var(--warn); }
+
+  /* ---------- the screens that land later ---------- */
+  .later {
+    border: 1px dashed var(--line); border-radius: 9px; padding: 12px 14px;
+    color: var(--ink-dim); font-size: 13px; background: var(--bg-inset);
+  }
+  .later b { color: var(--ink); }
+
+/* ==== #645 prototype ==== */
+/* PROTOTYPE — wayfinder #645. The prototype's own chrome and the three
+   variants' new atoms. Everything borrows the real page's tokens, so a variant
+   cannot win by bringing its own palette. Throwaway. */
+
+/* ---- the prototype's chrome: deliberately not part of the design ---------- */
+
+.p-banner {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+  background: #6b21a8; color: #fff; font: 12px/1.4 ui-monospace, Menlo, monospace;
+  padding: 5px 12px; letter-spacing: .02em;
+}
+body { padding-top: 26px; }
+
+.p-rail {
+  position: fixed; top: 26px; right: 0; bottom: 56px; width: 340px; z-index: 55;
+  overflow-y: auto; background: var(--bg-inset); border-left: 1px solid var(--line);
+  padding: 14px 14px 20px;
+}
+.p-railsec { margin-bottom: 18px; }
+.p-railsec .eyebrow { display: block; margin-bottom: 8px; }
+.p-steps { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.p-steps .p-btn { text-align: left; }
+.p-blurb { font-size: 12.5px; line-height: 1.5; color: var(--ink-dim); margin: 0; }
+.p-msg { border-left: 3px solid var(--line); padding: 6px 0 6px 10px; margin-bottom: 10px; }
+.p-msghead { font-size: 12px; margin-bottom: 3px; }
+.p-msgbody { font-size: 12.5px; line-height: 1.5; }
+.p-msgbody code { background: var(--bg-raise); padding: 1px 4px; border-radius: 4px; font-size: 11.5px; }
+
+.p-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 60;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  background: #16181d; border-top: 2px solid #6b21a8; color: #e7e3ef;
+  padding: 8px 12px; box-shadow: 0 -6px 24px rgba(0,0,0,.4);
+}
+.p-vlabel { font-size: 12.5px; }
+.p-sep { width: 1px; height: 20px; background: #3a3546; margin: 0 4px; }
+
+/* the real page must not sit under the rail or the bar */
+.shell { padding-right: 340px; padding-bottom: 56px; }
+
+/* ---- the phone frame ------------------------------------------------------ */
+
+html[data-phone="1"] body { background: #08090b; }
+html[data-phone="1"] .shell {
+  width: 390px; margin: 10px auto 0; padding-right: 0; grid-template-columns: 1fr;
+  min-height: 780px; border: 8px solid #1b1e24; border-radius: 34px; overflow: hidden;
+}
+html[data-phone="1"] .shell nav {
+  border-right: 0; border-bottom: 1px solid var(--line);
+  display: flex; gap: 4px; overflow-x: auto; padding: 8px;
+}
+html[data-phone="1"] .split-cols { display: block; }
+html[data-phone="1"] .p-rail { display: none; }
+
+/* ---- shared atoms the variants add ---------------------------------------- */
+
+.p-btn {
+  background: var(--bg-raise); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; font-size: 12.5px;
+}
+.p-btn:hover { border-color: var(--accent); }
+.p-btn.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.p-go { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.p-dim { color: var(--ink-dim); font-size: 12px; }
+.p-code { background: var(--bg-inset); border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; letter-spacing: .1em; }
+.p-big { font-size: 18px; padding: 6px 12px; }
+.p-chip { border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 600; }
+.p-chip.p-ok { background: var(--chip-ok-bg); color: var(--ok); }
+.p-chip.p-bad { background: var(--chip-bad-bg); color: var(--bad); }
+.p-chip.p-idle { background: var(--bg-inset); color: var(--ink-faint); }
+
+/* ---- variant B: the table and the flow panel ------------------------------ */
+
+.p-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.p-table th {
+  text-align: left; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 700; padding: 0 10px 7px 0; border-bottom: 1px solid var(--line);
+}
+.p-table td { padding: 11px 10px 11px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.p-table td:last-child, .p-table th:last-child { padding-right: 0; }
+
+.p-flow {
+  border: 1px solid var(--accent); background: var(--chip-ok-bg);
+  border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+}
+.p-flow.p-blind { border-color: var(--warn); background: var(--chip-warn-bg); }
+.p-step { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 11px; }
+.p-num {
+  flex: none; width: 21px; height: 21px; border-radius: 50%; background: var(--accent);
+  color: var(--accent-ink); font-size: 12px; font-weight: 700; display: grid; place-items: center;
+}
+.p-link { display: inline-block; margin-top: 3px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; }
+.p-codewrap { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+.p-fall { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 9px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+
+/* ---- variant C: the takeover ---------------------------------------------- */
+
+.p-over {
+  position: fixed; inset: 26px 340px 56px 0; z-index: 50;
+  background: rgba(6,8,10,.82); display: grid; place-items: center; padding: 20px;
+}
+html[data-phone="1"] .p-over { inset: 26px 0 56px 0; }
+.p-sheet {
+  position: relative; width: 100%; max-width: 430px; max-height: 100%; overflow-y: auto;
+  background: var(--bg-raise); border: 1px solid var(--line); border-radius: 20px;
+  padding: 26px 22px; box-shadow: var(--shadow);
+}
+.p-x { position: absolute; top: 12px; right: 12px; background: none; border: 0; color: var(--ink-faint); font-size: 16px; }
+.p-kicker { font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
+.p-kicker.p-bad { color: var(--bad); }
+.p-h { font-size: 23px; line-height: 1.25; margin: 9px 0 10px; }
+.p-lead { font-size: 13.5px; line-height: 1.55; color: var(--ink-dim); margin: 0 0 14px; }
+.p-facts { margin: 0 0 18px; padding-left: 18px; font-size: 13.5px; line-height: 1.7; }
+.p-facts code { font-size: 12.5px; }
+.p-clock { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 6px 0 4px; }
+.p-clock span { font-size: 13px; font-weight: 400; color: var(--ink-dim); margin-left: 8px; }
+.p-clock.p-bad { color: var(--bad); }
+.p-huge {
+  display: block; width: 100%; text-align: center; background: var(--accent); color: var(--accent-ink);
+  border: 0; border-radius: 13px; padding: 17px 14px; font-size: 16px; font-weight: 700; margin-bottom: 12px;
+}
+.p-huge-a { text-decoration: none; }
+.p-huge-a:hover { text-decoration: none; opacity: .92; }
+.p-codebox {
+  border: 2px dashed var(--line); border-radius: 13px; padding: 14px; text-align: center;
+  margin-bottom: 14px; cursor: pointer;
+}
+.p-codebox:hover { border-color: var(--accent); }
+.p-codehuge {
+  font-family: ui-monospace, Menlo, monospace; font-size: 34px; font-weight: 700;
+  letter-spacing: .12em; margin-top: 5px;
+}
+</style>
+
+<div id="app"></div>
+
+<script>
+/* PROTOTYPE — wayfinder #645. Injected BEFORE the real dashboard script.
+   Throwaway. Canned state, no daemon, no network.
+
+   This half does one thing: it replaces `fetch` so the real page's own poll
+   draws a canned incident instead of a live box. Everything the page does
+   after that — the shell, the nav, the tiles, the fleet table, the feed — is
+   the real page's code, unmodified. That is the whole point of mounting the
+   variants here rather than on a blank route: a credentials surface looks
+   fine in a vacuum and has to survive the density it actually lands in.
+
+   The wire shape below is `GET /overview` as `credentialsStatus()` really
+   answers it (dispatch.mjs:1768), not an invention:
+
+     credentials: {
+       consumers: [{ consumer, state, expires_at, why, last_refresh_at, last_error }],
+       reauth:    { consumer, session, state, url, code, started_at, expires_at, seconds_left } | null
+     }
+
+   states:  valid · expiring · expired · unreadable · absent · unowned
+   reauth:  starting · waiting · done · timeout · abandoned · failed          */
+
+/* The whole prototype's state, and it rides the URL so a variant is shareable
+   and reload-stable: `?variant=B&step=3&phone=1`. */
+const P_PARAMS = new URLSearchParams(location.search);
+var PROTO = {
+  step: Number(P_PARAMS.get('step') ?? 0) || 0,
+  variant: (P_PARAMS.get('variant') ?? 'A').toUpperCase(),
+  phone: P_PARAMS.get('phone') === '1',
+  dismissed: false,      /* variant C only: the takeover the operator pushed away */
+  stepStartedAt: Date.now(),
+};
+
+const P_NOW = Date.now();
+const p_at = (s) => new Date(P_NOW - s * 1000).toISOString();
+const p_ahead = (m) => new Date(P_NOW + m * 60_000).toISOString();
+
+/* The tailnet dashboard, as `tailscale serve` publishes it. Fake host, real shape. */
+const DASH_URL = 'https://coinmatica.taile1a2b.ts.net:8443';
+
+/* ---- the two codex agents that died on 2026-08-23 -------------------------- */
+
+const agent = (over) => ({
+  session: 'curia-574', repo: 'alp82/curia', ticket: '574', title: 'The stall watchdog',
+  model: 'gpt-5.6-sol', reviewer: false, state: 'ready', uptime_s: 26_400,
+  result_received: false, tmux_live: true, waiting_on: [], ctx_pct: 62, ctx_over: false,
+  last_contact_s: 30, ...over,
+});
+
+const LIVE = (contact) => [
+  agent({ last_contact_s: contact }),
+  agent({ session: 'curia-578', ticket: '578', title: 'A ticket that dies after it speaks', ctx_pct: 71, last_contact_s: contact }),
+  agent({ session: 'curia-263', ticket: '263', title: 'The sidecar stands up', model: 'claude-opus-5', ctx_pct: 41, uptime_s: 900, last_contact_s: 12 }),
+];
+
+/* ---- the base payload ------------------------------------------------------
+   Lifted from daemon/test/dashboardpage.test.mjs so the neighbours on this page
+   are the ones the real page's own test draws. Each step overrides one slice. */
+
+const BASE = () => ({
+  at: p_at(0),
+  daemon: {
+    port: 4271, uptime_s: 7200, auto_dispatch: true, max_concurrent: 3,
+    config: {
+      loaded_at: p_at(7200),
+      dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60 },
+      watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
+      routing: {
+        defaults: [{ type: 'grilling', model: 'opus' }, { type: 'research', model: 'gpt' }, { type: 'untyped', model: 'opus' }],
+        models: [{ name: 'fable', active: false }, { name: 'opus', active: true }, { name: 'gpt', active: true }],
+      },
+    },
+  },
+  agents: LIVE(30),
+  untracked: [],
+  recent: [{ kind: 'finished', repo: 'alp82/curia', ticket: '261' }],
+  fleet_error: null,
+  escalations: [{
+    id: 'esc-7', agent: 'curia-255', ticket: '255', kind: 'choice',
+    prompt: 'Two notes race the same expiry line. Drop the older note, or post both with stamps?',
+    options: ['Drop the older note', 'Post both with stamps'], preview_url: null,
+    opened_at: p_at(720), agent_died: false, rendered: true, thread_id: '99',
+  }],
+  review_gate: [],
+  bridge: 'up',
+  bridge_health: { state: 'up', since: p_at(9000), unhealthy_for_s: 0, last_error: null },
+  usage: [
+    { provider: 'anthropic', from: 'account', session: null, windows: [
+      { label: '5h', pct: 58, elapsed_pct: 48, resets_at: p_ahead(90), fresh: true },
+      { label: '7d', pct: 22, elapsed_pct: 41, resets_at: p_ahead(4000), fresh: true },
+    ] },
+  ],
+  token_warnings: [],
+  pre_cooling: [],
+  dispatch_holds: [],
+  events: [
+    { ts: p_at(600), type: 'agent_spawned', agent: 'curia-574', repo: 'alp82/curia', ticket: '574', model: 'gpt-5.6-sol', harness: 'codex' },
+    { ts: p_at(400), type: 'esc_open', id: 'esc-7', agent: 'curia-255', ticket: '255', kind: 'choice', prompt: 'Two notes race the same expiry line.' },
+  ],
+  deploy: { in_flight: null, last: null, verdict_read_error: null },
+  frontier: {
+    computed_at: p_at(120),
+    repos: [
+      { repo: 'alp82/curia', lane: 'map', numbers: [645, 646], agentOnly: 2, items: [
+        { number: 645, title: 'What the operator sees, from the alarm to a healed agent', labels: ['wayfinder:prototype'], model: 'claude-opus-5', map: 641, mapTitle: 'Model credentials', unblocks: [] },
+        { number: 646, title: 'Classify a failed refresh, cool the lane', labels: ['wayfinder:task'], model: 'gpt-5.6-sol', map: 641, mapTitle: 'Model credentials', unblocks: [] },
+      ] },
+    ],
+  },
+});
+
+/* Three consumers, always all three. `unowned` is the honest word for the two
+   the daemon does not broker yet, and the page must not be able to imply
+   otherwise (dispatch.mjs:1768). */
+const CLAUDE_UNOWNED = { consumer: 'claude', state: 'unowned', expires_at: null, why: 'the container reads it from its environment at create (#648)' };
+const OVERSEER_UNOWNED = { consumer: 'overseer', state: 'unowned', expires_at: null, why: 'the container reads it from .env.overseer at create (#648)' };
+
+const codex = (over) => ({
+  consumer: 'codex', file: '/home/alp/curia-work/home/.codex/auth.json',
+  state: 'valid', expires_at: p_ahead(60 * 24 * 7.4), why: '', last_refresh_at: p_at(60 * 60 * 62), last_error: null, ...over,
+});
+
+/* ---- the incident, as steps ------------------------------------------------
+   Six stops between a quiet box and a healed one. Every one of them is a state
+   the daemon can really be in; four of them are states nobody has looked at on
+   a screen yet. */
+
+var STEPS = [
+  {
+    key: 'quiet',
+    name: 'Quiet',
+    blurb: 'Nothing is wrong. The credential has 7.4 days left and the daemon refreshes it at 2.5 days without saying a word. The question here is whether the operator can find out when it expires WITHOUT an incident — and today they cannot: `valid` and `expiring` are silent on every surface.',
+    credentials: { consumers: [codex(), CLAUDE_UNOWNED, OVERSEER_UNOWNED], reauth: null },
+  },
+  {
+    key: 'dead',
+    name: 'The alarm',
+    blurb: 'The refresh was refused with `refresh_token_reused` — the real code #644 measured, in OpenAI\'s own error envelope. Terminal: no retry recovers it. The openai lane is cooled, two live codex agents are frozen mid-ticket holding their worktrees, and the operator is asleep.',
+    overview: {
+      agents: LIVE(17_400),
+      dispatch_holds: [
+        { ticket: '574', repo: 'alp82/curia', kind: 'stall-watchdog' },
+        { ticket: '578', repo: 'alp82/curia', kind: 'stall-watchdog' },
+      ],
+      events: [
+        { ts: p_at(90), type: 'credential_refresh_failed', consumer: 'codex', code: 'refresh_token_reused', status: 401, why: 'the refresh token was already spent' },
+        { ts: p_at(600), type: 'agent_spawned', agent: 'curia-574', repo: 'alp82/curia', ticket: '574', model: 'gpt-5.6-sol', harness: 'codex' },
+      ],
+    },
+    credentials: {
+      consumers: [codex({
+        state: 'expired', expires_at: p_at(60 * 60 * 5),
+        why: 'the access token expired',
+        last_error: 'the refresh was refused: refresh_token_reused (HTTP 401)',
+      }), CLAUDE_UNOWNED, OVERSEER_UNOWNED],
+      reauth: null,
+    },
+    discord: [{
+      who: 'curia', ts: '06:38',
+      body: '🔑 the `openai` model credential is **dead**. Its refresh was refused — `refresh_token_reused`, HTTP 401 — and that code is terminal, so nothing here retries.\n\nThe `openai` lane is cooled: no new codex agent is dispatched. **2 live codex agents are frozen** mid-ticket and keep their worktrees: `curia-574`, `curia-578`.\n\nSign it back in — no ssh: ' + DASH_URL + '/#credentials\nThe one-time code never appears in this channel.',
+    }],
+  },
+  {
+    key: 'waiting',
+    name: 'Signing in',
+    blurb: 'The operator pressed one button. A `curia-auth-openai` tmux session is running `codex login --device-auth` in a throwaway container, and curia scraped the link and the code off the pane. The code lives 15 minutes. Nothing is pasted back for codex.',
+    overview: { agents: LIVE(17_700) },
+    credentials: {
+      consumers: [codex({ state: 'expired', expires_at: p_at(60 * 60 * 5), why: 'the access token expired', last_error: 'the refresh was refused: refresh_token_reused (HTTP 401)' }), CLAUDE_UNOWNED, OVERSEER_UNOWNED],
+      reauth: {
+        consumer: 'openai', session: 'curia-auth-openai', state: 'waiting',
+        url: 'https://auth.openai.com/codex/device', code: 'F4KE-9QX2',
+        started_at: p_at(70), expires_at: p_ahead(13.8), seconds_left: 828,
+      },
+    },
+    discord: [{
+      who: 'curia', ts: '06:41',
+      body: '🔑 signing `openai` back in. Open the session and follow the two lines codex prints: a link, then a one-time code that lives fifteen minutes. Nothing is pasted back.\nThe code is on the dashboard too, and never in this channel.\nTerminal: ' + DASH_URL.replace(':8443', ':7681') + '/?arg=curia-auth-openai',
+    }],
+  },
+  {
+    key: 'blind',
+    name: 'The scrape missed',
+    blurb: 'Same flow, but codex changed its wording and the two regexes found nothing. This is the case the card exists to degrade into, and it must never dead-end: the terminal always works. Compare how loudly each variant admits it.',
+    overview: { agents: LIVE(17_700) },
+    credentials: {
+      consumers: [codex({ state: 'expired', expires_at: p_at(60 * 60 * 5), why: 'the access token expired', last_error: 'the refresh was refused: refresh_token_reused (HTTP 401)' }), CLAUDE_UNOWNED, OVERSEER_UNOWNED],
+      reauth: {
+        consumer: 'openai', session: 'curia-auth-openai', state: 'waiting',
+        url: null, code: null,
+        started_at: p_at(70), expires_at: p_ahead(13.8), seconds_left: 828,
+      },
+    },
+  },
+  {
+    key: 'healed',
+    name: 'Healed',
+    blurb: 'The login completed, the host store was written, and the same tick fanned the credential out to both frozen agents. #644 measured that a running codex process picks up a replaced auth.json with no restart — but it needs a nudge, because the turn that died left it idle at the composer.',
+    overview: {
+      agents: LIVE(20),
+      events: [
+        { ts: p_at(8), type: 'credential_adopted', consumer: 'codex', expires_at: p_ahead(60 * 24 * 10) },
+        { ts: p_at(6), type: 'reauth_completed', consumer: 'openai', session: 'curia-auth-openai' },
+      ],
+    },
+    credentials: {
+      consumers: [codex({ state: 'valid', expires_at: p_ahead(60 * 24 * 10), last_refresh_at: p_at(8) }), CLAUDE_UNOWNED, OVERSEER_UNOWNED],
+      reauth: null,
+    },
+    discord: [{
+      who: 'curia', ts: '06:44',
+      body: '✅ `openai` is authenticated again, and 2 live agent(s) hold the fresh credential: `curia-574`, `curia-578`.\nThe `openai` lane is uncooled. 2 tickets return to the frontier on the next tick.',
+    }],
+  },
+  {
+    key: 'timeout',
+    name: 'Timed out',
+    blurb: 'The operator fell back asleep. Thirty minutes passed, the device code died at fifteen, and the session was torn down and journalled. Nothing changed, and the box is exactly as broken as it was — which the page has to say without pretending anything happened.',
+    overview: {
+      agents: LIVE(19_800),
+      dispatch_holds: [
+        { ticket: '574', repo: 'alp82/curia', kind: 'stall-watchdog' },
+        { ticket: '578', repo: 'alp82/curia', kind: 'stall-watchdog' },
+      ],
+      events: [{ ts: p_at(30), type: 'reauth_timeout', consumer: 'openai', session: 'curia-auth-openai' }],
+    },
+    credentials: {
+      consumers: [codex({ state: 'expired', expires_at: p_at(60 * 60 * 5), why: 'the access token expired', last_error: 'the refresh was refused: refresh_token_reused (HTTP 401)' }), CLAUDE_UNOWNED, OVERSEER_UNOWNED],
+      reauth: null,
+    },
+    discord: [{
+      who: 'curia', ts: '07:14',
+      body: '⚠️ the `openai` re-authentication ended as **timeout**. Nothing was changed. Type `reauth` to start another one.',
+    }],
+  },
+];
+
+/* The canned answer to `GET /api/overview`. `seconds_left` is recomputed on
+   every read from the step's own start, so the countdown moves at the page's
+   REAL cadence — one poll behind the pane, which is what #642 measured. */
+function protoOverview() {
+  const step = STEPS[PROTO.step];
+  const o = { ...BASE(), ...(step.overview ?? {}) };
+  o.credentials = JSON.parse(JSON.stringify(step.credentials));
+  const r = o.credentials.reauth;
+  if (r && r.state === 'waiting') {
+    const elapsed = Math.floor((Date.now() - PROTO.stepStartedAt) / 1000);
+    r.seconds_left = Math.max(0, 828 - elapsed);
+  }
+  return {
+    poll_interval_s: 5,
+    read_at: new Date().toISOString(),
+    daemon_up: true,
+    daemon_port: 4271,
+    error: null,
+    error_since: null,
+    overview: o,
+  };
+}
+
+/* Read-only prototype: every write answers plausibly and changes nothing but
+   the step, which is the operator's own hand on the timeline. */
+const PROTO_ROUTES = {
+  '/api/overview': () => protoOverview(),
+  /* The settings read must AGREE with `daemon.config` above, or the page draws
+     its stale-daemon marker on every screen and the prototype ships a warning
+     nobody asked about. `runningDiff` compares exactly these keys. */
+  '/api/settings': () => {
+    const c = BASE().daemon.config;
+    return { dispatch: c.dispatch, watch: c.watch, routing: c.routing };
+  },
+  '/api/repos': () => ({ login: 'alp82', repos: [], error: null }),
+  '/api/console': () => ({ conversations: [], error: null }),
+  '/api/reauth': () => ({ ok: true, reply: 'Signing `openai` back in — the card below carries the link and the code.' }),
+};
+
+window.fetch = async (path, init) => {
+  const key = String(path).split('?')[0];
+  const body = PROTO_ROUTES[key] ? PROTO_ROUTES[key]() : { ok: true };
+  return {
+    ok: true, status: 200,
+    json: async () => body,
+    text: async () => JSON.stringify(body),
+  };
+};
+
+</script>
+<script>
+/* The console's own code. One classic script, no build step and no module
+   boundary: the file on disk is the reviewed source and the served page at once.
+   Its test drives these same functions in a vm, which is why the screens take
+   the payload as an ARGUMENT and the page state sits on one plain object —
+   nothing here reads a global the test cannot set. */
+
+/* Every screen this shell carries. The four read screens are #264; the two
+   named tickets below draw their own. */
+const SCREENS = {
+  home:     ["Home",     screenHome],
+  agents:   ["Agents",   screenAgents],
+  frontier: ["Frontier", screenFrontier],
+  feed:     ["Feed",     screenFeed],
+  chat:     ["Chat",     screenChat],
+  settings: ["Settings", screenSettings],
+};
+const NAMES = Object.keys(SCREENS);
+
+/* A usage window is spent at the same number the daemon calls spent
+   (usage.mjs SPENT_PCT). One name for one thing: the page must not invent a
+   second threshold for the same fact. */
+const SPENT_PCT = 95;
+/* The gate is its own escalation kind (lifecycle.mjs REVIEW_KIND). */
+const REVIEW_KIND = "review-gate";
+
+/* The page's whole mutable state. `var` on purpose — the test reaches it. */
+var UI = {
+  screen: "home",
+  fr: { view: "cards", repo: "all", type: "all" },
+  /* The settings screen's own state (#265). `phase` is what the banner says:
+     clean and dirty before a save, then the three outcomes a save can have
+     (#362) — applied, declined, offline — plus the three that interrupt them:
+     restarting, refused, unread. */
+  set: { section: "routing", models: false, phase: "clean", error: null, busy: false, note: null },
+  /* The operator verbs (#266). `busy` names the ONE press in flight, keyed to
+     the control it came from; `said` is what curia answered, shown at that same
+     control. `note` and `tele` name the agent whose box is open, and `mode` is
+     the delivery ADR-0013 defaults to. */
+  act: { busy: null, said: null, note: null, mode: "queue", tele: null, diff: null },
+};
+var payload = null;   /* the sidecar's last answer */
+var reachable = true; /* is the SIDECAR itself answering — a different fact from daemon_up */
+var settings = null;  /* the last read of curia.yaml + routing.yaml off disk */
+var draft = null;     /* the same, with the operator's unsaved edits on it */
+var repos = null;     /* the watchable repos, read through the daemon on demand */
+var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
+
+/* ---- words ---------------------------------------------------------------- */
+
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const snip = (s, n) => { const t = String(s ?? "").replace(/\s+/g, " ").trim(); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+
+function ago(iso) {
+  if (!iso) return "never";
+  const s = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  return Math.round(s / 3600) + "h ago";
+}
+function dur(s) {
+  if (s == null) return "—";
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  if (s < 86400) return (s / 3600).toFixed(1) + "h";
+  return (s / 86400).toFixed(1) + "d";
+}
+function clock(iso) {
+  const d = iso ? new Date(iso) : null;
+  if (!d || Number.isNaN(d.getTime())) return "—";
+  return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+/* A ticket as the tracker names it: `owner/repo#12`, or `#12` when the event
+   carries no repo. */
+function ticketName(repo, ticket) {
+  if (ticket == null || ticket === "") return "";
+  return (repo ? repo + "#" : "#") + ticket;
+}
+
+/* How many things want the operator. The nav badge, the tab title and the tile
+   read one function, so they can never disagree. Usage limits are NOT counted:
+   a spent window is on the attention list because it explains a slow box, but
+   nobody can answer it.
+
+   A credential warning IS counted (#380). The test is whether an operator act
+   ends it, which is exactly what separates it from a spent window: a window
+   rolls on its own clock, and a token that nobody mints stays dead and takes
+   every agent's first `gh` call with it. So the badge stays hot until the act
+   happens, which is the whole point of moving this off a log line. */
+function needsYou(o) {
+  return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0)
+    + (o?.token_warnings?.length ?? 0) + (o?.dispatch_holds?.length ?? 0);
+}
+
+/* ---- the operator verbs (#266) ----------------------------------------------
+
+   Every verb is ONE POST to the sidecar, which composes the daemon call from
+   the fields sent here. This page never sends a command line: it names a repo,
+   a ticket, an escalation id or an agent, and the sidecar builds the rest.
+
+   Four rules run through all of them.
+
+   1. ONE ACT AT A TIME. `UI.act.busy` names the press in flight, keyed to the
+      control it came from, so a second press starts nothing and the control
+      that is working says so.
+   2. CURIA'S OWN WORDS ARE THE OUTCOME. A command reply is a sentence the
+      daemon composed. It is shown where the press was, as it stands. This page
+      never writes its own account of what an act did.
+   3. THE READING MOVES AT ONCE. The sidecar drops its snapshot age on every
+      verb, so the poll right after a press is a fresh read rather than the held
+      one. A button that appears to do nothing for five seconds is a button
+      pressed twice.
+   4. A REFUSAL IS A FACT. First-valid-wins, an agent that is not running, a
+      ticket already claimed: each comes back in words, under the control that
+      asked, and none of them is a failure of this page. */
+
+/* The literal answers every surface sends. The daemon classifies the ANSWER
+   (lifecycle.mjs classifyReviewAnswer, bridge.mjs #buttons), so this page must
+   not teach it a second vocabulary for the same act. */
+const APPROVE = "approve";
+const REJECT = "reject";
+const CROSS_CHECK = "cross-check";
+const ALL_AS_RECOMMENDED = "all-as-recommended";
+
+/* A value going into an onclick handler crosses TWO escapings: the HTML
+   attribute, and the single-quoted JS string inside it. `esc` answers only the
+   first. An escalation option is an agent's own words — the one value on this
+   page that can carry a quote — and a bare `esc` would leave it able to close
+   that string and open code instead. So the JS escaping runs first and the HTML
+   escaping over it. */
+const js = (s) => esc(String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
+
+const busy = (key) => UI.act.busy === key;
+const anyBusy = () => UI.act.busy !== null;
+function said(key) {
+  const s = UI.act.said;
+  return s && s.key === key ? `<div class="said${s.ok ? "" : " bad"}">${mdLite(s.text)}</div>` : "";
+}
+/* Curia speaks Discord markdown everywhere else, and one reply reaching two
+   surfaces is the point of the command seam — so the page renders the little of
+   it a reply uses rather than asking the daemon for a second wording. */
+function mdLite(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, (_, x) => `<code>${x}</code>`)
+    .replace(/\*\*([^*]+)\*\*/g, (_, x) => `<b>${x}</b>`)
+    .replace(/(https?:\/\/[^\s<]+)/g, (u) => `<a href="${u}">${u}</a>`);
+}
+
+async function verb(key, path, body) {
+  if (anyBusy()) return null;
+  UI.act.busy = key;
+  UI.act.said = null;
+  render();
+  let out = null;
+  try {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    out = b;
+    UI.act.said = { key, text: outcome(b), ok: b.ok !== false };
+  } catch (e) {
+    UI.act.said = { key, text: e.message, ok: false };
+  }
+  UI.act.busy = null;
+  render();
+  tick();
+  return out;
+}
+function refuse(key, text) {
+  UI.act.said = { key, text, ok: false };
+  render();
+}
+
+function outcome(b) {
+  if (typeof b.reply === "string") return b.reply;
+  if (b.mode) return noteOutcome(b);
+  if (b.ok) return "Answered — it is with the agent.";
+  return "Done.";
+}
+/* A note says which delivery it got, because the delivery is the half the
+   operator chose. An interrupt curia refused leaves the words QUEUED — the
+   operator asked for these words to reach the agent, and only the speed of it
+   failed (ADR-0013). */
+function noteOutcome(b) {
+  if (b.ok === false) {
+    const why = b.why ?? "curia could not put those words to the agent.";
+    return b.still_queued ? `${why}\nThe words stay queued: the agent reads them with its next tool result.` : why;
+  }
+  if (b.mode === "interrupt") {
+    return `Interrupting \`${b.session ?? b.agent}\` — ${Math.round((b.graceMs ?? 0) / 1000)}s of grace, then the words land as a user turn.`;
+  }
+  return `Queued for \`${b.agent}\` — it reads this with its next tool result${b.after ? ` (noted as after ${b.after})` : ""}.`;
+}
+
+/* What the operator typed. It is NOT cleared here: a refused answer has to
+   leave its words on screen, or the operator types them twice. */
+function typed(id) {
+  const el = document.getElementById(id);
+  return el ? String(el.value ?? "").trim() : "";
+}
+
+/* ---- the verbs themselves ---- */
+
+const startTicket = (repo, ticket) => verb(`start:${repo}#${ticket}`, "/api/start", { repo, ticket: String(ticket) });
+const answerEsc = (id, answer) => verb("esc:" + id, "/api/answer", { id, answer });
+
+function answerTyped(id, field) {
+  const v = typed(field);
+  if (!v) return refuse("esc:" + id, "Type the answer first — an empty reply answers nothing.");
+  answerEsc(id, v);
+}
+/* A rejection IS feedback (#48): the agent gets the operator's own words and
+   fixes what they name. So an empty one is refused here rather than sent as a
+   rejection nobody can act on. */
+function rejectGate(id, field) {
+  const v = typed(field);
+  if (!v) return refuse("esc:" + id, "A rejection carries your words — say what to change, then press Reject.");
+  answerEsc(id, v);
+}
+
+/* Cancel names its consequences before it runs. They are the teardown's own
+   (dispatch.mjs #teardown), not a warning this page invented. */
+function cancelAgent(session, repo, ticket) {
+  const ask = `Cancel ${session}?\n\n`
+    + `• The tmux session is killed and its worktree removed. Anything uncommitted there is lost.\n`
+    + `• The claim on ${ticketName(repo, ticket) || "its ticket"} is released, so the ticket returns to the frontier.\n`
+    + `• Any question it is holding closes unanswered.\n`
+    + `• A cross-check reviewer on the same ticket ends too.`;
+  if (typeof confirm === "function" && !confirm(ask)) return;
+  verb("agent:" + session, "/api/cancel", { ticket: String(ticket) });
+}
+
+/* Teleport. The two links are curia's own (#68): `attach <n>` composes them
+   from its records, so the page asks for them instead of building a URL it
+   cannot vouch for. The shell line beside them is for a terminal on the box —
+   the tmux server lives in its own container (#260), so the command goes in
+   through that one. */
+function teleport(session, ticket) {
+  UI.act.tele = UI.act.tele === session ? null : session;
+  UI.act.said = null;
+  render();
+  if (UI.act.tele) verb("agent:" + session, "/api/teleport", { ticket: String(ticket) });
+}
+function attachCmd(session) {
+  return `docker compose -f deploy/compose.yaml exec tmux tmux -S /run/curia-tmux/default attach -t ${session}`;
+}
+
+function noteBox(session) {
+  UI.act.note = UI.act.note === session ? null : session;
+  UI.act.said = null;
+  render();
+}
+function noteMode(mode) { UI.act.mode = mode; render(); }
+async function sendNote(session, field) {
+  const text = typed(field);
+  if (!text) return refuse("agent:" + session, "A note with no words is not a note.");
+  const out = await verb("agent:" + session, "/api/note", { agent: session, text, mode: UI.act.mode });
+  /* Queued or interrupted, the words are with curia — so the box closes. It
+     stays open only when nothing was taken at all. */
+  if (out && out.id) { UI.act.note = null; render(); }
+}
+
+/* ---- the reading's own age ------------------------------------------------- */
+
+/* Three states, and they are three different facts: the sidecar is
+   unreachable, the daemon is not answering it, or all is well. */
+function readbar(p) {
+  if (!reachable) {
+    return `<div class="readbar down"><span class="dot"></span><b>the console is offline</b>
+      <span class="why">this page cannot reach the sidecar that serves it</span></div>`;
+  }
+  if (!p) return `<div class="readbar"><span class="dot"></span>reading…</div>`;
+  if (!p.daemon_up) {
+    /* The sidecar is up and holding the last good reading — which is exactly
+       what it exists for. Say which reading, and why it is not moving. */
+    return `<div class="readbar down"><span class="dot"></span><b>daemon restarting</b>
+      <span>showing the snapshot from ${esc(ago(p.read_at))}</span>
+      <span class="spacer"></span>
+      <span class="why">not answering on :${esc(p.daemon_port)} since ${esc(ago(p.error_since))} — ${esc(p.error)}</span></div>`;
+  }
+  return `<div class="readbar"><span class="dot"></span>read ${esc(ago(p.read_at))}
+    <span class="spacer"></span>
+    <span class="why">refreshing every ${esc(p.poll_interval_s)}s while this tab is visible</span></div>`;
+}
+
+/* Every screen opens the same way, and no screen draws before the first read
+   lands. */
+function head(p, title, right) {
+  return `<div class="screen-head"><h2>${esc(title)}</h2>${right ?? ""}</div>${readbar(p)}`;
+}
+function noSnapshot(p, title) {
+  return `${head(p, title)}<div class="later">No snapshot yet. The sidecar is up and has not read the daemon successfully even once.</div>`;
+}
+function later(p, what, ticket) {
+  return `${head(p, SCREENS[UI.screen][0])}
+    <div class="later"><b>${esc(what)}</b> lands on ${esc(ticket)}. It draws the same snapshot the bar above reads.</div>`;
+}
+
+/* ---- the fleet ------------------------------------------------------------- */
+
+/* The state in the vocabulary the status line already uses (statusline.mjs):
+   `ready` and `working` are one state, and an agent with an open question is
+   waiting whatever its record says. */
+function stateWord(a) {
+  if (a.state === "awaiting-review") return "awaiting review";
+  if (waitingOn(a).length) return "waiting";
+  return { ready: "working", spawning: "dispatched", failed: "failed", "cross-checking": "cross-checking" }[a.state] ?? String(a.state ?? "unknown");
+}
+/* The questions bound to this agent, minus the gate — the gate is its own list
+   and its own card, never a row's footnote. */
+const waitingOn = (a) => (a.waiting_on ?? []).filter((w) => w.kind !== REVIEW_KIND);
+/* Attention is one test, used by the dot, the row tint and nothing else. */
+const wantsYou = (a) => waitingOn(a).length > 0;
+
+function agentDot(a) {
+  return `<span class="dot ${wantsYou(a) ? "attn" : a.state === "failed" ? "off" : ""}"></span>`;
+}
+
+/* The context meter (#264, usage.mjs ctxOnWire). No reading is "—", never 0%.
+   A figure above 100% is the daemon's own complaint about the denominator, not
+   a reading about the agent, so it is marked rather than drawn flat. */
+function ctxCell(a) {
+  if (a.ctx_pct == null) return `<span class="dim-note">—</span>`;
+  return `${esc(a.ctx_pct)}%${a.ctx_over ? ` <span class="over">⚠</span>` : ""}`;
+}
+
+/* How long ago the agent last reached curia (#370, dispatch.mjs onMcpCall). The
+   daemon holds the reading in memory, so this column speaks for the live daemon
+   process and for nothing before it.
+
+   The two nulls are two different facts, and the cell says which one it is. An
+   agent this process spawned and never heard is "never". An agent it adopted
+   after a restart has no uptime either, and it is "adopted": the silence
+   belongs to the restart. Neither word is a verdict — a working agent and a
+   deaf one are both silent (#341), so the operator judges the silence. */
+function contactCell(a) {
+  if (a.last_contact_s != null) return esc(dur(a.last_contact_s));
+  return `<span class="dim-note">${a.uptime_s == null ? "adopted" : "never"}</span>`;
+}
+const CONTACT_NOTE = "contact is how long ago the agent last reached curia on its side channel, as this daemon process heard it. never is an agent that has said nothing since it spawned. adopted is an agent this process never spawned, so its silence belongs to the daemon restart.";
+
+/* The fleet, narrow: the home's right column. `agents: null` is an unreadable
+   tmux, which is the opposite fact from an idle box, so it renders as neither a
+   table nor an empty line. */
+function fleetTable(o) {
+  if (o.agents == null) {
+    return `<div class="unread">the fleet could not be read${o.fleet_error ? ` — ${esc(o.fleet_error)}` : ""}. Every other section below is still a live reading.</div>`;
+  }
+  if (!o.agents.length) return `<div class="empty">No agent is running.</div>`;
+  const rows = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
+  return `<div class="tbl-wrap"><table class="agents narrow">
+    <tr><th>session</th><th>state</th><th>ticket</th><th>ctx</th><th>contact</th><th>up</th></tr>
+    ${rows.map((a) => `<tr class="${wantsYou(a) ? "esc-row" : ""}">
+      <td class="sess">${esc(a.session)}</td>
+      <td><span class="state">${agentDot(a)} ${esc(stateWord(a))}</span></td>
+      <td><span class="t">${esc(ticketName(a.repo, a.ticket))}</span>${esc(a.title ?? "")}</td>
+      <td class="num">${ctxCell(a)}</td>
+      <td class="num">${contactCell(a)}</td>
+      <td class="num">${esc(dur(a.uptime_s))}</td></tr>`).join("")}
+  </table></div>`;
+}
+
+/* ---- the provider strip ---------------------------------------------------- */
+
+/* One reading per provider, said once (#248). It is an account fact, not an
+   agent fact, so no agent row repeats it (CONTEXT.md, usage windows).
+
+   The bar is neutral until the window is worth attention: a fill that ran ahead
+   of its own clock, and bad once the window is spent. The thin mark is where
+   the clock stands, so "62% of the window at 48% of the time" is one glance. */
+function meterBar(label, w) {
+  const pct = Number(w.pct ?? 0);
+  const elapsed = w.elapsed_pct == null ? null : Number(w.elapsed_pct);
+  const cls = pct >= SPENT_PCT ? "bad" : elapsed != null && pct > elapsed ? "warn" : "";
+  return `<span class="meter-row"><span class="lbl">${esc(label)}</span>
+    <span class="bar"><span class="fill ${cls}" style="width:${Math.min(100, Math.max(0, pct))}%"></span>
+      ${elapsed == null ? "" : `<span class="clock" style="left:${Math.min(100, Math.max(0, elapsed))}%"></span>`}</span>
+    <span class="pct num">${esc(pct)}%</span></span>`;
+}
+function provStrip(o) {
+  const usage = o.usage ?? [];
+  /* A provider with no probe and no live agent says NOTHING rather than zero
+     (#262): an unmeasured window and an unspent one are not the same fact. */
+  if (!usage.length) return `<div class="prov-strip">No usage window is measured. A window is read from the account probe, or from a live agent's own transcript.</div>`;
+  return `<div class="prov-strip">${usage.map((p) => {
+    const soonest = nextReset([p]);
+    return `<span class="prov"><b>${esc(p.provider)}</b>
+      ${(p.windows ?? []).map((w) => meterBar(w.label, w)).join("")}
+      ${soonest ? `<span class="pnote ${spentWindows([p]).length ? "hot" : ""}">${esc(soonest.label)} rolls ${esc(clock(soonest.at))}</span>` : ""}
+      <span class="pnote">from the ${esc(p.from)}${p.session ? ` of ${esc(p.session)}` : ""}</span></span>`;
+  }).join("")}</div>`;
+}
+/* The pre-emptive hold, said once at the top (#384). It names the provider and
+   the lift time, which are the two things an operator watching an idle box
+   needs: WHICH lane stopped, and WHEN it starts again.
+
+   It is not on the Needs-you list, for the reason a spent window is not: the
+   test is whether an operator act ends it, and this one ends on its own clock.
+   A model label on the ticket steps over it, which the line says, because that
+   is the one act there is. */
+function holdBanner(o) {
+  const holds = o?.pre_cooling ?? [];
+  if (!holds.length) return "";
+  return holds.map((h) => `<div class="hold-banner">
+    <span class="who">${esc(h.provider)}</span>
+    <span>held before the limit — the ${esc(h.window)} window is at ${esc(h.pct)}%, and it lifts at ${esc(clock(h.reset_at))}</span>
+    <span class="dim">curia dispatches on the other lanes. A <code>model:</code> label on a ticket still starts it here.</span>
+  </div>`).join("");
+}
+function spentWindows(usage) {
+  return (usage ?? []).flatMap((p) => (p.windows ?? [])
+    .filter((w) => Number(w.pct ?? 0) >= SPENT_PCT)
+    .map((w) => ({ provider: p.provider, label: w.label, pct: w.pct, at: w.resets_at })));
+}
+/* The soonest window still ahead of us, which is the one the operator waits on. */
+function nextReset(usage) {
+  const all = (usage ?? []).flatMap((p) => (p.windows ?? [])
+    .filter((w) => w.resets_at && Date.parse(w.resets_at) > Date.now())
+    .map((w) => ({ provider: p.provider, label: w.label, at: w.resets_at })));
+  all.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  return all[0] ?? null;
+}
+
+/* ---- the attention list ---------------------------------------------------- */
+
+/* Everything that wants the operator, in one column, warn-marked because that
+   is what the color is for — and the ONE place an open question is answered
+   (#266). The Agents table states the same questions and answers none of them:
+   one answer surface, so no operator has to remember which of two they are
+   looking at. */
+
+/* The buttons a kind carries, in the vocabulary every other surface sends
+   (bridge.mjs #buttons). A choice sends its option's own label; an
+   approve-reject pair sends the two literals; a recommended round sends the one
+   fixed word its ✅ carries (#285), and it has no ❌ beside it because the
+   opposite of that tap is the operator's own reply. */
+function answerButtons(r) {
+  const key = "esc:" + r.id;
+  const btn = (label, answer, cls) => `<button class="btn sm${cls ? " " + cls : ""}"
+    ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${js(answer)}')">${esc(label)}</button>`;
+  const b = [];
+  if (r.kind === "approve-reject" || r.kind === "preview-review") {
+    b.push(btn("✅ Approve", APPROVE, "primary"), btn("❌ Reject", REJECT, "danger"));
+  }
+  if (r.kind === "confirm") b.push(btn("✅ Approve", APPROVE, "danger"), btn("❌ Decline", REJECT));
+  if (r.kind === "choice") for (const o of r.options ?? []) b.push(btn(snip(o, 80), o));
+  if (r.kind === "free-text" && r.recommended) b.push(btn("✅ All as recommended", ALL_AS_RECOMMENDED, "primary"));
+  return b.length ? `<div class="act-row">${b.join("")}</div>` : "";
+}
+
+/* Free-form, on every kind. A choice can be answered in words the options do
+   not carry, and a round is answered by naming the exceptions (#285) — so the
+   field is never the fallback for a kind, it is the reply. */
+function answerField(r) {
+  const id = "ans-" + r.id;
+  return `<div class="act-row">
+    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${anyBusy() ? "disabled" : ""}>
+    <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}')">Answer</button>
+  </div>`;
+}
+
+function escCard(r) {
+  return `<div class="att-item">
+    <span class="who">${esc(r.agent)}</span>${esc(snip(r.prompt, 260))}
+    <div class="dim">${esc(r.kind)} · ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}${r.agent_died ? " · the agent died holding it" : ""}${r.rendered ? "" : " · not rendered in Discord yet"}</div>
+    ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview it asks about</a></div>` : ""}
+    ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
+}
+
+/* ---- the diff digest (#355) ------------------------------------------------
+
+   The card answers "how big is this, and what did it touch" without carrying
+   the whole diff. Every number on it is a fact curia MEASURED — the agent's
+   gate summary stays the only account of the work (#343).
+
+   TWO SOURCES, one card. A review gate's digest was counted when the gate
+   opened and rides `/overview`, so drawing it costs no read at all. A live
+   agent row is counted on demand, committed and uncommitted work together,
+   when the operator presses the button.
+
+   THE HUNKS NEVER RIDE THE POLL. They are fetched per file, once, and cached
+   here — a card the operator never opened costs nothing, and a card left open
+   is not re-fetched every five seconds. */
+
+/* key -> the card's own state. `open` starts with the top file expanded, which
+   is the one thing the rank rule decides. */
+var diffs = {};
+/* Hunk reads the next render will start. A renderer must not fetch, so it
+   records what it needs and `render()` drains this after the page is written. */
+var diffQueue = [];
+
+function diffState(key) {
+  if (!diffs[key]) diffs[key] = { open: { 0: true }, hunks: {}, digest: null, error: null, read: false, loading: false };
+  return diffs[key];
+}
+
+/* The digest for a LIVE agent row. A gate never comes through here: its numbers
+   are already on the payload. */
+async function loadDigest(key, query) {
+  const d = diffState(key);
+  if (d.loading) return;
+  d.loading = true;
+  render();
+  try {
+    const res = await fetch(query, { headers: { accept: "application/json" }, cache: "no-store" });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    d.digest = b.digest ?? null;
+    d.error = b.error ?? null;
+  } catch (e) {
+    d.digest = null;
+    d.error = e.message;
+  }
+  d.read = true;
+  d.loading = false;
+  render();
+}
+
+async function loadHunks(key, i, query) {
+  const d = diffState(key);
+  try {
+    const res = await fetch(query + "&file=" + i, { headers: { accept: "application/json" }, cache: "no-store" });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    d.hunks[i] = b.hunks ?? { text: null, error: b.error ?? "curia said nothing about this file" };
+  } catch (e) {
+    d.hunks[i] = { text: null, error: e.message };
+  }
+  render();
+}
+
+function drainDiffQueue() {
+  const q = diffQueue;
+  diffQueue = [];
+  for (const j of q) loadHunks(j.key, j.i, j.query);
+}
+
+function toggleDiffFile(key, i, query) {
+  const d = diffState(key);
+  d.open[i] = !d.open[i];
+  render();
+}
+
+/* The agent row's button (#355). It presses once and the read is a snapshot of
+   that moment, so `re-read` is beside it: the work moves while you look. */
+function openDiff(session) {
+  UI.act.diff = UI.act.diff === session ? null : session;
+  render();
+  if (!UI.act.diff) return;
+  const key = "agent:" + session;
+  if (!diffState(key).read) loadDigest(key, agentDiffQuery(session));
+}
+function rereadDiff(key, query) {
+  delete diffs[key];
+  loadDigest(key, query);
+}
+const agentDiffQuery = (session) => "/api/diff?agent=" + encodeURIComponent(session);
+const gateDiffQuery = (id) => "/api/diff?esc=" + encodeURIComponent(id);
+
+/* The caption under a path: facts, in words, so a state is never told by color
+   alone. `hunks` is absent on a change too big to have been counted, and the
+   caption then says nothing rather than saying zero. */
+function fileCaption(f) {
+  const w = [];
+  if (f.untracked) w.push("new, not committed yet");
+  else if (f.status === "A") w.push("new");
+  else if (f.status === "D") w.push("deleted");
+  else if (f.status === "R") w.push(f.from ? "renamed from " + f.from : "renamed");
+  else if (f.status === "C") w.push(f.from ? "copied from " + f.from : "copied");
+  else if (f.status === "T") w.push("type changed");
+  if (f.binary) w.push("binary");
+  else if (f.hunks != null) w.push(f.hunks + " hunk" + (f.hunks === 1 ? "" : "s"));
+  return w.join(" · ");
+}
+
+const num = (n) => (n == null ? "?" : n);
+
+/* A patch, colored by its own vocabulary. No highlighting beyond the four line
+   kinds: this is a read, not an editor. */
+function hunkHtml(text) {
+  return String(text ?? "").split("\n").map((l) => {
+    let c = "";
+    if (/^(@@)/.test(l)) c = "at";
+    else if (/^(\+\+\+|---|diff |index |new file|deleted file|similarity |rename |old mode|new mode|Binary files)/.test(l)) c = "meta";
+    else if (l.startsWith("+")) c = "add";
+    else if (l.startsWith("-")) c = "del";
+    return `<span class="hl ${c}">${esc(l)}</span>`;
+  }).join("\n");
+}
+
+/* A file that is open. The read is asked for HERE — the first render that wants
+   it queues it, and the marker it leaves behind is what stops the second render
+   asking again. */
+function hunkBody(key, f, i, query, prUrl) {
+  const d = diffState(key);
+  const h = d.hunks[i];
+  const files = prUrl ? ` <a href="${esc(prUrl)}/files">Read it on GitHub</a>` : "";
+  if (h === undefined) {
+    d.hunks[i] = "loading";
+    diffQueue.push({ key, i, query });
+    return `<div class="say">reading the hunks…</div>`;
+  }
+  if (h === "loading") return `<div class="say">reading the hunks…</div>`;
+  if (h.text == null || h.text === "") {
+    return `<div class="say">curia could not read this file's hunks${h.error ? " — " + esc(h.error) : ""}.${files}</div>`;
+  }
+  const said = h.source === "pull-request"
+    ? `<div class="say">the worktree is gone — this comes from the pull request's own diff</div>` : "";
+  const missed = h.lines_total - h.lines_shown;
+  const tail = h.truncated
+    ? `<div class="say">the card stopped at ${h.lines_shown} lines and did not show ${missed} more.${
+      prUrl ? files : " There is no pull request to read the rest on."}</div>`
+    : "";
+  return `${said}<pre class="hunks">${hunkHtml(h.text)}</pre>${tail}`;
+}
+
+function diffFileRow(key, f, i, query, prUrl) {
+  const open = Boolean(diffState(key).open[i]);
+  const cap = fileCaption(f);
+  return `<div class="diff-file">
+    <button class="diff-row" onclick="toggleDiffFile('${js(key)}',${i},'${js(query)}')">
+      <span class="mono path">${open ? "▾" : "▸"} ${esc(f.path)}</span>
+      <span class="nums"><span class="add">+${num(f.added)}</span> <span class="del">−${num(f.deleted)}</span></span>
+    </button>
+    ${cap ? `<div class="cap">${esc(cap)}</div>` : ""}
+    ${open ? hunkBody(key, f, i, query, prUrl) : ""}
+  </div>`;
+}
+
+/* Null is not empty, here as everywhere: a digest curia could not take says so
+   with its reason, and a branch that really changed nothing says that instead.
+   The two must never render the same. */
+function diffCard(key, digest, error, query, prUrl) {
+  if (!digest) {
+    return `<div class="unread">curia could not count this diff${error ? " — " + esc(error) : ""}.${
+      prUrl ? ` <a href="${esc(prUrl)}/files">GitHub still has it</a>` : ""}</div>`;
+  }
+  if (!digest.files) return `<div class="empty">No file changed against the default branch.</div>`;
+  const shown = digest.list ?? [];
+  return `<div class="diff">
+    <div class="diff-sum"><b>${digest.files} file${digest.files === 1 ? "" : "s"}</b>
+      <span class="add">+${digest.added}</span> <span class="del">−${digest.deleted}</span>${
+  digest.uncommitted ? ` <span class="dim">— committed and uncommitted work together</span>` : ""}</div>
+    <div class="diff-rule">ranked ${esc(digest.rank_rule ?? RANK_RULE)}${
+  digest.capped ? ` · the list stops at ${shown.length} of ${digest.files} files` : ""}</div>
+    ${shown.map((f, i) => diffFileRow(key, f, i, query, prUrl)).join("")}
+  </div>`;
+}
+
+/* The same words the daemon prints on the Discord card (diffdigest.mjs
+   RANK_RULE), for a digest journalled before the rule rode the record. */
+const RANK_RULE = "source first, then tests, then docs, generated and lock files last — largest first inside each class";
+
+/* The gate's three answers (#165, ADR-0010). Approve merges and resolves;
+   cross-check answers NOTHING and puts a reviewer on the other provider onto
+   the diff, with the builder parked where it stands; a rejection carries the
+   operator's words back to the builder. */
+function gateCard(r) {
+  const id = "rej-" + r.id;
+  return `<div class="att-item gate">
+    <span class="who">${esc(r.agent)}</span>review gate — ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}
+    <div class="dim">${esc(snip(r.prompt, 220))}</div>
+    ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
+    ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview</a></div>` : ""}
+    ${diffCard("esc:" + r.id, r.diff ?? null, r.diff_error ?? null, gateDiffQuery(r.id), r.pull_request)}
+    <div class="act-row">
+      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
+      <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
+    </div>
+    <div class="act-row">
+      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${anyBusy() ? "disabled" : ""}>
+      <button class="btn sm danger" ${anyBusy() ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
+    </div>
+    ${said("esc:" + r.id)}</div>`;
+}
+
+/* A credential warning (#380). It sits above the spent windows because it is
+   the only item on this list nobody else will fix: a window rolls by itself,
+   and a grant does not. The words are the daemon's own measurement — what it
+   could not reach and the act that ends it — so this composes no second account
+   of them.
+
+   ONE FAULT SINCE #466: a repo the app installation does not cover. The expiry
+   half went with the last PAT. A warning the journal kept from before that reads
+   through this shape too, which is why the message and the act are read
+   defensively rather than assumed. */
+function tokenCard(w) {
+  return `<div class="att-item token">
+    <span class="who">${esc(w.key)}</span>cannot reach ${esc(w.repo)}${w.message ? ` — ${esc(w.message)}` : ""}
+    <div class="dim">${esc(w.refusal)}${w.fix ? ` — ${esc(w.fix)}` : ""}</div></div>`;
+}
+
+function dispatchHoldCard(h) {
+  const cause = h.kind === "stall-watchdog"
+    ? "needs operator action after automatic stall recovery stopped"
+    : h.kind === "death-resume"
+      ? "died after it spoke, and its automatic resume also died"
+      : `died at the spawn ${esc(h.failures)} times`;
+  const act = h.kind === "stall-watchdog"
+    ? `type <code>resume ${esc(h.ticket)}</code> to use the surviving worktree`
+    : "a <code>start</code> or <code>resume</code> you type dispatches it again and clears the count";
+  return `<div class="att-item limit">
+    <span class="who">${esc(ticketName(h.repo, h.ticket))}</span>${cause}, so auto-dispatch steps over it
+    <div class="dim">${act}</div></div>`;
+}
+
+/* The model credential (#642, ADR-0027).
+
+   TWO SHAPES, and only one of them is a card the operator acts on.
+
+   The RE-AUTHENTICATION card is the reason this page carries the flow at all: a
+   device login prints a link and a one-time code into a terminal, and reading a
+   code off a terminal on a phone at 3am is the experience this replaces. It sits
+   at the top of the attention list, because while it is up nothing else on the
+   box matters as much.
+
+   IT DEGRADES, NEVER DEAD-ENDS. The link and the code are scraped off the pane,
+   and a scrape is a guess about somebody else's wording. When either is missing
+   the card says so and points at the terminal, which is the path that always
+   works — the card is an optimization over it and never a replacement for it.
+
+   The code is on this page and on no other surface. Discord carries the alarm
+   and a link here; a one-time auth code in a chat log is a credential in a chat
+   log. */
+function reauthCard(r) {
+  if (!r || r.state !== "waiting") return [];
+  const mins = Math.floor((r.seconds_left ?? 0) / 60);
+  const link = r.url
+    ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`
+    : `<span class="dim">curia could not read the link off the pane — open the terminal</span>`;
+  const code = r.code
+    ? `<code class="reauth-code">${esc(r.code)}</code>`
+    : `<span class="dim">curia could not read the code off the pane — open the terminal</span>`;
+  return [`<div class="att-item token">
+    <span class="who">${esc(r.consumer)}</span>is signing in — open the link, then enter the code
+    <div>${link}</div>
+    <div>${code}</div>
+    <div class="dim">the session is <code>${esc(r.session)}</code>; it closes in ${mins} min if nothing completes it</div></div>`];
+}
+
+/* A consumer whose credential the operator has to act on. `valid` and
+   `expiring` are silent: the daemon refreshes inside the last quarter of the
+   token's life and says nothing about work it is already doing. `unowned` is
+   silent too — the claude lane and the overseer are named on the wire so the
+   page cannot claim curia owns all three, and there is nothing to press until
+   #648. */
+function credentialCard(c) {
+  if (!["expired", "unreadable", "absent"].includes(c.state) && !c.last_error) return [];
+  const why = c.last_error ?? c.why ?? "";
+  return [`<div class="att-item token">
+    <span class="who">${esc(c.consumer)}</span>the model credential is ${esc(c.state)}
+    <div class="dim">${esc(why)} — type <code>reauth</code> to sign in from a browser</div></div>`];
+}
+
+function attentionList(o) {
+  const items = [
+    ...reauthCard(o.credentials?.reauth),
+    ...(o.credentials?.consumers ?? []).flatMap(credentialCard),
+    ...(o.escalations ?? []).map(escCard),
+    ...(o.review_gate ?? []).map(gateCard),
+    ...(o.token_warnings ?? []).map(tokenCard),
+    ...spentWindows(o.usage).map((w) => `<div class="att-item limit">
+      <span class="who">${esc(w.provider)}</span>the ${esc(w.label)} window is spent at ${esc(w.pct)}%
+      <div class="dim">${w.at ? `it rolls at ${esc(clock(w.at))}` : "no reset instant is stated"}</div></div>`),
+    /* The tickets the auto loop steps over (#444). On this list where a spent
+       window is not, by this list's own test: an operator act is what ends one.
+       Nothing lifts it on a clock, and the ticket sits on the frontier
+       untouched until somebody fixes the cause and dispatches it. */
+    ...(o.dispatch_holds ?? []).map(dispatchHoldCard),
+  ];
+  return { count: items.length, html: items.length ? items.join("") : `<div class="empty">Nothing wants you.</div>` };
+}
+
+/* ---- the feed -------------------------------------------------------------- */
+
+/* The journal speaks in types and fields. The page speaks in sentences.
+   A type this table does not name still reads: the fallback says the type in
+   words and names whatever subject the event carries, so an event the daemon
+   grows tomorrow is legible the day it ships instead of rendering blank. */
+const who = (e) => (e.agent ? `<b>${esc(e.agent)}</b>` : "");
+const tkt = (e) => (e.ticket == null || e.ticket === "" ? "" : `<span class="mono">${esc(ticketName(e.repo, e.ticket))}</span>`);
+const subject = (e) => [who(e), tkt(e)].filter(Boolean).join(" · ");
+
+const EVENTS = {
+  dispatch_claimed: ["claim", "", (e) => `${tkt(e)} claimed for ${who(e)} by ${esc(e.by)}`],
+  dispatch_unclaimed: ["claim", "", (e) => `${tkt(e)} unclaimed — back on the frontier`],
+  /* The failed spawn and the step-over it arms (#444). Two lines, because they
+     are two facts: one dispatch died, and the loop has stopped taking this
+     ticket. */
+  dispatch_failed: ["spawn", "bad", (e) => `${tkt(e)} died at the spawn${e.reason ? ` — ${esc(snip(e.reason, 120))}` : ""}`],
+  dispatch_held: ["spawn", "warn", (e) => `auto-dispatch steps over ${tkt(e)} — it died at the spawn ${esc(e.failures)} times. A start or a resume you type clears the count`],
+  agent_died_released: ["death", "bad", (e) => `${tkt(e)} returned to the frontier after its agent died following tool traffic`],
+  death_resume_held: ["death", "warn", (e) => `auto-dispatch steps over ${tkt(e)} — its automatic resume also died. A start or a resume you type clears the count`],
+  stall_detected: ["stall", "warn", (e) => `${who(e)} has no transcript growth and its pane confirms a stall`],
+  stall_nudge_started: ["stall", "warn", (e) => `curia reserved stall nudge ${esc(e.attempt)} for ${who(e)}`],
+  stall_nudge_accepted: ["stall", "", (e) => `${who(e)} showed an active turn after stall nudge ${esc(e.attempt)}`],
+  stall_nudge_rejected: ["stall", "warn", (e) => `${who(e)} showed no active turn after stall nudge ${esc(e.attempt)}`],
+  stall_nudge_finished: ["stall", "warn", (e) => `automatic stall nudges stopped for ${who(e)}${e.outcome ? `: ${esc(e.outcome)}` : ""}`],
+  stall_respawn_started: ["stall", "warn", (e) => `curia started the one resume respawn for ${who(e)}`],
+  stall_respawned: ["stall", "", (e) => `${who(e)} resumed in a fresh harness process`],
+  stall_respawn_failed: ["stall", "bad", (e) => `${who(e)} could not resume after its stall`],
+  stall_escalated: ["stall", "bad", (e) => `${who(e)} needs the operator after automatic stall recovery stopped`],
+  dispatch_exhausted: ["cooling", "bad", (e) => `${tkt(e)} could not be dispatched — every model is cooling${e.earliest_reset ? `, the earliest rolls ${esc(clock(e.earliest_reset))}` : ""}`],
+  agent_spawned: ["spawn", "", (e) => `${who(e)} spawned on ${esc(e.model)}${e.harness ? ` — ${esc(e.harness)}` : ""}${e.kind ? `, ${esc(e.kind)}` : ""} · ${tkt(e)}`],
+  agent_ready: ["spawn", "", (e) => `${who(e)} is at work on ${tkt(e)}`],
+  agent_done: ["ending", "", (e) => `${who(e)} ended its turn`],
+  agent_died: ["death", "bad", (e) => `${who(e)} died — ${tkt(e)}${e.kind ? ` (${esc(e.kind)})` : ""}`],
+  agent_cancelled: ["cancel", "bad", (e) => `${who(e)} cancelled by ${esc(e.by)} — ${tkt(e)} back on the frontier`],
+  agent_abnormal_exit: ["death", "bad", (e) => `${who(e)} exited abnormally — ${tkt(e)}`],
+  agent_blocked_on_human: ["escalation", "warn", (e) => `${who(e)} is blocked on you — ${tkt(e)}`],
+  agent_note: ["note", "", (e) => `note for ${who(e)}${e.by ? ` from ${esc(e.by)}` : ""}: ${esc(snip(e.text, 120))}`],
+  agent_notes_drained: ["note", "", (e) => `${who(e)} took ${esc(e.count)} queued note(s)`],
+  agent_note_refused: ["note", "warn", (e) => `a note for ${who(e)} was refused — ${esc(e.reason)}`],
+  agent_notes_expired: ["note", "", (e) => `${esc(e.count ?? "some")} note(s) for ${who(e)} died with the agent they were typed at`],
+  note_interrupt: ["note", "warn", (e) => `${who(e)} interrupted by ${esc(e.by)} — ${esc(Math.round((e.grace_ms ?? 0) / 1000))}s of grace, then the words land`],
+  note_interrupt_delivered: ["note", "", (e) => `the interrupted words are in ${who(e)}'s pane`],
+  note_interrupt_failed: ["note", "bad", (e) => `the interrupt of ${who(e)} failed — ${esc(e.reason)}`],
+  esc_open: ["escalation", "warn", (e) => `${who(e)} asks — ${esc(e.kind)}: ${esc(snip(e.prompt, 160))}`],
+  esc_answer: ["answer", "", (e) => `escalation ${esc(e.id)} answered by ${esc(e.by)}${e.via ? ` via ${esc(e.via)}` : ""}`],
+  esc_cancel: ["answer", "", (e) => `escalation ${esc(e.id)} cancelled by ${esc(e.by)}`],
+  esc_lapse: ["answer", "", (e) => `escalation ${esc(e.id)} lapsed — ${esc(e.reason)}`],
+  esc_supersede: ["escalation", "", (e) => `escalation ${esc(e.id)} superseded by ${esc(e.successor)}`],
+  esc_replayed: ["answer", "", (e) => `${who(e)} asked ${esc(e.id)} again and took the recorded answer — nobody was asked twice`],
+  review_requested: ["gate", "warn", (e) => `review gate opened for ${tkt(e)} by ${who(e)}`],
+  review_answered: ["gate", "", (e) => `${tkt(e)} ${e.approved ? "approved" : "rejected"} at the gate${e.outcome ? ` — ${esc(e.outcome)}` : ""}`],
+  cross_check_requested: ["cross-check", "", (e) => `cross-check pressed on ${tkt(e)} — ${who(e)} parks`],
+  reviewer_spawned: ["cross-check", "", (e) => `${who(e)} spawned to read ${tkt(e)}${e.builder ? ` for ${esc(e.builder)}` : ""}`],
+  cross_check_returned: ["cross-check", "", (e) => `cross-check on ${tkt(e)} returned${e.ok === false ? ` — it carried no verdict${e.why ? `: ${esc(e.why)}` : ""}` : ""}`],
+  verdict_captured: ["cross-check", "", (e) => `verdict captured for ${tkt(e)} from ${esc(e.model)}`],
+  verdict_commented: ["cross-check", "", (e) => `verdict posted on ${tkt(e)}`],
+  verdict_failed: ["cross-check", "bad", (e) => `the cross-check of ${tkt(e)} failed`],
+  verdict_undelivered: ["cross-check", "bad", (e) => `a verdict for ${tkt(e)} reached no reader`],
+  ticket_resolved: ["resolve", "", (e) => `${tkt(e)} resolved by ${who(e)}${e.pr ? ` — ${esc(e.pr)}` : ""}`],
+  lifecycle_closed: ["ending", "", (e) => `${who(e)} finished ${tkt(e)}`],
+  land_failed: ["landing", "bad", (e) => `${tkt(e)} could not land — ${esc(snip(e.error, 120))}`],
+  result: ["result", "", (e) => `${who(e)} reported ${esc(e.status ?? "a result")}${e.summary ? ` — ${esc(snip(e.summary, 120))}` : ""}`],
+  result_parked: ["result", "", (e) => `${who(e)} parked its ending — ${esc(e.reason)}`],
+  notify: ["notify", "", (e) => `${who(e)}: ${esc(snip(e.message, 160))}`],
+  preview: ["preview", "", (e) => `${who(e)} published a preview${e.path ? ` at ${esc(e.path)}` : ""}${e.ok === false ? ` — refused: ${esc(e.reason)}` : ""}`],
+  model_cooling: ["cooling", "bad", (e) => `${esc(e.model)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
+  provider_cooling: ["cooling", "bad", (e) => `${esc(e.provider)} is cooling${e.reset_at ? ` — it rolls ${esc(clock(e.reset_at))}` : ""}`],
+  /* The pre-emptive hold (#384). Its own two lines, never the landed cap's: one
+     says a wall was hit, this says curia stopped short of one. */
+  provider_precooling: ["cooling", "warn", (e) => `${esc(e.provider)} is held before the limit — the ${esc(e.window)} window is at ${esc(e.pct)}%${e.reset_at ? `, and it lifts ${esc(clock(e.reset_at))}` : ""}`],
+  provider_precooling_lifted: ["cooling", "", (e) => `${esc(e.provider)} is dispatching again${e.pct == null ? "" : ` — its fullest window reads ${esc(e.pct)}%`}`],
+  restart_requested: ["restart", "warn", (e) => `restart ordered by ${esc(e.by)} — the daemon exits ${esc(e.exit_code)} and the supervisor respawns it`],
+  /* The live reload (#362). A save applies, so the feed says what moved — and
+     a reload the daemon would not take says which key needs the restart. */
+  config_reloaded: ["config", "", (e) => `config reloaded by ${esc(e.by)}${
+    e.keys?.length ? ` — ${esc(e.keys.join(", "))}` : " — nothing moved"}`],
+  config_reload_declined: ["config", "warn", (e) => `config reload declined for ${esc(e.by)} — ${esc(snip(e.error, 160))}`],
+  deploy_requested: ["deploy", "", (e) => `deploy ordered by ${esc(e.by)}`],
+  deploy_landed: ["deploy", "", (e) => `deploy landed${e.next ? ` at ${esc(String(e.next).slice(0, 7))}` : ""}`],
+  deploy_rolled_back: ["deploy", "bad", (e) => `deploy rolled back — ${esc(e.reason ?? "the health check failed")}`],
+  /* The refused merge (#562): nothing was recreated, so this must not read
+     like the rollback above — the running daemon never stopped. */
+  deploy_merge_refused: ["deploy", "bad", (e) => `deploy refused — ${esc(e.reason ?? "git could not fast-forward")}; nothing was recreated`],
+  deploy_untracked_dup_discarded: ["deploy", "", (e) => `deploy preflight removed untracked ${esc((e.files ?? []).join(", "))} — byte-identical to files the deploy adds`],
+  deploy_lockfile_churn_discarded: ["deploy", "", (e) => `deploy preflight discarded npm lockfile churn in ${esc((e.files ?? []).join(", "))}`],
+  /* The credential watch (#380). The feed says what curia measured; the
+     Needs-you item beside it says the condition still stands. */
+  token_warned: ["credential", "bad", (e) => (e.fault === "unreachable"
+    ? `${esc(e.key)} cannot reach ${esc(e.repo)} — ${esc(e.message)}`
+    : `${esc(e.key)} ${e.days <= 0 ? "has expired" : `expires in ${esc(e.days)} day(s)`}`)],
+  token_cleared: ["credential", "", (e) => (e.fault === "unreachable"
+    ? `${esc(e.key)} reaches ${esc(e.repo)} again`
+    : `${esc(e.key)} is renewed`)],
+  bridge_wedged: ["bridge", "bad", (e) => `the Discord bridge is wedged`],
+  bridge_recovered: ["bridge", "", (e) => `the Discord bridge is back`],
+  bridge_health: ["bridge", "", (e) => `bridge ${esc(e.previous)} → ${esc(e.state)} — ${esc(e.reason)}`],
+  reconcile: ["reconcile", "", (e) => `reconcile pass${e.boot ? " at boot" : ""}`],
+  command: ["command", "", (e) => `${esc(snip(e.canonical, 120))} — by ${esc(e.by)}`],
+  /* The browser conversations (#333). The delete says the number is spent,
+     because that is the half of it nobody can undo. */
+  console_conversation_opened: ["chat", "", (e) => `${esc(e.key)} opened — a new browser conversation`],
+  console_conversation_deleted: ["chat", "", (e) => `${esc(e.key)} deleted — its number is spent, and the next one counts past it`],
+  /* The replay (#388, ADR-0015). The turn's own start and end are not in the
+     feed — they are bookkeeping, one pair per message. This is the news. */
+  overseer_turn_dropped: ["chat", "warn", (e) => e.replayed
+    ? `a restart killed the turn on ${esc(e.key)} — curia sent the message again`
+    : `a restart killed the turn on ${esc(e.key)} — not sent again${
+      e.commands?.length ? `, it had run ${esc(e.commands.join(", "))}` : ""}${e.why ? ` (${esc(e.why)})` : ""}`],
+  map_adopted: ["charting", "", (e) => `${who(e)} adopted map ${esc(e.map)} — ${esc(snip(e.title, 80))}`],
+  charting_finished: ["charting", "", (e) => `${who(e)} finished charting ${tkt(e)} — ${esc(e.status)}`],
+};
+
+function eventLine(e) {
+  const spec = EVENTS[e.type];
+  if (spec) return { tag: spec[0], cls: spec[1], html: spec[2](e) };
+  const s = subject(e);
+  return { tag: String(e.type ?? "event").replace(/_/g, " "), cls: "", html: s || "—" };
+}
+/* Newest first: the operator reads the top of the page, so the last thing that
+   happened must be the first thing there. */
+function feedList(events, limit) {
+  const rows = [...(events ?? [])].reverse().slice(0, limit ?? undefined);
+  if (!rows.length) return `<div class="empty">The journal tail is empty.</div>`;
+  return `<ul class="feed-list">${rows.map((e) => {
+    const l = eventLine(e);
+    return `<li class="${l.cls}"><time>${esc(clock(e.ts))}</time>
+      <span class="ev"><span class="tag">${esc(l.tag)}</span> — ${l.html}</span></li>`;
+  }).join("")}</ul>`;
+}
+
+/* ---- home ------------------------------------------------------------------ */
+
+function tile(v, l, warn) {
+  const none = v === "—" || v === 0 ? " none" : "";
+  return `<div class="tile${warn && v ? " warn" : ""}"><div class="v num${none}">${esc(v)}</div><div class="l">${esc(l)}</div></div>`;
+}
+function statTiles(o) {
+  const reset = nextReset(o.usage);
+  return `<div class="stat-tiles">
+    ${tile(needsYou(o), "needs you", true)}
+    ${tile(o.agents == null ? "—" : o.agents.length, "agents live")}
+    ${tile(o.review_gate?.length ?? 0, "review gate", true)}
+    ${tile(reset ? clock(reset.at) : "—", reset ? `${reset.provider} ${reset.label} rolls` : "next reset")}
+  </div>`;
+}
+
+/* The all-three home (#248): tiles across the top, the attention list left, the
+   fleet right, the provider strip said once under it. */
+function screenHome(p) {
+  const o = p?.overview;
+  if (!o) return noSnapshot(p, "Home");
+  const att = attentionList(o);
+  return `${head(p, "Home")}
+    ${holdBanner(o)}
+    ${statTiles(o)}
+    <div class="split-cols">
+      <div>
+        <div class="h-sect"><h3><span class="${att.count ? "hot" : ""}">Needs you</span> (${att.count})</h3>${att.html}</div>
+        <div class="h-sect"><h3>Last events</h3>${feedList(o.events, 4)}
+          <a class="more" href="#feed">all events →</a></div>
+      </div>
+      <div>
+        <div class="h-sect"><h3>Fleet${o.agents == null ? "" : ` (${o.agents.length})`}</h3>${fleetTable(o)}</div>
+        ${provStrip(o)}
+        ${deployCard(o)}
+      </div>
+    </div>`;
+}
+
+/* The self-deploy card (#562). The outcome used to live in one Discord line and
+   a log only ssh could read; this keeps the LAST verdict on the page — with the
+   sibling's own log excerpt when it failed — and the in-flight state while one
+   runs. Nothing here is a verb: `deploy` stays typed-only (#270). */
+function deployCard(o) {
+  const d = o.deploy;
+  if (!d || (!d.in_flight && !d.last && !d.verdict_read_error)) return "";
+  const sh = (s) => String(s ?? "").slice(0, 7);
+  if (d.in_flight) {
+    return `<div class="h-sect"><h3>Deploy</h3>
+      <div class="unread">a deploy is in flight: ${esc(sh(d.in_flight.prev))} → ${esc(sh(d.in_flight.next))} — state ${esc(d.in_flight.state)}. The daemon restarts if it lands; this page keeps its last snapshot through that.</div></div>`;
+  }
+  if (d.verdict_read_error) {
+    return `<div class="h-sect"><h3>Last deploy</h3>
+      <div class="unread">${esc(d.verdict_read_error)}</div></div>`;
+  }
+  const l = d.last;
+  const word = { landed: "landed", "rolled-back": "ROLLED BACK", "merge-refused": "refused", lockout: "LOCKOUT" }[l.state] ?? l.state;
+  const line = `${esc(word)}: ${esc(sh(l.prev))} → ${esc(sh(l.next))}${l.reason ? ` — ${esc(l.reason)}` : ""}${l.resolved_at ? ` · ${esc(ago(l.resolved_at))}` : ""}${l.by ? ` · ordered by ${esc(l.by)}` : ""}`;
+  const ok = l.state === "landed";
+  return `<div class="h-sect"><h3>Last deploy</h3>
+    <div class="${ok ? "dim-note" : "unread"}">${line}</div>
+    ${!ok && l.log ? `<div class="said">${esc(l.log)}</div>` : ""}</div>`;
+}
+
+/* ---- agents ---------------------------------------------------------------- */
+
+function screenAgents(p) {
+  const o = p?.overview;
+  if (!o) return noSnapshot(p, "Agents");
+  const d = o.daemon ?? {};
+  const live = o.agents == null ? "—" : o.agents.length;
+  const bar = `<div class="statusbar">
+    <span>agents ${esc(live)}/${esc(d.max_concurrent ?? "?")}</span>
+    <span>auto dispatch ${d.auto_dispatch ? "on" : "off"}</span>
+    <span>bridge ${esc(o.bridge)}</span>
+    <span>daemon :${esc(d.port)} up ${esc(dur(d.uptime_s))}</span>
+  </div>`;
+  return `${head(p, "Agents")}${bar}${agentsTable(o)}${untrackedLine(o)}${recentLine(o)}`;
+}
+
+function agentsTable(o) {
+  if (o.agents == null) {
+    return `<div class="unread">the fleet could not be read${o.fleet_error ? ` — ${esc(o.fleet_error)}` : ""}. This is an unreadable tmux, not an idle box.</div>`;
+  }
+  if (!o.agents.length) return `<div class="empty">No agent is running.</div>`;
+  const rows = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
+  return `<div class="tbl-wrap"><table class="agents wide">
+    <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>contact</th><th>up</th><th>waiting on</th><th>do</th></tr>
+    ${rows.map((a) => `<tr class="${wantsYou(a) ? "esc-row" : ""}">
+      <td class="sess">${esc(a.session)}${a.reviewer ? ` <span class="dim-note">reviewer</span>` : ""}</td>
+      <td><span class="state">${agentDot(a)} ${esc(stateWord(a))}</span>${a.tmux_live ? "" : `<div class="dim-note">no tmux session</div>`}</td>
+      <td><span class="t">${esc(ticketName(a.repo, a.ticket))}</span>${esc(a.title ?? "")}</td>
+      <td class="mono">${esc(a.model ?? "—")}</td>
+      <td class="num">${ctxCell(a)}</td>
+      <td class="num">${contactCell(a)}</td>
+      <td class="num">${esc(dur(a.uptime_s))}</td>
+      <td>${waitingCell(a)}</td>
+      <td>${agentVerbs(a)}</td></tr>
+    ${agentBoxes(a)}`).join("")}
+  </table></div><div class="dim-note">${esc(CONTACT_NOTE)}</div>`;
+}
+
+/* The three per-agent verbs (#266). They sit in the row that already names the
+   agent, and the boxes they open sit under it — so the words the operator types
+   are beside the agent they are for.
+
+   An answer is NOT here. The Needs-you list on Home is the one answer surface,
+   and the `waiting on` cell beside this says where to go. */
+function agentVerbs(a) {
+  const key = "agent:" + a.session;
+  const b = (label, call, cls) => `<button class="${cls ?? ""}" ${anyBusy() ? "disabled" : ""} onclick="${call}">${label}</button>`;
+  const s = `'${js(a.session)}'`;
+  return `<div class="links">
+    ${b("note", `noteBox(${s})`)}
+    ${b("diff", `openDiff(${s})`)}
+    ${b("teleport", `teleport(${s},'${js(a.ticket ?? "")}')`)}
+    ${b("cancel", `cancelAgent(${s},'${js(a.repo ?? "")}','${js(a.ticket ?? "")}')`, "bad")}
+  </div>${busy(key) ? `<div class="dim-note">working…</div>` : ""}`;
+}
+
+/* One full-width row under the agent, carrying whatever it has open: the note
+   box, the teleport lines, and what curia said about the last press. */
+function agentBoxes(a) {
+  const key = "agent:" + a.session;
+  const parts = [
+    UI.act.note === a.session ? noteBoxHtml(a) : "",
+    UI.act.diff === a.session ? diffBoxHtml(a) : "",
+    UI.act.tele === a.session ? teleportHtml(a) : "",
+    said(key),
+  ].filter(Boolean);
+  if (!parts.length) return "";
+  return `<tr><td colspan="9">${parts.join("")}</td></tr>`;
+}
+
+/* The two delivery modes, in ADR-0013's own words. Queued is the default and
+   costs the agent nothing until its next tool result. Interrupt aborts the call
+   in flight after a grace, which is why it is the one the operator has to
+   choose. */
+function noteBoxHtml(a) {
+  const id = "note-" + a.session;
+  const radio = (mode, label) => `<label><input type="radio" name="nm-${esc(a.session)}"
+    ${UI.act.mode === mode ? "checked" : ""} onchange="noteMode('${mode}')"> ${esc(label)}</label>`;
+  return `<div class="act-box">
+    <div class="act-row"><input type="text" id="${esc(id)}" placeholder="say something to ${esc(a.session)}…"></div>
+    <div class="act-row">
+      ${radio("queue", "queue — it reads this with its next tool result")}
+      ${radio("interrupt", "interrupt — a short grace, then the words land as a user turn")}
+      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="sendNote('${js(a.session)}','${js(id)}')">Send</button>
+    </div>
+  </div>`;
+}
+
+/* The digest before the gate (#355). The same card the gate carries, on a live
+   row, reading the same worktree — committed and uncommitted work together,
+   because that is what the work so far means. You see the shape of the change
+   while a note can still steer it. */
+function diffBoxHtml(a) {
+  const key = "agent:" + a.session;
+  const q = agentDiffQuery(a.session);
+  const d = diffState(key);
+  if (!d.read) return `<div class="act-box"><div class="say">counting the work so far…</div></div>`;
+  return `<div class="act-box">
+    <div class="act-row"><button class="btn sm" ${d.loading ? "disabled" : ""} onclick="rereadDiff('${js(key)}','${js(q)}')">re-read</button>
+      <span class="dim">a snapshot of the worktree, taken when you pressed</span></div>
+    ${diffCard(key, d.digest, d.error, q, null)}</div>`;
+}
+
+function teleportHtml(a) {
+  return `<div class="act-box">
+    <div class="dim-note">On the box itself, in a terminal:</div>
+    <input class="copy" type="text" readonly value="${esc(attachCmd(a.session))}" onclick="this.select()">
+  </div>`;
+}
+function waitingCell(a) {
+  const open = a.waiting_on ?? [];
+  if (!open.length) return `<span class="dim-note">${a.result_received ? "its result is in" : "nothing"}</span>`;
+  return open.map((w) => `<span class="mono">${esc(w.kind)}</span>`).join(" · ");
+}
+/* A tmux session curia does not track. It is an anomaly reconcile owns, so the
+   page states it and spends no color on it. */
+function untrackedLine(o) {
+  if (!o.untracked?.length) return "";
+  return `<p class="dim-note">Untracked sessions: <span class="mono">${o.untracked.map((s) => esc(s)).join(", ")}</span>. Reconcile adopts or sweeps these.</p>`;
+}
+function recentLine(o) {
+  if (!o.recent?.length) return "";
+  return `<p class="dim-note">Recently: ${o.recent.map((r) => `${esc(r.kind)} ${esc(ticketName(r.repo, r.ticket))}`).join(" · ")}</p>`;
+}
+
+/* ---- frontier -------------------------------------------------------------- */
+
+/* The ticket type is the `wayfinder:` label and nothing else — a ticket with no
+   such label has no type, and saying so beats guessing one from another label. */
+function typeOf(item) {
+  const l = (item.labels ?? []).find((x) => String(x).startsWith("wayfinder:"));
+  return l ? String(l).slice("wayfinder:".length) : "untyped";
+}
+const shortRepo = (r) => String(r).split("/").pop();
+
+/* The filter runs over the snapshot, never over the wire: the frontier is
+   reconcile's reading and the page must not re-ask for a narrower one. */
+function frFiltered(snap) {
+  const f = UI.fr;
+  return (snap?.repos ?? [])
+    .filter((r) => f.repo === "all" || r.repo === f.repo)
+    .map((r) => (r.error ? r : { ...r, items: (r.items ?? []).filter((i) => f.type === "all" || typeOf(i) === f.type) }));
+}
+function frTypes(snap) {
+  const all = new Set();
+  for (const r of snap?.repos ?? []) for (const i of r.items ?? []) all.add(typeOf(i));
+  return [...all].sort();
+}
+
+/* Start (#266). The dispatch order — claim, prepare, spawn — is `start`'s own,
+   and the reply that comes back is curia's sentence about what it did.
+
+   Two facts ride beside the button. The ROUTED MODEL is the daemon's
+   `resolveModel` answer, joined onto the item by reconcile, so the operator
+   knows which account this press spends before spending it. And an agent
+   ALREADY on this ticket replaces the button, because a second start on it is
+   refused anyway and a button that only ever refuses is a worse way to say so.
+
+   When the fleet could not be read, neither is claimed: the button stands, and
+   the line under it says curia cannot tell. Null is not empty here either. */
+function agentOn(o, repo, number) {
+  if (o?.agents == null) return undefined;
+  return o.agents.find((a) => String(a.ticket) === String(number) && (!a.repo || a.repo === repo)) ?? null;
+}
+function startRow(o, repo, n) {
+  const live = agentOn(o, repo, n.number);
+  const key = `start:${repo}#${n.number}`;
+  if (live) return `<div class="act-row"><span class="dim-note mono">⧗ dispatched — ${esc(live.session)}</span></div>`;
+  const model = n.model
+    ? `<span class="dim-note mono">→ ${esc(n.model)} (${esc(typeOf(n))} default)</span>`
+    : `<span class="dim-note">the routed model is not on this reading</span>`;
+  return `<div class="act-row">
+      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="startTicket('${js(repo)}','${js(n.number)}')">${
+        busy(key) ? "Starting…" : "Start"}</button>${model}
+    </div>
+    ${live === undefined ? `<div class="dim-note">the fleet could not be read, so curia cannot say whether this one is already running</div>` : ""}
+    ${said(key)}`;
+}
+
+function frCards(repos, o) {
+  const bigs = repos.filter((r) => !r.error).flatMap((r) => (r.items ?? []).map((i) => ({ ...i, repo: r.repo })));
+  const kids = repos.filter((r) => !r.error).flatMap((r) => (r.items ?? []).flatMap((i) => (i.unblocks ?? []).map((k) => ({ ...k, repo: r.repo, from: i.number }))));
+  return `${repos.filter((r) => r.error).map(frError).join("")}
+    <div class="frx-sect"><span class="eyebrow">takeable now (${bigs.length})</span>
+      ${bigs.length ? `<div class="frx-big">${bigs.map((n) => `<div class="frx-card">
+        <div class="head"><span class="t">#${esc(n.number)}</span><span class="typ">${esc(typeOf(n))}</span></div>
+        <div class="title">${esc(n.title)}</div>
+        <div class="foot"><span>${esc(n.repo)}</span><span>${n.unblocks?.length ? `unblocks ${n.unblocks.length}` : "unblocks nothing yet"}</span></div>
+        ${n.mapTitle ? `<div class="dim-note">${esc(n.mapTitle)}</div>` : ""}
+        ${startRow(o, n.repo, n)}
+      </div>`).join("")}</div>` : `<div class="empty">Nothing is takeable under this filter.</div>`}
+    </div>
+    <div class="frx-sect"><span class="eyebrow">unblocked next (${kids.length})</span>
+      ${kids.length ? `<div class="frx-dim">${kids.map((k) => `<div class="frx-dimcard"><span class="t">#${esc(k.number)}</span>${esc(k.title)}
+        <span class="from">↖ #${esc(k.from)} · ${esc(k.repo)}</span></div>`).join("")}</div>`
+        : `<div class="empty">These tickets unblock nothing that is not already takeable.</div>`}
+    </div>`;
+}
+function frTree(repos, o) {
+  return repos.map((r) => {
+    if (r.error) return frError(r);
+    if (!r.items?.length) return `<div class="fr-repo"><span class="eyebrow mono">${esc(r.repo)}</span>
+      <div class="empty">Nothing is takeable under this filter.</div></div>`;
+    return `<div class="fr-repo"><span class="eyebrow mono">${esc(r.repo)}</span>
+      ${r.items.map((n) => `<div class="fr-group">
+        <div class="fr-node"><span class="typ">${esc(typeOf(n))}</span><span class="t">#${esc(n.number)}</span>${esc(n.title)}
+          ${startRow(o, r.repo, n)}</div>
+        ${n.unblocks?.length ? `<div class="fr-kids">${n.unblocks.map((k) => `<div class="fr-kid"><span class="t">#${esc(k.number)}</span>${esc(k.title)}</div>`).join("")}</div>` : ""}
+      </div>`).join("")}</div>`;
+  }).join("");
+}
+function frError(r) {
+  return `<div class="unread"><span class="mono">${esc(r.repo)}</span> could not be read — ${esc(r.error)}. This is not an empty frontier: there may be takeable tickets there.</div>`;
+}
+
+const FR_VIEWS = { cards: ["Cards", frCards], tree: ["Tree", frTree] };
+
+function screenFrontier(p) {
+  const o = p?.overview;
+  if (!o) return noSnapshot(p, "Frontier");
+  const snap = o.frontier;
+  const right = `<span class="seg">${Object.entries(FR_VIEWS).map(([k, v]) =>
+    `<button class="${UI.fr.view === k ? "on" : ""}" onclick="frSet('view','${k}')">${esc(v[0])}</button>`).join("")}</span>`;
+  if (!snap || !snap.computed_at) {
+    return `${head(p, "Frontier — two levels", right)}
+      <div class="later">No frontier has been computed yet. Reconcile computes it on the credentials that pass already holds, and stamps the instant it did.</div>`;
+  }
+  const types = frTypes(snap);
+  const filter = `<div class="frx-filter">
+    <button class="fchip ${UI.fr.repo === "all" ? "on" : ""}" onclick="frSet('repo','all')">all projects</button>
+    ${(snap.repos ?? []).map((r) => `<button class="fchip ${UI.fr.repo === r.repo ? "on" : ""}" onclick="frSet('repo','${esc(r.repo)}')">${esc(shortRepo(r.repo))}</button>`).join("")}
+    <span class="sep">·</span>
+    <select onchange="frSet('type',this.value)">
+      <option value="all"${UI.fr.type === "all" ? " selected" : ""}>all types</option>
+      ${types.map((t) => `<option${UI.fr.type === t ? " selected" : ""}>${esc(t)}</option>`).join("")}
+    </select>
+    <span class="dim-note">computed ${esc(ago(snap.computed_at))}</span>
+  </div>`;
+  return `${head(p, "Frontier — two levels", right)}${filter}${FR_VIEWS[UI.fr.view][1](frFiltered(snap), o)}`;
+}
+function frSet(key, value) {
+  UI.fr[key] = value;
+  /* A repo that leaves the filter takes its types with it — an unreachable
+     type filter would show an empty page and name no reason. */
+  if (key === "repo") UI.fr.type = "all";
+  render();
+}
+
+/* ---- feed ------------------------------------------------------------------ */
+
+function screenFeed(p) {
+  const o = p?.overview;
+  if (!o) return noSnapshot(p, "Feed");
+  const n = o.events?.length ?? 0;
+  return `${head(p, "Feed", `<span class="dim-note">the journal's last ${esc(n)} event(s)</span>`)}
+    <div style="max-width:720px">${feedList(o.events)}</div>`;
+}
+
+/* ---- settings (#265) -------------------------------------------------------
+
+   The one screen that writes. Three facts shape all of it.
+
+   1. IT DRAWS ITS OWN READ. `GET /api/settings` is a fresh parse of
+      curia.yaml and routing.yaml off disk, never the poll snapshot: both files
+      are hand-edited on the box too, and a screen that offered to save over an
+      edit it had not seen would lose it.
+   2. IT POSTS ONLY WHAT CHANGED. The patch is the difference between `draft`
+      and `settings`, so a field nobody touched is not written — which is what
+      keeps a hand edit made while this tab was open from being clobbered by a
+      save of something else.
+   3. A SAVE APPLIES (#362). The sidecar asks the daemon to reload after a
+      write that landed, and the answer rides back with the save. So the banner
+      states an outcome — applied, declined, or the daemon is not answering —
+      instead of handing the operator a second button to press. What "applied"
+      means is measured: the daemon reports the six settings it is RUNNING, and
+      this screen compares them against the file it read. */
+
+const SET_SECTIONS = { routing: "Routing", projects: "Projects", dispatch: "Dispatch", maintenance: "Maintenance" };
+const SET_HINTS = {
+  routing: "The model each ticket type gets when no label on the ticket says otherwise.",
+  projects: "The repos curia watches. It dispatches against these and no others.",
+  dispatch: "Whether curia starts work by itself, how many agents run at once, and how often it looks for work.",
+  maintenance: "Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.",
+};
+const DISPATCH_FIELDS = [
+  ["max_concurrent", "How many agents may run at once. Each one costs a container, and three sandbox ports."],
+  ["poll_interval_s", "How often curia reads the frontier of every watched repo."],
+];
+
+const clone = (x) => JSON.parse(JSON.stringify(x));
+
+/* What the operator has changed and not yet saved. The banner counts these and
+   the save posts them; both read this one function, so the count can never
+   disagree with what lands on disk. */
+function settingsPatch() {
+  if (!settings || !draft) return {};
+  const p = {};
+  const d = {};
+  for (const k of Object.keys(draft.dispatch)) {
+    if (draft.dispatch[k] !== settings.dispatch[k]) d[k] = draft.dispatch[k];
+  }
+  if (Object.keys(d).length) p.dispatch = d;
+  if (JSON.stringify(draft.watch) !== JSON.stringify(settings.watch)) p.watch = draft.watch;
+  const defaults = {};
+  draft.routing.defaults.forEach((row, i) => {
+    if (row.model !== settings.routing.defaults[i]?.model) defaults[row.type] = row.model;
+  });
+  const models = {};
+  draft.routing.models.forEach((m, i) => {
+    if (m.active !== settings.routing.models[i]?.active) models[m.name] = { active: m.active };
+  });
+  if (Object.keys(defaults).length || Object.keys(models).length) {
+    p.routing = {};
+    if (Object.keys(defaults).length) p.routing.defaults = defaults;
+    if (Object.keys(models).length) p.routing.models = models;
+  }
+  return p;
+}
+function changeCount() {
+  const p = settingsPatch();
+  return Object.keys(p.dispatch ?? {}).length
+    + (p.watch ? 1 : 0)
+    + Object.keys(p.routing?.defaults ?? {}).length
+    + Object.keys(p.routing?.models ?? {}).length;
+}
+
+/* ---- what the daemon is running (#362) --------------------------------------
+
+   Applied is a fact curia measured, not a claim the save made. `GET /overview`
+   carries the six settings the daemon RUNS and the instant it read them; this
+   compares them, key by key, against the file this screen read.
+
+   Null means curia cannot tell — no snapshot, no file read, or a daemon that is
+   not answering, whose last reading says what WAS true and not what is. Null is
+   never drawn as agreement: "unknown" and "in step" are opposite facts. */
+const sameJSON = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+function runningDiff(p) {
+  const run = p?.overview?.daemon?.config;
+  if (!run || !settings || !p.daemon_up) return null;
+  const out = [];
+  for (const k of Object.keys(settings.dispatch)) {
+    if (!sameJSON(settings.dispatch[k], run.dispatch?.[k])) out.push("dispatch." + k);
+  }
+  if (!sameJSON(settings.watch, run.watch)) out.push("watch");
+  const rows = (list) => new Map((list ?? []).map((r) => [r.type, r.model]));
+  const [fileRows, runRows] = [rows(settings.routing.defaults), rows(run.routing?.defaults)];
+  for (const type of new Set([...fileRows.keys(), ...runRows.keys()])) {
+    if (!sameJSON(fileRows.get(type), runRows.get(type))) out.push("routing.defaults." + type);
+  }
+  const switches = (list) => new Map((list ?? []).map((m) => [m.name, m.active !== false]));
+  const [fileSw, runSw] = [switches(settings.routing.models), switches(run.routing?.models)];
+  for (const name of new Set([...fileSw.keys(), ...runSw.keys()])) {
+    if (!sameJSON(fileSw.get(name), runSw.get(name))) out.push("routing.models." + name + ".active");
+  }
+  return out;
+}
+
+/* ---- the save banner: one act, at the top (#362) ---- */
+
+function saveBanner() {
+  const n = changeCount();
+  const s = UI.set;
+  const save = (on) => `<button class="btn${on ? " primary" : ""}" ${on && !s.busy ? "" : "disabled"} onclick="doSave()">${
+    s.busy ? "Saving…" : "Save"}</button>`;
+  /* One button, one shape: the banner offers a restart only where it is the
+     mitigation, so the one it offers is always the loud one. */
+  const restart = () => `<button class="btn restart-hot" ${s.busy ? "disabled" : ""} onclick="doRestart()">Restart to apply</button>`;
+  const line = (cls, body) => `<div class="save-banner${cls ? " " + cls : ""}">${body}</div>`;
+
+  /* The bar is just Save. The restart left this banner with #362 and lives in
+     Maintenance, because it is now a rare act about a hand edit — the one place
+     it still belongs here is a save the daemon declined, where it is the
+     mitigation for that save. */
+  if (s.phase === "unread") {
+    return line("refused", `${save(false)}
+      <span class="toast">The settings could not be read.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
+  }
+  if (s.phase === "refused") {
+    /* The loaders refused the candidate, so nothing on disk moved. The draft
+       stays on screen: the operator fixes the value they typed, they do not
+       type it again. */
+    return line("refused", `${save(n > 0)}
+      <span class="toast">Refused — nothing was written.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
+  }
+  if (s.phase === "restarting") {
+    return line("", `${save(n > 0)}
+      <span class="toast">The daemon exited nonzero and the supervisor respawns it. This page serves its last snapshot meanwhile.</span>`);
+  }
+  /* The three outcomes a save can have. Each one states what happened to the
+     daemon, and carries a button only where a button is the mitigation. */
+  if (s.phase === "applied") {
+    return line("saved", `<button class="btn" disabled>Saved ✓</button>
+      <span class="toast">${esc(s.note ?? "Saved.")} The daemon is running it.</span>`);
+  }
+  if (s.phase === "declined") {
+    /* The file moved a key a reload cannot apply, so the daemon kept the config
+       it booted with. The restart is the mitigation, and it is the loud one. */
+    return line("saved", `<button class="btn" disabled>Saved ✓</button>${restart()}
+      <span class="toast">${esc(s.note ?? "Saved.")} The daemon did not apply it.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
+  }
+  if (s.phase === "offline") {
+    /* No button: a restart is not the mitigation for a daemon that is already
+       not answering, and pressing one would be an order nobody takes. */
+    return line("saved", `<button class="btn" disabled>Saved ✓</button>
+      <span class="toast">${esc(s.note ?? "Saved.")} The daemon is not answering, so it takes this file at its next boot.
+        If it refuses to boot, the daemon log names the key.</span>
+      <span class="toast why">${esc(s.error)}</span>`);
+  }
+  if (n === 0) {
+    return line("", `${save(false)}
+      <span class="toast">${esc(s.note ?? "No unsaved changes.")}</span>`);
+  }
+  return line("", `${save(true)}
+    <span class="toast">${n} unsaved change${n === 1 ? "" : "s"}.</span>`);
+}
+
+/* ---- the three sections ---- */
+
+const setBlock = (title, hint, body) => `<div class="set-block"><h3>${esc(title)}</h3>
+  <p class="hint">${esc(hint)}</p>${body}</div>`;
+
+/* Routing. The ticket-type table leads and the model list sits behind one
+   click, because the row an operator changes is the default, and the model
+   list is the thing they set once. */
+function setRouting() {
+  const models = draft.routing.models;
+  const active = models.filter((m) => m.active);
+  const rows = draft.routing.defaults.map((row, i) => {
+    const known = active.some((m) => m.name === row.model);
+    return `<tr><td class="mono">${esc(row.type)}</td>
+      <td><select onchange="setDefault(${i}, this.value)">
+        ${active.map((m) => `<option ${m.name === row.model ? "selected" : ""}>${esc(m.name)}</option>`).join("")}
+        ${known ? "" : `<option selected>${esc(row.model)}</option>`}
+      </select>${known ? "" : ` <span class="dim-note">switched off — the daemon refuses this config</span>`}</td></tr>`;
+  }).join("");
+  const mgr = `<div class="model-mgr">
+    <a href="#settings" onclick="UI.set.models=!UI.set.models;render();return false">${
+      active.length} of ${models.length} models active · ${UI.set.models ? "close" : "manage"}</a>
+    ${UI.set.models ? `<table style="margin-top:10px"><tr><th>active</th><th>model</th><th>runs on</th></tr>
+      ${models.map((m, i) => `<tr class="${m.active ? "" : "inactive"}">
+        <td><input type="checkbox" id="set-model-${esc(m.name)}" ${m.active ? "checked" : ""} onchange="setModelActive(${i}, this.checked)"></td>
+        <td class="mono">${esc(m.name)}${m.id ? ` <span class="dim-note">${esc(m.id)}</span>` : ""}</td>
+        <td class="mono">${esc(m.provider ?? "?")} · ${esc(m.harness ?? "?")}</td></tr>`).join("")}</table>
+      <p class="hint" style="margin:8px 0 0">A model switched off keeps its whole entry in routing.yaml. It leaves the
+        dispatch vocabulary: no default may name it, a fallback chain steps over it, and a <code>model:</code> label on it is refused.</p>` : ""}
+  </div>`;
+  return setBlock("Routing", SET_HINTS.routing,
+    `<table><tr><th>ticket type</th><th>default model</th></tr>${rows}</table>${mgr}`);
+}
+
+/* Projects. The repo list comes from the daemon, which holds the GitHub login;
+   this page holds no credential at all. */
+function setProjects() {
+  const watched = draft.watch.map((w) => w.repo);
+  const rows = draft.watch.map((w, i) => `<tr><td class="mono">${esc(w.repo)}</td>
+    <td class="dim-note">${esc(w.mode)}</td>
+    <td class="right"><button class="btn sm" ${draft.watch.length < 2 ? "disabled" : ""}
+      onclick="removeRepo(${i})">remove</button></td></tr>`).join("");
+  let connect;
+  if (repos === null) connect = `<div class="gh-connect"><span class="dot off"></span>reading the GitHub login…</div>`;
+  else if (repos.error) {
+    /* Null is not empty: curia could not ask, which is a different fact from
+       an account with no repos. The typed field below still works. */
+    connect = `<div class="unread">curia could not read your repos from GitHub — ${esc(repos.error)}. Type a repo below instead.</div>`;
+  } else {
+    connect = `<div class="gh-connect"><span class="dot"></span>GitHub connected as
+      <b class="mono">${esc(repos.login ?? "?")}</b>
+      <span class="dim-note">the ${esc(repos.repos?.length ?? 0)} most recently pushed repos it can reach</span></div>`;
+  }
+  const choices = (repos?.repos ?? []).filter((r) => !watched.includes(r));
+  const picker = choices.length
+    ? `<select id="set-repo-pick" onchange="addRepo(this.value); this.value=''">
+        <option value="">add a repo…</option>${choices.map((r) => `<option>${esc(r)}</option>`).join("")}</select>`
+    : "";
+  return setBlock("Projects", SET_HINTS.projects, `${connect}
+    <table>${rows}
+    <tr><td colspan="3">${picker}
+      <input type="text" id="set-repo-typed" placeholder="owner/name" size="22">
+      <button class="btn sm" onclick="addTypedRepo()">add</button></td></tr></table>
+    <p class="hint" style="margin:10px 0 0">The last repo cannot be removed: curia dispatches only against watched repos.</p>`);
+}
+
+function setDispatch() {
+  const auto = draft.dispatch.auto_dispatch;
+  const rows = DISPATCH_FIELDS.map(([key, why]) => `<tr>
+    <td class="mono">${esc(key)}<span class="hint" style="display:block;margin:2px 0 0">${esc(why)}</span></td>
+    <td><input type="number" id="set-${esc(key)}" min="1" value="${esc(draft.dispatch[key] ?? "")}"
+      oninput="setDispatchField('${esc(key)}', this.value)"></td></tr>`).join("");
+  return setBlock("Dispatch", SET_HINTS.dispatch, `<table>
+    <tr><td><label for="set-auto"><b>auto_dispatch</b></label>
+      <span class="hint" style="display:block;margin:2px 0 0">On, curia starts the next takeable ticket by itself. Off, every dispatch is one the operator ordered.</span></td>
+      <td><input type="checkbox" id="set-auto" ${auto ? "checked" : ""} onchange="setDispatchField('auto_dispatch', this.checked)"></td></tr>
+    ${rows}</table>
+    <p class="hint" style="margin:10px 0 0">A save applies at once. It cancels no running agent:
+      auto_dispatch off leaves every live agent running, and a max_concurrent below the live count
+      starts nothing new until the count falls. A model change reaches the next dispatch, never a
+      running one.</p>`);
+}
+
+/* Maintenance (#362). Last of the four, because it is the section an operator
+   reads rather than edits. It says one thing — whether the daemon runs the
+   file — and carries the one act that answers a no. */
+function setMaintenance(p) {
+  const differs = runningDiff(p);
+  const run = p?.overview?.daemon?.config;
+  let state;
+  if (differs === null) {
+    state = `<p class="unread">curia cannot tell whether the daemon runs these files: ${
+      p?.daemon_up === false ? "it is not answering." : "there is no reading of it yet."}</p>`;
+  } else if (differs.length) {
+    state = `<p class="unread">The daemon is NOT running the files. These differ:
+      <span class="mono">${differs.map(esc).join(", ")}</span>. A restart takes them.</p>`;
+  } else {
+    state = `<p class="hint">The daemon is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
+  }
+  return setBlock("Maintenance", SET_HINTS.maintenance, `${state}
+    <button class="btn${differs?.length ? " restart-hot" : ""}" ${UI.set.busy ? "disabled" : ""}
+      onclick="doRestart()">Restart daemon</button>
+    <p class="hint" style="margin:10px 0 0">A restart is for the keys a save cannot apply: the ports,
+      <span class="mono">workspace_root</span>, <span class="mono">sandbox</span>,
+      <span class="mono">identity</span>, and every routing key this screen does not write.
+      Agent panes live in their own container, so they survive it.</p>`);
+}
+
+/* ---- the chat (#267, many conversations by #333) ----------------------------
+
+   The console draws no chat of its own and frames none. A chat IS the timeline
+   attach — the same page a phone opens against an agent — pointed at one
+   browser conversation of the overseer and served under this address. One chat
+   surface: the composer, the history and every future thing the timeline grows
+   arrive here for free, and there is no second one to keep in step.
+
+   So this screen is a door, and #333 made it a door with many rooms behind it.
+   ADR-0016 gives the browser many conversations rather than one that grows
+   forever, so this is where the operator picks one and opens a new one. A new
+   conversation is the reset, the same way a new Discord thread is.
+
+   The picker lives HERE and not in the chat page, because the chat page is the
+   timeline and an agent opens the same page. A conversation switcher there
+   would put console words on the agent surface.
+
+   Every row carries its own context percent. ADR-0016 adds no warning that a
+   conversation is long: that number IS the signal, and #332 is what made it
+   true per conversation. */
+const CHAT_PAGE = "/chat";
+const chatHref = (session) => CHAT_PAGE + "?session=" + encodeURIComponent(session);
+
+function screenChat(p) {
+  /* The overseer runs in its own container (#315), but every message reaches it
+     THROUGH the daemon, so a daemon that is not answering is still a chat that
+     is not there. The bar above says why; this says what it means. */
+  const down = p && !p.daemon_up;
+  const lead = `<p class="lead">This is the overseer — the same curia that answers your prose in
+      Discord. It sees every watched repo, and it holds the verbs: ask it what to start, then say
+      <code>start 256</code> and it dispatches.</p>
+    ${down ? `<p class="unread">The chat is down while the daemon restarts. Your message reaches the overseer through it.</p>` : ""}`;
+  const count = conversations?.conversations?.length ?? null;
+  return `${head(p, "Chat", count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`)}
+    <div class="door">${lead}${chatList()}
+      <p class="cannot">It holds a reading shell over a checkout of every watched repo, so it can
+        read a file or a diff — but it cannot write one: its GitHub token is read-only, and every
+        effect still crosses the daemon. A destructive verb still posts its ✅/❌ card, and that
+        card lands on Home.</p>
+    </div>`;
+}
+
+/* Null is not empty, the second rule of this page. A list curia could not be
+   asked for and a box with no conversations on it are opposite facts. */
+function chatList() {
+  if (conversations === null) return `<div class="later">Reading your conversations…</div>`;
+  if (conversations.conversations === null) {
+    return `<div class="unread">curia could not read your conversations — ${esc(conversations.error ?? "no reason given")}.</div>
+      ${newChatButton()}`;
+  }
+  const rows = conversations.conversations.map(chatRow).join("");
+  if (!rows) {
+    /* The state after the cutover, and after the last conversation is deleted.
+       Nothing is minted by looking at this screen: a page read must not spend a
+       number, and numbers only go up. */
+    return `<p>No conversations yet. Press below to open the first one.</p>${newChatButton()}`;
+  }
+  return `<table class="chats">${rows}</table>${newChatButton()}
+    <p class="cannot">A new conversation is the reset — the same thing a new thread is in Discord.
+      Open one when the context above reads full. Deleting one spends its number for good.</p>`;
+}
+
+function newChatButton() {
+  const k = "chat-new";
+  return `<p><button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doNewConversation()">
+    ${busy(k) ? "Opening…" : "New conversation"}</button></p>${said(k)}`;
+}
+
+function chatRow(c) {
+  const k = "chat-del-" + c.key;
+  /* The label is the operator's own first message, read off the transcript by
+     the daemon. A conversation with no turn yet has none, and says so rather
+     than showing a blank row. */
+  const label = c.label
+    ? `<b>${esc(c.label)}</b>`
+    : `<span class="dim-note">no turn yet</span>`;
+  const answer = said(k);
+  /* A browser conversation has no thread, so the line ADR-0015 gives a killed
+     turn lands here — on the row the operator picks it from. It clears itself:
+     the next turn on this conversation ends the drop. */
+  const dropped = c.dropped && !c.dropped.replayed
+    ? `<span class="killed">⚠️ A restart killed a turn here${
+      c.dropped.commands?.length ? `, and it had run ${esc(c.dropped.commands.join(", "))}` : ""
+    }. curia did not send your message again${
+      /* The commands are the reason when there are any: not said twice. */
+      !c.dropped.commands?.length && c.dropped.why ? ` — ${esc(c.dropped.why)}` : ""}.</span>`
+    : "";
+  return `<tr>
+    <td><a href="${esc(chatHref(c.session))}">${label}</a>
+      <span class="dim-note mono" style="display:block;margin:2px 0 0">${esc(c.key)} · ${esc(ago(c.last_turn_at))}</span>${dropped}</td>
+    <td class="num">${ctxCell(c)}</td>
+    <td><button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
+      ${busy(k) ? "…" : "delete"}</button></td>
+  </tr>${answer ? `<tr><td colspan="3">${answer}</td></tr>` : ""}`;
+}
+
+/* Mint, then walk through the door. Opening a conversation you then have to
+   find in a list is two acts where the operator asked for one. */
+async function doNewConversation() {
+  const out = await verb("chat-new", "/api/console/new", {});
+  if (out?.session) location.href = chatHref(out.session);
+}
+
+async function doDeleteConversation(key) {
+  const ask = `Delete ${key}? Its number is spent for good — a later conversation never reuses it. `
+    + `curia stops offering the conversation, and its transcript stays on the box.`;
+  if (typeof confirm === "function" && !confirm(ask)) return;
+  await verb("chat-del-" + key, "/api/console/delete", { key });
+  loadConversations();
+}
+
+function screenSettings(p) {
+  if (!settings || !draft) {
+    return `${head(p, "Settings")}${saveBanner()}
+      <div class="later">Reading curia.yaml and routing.yaml…</div>`;
+  }
+  const bodies = { routing: setRouting, projects: setProjects, dispatch: setDispatch, maintenance: setMaintenance };
+  if (!bodies[UI.set.section]) UI.set.section = "routing";
+  const files = `<span class="dim-note mono">${esc(fileName(settings.files.curia))} · ${esc(fileName(settings.files.routing))}</span>`;
+  /* #292: the screen reads two layers and writes only the top one. Said here,
+     because "I saved and git shows nothing changed" must not be a puzzle the
+     operator has to solve on the box. */
+  const writes = settings.writes
+    ? `<p class="dim-note" style="max-width:620px">A save writes
+       <span class="mono">${esc(fileName(settings.writes.curia))}</span> and
+       <span class="mono">${esc(fileName(settings.writes.routing))}</span>, beside the files above.
+       Git does not track those, so the box's checkout stays clean and a deploy never collides with a
+       save. They hold what this box answers differently, and nothing else.</p>`
+    : "";
+  return `${head(p, "Settings", files)}${saveBanner()}
+    <div class="set-subnav">${Object.entries(SET_SECTIONS).map(([k, label]) =>
+      `<button class="${UI.set.section === k ? "on" : ""}" onclick="setSection('${k}')">${esc(label)}</button>`).join("")}</div>
+    <div style="max-width:620px">${bodies[UI.set.section](p)}</div>
+    ${writes}`;
+}
+const fileName = (p) => String(p ?? "").split("/").pop();
+
+/* ---- the edits ---- */
+
+/* Every edit lands on the draft and nowhere else, so what is on screen and what
+   a save would post are the same object. */
+function dirty() {
+  if (UI.set.phase !== "restarting") UI.set.phase = changeCount() ? "dirty" : "clean";
+  UI.set.error = null;
+  UI.set.note = null;
+  render();
+}
+function setSection(k) {
+  UI.set.section = k;
+  if (k === "projects" && repos === null) loadRepos();
+  render();
+}
+function setDefault(i, model) { draft.routing.defaults[i].model = model; dirty(); }
+function setModelActive(i, on) { draft.routing.models[i].active = on; dirty(); }
+function setDispatchField(key, value) {
+  draft.dispatch[key] = typeof value === "boolean" ? value : Number(value);
+  dirty();
+}
+function removeRepo(i) { draft.watch.splice(i, 1); dirty(); }
+function addRepo(repo) {
+  const name = String(repo ?? "").trim();
+  if (!name || draft.watch.some((w) => w.repo === name)) return;
+  draft.watch.push({ repo: name, mode: "auto" });
+  dirty();
+}
+function addTypedRepo() {
+  const el = document.getElementById("set-repo-typed");
+  if (!el) return;
+  const name = el.value.trim();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(name)) {
+    UI.set.phase = "refused";
+    UI.set.error = `"${name}" is not an owner/name repo`;
+    return render();
+  }
+  el.value = "";
+  addRepo(name);
+}
+
+/* ---- the two calls ---- */
+
+async function loadSettings() {
+  try {
+    const res = await fetch("/api/settings", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    settings = await res.json();
+    draft = clone(settings);
+    if (UI.set.phase === "unread") UI.set.phase = "clean";
+  } catch (e) {
+    UI.set.phase = "unread";
+    UI.set.error = e.message;
+  }
+  render();
+}
+
+async function loadRepos() {
+  repos = null;
+  try {
+    const res = await fetch("/api/repos", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    repos = await res.json();
+  } catch (e) {
+    repos = { login: null, repos: null, error: e.message };
+  }
+  render();
+}
+
+/* The browser conversations (#333). Taken on arrival at the Chat screen and
+   after a press that changes the list, never on the poll: a row costs the
+   daemon a transcript read, and the other five screens have no use for it.
+
+   A failure lands as `conversations: null`, which the screen draws as "curia
+   could not be asked" — not as an empty list. */
+async function loadConversations() {
+  try {
+    const res = await fetch("/api/console", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    conversations = await res.json();
+  } catch (e) {
+    conversations = { conversations: null, error: e.message };
+  }
+  render();
+}
+
+async function doSave() {
+  const patch = settingsPatch();
+  if (!Object.keys(patch).length) return;
+  UI.set.busy = true;
+  render();
+  try {
+    const res = await fetch("/api/settings", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    /* The answer carries the re-read file, so the screen shows what landed
+       rather than what was typed. */
+    settings = body.settings ?? settings;
+    draft = clone(settings);
+    /* The save carries the apply's own answer (#362). Three outcomes, and the
+       page states the one that came back rather than guessing from the write:
+       applied, declined by the daemon, or a daemon that could not be asked. */
+    const r = body.reload;
+    UI.set.error = null;
+    if (!body.written?.length) {
+      UI.set.phase = "clean";
+      UI.set.note = "That was already what the files say.";
+    } else {
+      UI.set.note = `Wrote ${body.written.join(" and ")}, atomically, with the comments kept.`;
+      if (r?.ok) UI.set.phase = "applied";
+      else if (r?.reason === "daemon-down") { UI.set.phase = "offline"; UI.set.error = r.error; }
+      else { UI.set.phase = "declined"; UI.set.error = r?.error ?? "the daemon gave no reason"; }
+    }
+  } catch (e) {
+    UI.set.phase = "refused";
+    UI.set.error = e.message;
+  }
+  UI.set.busy = false;
+  render();
+}
+
+async function doRestart() {
+  const ask = "Restart the daemon? Running agents keep their tmux sessions — those live in their own container. Anything unsaved here is not written.";
+  if (typeof confirm === "function" && !confirm(ask)) return;
+  UI.set.busy = true;
+  render();
+  try {
+    const res = await fetch("/api/restart", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: "{}",
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    UI.set.phase = "restarting";
+    UI.set.error = null;
+  } catch (e) {
+    /* The daemon may have taken the order and died before answering. Say
+       exactly that, and let the marker at the top of the page be the evidence:
+       it reads the daemon, and this reads a socket. */
+    UI.set.phase = "refused";
+    UI.set.error = `${e.message} — the bar above says whether the daemon is answering`;
+  }
+  UI.set.busy = false;
+  render();
+}
+
+/* ---- the shell ------------------------------------------------------------- */
+
+function render() {
+  /* No mount point, nothing to draw. The page boots only into `#app`, and its
+     test drives the screens directly — an edit there must not go looking for a
+     document that is not one. */
+  const app = document.getElementById("app");
+  if (!app) return;
+  const n = needsYou(payload?.overview);
+  /* The stale-daemon marker (#362). A daemon running something other than the
+     files is visible from every screen, so nobody has to open Settings to find
+     out. It reads the same comparison the Maintenance section draws. */
+  const stale = runningDiff(payload)?.length ? ` <span class="n" title="the daemon is not running these files">●</span>` : "";
+  const field = activeField();
+  app.innerHTML = `<div class="shell">
+    <nav><span class="brand">curia</span>
+      ${NAMES.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">${SCREENS[k][0]}${
+        k === "home" && n ? ` <span class="n">${n}</span>` : ""}${k === "settings" ? stale : ""}</button>`).join("")}
+    </nav>
+    <main>${SCREENS[UI.screen][1](payload)}</main>
+  </div>`;
+  document.title = (n ? `(${n}) ` : "") + "curia";
+  restoreField(field);
+  /* The hunks a card just asked for (#355). Started AFTER the page is written,
+     so a renderer stays a renderer — and once each, because the marker the
+     request left behind is what the next render reads. */
+  drainDiffQueue();
+}
+
+/* The poll re-renders the whole page every few seconds, and the settings screen
+   has fields somebody may be halfway through typing in. The VALUE is never at
+   risk — every keystroke lands on the draft — so what has to survive a render
+   is the cursor, by id and offset. */
+function activeField() {
+  const el = document.activeElement;
+  if (!el || !el.id) return null;
+  let caret = null;
+  try { caret = el.selectionStart; } catch { caret = null; }
+  return { id: el.id, caret };
+}
+function restoreField(f) {
+  if (!f) return;
+  const el = document.getElementById(f.id);
+  if (!el || typeof el.focus !== "function") return;
+  el.focus();
+  if (f.caret != null && el.setSelectionRange) {
+    try { el.setSelectionRange(f.caret, f.caret); } catch { /* not a text field */ }
+  }
+}
+
+/* Entering a screen, from a click or from the hash. Settings and Chat are the
+   two screens with a read of their own, and each is taken on arrival rather
+   than on every poll: the config files change when somebody saves them, and the
+   conversations change when somebody opens or deletes one — neither happens
+   every five seconds.
+   Chat re-reads on EVERY arrival, unlike settings. The list carries a context
+   percent and a last-turn time, and both move with every turn taken from any
+   device, so a held copy would age. */
+function enter(k) {
+  UI.screen = k;
+  if (k === "settings" && !settings) loadSettings();
+  if (k === "chat") loadConversations();
+}
+function goto(k) { enter(k); location.hash = k; render(); }
+window.addEventListener("hashchange", () => {
+  const k = location.hash.slice(1);
+  if (NAMES.includes(k) && k !== UI.screen) { enter(k); render(); }
+});
+
+/* ---- the poll -------------------------------------------------------------
+   The operator's call on #263: refresh while this tab is visible, and stop
+   when it is not. Every refresh costs the daemon a whole read of the journal
+   off disk, so a tab nobody is looking at must cost nothing. The interval is
+   the sidecar's to state — it comes back inside the payload — so one config
+   key governs both halves and they cannot drift apart. */
+let timer = null;
+
+async function tick() {
+  try {
+    const res = await fetch("/api/overview", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    payload = await res.json();
+    reachable = true;
+  } catch {
+    /* Keep the last payload on screen: a page that blanks itself is worst
+       exactly when the box is worst. */
+    reachable = false;
+  }
+  render();
+  schedule();
+}
+
+function schedule() {
+  clearTimeout(timer);
+  if (document.visibilityState !== "visible") return;
+  timer = setTimeout(tick, (payload?.poll_interval_s ?? 5) * 1000);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") tick(); else clearTimeout(timer);
+});
+
+/* The page boots itself only in a browser. Its test loads the same source into
+   a vm to call the screens directly, and a boot there would fetch nothing and
+   render into no document. */
+if (typeof document !== "undefined" && document.getElementById("app")) {
+  enter(NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home");
+  /* The file read happens at boot even when the operator lands somewhere else
+     (#362): the stale-daemon marker on the Settings nav item compares the two,
+     and a marker that needed the section opened would be a marker nobody sees.
+     `enter` already took the read on the settings screen itself. */
+  if (UI.screen !== "settings") loadSettings();
+  render();
+  tick();
+}
+
+/* ==== #645 prototype ==== */
+/* PROTOTYPE — wayfinder #645. Appended INSIDE the real dashboard's own script,
+   after its boot, so it can read `SCREENS`, `NAMES`, `UI`, `esc`, `clock` and
+   `head` and reassign the page's own functions. Throwaway.
+
+   THREE VARIANTS, and they disagree about structure, not about colour:
+
+     A  Attention list   — no new surface. Cards at the top of Needs-you, the
+                           way slice A1 shipped it, plus the two repairs it
+                           left behind.
+     B  Credentials tab  — a seventh screen, one row per consumer, one action
+                           each. Needs-you keeps a one-line pointer into it.
+     C  Takeover         — while a credential is dead or a login is running,
+                           one full-bleed phone-first flow replaces the page.
+
+   Everything else on this page is the real dashboard, drawing canned state. */
+
+(function () {
+  "use strict";
+
+  const DASH = "https://coinmatica.taile1a2b.ts.net:8443";
+  const TTYD = "https://coinmatica.taile1a2b.ts.net:7681";
+  const termUrl = (session) => `${TTYD}/?arg=${session}`;
+
+  const VARIANTS = {
+    A: "Attention list — no new surface",
+    B: "Credentials tab — a row per consumer",
+    C: "Takeover — one flow, phone first",
+  };
+  const VKEYS = Object.keys(VARIANTS);
+
+  /* ---- words ------------------------------------------------------------- */
+
+  const mmss = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
+  /* How long until a token dies, said the way an operator asks it. */
+  function until(iso) {
+    if (!iso) return "no stated expiry";
+    const ms = Date.parse(iso) - Date.now();
+    if (!Number.isFinite(ms)) return "no stated expiry";
+    if (ms <= 0) return "expired";
+    const d = ms / 86_400_000;
+    if (d >= 1) return `${d.toFixed(1)} days`;
+    const h = ms / 3_600_000;
+    if (h >= 1) return `${h.toFixed(1)} hours`;
+    return `${Math.round(ms / 60_000)} min`;
+  }
+
+  /* The five states, and what each one means for the box. One vocabulary, used
+     by all three variants, so a variant cannot win on wording alone. */
+  const STATE = {
+    valid: { tone: "ok", says: "healthy", act: null },
+    expiring: { tone: "ok", says: "inside the last quarter of its life — the daemon refreshes it on a tick", act: null },
+    expired: { tone: "bad", says: "dead: no agent on this lane can take a turn", act: "reauth" },
+    unreadable: { tone: "bad", says: "on disk but unparseable — curia cannot judge its life", act: "reauth" },
+    absent: { tone: "bad", says: "there is no credential file at all", act: "reauth" },
+    unowned: { tone: "idle", says: "not brokered by the daemon — the container reads it at create", act: null },
+  };
+  const stateOf = (c) => STATE[c.state] ?? { tone: "idle", says: c.why ?? "", act: null };
+
+  /* ---- the two repairs every variant needs ------------------------------- */
+
+  /* THE COUNT IS WRONG TODAY (finding, #645). `needsYou` is the nav badge, the
+     tab title and the Home tile, and it counts escalations, gates, GitHub token
+     warnings and dispatch holds — and NOT a dead model credential. By its own
+     stated test ("whether an operator act ends it") a dead model credential is
+     the strongest member of that set: nothing rolls it on a clock, and it takes
+     every agent on the lane with it. So the badge stays cold at 3am on the one
+     failure that most needs it hot. All three variants count it. */
+  const baseNeedsYou = needsYou;
+  needsYou = function (o) {
+    const creds = (o?.credentials?.consumers ?? []).filter((c) => stateOf(c).act || c.last_error).length;
+    const flow = o?.credentials?.reauth?.state === "waiting" ? 1 : 0;
+    return baseNeedsYou(o) + creds + flow;
+  };
+
+  /* ---- variant A — the attention list ------------------------------------ */
+
+  /* Today's shape with its two gaps closed: the card carries the TERMINAL LINK
+     (the path that always works, which the shipped card names but does not
+     link), and a dead credential says which agents are frozen behind it. */
+  function attCredential(c, o) {
+    const s = stateOf(c);
+    if (!s.act && !c.last_error) return [];
+    const why = c.last_error ?? c.why ?? s.says;
+    return [`<div class="att-item token">
+      <span class="who">${esc(c.consumer)}</span>the model credential is ${esc(c.state)} — ${esc(s.says)}
+      <div class="dim">${esc(why)}</div>
+      <div class="dim">${esc(blast(c, o))}</div>
+      <div style="margin-top:6px"><button class="p-btn p-go" onclick="PROTO_reauth()">Sign in from a browser</button></div>
+    </div>`];
+  }
+
+  /* WHAT IS BROKEN BEHIND IT (finding, #645). A dead credential is not a fact
+     about a file, it is a fact about the box: one lane stops dispatching and
+     every live agent on it freezes mid-ticket. Nothing on the page says that
+     today, and `pre_cooling` cannot: it is usage-shaped — a window, a percent
+     and a reset instant — and a credential cool has none of the three. All
+     three variants say it in their own voice; the wire needs a field. */
+  function blast(c, o) {
+    const lane = c.consumer === "codex" ? "openai" : c.consumer;
+    const frozen = (o?.agents ?? []).filter((a) => (a.last_contact_s ?? 0) > 3600).map((a) => a.session);
+    return `the ${lane} lane is cooled — no new agent is dispatched to it`
+      + (frozen.length ? `, and ${frozen.length} live agents are frozen mid-ticket: ${frozen.join(", ")}` : "");
+  }
+
+  function attReauth(r) {
+    if (!r || r.state !== "waiting") return [];
+    const left = mmss(r.seconds_left ?? 0);
+    const link = r.url
+      ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`
+      : `<span class="dim">curia could not read the link off the pane</span>`;
+    const code = r.code
+      ? `<code class="p-code">${esc(r.code)}</code> <button class="p-btn" onclick="PROTO_copy('${esc(r.code)}')">copy</button>`
+      : `<span class="dim">curia could not read the code off the pane</span>`;
+    return [`<div class="att-item token">
+      <span class="who">${esc(r.consumer)}</span>is signing in — open the link, then enter the code
+      <div style="margin-top:6px">${link}</div>
+      <div style="margin-top:4px">${code}</div>
+      <div class="dim" style="margin-top:6px">${left} left on the code · session <code>${esc(r.session)}</code> ·
+        <a href="${esc(termUrl(r.session))}" target="_blank" rel="noopener">open the terminal</a></div>
+    </div>`];
+  }
+
+  /* ---- variant B — the Credentials screen -------------------------------- */
+
+  function credRow(c) {
+    const s = stateOf(c);
+    const act = s.act
+      ? `<button class="p-btn p-go" onclick="PROTO_reauth()">Sign in</button>`
+      : c.state === "unowned"
+        ? `<span class="p-dim">nothing to press until #648</span>`
+        : `<span class="p-dim">nothing to do</span>`;
+    return `<tr>
+      <td class="mono"><b>${esc(c.consumer)}</b></td>
+      <td><span class="p-chip p-${s.tone}">${esc(c.state)}</span></td>
+      <td class="num">${c.expires_at ? `${esc(until(c.expires_at))}<div class="p-dim">${esc(clock(c.expires_at))}</div>` : `<span class="p-dim">—</span>`}</td>
+      <td class="num">${c.last_refresh_at ? esc(clock(c.last_refresh_at)) : `<span class="p-dim">never</span>`}</td>
+      <td>${esc(c.last_error ?? c.why ?? s.says)}</td>
+      <td style="text-align:right">${act}</td>
+    </tr>`;
+  }
+
+  /* The live login, as a panel above the table rather than a row inside it: it
+     is a FLOW with a clock on it, and a table row cannot carry a countdown, a
+     copyable code and a fallback without becoming a panel anyway. */
+  function credFlow(r) {
+    if (!r || r.state !== "waiting") return "";
+    const blind = !r.url || !r.code;
+    return `<div class="p-flow ${blind ? "p-blind" : ""}">
+      <div class="eyebrow">${esc(r.consumer)} · signing in · ${mmss(r.seconds_left ?? 0)} left on the code</div>
+      ${blind
+        ? `<h3 style="margin:8px 0">curia could not read the login off the pane</h3>
+           <p class="p-dim" style="margin:0 0 10px">The wording changed, or the pane has not printed yet. The terminal always works.</p>`
+        : `<div class="p-step"><span class="p-num">1</span><div>
+             <div>Open the link</div>
+             <a class="p-link" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>
+           </div></div>
+           <div class="p-step"><span class="p-num">2</span><div>
+             <div>Enter this code</div>
+             <div class="p-codewrap"><code class="p-code p-big">${esc(r.code)}</code>
+               <button class="p-btn" onclick="PROTO_copy('${esc(r.code)}')">copy</button></div>
+           </div></div>
+           <div class="p-step"><span class="p-num">3</span><div>
+             <div>Nothing is pasted back</div>
+             <div class="p-dim">curia watches the scratch config dir and adopts the credential the moment it lands.</div>
+           </div></div>`}
+      <div class="p-fall">
+        <a href="${esc(termUrl(r.session))}" target="_blank" rel="noopener">Open the terminal instead →</a>
+        <span class="p-dim">session <code>${esc(r.session)}</code>, torn down after 30 min</span>
+      </div>
+    </div>`;
+  }
+
+  function screenCredentials(p) {
+    const o = p?.overview;
+    if (!o) return noSnapshot(p, "Credentials");
+    const c = o.credentials ?? { consumers: [], reauth: null };
+    const dead = (c.consumers ?? []).filter((x) => stateOf(x).act);
+    return `${head(p, "Credentials")}
+      ${dead.map((x) => `<div class="unread">${esc(blast(x, o))}</div>`).join("")}
+      ${credFlow(c.reauth)}
+      <div class="h-sect"><h3>Model credentials (${(c.consumers ?? []).length})</h3>
+      <table class="p-table"><thead><tr>
+        <th>consumer</th><th>state</th><th>expires</th><th>last refresh</th><th>why</th><th></th>
+      </tr></thead><tbody>${(c.consumers ?? []).map(credRow).join("")}</tbody></table>
+      <p class="p-dim" style="margin-top:10px">Subscription credentials only. Curia holds no API key and this page offers no field for one.</p>
+      </div>`;
+  }
+
+  /* ---- variant C — the takeover ------------------------------------------ */
+
+  /* The page's own comment says it: while a login is up, nothing else on the
+     box matters as much. C takes that literally. It is sized for a phone at 3am
+     first and a desktop second, and it is always dismissible — a takeover that
+     traps the operator is worse than the card it replaced. */
+  function takeover(o) {
+    if (PROTO.dismissed) return "";
+    const c = o?.credentials ?? {};
+    const r = c.reauth;
+    const dead = (c.consumers ?? []).find((x) => stateOf(x).act);
+    if (!r && !dead) return "";
+    const body = r && r.state === "waiting" ? takeWaiting(r) : takeDead(dead, o);
+    return `<div class="p-over"><div class="p-sheet">
+      <button class="p-x" onclick="PROTO_dismiss()" title="not now">✕</button>
+      ${body}
+    </div></div>`;
+  }
+
+  function takeDead(c, o) {
+    const frozen = (o?.dispatch_holds ?? []).map((h) => h.ticket);
+    return `<div class="p-kicker p-bad">${esc(c.consumer)} · the model credential is ${esc(c.state)}</div>
+      <h2 class="p-h">Curia cannot take a turn on this lane.</h2>
+      <p class="p-lead">${esc(c.last_error ?? c.why ?? "")}</p>
+      <ul class="p-facts">
+        <li>The <code>${esc(c.consumer === "codex" ? "openai" : c.consumer)}</code> lane is cooled — no new agent is dispatched to it.</li>
+        <li>${frozen.length
+          ? `<b>${frozen.length} live agents are frozen</b> mid-ticket and keep their worktrees: ${frozen.map((t) => `<code>#${esc(t)}</code>`).join(", ")}.`
+          : "No live agent is waiting on it."}</li>
+        <li>Signing in heals them in place. Nothing is lost and nothing restarts.</li>
+      </ul>
+      <button class="p-huge" onclick="PROTO_reauth()">Sign in from this phone</button>
+      <div class="p-fall"><a href="${esc(termUrl("curia-auth-openai"))}" target="_blank" rel="noopener">Open a terminal instead →</a></div>`;
+  }
+
+  function takeWaiting(r) {
+    const blind = !r.url || !r.code;
+    return `<div class="p-kicker">${esc(r.consumer)} · signing in</div>
+      <div class="p-clock ${(r.seconds_left ?? 0) < 180 ? "p-bad" : ""}">${mmss(r.seconds_left ?? 0)}<span> left on the code</span></div>
+      ${blind
+        ? `<h2 class="p-h">curia could not read the login off the pane.</h2>
+           <p class="p-lead">The link and the code are a guess about somebody else's wording, and this time the guess missed. The terminal always works.</p>
+           <a class="p-huge p-huge-a" href="${esc(termUrl(r.session))}" target="_blank" rel="noopener">Open the terminal</a>`
+        : `<h2 class="p-h">Two taps.</h2>
+           <a class="p-huge p-huge-a" href="${esc(r.url)}" target="_blank" rel="noopener">1 · Open ${esc(r.url.replace("https://", ""))}</a>
+           <div class="p-codebox" onclick="PROTO_copy('${esc(r.code)}')">
+             <div class="p-dim">2 · enter this code — tap to copy</div>
+             <div class="p-codehuge">${esc(r.code)}</div>
+           </div>
+           <p class="p-lead">Nothing is pasted back here. Curia adopts the credential the moment it lands and heals every frozen agent on the same tick.</p>
+           <div class="p-fall"><a href="${esc(termUrl(r.session))}" target="_blank" rel="noopener">Open the terminal instead →</a></div>`}`;
+  }
+
+  /* ---- installing a variant ---------------------------------------------- */
+
+  const TAB = "credentials";
+
+  function install(v) {
+    /* the tab, added and removed rather than hidden — a nav item is structure */
+    const i = NAMES.indexOf(TAB);
+    if (v === "B" && i < 0) {
+      SCREENS[TAB] = ["Credentials", screenCredentials];
+      NAMES.splice(NAMES.indexOf("feed") + 1, 0, TAB);
+    } else if (v !== "B" && i >= 0) {
+      NAMES.splice(i, 1);
+      delete SCREENS[TAB];
+      if (UI.screen === TAB) UI.screen = "home";
+    }
+
+    attentionList = function (o) {
+      const c = o?.credentials ?? {};
+      let cred = [];
+      if (v === "A") {
+        cred = [...attReauth(c.reauth), ...(c.consumers ?? []).flatMap((x) => attCredential(x, o))];
+      } else if (v === "B") {
+        /* One line, not a card: the detail lives on the screen that owns it, and
+           saying it twice is how two surfaces drift apart. */
+        const bad = (c.consumers ?? []).filter((x) => stateOf(x).act);
+        const flow = c.reauth?.state === "waiting";
+        if (flow) {
+          cred = [`<div class="att-item token"><span class="who">${esc(c.reauth.consumer)}</span>is signing in — the link and the code are on
+            <a href="#credentials" onclick="goto('credentials')">Credentials</a> (${mmss(c.reauth.seconds_left ?? 0)} left)</div>`];
+        } else if (bad.length) {
+          cred = [`<div class="att-item token"><span class="who">${esc(bad.map((x) => x.consumer).join(", "))}</span>the model credential is ${esc(bad[0].state)} —
+            <a href="#credentials" onclick="goto('credentials')">open Credentials</a> to sign in</div>`];
+        }
+      } else {
+        /* C: the takeover carries it. What stays here is the trail back, for the
+           operator who dismissed the sheet and now has to find it again. */
+        const bad = (c.consumers ?? []).filter((x) => stateOf(x).act);
+        const flow = c.reauth?.state === "waiting";
+        if (flow || bad.length) {
+          cred = [`<div class="att-item token"><span class="who">${esc(flow ? c.reauth.consumer : bad[0].consumer)}</span>${
+            flow ? "is signing in" : `the model credential is ${esc(bad[0].state)}`} —
+            <a href="#" onclick="PROTO_undismiss();return false">reopen</a></div>`];
+        }
+      }
+      const rest = [
+        ...(o.escalations ?? []).map(escCard),
+        ...(o.review_gate ?? []).map(gateCard),
+        ...(o.token_warnings ?? []).map(tokenCard),
+        ...spentWindows(o.usage).map((w) => `<div class="att-item limit">
+          <span class="who">${esc(w.provider)}</span>the ${esc(w.label)} window is spent at ${esc(w.pct)}%
+          <div class="dim">${w.at ? `it rolls at ${esc(clock(w.at))}` : "no reset instant is stated"}</div></div>`),
+        ...(o.dispatch_holds ?? []).map(dispatchHoldCard),
+      ];
+      const items = [...cred, ...rest];
+      return { count: items.length, html: items.length ? items.join("") : `<div class="empty">Nothing wants you.</div>` };
+    };
+  }
+
+  /* ---- the prototype's own chrome ---------------------------------------- */
+
+  function chrome() {
+    const step = STEPS[PROTO.step];
+    const o = payload?.overview;
+    const msgs = STEPS.slice(0, PROTO.step + 1).flatMap((s) => s.discord ?? []);
+    return `
+      <div class="p-banner">
+        <b>PROTOTYPE</b> · wayfinder #645 · canned state, no daemon ·
+        variant <b>${PROTO.variant}</b> — ${esc(VARIANTS[PROTO.variant])}
+      </div>
+      <div class="p-rail">
+        <div class="p-railsec">
+          <div class="eyebrow">The incident</div>
+          <div class="p-steps">${STEPS.map((s, i) => `<button class="p-btn ${i === PROTO.step ? "on" : ""}" onclick="PROTO_go(${i})">${i + 1}. ${esc(s.name)}</button>`).join("")}</div>
+          <p class="p-blurb">${esc(step.blurb)}</p>
+        </div>
+        <div class="p-railsec">
+          <div class="eyebrow">Discord — #curia</div>
+          ${msgs.length
+            ? msgs.map((m) => `<div class="p-msg"><div class="p-msghead"><b>${esc(m.who)}</b> <span class="p-dim">${esc(m.ts)}</span></div>
+                <div class="p-msgbody">${discordish(m.body)}</div></div>`).join("")
+            : `<div class="p-dim">Nothing has been said. A healthy credential is silent everywhere.</div>`}
+        </div>
+      </div>
+      <div class="p-bar">
+        <button class="p-btn" onclick="PROTO_v(-1)" title="previous variant">◀</button>
+        <span class="p-vlabel"><b>${PROTO.variant}</b> — ${esc(VARIANTS[PROTO.variant])}</span>
+        <button class="p-btn" onclick="PROTO_v(1)" title="next variant">▶</button>
+        <span class="p-sep"></span>
+        <button class="p-btn ${PROTO.phone ? "on" : ""}" onclick="PROTO_phone()">📱 phone</button>
+        <span class="p-sep"></span>
+        <button class="p-btn" onclick="PROTO_go(${Math.max(0, PROTO.step - 1)})">, prev</button>
+        <span class="p-vlabel p-dim">step ${PROTO.step + 1}/${STEPS.length}</span>
+        <button class="p-btn" onclick="PROTO_go(${Math.min(STEPS.length - 1, PROTO.step + 1)})">next .</button>
+      </div>
+      ${PROTO.variant === "C" ? takeover(o) : ""}`;
+  }
+
+  /* Discord renders a small subset of markdown. Enough of it to judge the copy. */
+  function discordish(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/(https?:\/\/[^\s]+)/g, '<a href="$1">$1</a>')
+      .replace(/\n/g, "<br>");
+  }
+
+  /* ---- wiring ------------------------------------------------------------ */
+
+  const baseRender = render;
+  render = function () {
+    baseRender();
+    let host = document.getElementById("p-chrome");
+    if (!host) {
+      host = document.createElement("div");
+      host.id = "p-chrome";
+      document.body.appendChild(host);
+    }
+    host.innerHTML = chrome();
+    document.documentElement.dataset.phone = PROTO.phone ? "1" : "";
+  };
+
+  /* The variant, the step and the phone frame all ride the URL — replaceState
+     rather than pushState, so flipping through variants does not bury the back
+     button under twenty entries. */
+  function stamp() {
+    const q = new URLSearchParams(location.search);
+    q.set("variant", PROTO.variant);
+    q.set("step", String(PROTO.step));
+    if (PROTO.phone) q.set("phone", "1"); else q.delete("phone");
+    history.replaceState(null, "", `${location.pathname}?${q}${location.hash}`);
+  }
+
+  window.PROTO_go = (i) => {
+    PROTO.step = Math.max(0, Math.min(STEPS.length - 1, i));
+    PROTO.stepStartedAt = Date.now();
+    PROTO.dismissed = false;
+    stamp();
+    tick();
+  };
+  window.PROTO_v = (d) => {
+    PROTO.variant = VKEYS[(VKEYS.indexOf(PROTO.variant) + d + VKEYS.length) % VKEYS.length];
+    PROTO.dismissed = false;
+    install(PROTO.variant);
+    stamp();
+    render();
+  };
+  window.PROTO_phone = () => { PROTO.phone = !PROTO.phone; stamp(); render(); };
+  window.PROTO_dismiss = () => { PROTO.dismissed = true; render(); };
+  window.PROTO_undismiss = () => { PROTO.dismissed = false; render(); };
+  window.PROTO_copy = (code) => {
+    navigator.clipboard?.writeText(code);
+    UI.act.said = { key: "proto-copy", text: `copied ${code}`, ok: true };
+    render();
+  };
+  /* The one write in the whole prototype, and it writes nothing: it walks the
+     story forward, which is what the operator's press would really do. */
+  window.PROTO_reauth = () => PROTO_go(2);
+
+  document.addEventListener("keydown", (e) => {
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    if (e.key === "ArrowLeft") { e.preventDefault(); PROTO_v(-1); }
+    if (e.key === "ArrowRight") { e.preventDefault(); PROTO_v(1); }
+    if (e.key === ",") PROTO_go(PROTO.step - 1);
+    if (e.key === ".") PROTO_go(PROTO.step + 1);
+  });
+
+  if (!VKEYS.includes(PROTO.variant)) PROTO.variant = "A";
+  PROTO.step = Math.max(0, Math.min(STEPS.length - 1, PROTO.step));
+  install(PROTO.variant);
+  /* The page booted before this script added the Credentials tab, so a
+     `#credentials` hash — which is exactly what the Discord alarm links to —
+     fell back to Home. Re-apply it now that the tab exists. */
+  const hash = location.hash.slice(1);
+  if (NAMES.includes(hash) && hash !== UI.screen) enter(hash);
+  render();
+})();
+</script>
