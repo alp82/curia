@@ -57,6 +57,18 @@ candidate and closes, so every follow-up edits the same base. The hero-title ove
 confirmed: the opening-arc ticket offers titles that lead with the Matt Pocock wrapper claim, and
 positioning.md records the change with that ticket.
 
+## The identity rounds ([#624](https://github.com/alp82/curia/issues/624))
+
+**Round 1.** The identity frame went in: every scene leads with its claim (a numbered kicker,
+then the bold line), scenes alternate sides, and the evidence leans toward the other side. Three
+skins rode `?id=a|b|c`: A pipeline (stage-colored rules), B ledger (hairlines and outlined
+numerals), C chart (dashed route and map-card frames). The operator: numbering starts at 1, and
+all three read as book chapters instead of a continuous story. The direction is an action movie:
+fast cuts, different backgrounds, color transitions. From now on every round offers five vastly
+distinct variations built from the feedback so far. That default also becomes curia policy:
+the grilling ticket [#635](https://github.com/alp82/curia/issues/635) decides the rule, and the
+task ticket [#636](https://github.com/alp82/curia/issues/636) applies it.
+
 ## The verdict
 
 <!-- Filled at resolution. -->

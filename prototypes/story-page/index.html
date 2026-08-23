@@ -2,9 +2,10 @@
 <!--
   alp82/curia#551 — Prototype the final landing page from the saga baseline.
   alp82/curia#624 — The visual identity of the story page: the claim comes
-  first in every scene, scenes alternate sides, and three candidate skins
-  ride ?id=a|b|c behind a switcher pill. The winning skin stays at
-  resolution; the losers and the switcher leave the file.
+  first in every scene, scenes alternate sides, and candidate skins ride
+  ?id=1..5 behind a switcher pill (round 2: fast cuts, per-scene
+  backgrounds, color transitions). The winning skin stays at resolution;
+  the losers and the switcher leave the file.
   On the map alp82/curia#600 — Ship the story landing page.
 
   THE CANDIDATE for https://curia.sh. One self-contained file: no build step,
@@ -137,87 +138,87 @@
      #624 — the identity frame. The claim comes first: kicker, then
      the bold line, then the evidence under it. Scenes alternate
      sides: .sL docks left, .sR docks right, and the evidence leans
-     toward the other side. Three candidate skins ride ?id=a|b|c;
-     the winner stays at resolution, the losers leave the file.
+     toward the other side. Candidate skins ride ?id=1..5; the
+     winner stays at resolution, the losers leave the file.
      ================================================================ */
   .scene { position: relative; }
   .claim { margin: 0 0 1rem; }
   .claim .bold { margin-bottom: 0; }
   .kick { margin: 0 0 0.55rem; font-family: var(--mono); color: var(--dim); font-size: 0.72rem; }
   .kick .kn { margin-right: 0.55rem; }
-  .kick .kname { text-transform: uppercase; letter-spacing: 0.18em; }
+  /* Scene names stay in the markup for later rounds, hidden: round 1
+     read named frames as book chapters. */
+  .kick .kname { display: none; }
   .sR .claim, .sR .fact, .sR .story { text-align: right; }
   .sR .story { margin-left: auto; }
   .scene .shot { margin: 1.7rem 0 0.8rem; padding: 0 1.1rem; }
   .sL .shot { justify-content: flex-end; }
   .sR .shot { justify-content: flex-start; }
 
-  /* Skin A — pipeline. Every scene wears the stage color of the
-     ticket pipeline: take, agent, gate, merged. A mono number and a
-     stage-colored rule sit above every claim. */
-  .id-a [data-stage="take"] { --sc: var(--st-take); }
-  .id-a [data-stage="agent"] { --sc: var(--st-agent); }
-  .id-a [data-stage="gate"] { --sc: var(--st-gate); }
-  .id-a [data-stage="merged"] { --sc: var(--st-merged); }
-  .id-a .kick { display: flex; align-items: center; gap: 0.65rem; font-weight: 600; letter-spacing: 0.12em; color: var(--sc, var(--dim)); }
-  .id-a .kick .kn { margin: 0; }
-  .id-a .sR .kick { flex-direction: row-reverse; }
-  .id-a .kick::after { content: ""; flex: 1; height: 2px; border-radius: 2px; background: linear-gradient(to right, var(--sc, var(--dim)), transparent 75%); opacity: 0.75; }
-  .id-a .sR .kick::after { background: linear-gradient(to left, var(--sc, var(--dim)), transparent 75%); }
-  .id-a .kick .kname { display: none; }
+  /* Round 2 (#624): the operator wants an action movie, not book
+     chapters — fast cuts, different backgrounds, color transitions.
+     Five variations of that direction, ?id=1..5. Every scene wears
+     the stage of the ticket pipeline as its color source. */
+  .scene[data-stage="take"] { --sc: var(--st-take); --scb: 139, 155, 176; }
+  .scene[data-stage="agent"] { --sc: var(--st-agent); --scb: 224, 174, 76; }
+  .scene[data-stage="gate"] { --sc: var(--st-gate); --scb: 121, 166, 242; }
+  .scene[data-stage="merged"] { --sc: var(--st-merged); --scb: 125, 211, 160; }
+  body[class*="id-"] .wrap { padding-left: 1.25rem; }
 
-  /* Skin B — ledger. A hairline between scenes carries the scene
-     name; an oversized outlined numeral bleeds off the docking edge;
-     evidence tilts in from the other side. */
-  .id-b .scene { border-top: 1px solid var(--line); margin-top: 3vh; }
-  .id-b .scene::after {
-    content: attr(data-name); position: absolute; top: -0.6em;
-    font: 600 0.6rem var(--mono); letter-spacing: 0.22em; text-transform: uppercase;
-    color: var(--dim); background: var(--bg); padding: 0 0.5rem;
-  }
-  .id-b .sL::after { left: 0.85rem; }
-  .id-b .sR::after { right: 0.85rem; }
-  .id-b .scene.cont { border-top: none; margin-top: 0; }
-  .id-b .scene.cont::after { content: none; }
-  .id-b .wrap { padding-left: 1.25rem; }
-  .id-b .kick .kn {
-    display: block; font-size: clamp(3.4rem, 16vw, 6rem); font-weight: 750; line-height: 1;
-    letter-spacing: -0.04em; color: #10151d; -webkit-text-stroke: 1px #414b5c;
-    margin: 0.6rem 0 0.1rem;
-  }
-  .id-b .kick .kname { display: none; }
-  .id-b .bold { font-size: clamp(1.7rem, 7vw, 3rem); letter-spacing: -0.03em; }
-  .id-b .kick.sm .kn { font-size: clamp(2rem, 9vw, 3rem); margin: 0; }
+  /* Skin 1 — smash. Hard cuts: every scene is a full-bleed panel in
+     its stage tint with a solid accent edge on the docking side, and
+     the title slams in heavy. */
+  .id-1 .scene { background: rgba(var(--scb), 0.07); padding-top: 6vh; }
+  .id-1 .scene.sL { border-left: 4px solid var(--sc); }
+  .id-1 .scene.sR { border-right: 4px solid var(--sc); }
+  .id-1 .scene.cont { padding-top: 0; }
+  .id-1 .bold { font-size: clamp(1.9rem, 8vw, 3.2rem); font-weight: 800; letter-spacing: -0.04em; line-height: 1.02; }
+  .id-1 .kick { font-weight: 800; }
+  .id-1 .kick .kn { background: var(--sc); color: #08090c; padding: 0.15rem 0.5rem; margin: 0; }
 
-  /* Skin C — chart. A dashed route line runs down the docking edge,
-     and every claim sits in a dashed map-card frame with an accent
-     badge — the same language as the map cards of the hero canvas. */
-  .id-c .wrap { padding-left: 1.25rem; }
-  .id-c .sL .wrap { padding-left: 2rem; }
-  .id-c .sR .wrap { padding-right: 2rem; }
-  .id-c .sL::before, .id-c .sR::before {
-    content: ""; position: absolute; top: 0; bottom: 0;
-    border-left: 2px dashed rgba(125, 211, 160, 0.22);
+  /* Skin 2 — slash. Diagonal cuts: each scene slices over the one
+     before it with a slanted top edge, direction alternating, in a
+     stronger stage tint. */
+  .id-2 .scene { background: rgba(var(--scb), 0.11); margin-top: calc(-1 * min(4vw, 2.5rem)); padding-top: calc(3vh + min(6vw, 4rem)); }
+  .id-2 .sL { clip-path: polygon(0 min(5vw, 3rem), 100% 0, 100% 100%, 0 100%); }
+  .id-2 .sR { clip-path: polygon(0 0, 100% min(5vw, 3rem), 100% 100%, 0 100%); }
+  .id-2 .scene.cont { clip-path: none; margin-top: 0; padding-top: 0; }
+  .id-2 .bold { font-size: clamp(1.7rem, 7vw, 2.8rem); font-weight: 750; transform: skewY(-1.2deg); }
+  .id-2 .sR .bold { transform: skewY(1.2deg); }
+
+  /* Skin 3 — flood. Color transitions: the page background floods
+     to the stage hue of the scene in view (JS), and a stage-colored
+     spotlight glows behind every piece of evidence. Titles wipe in. */
+  .id-3 { transition: background-color 0.5s var(--ease); }
+  .id-3 .shot { position: relative; }
+  .id-3 .shot::before {
+    content: ""; position: absolute; inset: -14% -10%;
+    background: radial-gradient(closest-side, rgba(var(--scb), 0.17), transparent 72%);
   }
-  .id-c .sL::before { left: 0.7rem; }
-  .id-c .sR::before { left: auto; right: 0.7rem; border-left: none; border-right: 2px dashed rgba(125, 211, 160, 0.22); }
-  .id-c .claim {
-    position: relative; width: fit-content; max-width: 100%;
-    border: 1.5px dashed rgba(125, 211, 160, 0.5); border-radius: 10px;
-    background: rgba(13, 16, 21, 0.82); padding: 0.75rem 0.95rem 0.85rem;
-  }
-  .id-c .sR .claim { margin-left: auto; }
-  .id-c .claim::after {
-    content: "◆"; position: absolute; top: -0.6rem; font-size: 0.7rem;
-    color: var(--accent); background: var(--bg); padding: 0 0.2rem; line-height: 1;
-  }
-  .id-c .sL .claim::after { left: 0.8rem; }
-  .id-c .sR .claim::after { right: 0.8rem; }
-  .id-c .kick { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem; }
-  .id-c .sR .kick { justify-content: flex-end; }
-  .id-c .kick .kn { background: var(--accent); color: #06231a; border-radius: 4px; padding: 0.1rem 0.4rem; font-weight: 700; font-size: 0.62rem; margin: 0; }
-  .id-c .kick .kname { font-size: 0.64rem; }
-  .id-c .bold { font-size: clamp(1.35rem, 5.4vw, 2.2rem); }
+  .id-3 .shot > * { position: relative; }
+  .id-3 .bold { font-size: clamp(1.7rem, 7vw, 2.9rem); }
+  .id-3 .kick { color: var(--sc); font-weight: 700; }
+
+  /* Skin 4 — slate. Wipe cuts: a stage-colored bar wipes across the
+     top of every claim from the docking side, and evidence punches
+     in with a small zoom. A side gradient tints each scene. */
+  .id-4 .claim { position: relative; padding-top: 0.95rem; }
+  .id-4 .claim::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--sc); transform-origin: left; }
+  .id-4 .sR .claim::before { transform-origin: right; }
+  .id-4 .kick { color: var(--sc); font-weight: 700; }
+  .id-4 .scene.sL { background: linear-gradient(90deg, rgba(var(--scb), 0.1), transparent 65%); }
+  .id-4 .scene.sR { background: linear-gradient(270deg, rgba(var(--scb), 0.1), transparent 65%); }
+  .id-4 .bold { font-size: clamp(1.7rem, 7vw, 2.9rem); font-weight: 750; }
+
+  /* Skin 5 — montage. Zoom cuts: claims and evidence sit on tilted
+     planes with hard offset shadows, and everything punches in with
+     a fast scale drop. */
+  .id-5 .scene { background: rgba(var(--scb), 0.06); box-shadow: 0 -1px 0 rgba(var(--scb), 0.35); }
+  .id-5 .bold { font-size: clamp(1.7rem, 7vw, 2.9rem); font-weight: 750; transform: rotate(-0.8deg); }
+  .id-5 .sR .bold { transform: rotate(0.8deg); }
+  .id-5 .shot > * { transform: rotate(0.8deg); box-shadow: 0.55rem 0.55rem 0 rgba(var(--scb), 0.28); }
+  .id-5 .sR .shot > * { transform: rotate(-0.8deg); }
+  .id-5 #run-pin .bold, .id-5 #run-pin .gh, .id-5 #run-pin .gh.big { transform: none; }
 
   /* The skin switcher pill — prototype chrome, not part of the
      design under judgment. It leaves the file at resolution. */
@@ -506,15 +507,23 @@
   .js .sR .rv:not(.in) { transform: translateX(2.4rem); }
   .js .sL .shot.rv:not(.in) { transform: translateX(2.4rem); }
   .js .sR .shot.rv:not(.in) { transform: translateX(-2.4rem); }
-  .js .id-b .sL .shot.rv:not(.in) { transform: translateX(2.6rem) rotate(1.2deg); }
-  .js .id-b .sR .shot.rv:not(.in) { transform: translateX(-2.6rem) rotate(-1.2deg); }
+  /* Fast cuts (round 2): inside a skin, scene reveals snap. */
+  body[class*="id-"] .scene .rv.in { transition-duration: 0.38s; }
+  body[class*="id-"] .scene .tw.in { transition-duration: 0.3s; }
+  .js .id-2 .sL .shot.rv:not(.in) { transform: translate(2.6rem, 1.6rem); }
+  .js .id-2 .sR .shot.rv:not(.in) { transform: translate(-2.6rem, 1.6rem); }
+  .js .id-3 .scene .claim.rv:not(.in) { transform: none; opacity: 1; clip-path: inset(0 100% 0 0); }
+  .js .id-3 .sR .claim.rv:not(.in) { clip-path: inset(0 0 0 100%); }
+  .js .id-3 .scene .claim.rv.in { clip-path: inset(0 0 0 0); transition: clip-path 0.5s var(--ease), opacity 0.3s; }
+  .js .id-4 .claim.rv:not(.in)::before { transform: scaleX(0); }
+  .js .id-4 .claim.rv.in::before { transform: scaleX(1); transition: transform 0.5s var(--ease) 0.1s; }
+  .js .id-4 .scene .shot.rv:not(.in) { transform: scale(0.94); }
+  .js .id-5 .scene .rv:not(.in) { transform: scale(1.07); }
 
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
-    .js .rv, .js .tw,
-    .js .sL .rv:not(.in), .js .sR .rv:not(.in),
-    .js .sL .shot.rv:not(.in), .js .sR .shot.rv:not(.in),
-    .js .id-b .sL .shot.rv:not(.in), .js .id-b .sR .shot.rv:not(.in) { opacity: 1; transform: none; }
+    .js .rv, .js .tw { opacity: 1 !important; transform: none !important; clip-path: none !important; }
+    .js .claim::before { transform: none !important; }
     * { animation-duration: 0.001ms !important; }
     .room { height: 3rem; }
     .room.tall { height: 3rem; }
@@ -554,7 +563,7 @@
   <section class="scene sL" data-stage="take" data-name="into the mess">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">02</span><span class="kname">into the mess</span></p>
+        <p class="kick"><span class="kn">01</span><span class="kname">into the mess</span></p>
         <h2 class="bold">The backlog panic grows</h2>
       </header>
     </div>
@@ -565,7 +574,7 @@
   <section class="scene sR" data-stage="take" data-name="maps bring order">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">03</span><span class="kname">maps bring order</span></p>
+        <p class="kick"><span class="kn">02</span><span class="kname">maps bring order</span></p>
         <h2 class="bold">Maps turn the pile into a queue.</h2>
       </header>
       <p class="story rv">Blocked tickets wait. Open ones light up, and agents take them in
@@ -580,7 +589,7 @@
   <section class="scene sL" data-stage="agent" data-name="the grilling">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">04</span><span class="kname">the grilling</span></p>
+        <p class="kick"><span class="kn">03</span><span class="kname">the grilling</span></p>
         <h2 class="bold">Answer from the couch.</h2>
       </header>
       <p class="story rv">An agent hits a real decision and asks you in Discord.</p>
@@ -623,7 +632,7 @@
   <section class="scene sR" data-stage="agent" data-name="the preview">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">05</span><span class="kname">the preview</span></p>
+        <p class="kick"><span class="kn">04</span><span class="kname">the preview</span></p>
         <h2 class="bold">Live previews from your phone or workstation</h2>
       </header>
     </div>
@@ -656,7 +665,7 @@
   <section class="scene sL" data-stage="agent" data-name="the atlas">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">06</span><span class="kname">the atlas</span></p>
+        <p class="kick"><span class="kn">05</span><span class="kname">the atlas</span></p>
         <h2 class="bold">A dashboard that shows where every map stands and which agents are
           currently running.</h2>
       </header>
@@ -699,7 +708,7 @@
   <section class="scene sR" data-stage="agent" data-name="the harness, live">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">07</span><span class="kname">the harness, live</span></p>
+        <p class="kick"><span class="kn">06</span><span class="kname">the harness, live</span></p>
         <h2 class="bold">Watch the agent type in your browser tab.</h2>
       </header>
     </div>
@@ -746,7 +755,7 @@
     <div class="run-sticky">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick sm"><span class="kn">08</span><span class="kname">one ticket on GitHub</span></p>
+        <p class="kick sm"><span class="kn">07</span><span class="kname">one ticket on GitHub</span></p>
         <h2 class="bold">You are in charge</h2>
       </header>
     </div>
@@ -811,7 +820,7 @@
   <section class="scene sR" data-stage="merged" data-name="your VPS">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">09</span><span class="kname">your VPS</span></p>
+        <p class="kick"><span class="kn">08</span><span class="kname">your VPS</span></p>
         <h2 class="bold">Your VPS is enough.</h2>
       </header>
     </div>
@@ -833,7 +842,7 @@
   <section class="scene sL" data-stage="merged" data-name="open source">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">10</span><span class="kname">open source</span></p>
+        <p class="kick"><span class="kn">09</span><span class="kname">open source</span></p>
         <h2 class="bold">Open source.</h2>
       </header>
       <p class="fact rv">Your box, your subscription, your keys.</p>
@@ -846,7 +855,7 @@
   <section class="scene sR" id="setup" data-stage="merged" data-name="the guide">
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick"><span class="kn">11</span><span class="kname">the guide</span></p>
+        <p class="kick"><span class="kn">10</span><span class="kname">the guide</span></p>
         <h2 class="bold">Set it up</h2>
       </header>
       <p class="need rv"><b>What you need:</b> One Linux box with Docker, Tailscale, a Discord
@@ -929,7 +938,7 @@ if (prefersStill || !window.IntersectionObserver) {
       if (el.classList.contains('stagger')) {
         var kids = [].slice.call(el.querySelectorAll('.tw'));
         kids.forEach(function (k, i) {
-          k.style.transitionDelay = Math.min(i * 220, 1800) + 'ms';
+          k.style.transitionDelay = Math.min(i * 140, 1100) + 'ms';
           k.classList.add('in');
         });
         el.classList.add('in');
@@ -965,12 +974,14 @@ if (prefersStill || !window.IntersectionObserver) {
 
 /* ---- #624: the skin switcher. Prototype chrome for the identity
    rounds — it leaves the file with the losing skins at resolution.
-   ?id=a|b|c picks a skin; the pill cycles them. ---- */
+   ?id=1..5 picks a skin; the pill cycles them. ---- */
 
 var SKINS = [
-  { k: 'a', name: 'pipeline' },
-  { k: 'b', name: 'ledger' },
-  { k: 'c', name: 'chart' }
+  { k: '1', name: 'smash' },
+  { k: '2', name: 'slash' },
+  { k: '3', name: 'flood' },
+  { k: '4', name: 'slate' },
+  { k: '5', name: 'montage' }
 ];
 var skinIdx = 0;
 try {
@@ -987,9 +998,29 @@ function applySkin() {
   var s = SKINS[skinIdx];
   SKINS.forEach(function (o) { document.body.classList.remove('id-' + o.k); });
   document.body.classList.add('id-' + s.k);
-  skinbar.querySelector('.lbl').textContent = s.k.toUpperCase() + ' — ' + s.name;
+  skinbar.querySelector('.lbl').textContent = s.k + ' — ' + s.name;
   try { history.replaceState(null, '', '?id=' + s.k); } catch (e) {}
+  floodTick();
 }
+
+/* Skin 3: the page background floods to the stage hue of the scene
+   nearest the middle of the screen. Very dark hues, so the canvas
+   and every panel stay readable over any of them. */
+var FLOOD = { take: '#0b1017', agent: '#15100a', gate: '#0a0e19', merged: '#081209' };
+var floodScenes = [].slice.call(document.querySelectorAll('.scene[data-stage]'));
+function floodTick() {
+  if (!document.body.classList.contains('id-3')) {
+    document.body.style.backgroundColor = '';
+    return;
+  }
+  var mid = window.innerHeight / 2, pick = '';
+  floodScenes.forEach(function (sc) {
+    var r = sc.getBoundingClientRect();
+    if (r.top <= mid && r.bottom >= mid) pick = sc.getAttribute('data-stage');
+  });
+  document.body.style.backgroundColor = pick ? FLOOD[pick] : '';
+}
+window.addEventListener('scroll', floodTick, { passive: true });
 skinbar.querySelectorAll('button')[0].addEventListener('click', function () {
   skinIdx = (skinIdx + SKINS.length - 1) % SKINS.length; applySkin();
 });
@@ -1273,12 +1304,6 @@ function frame(ts) {
     }
   }
 
-  /* Below scene 3 the line runs on down the left edge, plain.
-     Skin A only: B and C carry their own frame lines (#624). */
-  if (rOrder.bottom < H && document.body.classList.contains('id-a')) {
-    ctx.strokeStyle = accent(0.16);
-    ctx.beginPath(); ctx.moveTo(16, Math.max(0, rOrder.bottom)); ctx.lineTo(16, H); ctx.stroke();
-  }
 }
 
 size();
