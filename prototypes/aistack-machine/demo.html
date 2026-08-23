@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#554 · The aistack machine: one real sync from the curia box</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1a2027; --dim: #5b6572;
+    --line: #e3e7ec; --accent: #0a7d4f; --accent-ink: #ffffff;
+    --term-bg: #14181d; --term-ink: #c9d4de; --term-dim: #7a8794; --ok: #4cc38a;
+    --warn-bg: #fff7e6; --warn-line: #e8c675;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1317; --card: #171c22; --ink: #dde4eb; --dim: #8b97a3;
+      --line: #262d35; --accent: #2fa874; --accent-ink: #0b0f13;
+      --term-bg: #0a0d10; --term-ink: #c9d4de; --warn-bg: #2a2312; --warn-line: #6e5a1e;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 1rem; max-width: 42rem; margin: 0 auto;
+  }
+  header { margin: 1rem 0 1.5rem; }
+  .ticket { color: var(--dim); font-size: .85rem; letter-spacing: .04em; text-transform: uppercase; }
+  h1 { font-size: 1.35rem; line-height: 1.3; margin-top: .3rem; }
+  .verdict {
+    background: var(--accent); color: var(--accent-ink); border-radius: 10px;
+    padding: .8rem 1rem; margin: 1rem 0 1.5rem; font-weight: 600;
+  }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1rem; margin-bottom: 1rem; }
+  h2 { font-size: 1rem; margin-bottom: .6rem; }
+  h2 .n { color: var(--dim); font-weight: 400; }
+  p { margin-bottom: .6rem; }
+  p:last-child { margin-bottom: 0; }
+  .term {
+    background: var(--term-bg); color: var(--term-ink); border-radius: 8px;
+    padding: .7rem .9rem; font: .78rem/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    overflow-x: auto; white-space: pre; margin: .6rem 0;
+  }
+  .term .c { color: var(--term-dim); }
+  .term .ok { color: var(--ok); }
+  table { border-collapse: collapse; width: 100%; margin: .6rem 0; font-size: .9rem; }
+  th, td { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; font-size: .8rem; }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  th.num { text-align: right; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px;
+    padding: .6rem .8rem; font-size: .9rem; margin: .6rem 0; }
+  .dim { color: var(--dim); font-size: .9rem; }
+  ul { padding-left: 1.2rem; margin-bottom: .6rem; }
+  li { margin-bottom: .3rem; }
+  code { font: .85em ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: var(--line);
+    padding: .05em .35em; border-radius: 4px; }
+  footer { color: var(--dim); font-size: .85rem; margin: 1.5rem 0 1rem; }
+</style>
+</head>
+<body>
+<header>
+  <div class="ticket">alp82/curia#554 · wayfinder prototype · 2026-08-23</div>
+  <h1>The aistack machine: register the curia box and sync its tokens</h1>
+</header>
+
+<div class="verdict">The box registered as machine curia.sh and published one real 30-day reading to aistack. Every step ran headless except the one browser approval.</div>
+
+<section>
+  <h2><span class="n">1 ·</span> The registration</h2>
+  <p>One headless device-code login. The box printed a code, the operator approved it in a browser, the CLI saved the token.</p>
+  <div class="term"><span class="c">box$</span> npx -y @use-aistack/cli@0.7.2 login
+●  CODE T72NNC
+●  OPEN https://aistack.to/cli/auth?code=T72NNC
+◒  Waiting for approval...
+◇  <span class="ok">Authenticated</span>
+◆  Token saved.</div>
+  <p>The answer is <strong>both</strong>: a one-time act (the approval binds the machine name and the stack) and a credential (a 64-character bearer, returned once). The credential landed in <code>$HOME/.config/aistack/credentials.json</code>. The CLI reads it from that file only, so the build home is the same file under curia's durable HOME: <code>home/.config/aistack/credentials.json</code>, on box disk, never committed.</p>
+</section>
+
+<section>
+  <h2><span class="n">2 ·</span> The reading</h2>
+  <p>The CLI computed the 30-day rolling window from this agent's real transcripts under <code>/cfg/projects</code>. A local cross-check with the same dedup rule agrees:</p>
+  <table>
+    <tr><th>Moment</th><th class="num">Responses</th><th class="num">Tokens</th></tr>
+    <tr><td>Before the sync</td><td class="num">37</td><td class="num">4,006,463</td></tr>
+    <tr><td>After the sync</td><td class="num">40</td><td class="num">4,426,345</td></tr>
+  </table>
+  <p class="dim">All on claude-fable-5, one agent session, window from 2026-07-25. The transcript grows while the prototype measures it, which is the whole gap between the two rows.</p>
+  <div class="note"><strong>Double-count, tested live — and the rule it changed.</strong> The box synced into the operator's own stack. As the research predicted: no double-count, but replacement — the box's snapshot overrode their working machine's numbers. The operator then changed aistack itself: machine snapshots on one stack now combine, and the page shows both values together. The own-stack rule from the research is superseded. The box stays on the operator's stack.</div>
+</section>
+
+<section>
+  <h2><span class="n">3 ·</span> The push</h2>
+  <p>The interactive <code>sync</code> refuses a shell without a TTY. The box path is the silent one:</p>
+  <div class="term"><span class="c">box$</span> npx -y @use-aistack/cli@0.7.2 sync --auto on
+◆  Auto-sync is on. It runs about every 24h ...
+<span class="c">box$</span> npx -y @use-aistack/cli@0.7.2 sync --auto
+<span class="c">(silent, exit 0)</span>
+<span class="c">box$</span> cat ~/.config/aistack/sync.log
+<span class="ok">2026-08-23T13:23:46.501Z ok - published</span>
+  https://aistack.to/stacks/alper-ortac-unw0sl</div>
+  <p>After the push the stack first carried the box's reading in place of the operator's own. After the operator's aistack fix the page shows both machines combined, with <code>curia.sh</code> on the machines list. Their confirmation is on the ticket thread.</p>
+</section>
+
+<section>
+  <h2><span class="n">4 ·</span> The seam for later</h2>
+  <p>The recurring sync needs a linked token, the standing opt-in, and a timer. <strong>The right runner is the daemon.</strong> The no-clock rule (#345) refuses a clock that files tickets. A sync publishes a reading and files nothing, so it sits with the image prune and the liveness sweep: recurring work inside the daemon.</p>
+  <ul>
+    <li><code>HOME=&lt;workspace_root&gt;/home</code>, so the credential lives in curia's durable home.</li>
+    <li><code>CLAUDE_CONFIG_DIR</code> built per run: every <code>cfg/*</code> dir, joined with commas.</li>
+    <li>A pinned CLI version. The stock hook runs <code>@latest</code>, which drifts silently.</li>
+  </ul>
+  <p class="dim">Bounds: teardown deletes finished sessions' transcripts, so a sync understates the true 30 days. Codex takes one root dir, so its rollouts cannot aggregate across cfg dirs in one scan.</p>
+</section>
+
+<footer>Evidence note: prototypes/aistack-machine/findings.md · research: docs/research/aistack-machine-sync.md (#637) · the machine token is revoked after the review.</footer>
+</body>
+</html>
