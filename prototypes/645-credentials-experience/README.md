@@ -3,6 +3,12 @@
 A throwaway prototype for [#645](https://github.com/alp82/curia/issues/645), child of
 [map #641](https://github.com/alp82/curia/issues/641). Canned state, no daemon, no network.
 
+## The verdict
+
+**B wins** (operator, 2026-08-23). C is not built: its takeover was covering the 3am phone
+case, and B's flow panel already reads at 390 px without it. What C was really pointing at was
+a defect in B, now fixed - see finding 6.
+
 ## The question
 
 **What does the operator see and touch, from the Discord alarm to a healed agent?**
@@ -84,7 +90,7 @@ Needs-you keeps a one-line pointer into it, and the live login is a panel above 
   into one pointer. Visible on step 2. Either the pointer names the number or `needsYou` counts
   pointers rather than consumers.
 
-### C — Takeover (one flow, phone first)
+### C — Takeover (one flow, phone first) — not built
 
 While a credential is dead or a login is running, a full-bleed sheet replaces the page: one
 step at a time, a huge link target, a tap-to-copy code, a countdown. Always dismissible, and
@@ -116,6 +122,13 @@ Needs-you keeps a `reopen` line for anyone who dismissed it.
 4. **The terminal link is named but never linked.** The shipped card tells the operator to open
    the terminal and gives them no way to. The link is composable — `attachSessionUrl(base, port,
    'curia-auth-openai')` — and it is the path that always works.
+
+6. **B's table pushed its own action off a phone screen.** Found by looking, not by reasoning:
+   at 390 px the six-column table did not wrap, it overflowed, and the last column is the one
+   press. At the alarm step the Sign-in button was unreachable on the device the whole no-ssh
+   requirement exists for. Fixed here by restacking each row as a card below 640 px, with the
+   action full width at the bottom. This is the finding that retired variant C: the phone case
+   is B's to carry, and it can.
 
 5. **The claude paste-back has no path to this page.** `claude setup-token` waits on
    `Paste code here if prompted >`, and the page cannot type it: `sendText` and `sendKey` refuse

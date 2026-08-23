@@ -130,3 +130,48 @@ html[data-phone="1"] .p-over { inset: 26px 0 56px 0; }
   font-family: ui-monospace, Menlo, monospace; font-size: 34px; font-weight: 700;
   letter-spacing: .12em; margin-top: 5px;
 }
+
+/* ---- B on a phone ----------------------------------------------------------
+   FOUND BY LOOKING (#645). A six-column table at 390px does not merely wrap —
+   it pushes the last column off the screen, and the last column is the ONE
+   ACTION. At the alarm step that means the Sign-in button is unreachable on the
+   device the whole no-ssh requirement exists for.
+
+   So below 640px, and inside the prototype's phone frame, every row restacks as
+   a card: the consumer and its state on one line, the rest labelled, and the
+   action full width at the bottom where a thumb is. */
+
+@media (max-width: 640px) {
+  .p-table, .p-table tbody, .p-table tr, .p-table td { display: block; width: 100%; }
+  .p-table thead { display: none; }
+}
+html[data-phone="1"] .p-table,
+html[data-phone="1"] .p-table tbody,
+html[data-phone="1"] .p-table tr,
+html[data-phone="1"] .p-table td { display: block; width: 100%; }
+html[data-phone="1"] .p-table thead { display: none; }
+
+@media (max-width: 640px) {
+  .p-table tr { border-bottom: 1px solid var(--line); padding: 12px 0; }
+  .p-table td { border: 0; padding: 2px 0; }
+  .p-table td.p-name { font-size: 15px; margin-bottom: 4px; }
+  .p-table td[data-label]::before {
+    content: attr(data-label) " ";
+    font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700; margin-right: 6px;
+  }
+  .p-table td[data-label="state"]::before { content: none; }
+  .p-table td.p-act { margin-top: 10px; }
+  .p-table td.p-act .p-btn { display: block; width: 100%; padding: 13px; font-size: 15px; }
+}
+html[data-phone="1"] .p-table tr { border-bottom: 1px solid var(--line); padding: 12px 0; }
+html[data-phone="1"] .p-table td { border: 0; padding: 2px 0; }
+html[data-phone="1"] .p-table td.p-name { font-size: 15px; margin-bottom: 4px; }
+html[data-phone="1"] .p-table td[data-label]::before {
+  content: attr(data-label) " ";
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--ink-faint); font-weight: 700; margin-right: 6px;
+}
+html[data-phone="1"] .p-table td[data-label="state"]::before { content: none; }
+html[data-phone="1"] .p-table td.p-act { margin-top: 10px; }
+html[data-phone="1"] .p-table td.p-act .p-btn { display: block; width: 100%; padding: 13px; font-size: 15px; }

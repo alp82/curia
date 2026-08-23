@@ -130,13 +130,16 @@
       : c.state === "unowned"
         ? `<span class="p-dim">nothing to press until #648</span>`
         : `<span class="p-dim">nothing to do</span>`;
+    /* The data-labels are what let the row restack as a card on a phone. A
+       six-column table at 390px pushes the ACTION off the screen — the one
+       press, on the one device, in the one state where it matters. */
     return `<tr>
-      <td class="mono"><b>${esc(c.consumer)}</b></td>
-      <td><span class="p-chip p-${s.tone}">${esc(c.state)}</span></td>
-      <td class="num">${c.expires_at ? `${esc(until(c.expires_at))}<div class="p-dim">${esc(clock(c.expires_at))}</div>` : `<span class="p-dim">—</span>`}</td>
-      <td class="num">${c.last_refresh_at ? esc(clock(c.last_refresh_at)) : `<span class="p-dim">never</span>`}</td>
-      <td>${esc(c.last_error ?? c.why ?? s.says)}</td>
-      <td style="text-align:right">${act}</td>
+      <td class="mono p-name"><b>${esc(c.consumer)}</b></td>
+      <td data-label="state"><span class="p-chip p-${s.tone}">${esc(c.state)}</span></td>
+      <td class="num" data-label="expires">${c.expires_at ? `${esc(until(c.expires_at))}<div class="p-dim">${esc(clock(c.expires_at))}</div>` : `<span class="p-dim">—</span>`}</td>
+      <td class="num" data-label="last refresh">${c.last_refresh_at ? esc(clock(c.last_refresh_at)) : `<span class="p-dim">never</span>`}</td>
+      <td data-label="why">${esc(c.last_error ?? c.why ?? s.says)}</td>
+      <td class="p-act">${act}</td>
     </tr>`;
   }
 
