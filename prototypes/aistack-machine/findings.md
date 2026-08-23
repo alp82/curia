@@ -4,7 +4,7 @@ Date: 2026-08-23. Ticket: [The aistack-machine prototype: register the curia box
 Research ground truth: [docs/research/aistack-machine-sync.md](../../docs/research/aistack-machine-sync.md) (#637).
 CLI: `@use-aistack/cli` 0.7.2, pinned for every run below. Server: `https://aistack.to`.
 
-**Verdict. The box can register and sync, and it did.** One headless device-code login registered the box as machine `curia.sh`. One `sync --auto` scanned this agent's real transcripts and published 30 days of token usage to the operator's stack. The log line on the box: `2026-08-23T13:23:46.501Z ok - published https://aistack.to/stacks/alper-ortac-unw0sl`. The research (#637) held at every step, including the replacement rule: the box's snapshot replaced the operator's own Claude Code numbers on the shared stack, which is why the build must give the box its own stack.
+**Verdict. The box can register and sync, and it did.** One headless device-code login registered the box as machine `curia.sh`. One `sync --auto` scanned this agent's real transcripts and published 30 days of token usage to the operator's stack. The log line on the box: `2026-08-23T13:23:46.501Z ok - published https://aistack.to/stacks/alper-ortac-unw0sl`. The research (#637) held at every step. The replacement rule fired live, and the operator then changed aistack so machine snapshots on one stack combine instead of replace. That supersedes the own-stack rule: the box stays on the operator's stack.
 
 ## Where the run happened
 
@@ -43,9 +43,14 @@ The rolling window aistack expects can be computed from the harness data under c
 
 All on `claude-fable-5`, from one agent session, window from 2026-07-25. The two figures differ because the measured session is this one: the transcript grows while the prototype works on it. What travels is the aggregate only. Raw transcripts, prompts and paths stay on the box (research §3).
 
-### Double-count, tested live
+### Double-count, tested live — and the rule it changed
 
-The operator chose to sync the box into their own stack, which turned the prototype into a live test of the identity rule from research §4. The prediction: no double-count, but replacement. The newest snapshot per stack and harness pair wins, so the box's 4-million-token reading replaced the operator's own Claude Code numbers, and their next personal sync replaces it back. The operator confirmed the page state after the sync (their answer is on the ticket thread). Conclusion for the build, unchanged from #637: **the box needs its own stack** to land as its own machine cleanly.
+The operator chose to sync the box into their own stack, which turned the prototype into a live test of the identity rule from research §4. The prediction fired exactly: no double-count, but replacement. The box's 4-million-token reading replaced the operator's own Claude Code numbers on the shared stack, and the operator saw it happen: "there was a problem that it overrode the stats of my working machine."
+
+The operator then fixed the problem in aistack itself: machine snapshots on one stack now combine instead of replace, and the page shows both values together. Two consequences for the build:
+
+- **The own-stack rule from #637 is superseded.** The box token stays bound to the operator's stack and lands beside their machines.
+- The measured layer's identity model changed after commit `46b8028`, the pin every #637 citation stands on. The build reads the current aistack source before it leans on any §4 claim.
 
 ## 3. The push
 
@@ -64,7 +69,7 @@ $HOME/.config/aistack/settings.json (autoSyncState):
 lastResult: "ok - published at 2026-08-23T13:23:46.501Z", consecutiveFailures: 0
 ```
 
-What aistack shows after it: the stack's measured layer carries the box's reading as its current Claude Code snapshot, with machine `curia.sh` on the machines list. The operator read the page and their words are the record.
+What aistack shows after it: first the box's reading as the stack's current Claude Code snapshot, in place of the operator's own. After the operator's aistack fix, the page shows both machines combined. Their words on the ticket thread are the record: "now it shows both values combined. looks like it worked!"
 
 ## 4. The seam for later
 
