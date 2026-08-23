@@ -392,21 +392,28 @@ export const LIMIT_PATTERNS = {
 // You don't have usage credits yet / 1. Request credits 2. Switch to Sonnet" —
 // instead of the composer. parseUsageLimit keys on reached-phrasing and
 // misses it, and the ready marker matched anyway because the status footer
-// renders UNDER the modal. This classifier runs beside the limit parse in the
-// watchdog, so a match both cools the model and vetoes readiness. Keyed on
-// the definitive no-credits statement, not the informational "now uses usage
-// credits" line — promotional text appears in healthy panes (field-notes
-// contract 4) and must never match. Model-scoped: the dialog gates one
-// model's credits; every other model stays warm.
+// renders UNDER the modal. This classifier runs beside the limit parse during
+// readiness and every post-ready stall sweep. A match cools the model and
+// vetoes both readiness and stall recovery. Keyed on the definitive no-credits
+// statement, not the informational "now uses usage credits" line — promotional
+// text appears in healthy panes (field-notes contract 4) and must never match.
+// Model-scoped: the dialog gates one model's credits; every other model stays
+// warm.
 export const CREDIT_GATE_PATTERNS = {
   anthropic: new RegExp(`you don${AP}t have usage credits`, 'i'),
+  // Codex renders this modal over a healthy-looking composer footer. Require
+  // both modal lines, so its session-opening reset notice and status footer
+  // remain healthy-session text under field-notes contract 4.
+  openai: /approaching rate limits[\s\S]{0,500}switch to [^\n?]+ for lower credit usage\?/i,
 }
 
 export function parseCreditGate(paneText, provider = 'anthropic') {
   if (!paneText) return null
   const p = CREDIT_GATE_PATTERNS[provider]
   if (!p?.test(paneText)) return null
-  return { scope: 'model', resetAt: null, reason: 'usage-credits dialog' }
+  return provider === 'openai'
+    ? { scope: 'provider', resetAt: null, reason: 'rate-limit credit dialog' }
+    : { scope: 'model', resetAt: null, reason: 'usage-credits dialog' }
 }
 
 export function parseUsageLimit(paneText, provider = 'anthropic') {

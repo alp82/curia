@@ -1585,7 +1585,7 @@ export function exchangeBlock(exchange = []) {
 // has to mean for an instruction that decides what the whole session does.
 // The text is never shell-substituted — the spawn template reads this file with
 // `$(cat …)` — so it needs no quoting rules of its own.
-export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false, instruction = null, ports = null, harness = 'claude', exchange = [] }) {
+export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false, instruction = null, ports = null, harness = 'claude', exchange = [], handoff = false }) {
   const promptFile = path.join(cfgDir, 'prompt.md')
   // An unknown harness would take the claude spelling of the invocation in
   // silence, which is the failure #173 exists to end. harnessDef throws on a
@@ -1723,6 +1723,12 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  by nothing outside this container, and `publish_preview` takes no other port.',
   ] : []
 
+  const handoffLines = handoff ? [
+    '- **You are picking up mid-ticket from another model\'s work.** The previous agent hit a provider fault,',
+    '  so curia started a cold session on this warm private clone. You inherit the private clone\'s files and Git history.',
+    '  You don\'t inherit its reasoning or conversation. Read the current files and commits before continuing.',
+  ] : []
+
   // #374: a prior answer IS a parameter of this dispatch, so it lands here and
   // nowhere else. It goes LAST, after the fixed lines: those are a handful of
   // facts an operator reads at a glance, and a long exchange above them would
@@ -1732,6 +1738,7 @@ export function writePrompt(cfgDir, issue, { repo, wtPath, mapNumber = null, typ
     '  local-markdown tracker: this repo carries `docs/agents/issue-tracker.md`.',
     ...params,
     `- Your worktree is ${wtPath}, on branch \`${branch}\`.`,
+    ...handoffLines,
     ...portLines,
     ...exchangeBlock(exchange),
   ]

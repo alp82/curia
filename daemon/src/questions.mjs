@@ -291,7 +291,12 @@ export class Questions {
 
   epochSpawn(agent) {
     const ev = this.#event('epochSpawn', { a: agent })
-    return ev ? { model: ev.model ?? null, harness: ev.harness ?? null } : null
+    return ev ? {
+      model: ev.model ?? null,
+      requested_model: ev.requested_model ?? null,
+      harness: ev.harness ?? null,
+      prompt_carries_limit_text: ev.prompt_carries_limit_text ?? null,
+    } : null
   }
 
   adoptedMap(agent) {
