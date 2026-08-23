@@ -30,6 +30,11 @@ describe('the standing orders, with no shell (#328)', () => {
   // operator exactly as it did, and the cutover then deleted a caller rather
   // than a prompt. The fixture was taken from the shipped code BEFORE the move,
   // and it stays the record of what the no-shell posture says.
+  //
+  // ONE BLOCK HAS MOVED SINCE, deliberately: the writing rules, when #133's
+  // voice went from Simplified Technical English to the Google developer
+  // documentation style. The fixture was regenerated for that and nothing
+  // else, so every other line is still the pre-move text.
   test('it is byte for byte the text the in-daemon host always sent', () => {
     assert.equal(buildSystemPrompt(), fs.readFileSync(FIXTURE, 'utf8'))
   })

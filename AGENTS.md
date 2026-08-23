@@ -2,7 +2,9 @@
 
 ## Voice
 
-Write all prose in the Literal style defined in `.claude/output-styles/literal.md`. This covers chat, docs, PR text, and commit messages. Claude Code loads the style automatically through `outputStyle` in `.claude/settings.json`. All other harnesses: read the file and follow it.
+Write all prose in the Developer style defined in `.claude/output-styles/developer.md`. This covers chat, docs, PR text, and commit messages. Set `"outputStyle": "Developer"` in your own Claude Code settings, or read the file and follow it.
+
+Curia ships the same rules to the agents it spawns, and they do not come from this file. `daemon/assets/voice.md` is the copy every agent config dir gets as its memory file, and `daemon/src/overseerprompt.mjs` holds the overseer's copy inline. Change all three together.
 
 ## Agent skills
 

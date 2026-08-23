@@ -54,12 +54,14 @@ export const VISUAL_LINES = 20
 
 // ---- the word rules both grades share ---------------------------------------
 
-// A fixed list, not a pattern. `agent's` is a possessive and `it's` is a
-// contraction, and no machine tells them apart from the apostrophe alone — so
-// the rule names the words that ARE contractions and flags nothing else. A
-// pattern over every `\w+'s` would reject "the agent's own worktree", which is
-// the false rejection this lint exists to avoid.
-const CONTRACTION_RE = /\b(?:do|does|did|is|are|was|were|has|have|had|wo|would|ca|could|should|must|ai)n['’]t\b|\b(?:it|that|there|here|what|who|let|he|she|we|you|they|i)['’](?:s|re|ve|ll|d|m)\b/gi
+// THERE IS NO CONTRACTION RULE, and its absence is the decision. #133's voice
+// was Simplified Technical English, which bans contractions, and this lint
+// refused them for that reason. The voice is now the Google developer
+// documentation style, which REQUIRES them for a natural register. A rule that
+// refuses what voice.md asks for would reject nearly every call an agent makes.
+// So the check is gone rather than inverted: "expand it" and "contract it" are
+// both the lint telling an author how to write, and only the first was ever a
+// rule a machine could decide without guessing.
 
 // voice.md's list, whole. Nothing is added here: the authority is that file.
 const MARKETING_RE = /\b(?:seamless(?:ly)?|robust|powerful|cutting-edge|effortless(?:ly)?|world-class|next-generation|revolutionary)\b/gi
@@ -72,7 +74,6 @@ function wordFaults(field, text) {
   const faults = []
   if (text.includes(';')) faults.push(`${field}: a semicolon. Write two sentences.`)
   if (EM_DASH_RE.test(text)) faults.push(`${field}: an em-dash. Write two sentences, or use a normal dash.`)
-  for (const m of text.match(CONTRACTION_RE) ?? []) faults.push(`${field}: the contraction "${m}". Expand it.`)
   for (const m of text.match(MARKETING_RE) ?? []) faults.push(`${field}: the marketing adjective "${m}".`)
   return faults
 }

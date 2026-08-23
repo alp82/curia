@@ -63,13 +63,16 @@ describe('the word rules both grades share', () => {
     assert.deepEqual(gradeA('headline', 'this holds - that does not', CAPS.headline), [])
   })
 
-  test('a contraction is named and quoted', () => {
-    assert.deepEqual(gradeA('headline', 'it is not there', CAPS.headline), [])
-    assert.match(names(gradeA('headline', "it's not there", CAPS.headline)), /the contraction "it's"/)
-    assert.match(names(gradeA('headline', 'curia doesn’t read it', CAPS.headline)), /the contraction "doesn’t"/)
+  // The voice ASKS for contractions, so neither grade may fault one. This test
+  // is the guard on that: an apostrophe rule that came back would refuse text
+  // voice.md tells the agent to write.
+  test('a contraction passes both grades', () => {
+    assert.deepEqual(gradeA('headline', "it's not there", CAPS.headline), [])
+    assert.deepEqual(gradeA('headline', 'curia doesn’t read it', CAPS.headline), [])
+    assert.deepEqual(gradeB('summary', "The daemon doesn't rewrite your text."), [])
   })
 
-  test('a possessive is NOT a contraction: the whole reason the list is fixed', () => {
+  test('a possessive passes too', () => {
     assert.deepEqual(gradeA('headline', "the agent's own worktree stays", CAPS.headline), [])
     assert.deepEqual(gradeB('summary', "The daemon reads the record's payload."), [])
   })
@@ -300,9 +303,9 @@ describe('lintAskHuman', () => {
   test('a round lints every question and every recommendation', () => {
     const faults = lintAskHuman('free-text', {
       headline: 'fine',
-      questions: [{ text: 'is it right?', recommendation: "yes, it's right" }],
+      questions: [{ text: 'is it right?', recommendation: 'yes; it is right' }],
     })
-    assert.match(names(faults), /questions\[0\]\.recommendation: the contraction/)
+    assert.match(names(faults), /questions\[0\]\.recommendation: a semicolon/)
   })
 })
 

@@ -112,19 +112,21 @@ A severity is still the reviewer's own weighting, which [#420](https://github.co
 2. One line. A newline is a fault.
 3. No markdown structure: no heading, no table row, no blockquote, no code fence, no list marker.
 4. No link. curia composes every link it renders (ADR-0013).
-5. No semicolon, no em-dash, no contraction, no marketing adjective.
+5. No semicolon, no em-dash, no marketing adjective.
 
 **Grade B is block prose**: `example`, `summary`, `charting`, the `notify` message, and a verdict finding. This text explains, so it keeps its sentences and loses its decoration.
 
 1. A character cap per field.
 2. No heading, no table row, no blockquote. This is the `lintReply()` rule that already ships in `daemon/src/messaging.mjs`. It reads prose only (#432), so a table inside a fence passes. The code-block table is the one table form Discord renders.
 3. At most 25 words per sentence.
-4. No semicolon, no em-dash, no contraction, no marketing adjective.
+4. No semicolon, no em-dash, no marketing adjective.
 5. No emoji outside the signal set. This rule also already ships.
 
 **`visual` is not prose, so no grade reads it.** curia checks its geometry and never its words.
 
 **The lint checks deterministic rules only.** Passive voice, nominalizations and "-ing" main verbs stay in `voice.md` as author guidance. A rule a machine must guess at produces a false rejection, and a false rejection costs the agent one attempt out of three.
+
+**The contraction rule is gone, and its absence is a decision.** `voice.md` used to be Simplified Technical English, which bans contractions, so the lint refused them. The voice is now the Google developer documentation style, which requires them. A lint that refuses what `voice.md` asks for would reject nearly every call an agent makes, so the check was deleted rather than inverted. Telling an author to contract a word is style advice, not a rule a machine decides.
 
 ### The caps
 

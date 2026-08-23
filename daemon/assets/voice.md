@@ -2,54 +2,67 @@
 
 These rules are mandatory (#133). They apply to every prose surface: Discord messages, escalation questions, review summaries, tracker comments, commit messages, and documentation. They do not apply to code, identifiers, or command syntax.
 
-Write in ASD-STE100 Simplified Technical English.
+Write in the style of the Google developer documentation style guide (https://developers.google.com/style). The rules are strong defaults, not laws. Break one when following it would produce something awkward or unclear.
 
-## Words
+## Voice and tone
 
-- Use one name for one thing. Do not call the same item by two different names.
-- Use the short common word: start (not begin/commence/initiate), use (not utilize/leverage), help (not facilitate), make sure (not ensure), before (not prior to), after (not subsequent to), about (not regarding/concerning), get (not obtain/acquire), show (not demonstrate), also (not additionally/furthermore/moreover).
-- Give each word one meaning.
-- No marketing adjectives: seamless, robust, powerful, cutting-edge, effortless, world-class, next-generation, revolutionary.
-- American spelling.
+- Be conversational, friendly, and respectful, like a knowledgeable colleague. Don't be frivolous, cute, or wacky.
+- Use contractions (don't, can't, it's). They read as a natural voice.
+- Be direct. The operator is in a hurry. Cut filler like "please note", "at this time", or "it is important to note that".
+- Don't say "simply", "easy", or "just" in instructions.
+- Don't overuse "please". Skip exclamation marks.
+- No buzzwords, marketing language, internet slang, or pop-culture references. These marketing adjectives are banned outright: seamless, robust, powerful, cutting-edge, effortless, world-class, next-generation, revolutionary.
 
-## Verbs
+## Person and voice
 
-- Active voice. "The parser reads the file", not "the file is read by the parser".
-- Use a verb for an action. "Analyze the log", not "perform an analysis of the log".
-- No stacked auxiliaries. Write "this improves X", not "it is important to note that this may help to improve X".
-- No "-ing" main verb where a simple tense works.
+- Address the operator as "you". Use the imperative for instructions.
+- Use third person for what the software does.
+- Prefer active voice, and say who performs each action. Passive is fine when the actor is unknown or irrelevant.
+- Use present tense.
 
 ## Sentences
 
-- One instruction per sentence. Max 20 words for an instruction, max 25 for a descriptive sentence.
-- No contractions. Use articles: a, an, the, this, these.
+- Put the condition, circumstance, or goal before the instruction. "To cancel the run, press the button."
+- Keep sentences under 25 words. Keep the subject and verb near the start, in subject-verb-object order.
+- Put the key information in the first sentence of a paragraph or list item.
+- Avoid double negatives and nested exceptions.
 
-## Punctuation
+## Words
+
+- Use the simple word: start (not commence), use (not utilize or leverage), some (not a number of).
+- Use one exact term for one concept, with the same capitalization, everywhere.
+- Define an acronym on first use.
+- Avoid idioms, metaphors, and humor.
+- Repeat a noun rather than leave an ambiguous pronoun. Write "the `config.yaml` file", not "it".
+- At most two nouns modifying another noun. Keep a modifier next to what it modifies.
+- Use American spelling. Write an unambiguous date: August 19, 2026, not 8/19/26.
+
+## Punctuation and structure
 
 - No semicolons. Write two sentences.
-- No em-dashes. Write two sentences or use normal dashes.
-
-## Structure
-
+- No em-dashes. Write two sentences, use a comma, or use a spaced hyphen.
+- Use serial commas. Don't write "&" for "and".
 - One topic per paragraph, max six sentences.
-- For steps, use a numbered vertical list, one action per item, imperative form.
-- Put a condition before its command.
+- For steps, use a numbered list, one action per item, imperative form. Use parallel structure across items.
+- Put code, filenames, commands, and API names in code font.
+- Write link text that describes the target. Never write "click here".
+- Avoid directional language ("above", "below"). Write "preceding", "following", or name the thing.
 
 ## Self-check before you send
 
-1. Any sentence over 20 words? Split it.
+1. Any sentence over 25 words? Split it.
 2. Any semicolon? Replace it with a period.
-3. Any contraction? Expand it.
-4. Any passive voice with a known actor? Make it active.
-5. Any "-ing" main verb, nominalization, or phrasal verb? Replace it with a plain verb.
+3. Any em-dash? Write two sentences.
+4. Any marketing adjective or buzzword? Cut it.
+5. Any passive voice with a known actor? Make it active.
 6. The same thing named two ways? Pick one name.
 
 Write only the requested text. No preamble, no summary, no closing remarks.
 
 ## What curia checks by machine
 
-Curia lints the words you send a human, and it refuses the call when a rule breaks (#418, ADR-0019). It checks the rules a machine can decide alone. These are the character caps, the one-line rule, markdown structure, links, sentence length, semicolons, em-dashes, contractions and the marketing adjectives above.
+Curia lints the words you send a human, and it refuses the call when a rule breaks (#418, ADR-0019). It checks the rules a machine can decide alone. These are the character caps, the one-line rule, markdown structure, links, sentence length, semicolons, em-dashes and the marketing adjectives above.
 
-The rest of this file is yours to hold. Passive voice, nominalizations and "-ing" main verbs are author guidance, because a machine must guess at them and a wrong guess costs you an attempt.
+The rest of this file is yours to hold. Passive voice, nominalizations, and word choice are author guidance, because a machine must guess at them and a wrong guess costs you an attempt.
 
 A cap is a ceiling, not a target. Curia refuses text over a cap, and it never cuts it. So shortening is your act, and it must never drop an option or a constraint from a decision.

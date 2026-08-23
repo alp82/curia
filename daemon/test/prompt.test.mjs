@@ -404,9 +404,9 @@ describe('the two files (#340)', () => {
     writePrompt(tmp, ISSUE, { repo: 'o/r', wtPath: '/w/42', mapNumber: 1 })
     const memory = fs.readFileSync(path.join(tmp, memoryFileFor('claude')), 'utf8')
     const standing = fs.readFileSync(path.join(tmp, STANDING_FILE), 'utf8')
-    assert.match(memory, /Simplified Technical English/, 'the voice rules are mandatory for every agent (#133)')
+    assert.match(memory, /Google developer documentation style guide/, 'the voice rules are mandatory for every agent (#133)')
     assert.ok(memory.endsWith(standing), 'the orders are composed onto the end, not instead of the voice rules')
-    assert.ok(memory.indexOf('Simplified Technical English') < memory.indexOf('# curia standing orders'))
+    assert.ok(memory.indexOf('Google developer documentation style guide') < memory.indexOf('# curia standing orders'))
   })
 
   // The failure this split would otherwise INTRODUCE. `seedConfigDir` runs on

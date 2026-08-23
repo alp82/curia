@@ -174,7 +174,7 @@ describe('the agent skill set (#57)', () => {
     // the bound: one read-only skills directory, the curia-owned voice file
     // (#133 — the one deliberate narrowing), and NOTHING else from the host
     assert.deepEqual(fs.readdirSync(cfgDir).sort(), ['.claude.json', 'CLAUDE.md', 'settings.json', 'skills'])
-    assert.match(fs.readFileSync(path.join(cfgDir, 'CLAUDE.md'), 'utf8'), /Simplified Technical English/)
+    assert.match(fs.readFileSync(path.join(cfgDir, 'CLAUDE.md'), 'utf8'), /Google developer documentation style guide/)
   })
 
   test('no skills configured installs none — the seam every test double takes', () => {
