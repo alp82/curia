@@ -110,20 +110,26 @@ describe('the wayfinder invocation', () => {
       }
     })
 
-    test('the invocation line and the memory file are the ONLY differences', () => {
-      // The bounds, the tools and the ending are harness-blind on purpose: a
-      // human reading two agents' prompts side by side must read the same
-      // text. A rule that belongs to one lane belongs in the harness table,
-      // not here.
+    test('the invocation, memory file, and deferred-tool order are the only differences', () => {
+      // The bounds and ending stay harness-blind. #609 adds one tool order to
+      // Codex because only that lane receives Curia schemas through ALL_TOOLS.
       //
-      // #340 added the memory-file difference, and it is the same KIND as the
-      // sigil was: each CLI's own name for its global-memory file. #399 turned
-      // the first difference from two spellings of one line into one lane
-      // having the line and the other not, so the comparison is by CONTENT and
-      // not by line number.
+      // #340 added the memory-file difference. Each CLI has its own name for
+      // the global-memory file. #399 removed the Codex sigil, so compare the
+      // files by content instead of line number.
       const codex = writeParts({ mapNumber: 1, harness: 'codex' })
       const claude = writeParts({ mapNumber: 1, harness: 'claude' })
-      assert.equal(codex.standing, claude.standing, 'the orders are one document on both lanes')
+      const deferred = [
+        '- **Load deferred Curia tools once.** If `ALL_TOOLS` holds Curia schemas, return every',
+        '  `mcp__curia__*` definition from one `exec` call before your first Curia call. Keep the output',
+        '  in context, and use the same definitions for every later Curia call.',
+        '',
+      ].join('\n')
+      assert.equal(
+        codex.standing.replace(`\n${deferred}`, ''),
+        claude.standing,
+        'the Codex tool order is the only standing-order difference',
+      )
 
       const claudeLines = claude.prompt.split('\n')
       const codexLines = codex.prompt.split('\n')
@@ -357,6 +363,16 @@ describe('the tool block', () => {
     for (const tool of ['ask_human', 'notify', 'publish_preview', 'open_pull_request', 'request_review', 'report_result']) {
       assert.match(p, new RegExp(`- \`${tool}\` —`), `${tool} is missing from the tool block`)
     }
+  })
+
+  test('Codex loads every deferred Curia schema once, and Claude does not (#609)', () => {
+    const codex = write({ mapNumber: 1, harness: 'codex' })
+    assert.match(codex, /Load deferred Curia tools once/)
+    assert.match(codex, /every\s+`mcp__curia__\*` definition from one `exec` call/)
+    assert.match(codex, /use the same definitions for every later Curia call/)
+
+    const claude = write({ mapNumber: 1, harness: 'claude' })
+    assert.ok(!claude.includes('Load deferred Curia tools once'))
   })
 })
 

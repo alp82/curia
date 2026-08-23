@@ -1513,6 +1513,21 @@ export function exchangeBlock(exchange = []) {
   return lines
 }
 
+// #609: Codex 0.146 owns MCP deferral, and both feature switches that once
+// controlled it are removed. #579 measured the remaining prose lever: a
+// complex Curia call made one to three ALL_TOOLS lookups. Each returned lookup
+// cost another model request. Load the Curia catalog once so later calls reuse
+// conversation state. Claude receives its schemas directly and needs no order.
+const DEFERRED_CURIA_ORDER = [
+  '- **Load deferred Curia tools once.** If `ALL_TOOLS` holds Curia schemas, return every',
+  '  `mcp__curia__*` definition from one `exec` call before your first Curia call. Keep the output',
+  '  in context, and use the same definitions for every later Curia call.',
+]
+
+function deferredCuriaOrder(harness) {
+  return harness === 'codex' ? [...DEFERRED_CURIA_ORDER, ''] : []
+}
+
 // Prompt file lives in the config dir, not the worktree.
 //
 // It supplies PARAMETERS, NOT PROCEDURE (#49 decision 2). Since #57 every agent
@@ -2039,6 +2054,7 @@ export function writePrompt(cfgDir, issue, {
     '',
     '## Your tools (the `curia` MCP server)',
     '',
+    ...deferredCuriaOrder(harness),
     ...tools,
     '',
     '## How this ends',
@@ -2085,8 +2101,9 @@ export function writePrompt(cfgDir, issue, {
 // `wtPath` is the checkout AS THE AGENT SEES IT (#156), like everywhere else:
 // the mount point inside a container, the host path outside one.
 export function writeReviewPrompt(cfgDir, issue, {
-  repo, wtPath, branch, baseBranch, sha, model, builderModel, ticketUrl = null,
+  repo, wtPath, branch, baseBranch, sha, model, builderModel, ticketUrl = null, harness = 'claude',
 }) {
+  harnessDef(harness)
   const promptFile = path.join(cfgDir, 'prompt.md')
   const n = issue.number
   const url = ticketUrl ?? `https://github.com/${repo}/issues/${n}`
@@ -2169,6 +2186,7 @@ export function writeReviewPrompt(cfgDir, issue, {
     '',
     '## Your tools (the `curia` MCP server)',
     '',
+    ...deferredCuriaOrder(harness),
     '- `notify` — a status line for the human. Returns at once. Use it to say what you are reading.',
     '  `kind` says what they must DO: `progress` (nothing), `look` (open a file or a page now),',
     '  `ask` (reply when they can). A reviewer reads, so its lines are `progress`.',
