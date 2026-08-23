@@ -64,7 +64,23 @@ plan:         prolite      account: 7c9992f3… (unchanged)
 
 ## What this check still does not cover
 
-- **The fan-out to a live agent.** The box was idle. The path is tested hermetically against a temp directory tree, but it has not run against a real container.
+- **A fan-out that WRITES.** Half of this is now measured; see below.
 - **The refresh itself.** It fires once every 7.5 days on a 10-day token, so the first live evidence will be a `credential_refreshed` journal line on or about 2026-08-31 rather than something anyone can schedule.
 - **The timeout.** Start a `reauth` and walk away; after 30 minutes the session, the container, and the scratch dir should all be gone and `reauth_timed_out` should be in the journal. Worth forcing, because a re-authentication that silently vanished is the same class of bug as the credential that silently vanished.
 - **What happens when a refresh fails**, which is [#646](https://github.com/alp82/curia/issues/646) and deliberately not built here.
+
+## Addendum: the fan-out against a live agent
+
+`curia-647` was dispatched onto Slice B at 15:09 UTC, twelve minutes after the login above, which gave the fan-out its first real target.
+
+```
+host store          mode=600  3896 bytes  sha=253731725af7f7a8
+cfg/curia-647       mode=400  3896 bytes  sha=253731725af7f7a8
+identical: YES
+credential_fanned_out rows: 0
+```
+
+**What this proves.** The two modes are correct and distinct: the host store the daemon owns at `0600`, the agent's lease at `0400`. The target selection reaches a live agent's config dir and reads the file that is there. And the content comparison holds: a byte-identical file is **not** rewritten, so a steady box does no disk writes at all and a `credential_fanned_out` line means "these agents just changed" rather than "this pass ran".
+
+**What it does not prove.** No write happened, because the seed and the host store already agreed. Proving the write needs a rotation while an agent is live: either the refresh due about 2026-08-31, or a re-authentication completed with an agent running. Neither is worth forcing on its own.
+
