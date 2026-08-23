@@ -1,37 +1,70 @@
 # 642: the codex re-authentication flow, end to end
 
-**Status**: not yet run against this build. The shape it exercises was proved by hand on August 23, 2026 (see [644](644-credential-swap-heals.md) §1); what is unproved is curia driving it.
+Run on the box 2026-08-23, 14:40:49 to 14:56:09 UTC, against daemon `5be61f6` deployed the same minute. codex-cli 0.146.0.
 
-The device flow gets a live check rather than a test, and that is a decision. Proving it means completing a real login against a real OpenAI account, so nothing in `npm test` can assert it and nothing should pretend to. Everything around it is hermetic: the expiry arithmetic, the refresh margin, the exchange against an injected `fetchImpl`, the fan-out against a temp directory tree, and the four sweep refusals all run in `daemon/test/credentials.test.mjs` and `daemon/test/dispatch.test.mjs`.
+[#644](644-credential-swap-heals.md) §1 proved the *shape* by hand: a named tmux session, `docker run` against the agent image, a device code needing no paste-back. What this check proves is curia driving it, with no ssh in the operator's half.
 
-## What to run
+The device flow gets a live check rather than a test, and that is a decision. Proving it means completing a real login against a real OpenAI account, so nothing in `npm test` can assert it and nothing should pretend to. Everything around it is hermetic: the expiry arithmetic, the refresh margin, the exchange against an injected `fetchImpl`, the fan-out against a temp directory tree, and the five sweep refusals all run in `daemon/test/credentials.test.mjs` and `daemon/test/dispatch.test.mjs`.
 
-On the box, with at least one live codex agent so the fan-out has a target.
+## What ran
 
-1. Type `reauth` in the curia channel. Expect a reply naming the session `curia-auth-openai` and carrying a terminal link.
-2. Open the dashboard. The attention list should carry a card with the device link, the one-time code, and the session name.
-3. Complete the login in a browser on a second device. Do not type anything into the terminal.
-4. Watch the channel for the recovery line, which names how many live agents took the fresh credential.
+`POST /command {"text":"reauth"}` on loopback, which is the same canonical text the slash verb expands to. The reply came back in about 130 ms:
 
-## What to record
+```
+🔑 signing `openai` back in. Open the session and follow the two lines codex prints:
+a link, then a one-time code that lives fifteen minutes. Nothing is pasted back.
+The code is on the dashboard too, and never in this channel.
+Terminal: https://<box>.ts.net:8443/?arg=curia-auth-openai
+```
 
-| Question | Why it matters |
+The agent image was already built, so `ensureAgentImage` was a no-op. A box whose image is missing pays the same four minutes a dispatch pays.
+
+The pane printed codex's two steps, verbatim and unchanged from #644:
+
+```
+1. Open this link in your browser and sign in to your account
+   https://auth.openai.com/codex/device
+2. Enter this one-time code (expires in 15 minutes)
+   88S2-THR9B
+```
+
+The operator opened the link on a second device and signed in. Nothing was typed into the terminal.
+
+## What was measured
+
+| Question | Answer |
 |---|---|
-| Did the card show a link and a code? | The scrape is a guess about codex's wording. A miss is not a failure of the flow, but it must degrade to "open the terminal" rather than to a blank card. |
-| Did the daemon detect completion, and how long after the browser finished? | Completion is the credential file appearing in the scratch config dir, and it is checked once per dispatch tick, so up to 60 seconds is expected. |
-| Is `<workspace_root>/home/.codex/auth.json` the new credential, at mode 0600? | The host store is written first, and the mode is restored explicitly. |
-| Did every live codex agent's `auth.json` change, at mode 0400? | This is the fan-out, and 0400 is what keeps the agent from being the thing that rotates the credential. |
-| Is the tmux session gone, the container gone, and `<workspace_root>/cfg/curia-auth-openai` removed? | The container carries no `curia.session` label on purpose, so no sweep collects it and the flow must tear it down itself. |
-| Do the journal lines read `reauth_requested`, `reauth_started`, `reauth_code_seen`, `reauth_completed`? | And `reauth_code_seen` must carry no code. A one-time auth code in a journal is a credential in a journal. |
+| Did the card show a link and a code? | Yes, both. `GET /overview` carried `url`, `code`, `session`, and `seconds_left` counting down from 1800. |
+| How long until the card filled in? | 20 s. The code reached the pane at about 14:40:52 and `reauth_code_seen` is stamped 14:41:09, so it is one dispatch tick and no more. |
+| How long until completion was detected? | 29 s. The token states `iat` 14:55:40; `reauth_completed` is stamped 14:56:09. Again one tick. |
+| Is the host store the new credential, at mode 0600? | Yes. `mode=600 owner=alp`, mtime 14:56:09, and the access token now expires 2026-09-02T14:55:40Z. |
+| Is the tmux session gone? | Yes. Only `keeper` remains. |
+| Is the container gone? | Yes. It carries no `curia.session` label, so no sweep would ever have collected it; the flow removed it. |
+| Is the scratch config dir gone? | Yes. `~/curia-work/cfg/curia-auth-openai` no longer exists, so no live refresh token is left in a directory nothing sweeps. |
+| Do the journal lines read right? | Four lines, in order: `reauth_requested`, `reauth_started`, `reauth_code_seen`, `reauth_completed` with `after_s: 920`. |
+| Does any of them carry the code? | **No.** `reauth_code_seen` carries `consumer` and `session` and nothing else. |
 
-## The two cases worth forcing
+## The adopted credential
 
-**The timeout.** Start a `reauth` and walk away. After 30 minutes the session, the container, and the scratch dir should all be gone and `reauth_timed_out` should be in the journal. A re-authentication that silently vanished is the same class of bug as the credential that silently vanished.
+```
+keys:         auth_mode, OPENAI_API_KEY, tokens, last_refresh
+token keys:   id_token, access_token, refresh_token, account_id
+last_refresh: 2026-08-23T14:55:40.676486460Z
+iat:          2026-08-23T14:55:40Z
+exp:          2026-09-02T14:55:40Z
+life_days:    10.000
+plan:         prolite      account: 7c9992f3… (unchanged)
+```
 
-**The nudge.** [#644](644-credential-swap-heals.md) §3 measured that a running codex process picks up a replaced `auth.json` with no restart, but it does not restart itself: a turn that died leaves the agent idle at the composer. So an agent healed by this flow may still need a nudge, which is rung 1 of #578's stall ladder. Record whether the healed agents moved on their own.
+**A third sample of exactly ten days.** #644 measured two on this account, 2026-08-13 and 2026-08-23, both 10.000. The refresh margin is a fraction of that measured life rather than a constant, so this is the number the daemon now runs on: 2.5 days, and the first refresh falls due 2026-08-31.
 
-## What this check does not cover
+**The `last_refresh` stamp carries nanoseconds**, which is codex's own Rust-written value and not curia's. That is the adoption path behaving correctly: `adopt()` writes the login's file verbatim and re-stamps nothing. Only `applyRefresh`, on the refresh path, writes a stamp of its own.
 
-The refresh itself. It fires once every 7.5 days on a 10-day token, so the first live evidence will be a `credential_refreshed` journal line rather than something anyone can schedule. Watch for it.
+**The nudge case did not arise.** No agent was live, so the fan-out healed nobody and the recovery line read "No live agent needed it." Whether a healed agent moves on its own is still open, and #644 §3 says it does not: a turn that died leaves the agent idle at the composer, and that nudge is rung 1 of the stall ladder #651 landed.
 
-What happens when a refresh fails is [#646](https://github.com/alp82/curia/issues/646), and it is deliberately not built here.
+## What this check still does not cover
+
+- **The fan-out to a live agent.** The box was idle. The path is tested hermetically against a temp directory tree, but it has not run against a real container.
+- **The refresh itself.** It fires once every 7.5 days on a 10-day token, so the first live evidence will be a `credential_refreshed` journal line on or about 2026-08-31 rather than something anyone can schedule.
+- **The timeout.** Start a `reauth` and walk away; after 30 minutes the session, the container, and the scratch dir should all be gone and `reauth_timed_out` should be in the journal. Worth forcing, because a re-authentication that silently vanished is the same class of bug as the credential that silently vanished.
+- **What happens when a refresh fails**, which is [#646](https://github.com/alp82/curia/issues/646) and deliberately not built here.
