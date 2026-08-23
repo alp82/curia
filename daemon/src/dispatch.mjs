@@ -2295,6 +2295,7 @@ export class Dispatcher {
         repo, wtPath: GUEST_WT, branch: checkout.branch, baseBranch: checkout.baseBranch,
         sha: checkout.sha, model: spawnModelId(this.routing, model),
         builderModel: spawnModelId(this.routing, builderModel),
+        harness: harnessName,
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 

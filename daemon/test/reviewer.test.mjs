@@ -363,6 +363,20 @@ describe('the reviewer\'s standing orders (#164)', () => {
     assert.match(text, /curia refuses `open_pull_request`, `request_review`/)
     assert.equal(text.split('request_review').length - 1, 1)
   })
+
+  test('a Codex reviewer loads deferred Curia tools once (#609)', () => {
+    const cfgDir = path.join(tmp, 'cfg-codex')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    const file = writeReviewPrompt(cfgDir, OPEN_ISSUE, {
+      repo: 'o/r', wtPath: '/workspace', branch: 'curia/42', baseBranch: 'main',
+      sha: 'deadbeefcafe0123456789', model: 'gpt-5.6-sol', builderModel: 'opus', harness: 'codex',
+    })
+    const text = fs.readFileSync(file, 'utf8')
+
+    assert.match(text, /Load deferred Curia tools once/)
+    assert.match(text, /every\s+`mcp__curia__\*` definition from one `exec` call/)
+    assert.match(text, /use the same definitions for every later Curia call/)
+  })
 })
 
 // ---- 4. the engine -----------------------------------------------------------
@@ -370,10 +384,15 @@ describe('the reviewer\'s standing orders (#164)', () => {
 describe('Dispatcher.crossCheck (#164)', () => {
   test('spawns curia-review-<n> on the other provider, claims nothing, and journals the spawn', async () => {
     const spawned = []
+    const promptOptions = []
     let claims = 0
     const d = makeDispatcher({
       newSession: async (opts) => { spawned.push(opts.name) },
       claim: async () => { claims += 1 },
+      writeReviewPrompt: (cfgDir, issue, opts) => {
+        promptOptions.push(opts)
+        return path.join(cfgDir, 'prompt.md')
+      },
     })
     withBuilder(d)
 
@@ -388,6 +407,7 @@ describe('Dispatcher.crossCheck (#164)', () => {
     assert.equal(spawn.model, 'gpt', 'an anthropic builder is read by gpt')
     assert.equal(spawn.builder_model, 'opus')
     assert.equal(spawn.same_provider, false)
+    assert.equal(promptOptions[0].harness, 'codex', 'the prompt receives the reviewer harness')
     // The status line and the timeline both draw off agent_spawned, so the
     // reviewer gets its own line in the ticket thread (ADR-0010).
     const drawn = events.find((e) => e.type === 'agent_spawned' && e.agent === 'curia-review-42')
