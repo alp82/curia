@@ -197,6 +197,29 @@ describe('the Stop-hook nudge budget (#54 item 4)', () => {
   })
 })
 
+describe('the prototype variation default (#636)', () => {
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-prototype-'))
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('an omitted count defaults to five', () => {
+    assert.equal(loadCuriaConfig(writeConfig()).dispatch.prototype_variations, 5)
+  })
+
+  test('the count must be a positive integer', () => {
+    for (const value of ['0', '2.5', '.inf']) {
+      const file = writeConfig()
+      const text = fs.readFileSync(file, 'utf8').replace(
+        '  auto_dispatch: false',
+        `  auto_dispatch: false\n  prototype_variations: ${value}`,
+      )
+      fs.writeFileSync(file, text)
+      assert.throws(() => loadCuriaConfig(file), /prototype_variations must be a positive integer/)
+    }
+  })
+})
+
 // ---- the workspace root is written down twice (#473) --------------------------
 //
 // `dispatch.workspace_root` says where the daemon writes its worktrees, and

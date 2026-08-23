@@ -24,9 +24,9 @@
 //    over dozens of tickets — and a settings screen that ate them would cost
 //    more than it saves. So `parseDocument` in, node edits, `toString` out.
 //
-// 3. THE PATCH IS A CLOSED SET. The screen writes six things: three dispatch
-//    numbers, the watch list, the routing defaults, and the model switch. Every
-//    one is named in code here and mapped onto an explicit key path. There is
+// 3. THE PATCH IS A CLOSED SET. The screen writes named dispatch values, the
+//    watch list, the routing defaults, and the model switch. Every value is
+//    named in code here and mapped onto an explicit key path. There is
 //    no generic "set this key" route, because a browser that could set any key
 //    could set `dispatch.workspace_root` or `sandbox.image`.
 //
@@ -93,11 +93,11 @@ export class SettingsRefusal extends Error {
 
 const refuse = (msg) => { throw new SettingsRefusal(msg) }
 
-// The three `dispatch:` keys the screen carries. The section holds three more —
-// `workspace_root`, `ready_timeout_s` and `stop_nudge_budget` — and they stay
-// off the screen: the first is a path on the daemon's filesystem, and the other
-// two are tuning the operator sets once from the box.
-export const DISPATCH_KEYS = ['auto_dispatch', 'max_concurrent', 'poll_interval_s']
+// The `dispatch:` keys the screen carries. The remaining keys stay off the
+// screen. They describe the box or tune internal dispatch behavior.
+export const DISPATCH_KEYS = [
+  'auto_dispatch', 'max_concurrent', 'poll_interval_s', 'prototype_variations',
+]
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/
 
@@ -151,8 +151,8 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 // the live set (#362)
 // ---------------------------------------------------------------------------
 //
-// The six things this screen writes are the six things `POST /reload` applies,
-// and no others. Rule 3 above is the reason they are one list rather than two:
+// The settings this screen writes are the settings `POST /reload` applies.
+// Rule 3 above is the reason they are one list rather than two:
 // a reload that applied a key the screen cannot write would be a second patch
 // set, free to disagree with this one.
 //
@@ -161,7 +161,10 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 // that are there and adds none, so a row that appears or goes is NOT in the set
 // and needs the restart.
 export const LIVE_PATHS = {
-  curia: ['dispatch.auto_dispatch', 'dispatch.max_concurrent', 'dispatch.poll_interval_s', 'watch'],
+  curia: [
+    'dispatch.auto_dispatch', 'dispatch.max_concurrent', 'dispatch.poll_interval_s',
+    'dispatch.prototype_variations', 'watch',
+  ],
   routing: ['defaults.*', 'models.*.active'],
 }
 
@@ -258,6 +261,9 @@ function checkPatch(patch) {
       if (!DISPATCH_KEYS.includes(key)) refuse(`the settings screen does not write \`dispatch.${key}\``)
     }
     if (d.auto_dispatch !== undefined && typeof d.auto_dispatch !== 'boolean') refuse('dispatch.auto_dispatch must be true or false')
+    if (d.prototype_variations !== undefined && (!Number.isInteger(d.prototype_variations) || d.prototype_variations <= 0)) {
+      refuse('dispatch.prototype_variations must be a positive integer')
+    }
     for (const key of ['max_concurrent', 'poll_interval_s']) {
       if (d[key] !== undefined && !(typeof d[key] === 'number' && Number.isFinite(d[key]) && d[key] > 0)) {
         refuse(`dispatch.${key} must be a positive number`)

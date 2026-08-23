@@ -56,7 +56,7 @@ const OVERVIEW = () => ({
     max_concurrent: 3,
     config: {
       loaded_at: at(7200),
-      dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60 },
+      dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60, prototype_variations: 5 },
       watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
       routing: {
         defaults: [{ type: 'grilling', model: 'opus' }, { type: 'research', model: 'gpt' }, { type: 'untyped', model: 'opus' }],
@@ -573,7 +573,7 @@ describe('the read screens (#264)', () => {
 
 const SETTINGS = () => ({
   files: { curia: '/home/alp/curia/config/curia.yaml', routing: '/home/alp/curia/config/routing.yaml' },
-  dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60 },
+  dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60, prototype_variations: 5 },
   watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
   watch_modes: ['auto', 'map', 'ready-for-agent'],
   routing: {
@@ -668,12 +668,13 @@ describe('the settings screen (#265)', () => {
 
   // ---- dispatch ------------------------------------------------------------
 
-  test('dispatch carries the switch and the two numbers, each with what it costs', () => {
+  test('dispatch carries the switch and each editable number', () => {
     const t = text(screen('dispatch'))
     assert.match(t, /auto_dispatch/)
     assert.match(t, /every dispatch is one the operator ordered/)
     assert.match(t, /max_concurrent How many agents may run at once\. Each one costs a container/)
     assert.match(t, /poll_interval_s/)
+    assert.match(t, /prototype_variations How many variations each prototype round offers by default/)
     assert.ok(!t.includes('workspace_root'), 'a path on the daemon\'s filesystem is not a thing this screen writes')
   })
 
@@ -692,8 +693,8 @@ describe('the settings screen (#265)', () => {
   })
 
   test('a number field posts a number, never the string the input holds', () => {
-    page.setDispatchField('poll_interval_s', '30')
-    assert.strictEqual(page.settingsPatch().dispatch.poll_interval_s, 30)
+    page.setDispatchField('prototype_variations', '7')
+    assert.strictEqual(page.settingsPatch().dispatch.prototype_variations, 7)
   })
 
   test('the watch list posts whole, because its order is part of it', () => {

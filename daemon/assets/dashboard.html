@@ -1636,19 +1636,20 @@ function screenFeed(p) {
       write that landed, and the answer rides back with the save. So the banner
       states an outcome — applied, declined, or the daemon is not answering —
       instead of handing the operator a second button to press. What "applied"
-      means is measured: the daemon reports the six settings it is RUNNING, and
+      means is measured: the daemon reports the settings it is RUNNING, and
       this screen compares them against the file it read. */
 
 const SET_SECTIONS = { routing: "Routing", projects: "Projects", dispatch: "Dispatch", maintenance: "Maintenance" };
 const SET_HINTS = {
   routing: "The model each ticket type gets when no label on the ticket says otherwise.",
   projects: "The repos curia watches. It dispatches against these and no others.",
-  dispatch: "Whether curia starts work by itself, how many agents run at once, and how often it looks for work.",
+  dispatch: "Whether curia starts work, how many agents run, how often it checks, and how many prototype variations it offers.",
   maintenance: "Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.",
 };
 const DISPATCH_FIELDS = [
   ["max_concurrent", "How many agents may run at once. Each one costs a container, and three sandbox ports."],
   ["poll_interval_s", "How often curia reads the frontier of every watched repo."],
+  ["prototype_variations", "How many variations each prototype round offers by default."],
 ];
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -1691,7 +1692,7 @@ function changeCount() {
 /* ---- what the daemon is running (#362) --------------------------------------
 
    Applied is a fact curia measured, not a claim the save made. `GET /overview`
-   carries the six settings the daemon RUNS and the instant it read them; this
+   carries the settings the daemon RUNS and the instant it read them; this
    compares them, key by key, against the file this screen read.
 
    Null means curia cannot tell — no snapshot, no file read, or a daemon that is

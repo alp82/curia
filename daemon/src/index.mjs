@@ -2212,8 +2212,8 @@ async function overview() {
       uptime_s: Math.round(process.uptime()),
       auto_dispatch: curiaConfig.dispatch.auto_dispatch,
       max_concurrent: curiaConfig.dispatch.max_concurrent,
-      // The six reloadable settings this process is RUNNING, and when it read
-      // them (#362). The console compares these against the file it read: a
+      // The reloadable settings this process is RUNNING, and when it read them
+      // (#362). The console compares these against the file it read: a
       // save that says "applied" is then a fact curia measured, and a daemon
       // running something else is visible without opening the section.
       config: { loaded_at: configLoadedAt, ...liveSettings({ curia: curiaConfig, routing: routingConfig }) },
@@ -2641,8 +2641,8 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   // The reload (#362, building the hot-reload decision #347). The save applies:
-  // the daemon re-reads both files and takes the six settings the settings
-  // screen writes, without the restart that used to be phase two of every save.
+  // the daemon re-reads both files and takes every setting the settings screen
+  // writes, without the restart that used to be phase two of every save.
   //
   // A RELOAD IS TOTAL OR IT IS NOTHING. Three ways out, and only the last one
   // moves anything:

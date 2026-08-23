@@ -281,7 +281,32 @@ describe('bounds', () => {
 // lines live here rather than in `skills/prototype/SKILL.md`, whose bytes are
 // upstream's and pinned — so the deviation has to be pinned on this side.
 describe('the prototype bound (#287)', () => {
-  const proto = () => write({ mapNumber: 1, type: 'wayfinder:prototype' })
+  const proto = (opts = {}) => write({
+    mapNumber: 1,
+    type: 'wayfinder:prototype',
+    prototypeVariations: 5,
+    ...opts,
+  })
+
+  test('each round carries the configured count and feedback rule (#636)', () => {
+    const p = proto({ prototypeVariations: 7 })
+    assert.match(p, /Offer 7 variations in each prototype round by default/)
+    assert.match(p, /state why/)
+    assert.match(p, /A logic walkthrough may warrant a different count/)
+    assert.match(p, /dimensions the ticket opens/)
+    assert.match(p, /Palette or copy\s+changes alone do not count/)
+    assert.match(p, /Keep what the operator kept/)
+    assert.match(p, /avoid what the\s+operator rejected/)
+    assert.match(p, /mix working patterns, and add new ideas/)
+    assert.match(p, /Record every round in `NOTES\.md`/)
+  })
+
+  test('a prototype dispatch requires the configured count', () => {
+    assert.throws(
+      () => write({ mapNumber: 1, type: 'wayfinder:prototype' }),
+      /prototypeVariations must be a positive integer/,
+    )
+  })
 
   test('the throwaway branch is named as the one the agent already stands on', () => {
     assert.match(proto(), new RegExp(`Your throwaway branch is \`${branchFor(42)}\`, the one you are already on`))

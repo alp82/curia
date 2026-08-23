@@ -125,6 +125,7 @@ function makeDispatcher(deps = {}, {
   // every test gets one; the null case is its own test, and it pins that
   // reconcile skips rather than sweeps.
   claimLogin = 'me',
+  prototypeVariations = 5,
   // #642, ADR-0027: the model-credential broker. NULL by default and on purpose
   // — a real one writes curia's real credential store and rotates a real
   // refresh token, so a test that forgot to pass one must broker nothing rather
@@ -139,6 +140,7 @@ function makeDispatcher(deps = {}, {
     watch,
     dispatch: {
       auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60,
+      prototype_variations: prototypeVariations,
       workspace_root: root, ready_timeout_s: readyTimeoutS, claim_login: claimLogin,
       stop_nudge_budget: stopNudgeBudget,
     },
@@ -3885,6 +3887,16 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
 })
 
 describe('the spawn prompt names the parent map (#41)', () => {
+  test('each dispatch hands the configured prototype count to the prompt (#636)', async () => {
+    let prompt = null
+    const d = makeDispatcher({
+      writePrompt: (cfgDir, issue, opts) => { prompt = opts; return '/p' },
+    }, { readyTimeoutS: 0, prototypeVariations: 7 })
+
+    await d.start('42', { repo: 'o/r' })
+    assert.equal(prompt.prototypeVariations, 7)
+  })
+
   test('a map child is prompted with its map number; the parent lookup rides the issue payload', async () => {
     let prompt = null
     const d = makeDispatcher({

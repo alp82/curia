@@ -1348,6 +1348,7 @@ export class Dispatcher {
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
         repo, wtPath: GUEST_WT, mapNumber, type: typeLabel, charting, newMap, instruction, ports,
+        prototypeVariations: this.config.dispatch.prototype_variations,
         // #173: the wayfinder invocation is spelled per harness, so the prompt
         // is no longer harness-blind.
         harness: harnessName,
@@ -3079,6 +3080,7 @@ export class Dispatcher {
       wtPath: GUEST_WT,
       mapNumber,
       type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
+      prototypeVariations: this.config.dispatch.prototype_variations,
       ports,
       harness: nextHarness,
       // #374: a fallback respawn rewrites the prompt, so it rewrites the
