@@ -318,6 +318,7 @@ describe('the re-ask takes the recorded answer (#369, real boot pair + real MCP 
       'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
       "    ready: '⏵⏵|bypass permissions'",
       '    tool_channel_grace_s: 15',
       '',

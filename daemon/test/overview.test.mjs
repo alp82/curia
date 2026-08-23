@@ -113,6 +113,7 @@ describe('GET /overview (index.mjs, real boot)', () => {
       'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
       "    ready: '⏵⏵|bypass permissions'",
       '    tool_channel_grace_s: 15',
       '',
@@ -622,6 +623,108 @@ describe('the failed spawns of a ticket (#444)', () => {
     assert.equal(s.failedSpawns(42), 1, 'the loop taking the ticket again is the repeat, not a fresh order')
     s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'alp82' })
     assert.equal(s.failedSpawns(42), 0)
+  })
+})
+
+describe('the released deaths of a ticket (#578)', () => {
+  let dir
+  const reduction = () => new Reduction(dir)
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-578-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('the count is per ticket and survives a daemon restart', () => {
+    const s = reduction()
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 43, agent: 'curia-43' })
+
+    assert.equal(reduction().releasedDeaths(42), 2)
+    assert.deepEqual(reduction().releasedDeathCounts(), [
+      { ticket: '42', repo: 'o/r', deaths: 2 },
+      { ticket: '43', repo: 'o/r', deaths: 1 },
+    ])
+  })
+
+  test('a typed dispatch clears the count and an auto dispatch does not', () => {
+    const s = reduction()
+    s.journal('agent_died_released', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    assert.equal(s.releasedDeaths(42), 1)
+
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'alp82' })
+    assert.equal(s.releasedDeaths(42), 0)
+  })
+
+  test('tool traffic belongs only to the current dispatch and survives a daemon restart', () => {
+    const s = reduction()
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    s.journal('agent_spawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('agent_mcp_first', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    assert.equal(reduction().agentSpoke('curia-42'), true)
+
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    assert.equal(s.agentSpoke('curia-42'), false)
+  })
+})
+
+describe('the stall recovery of a ticket (#574)', () => {
+  let dir
+  const reduction = () => new Reduction(dir)
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-574-')) })
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('each recovery step survives a daemon restart', () => {
+    const s = reduction()
+    s.journal('stall_nudge_finished', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('stall_respawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('stall_escalated', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+
+    assert.deepEqual(reduction().stallRecovery(42), {
+      repo: 'o/r', nudged: true, nudgeAttempts: 0,
+      respawnStarted: true, respawned: true, respawnLaunching: false, escalated: true,
+    })
+  })
+
+  test('a started effect does not claim that the recovery step finished', () => {
+    const s = reduction()
+    s.journal('stall_nudge_started', { repo: 'o/r', ticket: 42, agent: 'curia-42', attempt: 2 })
+    s.journal('stall_respawn_started', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+
+    assert.deepEqual(reduction().stallRecovery(42), {
+      repo: 'o/r', nudged: false, nudgeAttempts: 2,
+      respawnStarted: true, respawned: false, respawnLaunching: false, escalated: false,
+    })
+  })
+
+  test('a typed dispatch clears the recovery steps and an automatic dispatch does not', () => {
+    const s = reduction()
+    s.journal('stall_nudge_finished', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'auto' })
+    assert.equal(s.stallRecovery(42).nudged, true)
+
+    s.journal('dispatch_claimed', { repo: 'o/r', ticket: 42, agent: 'curia-42', by: 'alp82' })
+    assert.deepEqual(s.stallRecovery(42), {
+      repo: null, nudged: false, nudgeAttempts: 0,
+      respawnStarted: false, respawned: false, respawnLaunching: false, escalated: false,
+    })
+  })
+
+  test('one rejected nudge attempt survives a daemon restart', () => {
+    const s = reduction()
+    s.journal('stall_nudge_rejected', { repo: 'o/r', ticket: 42, agent: 'curia-42', attempt: 1 })
+
+    assert.equal(reduction().stallRecovery(42).nudgeAttempts, 1)
+  })
+
+  test('a send that did not start releases its reserved nudge attempt', () => {
+    const s = reduction()
+    s.journal('stall_nudge_started', { repo: 'o/r', ticket: 42, agent: 'curia-42', attempt: 1 })
+    s.journal('stall_cleared_before_nudge', { repo: 'o/r', ticket: 42, agent: 'curia-42', attempt: 1 })
+
+    assert.equal(reduction().stallRecovery(42).nudgeAttempts, 0)
+    assert.equal(reduction().stallRecovery(42).nudged, false)
   })
 })
 

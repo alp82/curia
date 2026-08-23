@@ -491,7 +491,14 @@ export class CommandRouter {
     // dispatching nothing. ⚠️ and not a sign of its own, for the reason the line
     // above takes one: the signal set is closed (#95).
     for (const s of this.dispatcher.dispatchHolds?.() ?? []) {
-      holdLines.push(`• ⚠️ ${s.repo ? `${s.repo}#${s.ticket}` : `#${s.ticket}`} died at the spawn ${s.failures} times, so auto-dispatch steps over it. \`start ${s.ticket}\` dispatches it again and clears the count`)
+      const ticket = s.repo ? `${s.repo}#${s.ticket}` : `#${s.ticket}`
+      if (s.kind === 'death-resume') {
+        holdLines.push(`• ⚠️ ${ticket} died after it spoke. Its automatic resume also died. Auto-dispatch steps over it. Type \`resume ${s.ticket}\` to dispatch it again.`)
+      } else if (s.kind === 'stall-watchdog') {
+        holdLines.push(`• ⚠️ ${ticket} needs operator action after automatic stall recovery stopped. Type \`resume ${s.ticket}\` to use the surviving worktree.`)
+      } else {
+        holdLines.push(`• ⚠️ ${ticket} died at the spawn ${s.failures} times, so auto-dispatch steps over it. \`start ${s.ticket}\` dispatches it again and clears the count`)
+      }
     }
     if (!agents.length && !untracked.length && !recent.length) {
       return holdLines.length ? `no live agents\n${holdLines.join('\n')}` : 'no live agents'

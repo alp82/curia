@@ -6,6 +6,8 @@ import { execFileP } from './exec.mjs'
 // tmux is a local socket call: anything slower than a few seconds is wedged,
 // and a wedged one must never hold up boot reconcile.
 const TMUX_TIMEOUT_MS = 5_000
+const PANE_READBACK_MS = 5_000
+const PANE_ACTIVE_RE = /(?:✻|✽|✶|✢|esc to interrupt|ctrl-c to interrupt)/i
 
 // #260: under compose the tmux SERVER lives in its own container, parked on a
 // `keeper` session, and the daemon is a client over a shared socket volume —
@@ -165,6 +167,10 @@ export const PANE_WRITE_GAP_MS = 1_500
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+export function paneShowsActiveTurn(text, lines = 4) {
+  return PANE_ACTIVE_RE.test(String(text ?? '').split('\n').slice(-lines).join('\n'))
+}
+
 // name -> { at, chain }: `at` is when the last write to this pane finished,
 // `chain` is the tail of that pane's job queue. The queue is per pane, so one
 // agent's send never delays another's.
@@ -178,9 +184,12 @@ function paneJob(name, job) {
     state = { at: 0, chain: Promise.resolve() }
     paneWrites.set(name, state)
   }
-  const write = async (args) => {
+  const pace = async () => {
     const wait = state.at + PANE_WRITE_GAP_MS - Date.now()
     if (wait > 0) await sleep(wait)
+  }
+  const write = async (args) => {
+    await pace()
     try {
       await tmux(args)
     } finally {
@@ -189,7 +198,7 @@ function paneJob(name, job) {
       state.at = Date.now()
     }
   }
-  const done = state.chain.then(() => job(write))
+  const done = state.chain.then(() => job(write, pace))
   // The queue carries the swallowed copy: one failed job must not reject every
   // job queued behind it.
   state.chain = done.catch(() => {})
@@ -198,10 +207,32 @@ function paneJob(name, job) {
 
 // -l sends the text LITERALLY (no key-name interpretation); the separate
 // Enter, one gap later, submits it.
-export function sendText(name, text) {
-  return paneJob(name, async (write) => {
-    await write(['send-keys', '-t', `=${name}:`, '-l', text])
-    await write(['send-keys', '-t', `=${name}:`, 'Enter'])
+export function sendText(name, text, { readbackMs = PANE_READBACK_MS } = {}) {
+  return paneJob(name, async (write, pace) => {
+    await pace()
+    const idleDeadline = Date.now() + readbackMs
+    let before
+    do {
+      before = await capturePane(name)
+      if (!paneShowsActiveTurn(before)) break
+      if (Date.now() >= idleDeadline) return { status: 'not-sent', pane: before }
+      await sleep(Math.min(250, idleDeadline - Date.now()))
+    } while (true)
+    try {
+      await write(['send-keys', '-t', `=${name}:`, '-l', text])
+      await write(['send-keys', '-t', `=${name}:`, 'Enter'])
+    } catch (error) {
+      return { status: 'unconfirmed', pane: before, error: error.message }
+    }
+    const deadline = Date.now() + readbackMs
+    let after = before
+    do {
+      after = await capturePane(name)
+      if (after !== before && paneShowsActiveTurn(after)) return { status: 'confirmed', pane: after }
+      if (Date.now() >= deadline) break
+      await sleep(Math.min(250, deadline - Date.now()))
+    } while (true)
+    return { status: 'unconfirmed', pane: after }
   })
 }
 

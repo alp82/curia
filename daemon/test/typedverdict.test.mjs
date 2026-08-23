@@ -100,6 +100,7 @@ describe('report_result carries a typed verdict, and the reviewer is linted (#42
       'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
       "    ready: '⏵⏵|bypass permissions'",
       '    tool_channel_grace_s: 15',
       '',

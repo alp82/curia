@@ -410,6 +410,7 @@ describe('the container config (#156, #195)', () => {
       'harnesses:',
       '  claude:',
       `    template: ${template}`,
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
       "    ready: '⏵⏵'",
       "    tool_channel_grace_s: 15",
     ].join('\n'))

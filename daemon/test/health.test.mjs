@@ -237,6 +237,7 @@ async function writeConfig(cfgDir, tmp) {
     'harnesses:',
     '  claude:',
     '    template: claude --model {model} "$(cat {prompt_file})"',
+    '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
     "    ready: '\u23f5\u23f5|bypass permissions'",
     "    tool_channel_grace_s: 15",
     '',

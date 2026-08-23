@@ -596,6 +596,10 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     for (const ph of ['{model}', '{prompt_file}']) {
       if (!b.template.includes(ph)) fail(src, `harnesses.${name}.template is missing the ${ph} placeholder`)
     }
+    if (typeof b.resume_template !== 'string' || !b.resume_template.includes('{model}')) {
+      fail(src, `harnesses.${name}.resume_template must include the {model} placeholder`)
+    }
+    b.resumeTemplate = b.resume_template
     if (!HARNESS_NAMES.includes(name)) {
       fail(src, `harnesses.${name} has no entry in the HARNESS table in workspace.mjs — an agent under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_NAMES.join(', ')}`)
     }
@@ -632,8 +636,9 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     // `sandbox: docker`, and it named `sandbox: none` as the way out. Every
     // harness runs in a container now, so there is no way out and no switch to
     // read: a template with a single quote in it is simply invalid.
-    if (b.template.includes("'")) {
-      fail(src, `harnesses.${name}.template carries a single quote, which the docker command cannot nest — rewrite it without one`)
+    for (const [key, value] of [['template', b.template], ['resume_template', b.resumeTemplate]]) {
+      if (!value?.includes("'")) continue
+      fail(src, `harnesses.${name}.${key} carries a single quote. The docker command cannot nest it. Rewrite it without one`)
     }
   }
   for (const [name, m] of Object.entries(cfg.models)) {
@@ -642,4 +647,3 @@ export function loadRoutingConfig(file, { localFile } = {}) {
 
   return cfg
 }
-

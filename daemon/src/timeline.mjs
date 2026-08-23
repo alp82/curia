@@ -638,7 +638,17 @@ export class TimelineSurface {
         return json(409, { error: `the agent is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`, dialog: true })
       }
       try {
-        await this.deps.sendText(b.session, text)
+        const delivery = await this.deps.sendText(b.session, text)
+        if (delivery?.status === 'not-sent') {
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'not_sent', text: clip(text) })
+          return json(409, { error: 'the pane stayed active, so curia did not send the text' })
+        }
+        if (delivery?.status === 'unconfirmed') {
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'unconfirmed', text: clip(text) })
+          s.draft = ''
+          this.#broadcast(s, 'draft', { text: '', by })
+          return json(202, { error: 'curia sent the keys, but the pane did not confirm a new turn', unconfirmed: true })
+        }
       } catch (e) {
         this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
         return json(502, { error: e.message })

@@ -315,10 +315,26 @@ describe('the read screens (#264)', () => {
     // The failed-spawn step-over (#444). It is on this list by the list's own
     // test — an operator act is what ends it — and a spent window is not.
     test('a ticket the auto loop steps over joins the attention list, and is counted', () => {
-      const one = payload({ dispatch_holds: [{ ticket: '444', repo: 'alp82/curia', failures: 2 }] })
+      const one = payload({ dispatch_holds: [{ ticket: '444', repo: 'alp82/curia', failures: 2, kind: 'failed-spawn' }] })
       const t = text(page.screenHome(one))
       assert.match(t, /died at the spawn 2 times, so auto-dispatch steps over it/)
       assert.match(t, /clears the count/, 'the act that ends it is the point of the line')
+      assert.equal(page.needsYou(one.overview), 3)
+    })
+
+    test('a ticket whose automatic resume died names that cause on the attention list', () => {
+      const one = payload({ dispatch_holds: [{ ticket: '578', repo: 'alp82/curia', deaths: 2, kind: 'death-resume' }] })
+      const t = text(page.screenHome(one))
+      assert.match(t, /automatic resume also died, so auto-dispatch steps over it/)
+      assert.match(t, /resume you type dispatches it again and clears the count/)
+      assert.equal(page.needsYou(one.overview), 3)
+    })
+
+    test('a ticket whose stall recovery ended names the operator actions', () => {
+      const one = payload({ dispatch_holds: [{ ticket: '574', repo: 'alp82/curia', kind: 'stall-watchdog' }] })
+      const t = text(page.screenHome(one))
+      assert.match(t, /needs operator action after automatic stall recovery stopped/)
+      assert.match(t, /resume 574.*surviving worktree/)
       assert.equal(page.needsYou(one.overview), 3)
     })
 
