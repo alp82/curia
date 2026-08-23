@@ -131,4 +131,26 @@ closing question on a shape already picked, so a fifth cut would be invented to 
 - **q3, the two visuals.** U1 both stand and differ by what a reader does with them, U2 the field
   retires, U3 the format retires. Recommended U1.
 
+**Round 4, the answer (2026-08-23).** All three as recommended: A3, W1, U1. The operator refined
+q3 rather than just taking it.
+
+- **A3.** The prose field caps at 1600 and `CHUNK_LIMIT` rises to 1700, so the rail always fits
+  inside the message it labels and the agent keeps a round number.
+- **W1.** Past 1600 the agent composes a second prose message, and the refusal names that path.
+- **U1, refined.** The `visual` message format stays. The `visual` field does not stay one field:
+  it splits into two named for the two visual types, and the format carries the same two. So
+  `visual` names a message format only, and no field is called it. The ambiguity stops existing
+  rather than being managed.
+
+**Round 5 — naming the split.** Two questions, fewer than five cuts each, because naming is not a
+fan-out dimension and #635 rules a copy change alone out as a variation.
+
+- **q1, the two field names.** N1 `picture` and `diagram`, N2 `image` and `ascii` as the operator
+  worded it, N3 `picture` and `monospace`, N4 three fields `picture`, `table` and `diagram`.
+  Recommended N1. N4 is on the page because splitting table from diagram buys a real column check
+  that one combined field can never run.
+- **q2, the shipped `images` field.** M1 rename it `attachments`, M2 leave it, M3 retire it into
+  the `files` format. Recommended M1, because the field has accepted `.patch`, `.diff`, `.md`,
+  `.txt` and `.log` since it shipped and the name has never been true.
+
 Awaiting the operator.
