@@ -8,6 +8,7 @@ One note per investigation. Each line gives the topic and the outcome. The outco
 | [acp-roundtrip-verification.md](acp-roundtrip-verification.md) | Live ACP escalation, permission, image, and steering round-trip | Rejected — the MCP contract (ADR-0005) shipped instead of an ACP lane |
 | [agent-subagents.md](agent-subagents.md) | Subagents inside the dispatched agents, on both pinned harnesses | Informational — grounds the grilling ticket [#529](https://github.com/alp82/curia/issues/529) recommends |
 | [ai-design-skills.md](ai-design-skills.md) | Elaya Design's landing-page skill for curia page work | Adopted for the living-organism prototype. Its result will decide later use |
+| [aistack-machine-sync.md](aistack-machine-sync.md) | The curia box as an aistack machine: registration, the token, the sync, and the recurring path | Informational - grounds the prototype [#554](https://github.com/alp82/curia/issues/554). The box needs its own stack and a box-side timer |
 | [cline.md](cline.md) | Cline CLI as a native-ACP worker lane candidate | Superseded — source read only; [cline-worker-lane.md](cline-worker-lane.md) ran it |
 | [cline-worker-lane.md](cline-worker-lane.md) | Cline hands-on worker lane via the OpenACP seam | Rejected — no ACP lane in the ADR-0003 tmux host |
 | [codex-lane-gaps.md](codex-lane-gaps.md) | Where the codex lane trails the claude lane | Informational - grounds the fix tickets that graduate from [#152](https://github.com/alp82/curia/issues/152) |
