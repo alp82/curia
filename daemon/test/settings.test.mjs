@@ -59,6 +59,7 @@ function writeCuria(extra = []) {
     '  # The resource number, not a throughput one.',
     '  max_concurrent: 2',
     '  poll_interval_s: 60',
+    '  prototype_variations: 5',
     `  workspace_root: ${path.join(tmp, 'work')}`,
     '  claim_login: alp82',
     '  ready_timeout_s: 45',
@@ -123,9 +124,14 @@ beforeEach(() => {
 afterEach(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
 
 describe('the read the settings screen draws', () => {
-  test('it names the three dispatch keys, the watch list and the routing tables', () => {
+  test('it names the dispatch keys, the watch list, and the routing tables', () => {
     const s = readSettings(files())
-    assert.deepEqual(s.dispatch, { auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60 })
+    assert.deepEqual(s.dispatch, {
+      auto_dispatch: false,
+      max_concurrent: 2,
+      poll_interval_s: 60,
+      prototype_variations: 5,
+    })
     assert.deepEqual(s.watch, [{ repo: 'o/first', mode: 'auto' }, { repo: 'o/second', mode: 'auto' }])
     assert.deepEqual(s.routing.defaults, [{ type: 'untyped', model: 'opus' }, { type: 'research', model: 'gpt' }])
     assert.deepEqual(s.routing.models.map((m) => m.name), ['opus', 'sonnet', 'gpt'])
@@ -154,6 +160,11 @@ describe('the read the settings screen draws', () => {
 // show — that the tracked file never moves, that the override holds only what
 // differs, and that it goes away when it holds nothing.
 describe('the save lands beside the tracked file, never on it', () => {
+  test('the prototype count is editable from the settings screen', () => {
+    saveSettings({ ...files(), patch: { dispatch: { prototype_variations: 7 } } })
+    assert.equal(loadCuriaConfig(curiaFile, { checkPaths: false }).dispatch.prototype_variations, 7)
+  })
+
   test('the tracked file is untouched and the override carries the change', () => {
     const before = fs.readFileSync(curiaFile, 'utf8')
     const out = saveSettings({ ...files(), patch: { dispatch: { max_concurrent: 5 } } })
@@ -329,6 +340,15 @@ describe('the patch is a closed set', () => {
     refused({ routing: { harnesses: {} } }, /does not write `routing.harnesses`/)
   })
 
+  test('the prototype count must be a positive integer', () => {
+    for (const value of [0, 2.5, Infinity]) {
+      refused(
+        { dispatch: { prototype_variations: value } },
+        /dispatch.prototype_variations must be a positive integer/,
+      )
+    }
+  })
+
   test('a model patch may say `active` and nothing else', () => {
     refused({ routing: { models: { opus: { provider: 'openai' } } } }, /writes `active` and nothing else/)
   })
@@ -454,9 +474,14 @@ describe('the closed set a reload applies (#362)', () => {
     ?? frozenDifference(before.routing, after.routing, LIVE_PATHS.routing)
   )
 
-  test('the six read out of a loaded config in the shape the screen reads them', () => {
+  test('the live settings read in the shape the screen uses', () => {
     const live = liveSettings(load())
-    assert.deepEqual(live.dispatch, { auto_dispatch: false, max_concurrent: 2, poll_interval_s: 60 })
+    assert.deepEqual(live.dispatch, {
+      auto_dispatch: false,
+      max_concurrent: 2,
+      poll_interval_s: 60,
+      prototype_variations: 5,
+    })
     assert.deepEqual(live.watch, [{ repo: 'o/first', mode: 'auto' }, { repo: 'o/second', mode: 'auto' }])
     assert.deepEqual(live.routing.defaults, [{ type: 'untyped', model: 'opus' }, { type: 'research', model: 'gpt' }])
     assert.deepEqual(live.routing.models, [
@@ -479,6 +504,7 @@ describe('the closed set a reload applies (#362)', () => {
     ['a dispatch number', () => overCuriaFile(['dispatch:', '  max_concurrent: 5']), ['dispatch.max_concurrent']],
     ['the switch', () => overCuriaFile(['dispatch:', '  auto_dispatch: true']), ['dispatch.auto_dispatch']],
     ['the tick', () => overCuriaFile(['dispatch:', '  poll_interval_s: 15']), ['dispatch.poll_interval_s']],
+    ['the prototype count', () => overCuriaFile(['dispatch:', '  prototype_variations: 7']), ['dispatch.prototype_variations']],
     ['the watch list', () => overCuriaFile(['watch:', '  - repo: o/first', '  - repo: o/third']), ['watch']],
     ['a routing default', () => overRoutingFile(['defaults:', '  untyped: sonnet']), ['routing.defaults.untyped']],
     ['a model switch', () => overRoutingFile(['models:', '  sonnet:', '    active: false']), ['routing.models.sonnet.active']],
