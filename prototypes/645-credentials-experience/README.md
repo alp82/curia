@@ -96,7 +96,8 @@ While a credential is dead or a login is running, a full-bleed sheet replaces th
 step at a time, a huge link target, a tap-to-copy code, a countdown. Always dismissible, and
 Needs-you keeps a `reopen` line for anyone who dismissed it.
 
-- The only variant that reads well at 390 px without pinch-zooming, which is where it is used.
+- It reads at 390 px - but so does B's flow panel, which is what retired this variant. The
+  takeover was buying drama, not capability.
 - It takes the page over for a failure that is sometimes not urgent (`absent` on a fresh box).
 - The page's own comment already argues for it: "while it is up nothing else on the box matters
   as much."
@@ -123,19 +124,19 @@ Needs-you keeps a `reopen` line for anyone who dismissed it.
    the terminal and gives them no way to. The link is composable — `attachSessionUrl(base, port,
    'curia-auth-openai')` — and it is the path that always works.
 
-6. **B's table pushed its own action off a phone screen.** Found by looking, not by reasoning:
-   at 390 px the six-column table did not wrap, it overflowed, and the last column is the one
-   press. At the alarm step the Sign-in button was unreachable on the device the whole no-ssh
-   requirement exists for. Fixed here by restacking each row as a card below 640 px, with the
-   action full width at the bottom. This is the finding that retired variant C: the phone case
-   is B's to carry, and it can.
-
 5. **The claude paste-back has no path to this page.** `claude setup-token` waits on
    `Paste code here if prompted >`, and the page cannot type it: `sendText` and `sendKey` refuse
    a `curia-auth-` session outright, with no exception. `dispatch.mjs:490` already predicted
    this — "a consumer whose login needs a paste back gets its own explicit path here rather than
    a hole in this one". So #648 owes a deliberate `ReauthFlow`-owned write, or the claude lane
    sends the operator to ttyd for that one keystroke. No variant here invents a hole.
+
+6. **B's table pushed its own action off a phone screen.** Found by looking, not by reasoning:
+   at 390 px the six-column table did not wrap, it overflowed, and the last column is the one
+   press. At the alarm step the Sign-in button was unreachable on the device the whole no-ssh
+   requirement exists for. Fixed here by restacking each row as a card below 640 px, with the
+   action full width at the bottom. This is the finding that retired variant C: the phone case
+   is B's to carry, and it can.
 
 ## The Discord copy
 
