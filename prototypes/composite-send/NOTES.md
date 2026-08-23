@@ -69,4 +69,35 @@ all rendered under the picked rail.
 - **q3, the question background.** B1 a plain paragraph, B2 a blockquote, B3 small print, B4 a
   spoiler, B5 the ↳ arrow of the choice card. Recommended B2.
 
+**Round 2, the answer (2026-08-23).** O2, P2 with lists allowed, B3 with an info glyph. Two
+recommendations were overruled, and each pick opened something.
+
+- **O2.** The prose cap rises from 1200 to 2000. Two consequences went to round 3. `CHUNK_LIMIT`
+  in `daemon/src/messaging.mjs` is 1600, so a prose entry above it becomes two Discord messages and
+  the rail count stops being true. And 2000 is Discord's own ceiling, so past it there is no bigger
+  single message.
+- **P2, with P4's list allowed inside it.** The conclusion always leads in bold. Under it the agent
+  writes paragraphs or a list, chosen by what the content is. The blend is on the page as P2+.
+- **B3 with an info glyph.** The background is small print. Two consequences went to round 3. The
+  signal set of ADR-0013 has no info glyph, so this adds a ninth. And the never-stacked rule turns
+  out to be about authored newlines, so a background written as one line breaks nothing.
+
+**Round 3 — the consequences and the two remaining bullets.** Five questions, five variations each.
+
+- **q1, the prose message at 2000.** X1 one entry is always one Discord message, X2 leave the
+  chunker at 1600 and let it split, X3 curia splits at a paragraph edge past 2000, X4 the refusal
+  stands with the timeline flag, X5 cap the field at 1900 and reserve 100 for the rail.
+  Recommended X1.
+- **q2, the background layout.** I1 one wrapped line with the glyph in front, I2 a glyph line then
+  a stack, I3 the glyph on every line, I4 the load-bearing sentence at full weight, I5 a one-line
+  summary with the measurements behind a spoiler. Recommended I1.
+- **q3, the glyph.** ℹ️, 💡, 📌, 📖 or 🔍. Recommended ℹ️.
+- **q4, when the agent composes.** K1 only when a message would break a rule, K2 a named shape per
+  call, K3 free composition under the structural rules, K4 a message per thing a reader would skip,
+  K5 one message per intent. Recommended K4.
+- **q5, the image and the visual.** G1 the image rides the deciding message, G2 one image message
+  then the decision, G3 one image per option, G4 an ASCII diagram instead, G5 the image leads with
+  prose reading it. Recommended G2, and the per-message `visual` field survives beside the
+  `visual` message format.
+
 Awaiting the operator.
