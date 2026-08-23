@@ -24,6 +24,10 @@ import { execFileP } from './exec.mjs'
 import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
 import { forgetGhCredentials } from './agentgh.mjs'
+// One expiry parser for the whole daemon (#642). The broker in credentials.mjs
+// refreshes on the same reading this seed refuses on, and a second parser here
+// would be free to disagree with it about whether a dispatch may proceed.
+import { codexAccessTokenExpiry } from './credentials.mjs'
 // the daemon's own minted credential (#390, ADR-0018) — every clone, fetch and
 // push below reaches GitHub as `curia-sh[bot]` rather than as the operator
 import { daemonGhEnv } from './daemongh.mjs'
@@ -568,23 +572,6 @@ function writeSecretFile(file, data) {
   fs.chmodSync(file, 0o600) // the mode applies only on create; a reused config dir already has one
 }
 
-// When the codex access token expires, in epoch milliseconds — or null when the
-// file does not answer the question. The token is a JWT, so the expiry is the
-// `exp` claim in its payload, read without verification: the daemon is not the
-// audience, it only needs the clock value the server stamped. Null on ANY
-// parse failure, on purpose: the #351 refusal below must stand on a measured
-// expiry, and a credential file this parser cannot read proves nothing about
-// the token's lifetime.
-function codexAccessTokenExpiry(authJson) {
-  try {
-    const token = JSON.parse(authJson)?.tokens?.access_token
-    const payload = JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8'))
-    return Number.isFinite(payload.exp) ? payload.exp * 1000 : null
-  } catch {
-    return null
-  }
-}
-
 const HARNESS = {
   claude: {
     // The CLI's global-memory file, and the ONLY per-session channel either
@@ -801,12 +788,12 @@ const HARNESS = {
         return
       }
       if (!fs.existsSync(host)) {
-        throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach the host store — run \`codex login\` on this box`)
+        throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach the host store — type \`reauth\` to sign in from a browser (#642)`)
       }
       const raw = fs.readFileSync(host, 'utf8')
       const expiry = codexAccessTokenExpiry(raw)
       if (expiry !== null && expiry <= Date.now()) {
-        throw new Error(`refusing to seed the codex credential into the container: the host access token expired ${new Date(expiry).toISOString()}. A copy that starts expired refreshes at once, the server rotates the refresh token, and the read-only copy cannot store the rotation — that strands the host store too (#351) — run \`codex login\` on this box first`)
+        throw new Error(`refusing to seed the codex credential into the container: the host access token expired ${new Date(expiry).toISOString()}. A copy that starts expired refreshes at once, the server rotates the refresh token, and the read-only copy cannot store the rotation — that strands the host store too (#351) — type \`reauth\` to sign in from a browser first (#642)`)
       }
       fs.writeFileSync(dest, raw)
       fs.chmodSync(dest, 0o400)

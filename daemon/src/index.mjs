@@ -49,6 +49,7 @@ import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
 import { APP_ID_KEY, APP_KEY_FILE_KEY, minterFrom } from './githubapp.mjs'
+import { CodexCredentialBroker } from './credentials.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
@@ -1087,6 +1088,10 @@ const dispatcher = new Dispatcher({
   // POST /command inside the listen→boot-reconcile window has a live one) and
   // mark the Discord buttons.
   cancelEscalation: (id, opts) => gate.cancel(id, opts),
+  // #642: the terminal link for a session no ticket names — the
+  // `curia-auth-<provider>` login. Same publish-and-verify path as /attach, so
+  // a link is never handed out over a surface /attach would refuse.
+  attachSessionLink: (session) => attachApi.link(null, { session }),
   // #118 item 7 / #108 item 22: the ready message carries both attach handles
   // as link BUTTONS, composed the same way /attach composes them — each half
   // failing independently.
@@ -1109,6 +1114,14 @@ const dispatcher = new Dispatcher({
   // here — no app on this box — keeps every agent on #155's PAT, which is what
   // ADR-0018 means by "no PAT comes out ahead of its replacement".
   minter: appMinter,
+  // #642, ADR-0027: the daemon owns the codex model credential. It is
+  // constructed HERE and not inside the Dispatcher for the reason the minter is:
+  // it writes curia's real credential store and rotates a real refresh token, so
+  // the process that actually runs the box is the one that hands it over.
+  credentials: new CodexCredentialBroker({
+    log,
+    journal: (event, detail) => reduction.journal(event, detail),
+  }),
   deps: {
     // #188: the container-facing listener is this file's, so the check that a
     // sandboxed dispatch can rely on it is this file's too. It binds lazily,
@@ -2216,6 +2229,16 @@ async function overview() {
     untracked: fleet?.untracked ?? null,
     recent: fleet?.recent ?? null,
     fleet_error: fleetError,
+    // The model credentials (#642, ADR-0027). One row per consumer, plus the
+    // live re-authentication card when a device login is in flight. It costs one
+    // small file read, so it rides the poll like everything else here.
+    //
+    // THE DEVICE CODE IS IN THIS PAYLOAD and it is in no other surface. The
+    // dashboard is published over the tailnet behind the operator's own
+    // Tailscale login (#151); Discord gets the alarm and the link, never the
+    // code, because a one-time auth code in a chat log is a credential in a
+    // chat log.
+    credentials: dispatcher.credentialsStatus(),
     // The gate is its own list, not a kind to filter for. It is the one
     // escalation the daemon opens about an agent's ENDING, it carries the pull
     // request nothing else carries, and the page draws it as its own card.

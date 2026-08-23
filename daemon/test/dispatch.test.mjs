@@ -22,6 +22,7 @@ import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
 import { GH_DIR, readGhCredentials, writeGhCredentials } from '../src/agentgh.mjs'
 import { readOverseerToken } from '../src/overseertoken.mjs'
 import { removeCredentials } from '../src/workspace.mjs'
+import { CodexCredentialBroker } from '../src/credentials.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet' },
@@ -124,6 +125,11 @@ function makeDispatcher(deps = {}, {
   // every test gets one; the null case is its own test, and it pins that
   // reconcile skips rather than sweeps.
   claimLogin = 'me',
+  // #642, ADR-0027: the model-credential broker. NULL by default and on purpose
+  // — a real one writes curia's real credential store and rotates a real
+  // refresh token, so a test that forgot to pass one must broker nothing rather
+  // than reach the box's own `~/.codex`.
+  credentials = null,
   // Discarded by default. A test that asserts on a boot line passes a collector,
   // because the lines it wants are written inside the constructor (#377).
   log = () => {},
@@ -293,6 +299,7 @@ function makeDispatcher(deps = {}, {
     dataDir: path.join(tmp, 'data'),
     daemonPort: 4271,
     minter,
+    credentials,
     deps: { ...base, ...deps },
   })
   // #151: index.mjs hangs the identity proxy on the dispatcher the way it hangs
@@ -6353,5 +6360,142 @@ describe('the stranded-map watch (#485)', () => {
     await d.frontier()
     assert.equal(says.length, 1)
     assert.equal(events.filter((e) => e.type === 'map_stranded').at(-1).said, true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #642: no sweep walks a `curia-auth-` session
+// ---------------------------------------------------------------------------
+//
+// A re-authentication session is a `codex login` waiting on a human. It looks to
+// every sweep exactly like a wedged agent: a pane whose transcript is not
+// growing, a session no ticket answers for, a config dir holding a credential.
+// Each of the four guards below is one sweep that would otherwise act on it, and
+// the worst of them is the first — a continue message typed into a login prompt
+// is keystrokes into a credential dialog.
+//
+// The invariant used to hold by ACCIDENT: nothing registers an auth session in
+// `this.agents`, and `SESSION_RE` happens to fail the name. An accident is not
+// an invariant, and #647 is about to fold the pane classifiers into a sweep that
+// walks the same map.
+describe('a re-authentication session is invisible to every sweep (#642)', () => {
+  const AUTH = 'curia-auth-openai'
+
+  test('the pane write path REFUSES it, whoever asks', async () => {
+    const writes = []
+    const d = makeDispatcher({
+      sendText: async (pane, body) => writes.push({ pane, body }),
+      sendKey: async (pane, key) => writes.push({ pane, key }),
+    })
+
+    await assert.rejects(d.deps.sendText(AUTH, 'continue'), /re-authentication session/)
+    await assert.rejects(d.deps.sendKey(AUTH, 'Enter'), /re-authentication session/)
+    assert.deepEqual(writes, [], 'not one byte reached the login prompt')
+
+    // and an ordinary agent pane is untouched by the guard
+    await d.deps.sendText('curia-42', 'continue')
+    assert.deepEqual(writes, [{ pane: 'curia-42', body: 'continue' }])
+  })
+
+  test('the liveness sweep steps over one, even if a record for it exists', async () => {
+    const asked = []
+    const killed = []
+    const d = makeDispatcher({
+      hasSession: async (n) => { asked.push(n); return false },
+      killSession: async (n) => { killed.push(n) },
+    })
+    d.agents.set(AUTH, { session: AUTH, ticket: null, state: 'ready', exitMarker: 'x' })
+
+    await d.livenessSweep()
+
+    assert.deepEqual(asked, [], 'tmux is not even asked about it')
+    assert.deepEqual(killed, [])
+    assert.ok(!events.some((e) => e.type === 'agent_died'), 'a login in flight is not a death')
+  })
+
+  // #651 landed the stall ladder while this was being built, so the sweep the
+  // write-path refusal names by name now exists. A login prompt is a pane whose
+  // transcript never grows, which is exactly what rung 1 nudges.
+  test('the stall sweep never reaches one, and never nudges it', async () => {
+    const writes = []
+    const d = makeDispatcher({
+      capturePane: async () => 'a pane that has not moved',
+      sendText: async (pane, body) => writes.push({ pane, body }),
+      transcriptActivity: () => ({ mtimeMs: 0 }),
+    })
+    d.agents.set(AUTH, { session: AUTH, ticket: null, state: 'ready', harness: 'codex', cfgDir: '/nowhere' })
+
+    await d.stallSweep()
+
+    assert.deepEqual(writes, [])
+    assert.ok(!events.some((e) => e.type === 'stall_detected'), 'a login waiting on a human is not a stall')
+  })
+
+  test('reconcile adopts no login and orphan-sweeps none', async () => {
+    const killed = []
+    const d = makeDispatcher({
+      listSessions: async () => [AUTH, 'curia-88'],
+      hasSession: async () => true,
+      killSession: async (n) => { killed.push(n) },
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.equal(d.agents.has(AUTH), false, 'a login is never adopted as an agent')
+    assert.equal(killed.includes(AUTH), false, 'and never swept as an orphan')
+  })
+
+  // The tick's own half of #642: the broker is injected, the fan-out reads the
+  // LIVE agents map, and a Dispatcher nobody handed a broker brokers nothing.
+  test('the tick hands the host credential to live codex agents, and to nobody else', async () => {
+    const home = path.join(tmp, 'curia-home')
+    fs.mkdirSync(path.join(home, '.codex'), { recursive: true })
+    const host = '{"tokens":{"access_token":"a.b.c","refresh_token":"rt.new"}}'
+    fs.writeFileSync(path.join(home, '.codex', 'auth.json'), host)
+
+    const cfgOfSession = (s) => path.join(tmp, 'work', 'cfg', s)
+    for (const session of ['curia-574', 'curia-999']) {
+      fs.mkdirSync(cfgOfSession(session), { recursive: true })
+      fs.writeFileSync(path.join(cfgOfSession(session), 'auth.json'), '{"tokens":{"refresh_token":"rt.spent"}}')
+    }
+
+    const d = makeDispatcher({}, { credentials: new CodexCredentialBroker({ home }) })
+    d.agents.set('curia-574', { session: 'curia-574', ticket: '574', cfgDir: cfgOfSession('curia-574') })
+
+    const out = await d.syncModelCredentials()
+
+    assert.deepEqual(out.healed, ['curia-574'])
+    assert.equal(fs.readFileSync(path.join(cfgOfSession('curia-574'), 'auth.json'), 'utf8'), host)
+    assert.match(fs.readFileSync(path.join(cfgOfSession('curia-999'), 'auth.json'), 'utf8'), /rt\.spent/,
+      'a config dir whose agent is not live is not a target')
+    assert.ok(events.some((e) => e.type === 'credential_fanned_out' && e.agents.includes('curia-574')))
+  })
+
+  test('a daemon with no broker brokers nothing, and says so rather than pretending', async () => {
+    const d = makeDispatcher()
+    assert.deepEqual(await d.syncModelCredentials(), { refreshed: false, healed: [] })
+    assert.equal(d.credentialsStatus().consumers[0].state, 'unowned')
+    assert.equal(d.credentialsStatus().reauth, null)
+    assert.match(await d.startReauth({}), /brokers no model credential/)
+  })
+
+  // The scratch config dir holds the credential the login is about to write.
+  // Sweeping it would delete it out from under an operator halfway through
+  // typing the code. `ReauthFlow` removes it itself, on every outcome.
+  test('the credential sweep leaves the login\'s scratch dir alone', async () => {
+    const swept = []
+    for (const session of [AUTH, 'curia-77']) {
+      const dir = path.join(tmp, 'work', 'cfg', session)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'auth.json'), '{}')
+    }
+    const d = makeDispatcher({
+      listSessions: async () => [],
+      removeCredentials: (dir) => swept.push(path.basename(dir)),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(swept, ['curia-77'], 'the dead agent is swept and the live login is not')
   })
 })

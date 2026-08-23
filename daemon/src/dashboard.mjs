@@ -64,7 +64,11 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // Bumped to 5 by #355: the gate card and the agent row both read `/api/diff`,
 // which a proto-4 sidecar does not serve — so an old server must refuse this
 // page rather than draw a digest whose every file answers 404.
-export const DASHBOARD_PROTO = 5
+// Bumped to 6 by #642: the attention list draws the credentials the daemon now
+// owns, and the device link and one-time code of a login in flight. A proto-5
+// sidecar serves an `/overview` with no `credentials` section at all, so the
+// card would render empty at the one moment it is the only thing that matters.
+export const DASHBOARD_PROTO = 6
 export const STAMP_NAME = 'curia-dashboard'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 

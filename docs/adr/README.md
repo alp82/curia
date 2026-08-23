@@ -31,6 +31,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 ## Credentials
 
 - [ADR-0018](0018-the-daemon-is-a-github-app.md): One GitHub App replaces every PAT. The daemon holds the private key and mints installation tokens — read-write for agents, read-only for the overseer. The gate approval is the operator's own, and the claim assigns a real user. Decided; the minting core is built and each holder cuts over on its own ticket.
+- [ADR-0027](0027-the-daemon-owns-model-credentials.md): The daemon owns every model credential and agents hold leases it refreshes. It refreshes inside the last quarter of the token's own life, writes the host store before the agents, and gets a dead credential back through a browser login in a tmux session no sweep may walk. Subscription only, and the device code never reaches Discord. Built for codex; the claude lane and the overseer follow.
 
 ## Human in the loop
 

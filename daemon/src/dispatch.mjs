@@ -45,6 +45,8 @@ import {
 } from './overseertoken.mjs'
 import { ownersOf } from './overseercreds.mjs'
 import { ensureAgentImage } from './image.mjs'
+// the daemon-owned model credential (#642, ADR-0027)
+import { CodexCredentialBroker, ReauthFlow, isAuthSession } from './credentials.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { transcriptActivity } from './transcript.mjs'
@@ -380,7 +382,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, channelName, minter, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, channelName, minter, credentials, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -430,6 +432,12 @@ export class Dispatcher {
     // types /attach to see what just started. Optional; absent, the ready
     // message falls back to naming the verb.
     this.attachLinks = attachLinks ?? null
+    // attachSessionLink(session) → the terminal URL for a session that is NOT an
+    // agent (#642). `attachLinks` takes a TICKET and builds `curia-<n>` from it,
+    // which no re-authentication session has. Injected by index.mjs over the
+    // same publish-and-verify path, so a re-auth link is refused on a surface
+    // /attach would also refuse.
+    this.attachSessionLink = attachSessionLink ?? null
     // The command channel's own name (#218). A confirm typed outside any thread
     // renders in that channel, and the reply has to name it.
     this.channelName = channelName ?? 'curia'
@@ -470,6 +478,58 @@ export class Dispatcher {
       return realKill(name)
     }
     this.deps.newSession = (opts) => { this.orderedKills.delete(opts.name); return realSpawn(opts) }
+    // THE RE-AUTHENTICATION INVARIANT, first of five (#642). No sweep may ever
+    // walk a `curia-auth-` session, and this is the guard that matters most:
+    // `stallSweep` finds a pane whose transcript is not growing and types a
+    // continue message into it. Against a login prompt that is keystrokes into
+    // a credential dialog, so the refusal is unconditional and lives on the
+    // write path itself rather than inside each sweep that might reach it.
+    //
+    // `ReauthFlow` holds the RAW tmux functions and never these, which is what
+    // lets this refusal have no exception. A consumer whose login needs a paste
+    // back — `claude setup-token` does, #648 — gets its own explicit path here
+    // rather than a hole in this one.
+    const realSend = this.deps.sendText
+    const realKey = this.deps.sendKey
+    const refuseAuthWrite = (name, what) => {
+      if (!isAuthSession(name)) return null
+      const why = `refusing to ${what} into ${name}: it is a re-authentication session, and a keystroke there lands in a login prompt`
+      this.log(why)
+      return new Error(why)
+    }
+    this.deps.sendText = (name, text) => {
+      const refusal = refuseAuthWrite(name, 'send text')
+      return refusal ? Promise.reject(refusal) : realSend(name, text)
+    }
+    this.deps.sendKey = (name, key) => {
+      const refusal = refuseAuthWrite(name, 'send a key')
+      return refusal ? Promise.reject(refusal) : realKey(name, key)
+    }
+    // The model-credential broker (#642, ADR-0027), injected by index.mjs the
+    // way the GitHub App's minter is, and NULL for the same kind of reason.
+    //
+    // The broker owns a real file in curia's real HOME and rotates a real
+    // refresh token against a real provider. A default constructed here would
+    // make every Dispatcher a writer of the box's own credential the moment
+    // anything called reconcile — a test included. So a Dispatcher nobody
+    // handed a broker brokers nothing, and says so on the wire rather than
+    // pretending it owns a credential it has never read.
+    this.credentials = credentials ?? null
+    // The re-authentication flow (#642). It takes the RAW tmux calls above, for
+    // the reason the refusal states, and its image is filled in by
+    // `startReauth` — an image ref is a per-dispatch build, not a constant.
+    this.reauth = this.credentials ? new ReauthFlow({
+      broker: this.credentials,
+      agentUid: config.sandbox?.agent_uid ?? 1000,
+      cfgDirFor: (session) => cfgDirFor(this.root, session),
+      newSession: realSpawn,
+      capturePane: (name) => this.deps.capturePane(name),
+      killSession: realKill,
+      hasSession: (name) => this.deps.hasSession(name),
+      stopContainer: (name) => this.deps.stopContainer(name),
+      log: this.log,
+      journal: (event, detail) => this.reduction.journal(event, detail),
+    }) : null
     // Captured cross-check verdicts (#164), ticket -> record. A cache like the
     // agents map: `data/verdicts/<ticket>.json` is what survives a restart, and
     // verdictFor() reads it back. The return path (#165) takes it from here.
@@ -1576,6 +1636,145 @@ export class Dispatcher {
       }
     } catch (e) {
       this.log(`could not sweep the overseer token files (${e.message})`)
+    }
+  }
+
+  // ---- the MODEL credential (#642, ADR-0027) ---------------------------------
+  //
+  // The same tick, for a sharper version of the same reason. A GitHub token dies
+  // in an hour and a model credential dies in ten days, so this pass writes
+  // almost nothing almost all of the time — and the one day in ten that it does
+  // write is the day the whole fleet would otherwise go silent. On 2026-08-23 it
+  // did: two agents dead at 06:37 UTC, discovered by a human at 11:30.
+  //
+  // HOST STORE FIRST, THEN LIVE AGENTS. The broker writes the host store inside
+  // `refreshIfDue`; the fan-out is a separate call here, after it. A crash
+  // between the two leaves the host correct and the agents stale, and the next
+  // tick repairs that. The reverse ordering loses the rotation.
+  //
+  // The fan-out runs on EVERY tick, not only after a refresh. It is a cheap
+  // content comparison per live codex agent, and it is what heals an agent
+  // seeded before a rotation — including one adopted from a daemon that died
+  // mid-refresh, and one whose credential the operator has just replaced by
+  // finishing a device login.
+  //
+  // It never throws. A failure leaves the last good file standing, and the file
+  // is good for days.
+  async syncModelCredentials() {
+    if (!this.credentials) return { refreshed: false, healed: [] }
+    const { refreshed } = await this.credentials.refreshIfDue()
+    const targets = [...this.agents.values()]
+      .filter((a) => a.cfgDir || a.session)
+      .map((a) => ({ session: a.session, cfgDir: a.cfgDir ?? cfgDirFor(this.root, a.session) }))
+    const { healed, errors } = this.credentials.fanOut(targets)
+    for (const { session, why } of errors) {
+      this.log(`could not hand ${session} the refreshed codex credential (${why}) — the file it already holds stands until the next tick`)
+    }
+    if (healed.length) {
+      this.reduction.journal('credential_fanned_out', { consumer: 'codex', agents: healed })
+      this.log(`handed the current codex credential to ${healed.length} live agent(s): ${healed.join(', ')}`)
+    }
+    return { refreshed, healed }
+  }
+
+  // Start a device login for one model-credential consumer, or hand back the one
+  // already running (#642).
+  //
+  // The image is ensured the way a dispatch ensures it, because the tmux image
+  // carries `docker` but not `codex` — the login runs in the AGENT image, and a
+  // box whose image is not built yet pays the same four minutes a dispatch pays.
+  //
+  // WHAT CALLS THIS. Today, the operator, by typing `reauth`. #646 adds the
+  // second caller: a refresh whose failure classifies as terminal. Both land on
+  // one flow, so there is one thing to test and one session to attach to.
+  async startReauth({ consumer = 'openai', by = null } = {}) {
+    if (consumer !== 'openai') {
+      return `❌ curia can re-authenticate \`openai\` today. The claude lane and the overseer read their credential at container create, so they need the relocation in #648 first.`
+    }
+    if (!this.credentials) return '❌ this daemon brokers no model credential, so it has nothing to sign back in'
+    if (!this.config.sandbox) return '❌ this daemon runs no containers, so it has nothing to run `codex login` in'
+    let image
+    try {
+      image = await this.deps.ensureAgentImage(this.config.sandbox, {
+        onLine: (line) => this.log(`[image reauth] ${line}`),
+      })
+    } catch (e) {
+      return `❌ the agent image is not available, so the login has nothing to run in (${e.message})`
+    }
+    this.reauth.image = image.ref
+    let started
+    try {
+      started = await this.reauth.start({ consumer })
+    } catch (e) {
+      return `❌ the re-authentication session could not be started (${e.message})`
+    }
+    const session = started.session
+    // `attach <n>` names a TICKET, and this session is named by no ticket — so
+    // the link is composed rather than the verb suggested. A surface that
+    // cannot be published leaves the dashboard, which is where the code is.
+    const attach = this.attachSessionLink ? await Promise.resolve(this.attachSessionLink(session)).catch(() => null) : null
+    const where = attach
+      ? `Terminal: ${attach}`
+      : 'curia could not publish a terminal link for it. The dashboard card carries the link and the code.'
+    this.reduction.journal('reauth_requested', { consumer, session, by })
+    if (!started.started) return [`🔑 ${started.why}: \`${session}\`.`, where].join('\n')
+    return [
+      `🔑 signing \`${consumer}\` back in. Open the session and follow the two lines codex prints: a link, then a one-time code that lives fifteen minutes. Nothing is pasted back.`,
+      'The code is on the dashboard too, and never in this channel.',
+      where,
+    ].join('\n')
+  }
+
+  // One poll of the re-authentication flow, from the dispatch tick.
+  //
+  // A THIRTY-MINUTE TIMEOUT IS JOURNALLED, and that is the point rather than
+  // housekeeping: a re-authentication that silently vanished is the same class
+  // of bug as the credential that silently vanished, and this map exists because
+  // of the second one.
+  async pollReauth() {
+    if (!this.reauth) return null
+    let outcome
+    try {
+      outcome = await this.reauth.poll()
+    } catch (e) {
+      this.log(`the re-authentication poll failed (${e.message})`)
+      return null
+    }
+    if (!outcome) return null
+    this.reauth.clear()
+    if (outcome.state === 'done') {
+      // The fan-out is what makes this a recovery rather than a login: the
+      // credential reaches every live codex agent on this same tick, and #644
+      // measured that a running codex process picks up a replaced `auth.json`
+      // with no restart.
+      const { healed } = await this.syncModelCredentials()
+      const line = healed.length
+        ? `✅ \`${outcome.consumer}\` is authenticated again, and ${healed.length} live agent(s) hold the fresh credential: ${healed.join(', ')}.`
+        : `✅ \`${outcome.consumer}\` is authenticated again. No live agent needed it.`
+      await this.announce(line)
+      return outcome
+    }
+    await this.announce(`⚠️ the \`${outcome.consumer}\` re-authentication ended as **${outcome.state}**. Nothing was changed. Type \`reauth\` to start another one.`)
+    return outcome
+  }
+
+  // What `GET /overview` says about the model credentials (#642). One row per
+  // consumer, plus the live re-authentication card when there is one.
+  //
+  // The claude lane and the overseer are NAMED here and reported as unowned,
+  // rather than left out. Leaving them out would let the page say curia owns
+  // every model credential on the day it owns one of three — which is the claim
+  // #648 exists to make true, and #641 refuses to make early.
+  credentialsStatus() {
+    return {
+      consumers: [
+        this.credentials
+          ? this.credentials.state()
+          : { consumer: 'codex', state: 'unowned', expires_at: null, why: 'this daemon brokers no model credential' },
+        { consumer: 'claude', state: 'unowned', expires_at: null, why: 'the container reads it from its environment at create (#648)' },
+        { consumer: 'overseer', state: 'unowned', expires_at: null, why: 'the container reads it from .env.overseer at create (#648)' },
+      ],
+      reauth: this.reauth?.state() ?? null,
     }
   }
 
@@ -5732,6 +5931,13 @@ export class Dispatcher {
   // heartbeat layer): session-exists is the only question asked here.
   async livenessSweep() {
     for (const w of [...this.agents.values()]) {
+      // THE RE-AUTHENTICATION INVARIANT, fourth of five (#642). Nothing ever
+      // registers an auth session as an agent, so this is a belt over a
+      // condition that already holds — and it is here rather than left implicit
+      // because what it prevents is `#sweepDeadHarness` killing a live login
+      // whose pane carries no exit marker, and because #647 folds the pane
+      // classifiers into a sweep that walks this same map.
+      if (isAuthSession(w.session)) continue
       if (this.orderedKills.has(w.session)) continue
       let present
       try {
@@ -5757,6 +5963,13 @@ export class Dispatcher {
   // signal. A narrow pane match confirms it before this method types or kills.
   async stallSweep() {
     for (const w of [...this.agents.values()]) {
+      // THE RE-AUTHENTICATION INVARIANT (#642), said here as well as on the
+      // write path. This is the sweep the write-path refusal names: a login
+      // prompt is a pane whose transcript never grows, and rung 1 of the ladder
+      // below is a nudge typed into it. Nothing registers an auth session as an
+      // agent, so both guards are belts — and a credential dialog is where a
+      // stray keystroke costs most.
+      if (isAuthSession(w.session)) continue
       if (w.reviewer || w.state !== 'ready' || w.resultReceived) continue
       if (this.#openEscalationsFor(w.session).length) continue
       const recovery = this.reduction.stallRecovery?.(w.ticket) ?? {}
@@ -6126,6 +6339,12 @@ export class Dispatcher {
     // whatever the last write left. Boot reconcile is the first pass that can
     // arm it at all, and the first tick is 60 s further away.
     await this.refreshOverseerCredentials().catch((e) => this.log(`reconcile: the overseer credential refresh failed (${e.message})`))
+    // And the model credential, for the reason adoption gives the GitHub one
+    // (#642): the daemon was DOWN, so an adopted agent may be holding a
+    // credential the host store has already rotated past — or one the operator
+    // replaced by hand while nothing was watching. Boot reconcile is the first
+    // pass that can heal it, and the first tick is 60 s further away.
+    await this.syncModelCredentials().catch((e) => this.log(`reconcile: the model credential sync failed (${e.message})`))
 
     // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
     // a TICKET-terminal state — the issue is positively closed (or positively
@@ -6300,7 +6519,14 @@ export class Dispatcher {
     // it would collect them out from under a running agent.
     let reviewSessions = null
     try {
-      const live = await this.deps.listSessions()
+      // THE RE-AUTHENTICATION INVARIANT, second of five (#642). One filter here
+      // covers every pass that reads `ctx.sessions` or `ctx.allSessions` —
+      // adoption, the reviewer pass, the credential sweep, the container sweep,
+      // the token sweep, the preview sweep. `SESSION_RE` already fails a
+      // `curia-auth-` name, and that is exactly the accident this replaces: a
+      // future session shape that widened the regex would hand the orphan sweep
+      // a live login to kill.
+      const live = (await this.deps.listSessions()).filter((s) => !isAuthSession(s))
       sessions = live.filter((s) => SESSION_RE.test(s))
       reviewSessions = live.filter((s) => REVIEW_SESSION_RE.test(s))
     } catch (e) {
@@ -6731,6 +6957,11 @@ export class Dispatcher {
       return // no cfg root yet — nothing was ever seeded
     }
     for (const dir of dirs) {
+      // THE RE-AUTHENTICATION INVARIANT, third of five (#642). The scratch dir
+      // of a login in flight holds a credential this sweep would delete out from
+      // under the operator halfway through typing the code. `ReauthFlow` removes
+      // it itself, on completion and on timeout alike.
+      if (isAuthSession(dir)) continue
       // #164: a reviewer's config dir holds the same credential copy a
       // builder's does, and it is abandoned by the same rule.
       if (!SESSION_RE.test(dir) && !REVIEW_SESSION_RE.test(dir)) continue
@@ -6916,6 +7147,21 @@ export class Dispatcher {
     // #138: the liveness sweep rides the dispatch tick — dead agents stop
     // lying on every surface before anything new is dispatched.
     await this.livenessSweep().catch((e) => this.log('liveness sweep failed:', e.message))
+    // #642: the model credential, above the gate for the third time and the
+    // sharpest version of the reason. A box with auto-dispatch off still holds
+    // live agents, and the credential under them dies on the provider's clock
+    // rather than on this box's.
+    //
+    // ABOVE THE STALL SWEEP, deliberately. An agent whose turn died on an
+    // expired credential presents as a stalled pane, and #644 measured what it
+    // needs: the credential replaced, and THEN a nudge. Healing first is what
+    // makes rung 1 of the ladder below the thing that finishes the recovery
+    // rather than a keystroke spent on an agent that cannot yet move. It is not
+    // #647's work — classifying a capped or credential-dead pane before the
+    // ladder spends a rung is still that ticket's — it is only this pass sitting
+    // where its own result is useful.
+    await this.syncModelCredentials().catch((e) => this.log('the model credential sync failed:', e.message))
+    await this.pollReauth().catch((e) => this.log('the re-authentication poll failed:', e.message))
     await this.stallSweep().catch((e) => this.log('stall sweep failed:', e.message))
     // #384: the hold rides this tick for the reason the sweep does — it is not a
     // dispatch, and the box holds the same way whether auto-dispatch is on or

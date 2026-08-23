@@ -557,12 +557,13 @@ describe('the codex agent harness (#39)', () => {
     }))
 
     // #195 took the second way out away: there is no `sandbox: none` to fall
-    // back to, so `codex login` on the box is the whole remedy.
+    // back to. #642 replaced the ssh session with a verb: `reauth` opens a
+    // browser login the operator can finish from a phone.
     test('no host credential refuses the seed, naming the one way out', () => withHome(() => {
       const { cfgDir, wtPath } = dirs(22)
       assert.throws(
         () => seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true }),
-        /codex login/,
+        /reauth/,
       )
     }))
 
@@ -611,7 +612,7 @@ describe('the codex agent harness (#39)', () => {
       const { cfgDir, wtPath } = dirs(25)
       assert.throws(
         () => seedConfigDir(cfgDir, wtPath, null, 'codex', { sandboxed: true }),
-        /access token expired .*codex login/s,
+        /access token expired .*reauth/s,
       )
       assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), false, 'no copy lands on a refusal')
     }))

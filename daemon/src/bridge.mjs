@@ -361,6 +361,10 @@ const SLASH_MANIFEST = [
   // #270: self-deploy. Typed-only — the overseer composes no `deploy`, so the
   // slash verb and POST /command are the whole calling surface.
   new SlashCommandBuilder().setName('deploy').setDescription('Fast-forward to origin/main, rebuild, restart curia — rolls back on a failed health check'),
+  // #642: typed-only, like `deploy`. The overseer composes no `reauth` — the
+  // operator's own act is what a device login is, and a model asking for one on
+  // its own behalf is the one thing this flow must not do.
+  new SlashCommandBuilder().setName('reauth').setDescription('Sign the model credential back in from a browser — a link and a one-time code, no ssh'),
 ]
 
 // Macro-expansion only — this never interprets (#18). Returns the canonical
@@ -390,6 +394,7 @@ export function expandCommand(i) {
     case 'next': return `next${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'status': return 'status'
     case 'deploy': return 'deploy'
+    case 'reauth': return 'reauth'
     // #221: `start` takes no instruction any more. A stale client-side manifest
     // still sends the option, and putting it back into the canonical text would
     // expand to a line the router refuses — so it is dropped here, exactly as

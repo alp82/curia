@@ -1,7 +1,7 @@
 # ADR-0007: Agents share the host credential store
 
-**Status**: accepted (2026-07), extended (2026-08), corrected (2026-08), relocated (2026-08)
-**Provenance**: [Share the host credential file with agents instead of copying it (#53)](https://github.com/alp82/curia/issues/53), [Status line shows model, effort, context %, and the usage bars (#146)](https://github.com/alp82/curia/issues/146), [The account usage bars have no source on the deployment box (#162)](https://github.com/alp82/curia/issues/162), [The compose mount paths stop being one box's paths (#473)](https://github.com/alp82/curia/issues/473)
+**Status**: accepted (2026-07), extended (2026-08), corrected (2026-08), relocated (2026-08), amended (2026-08)
+**Provenance**: [Share the host credential file with agents instead of copying it (#53)](https://github.com/alp82/curia/issues/53), [Status line shows model, effort, context %, and the usage bars (#146)](https://github.com/alp82/curia/issues/146), [The account usage bars have no source on the deployment box (#162)](https://github.com/alp82/curia/issues/162), [The compose mount paths stop being one box's paths (#473)](https://github.com/alp82/curia/issues/473), [The codex credential broker (#642)](https://github.com/alp82/curia/issues/642)
 
 ## Context
 
@@ -79,3 +79,14 @@ Two shared things stop being shared, and both were shared with the **operator**,
 - **The refresh lineage against a host `claude` session.** A pane agent rides curia's store, and an interactive session on the box rides the operator's. The #53 failure needs one lineage refreshed under another, and these two never touch, so neither can strand the other.
 
 This is what curia being agnostic to one installation costs here, and it is the price of the box's own home not being curia's business.
+
+## Amendment: the daemon owns model credentials now (#642, ADR-0027)
+
+Rule 1 above says the daemon never writes the credential store. [ADR-0027](0027-the-daemon-owns-model-credentials.md) amends that for the consumers the daemon owns, and #642 built the first one.
+
+The rule was written when the CLI owned the refresh lineage and the daemon was a reader. Under [ADR-0012](0012-one-container-per-worker.md) no agent can reach the store at all, so the CLI owns a lineage it cannot record. On August 23, 2026 that cost two agents five silent hours: codex refreshed over the network, the server rotated the refresh token, and the write-back died on the `0400` bit. Both the agent and the host store were left holding one spent token.
+
+What the amendment keeps is the rule's own reason. There is still exactly one writer, and it is now the daemon rather than the CLI. The `0400` bit stays, and its job is unchanged: an agent must never be the thing that rotates this credential.
+
+The account-usage probe of the extension and the correction above is untouched. It still reads, its refusal is still terminal, and it still writes nothing.
+

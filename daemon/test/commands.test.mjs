@@ -897,3 +897,37 @@ describe('bin/curia-attach.sh', () => {
     assert.equal(result.status, 1)
   })
 })
+
+// #642: the operator's way back into a dead model credential, with no ssh in it.
+describe('reauth', () => {
+  test('bare means openai — the one consumer the daemon owns today', () => {
+    assert.deepEqual(parseCommand('reauth'), { verb: 'reauth', consumer: 'openai' })
+  })
+
+  test('a named consumer is carried through as typed', () => {
+    assert.deepEqual(parseCommand('reauth anthropic'), { verb: 'reauth', consumer: 'anthropic' })
+  })
+
+  test('anything shell-shaped or multi-word refuses', () => {
+    assert.equal(parseCommand('reauth openai; rm -rf /'), null)
+    assert.equal(parseCommand('reauth one two'), null)
+    assert.equal(parseCommand('reauth OpenAI'), null)
+  })
+
+  test('the router hands the verb to the dispatcher, consumer and all', async () => {
+    const seen = []
+    const router = new CommandRouter({
+      dispatcher: { config: { watch: [] }, startReauth: async (opts) => { seen.push(opts); return '🔑 ok' } },
+      attach: {},
+      log: () => {},
+    })
+    assert.equal(await router.handle('reauth', 'u1'), '🔑 ok')
+    assert.deepEqual(seen, [{ consumer: 'openai', by: 'u1' }])
+  })
+
+  // The attach surface is the substrate under the whole flow, and it admits the
+  // session name with no whitelist change (#642).
+  test('the attach wrapper admits the login session name', () => {
+    assert.equal(validSessionName('curia-auth-openai'), true)
+  })
+})

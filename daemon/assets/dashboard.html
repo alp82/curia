@@ -34,7 +34,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=5">
+<meta name="curia-dashboard" content="proto=6">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia</title>
 <style>
@@ -160,6 +160,10 @@
   /* A credential that is dying reads as bad, not as a warning: nothing on this
      page fixes it, and an agent meets it as a failed first `gh` call (#380). */
   .att-item.token { border-left-color: var(--bad); background: var(--chip-bad-bg); }
+  /* #642: the one-time code, sized for the phone this is read on. Wide letter
+     spacing because the operator retypes it into another device by eye, and
+     `83CC-A4ZTO` is four characters that all rhyme at 13px. */
+  .reauth-code { display: inline-block; margin-top: 4px; font-family: ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; letter-spacing: 3px; user-select: all; }
 
   /* The pre-emptive hold (#384). It sits at the top of Home, above everything,
      because it explains a box that looks idle and is not: curia is dispatching
@@ -1096,8 +1100,58 @@ function dispatchHoldCard(h) {
     <div class="dim">${act}</div></div>`;
 }
 
+/* The model credential (#642, ADR-0027).
+
+   TWO SHAPES, and only one of them is a card the operator acts on.
+
+   The RE-AUTHENTICATION card is the reason this page carries the flow at all: a
+   device login prints a link and a one-time code into a terminal, and reading a
+   code off a terminal on a phone at 3am is the experience this replaces. It sits
+   at the top of the attention list, because while it is up nothing else on the
+   box matters as much.
+
+   IT DEGRADES, NEVER DEAD-ENDS. The link and the code are scraped off the pane,
+   and a scrape is a guess about somebody else's wording. When either is missing
+   the card says so and points at the terminal, which is the path that always
+   works — the card is an optimization over it and never a replacement for it.
+
+   The code is on this page and on no other surface. Discord carries the alarm
+   and a link here; a one-time auth code in a chat log is a credential in a chat
+   log. */
+function reauthCard(r) {
+  if (!r || r.state !== "waiting") return [];
+  const mins = Math.floor((r.seconds_left ?? 0) / 60);
+  const link = r.url
+    ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`
+    : `<span class="dim">curia could not read the link off the pane — open the terminal</span>`;
+  const code = r.code
+    ? `<code class="reauth-code">${esc(r.code)}</code>`
+    : `<span class="dim">curia could not read the code off the pane — open the terminal</span>`;
+  return [`<div class="att-item token">
+    <span class="who">${esc(r.consumer)}</span>is signing in — open the link, then enter the code
+    <div>${link}</div>
+    <div>${code}</div>
+    <div class="dim">the session is <code>${esc(r.session)}</code>; it closes in ${mins} min if nothing completes it</div></div>`];
+}
+
+/* A consumer whose credential the operator has to act on. `valid` and
+   `expiring` are silent: the daemon refreshes inside the last quarter of the
+   token's life and says nothing about work it is already doing. `unowned` is
+   silent too — the claude lane and the overseer are named on the wire so the
+   page cannot claim curia owns all three, and there is nothing to press until
+   #648. */
+function credentialCard(c) {
+  if (!["expired", "unreadable", "absent"].includes(c.state) && !c.last_error) return [];
+  const why = c.last_error ?? c.why ?? "";
+  return [`<div class="att-item token">
+    <span class="who">${esc(c.consumer)}</span>the model credential is ${esc(c.state)}
+    <div class="dim">${esc(why)} — type <code>reauth</code> to sign in from a browser</div></div>`];
+}
+
 function attentionList(o) {
   const items = [
+    ...reauthCard(o.credentials?.reauth),
+    ...(o.credentials?.consumers ?? []).flatMap(credentialCard),
     ...(o.escalations ?? []).map(escCard),
     ...(o.review_gate ?? []).map(gateCard),
     ...(o.token_warnings ?? []).map(tokenCard),
