@@ -21,8 +21,9 @@ import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTest
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
 import { GH_DIR, readGhCredentials, writeGhCredentials } from '../src/agentgh.mjs'
 import { readOverseerToken } from '../src/overseertoken.mjs'
-import { removeCredentials } from '../src/workspace.mjs'
+import { removeCredentials, writePrompt as writeWorkspacePrompt } from '../src/workspace.mjs'
 import { CodexCredentialBroker } from '../src/credentials.mjs'
+import { OPENAI_CREDIT_GATE_PANE } from './fixtures/panes.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet' },
@@ -772,7 +773,8 @@ describe('reconcile epoch scoping (criterion 7)', () => {
       { type: 'stall_escalated', repo: 'o/r', ticket: '42', agent: 'curia-42' },
       {
         type: 'stall_respawn_launching', repo: 'o/r', ticket: '42', agent: 'curia-42',
-        model: 'sonnet', harness: 'claude', kind: 'ticket', operator_after_stall: true,
+        model: 'sonnet', requested_model: 'gpt', harness: 'claude', kind: 'ticket',
+        prompt_carries_limit_text: true, operator_after_stall: true,
       },
     ])
     const d = makeDispatcher({
@@ -784,8 +786,11 @@ describe('reconcile epoch scoping (criterion 7)', () => {
 
     assert.equal(d.reduction.stallRecovery('42').escalated, false)
     assert.equal(d.reduction.operatorStallLaunch('42'), null)
+    assert.equal(d.agents.get('curia-42').requestedModel, 'gpt')
+    assert.equal(d.agents.get('curia-42').promptCarriesLimitText, true)
     assert.ok(events.some((e) => e.type === 'agent_spawned'
-      && e.operator_after_stall && e.recovered_after_restart))
+      && e.operator_after_stall && e.recovered_after_restart
+      && e.requested_model === 'gpt' && e.prompt_carries_limit_text))
   })
 
   test('reconcile retries a stall respawn when the restart left no session', async () => {
@@ -5925,14 +5930,145 @@ describe('the stall watchdog (#574)', () => {
     assert.equal(paneAcceptedNudge(idlePane, idlePane, ready), false)
   })
 
-  test('an open question disables the watchdog', async () => {
+  test('an open question disables stall recovery but not lifetime classification', async () => {
     let captures = 0
     const { d } = await stalled({ capturePane: async () => { captures += 1; return idlePane } })
     escalations = [{ id: 'esc-1', agent: 'curia-42', ticket: '42', status: 'open' }]
 
     await d.stallSweep()
 
-    assert.equal(captures, 0)
+    assert.equal(captures, 1)
+    assert.ok(!events.some((e) => e.type.startsWith('stall_')))
+  })
+
+  test('a post-ready cap reaches the limit handler before the stall ladder', async () => {
+    const spawns = []
+    const killed = []
+    const sent = []
+    const capPane = [
+      OPENAI_CREDIT_GATE_PANE,
+      'gpt-5.5 low · ~/workspace',
+    ].join('\n')
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      newSession: async (opts) => { spawns.push(opts) },
+      killSession: async (session) => { killed.push(session) },
+      capturePane: async () => capPane,
+      transcriptActivity: () => ({ mtimeMs: Date.now() - 60_000 }),
+      sendText: async (session, body) => { sent.push({ session, body }) },
+      writePrompt: writeWorkspacePrompt,
+    }, { routing: TWO_LANE })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    const w = d.agents.get('curia-42')
+    w.state = 'ready'
+    w.readyAt = Date.now() - 60_000
+    w.spawnedAt = Date.now() - 60_000
+    d.stallTimeoutMs = 10
+    d.stallReadbackMs = 0
+
+    await d.stallSweep()
+
+    assert.ok(events.some((e) => e.type === 'provider_cooling' && e.provider === 'openai'))
+    assert.ok(events.some((e) => e.type === 'agent_spawned'
+      && e.retry_after_limit && e.model === 'sonnet'))
+    assert.deepEqual(killed, ['curia-42'])
+    assert.equal(spawns.length, 2)
+    assert.deepEqual(sent, [])
+    assert.ok(!events.some((e) => e.type.startsWith('stall_')))
+    const successorPrompt = fs.readFileSync(w.promptFile, 'utf8')
+    assert.match(successorPrompt, /picking up mid-ticket from another model's work/i)
+    assert.match(successorPrompt, /inherit the private clone's files and Git history/i)
+    assert.match(successorPrompt, /don't inherit its reasoning/i)
+  })
+
+  test('a restart-adopted agent keeps the requested model for limit chaining', async () => {
+    const spawns = []
+    const routing = {
+      defaults: { untyped: 'fable', research: 'fable' },
+      models: {
+        fable: { provider: 'anthropic', harness: 'claude' },
+        opus: { provider: 'anthropic', harness: 'claude' },
+        gpt: { provider: 'openai', harness: 'codex', id: 'gpt-5.5' },
+      },
+      fallbacks: { fable: ['opus', 'gpt'], opus: [], gpt: [] },
+      harnesses: TWO_LANE.harnesses,
+    }
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({
+        ...OPEN_ISSUE,
+        assignees: [{ login: 'me' }],
+        labels: [{ name: 'wayfinder:research' }],
+      }),
+      containerPorts: async () => [9000, 9001, 9002],
+      capturePane: async () => 'Opus usage limit reached | 1800000000',
+      transcriptActivity: () => ({ mtimeMs: Date.now() }),
+      newSession: async (opts) => { spawns.push(opts) },
+    }, { routing })
+    d.reduction.journal('agent_spawned', {
+      repo: 'o/r', ticket: '42', agent: 'curia-42',
+      model: 'opus', requested_model: 'fable', harness: 'claude', kind: 'ticket',
+    })
+    d.cooling.coolModel('fable', new Date(Date.now() + 3600_000))
+
+    await d.reconcile({ boot: false })
+    const w = d.agents.get('curia-42')
+    assert.equal(w.model, 'opus')
+    assert.equal(w.requestedModel, 'fable')
+
+    await d.stallSweep()
+
+    assert.ok(events.some((e) => e.type === 'model_cooling' && e.model === 'opus'))
+    assert.ok(events.some((e) => e.type === 'agent_spawned'
+      && e.retry_after_limit && e.model === 'gpt'))
+    assert.equal(spawns.length, 1)
+  })
+
+  test('a restart-adopted agent restores the pane-forgery guard', async () => {
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({
+        ...OPEN_ISSUE,
+        body: `Investigate this modal:\n\n${OPENAI_CREDIT_GATE_PANE}`,
+        assignees: [{ login: 'me' }],
+      }),
+      containerPorts: async () => [9000, 9001, 9002],
+    }, { routing: TWO_LANE })
+    d.reduction.journal('agent_spawned', {
+      repo: 'o/r', ticket: '42', agent: 'curia-42',
+      model: 'gpt', requested_model: 'gpt', harness: 'codex', kind: 'ticket',
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.equal(d.agents.get('curia-42').promptCarriesLimitText, true)
+  })
+
+  test('an ambiguous post-ready fault escalates without touching the pane', async () => {
+    const sent = []
+    const killed = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({
+        ...OPEN_ISSUE,
+        body: `Investigate this modal:\n\n${OPENAI_CREDIT_GATE_PANE}`,
+        labels: [{ name: 'wayfinder:research' }],
+      }),
+      capturePane: async () => `${OPENAI_CREDIT_GATE_PANE}\ngpt-5.5 low · ~/workspace`,
+      transcriptActivity: () => ({ mtimeMs: Date.now() }),
+      sendText: async (session, body) => { sent.push({ session, body }) },
+      killSession: async (session) => { killed.push(session) },
+    }, { routing: TWO_LANE })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    const w = d.agents.get('curia-42')
+    w.state = 'ready'
+
+    await d.stallSweep()
+
+    assert.equal(w.state, 'failed')
+    assert.ok(events.some((e) => e.type === 'usage_limit_ambiguous_escalated'))
+    assert.ok(notifies.some((n) => /matches a provider fault/.test(n.message)))
+    assert.deepEqual(sent, [])
+    assert.deepEqual(killed, [])
     assert.ok(!events.some((e) => e.type.startsWith('stall_')))
   })
 
@@ -6064,6 +6200,8 @@ describe('the stall watchdog (#574)', () => {
     d.reduction.journal('stall_nudge_finished', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
     d.reduction.journal('stall_respawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
     await d.stallSweep()
+    d.agents.get('curia-42').requestedModel = 'gpt'
+    d.agents.get('curia-42').promptCarriesLimitText = true
 
     const reply = await d.resume('42', { repo: 'o/r', by: 'alp82' })
 
@@ -6073,6 +6211,9 @@ describe('the stall watchdog (#574)', () => {
     assert.equal(spawns.length, 2)
     assert.match(spawns[1].shellCmd, /--continue/)
     assert.equal(d.reduction.stallRecovery('42').escalated, false)
+    const launch = events.find((e) => e.type === 'stall_respawn_launching' && e.operator_after_stall)
+    assert.equal(launch.requested_model, 'gpt')
+    assert.equal(launch.prompt_carries_limit_text, true)
   })
 
   test('an operator resume refuses a model on another harness', async () => {

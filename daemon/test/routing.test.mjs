@@ -54,6 +54,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { Cooling, resolveModel, namedModel, candidates, buildSpawnCmd, buildResumeCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
+import { OPENAI_CREDIT_GATE_PANE } from './fixtures/panes.mjs'
 
 const routing = {
   defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
@@ -450,8 +451,16 @@ describe('parseCreditGate (#126, #108 item 12)', () => {
     assert.equal(carriesLimitPhrase("the CLI says You don't have usage credits yet"), true)
   })
 
-  test('no vocabulary for the codex harness — codex words credits as a usage limit', () => {
-    assert.equal(parseCreditGate("You don't have usage credits yet", 'openai'), null)
+  test('the live codex dialog classifies as a provider-scoped fault', () => {
+    const r = parseCreditGate(OPENAI_CREDIT_GATE_PANE, 'openai')
+    assert.equal(r.scope, 'provider')
+    assert.equal(r.resetAt, null)
+    assert.equal(r.reason, 'rate-limit credit dialog')
+  })
+
+  test('healthy codex usage text never matches the credit gate', () => {
+    assert.equal(parseCreditGate('You have 2 usage limit resets available. Run /usage to use one.', 'openai'), null)
+    assert.equal(parseCreditGate('Remaining usage on the primary usage limit', 'openai'), null)
   })
 })
 

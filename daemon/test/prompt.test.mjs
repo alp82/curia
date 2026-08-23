@@ -146,6 +146,15 @@ describe('the wayfinder invocation', () => {
 })
 
 describe('parameters, not procedure', () => {
+  test('a cross-provider handoff reaches ticket and charting prompts', () => {
+    for (const charting of [false, true]) {
+      const p = write({ mapNumber: 1, charting, handoff: true })
+      assert.match(p, /picking up mid-ticket from another model's work/i)
+      assert.match(p, /inherit the private clone's files and Git history/i)
+      assert.match(p, /don't inherit its reasoning/i)
+    }
+  })
+
   test('the tracker is named, so the skill never falls back to local markdown', () => {
     const p = write({ mapNumber: 1 })
     assert.match(p, /tracker is \*\*GitHub\*\*, repo `o\/r`/)

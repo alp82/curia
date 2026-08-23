@@ -1371,7 +1371,9 @@ export class Dispatcher {
       // the operator read about and hit its successor.
       const instance = `${session}@${Date.now()}`
       this.reduction.journal('agent_spawned', {
-        repo, ticket: n, agent: session, instance, model: useModel, harness: harnessName,
+        repo, ticket: n, agent: session, instance,
+        model: useModel, requested_model: modelName, harness: harnessName,
+        prompt_carries_limit_text: textCarriesLimitPhrase(full.title, full.body),
         kind: spawnKind({ charting }), instruction: charting ? instruction : null,
         // #241: which of the two charting shapes this is. A restarted daemon
         // reads it back the same way it reads the kind — without it, a resumed
@@ -2308,6 +2310,7 @@ export class Dispatcher {
       this.reduction.journal('reviewer_spawned', {
         repo, ticket, agent: session, builder: `curia-${ticket}`, model, harness: harnessName,
         builder_model: builderModel, same_provider: sameProvider, sha: checkout.sha,
+        prompt_carries_limit_text: textCarriesLimitPhrase(issue.title, issue.body),
         checkout: checkout.path, base_branch: checkout.baseBranch, by: by ?? 'unknown',
         sandbox: 'docker', image: plan.container.image,
       })
@@ -2316,7 +2319,9 @@ export class Dispatcher {
       // own status line in the ticket thread is what ADR-0010 asks for, and this
       // is the one event that gives it one.
       this.reduction.journal('agent_spawned', {
-        repo, ticket, agent: session, model, harness: harnessName, kind: spawnKind({ reviewer: true }),
+        repo, ticket, agent: session, model, requested_model: model,
+        prompt_carries_limit_text: textCarriesLimitPhrase(issue.title, issue.body),
+        harness: harnessName, kind: spawnKind({ reviewer: true }),
       })
 
       const agent = {
@@ -2529,6 +2534,38 @@ export class Dispatcher {
 
   // ---- readiness watchdog ------------------------------------------------------
 
+  // One pane classifier for both phases of an agent's life. Readiness polls
+  // until the composer appears. stallSweep keeps polling after that contract
+  // ends, so a later account fault reaches the same handler and cooling store.
+  async #classifyPaneLimit(agent, pane, { postReady = false } = {}) {
+    const limit = parseUsageLimit(pane, agent.provider) ?? parseCreditGate(pane, agent.provider)
+    if (!limit) return 'none'
+    if (agent.promptCarriesLimitText) {
+      // The ticket's own text can produce this match. Veto readiness and every
+      // stall rung, but don't cool or kill from evidence the prompt can forge.
+      if (!agent.limitAmbiguityLogged) {
+        agent.limitAmbiguityLogged = true
+        this.reduction.journal('usage_limit_ignored_ambiguous', {
+          repo: agent.repo, ticket: agent.ticket, agent: agent.session, scope: limit.scope,
+        })
+        this.log(`${postReady ? 'stall sweep' : 'watchdog'} ${agent.session}: usage-limit text ignored — the ticket body carries the same phrase`)
+      }
+      if (postReady) this.#escalateAmbiguousLimit(agent, limit)
+      return 'ambiguous'
+    }
+    await this.#handleLimit(agent, limit)
+    return 'handled'
+  }
+
+  #escalateAmbiguousLimit(agent, limit) {
+    if (this.agents.get(agent.session) !== agent || agent.state !== 'ready') return
+    agent.state = 'failed'
+    this.reduction.journal('usage_limit_ambiguous_escalated', {
+      repo: agent.repo, ticket: agent.ticket, agent: agent.session, scope: limit.scope,
+    })
+    this.notify(agent.ticket, `⚠️ \`${agent.session}\` matches a provider fault, but its ticket text can forge the same signal. Curia sent no input and changed no cooling. Use \`attach ${agent.ticket}\` to inspect the pane before choosing a recovery.`)
+  }
+
   // Poll the pane every 2 s up to ready_timeout_s. Composer marker ⇒ ready;
   // usage-limit reached text ⇒ cool + next candidate; exit marker ⇒ the harness
   // command is already dead, so stop waiting for it; timeout ⇒ record and
@@ -2559,22 +2596,9 @@ export class Dispatcher {
       // holds the pane while the status footer still renders under it, so
       // checking it HERE — before the ready marker — is what stops a modal-
       // blocked spawn from reading as a healthy agent (#108 item 12).
-      const limit = parseUsageLimit(tail, agent.provider) ?? parseCreditGate(tail, agent.provider)
-      if (limit && agent.promptCarriesLimitText) {
-        // the ticket's own text can produce this match — refuse to cool a model
-        // or kill a session on it; the ready-timeout path surfaces a genuine
-        // hit to a human instead
-        if (!agent.limitAmbiguityLogged) {
-          agent.limitAmbiguityLogged = true
-          this.reduction.journal('usage_limit_ignored_ambiguous', {
-            repo: agent.repo, ticket: agent.ticket, agent: agent.session, scope: limit.scope,
-          })
-          this.log(`watchdog ${agent.session}: usage-limit text ignored — the ticket body carries the same phrase`)
-        }
-      } else if (limit) {
-        await this.#handleLimit(agent, limit)
-        return
-      }
+      const limitState = await this.#classifyPaneLimit(agent, tail)
+      if (limitState === 'handled') return
+      if (limitState === 'ambiguous') continue
       // The command EXITED before it ever drew a composer (#169): a missing
       // binary, a rejected flag, an instant crash. Checked before the ready
       // marker, because a dead command is not ready whatever else the pane
@@ -2923,6 +2947,11 @@ export class Dispatcher {
   // about when it matters.
   async #respawnOn(agent, next, journalData = {}, { freshPorts = false, resume = false } = {}) {
     const nextHarness = this.routing.models[next].harness
+    // A provider change cannot resume the old harness conversation. The cold
+    // successor gets the warm private clone and an explicit statement of what
+    // handoff preserves. This loss of reasoning context is the accepted cost.
+    const crossProviderHandoff = Boolean(journalData.retry_after_limit
+      && this.routing.models[next].provider !== agent.provider)
     // #174: the planted-config refusal is per harness, and this is where the
     // harness moves. It runs BEFORE #reshapeWorkspace and #armAgent, so a
     // refusal costs the workspace and the config dir nothing — the same
@@ -2970,7 +2999,10 @@ export class Dispatcher {
       // Fresh numbers force the rewrite whatever the harness did: the prompt on
       // disk names the ports (#157), and keeping it would hand the agent three
       // numbers nothing publishes.
-      await this.#rewritePrompt(agent, nextHarness, ports, { force: freshPorts })
+      await this.#rewritePrompt(agent, nextHarness, ports, {
+        force: freshPorts,
+        handoff: crossProviderHandoff,
+      })
       const plan = await this.#spawnPlan({
         session: agent.session, ticket: agent.ticket, repo: agent.repo,
         harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
@@ -2984,6 +3016,8 @@ export class Dispatcher {
         this.reduction.journal('stall_respawn_launching', {
           repo: agent.repo, ticket: agent.ticket, agent: agent.session, exit_marker: exitMarker,
           model: next, harness: nextHarness, image: plan.container.image, ports: plan.container.ports,
+          requested_model: agent.requestedModel,
+          prompt_carries_limit_text: agent.promptCarriesLimitText,
           kind: spawnKind(agent), instruction: agent.instruction ?? null,
           operator_after_stall: Boolean(journalData.operator_after_stall),
         })
@@ -3020,7 +3054,8 @@ export class Dispatcher {
       this.reduction.journal('agent_spawned', {
         repo: agent.repo, ticket: agent.ticket, agent: agent.session,
         instance: agent.instance ?? null,
-        model: next, harness: nextHarness,
+        model: next, requested_model: agent.requestedModel, harness: nextHarness,
+        prompt_carries_limit_text: Boolean(agent.promptCarriesLimitText),
         kind: spawnKind(agent), instruction: agent.instruction ?? null,
         sandbox: 'docker', image: plan.container.image, ports: plan.container.ports,
         ...journalData,
@@ -3049,11 +3084,11 @@ export class Dispatcher {
   // carries no invocation, so a harness move rewrites the same text for it.
   // One guard for both is easier to trust than a branch about when the
   // difference matters, and the cost is one issue read.
-  async #rewritePrompt(agent, nextHarness, ports = null, { force = false } = {}) {
+  async #rewritePrompt(agent, nextHarness, ports = null, { force = false, handoff = false } = {}) {
     // `force` is the port-collision retry (same harness, NEW ports): the prompt
     // names the ports (#157), so fresh numbers make the text on disk stale even
     // though the harness never moved.
-    if (!force && nextHarness === agent.promptHarness) return
+    if (!force && !handoff && nextHarness === agent.promptHarness) return
     // #164: a reviewer respawned down the fallback chain must be handed the
     // REVIEWER's prompt again. Writing the builder's here would give an agent
     // with no claim and no branch a full set of ticket standing orders.
@@ -3081,6 +3116,7 @@ export class Dispatcher {
       type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
       ports,
       harness: nextHarness,
+      handoff,
       // #374: a fallback respawn rewrites the prompt, so it rewrites the
       // exchange with it. Without this the agent that crossed harnesses would
       // be the one agent on the ticket with no memory of the answers.
@@ -5970,7 +6006,22 @@ export class Dispatcher {
       // agent, so both guards are belts — and a credential dialog is where a
       // stray keystroke costs most.
       if (isAuthSession(w.session)) continue
-      if (w.reviewer || w.state !== 'ready' || w.resultReceived) continue
+      if (w.state !== 'ready' || w.resultReceived) continue
+
+      // Capture and classify before every stall-only guard. A cap can land
+      // while the transcript is still recent, while a reviewer is running, or
+      // while an escalation is open. None of those states makes a nudge safe.
+      let pane
+      try {
+        pane = await this.deps.capturePane(w.session)
+      } catch {
+        continue
+      }
+      if (this.agents.get(w.session) !== w || w.state !== 'ready') continue
+      const limitState = await this.#classifyPaneLimit(w, paneTail(pane), { postReady: true })
+      if (limitState !== 'none') continue
+
+      if (w.reviewer) continue
       if (this.#openEscalationsFor(w.session).length) continue
       const recovery = this.reduction.stallRecovery?.(w.ticket) ?? {}
       if (recovery.escalated) continue
@@ -5985,12 +6036,6 @@ export class Dispatcher {
       const lastGrowth = Math.max(activity.mtimeMs, w.readyAt ?? 0, w.spawnedAt ?? 0)
       if (Date.now() - lastGrowth < this.stallTimeoutMs) continue
 
-      let pane
-      try {
-        pane = await this.deps.capturePane(w.session)
-      } catch {
-        continue
-      }
       const readyRe = this.routing.harnesses[w.harness]?.readyRe
       if (!paneConfirmsStall(pane, readyRe)) continue
       if (this.agents.get(w.session) !== w || w.state !== 'ready') continue
@@ -6629,7 +6674,8 @@ export class Dispatcher {
           this.agents.set(session, {
             repo, ticket: n, title: issue.title, session, instance,
             wtPath, cfgDir: cfgDirFor(this.root, session), promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
-            model: spawn?.model ?? null, requestedModel: null,
+            model: spawn?.model ?? null,
+            requestedModel: spawn?.requested_model ?? spawn?.model ?? null,
             harness: spawn?.harness ?? null,
             provider: this.routing.models[spawn?.model]?.provider ?? null,
             ports: ports.length ? ports : null,
@@ -6640,12 +6686,18 @@ export class Dispatcher {
             // field would read as a ticket one and be held to the ticket
             // ending, which tries to close the map.
             charting, instruction,
+            promptCarriesLimitText: spawn?.prompt_carries_limit_text
+              ?? textCarriesLimitPhrase(issue.title, issue.body),
             resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
           })
           if (operatorStallLaunch) {
             this.reduction.journal('agent_spawned', {
               repo, ticket: n, agent: session, instance,
-              model: spawn.model, harness: spawn.harness,
+              model: spawn.model,
+              requested_model: spawn.requested_model ?? spawn.model,
+              harness: spawn.harness,
+              prompt_carries_limit_text: spawn.prompt_carries_limit_text
+                ?? textCarriesLimitPhrase(issue.title, issue.body),
               kind: spawn.kind ?? spawnKind({ charting }), instruction: spawn.instruction ?? instruction,
               sandbox: 'docker', image: spawn.image, ports,
               operator_after_stall: true, recovered_after_restart: true,
@@ -6773,7 +6825,8 @@ export class Dispatcher {
       wtPath: worktreePathFor(this.root, repo, handle),
       cfgDir: cfgDirFor(this.root, session),
       promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
-      model: spawn?.model ?? null, requestedModel: null,
+      model: spawn?.model ?? null,
+      requestedModel: spawn?.requested_model ?? spawn?.model ?? null,
       harness: spawn?.harness ?? null,
       provider: this.routing.models[spawn?.model]?.provider ?? null,
       ports: ports.length ? ports : null,
@@ -6783,6 +6836,8 @@ export class Dispatcher {
       // is still read for it (newMap above) so that the day a second kind of
       // chat exists, this line is the one that has to change.
       charting: true, instruction, newMap: newMap !== false,
+      promptCarriesLimitText: spawn?.prompt_carries_limit_text
+        ?? textCarriesLimitPhrase(title, instruction),
       // the map it had already created, restated on the record so #chartedMap
       // and the `map <n>` lock answer without re-reading the journal
       mapNumber: mapNumber ?? null,
@@ -6837,7 +6892,7 @@ export class Dispatcher {
         cfgDir,
         promptFile: path.join(cfgDir, 'prompt.md'),
         model: spawn.model ?? null,
-        requestedModel: spawn.model ?? null,
+        requestedModel: spawn.requested_model ?? spawn.model ?? null,
         harness: spawn.harness ?? null,
         provider: this.routing.models[spawn.model]?.provider ?? null,
         ports: null,
@@ -6846,6 +6901,7 @@ export class Dispatcher {
         state: 'ready',
         resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
         reviewer: true,
+        promptCarriesLimitText: Boolean(spawn.prompt_carries_limit_text),
         builderModel: spawn.builder_model ?? null,
         sameProvider: Boolean(spawn.same_provider),
         sha: spawn.sha ?? null,
@@ -7156,10 +7212,9 @@ export class Dispatcher {
     // expired credential presents as a stalled pane, and #644 measured what it
     // needs: the credential replaced, and THEN a nudge. Healing first is what
     // makes rung 1 of the ladder below the thing that finishes the recovery
-    // rather than a keystroke spent on an agent that cannot yet move. It is not
-    // #647's work — classifying a capped or credential-dead pane before the
-    // ladder spends a rung is still that ticket's — it is only this pass sitting
-    // where its own result is useful.
+    // rather than a keystroke spent on an agent that cannot yet move. The
+    // classifier pass in stallSweep follows this repair and intercepts provider
+    // faults before the ladder spends that rung (#647).
     await this.syncModelCredentials().catch((e) => this.log('the model credential sync failed:', e.message))
     await this.pollReauth().catch((e) => this.log('the re-authentication poll failed:', e.message))
     await this.stallSweep().catch((e) => this.log('stall sweep failed:', e.message))

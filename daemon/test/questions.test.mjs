@@ -229,16 +229,25 @@ describe('the last event of a type for a key', () => {
   test('the model and harness of the last spawn, keyed by SESSION', () => {
     const q = ask([
       spawn('42', 'curia-42', { model: 'opus', harness: 'claude' }),
-      spawn('42', 'curia-42', { model: 'codex-high', harness: 'codex' }),
+      spawn('42', 'curia-42', {
+        model: 'codex-high', requested_model: 'opus', harness: 'codex',
+        prompt_carries_limit_text: true,
+      }),
     ])
-    assert.deepEqual(q.epochSpawn('curia-42'), { model: 'codex-high', harness: 'codex' })
+    assert.deepEqual(q.epochSpawn('curia-42'), {
+      model: 'codex-high', requested_model: 'opus', harness: 'codex',
+      prompt_carries_limit_text: true,
+    })
   })
 
   test('a pre-#184 line answers with today\'s spelling, and body keeps the old one', () => {
     // Verbatim off the box: a spawn line written when the process was a worker
     // and the program under it was its backend.
     const q = ask([{ type: 'worker_spawned', ticket: '170', worker: 'curia-170', model: 'opus', backend: 'claude' }])
-    assert.deepEqual(q.epochSpawn('curia-170'), { model: 'opus', harness: 'claude' })
+    assert.deepEqual(q.epochSpawn('curia-170'), {
+      model: 'opus', requested_model: null, harness: 'claude',
+      prompt_carries_limit_text: null,
+    })
     assert.deepEqual([...q.epochs()], [['170', { repo: null }]])
   })
 
