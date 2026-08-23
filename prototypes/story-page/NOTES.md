@@ -88,6 +88,29 @@ grayscale and blur passage, and the slab on the gate claim: 1 grayfade, 2 focus,
 4 chromawipe, 5 actsflood. The operator rejected all five: potential, but the execution looks
 sloppy and without craftsmanship. Each section must stand out, with even bolder distinctness.
 
+**Round 5.** The craft floor rose: every scene got a designed hue pair leaning toward its
+medium, words never dim or blur, and the scroll value drives decoration only. Five design
+languages over that palette: 1 duotone (glow orbs over grain), 2 poster (numeral watermarks),
+3 frames (gallery hairlines), 4 beam (edge light), 5 collage (slashes and tilts). The operator
+picked duotone, confirmed the per-medium palette as the identity rule, and confirmed the hero
+exception. The losing languages and the switcher left the file with this round.
+
 ## The verdict
 
-<!-- Filled at resolution. -->
+**The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
+five operator rounds.** The frame every scene ticket (#625 to #631) conforms to:
+
+1. The claim comes first: the numbered kicker, then the bold line, then the evidence.
+2. Scenes alternate sides. The claim docks on the scene side, and the evidence leans toward
+   the other side. Reveals come from the scene's own side, fast.
+3. Numbering starts at 01 on the first scene after the hero.
+4. Every scene owns a designed hue pair, inline on its section as `--g1`/`--g2`, leaning
+   toward the hue of its medium: Discord blurple, tailnet teal, atlas cyan, terminal green,
+   gate indigo, merged forest. A color never repaints an earlier scene.
+5. A stage-colored glow orb burns on the docking side as the scene arrives, over a fine
+   grain. The scroll value `--p` drives decoration and evidence saturation only. Words are
+   never filtered or dimmed.
+6. The four stage colors of the pipeline mark the kickers and the slab.
+7. One slab accent: the gate climax claim. Slabs mark importance and stay rare.
+8. The hero stays out of this frame. Its words sit at the bottom, locked at #567, and the
+   opening arc ticket [#625](https://github.com/alp82/curia/issues/625) revisits it.
