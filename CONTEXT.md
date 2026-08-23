@@ -370,20 +370,28 @@ The unit of a HITL exchange, and what an agent asks in one `ask_human` call (#28
 _Avoid_: batch.
 
 **Typed payload**:
-The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `visual`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. Since the flip (#422) every floor is mandatory: a call that omits a required field is refused, and the untyped `prompt`, the bare string option and the top-level `recommended` are refused with it. A refused call still reaches the operator at the cap, as a flagged send. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
+The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `picture`, `table`, `diagram`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. Since the flip (#422) every floor is mandatory: a call that omits a required field is refused, and the untyped `prompt`, the bare string option and the top-level `recommended` are refused with it. A refused call still reaches the operator at the cap, as a flagged send. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
 _Avoid_: structured payload, card schema.
 
 **Composite send**:
-One agent call that returns an ordered array of messages (#622). Each entry renders as its own Discord message, with its own typed format and its own optional attachments. At most one message decides, and it posts last, so the buttons sit at the thread bottom. A send carries at most four messages, a `curia.yaml` default with a settings row. The prose message holds the answer to an operator note at up to 1200 characters, and a question of a round may carry a 600-character background block. See [ADR-0026](docs/adr/0026-the-composite-send.md).
+One agent call that returns an ordered array of messages (#622). Each entry renders as its own Discord message, with its own typed format and its own optional attachments. At most one message decides, and it posts last, so the buttons sit at the thread bottom. A send carries at most four messages, a `curia.yaml` default with a settings row. The prose message holds the answer to an operator note at up to 1600 characters, and a question of a round may carry a 600-character background block. A message exists when a reader would want to skip it on its own (#640). See [ADR-0026](docs/adr/0026-the-composite-send.md).
 _Avoid_: multi-part response, message batch.
 
+**The rail**:
+The one small-print line that opens every message of a composite send: its number in the send, then a label (#640). curia writes the count, so the reader knows how far the send runs before it asks. The agent writes the label, at most 20 characters, plain and descriptive, with no article. A send of one message carries no rail. The rail exists because Discord groups consecutive messages from one sender, so a send of three renders as one block with no seams.
+_Avoid_: message header, caption, title.
+
 **Lint grade**:
-Which rules of `voice.md` a typed field is held to. Grade A is inline decision text: a hard character cap, one line, no markdown structure and no link. Grade B is block prose: a cap, at most 25 words per sentence, and no heading, table or blockquote. The `visual` field takes neither, because it is not prose. curia checks its width, its height and its fence.
+Which rules of `voice.md` a typed field is held to. Grade A is inline decision text: a hard character cap, one line, no markdown structure and no link. Grade B is block prose: a cap, at most 25 words per sentence, and no heading, table or blockquote. The `picture`, `table` and `diagram` fields take neither, because none of them is prose. curia checks a table's and a diagram's width, height and fence.
 _Avoid_: strict lint, soft lint.
 
 **Visual**:
-The optional code-block table or ASCII diagram on a card. At most 42 columns by 20 lines, which is the phone limit from #414. That sits under `CODE_BLOCK_LIMIT`, so a typed visual passes the block cap the lint already ships (#432). curia writes the fence, never the agent. A visual earns its space by removing prose (#415).
-_Avoid_: diagram, figure.
+A message format of a composite send, and since #640 that is all the word names. Three fields carry the forms #414 measured, on any message and on the `visual` format alike: `picture` for an image the reader looks at in place, `table` for a code-block table, and `diagram` for an ASCII drawing. A table and a diagram run to at most 42 columns by 20 lines, which is the phone limit from #414, and that sits under `CODE_BLOCK_LIMIT` so the block cap the lint already ships passes (#432). curia writes the fence, never the agent. A visual earns its space by removing prose (#415). The old single `visual` field is retired: one field could not check that a table's columns line up, because a diagram has no columns.
+_Avoid_: figure, chart, the `visual` field.
+
+**Attachments**:
+The files an agent hands the operator to download, as workspace paths (`attachments`, renamed from `images` at #640, because the field has accepted `.patch`, `.diff`, `.md`, `.txt` and `.log` since it shipped). A file rides the message it belongs to, and the `files` format is the message for an artifact that stands alone. An attachment is what a reader downloads. A `picture` is what a reader looks at in place.
+_Avoid_: images, uploads.
 
 **Ending report**:
 What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a **verdict** instead: it is typed on its own fields (#421), and it wears the 🔎 signal rather than the ✅ of an ending.

@@ -205,11 +205,12 @@
      last. At most four messages per send. What the structure left open is taste: the dressing, the
      order, the render form of the prose message and the question background, and how images and
      visuals carry intent. This page decides those, one round at a time.</p>
-  <p><b>Four rounds are decided.</b> The small-print rail with plain labels, the prose cap at 1600,
-     the conclusion first in bold with a list where the content is a list, the question background
-     as small print behind 💡, one rule for when the agent composes, and four image forms the agent
-     picks between. <b>Round 5 is on the page</b>, and it is the last: two naming questions the
-     visual split left. <code>NOTES.md</code> records every round.</p>
+  <p><b>Five rounds, and everything is decided.</b> The small-print rail with plain labels, the
+     prose cap at 1600, the conclusion first in bold with a list where the content is a list, the
+     question background as small print behind 💡, one rule for when the agent composes, four image
+     forms the agent picks between, and three visual fields in place of one.
+     <b>Section 14 lists every pick</b>, each section carries the mark on the cut that won, and
+     <code>NOTES.md</code> records every round. The record is the ADR-0026 amendment.</p>
   <div class="switch">
     <input type="checkbox" id="bounds">
     <label for="bounds"><b>Show the message boundaries.</b> Discord groups messages from one
@@ -1976,7 +1977,7 @@ curia-box (own)  kept       kept</pre>
    are three.</p>
 
 <div class="cand">
-  <h3><span class="n">N1</span> <code>picture</code> and <code>diagram</code> <span class="rec">· recommended</span></h3>
+  <h3><span class="n">N1</span> <code>picture</code> and <code>diagram</code></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
     <div class="txt">
@@ -2025,7 +2026,7 @@ curia-box (own)  kept       kept</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">N4</span> Three fields: <code>picture</code>, <code>table</code> and <code>diagram</code></h3>
+  <h3><span class="n">N4</span> Three fields: <code>picture</code>, <code>table</code> and <code>diagram</code> <span class="picked">· picked</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
     <div class="txt">
@@ -2050,6 +2051,10 @@ curia-box (own)  kept       kept</pre>
      check can never run. Splitting them buys a real check, not just a clearer word.
      <b>The cost:</b> three fields where the operator asked for two, and the agent has to classify
      its own block before writing it.</p>
+  <p class="why"><b>Picked on 2026-08-23.</b> Three fields, one per form the #414 catalog measured:
+     <code>picture</code>, <code>table</code> and <code>diagram</code>. The <code>visual</code>
+     message format carries the same three. The word <code>visual</code> now names a message format
+     and nothing else.</p>
 </div>
 
 <h3 class="sec" style="margin-top:1.6rem">q2 · What happens to the shipped <code>images</code> field</h3>
@@ -2058,7 +2063,7 @@ curia-box (own)  kept       kept</pre>
    <code>picture</code> field beside it makes that misnomer load-bearing.</p>
 
 <div class="cand">
-  <h3><span class="n">M1</span> Rename it <code>attachments</code> <span class="rec">· recommended</span></h3>
+  <h3><span class="n">M1</span> Rename it <code>attachments</code> <span class="picked">· picked</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
     <div class="txt">
@@ -2082,6 +2087,9 @@ curia-box (own)  kept       kept</pre>
      name that has lied since it shipped, and one name meaning one thing is the rule this whole map
      runs on. <b>The cost:</b> a shipped field changes name, so every call site and the tool schema
      move with it.</p>
+  <p class="why"><b>Picked on 2026-08-23.</b> <code>images</code> becomes
+     <code>attachments</code>. <code>picture</code> is what a reader looks at in place, and
+     <code>attachments</code> is what they download.</p>
 </div>
 
 <div class="cand">
@@ -2144,14 +2152,15 @@ curia-box (own)  kept       kept</pre>
   <li><b>The arithmetic.</b> The prose field caps at 1600 and <code>CHUNK_LIMIT</code> rises to
       1700, so the rail always fits inside the message it labels. Past 1600 the agent composes a
       second prose message, and the refusal names that path.</li>
-  <li><b>The visuals.</b> The <code>visual</code> message format stays. The <code>visual</code>
-      field goes, and two fields named for the two visual types replace it, which the format also
-      carries.</li>
+  <li><b>The visuals.</b> The <code>visual</code> message format stays and names a format only. The
+      <code>visual</code> field retires. Three fields replace it, one per form the #414 catalog
+      measured: <code>picture</code>, <code>table</code> and <code>diagram</code>, which the format
+      also carries. <code>images</code> is renamed <code>attachments</code>.</li>
 </ul>
-<p class="lead"><b>Open, in round 5 above.</b> What the two visual fields are called, and what
-   happens to the shipped <code>images</code> field beside them.</p>
-<p class="lead">After round 5 every pick goes into ADR-0026 as an amendment, and the build lands
-   with the handoff (#533).</p>
+<p class="lead"><b>Nothing is open.</b> Five rounds settled every taste question the ticket named
+   and every consequence the picks opened. The record is the amendment to
+   <a href="https://github.com/alp82/curia/blob/main/docs/adr/0026-the-composite-send.md">ADR-0026</a>,
+   and the build lands with the handoff (#533).</p>
 
 </main>
 

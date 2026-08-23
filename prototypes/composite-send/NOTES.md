@@ -153,4 +153,16 @@ fan-out dimension and #635 rules a copy change alone out as a variation.
   the `files` format. Recommended M1, because the field has accepted `.patch`, `.diff`, `.md`,
   `.txt` and `.log` since it shipped and the name has never been true.
 
-Awaiting the operator.
+**Round 5, the answer (2026-08-23).** N4 and M1. The ticket is decided.
+
+- **N4, three fields not two.** `picture`, `table` and `diagram`, one per form the #414 catalog
+  measured. The `visual` message format carries the same three, and the word `visual` now names a
+  format and nothing else. I had recommended two on the grounds that the operator asked for two.
+  The operator took the third field, and the column check is what it buys.
+- **M1.** `images` becomes `attachments`.
+
+## The record
+
+[ADR-0026](../../docs/adr/0026-the-composite-send.md) carries every pick in its "The dressing,
+settled (#640)" section, and `CONTEXT.md` carries the vocabulary: the rail, the three visual
+fields, and attachments. This page is the primary source those two point at.
