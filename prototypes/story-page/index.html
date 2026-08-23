@@ -165,15 +165,20 @@
   .scene[data-stage="merged"] { --sc: var(--st-merged); --scb: 125, 211, 160; }
   body[class*="id-"] .wrap { padding-left: 1.25rem; }
 
-  /* Round 4 (#624): fullflood is the baseline. Each scene owns its
-     color field — a color never repaints an earlier scene — and
-     scenes pass into and out of grayscale, light and blur as they
-     move through the screen (--p, set by scroll). Slab returns as
-     an accent of importance only. Five variations of that. */
+  /* Round 5 (#624): craftsmanship, and every section stands out.
+     Each scene owns a designed hue pair (--g1/--g2 on the section,
+     leaning toward its medium: Discord blurple, tailnet teal, atlas
+     cyan, terminal green, gate indigo, merged forest). Words are
+     never filtered or dimmed. --p drives decoration only. Five
+     design languages over the same palette. */
   body[class*="id-"] .bold { font-size: clamp(1.9rem, 8vw, 3.2rem); font-weight: 800; letter-spacing: -0.04em; line-height: 1.03; }
-  body[class*="id-"] .kick { font-weight: 800; }
-  body[class*="id-"] .kick .kn { background: var(--sc, var(--dim)); color: #08090c; padding: 0.13rem 0.5rem; }
-  body[class*="id-"] .scene { padding-top: 5vh; }
+  body[class*="id-"] .kick { font-weight: 800; letter-spacing: 0.06em; }
+  body[class*="id-"] .kick .kn { background: var(--sc, var(--dim)); color: #08090c; padding: 0.13rem 0.5rem; border-radius: 3px; }
+  body[class*="id-"] .scene { padding: 8vh 0 10vh; }
+  body[class*="id-"] .scene[data-stage] { background: linear-gradient(var(--ga, 165deg), var(--g1), var(--g2)); }
+  body[class*="id-"] .sL[data-stage] { --ga: 155deg; }
+  body[class*="id-"] .sR[data-stage] { --ga: 205deg; }
+  body[class*="id-"] .scene .shot > * { filter: saturate(calc(0.6 + 0.4 * var(--p, 1))); }
   /* The slab accent: the climax claim of the gate scene rides a
      solid stage slab, in every skin. */
   body[class*="id-"] #run-pin .claim {
@@ -184,54 +189,79 @@
   body[class*="id-"] #run-pin .claim .bold, body[class*="id-"] #run-pin .claim .kick { color: #08090c; }
   body[class*="id-"] #run-pin .claim .kick .kn { background: #08090c; color: var(--sc); }
 
-  /* Skin 1 — grayfade. The literal ask: a scene arrives gray, takes
-     its full color at the middle of the screen, and grays out again
-     as it leaves. The color field breathes with it. */
-  .id-1 .scene[data-stage] { background: rgba(var(--scb), calc(0.16 * var(--p, 1))); }
-  .id-1 .scene .shot, .id-1 .scene .claim, .id-1 .scene .fact { filter: saturate(var(--p, 1)) brightness(calc(0.6 + 0.4 * var(--p, 1))); }
-
-  /* Skin 2 — focus. Rack focus: the scene at the middle of the
-     screen is sharp and colored, everything else sits blurred and
-     washed out like a background plate. */
-  .id-2 .scene[data-stage] { background: rgba(var(--scb), calc(0.14 * var(--p, 1))); }
-  .id-2 .scene .shot > *, .id-2 .scene .claim { filter: blur(calc((1 - var(--p, 1)) * 5px)) saturate(calc(0.25 + 0.75 * var(--p, 1))); }
-
-  /* Skin 3 — stagelight. A stage-colored light hangs over each
-     scene on its docking side and burns up as the scene arrives.
-     Titles carry the stage color. */
-  .id-3 .sL[data-stage] { background: radial-gradient(120% 95% at 20% 38%, rgba(var(--scb), calc(0.26 * var(--p, 1))), transparent 70%); }
-  .id-3 .sR[data-stage] { background: radial-gradient(120% 95% at 80% 38%, rgba(var(--scb), calc(0.26 * var(--p, 1))), transparent 70%); }
-  .id-3 .bold { color: var(--sc, var(--text)); }
-  .id-3 #run-pin .claim .bold { color: #08090c; }
-  .id-3 .scene .shot, .id-3 .scene .claim { filter: brightness(calc(0.55 + 0.45 * var(--p, 1))); }
-
-  /* Skin 4 — chromawipe. The color field wipes in from the docking
-     side as the scene arrives and wipes out as it leaves. Claims cut
-     in with the same wipe. Evidence holds gray until the color has
-     passed over it. */
-  .id-4 .scene[data-stage]::before {
-    content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-    background: rgba(var(--scb), 0.17);
-    transform: scaleX(var(--p, 1)); transform-origin: left;
+  /* Skin 1 — duotone. The hue pair carries the scene: a stage glow
+     orb burns on the docking side as the scene arrives, over a fine
+     grain, and the cut between scenes is the color boundary itself. */
+  .id-1 .scene[data-stage] {
+    background:
+      radial-gradient(56vmax 56vmax at var(--ox, 12%) 20%, rgba(var(--scb), calc(0.1 + 0.16 * var(--p, 1))), transparent 62%),
+      repeating-conic-gradient(rgba(255, 255, 255, 0.014) 0% 25%, transparent 0% 50%),
+      linear-gradient(var(--ga, 165deg), var(--g1), var(--g2));
+    background-size: auto, 3px 3px, auto;
   }
-  .id-4 .sR[data-stage]::before { transform-origin: right; }
-  .id-4 .scene .shot { filter: saturate(calc(0.25 + 0.75 * var(--p, 1))); }
+  .id-1 .sR[data-stage] { --ox: 88%; }
 
-  /* Skin 5 — actsflood. The acts flow on the flood base: every
-     scene keeps its own breathing color field, and each pipeline
-     stage adds its own cut — agent spotlights, gate slashes,
-     merged tilts. */
-  .id-5 .scene[data-stage] { background: rgba(var(--scb), calc(0.15 * var(--p, 1))); }
-  .id-5 .scene .shot, .id-5 .scene .claim { filter: saturate(var(--p, 1)); }
-  .id-5 [data-stage="take"].sL { border-left: 4px solid var(--sc); }
-  .id-5 [data-stage="take"].sR { border-right: 4px solid var(--sc); }
-  .id-5 [data-stage="agent"] .shot { position: relative; }
-  .id-5 [data-stage="agent"] .shot::before { content: ""; position: absolute; inset: -14% -10%; background: radial-gradient(closest-side, rgba(var(--scb), calc(0.24 * var(--p, 1))), transparent 72%); }
-  .id-5 [data-stage="agent"] .shot > * { position: relative; }
-  .id-5 [data-stage="gate"]:not(.cont) { margin-top: calc(-1 * min(4vw, 2.5rem)); padding-top: calc(5vh + min(5vw, 3rem)); clip-path: polygon(0 min(5vw, 3rem), 100% 0, 100% 100%, 0 100%); }
-  .id-5 [data-stage="merged"] .bold { transform: rotate(-0.8deg); }
-  .id-5 [data-stage="merged"].sR .bold { transform: rotate(0.8deg); }
-  .id-5 [data-stage="merged"] .shot > * { transform: rotate(0.8deg); box-shadow: 0.55rem 0.55rem 0 rgba(var(--scb), 0.3); }
+  /* Skin 2 — poster. Each section is a designed poster: a colossal
+     numeral watermarks the side opposite the claim, a thick stage
+     bar cuts the sections apart, and the title goes to full weight. */
+  .id-2 .scene[data-stage] { border-top: 5px solid var(--sc); position: relative; }
+  .id-2 .scene[data-stage]:not(.cont)::after {
+    content: attr(data-n); position: absolute; top: -0.06em; pointer-events: none;
+    font: 900 clamp(8rem, 38vw, 15rem)/1 var(--mono); letter-spacing: -0.06em;
+    color: rgba(var(--scb), calc(0.09 + 0.09 * var(--p, 1)));
+  }
+  .id-2 .sL[data-stage]:not(.cont)::after { right: -0.05em; }
+  .id-2 .sR[data-stage]:not(.cont)::after { left: -0.05em; }
+  .id-2 .scene.cont { border-top: none; }
+  .id-2 .bold { font-size: clamp(2.2rem, 9.5vw, 4rem); font-weight: 900; letter-spacing: -0.045em; line-height: 0.98; }
+  .id-2 .claim { position: relative; z-index: 2; }
+  .id-2 .kick .kn { background: none; color: var(--sc); padding: 0; }
+
+  /* Skin 3 — frames. Every section is a lit room in a gallery: a
+     double hairline frame in the stage color, the scene number as a
+     tab pinned to the frame, a spotlight on the evidence. */
+  .id-3 .scene[data-stage]:not(.cont)::before {
+    content: ""; position: absolute; inset: 0.9rem; pointer-events: none;
+    border: 1px solid rgba(var(--scb), calc(0.3 + 0.4 * var(--p, 1)));
+    box-shadow: inset 0 0 0 4px var(--bg);
+    outline: 1px solid rgba(var(--scb), 0.18); outline-offset: 4px;
+  }
+  .id-3 .scene[data-stage]:not(.cont)::after {
+    content: attr(data-n); position: absolute; top: 0.35rem; pointer-events: none;
+    background: var(--sc); color: #08090c; padding: 0.1rem 0.5rem; border-radius: 3px;
+    font: 800 0.72rem/1.6 var(--mono);
+  }
+  .id-3 .sL[data-stage]:not(.cont)::after { left: 2rem; }
+  .id-3 .sR[data-stage]:not(.cont)::after { right: 2rem; }
+  .id-3 .kick .kn { display: none; }
+  .id-3 .scene .shot { position: relative; }
+  .id-3 .scene .shot::before { content: ""; position: absolute; inset: -12% -8%; background: radial-gradient(closest-side, rgba(var(--scb), calc(0.12 + 0.14 * var(--p, 1))), transparent 72%); }
+  .id-3 .scene .shot > * { position: relative; }
+
+  /* Skin 4 — beam. A stage-colored beam runs down the docking edge
+     of each scene and casts its light inward; titles and evidence
+     glow with it as the scene arrives. */
+  .id-4 .sL[data-stage] { border-left: 3px solid var(--sc); box-shadow: inset 18px 0 44px -20px rgba(var(--scb), calc(0.45 + 0.45 * var(--p, 1))); }
+  .id-4 .sR[data-stage] { border-right: 3px solid var(--sc); box-shadow: inset -18px 0 44px -20px rgba(var(--scb), calc(0.45 + 0.45 * var(--p, 1))); }
+  .id-4 .bold { text-shadow: 0 0 24px rgba(var(--scb), calc(0.5 * var(--p, 1))); }
+  .id-4 .scene .shot > * {
+    border: 1px solid rgba(var(--scb), 0.5);
+    box-shadow: 0 0 32px rgba(var(--scb), calc(0.2 + 0.22 * var(--p, 1))), 0 8px 40px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Skin 5 — collage. Bold composition: an accent strip slashes
+     behind every title, the claim overlaps the evidence, and the
+     evidence sits tilted under a hard block shadow. */
+  .id-5 .claim { position: relative; z-index: 2; margin-bottom: -0.9rem; }
+  .id-5 .claim::before {
+    content: ""; position: absolute; left: -0.7rem; right: 38%; bottom: -0.35rem; height: 1.1rem;
+    background: rgba(var(--scb), calc(0.3 + 0.25 * var(--p, 1))); transform: rotate(-1.1deg); z-index: -1;
+  }
+  .id-5 .sR .claim::before { left: 38%; right: -0.7rem; transform: rotate(1.1deg); }
+  .id-5 .scene .shot { margin-top: 1.6rem; }
+  .id-5 .scene .shot > * { transform: rotate(var(--tilt, 0.7deg)); box-shadow: 0.6rem 0.6rem 0 rgba(var(--scb), 0.35); }
+  .id-5 .sR .shot > * { --tilt: -0.7deg; }
+  .id-5 #run-pin .gh { transform: none; }
 
   /* The skin switcher pill — prototype chrome, not part of the
      design under judgment. It leaves the file at resolution. */
@@ -523,9 +553,6 @@
   /* Fast cuts (round 2): inside a skin, scene reveals snap. */
   body[class*="id-"] .scene .rv.in { transition-duration: 0.38s; }
   body[class*="id-"] .scene .tw.in { transition-duration: 0.3s; }
-  .js .id-4 .scene .claim.rv:not(.in) { transform: none; opacity: 1; clip-path: inset(0 100% 0 0); }
-  .js .id-4 .sR .claim.rv:not(.in) { clip-path: inset(0 0 0 100%); }
-  .js .id-4 .scene .claim.rv.in { clip-path: inset(0 0 0 0); transition: clip-path 0.5s var(--ease), opacity 0.3s; }
 
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
@@ -567,7 +594,7 @@
   </header>
 
   <!-- Scene 2 · into the mess. The claim first, the drift under it. -->
-  <section class="scene sL" data-stage="take" data-name="into the mess">
+  <section class="scene sL" data-stage="take" data-n="01" data-name="into the mess" style="--g1:rgba(26,33,48,0.55);--g2:rgba(13,16,24,0.55)">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">01</span><span class="kname">into the mess</span></p>
@@ -578,7 +605,7 @@
   </section>
 
   <!-- Scene 3 · maps bring order -->
-  <section class="scene sR" data-stage="take" data-name="maps bring order">
+  <section class="scene sR" data-stage="take" data-n="02" data-name="maps bring order" style="--g1:rgba(20,29,44,0.5);--g2:rgba(12,18,32,0.5)">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">02</span><span class="kname">maps bring order</span></p>
@@ -593,7 +620,7 @@
   <!-- Scene 4 · the grilling. The question is a real escalation on this
        repo (curia#377), in the card shape the operator picked at #415.
        The real answer was A: the journal. -->
-  <section class="scene sL" data-stage="agent" data-name="the grilling">
+  <section class="scene sL" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">03</span><span class="kname">the grilling</span></p>
@@ -636,7 +663,7 @@
   <!-- Scene 5 · the preview. Inside the phone: this page itself,
        served from the box over the tailnet — which is how the
        operator judged every round of it. -->
-  <section class="scene sR" data-stage="agent" data-name="the preview">
+  <section class="scene sR" data-stage="agent" data-n="04" data-name="the preview" style="--g1:#0f2024;--g2:#091316">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">04</span><span class="kname">the preview</span></p>
@@ -669,7 +696,7 @@
 
   <!-- Scene 6 · the atlas. Real maps of this repo, real counts on the
        day this file was written. -->
-  <section class="scene sL" data-stage="agent" data-name="the atlas">
+  <section class="scene sL" data-stage="agent" data-n="05" data-name="the atlas" style="--g1:#0e1c26;--g2:#081018">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">05</span><span class="kname">the atlas</span></p>
@@ -712,7 +739,7 @@
 
   <!-- Scene 7 · the harness, live. The pane is this ticket's own
        session. The toggle switches the harness. -->
-  <section class="scene sR" data-stage="agent" data-name="the harness, live">
+  <section class="scene sR" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">06</span><span class="kname">the harness, live</span></p>
@@ -758,7 +785,7 @@
   <!-- Scene 8 · one ticket on GitHub. The real run of #587, the ticket
        that locked this page's words, merged as pull request #597 on
        22 Aug 2026. The approve button is the climax. -->
-  <section class="scene run-pin sL" id="run-pin" data-stage="gate" data-name="one ticket on GitHub">
+  <section class="scene run-pin sL" id="run-pin" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
     <div class="run-sticky">
     <div class="wrap">
       <header class="claim rv">
@@ -813,7 +840,7 @@
   </section>
 
   <!-- Scene 8, the close: the fact line and the dogfood line. -->
-  <section class="scene cont sL" data-stage="gate" style="padding-top:0">
+  <section class="scene cont sL" data-stage="gate" style="padding-top:0;--g1:#0c1020;--g2:#0c1020">
     <div class="wrap">
       <p class="fact rv">just type your rejection reasons if you don't agree with the result</p>
       <p class="dogfood rv">This page itself was
@@ -824,7 +851,7 @@
   </section>
 
   <!-- Scene 9 · your VPS. Four real sessions of this repo's last week. -->
-  <section class="scene sR" data-stage="merged" data-name="your VPS">
+  <section class="scene sR" data-stage="merged" data-n="08" data-name="your VPS" style="--g1:#0f2013;--g2:#08120b">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">08</span><span class="kname">your VPS</span></p>
@@ -846,7 +873,7 @@
   </section>
 
   <!-- Scene 10 · open source -->
-  <section class="scene sL" data-stage="merged" data-name="open source">
+  <section class="scene sL" data-stage="merged" data-n="09" data-name="open source" style="--g1:#0d211a;--g2:#071209">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">09</span><span class="kname">open source</span></p>
@@ -859,7 +886,7 @@
 
   <!-- Scene 11 · set it up. Five condensed steps; the complete
        thirteen live in the README, which the closing line links. -->
-  <section class="scene sR" id="setup" data-stage="merged" data-name="the guide">
+  <section class="scene sR" id="setup" data-stage="merged" data-n="10" data-name="the guide" style="--g1:#191820;--g2:#0e0d12">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">10</span><span class="kname">the guide</span></p>
@@ -984,11 +1011,11 @@ if (prefersStill || !window.IntersectionObserver) {
    ?id=1..5 picks a skin; the pill cycles them. ---- */
 
 var SKINS = [
-  { k: '1', name: 'grayfade' },
-  { k: '2', name: 'focus' },
-  { k: '3', name: 'stagelight' },
-  { k: '4', name: 'chromawipe' },
-  { k: '5', name: 'actsflood' }
+  { k: '1', name: 'duotone' },
+  { k: '2', name: 'poster' },
+  { k: '3', name: 'frames' },
+  { k: '4', name: 'beam' },
+  { k: '5', name: 'collage' }
 ];
 var skinIdx = 0;
 try {

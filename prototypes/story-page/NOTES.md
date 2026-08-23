@@ -83,6 +83,11 @@ baseline for more exploration. Slab stays, but only as an accent of importance. 
 liked. The flood must change: each section owns its color, so a color change never repaints an
 earlier section, and sections transition from and into grayscale, with opacity and blur in play.
 
+**Round 4.** Five flood variations with per-scene color fields, a scroll-driven activity value,
+grayscale and blur passage, and the slab on the gate claim: 1 grayfade, 2 focus, 3 stagelight,
+4 chromawipe, 5 actsflood. The operator rejected all five: potential, but the execution looks
+sloppy and without craftsmanship. Each section must stand out, with even bolder distinctness.
+
 ## The verdict
 
 <!-- Filled at resolution. -->
