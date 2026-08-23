@@ -35,6 +35,15 @@ paragraph under it carries them: "Curia knows about all your projects and tells 
 build next. It helps you dispatch parallel agents without losing track." The promise itself
 stands unchanged as the thing the first screen sells.
 
+**Changed at [The opening arc of the story page](https://github.com/alp82/curia/issues/625),
+2026-08-23.** The headline of the final page is now **"Run Matt Pocock's wayfinder from your
+phone"**. The operator picked it from five candidates, to lead with the wrapper claim for
+distribution. This overrides the headline settled at
+[#587](https://github.com/alp82/curia/issues/587), which that ticket had itself locked. The
+promise still stands and still sells the first screen: "from your phone" stays in the headline,
+and the paragraph under it carries the many-repos and one-queue words as before. The skills line
+becomes "Wayfinder ships with curia, with the rest of Matt Pocock's skills", linking the set.
+
 The first screen makes this promise and no other. The reader's tickets sit across every repo they
 watch; curia reads what is takeable in dependency order, runs the work, and brings every moment
 that needs a human to whatever device they are holding.
@@ -232,9 +241,14 @@ Two with reasons worth keeping:
   two working Discord-to-Claude-Code bridges. The page never says first, only, or the only one.
   What it may claim is the combination — routing dispatcher, two-way Discord approval, multi-device
   attach, self-hosted — which nothing else ships whole.
-- **No internal vocabulary as sales words.** Full loop, wayfinder, frontier, escalation, charting.
+- **No internal vocabulary as sales words.** Full loop, frontier, escalation, charting.
   Precise for us, opaque to a first-time reader. Golden thread and substrate stay dead per
   `CONTEXT.md`.
+  **Changed at [The opening arc of the story page](https://github.com/alp82/curia/issues/625),
+  2026-08-23.** **Wayfinder leaves this list.** The operator ruled the page should encourage the
+  word rather than avoid it. It is not curia's private vocabulary: it is the public name of a
+  skill in [Matt Pocock's set](https://github.com/mattpocock/skills), which curia ships, so a
+  reader can look it up. The headline uses it.
 
 ### The two failure modes
 

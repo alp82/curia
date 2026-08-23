@@ -150,6 +150,50 @@ operator ruling before it can ship.
 The page still reads with no script and with reduced motion: the track collapses to one screen and
 the three panels stack as ordinary sections.
 
+**The operator's answers.** The hero title is **4**, "Run Matt Pocock's wayfinder from your phone".
+The wayfinder ban is **removed**, because the page should encourage the word rather than avoid it.
+Both changes are recorded in [positioning.md](../../docs/landing-page/positioning.md) by this
+ticket. The scroll length is left for a later round.
+
+No staging won. The notes, grouped:
+
+- **The scroll.** Every staging hijacked it. Visuals may react to the scroll, but some content must
+  scroll normally, and the big titles and their subtext must never wait.
+- **The mess.** The orbiting cloud of staging 5 is the winner. The scatter of 1 and 3 drew a
+  diagonal that looks bad, and the rows of 2 and 4 look sorted already.
+- **The design.** Best at 5 and 1. Tickets coming in and going out is the part that works.
+- **The maps.** They feel static, and tickets stay in them.
+- **curia.** It is big, but its purpose is unclear.
+- **The order beat.** The same in all five, and it works.
+- **Staging 4** carries an extra fault: only one map.
+
+**Round 2.** The arc was rebuilt on those notes, and the hero now carries title 4.
+
+The pin is gone. The canvas sticks for one screen and the words scroll over it in normal flow, so
+the reader keeps the scroll and no title ever waits. The camera reads the words rather than a
+scroll fraction: the mess claim pulls it up into the cloud, and the order claim brings it down onto
+the maps.
+
+The mess orbits in every staging now, at several radii, in two counter-turning shells. The maps run
+on their own clocks from the first frame: an agent flies in for the takeable row, works it, the row
+merges, the agent carries it off, the queue steps up a place, and new work drops in at the bottom.
+The stream never stops, so work is always entering curia and always leaving it. The scroll into the
+order beat pushes the whole stream forward, which is what the scroll buys.
+
+Every staging tells curia's purpose a different way. That was the open fault, so it became the
+axis the five vary on:
+
+| id | staging | how curia's job reads |
+|----|---------|-----------------------|
+| 1 | routes | three lit routes run from curia to three named maps, before a ticket moves |
+| 2 | ports | one port per map on curia's rim, and a ticket leaves by its own port |
+| 3 | stamp | curia stamps the map badge onto each card as it crosses, with a harder flash |
+| 4 | queue | tickets line up at the rim and curia pulls them in one at a time |
+| 5 | pulse | curia beats, and each beat pulls a batch in and fires it out |
+
+All five keep the orbiting cloud, the live maps, the solid disc with its turning collar, and the
+order beat. The disc carries one line under its name that says what it does.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
