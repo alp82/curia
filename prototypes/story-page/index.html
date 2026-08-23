@@ -92,19 +92,55 @@
   @media (min-width: 60rem) { .wrap { max-width: 38rem; } }
 
   /* ================================================================
-     Scene 1 — the first screen. The story runs above (canvas): tickets
-     funnel through the curia node into ordered maps. The words sit
-     readable at the bottom (#567 round 2).
+     The opening arc (#625) — scenes 1 to 3 share ONE pinned stage.
+     The stage is a screen tall and sticks while the arc track scrolls
+     past it, so the animation holds its place and the words take
+     turns at the bottom of it: the hero, then claim 01 over the mess,
+     then claim 02 over the maps.
+
+     Without the `arcon` class — no script, or reduced motion — the
+     track collapses to one screen and the three panels stack as
+     ordinary sections, so every word still reads.
      ================================================================ */
-  .hero { min-height: 100svh; display: flex; flex-direction: column; justify-content: flex-end; }
-  .hero .room { flex: 1 1 auto; min-height: 38svh; }
-  .hero .words { padding-bottom: clamp(1.5rem, 5vh, 3.5rem); }
+  .arc { position: relative; }
+  .arc-stage {
+    position: relative; overflow: hidden; min-height: 100svh;
+    display: flex; flex-direction: column; justify-content: flex-end;
+    background:
+      radial-gradient(64vmax 64vmax at 50% 26%, rgba(var(--scb), calc(0.04 + 0.15 * var(--warm, 1))), transparent 60%),
+      radial-gradient(54vmax 54vmax at 50% 40%, rgba(125, 211, 160, calc(0.16 * var(--ord, 0))), transparent 62%),
+      repeating-conic-gradient(rgba(255, 255, 255, 0.014) 0% 25%, transparent 0% 50%),
+      linear-gradient(172deg, var(--g1), var(--g2));
+    background-size: auto, auto, 3px 3px, auto;
+  }
+  .arc-stage canvas.layer { position: absolute; inset: 0; z-index: 0; }
+  .arc-words { position: relative; z-index: 2; padding: 9rem 0 clamp(1.5rem, 5vh, 3.5rem); }
+  .arc-words::before {
+    content: ''; position: absolute; z-index: -1; left: 0; right: 0; bottom: 0; top: 30%;
+    background: linear-gradient(to bottom, transparent, var(--g2) 58%);
+    pointer-events: none;
+  }
+  .apanel + .apanel { margin-top: 3.5rem; }
+
+  body.arcon .arc { height: 540svh; }
+  body.arcon .arc-stage { position: sticky; top: 0; height: 100svh; min-height: 0; }
+  body.arcon .arc-words { position: absolute; inset: 0; padding: 0; }
+  body.arcon .arc-words::before { top: 42%; }
+  body.arcon .apanel {
+    position: absolute; left: 0; right: 0;
+    bottom: clamp(1.5rem, 5vh, 3.5rem);
+    opacity: 0; pointer-events: none;
+  }
+  body.arcon .apanel + .apanel { margin-top: 0; }
+
   .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
   .q-mark b { color: var(--accent); font-weight: 600; }
   h1 {
     font-size: clamp(1.7rem, 8vw, 3.2rem); line-height: 1.06; letter-spacing: -0.035em;
     font-weight: 640; margin: 1rem 0 0; text-wrap: balance;
   }
+  /* Title 2 leads with the wrapper claim on its own line (#625). */
+  h1 .lead { display: block; color: var(--accent); margin-bottom: 0.15em; }
   .lede { font-size: 1.06rem; color: var(--body); margin: 1rem 0 0; max-width: 33rem; text-wrap: pretty; }
   .skills { font-size: 0.95rem; color: var(--dim); margin: 0.9rem 0 0; }
   .ctas { margin: 1.5rem 0 0; display: flex; gap: 0.6rem; flex-wrap: wrap; }
@@ -120,9 +156,6 @@
      the copy sits under it. Bold line, story line, fact line.
      ================================================================ */
   .scene { padding: 3vh 0 9vh; }
-  .room { height: 58vh; }
-  .room.tall { height: 150vh; }
-  .room.short { height: 26vh; }
   .bold {
     font-size: clamp(1.5rem, 6.4vw, 2.6rem); line-height: 1.15;
     letter-spacing: -0.02em; font-weight: 650; margin: 0 0 0.9rem;
@@ -479,63 +512,86 @@
     .js .rv, .js .tw { opacity: 1 !important; transform: none !important; clip-path: none !important; }
     .js .claim::before { transform: none !important; }
     * { animation-duration: 0.001ms !important; }
-    .room { height: 3rem; }
-    .room.tall { height: 3rem; }
-    .room.short { height: 0; }
-    .hero .room { min-height: 8svh; }
+    .arc-words { padding-top: 4rem; }
   }
-  body.nocanvas .room { height: 3rem; }
-  body.nocanvas .room.tall { height: 3rem; }
-  body.nocanvas .room.short { height: 0; }
-  body.nocanvas .hero .room { min-height: 8svh; }
+
+  /* ================================================================
+     Round furniture (#625): the switcher that carries the five arc
+     stagings and the five hero titles. It leaves the file with the
+     round that settles them, the way the identity switcher did.
+     ================================================================ */
+  .vary {
+    position: fixed; z-index: 50; top: 0.45rem; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 0.15rem;
+    padding: 0.25rem 0.55rem; border-radius: 999px;
+    background: rgba(8, 10, 14, 0.86); box-shadow: inset 0 0 0 1px var(--line);
+    font: 600 0.7rem var(--mono); color: var(--dim);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  }
+  .vary b { font-weight: 600; color: var(--dim); margin: 0 0.15rem 0 0.35rem; }
+  .vary b:first-child { margin-left: 0; }
+  .vary a {
+    color: var(--body); text-decoration: none; min-width: 1.15rem;
+    text-align: center; padding: 0.12rem 0.3rem; border-radius: 999px;
+  }
+  .vary a.on { background: var(--accent); color: #06231a; }
 </style>
 </head>
 <body>
 
 <a class="skip" href="#main">Skip to content</a>
-<canvas class="layer" id="cv" aria-hidden="true"></canvas>
 
 <main id="main" tabindex="-1">
 
-  <!-- Scene 1 · the first screen -->
-  <header class="hero">
-    <div class="room" id="room-hero" aria-hidden="true"></div>
-    <div class="wrap words">
-      <p class="q-mark rv"><b>curia</b> — self-hosted agent dispatcher</p>
-      <h1 class="rv">Coding agents controlled from your phone</h1>
-      <p class="lede rv">Curia knows about all your projects and tells you what to build next.
-        It helps you dispatch parallel agents without losing track.</p>
-      <p class="skills rv">Built on <a href="https://github.com/mattpocock/skills">Matt Pocock’s skills</a>.</p>
-      <p class="ctas rv">
-        <a class="cta" href="#setup">Set it up</a>
-        <a class="cta ghost" href="https://github.com/alp82/curia">GitHub</a>
-      </p>
-    </div>
-  </header>
+  <!-- ================================================================
+       The opening arc (#625) — scenes 1, 2 and 3 on ONE pinned stage.
+       The animation holds its place while the hero words dock at the
+       bottom; the camera then climbs into the mess above and falls
+       back through curia as the maps take shape and agents empty
+       them. Five stagings ride ?id=1..5, five hero titles ride
+       ?t=1..5. The identity of #624 holds: the claim comes first,
+       01 docks left, 02 docks right, and the stage owns the take
+       hue pair, which drains toward gray in the mess.
+       ================================================================ -->
+  <div class="arc" id="arc" style="--scb:139,155,176;--g1:#151c29;--g2:#0a0c12">
+    <div class="arc-stage" id="arc-stage">
+      <canvas class="layer" id="cv" aria-hidden="true"></canvas>
+      <div class="arc-words">
 
-  <!-- Scene 2 · into the mess. The claim first, the drift under it. -->
-  <section class="scene sL" data-stage="take" data-n="01" data-name="into the mess" style="--g1:rgba(26,33,48,0.55);--g2:rgba(13,16,24,0.55)">
-    <div class="wrap">
-      <header class="claim rv">
-        <p class="kick"><span class="kn">01</span><span class="kname">into the mess</span></p>
-        <h2 class="bold">The backlog panic grows</h2>
-      </header>
-    </div>
-    <div class="room" id="room-mess" aria-hidden="true"></div>
-  </section>
+        <!-- Scene 1 · the first screen -->
+        <header class="apanel wrap" id="w-hero">
+          <p class="q-mark" id="hero-kick"><b>curia</b> — self-hosted agent dispatcher</p>
+          <h1 id="hero-title">Coding agents controlled from your phone</h1>
+          <p class="lede">Curia knows about all your projects and tells you what to build next.
+            It helps you dispatch parallel agents without losing track.</p>
+          <p class="skills" id="hero-skills">Built on <a href="https://github.com/mattpocock/skills">Matt Pocock’s skills</a>.</p>
+          <p class="ctas">
+            <a class="cta" href="#setup">Set it up</a>
+            <a class="cta ghost" href="https://github.com/alp82/curia">GitHub</a>
+          </p>
+        </header>
 
-  <!-- Scene 3 · maps bring order -->
-  <section class="scene sR" data-stage="take" data-n="02" data-name="maps bring order" style="--g1:rgba(20,29,44,0.5);--g2:rgba(12,18,32,0.5)">
-    <div class="wrap">
-      <header class="claim rv">
-        <p class="kick"><span class="kn">02</span><span class="kname">maps bring order</span></p>
-        <h2 class="bold">Maps turn the pile into a queue.</h2>
-      </header>
-      <p class="story rv">Blocked tickets wait. Open ones light up, and agents take them in
-        order, straight from your GitHub issues.</p>
+        <!-- Scene 2 · into the mess -->
+        <section class="apanel wrap sL" id="w-mess">
+          <header class="claim">
+            <p class="kick"><span class="kn">01</span><span class="kname">into the mess</span></p>
+            <h2 class="bold">The backlog panic grows</h2>
+          </header>
+        </section>
+
+        <!-- Scene 3 · maps bring order -->
+        <section class="apanel wrap sR" id="w-order">
+          <header class="claim">
+            <p class="kick"><span class="kn">02</span><span class="kname">maps bring order</span></p>
+            <h2 class="bold">Maps turn the pile into a queue.</h2>
+          </header>
+          <p class="story">Blocked tickets wait. Open ones light up, and agents take them in
+            order, straight from your GitHub issues.</p>
+        </section>
+
+      </div>
     </div>
-    <div class="room tall" id="room-order" aria-hidden="true"></div>
-  </section>
+  </div>
 
   <!-- Scene 4 · the grilling. The question is a real escalation on this
        repo (curia#377), in the card shape the operator picked at #415.
@@ -969,265 +1025,892 @@ if (!prefersStill) {
 }
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
-/* ---- the canvas story: scenes 1 to 3 ---- */
+/* ================================================================
+   The opening arc (#625) — scenes 1, 2 and 3 on ONE pinned stage.
 
+   The stage sticks for the length of the arc track, so the animation
+   holds its place while the words take turns at the bottom of it.
+   One scroll value drives everything. p is 0 at the hero and 1 when
+   the queue has run:
+
+     0.00-0.19  the hero. The machine idles: gray work drifts down
+                through curia and lands in the maps below it.
+     0.19-0.44  the camera climbs into the mess above.
+     0.44-0.50  the mess holds under claim 01.
+     0.50-0.84  the pile falls back through curia. Claim 02 arrives
+                first, then the maps fill and the edges draw.
+     0.84-1.00  agents take the takeable tickets. Each one fades out
+                merged, the map bar advances, and the ticket it
+                blocked lights up.
+
+   The rule of the arc: ABOVE the curia line a ticket is gray and
+   askew, and BELOW it the same ticket is colored and square. That
+   line is what curia does, and each of the five stagings shows it a
+   different way. ?id=1..5 picks one, ?t=1..5 picks a hero title.
+
+   Every number below is a real issue of this repo.
+   ================================================================ */
+
+var arcEl = document.getElementById('arc');
+var stageEl = document.getElementById('arc-stage');
 var canvas = document.getElementById('cv');
-var ctx = canvas.getContext && canvas.getContext('2d');
+var ctx = canvas && canvas.getContext ? canvas.getContext('2d') : null;
+
+function param(key, max) {
+  var m = new RegExp('[?&]' + key + '=(\\d+)').exec(window.location.search);
+  var v = m ? parseInt(m[1], 10) : 1;
+  return v >= 1 && v <= max ? v : 1;
+}
+var ARC_ID = param('id', 5);
+var TITLE_ID = param('t', 5);
+
+/* ---- the five hero titles (#625 round 1) ----
+   The operator confirmed at #551 round 3 that the Matt Pocock wrapper
+   claim may take the hero title from the headline locked at #587.
+   Title 1 is that locked line, kept as the control. */
+
+var SK = 'https://github.com/mattpocock/skills';
+var TITLES = [
+  null,
+  { kick: 'self-hosted agent dispatcher',
+    head: 'Coding agents controlled from your phone',
+    skills: 'Built on <a href="' + SK + '">Matt Pocock’s skills</a>.' },
+  { kick: 'self-hosted agent dispatcher',
+    head: '<span class="lead">Matt Pocock’s skills.</span>Coding agents controlled from your phone',
+    skills: 'The <a href="' + SK + '">skills</a> ship with curia and run on your box.' },
+  { kick: 'self-hosted agent dispatcher',
+    head: 'Matt Pocock’s skills, dispatched to coding agents from your phone',
+    skills: 'The <a href="' + SK + '">skills</a> ship with curia and run on your box.' },
+  { kick: 'self-hosted agent dispatcher',
+    head: 'Run Matt Pocock’s wayfinder from your phone',
+    skills: 'Wayfinder ships with curia, with the rest of <a href="' + SK + '">the set</a>.' },
+  { kick: 'a self-hosted wrapper for Matt Pocock’s skills',
+    head: 'Coding agents controlled from your phone',
+    skills: 'Built on <a href="' + SK + '">Matt Pocock’s skills</a>.' }
+];
+
+(function applyTitle() {
+  var t = TITLES[TITLE_ID];
+  var k = document.getElementById('hero-kick');
+  var h = document.getElementById('hero-title');
+  var s = document.getElementById('hero-skills');
+  if (!t || !k || !h || !s) return;
+  k.innerHTML = '<b>curia</b> — ' + t.kick;
+  h.innerHTML = t.head;
+  s.innerHTML = t.skills;
+})();
+
+/* ---- round furniture: the switcher (#635 — five variations a round) ---- */
+
+(function switcher() {
+  var names = ['', 'funnel', 'scanner', 'collapse', 'lanes', 'orbit'];
+  var d = document.createElement('div');
+  var html = '<b>arc</b>';
+  var i;
+  for (i = 1; i <= 5; i++) {
+    html += '<a href="?id=' + i + '&t=' + TITLE_ID + '" title="' + names[i] + '"' +
+      (i === ARC_ID ? ' class="on"' : '') + '>' + i + '</a>';
+  }
+  html += '<b>title</b>';
+  for (i = 1; i <= 5; i++) {
+    html += '<a href="?id=' + ARC_ID + '&t=' + i + '"' +
+      (i === TITLE_ID ? ' class="on"' : '') + '>' + i + '</a>';
+  }
+  d.className = 'vary';
+  d.innerHTML = html;
+  document.body.appendChild(d);
+})();
+
 if (!ctx || prefersStill) {
-  if (!ctx) document.body.classList.add('nocanvas');
-  canvas.remove();
-  return;
+  if (canvas) canvas.remove();
+} else {
+  document.body.classList.add('arcon');
+  runArc();
 }
 
-var MONO10 = '600 10px ui-monospace, SFMono-Regular, Menlo, monospace';
-var MONO9 = '600 9px ui-monospace, SFMono-Regular, Menlo, monospace';
-var STATE_RGB = ['139,155,176', '224,174,76', '121,166,242', '125,211,160'];
-function state(i, a) { return 'rgba(' + STATE_RGB[Math.min(i, 3)] + ',' + a + ')'; }
-function accent(a) { return 'rgba(125,211,160,' + a + ')'; }
-function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-function lerp(a, b, t) { return a + (b - a) * t; }
-function ease(t) { return t * t * (3 - 2 * t); }
-function smooth(a, b, v) { return ease(clamp((v - a) / (b - a), 0, 1)); }
+function runArc() {
 
-/* Real tickets and real maps of this repo. A name here is a shortened
-   real title, and a number is a real issue. */
-var TICKETS = [
-  { id: '110', name: 'pin the pitch' }, { id: '111', name: 'the build path' },
-  { id: '112', name: 'the guide' }, { id: '113', name: 'the public URL' },
-  { id: '114', name: 'the proof' }, { id: '550', name: 'the grilling' },
-  { id: '567', name: 'the storyboard' }, { id: '587', name: 'the words' },
-  { id: '601', name: 'the scene mediums' }
-];
-var TYPES = ['research', 'prototype', 'grilling'];
-var MAPS = [
-  { label: 'map 600', name: 'the story page' },
-  { label: 'map 99', name: 'production' },
-  { label: 'map 109', name: 'the landing page' }
-];
+  /* ---- the kit ---- */
 
-var dpr = Math.min(window.devicePixelRatio || 1, 2);
-var W = 0, H = 0;
-function size() {
-  var w = canvas.clientWidth, hgt = canvas.clientHeight;
-  if (W !== w || H !== hgt) {
-    W = w; H = hgt;
-    canvas.width = Math.round(w * dpr); canvas.height = Math.round(hgt * dpr);
+  var MONOF = 'ui-monospace, SFMono-Regular, Menlo, monospace';
+  var SANSF = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
+  var C = {
+    panel: [17, 21, 28],
+    edge: [233, 236, 241],
+    text: [233, 236, 241],
+    dim: [148, 156, 171],
+    blocked: [139, 155, 176],
+    takeable: [121, 166, 242],
+    running: [224, 174, 76],
+    merged: [125, 211, 160]
+  };
+  /* 0 blocked · 1 takeable · 2 an agent is on it · 3 merged */
+  var ST = [C.blocked, C.takeable, C.running, C.merged];
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  function ease(t) { return t * t * (3 - 2 * t); }
+  function smooth(a, b, v) { return ease(clamp((v - a) / (b - a), 0, 1)); }
+  function rgb(c) { return 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')'; }
+  function rgba(c, a) { return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + a + ')'; }
+  /* Grayscale is the mess. g runs 0 (colored) to 1 (drained). */
+  function gray(c, g) {
+    if (!g) return c;
+    var l = 0.32 * c[0] + 0.55 * c[1] + 0.13 * c[2];
+    return [lerp(c[0], l, g), lerp(c[1], l, g), lerp(c[2], l, g)];
+  }
+
+  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  var W = 0, H = 0;
+  function size() {
+    var w = canvas.clientWidth, h = canvas.clientHeight;
+    if (W !== w || H !== h) {
+      W = w; H = h;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+    }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-}
 
-function roundRect(x, y, w, hgt, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + hgt - r); ctx.quadraticCurveTo(x + w, y + hgt, x + w - r, y + hgt);
-  ctx.lineTo(x + r, y + hgt); ctx.quadraticCurveTo(x, y + hgt, x, y + hgt - r);
-  ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
+  function roundRect(x, y, w, h, r) {
+    if (r > w / 2) r = w / 2;
+    if (r > h / 2) r = h / 2;
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
 
-/* A ticket the way a GitHub issue row reads: state dot, number, type,
-   speaking name (locked at #508). */
-function drawTicket(x, y, id, name, type, st, a) {
-  if (a <= 0.02) return;
-  ctx.font = MONO10;
-  var m1 = ctx.measureText('#' + id).width;
-  ctx.font = MONO9;
-  var mt = ctx.measureText(type).width;
-  var m2 = ctx.measureText(name).width;
-  var w = Math.max(m1 + 8 + mt, m2) + 30;
-  var rx = x - w / 2, ry = y - 17;
-  if (rx < 4) rx = 4;
-  if (rx + w > W - 4) rx = W - 4 - w;
-  roundRect(rx, ry, w, 34, 6);
-  ctx.fillStyle = 'rgba(13,16,21,' + (0.96 * a).toFixed(3) + ')';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(233,236,241,' + (0.26 * a).toFixed(3) + ')';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.beginPath(); ctx.arc(rx + 11, y - 7, 3.2, 0, 6.2832);
-  ctx.fillStyle = state(st, (0.95 * a).toFixed(3));
-  ctx.fill();
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.font = MONO10;
-  ctx.fillStyle = 'rgba(233,236,241,' + (0.94 * a).toFixed(3) + ')';
-  ctx.fillText('#' + id, rx + 19, y - 7);
-  ctx.font = MONO9;
-  ctx.fillStyle = 'rgba(148,156,171,' + (0.9 * a).toFixed(3) + ')';
-  ctx.fillText(type, rx + 19 + m1 + 8, y - 7);
-  ctx.fillStyle = 'rgba(233,236,241,' + (0.75 * a).toFixed(3) + ')';
-  ctx.fillText(name, rx + 11, y + 9);
-}
-
-/* A map card: dashed accent border and a filled map badge, larger than
-   any ticket (#508). */
-function drawMap(x, y, m, a, w) {
-  if (a <= 0.02) return;
-  w = w || (W < 640 ? 112 : 150);
-  var hgt = 64;
-  var rx = x - w / 2, ry = y - hgt / 2;
-  roundRect(rx, ry, w, hgt, 9);
-  ctx.fillStyle = 'rgba(13,16,21,' + (0.95 * a).toFixed(3) + ')';
-  ctx.fill();
-  ctx.setLineDash([4, 3]);
-  ctx.strokeStyle = accent((0.85 * a).toFixed(3));
-  ctx.lineWidth = 1.3;
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.lineWidth = 1;
-  roundRect(rx + w - 38, ry + 8, 30, 14, 4);
-  ctx.fillStyle = accent((0.85 * a).toFixed(3));
-  ctx.fill();
-  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  ctx.font = '700 8px ui-monospace, SFMono-Regular, Menlo, monospace';
-  ctx.fillStyle = 'rgba(8,12,10,' + (0.95 * a).toFixed(3) + ')';
-  ctx.fillText('map', rx + w - 33, ry + 15.5);
-  ctx.font = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace';
-  ctx.fillStyle = 'rgba(233,236,241,' + (0.95 * a).toFixed(3) + ')';
-  ctx.fillText(m.label, rx + 12, ry + 19);
-  ctx.font = MONO9;
-  ctx.fillStyle = 'rgba(148,156,171,' + (0.9 * a).toFixed(3) + ')';
-  ctx.fillText(m.name, rx + 12, ry + 37, w - 24);
-  for (var s = 0; s < 3; s++) {
-    roundRect(rx + 12 + s * ((w - 30) / 3), ry + 48, (w - 30) / 3 - 8, 6, 3);
-    ctx.fillStyle = accent((0.35 * a).toFixed(3));
+  /* A ticket, drawn the way a GitHub issue card reads: the state edge,
+     the issue icon, the number, the label chip, the title. Round 2 of
+     #551: "tickets dont look like tickets". */
+  var CARD_W = 216, CARD_H = 68;
+  function drawTicket(cx, cy, w, t, o) {
+    o = o || {};
+    var a = o.a == null ? 1 : o.a;
+    if (a <= 0.015) return;
+    var g = o.gray || 0;
+    var s = w / CARD_W;
+    var h = CARD_H * s;
+    var st = o.st == null ? 0 : o.st;
+    var sc = gray(ST[st], g);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.translate(cx, cy);
+    if (o.tilt) ctx.rotate(o.tilt);
+    if (o.pop && o.pop !== 1) ctx.scale(o.pop, o.pop);
+    var x = -w / 2, y = -h / 2;
+    roundRect(x, y, w, h, 11 * s);
+    ctx.fillStyle = rgba(gray(C.panel, g * 0.7), 0.96);
     ctx.fill();
-  }
-}
-
-/* Deterministic scatter, so a reload repeats it. */
-var SCATTER = TICKETS.map(function (tk, i) {
-  return { tk: tk, xf: 0.12 + 0.74 * ((i * 0.618) % 1), yf: 0.05 + 0.85 * ((i * 0.377) % 1), ph: i * 1.7 };
-});
-
-var rooms = {
-  hero: document.getElementById('room-hero'),
-  mess: document.getElementById('room-mess'),
-  order: document.getElementById('room-order')
-};
-
-var raf = 0, last = 0, clock = 0;
-function frame(ts) {
-  raf = requestAnimationFrame(frame);
-  if (document.hidden) return;
-  var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
-  last = ts; clock += dt;
-  size();
-  ctx.clearRect(0, 0, W, H);
-  var vh = window.innerHeight;
-
-  var rHero = rooms.hero.getBoundingClientRect();
-  var rMess = rooms.mess.getBoundingClientRect();
-  var rOrder = rooms.order.getBoundingClientRect();
-
-  /* Scene 1 — the funnel. Tickets drift in from the top, pass through
-     the curia node, and come out as ordered maps below it. */
-  if (rHero.bottom > -80 && rHero.top < H + 80) {
-    var cy = rHero.top + rHero.height * 0.52;
-    var cx = W * 0.5;
-    /* the node */
-    var breath = 0.5 + 0.5 * Math.sin(clock * 0.9);
-    ctx.beginPath(); ctx.arc(cx, cy, 26 + breath * 3, 0, 6.2832);
-    ctx.strokeStyle = accent(0.75); ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = rgba(C.edge, 0.14 + 0.12 * (1 - g));
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(cx, cy, 30 + breath * 5, 0, 6.2832);
-    ctx.strokeStyle = accent(0.18); ctx.stroke();
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '700 12px ui-monospace, SFMono-Regular, Menlo, monospace';
-    ctx.fillStyle = accent(0.95);
-    ctx.fillText('curia', cx, cy);
+    ctx.stroke();
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = rgba(sc, 0.9);
+    ctx.fillRect(x, y, 3.5 * s, h);
+    ctx.restore();
+    /* the issue icon: a ring, dashed while the ticket is blocked */
+    var ix = x + 19 * s, iy = y + 21 * s;
+    ctx.beginPath();
+    ctx.arc(ix, iy, 5.6 * s, 0, 6.2832);
+    if (st === 0) ctx.setLineDash([2.2 * s, 2.2 * s]);
+    ctx.strokeStyle = rgb(sc);
+    ctx.lineWidth = 1.6 * s;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+    if (st > 0) {
+      ctx.beginPath();
+      ctx.arc(ix, iy, 2 * s, 0, 6.2832);
+      ctx.fillStyle = rgb(sc);
+      ctx.fill();
+    }
     ctx.textAlign = 'left';
-    /* the travelers: each ticket loops from scatter above to a map slot */
-    var mapY = cy + Math.min(rHero.height * 0.3, 120);
-    for (var i = 0; i < 6; i++) {
-      var t = (clock * 0.11 + i / 6) % 1;
-      var sc = SCATTER[i];
-      var x0 = sc.xf * W, y0 = rHero.top + 20 + sc.yf * (rHero.height * 0.32);
-      var px, py, aT = 1;
-      if (t < 0.45) {
-        var t1 = ease(t / 0.45);
-        px = lerp(x0, cx, t1); py = lerp(y0, cy, t1);
-        aT = smooth(0, 0.12, t);
-        drawTicket(px + Math.sin(clock + sc.ph) * 3, py, sc.tk.id, sc.tk.name, TYPES[i % 3], 0, 0.7 * aT);
-      } else if (t > 0.55) {
-        var t2 = ease((t - 0.55) / 0.45);
-        var slot = i % 3;
-        var mx = W * (0.22 + 0.28 * slot);
-        px = lerp(cx, mx, t2); py = lerp(cy, mapY, t2);
-        drawTicket(px, py, sc.tk.id, sc.tk.name, TYPES[i % 3], 3, 0.7 * (1 - smooth(0.9, 1, t)));
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 ' + (12.5 * s).toFixed(1) + 'px ' + MONOF;
+    ctx.fillStyle = rgba(gray(C.text, g), 0.95);
+    ctx.fillText('#' + t.id, x + 31 * s, iy);
+    var nw = ctx.measureText('#' + t.id).width;
+    /* the label chip */
+    ctx.font = '600 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
+    var lw = ctx.measureText(t.type).width + 13 * s;
+    var lx = x + 31 * s + nw + 9 * s;
+    if (lx + lw < x + w - 10 * s) {
+      roundRect(lx, iy - 8.5 * s, lw, 17 * s, 8.5 * s);
+      ctx.fillStyle = rgba(sc, 0.15);
+      ctx.fill();
+      ctx.strokeStyle = rgba(sc, 0.5);
+      ctx.stroke();
+      ctx.fillStyle = rgba(gray(sc, 0.2), 0.95);
+      ctx.fillText(t.type, lx + 6.5 * s, iy);
+    }
+    /* the title */
+    ctx.font = '600 ' + (13.5 * s).toFixed(1) + 'px ' + SANSF;
+    ctx.fillStyle = rgba(gray(C.text, g), 0.86);
+    ctx.fillText(t.name, x + 19 * s, y + 48 * s, w - 36 * s);
+    ctx.restore();
+  }
+
+  /* One row inside a map card: the same ticket, compact. Staging 4
+     tags each row with what it is waiting for, because that staging
+     is the close read of a single map. */
+  var ROW_H = 25, ROW_STEP = 31;
+  var TAGS = ['waits', 'next', 'running', 'merged'];
+  function drawRow(x, y, w, r, s, g, a, tag) {
+    if (a <= 0.02) return;
+    var sc = gray(ST[r.st], g);
+    ctx.save();
+    ctx.globalAlpha = a;
+    roundRect(x, y, w, ROW_H * s, 6 * s);
+    ctx.fillStyle = r.st === 0 ? 'rgba(255,255,255,0.028)' : 'rgba(255,255,255,0.062)';
+    ctx.fill();
+    if (r.st === 1 || r.st === 2) {
+      ctx.strokeStyle = rgba(sc, 0.6);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+    var dx = x + 14 * s, dy = y + ROW_H * s / 2;
+    ctx.beginPath();
+    ctx.arc(dx, dy, 4.8 * s, 0, 6.2832);
+    if (r.st === 0) ctx.setLineDash([2 * s, 2 * s]);
+    ctx.strokeStyle = rgb(sc);
+    ctx.lineWidth = 1.5 * s;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+    if (r.st > 0) {
+      ctx.beginPath();
+      ctx.arc(dx, dy, 1.8 * s, 0, 6.2832);
+      ctx.fillStyle = rgb(sc);
+      ctx.fill();
+    }
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 ' + (10.5 * s).toFixed(1) + 'px ' + MONOF;
+    ctx.fillStyle = rgba(gray(C.text, g), r.st === 0 ? 0.62 : 0.96);
+    ctx.fillText('#' + r.id, x + 25 * s, dy);
+    var nw = ctx.measureText('#' + r.id).width;
+    var right = w;
+    if (tag) {
+      ctx.font = '700 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
+      var tw = ctx.measureText(TAGS[r.st]).width + 12 * s;
+      roundRect(x + w - tw - 8 * s, dy - 8 * s, tw, 16 * s, 8 * s);
+      ctx.fillStyle = rgba(sc, 0.16);
+      ctx.fill();
+      ctx.strokeStyle = rgba(sc, 0.45);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = rgba(gray(sc, 0.15), 0.95);
+      ctx.fillText(TAGS[r.st], x + w - tw - 2 * s, dy);
+      right = w - tw - 14 * s;
+    }
+    ctx.font = '600 ' + (11 * s).toFixed(1) + 'px ' + SANSF;
+    ctx.fillStyle = rgba(gray(C.dim, g), r.st === 0 ? 0.6 : 0.95);
+    ctx.fillText(r.name, x + 30 * s + nw, dy, Math.max(20, right - 34 * s - nw));
+    ctx.restore();
+  }
+
+  /* A map card: the dashed frame, the map badge, its rows and the bar
+     that fills as the rows merge. A blocked row hangs off the row it
+     waits on, so "where are the blocked tickets" has an answer. */
+  var MAP_W = 252;
+  function mapHeight(rows, s) { return (64 + rows * ROW_STEP + 26) * s; }
+  function drawMapCard(cx, cy, w, m, o) {
+    var a = o.a == null ? 1 : o.a;
+    if (a <= 0.02) return;
+    var g = o.gray || 0;
+    var s = w / MAP_W;
+    var rows = m.rows.length;
+    var h = mapHeight(rows, s);
+    var x = cx - w / 2, y = cy - h / 2;
+    ctx.save();
+    ctx.globalAlpha = a;
+    roundRect(x, y, w, h, 14 * s);
+    ctx.fillStyle = 'rgba(10,13,18,0.93)';
+    ctx.fill();
+    ctx.setLineDash([6 * s, 4 * s]);
+    ctx.strokeStyle = rgba(gray(C.merged, g), 0.75);
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineWidth = 1;
+    roundRect(x + w - 48 * s, y + 13 * s, 36 * s, 18 * s, 5 * s);
+    ctx.fillStyle = rgba(gray(C.merged, g), 0.92);
+    ctx.fill();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '700 ' + (10 * s).toFixed(1) + 'px ' + MONOF;
+    ctx.fillStyle = '#08120c';
+    ctx.fillText('map', x + w - 30 * s, y + 22.5 * s);
+    ctx.textAlign = 'left';
+    ctx.font = '700 ' + (13.5 * s).toFixed(1) + 'px ' + MONOF;
+    ctx.fillStyle = rgba(gray(C.text, g), 0.96);
+    ctx.fillText(m.label, x + 15 * s, y + 22 * s);
+    ctx.font = '600 ' + (12 * s).toFixed(1) + 'px ' + SANSF;
+    ctx.fillStyle = rgba(gray(C.dim, g), 0.95);
+    ctx.fillText(m.name, x + 15 * s, y + 43 * s, w - 60 * s);
+    var ry = y + 64 * s;
+    var i;
+    /* the dependency edges, drawn under the rows */
+    for (i = 1; i < rows; i++) {
+      if (m.rows[i].st !== 0) continue;
+      var ex = x + 13 * s + 14 * s;
+      ctx.setLineDash([3 * s, 3 * s]);
+      ctx.strokeStyle = rgba(gray(C.blocked, g), 0.55);
+      ctx.beginPath();
+      ctx.moveTo(ex, ry + (i - 1) * ROW_STEP * s + ROW_H * s);
+      ctx.lineTo(ex, ry + i * ROW_STEP * s);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    for (i = 0; i < rows; i++) {
+      drawRow(x + 13 * s, ry + i * ROW_STEP * s, w - 26 * s, m.rows[i], s, g,
+        o.rowA ? o.rowA[i] : 1, o.tags);
+    }
+    var by = y + h - 17 * s;
+    roundRect(x + 15 * s, by, w - 30 * s, 5 * s, 2.5 * s);
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    ctx.fill();
+    if (o.prog > 0.001) {
+      roundRect(x + 15 * s, by, (w - 30 * s) * clamp(o.prog, 0, 1), 5 * s, 2.5 * s);
+      ctx.fillStyle = rgba(gray(C.merged, g), 0.92);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /* An agent: the amber orb that comes for a takeable ticket. */
+  function drawAgent(x, y, r, a, label) {
+    if (a <= 0.02) return;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 1.9, 0, 6.2832);
+    ctx.fillStyle = rgba(C.running, 0.1);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, 6.2832);
+    ctx.fillStyle = rgba(C.running, 0.2);
+    ctx.fill();
+    ctx.strokeStyle = rgb(C.running);
+    ctx.lineWidth = 1.6;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.34, 0, 6.2832);
+    ctx.fillStyle = rgb(C.running);
+    ctx.fill();
+    if (label) {
+      ctx.font = '700 9.5px ' + MONOF;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = rgba(C.running, 0.92);
+      ctx.fillText('agent', x, y - r - 9);
+    }
+    ctx.restore();
+  }
+
+  /* The legend. The states are the whole point of the order beat, so
+     the canvas names them instead of leaving them to be guessed. */
+  function drawLegend(cx, y, a) {
+    if (a <= 0.02) return;
+    var items = [['blocked', C.blocked], ['takeable', C.takeable], ['an agent on it', C.running]];
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.font = '600 10.5px ' + MONOF;
+    ctx.textBaseline = 'middle';
+    var gap = 16, total = 0, i, widths = [];
+    for (i = 0; i < items.length; i++) {
+      widths[i] = 15 + ctx.measureText(items[i][0]).width;
+      total += widths[i];
+    }
+    total += gap * (items.length - 1);
+    var x = cx - total / 2;
+    for (i = 0; i < items.length; i++) {
+      ctx.beginPath();
+      ctx.arc(x + 4, y, 4, 0, 6.2832);
+      ctx.strokeStyle = rgb(items[i][1]);
+      ctx.lineWidth = 1.4;
+      if (i === 0) ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      if (i > 0) {
+        ctx.beginPath();
+        ctx.arc(x + 4, y, 1.6, 0, 6.2832);
+        ctx.fillStyle = rgb(items[i][1]);
+        ctx.fill();
       }
+      ctx.textAlign = 'left';
+      ctx.fillStyle = rgba(C.dim, 0.9);
+      ctx.fillText(items[i][0], x + 15, y);
+      x += widths[i] + gap;
     }
-    for (var mi = 0; mi < 3; mi++) {
-      drawMap(W * (0.22 + 0.28 * mi), mapY, MAPS[mi], 0.95, W < 640 ? 96 : 130);
-    }
+    ctx.restore();
   }
 
-  /* Scene 2 — the mess. The same work, adrift, denser and closer. */
-  if (rMess.bottom > -80 && rMess.top < H + 80) {
-    for (var mk = 0; mk < SCATTER.length; mk++) {
-      var it = SCATTER[mk];
-      var mx2 = it.xf * W + Math.sin(clock * 0.7 + it.ph) * 7;
-      var my2 = rMess.top + 20 + it.yf * (rMess.height - 60) + Math.cos(clock * 0.55 + it.ph) * 6;
-      drawTicket(mx2, my2, it.tk.id, it.tk.name, TYPES[mk % 3], 0, 0.6);
-    }
-  }
+  /* ---- the work on the canvas: real issues of this repo ---- */
 
-  /* Scene 3 — maps bring order. Edges draw in, the takeable tickets
-     light up, and the queue drains down the left line. */
-  if (rOrder.bottom > -120 && rOrder.top < H + 120) {
-    var rp = clamp((vh * 0.7 - rOrder.top) / Math.max(1, rOrder.height - vh * 0.4), 0, 1);
-    var ay = clamp(vh * 0.42, rOrder.top + 140, rOrder.bottom - 200);
-    var e1 = smooth(0, 0.3, rp);        /* the map frame closes */
-    var e2 = smooth(0.25, 0.55, rp);    /* edges draw, states light */
-    var e3 = smooth(0.5, 1, rp);        /* the queue drains */
-    /* the line arrives with the order */
-    var lineTo = -8 + (H + 16) * smooth(0.15, 0.5, rp);
-    if (lineTo > 0) {
-      ctx.strokeStyle = accent(0.24);
-      ctx.beginPath(); ctx.moveTo(16, -8); ctx.lineTo(16, lineTo); ctx.stroke();
-    }
-    if (e1 > 0.02) {
-      drawMap(W * 0.5, ay - 130, MAPS[0], e1, Math.min(W - 40, 220));
-    }
-    /* three tickets under the map, wired by edges */
-    var order = [
-      { tk: TICKETS[7], st: 3 },  /* the words — merged */
-      { tk: TICKETS[8], st: 3 },  /* the scene mediums — merged */
-      { tk: { id: '551', name: 'the story page' }, st: 1 } /* this one */
+  var MESS = [
+    { id: '550', name: 'grill the landing page', type: 'grilling' },
+    { id: '624', name: 'the visual identity', type: 'prototype' },
+    { id: '642', name: 'the codex credential', type: 'task' },
+    { id: '567', name: 'the storyboard', type: 'prototype' },
+    { id: '601', name: 'the proof mediums', type: 'research' },
+    { id: '625', name: 'the opening arc', type: 'prototype' },
+    { id: '644', name: 'swap a live credential', type: 'task' },
+    { id: '587', name: 'the words of the page', type: 'grilling' },
+    { id: '603', name: 'a favicon, served', type: 'task' },
+    { id: '626', name: 'the grilling scene', type: 'prototype' },
+    { id: '635', name: 'the round shape', type: 'grilling' },
+    { id: '604', name: 'cut over to the page', type: 'task' },
+    { id: '578', name: 'a ticket that dies', type: 'grilling' },
+    { id: '107', name: 'no dev session', type: 'task' }
+  ];
+
+  /* Three real maps, and what stands on each one today. */
+  function maps() {
+    return [
+      { label: 'map 600', name: 'ship the story page', take: 1, rows: [
+        { id: '624', name: 'the visual identity', st: 3 },
+        { id: '625', name: 'the opening arc', st: 1 },
+        { id: '626', name: 'the grilling scene', st: 0 }
+      ] },
+      { label: 'map 99', name: 'production', take: 1, rows: [
+        { id: '642', name: 'the codex credential', st: 3 },
+        { id: '644', name: 'swap a credential', st: 1 },
+        { id: '107', name: 'no dev session', st: 0 }
+      ] },
+      { label: 'map 109', name: 'the landing page', take: -1, rows: [
+        { id: '587', name: 'the words', st: 3 },
+        { id: '567', name: 'the storyboard', st: 3 },
+        { id: '550', name: 'grill the page', st: 3 }
+      ] }
     ];
-    for (var oi = 0; oi < 3; oi++) {
-      var ox = W * (0.24 + 0.26 * oi);
-      var oy = ay - 20 + (oi % 2) * 22;
-      if (e2 > 0.02) {
-        ctx.strokeStyle = accent((0.4 * e2).toFixed(3));
-        ctx.beginPath(); ctx.moveTo(W * 0.5, ay - 100); ctx.lineTo(ox, oy - 16); ctx.stroke();
-        if (oi > 0) {
-          ctx.strokeStyle = 'rgba(148,156,171,' + (0.35 * e2).toFixed(3) + ')';
-          ctx.setLineDash([3, 3]);
-          ctx.beginPath(); ctx.moveTo(W * (0.24 + 0.26 * (oi - 1)), oy - 6 + ((oi - 1) % 2) * 22 - (oi % 2) * 22); ctx.lineTo(ox - 30, oy); ctx.stroke();
-          ctx.setLineDash([]);
+  }
+
+  /* A deterministic scatter, so every reload repeats the same mess.
+     `post` is the state the ticket wears once it is through the line:
+     sorted work is lit, not uniform. */
+  var SEED = MESS.map(function (t, i) {
+    return {
+      t: t,
+      fx: ((i * 0.6180339887) % 1),
+      fy: ((i * 0.3819660113) % 1),
+      ft: ((i * 0.7548776662) % 1),
+      post: i % 3 === 1 ? 1 : 3,
+      ph: i * 1.37
+    };
+  });
+
+  /* ---- the world ----
+     World y is screen y when the camera is at rest and unzoomed.
+     The camera anchors at 0.20H, so the numbers below read straight
+     off the hero frame. */
+  var NODE_Y = 0.20, MAP_Y = 0.44, MESS_TOP = -0.62, MESS_BOT = 0.02;
+
+  /* ---- the five stagings ----
+     They share the kit, the beats and the camera. Each one owns where
+     the mess sits, what curia looks like doing the work, and where the
+     order lands. */
+
+  function messSpread(narrow) {
+    var vw = W / 1.15;
+    var cw = narrow ? Math.min(CARD_W, W - 34) : CARD_W;
+    var half = cw / 2 + 10;
+    return { cw: cw, x0: W / 2 - vw / 2 + half, x1: W / 2 + vw / 2 - half };
+  }
+
+  function messPos(i, n, clock, narrow) {
+    var s = SEED[i], sp = messSpread(narrow), id = ARC_ID;
+    var span = sp.x1 - sp.x0;
+    var y0 = MESS_TOP * H, y1 = MESS_BOT * H;
+    var x, y, tilt;
+    if (id === 2) {
+      /* scanner: a neat grid, which is what makes the sweep legible */
+      var cols = narrow ? 1 : 2, col = i % cols, rowI = Math.floor(i / cols);
+      var rows = Math.ceil(n / cols);
+      x = cols === 1 ? W / 2 : sp.x0 + (span * col) / (cols - 1);
+      y = lerp(y0, y1, rows < 2 ? 0.5 : rowI / (rows - 1));
+      tilt = 0;
+      x += Math.sin(clock * 0.5 + s.ph) * 3;
+    } else if (id === 3) {
+      /* collapse: a real pile, overlapping and askew */
+      x = W / 2 + (s.fx - 0.5) * span * 0.62 + Math.sin(clock * 0.4 + s.ph) * 4;
+      y = lerp(y0, y1, s.fy * 0.82 + (i / n) * 0.18) + Math.cos(clock * 0.33 + s.ph) * 5;
+      tilt = (s.ft - 0.5) * 0.42;
+    } else if (id === 4) {
+      /* lanes: one column, an issue list nobody has sorted */
+      x = W / 2 + Math.sin(clock * 0.6 + s.ph) * 10;
+      y = lerp(y0, y1, n < 2 ? 0.5 : i / (n - 1)) + Math.cos(clock * 0.4 + s.ph) * 4;
+      tilt = (s.ft - 0.5) * 0.06;
+    } else if (id === 5) {
+      /* orbit: a cloud turning around the node */
+      var ang = s.fx * 6.2832 + clock * 0.16;
+      var rad = lerp(0.13, 0.34, s.fy) * Math.min(W, H);
+      x = W / 2 + Math.cos(ang) * rad * (narrow ? 0.8 : 1.5);
+      y = lerp(y0, y1, 0.5) + Math.sin(ang) * rad * 0.9;
+      tilt = Math.cos(ang) * 0.18;
+    } else {
+      /* funnel: free scatter, drifting down */
+      x = lerp(sp.x0, sp.x1, s.fx) + Math.sin(clock * 0.45 + s.ph) * 7;
+      y = lerp(y0, y1, s.fy) + Math.cos(clock * 0.36 + s.ph) * 8;
+      tilt = (s.ft - 0.5) * 0.16;
+    }
+    return { x: clamp(x, sp.x0, sp.x1), y: y, tilt: tilt, cw: sp.cw };
+  }
+
+  /* curia itself, on the line that divides gray from colored.
+     act is how hard it is working, 0 to 1. */
+  function drawNode(nx, ny, act, clock, narrow) {
+    var id = ARC_ID;
+    var r = clamp(Math.min(W, H) * 0.105, 58, 128);
+    var breath = 0.5 + 0.5 * Math.sin(clock * 1.1);
+    ctx.save();
+    if (id === 2) {
+      /* the scan bar: a full-width rule with a lens on it */
+      var half = narrow ? W * 0.46 : W * 0.34;
+      ctx.strokeStyle = rgba(C.merged, 0.25 + 0.45 * act);
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(nx - half, ny);
+      ctx.lineTo(nx + half, ny);
+      ctx.stroke();
+      ctx.fillStyle = rgba(C.merged, 0.05 + 0.1 * act);
+      ctx.fillRect(nx - half, ny - 3, half * 2, 6);
+      r = clamp(Math.min(W, H) * 0.075, 44, 92);
+      ctx.beginPath();
+      ctx.arc(nx, ny, r, 0, 6.2832);
+      ctx.fillStyle = 'rgba(8,10,14,0.86)';
+      ctx.fill();
+      ctx.strokeStyle = rgba(C.merged, 0.85);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else if (id === 3) {
+      /* the disc, throwing shockwaves */
+      var k;
+      for (k = 0; k < 3; k++) {
+        var wv = ((clock * 0.55 + k / 3) % 1);
+        ctx.beginPath();
+        ctx.arc(nx, ny, r * (1 + wv * 2.4), 0, 6.2832);
+        ctx.strokeStyle = rgba(C.merged, (0.3 + 0.3 * act) * (1 - wv));
+        ctx.lineWidth = 2 - wv;
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(nx, ny, r, 0, 6.2832);
+      ctx.fillStyle = rgba(C.merged, 0.14 + 0.1 * act);
+      ctx.fill();
+      ctx.strokeStyle = rgba(C.merged, 0.9);
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+    } else if (id === 4) {
+      /* the bracket that does the sorting */
+      var bw = narrow ? W * 0.86 : Math.min(W * 0.6, 640);
+      var bh = clamp(H * 0.1, 62, 104);
+      roundRect(nx - bw / 2, ny - bh / 2, bw, bh, 14);
+      ctx.fillStyle = 'rgba(8,10,14,0.82)';
+      ctx.fill();
+      ctx.strokeStyle = rgba(C.merged, 0.7 + 0.25 * act);
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.strokeStyle = rgba(C.merged, 0.2 + 0.4 * act);
+      ctx.lineWidth = 1;
+      var q;
+      for (q = 1; q < 3; q++) {
+        ctx.beginPath();
+        ctx.moveTo(nx - bw / 2 + (bw * q) / 3, ny + bh / 2);
+        ctx.lineTo(nx - bw / 2 + (bw * q) / 3, ny + bh / 2 + 18);
+        ctx.stroke();
+      }
+      r = bh / 2;
+    } else if (id === 5) {
+      /* the solid disc the cloud falls into */
+      ctx.beginPath();
+      ctx.arc(nx, ny, r * (1.5 + breath * 0.12), 0, 6.2832);
+      ctx.fillStyle = rgba(C.merged, 0.05 + 0.06 * act);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(nx, ny, r, 0, 6.2832);
+      ctx.fillStyle = rgba(C.merged, 0.18 + 0.12 * act);
+      ctx.fill();
+      ctx.strokeStyle = rgba(C.merged, 0.95);
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
+    } else {
+      /* the ring, with a turning dashed collar */
+      ctx.beginPath();
+      ctx.arc(nx, ny, r, 0, 6.2832);
+      ctx.fillStyle = 'rgba(8,10,14,0.7)';
+      ctx.fill();
+      ctx.strokeStyle = rgba(C.merged, 0.9);
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(nx, ny);
+      ctx.rotate(clock * 0.35);
+      ctx.setLineDash([9, 7]);
+      ctx.beginPath();
+      ctx.arc(0, 0, r + 12 + breath * 4, 0, 6.2832);
+      ctx.strokeStyle = rgba(C.merged, 0.22 + 0.3 * act);
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+      ctx.restore();
+      ctx.setLineDash([]);
+    }
+    /* the name, big enough to read: round 2 said curia was too small */
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 ' + (r * (ARC_ID === 4 ? 0.5 : 0.42)).toFixed(0) + 'px ' + MONOF;
+    ctx.fillStyle = rgba(C.merged, 0.98);
+    ctx.fillText('curia', nx, ny);
+    ctx.restore();
+    return r;
+  }
+
+  /* Where the order lands. Every staging returns the same shape, so
+     the travel and the run beats are written once. */
+  function orderSlots(narrow) {
+    var ms = maps();
+    if (ARC_ID === 4) {
+      /* one map, close up. Every row wears the tag that says why it
+         stands where it stands, so the graph explains itself. */
+      return [{ x: W / 2, y: MAP_Y * H, w: Math.min(W - 36, 440), m: ms[0], tags: true }];
+    }
+    var cw = narrow ? Math.min(W - 32, 300) : Math.min((W - 72) / 3, MAP_W);
+    var g2 = narrow ? 0 : 20;
+    var n = narrow ? 1 : 3;
+    var res = [], k;
+    for (k = 0; k < n; k++) {
+      var x = n === 1 ? W / 2 : W / 2 + (k - 1) * (cw + g2);
+      var y = MAP_Y * H;
+      if (ARC_ID === 5 && n === 3) y += Math.abs(k - 1) * H * 0.05;
+      res.push({ x: x, y: y, w: cw, m: ms[k] });
+    }
+    return res;
+  }
+
+  /* One traveler's place on the way through the line: home, the node,
+     then its slot. Above the line it is gray and askew; below it, lit
+     and square. The sort and the hero idle both go through here. */
+  function travelPoint(home, target, t, post) {
+    if (t < 0.5) {
+      var t1 = ease(t / 0.5);
+      return {
+        x: lerp(home.x, W / 2, t1), y: lerp(home.y, NODE_Y * H, t1),
+        gray: 1, tilt: home.tilt * (1 - t1), st: 0, pop: 1, a: 1
+      };
+    }
+    var t2 = ease((t - 0.5) / 0.5);
+    return {
+      x: lerp(W / 2, target.x, t2), y: lerp(NODE_Y * H, target.y, t2),
+      gray: 0, tilt: 0, st: post,
+      pop: 1 + 0.2 * Math.sin(Math.min(1, t2 * 4) * Math.PI),
+      a: 1 - smooth(0.72, 1, t2)
+    };
+  }
+
+  /* The moment a ticket crosses the line, made loud: round 2 asked for
+     curia's effect to look far more impactful. */
+  function crossFlash(t) {
+    var fl = clamp(1 - Math.abs(t - 0.5) / 0.07, 0, 1);
+    if (fl <= 0.02) return;
+    ctx.save();
+    ctx.globalAlpha = fl * 0.7;
+    ctx.beginPath();
+    ctx.arc(W / 2, NODE_Y * H, 42 + (1 - fl) * 130, 0, 6.2832);
+    ctx.strokeStyle = rgb(C.merged);
+    ctx.lineWidth = 2.6 * fl;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ---- the beats ---- */
+
+  var raf = 0, last = 0, clock = 0;
+  var panels = [
+    { el: document.getElementById('w-hero'), out: [0.10, 0.19] },
+    { el: document.getElementById('w-mess'), tin: [0.21, 0.30], out: [0.47, 0.54] },
+    { el: document.getElementById('w-order'), tin: [0.55, 0.63] }
+  ];
+
+  function frame(ts) {
+    raf = requestAnimationFrame(frame);
+    if (document.hidden) return;
+    var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
+    last = ts;
+    clock += dt;
+    size();
+
+    var box = arcEl.getBoundingClientRect();
+    var travelable = arcEl.offsetHeight - window.innerHeight;
+    var p = travelable > 0 ? clamp(-box.top / travelable, 0, 1) : 0;
+
+    /* the words */
+    var i;
+    for (i = 0; i < panels.length; i++) {
+      var pn = panels[i];
+      if (!pn.el) continue;
+      var a = pn.tin ? smooth(pn.tin[0], pn.tin[1], p) : 1;
+      if (pn.out) a *= 1 - smooth(pn.out[0], pn.out[1], p);
+      pn.el.style.opacity = a.toFixed(3);
+      pn.el.style.pointerEvents = a > 0.55 ? 'auto' : 'none';
+    }
+
+    ctx.clearRect(0, 0, W, H);
+    if (box.bottom < -40 || box.top > H + 40) return;
+
+    var narrow = W < 620;
+    var rise = smooth(0.19, 0.44, p);   /* the camera climbs into the mess */
+    var fall = smooth(0.50, 0.76, p);   /* and comes back down to the maps */
+    /* The hero sits pulled back and lifted, so the whole machine fits
+       above the words; the mess beat comes in close; the order beat
+       settles on the maps at full size. */
+    var camY = (-0.05 + 0.624 * rise - 0.714 * fall) * H;
+    var zoom = lerp(lerp(0.74, 1.15, rise), 1.0, fall);
+    var warm = 1 - 0.86 * rise * (1 - fall);
+    stageEl.style.setProperty('--warm', warm.toFixed(3));
+    stageEl.style.setProperty('--ord', fall.toFixed(3));
+
+    var slots = orderSlots(narrow);
+    var nSlots = slots.length;
+    var nodeY = NODE_Y * H;
+
+    /* Travel. During the hero the machine idles on a clock; during the
+       sort the whole pile goes through, staggered. */
+    var stag = 0.055;
+    var sortP = smooth(0.50, 0.86, p) * (1 + stag * MESS.length);
+
+    ctx.save();
+    ctx.translate(W / 2, NODE_Y * H);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-W / 2, -NODE_Y * H + camY);
+
+    /* the maps, waiting under the line. They stand filled at the hero
+       so the first screen shows ordered maps, empty out while the
+       camera is up in the mess, and fill again as the pile arrives. */
+    var runP = smooth(0.84, 1.0, p);
+    var arrived = Math.max(smooth(0.62, 0.84, p), 0.95 * (1 - rise));
+    var legendA = smooth(0.66, 0.78, p);
+    var agents = [];
+    var maxMapH = 0;
+    var si;
+    for (si = 0; si < nSlots; si++) {
+      var sl = slots[si];
+      var m = sl.m;
+      var rowsN = m.rows.length;
+      var rowA = [], base = 0, ri;
+      for (ri = 0; ri < rowsN; ri++) {
+        /* rows land one after another as the pile arrives */
+        rowA[ri] = clamp(arrived * (rowsN + 1) - ri, 0, 1);
+        if (m.rows[ri].st === 3) base++;
+      }
+      var prog = (base / rowsN) * arrived;
+      /* the run: an agent takes the takeable row, it merges and goes */
+      if (m.take >= 0 && runP > 0) {
+        var ev = clamp(runP * 1.55 - si * 0.17, 0, 1);
+        var k = m.take;
+        if (ev > 0.30 && ev <= 0.62) m.rows[k].st = 2;
+        else if (ev > 0.62) m.rows[k].st = 3;
+        if (ev > 0.80) {
+          rowA[k] = Math.min(rowA[k], 1 - smooth(0.80, 0.96, ev));
+          prog = ((base + 1) / rowsN);
+          if (k + 1 < rowsN && m.rows[k + 1].st === 0) m.rows[k + 1].st = 1;
+        }
+        if (ev > 0.02 && ev < 0.9) {
+          var s2 = sl.w / MAP_W;
+          var rowY = sl.y - mapHeight(rowsN, s2) / 2 + (64 + k * ROW_STEP + ROW_H / 2) * s2;
+          var fromX = sl.x + (si % 2 ? 1 : -1) * (W * 0.55);
+          var tv = smooth(0, 0.3, ev);
+          agents.push({
+            x: lerp(fromX, sl.x + sl.w / 2 - 16 * s2, ease(tv)),
+            y: lerp(rowY - H * 0.18, rowY, ease(tv)),
+            r: 9 * Math.max(s2, 0.75),
+            a: (ev < 0.86 ? 1 : 1 - smooth(0.86, 0.9, ev)) * tv,
+            lab: tv > 0.9
+          });
         }
       }
-      var st = e2 > 0.6 ? order[oi].st : 0;
-      drawTicket(ox, oy, order[oi].tk.id, order[oi].tk.name, TYPES[oi % 3], st, smooth(0, 0.15, rp));
+      maxMapH = Math.max(maxMapH, mapHeight(rowsN, sl.w / MAP_W));
+      /* The maps stand from the first frame: the first screen is the
+         one that has to show ordered work coming out. */
+      drawMapCard(sl.x, sl.y, sl.w, m, { a: 1, prog: prog, rowA: rowA, tags: sl.tags });
     }
-    /* the queue on the line */
-    if (e3 > 0.02) {
-      for (var qi = 0; qi < 3; qi++) {
-        var qt = clamp(e3 * 3 - qi, 0, 1);
-        if (qt <= 0) continue;
-        var qy = lerp(ay + 60, ay + 130 + qi * 44, ease(qt));
-        drawTicket(60 + (W < 640 ? 40 : 60), qy, order[qi].tk.id, order[qi].tk.name, TYPES[qi % 3], order[qi].st, qt);
-        ctx.beginPath(); ctx.arc(16, qy, 3.5, 0, 6.2832);
-        ctx.fillStyle = state(order[qi].st, 0.9); ctx.fill();
+
+    /* the legend, over the maps. The states are the whole point of the
+       order beat, so the canvas names them rather than leave them to
+       be guessed: round 2 asked where the blocked tickets were. */
+    if (legendA > 0.02) {
+      drawLegend(W / 2, MAP_Y * H - maxMapH / 2 - 22, legendA);
+    }
+
+    /* the pile: every ticket, above or below the line */
+    var mi, seed, home, t, tp;
+    var idleA = 1 - smooth(0.04, 0.16, p);
+    for (mi = 0; mi < MESS.length; mi++) {
+      seed = SEED[mi];
+      home = messPos(mi, MESS.length, clock, narrow);
+      t = clamp(sortP - mi * stag, 0, 1);
+      if (t >= 0.999) continue;   /* it lives in the map now */
+      if (t <= 0.001) {
+        /* At rest in the mess. The ones the hero loop is flying stay
+           out of the pile until the loop has faded, so no card ever
+           doubles or jumps. */
+        var restA = mi % 2 === 0 && mi < 10 ? 1 - idleA : 1;
+        drawTicket(home.x, home.y, home.cw, seed.t,
+          { gray: 1, tilt: home.tilt, st: 0, a: 0.94 * restA });
+        continue;
+      }
+      tp = travelPoint(home, slots[mi % nSlots], t, seed.post);
+      drawTicket(tp.x, tp.y, home.cw, seed.t, {
+        gray: tp.gray, tilt: tp.tilt, st: tp.st, a: tp.a * 0.96, pop: tp.pop
+      });
+      crossFlash(t);
+    }
+
+    /* The hero idles: work keeps coming down through curia while the
+       reader is still reading the first screen. */
+    if (idleA > 0.02) {
+      var li;
+      for (li = 0; li < 5; li++) {
+        var lm = li * 2;
+        var ls = SEED[lm];
+        var lt = (clock * 0.15 + li / 5) % 1;
+        var lhome = messPos(lm, MESS.length, clock, narrow);
+        var lp = travelPoint(lhome, slots[li % nSlots], lt, ls.post);
+        drawTicket(lp.x, lp.y, lhome.cw, ls.t, {
+          gray: lp.gray, tilt: lp.tilt, st: lp.st, a: lp.a * idleA * 0.96, pop: lp.pop
+        });
+        if (idleA > 0.6) crossFlash(lt);
       }
     }
+
+    /* curia, over everything it acts on */
+    var act = clamp(0.35 * (1 - rise) + smooth(0.48, 0.62, p) - smooth(0.88, 1, p), 0, 1);
+    var nodeA = (1 - smooth(0.88, 0.98, p)) * (1 - 0.75 * rise * (1 - fall));
+    if (nodeA > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = nodeA;
+      drawNode(W / 2, nodeY, act, clock, narrow);
+      ctx.restore();
+    }
+
+    /* the agents come last, on top of the maps */
+    var ai;
+    for (ai = 0; ai < agents.length; ai++) {
+      drawAgent(agents[ai].x, agents[ai].y, agents[ai].r, agents[ai].a, agents[ai].lab);
+    }
+
+    ctx.restore();
   }
 
+  size();
+  raf = requestAnimationFrame(frame);
+  window.addEventListener('resize', size, { passive: true });
 }
-
-size();
-raf = requestAnimationFrame(frame);
 
 })();
 </script>

@@ -95,6 +95,61 @@ languages over that palette: 1 duotone (glow orbs over grain), 2 poster (numeral
 picked duotone, confirmed the per-medium palette as the identity rule, and confirmed the hero
 exception. The losing languages and the switcher left the file with this round.
 
+## The opening arc ([#625](https://github.com/alp82/curia/issues/625))
+
+Scenes 1 to 3 — the hero, the mess and the maps-bring-order beat.
+
+**Round 1.** The three scenes became ONE pinned stage, which is what the operator's round 2 note
+asked for: the animation holds its place, the hero words dock at the bottom and leave, the camera
+climbs into the mess above, then falls back through curia onto the maps. One scroll value drives
+the camera, the cards and the words.
+
+The rule of the arc: above the curia line a ticket is gray and askew, and below it the same ticket
+is colored and square. That line is what curia does, and it is what makes the effect visible.
+
+What the round 2 notes changed, one by one:
+
+- **curia is large.** The node is a tenth of the shorter viewport edge, never under 58 px across,
+  with its name set at 42 per cent of its radius.
+- **The maps are large and close.** Three cards, 252 px wide, 20 px apart, centered. One card on a
+  phone. They stand from the first frame, so the first screen shows ordered work coming out.
+- **Tickets look like tickets.** A state edge, a GitHub issue icon that goes dashed when the ticket
+  is blocked, the number in mono, a label chip in the state color, and the title. 216 px wide.
+- **The effect is loud.** Every card crosses the line gray and leaves it colored, with a pop and a
+  ring thrown from the node.
+- **Agents pick tickets up.** In the last beat an amber orb flies to the takeable row of each map,
+  the row runs, merges, fades out, the map bar advances, and the ticket it blocked lights up.
+- **The mess is the same place, closer.** It is no longer a separate screen. The camera rises into
+  it and the background drains toward gray.
+- **The order beat explains itself.** The maps are three real maps of this repo with their real
+  tickets. Blocked rows carry a dashed ring and hang off the row they wait on, and a legend names
+  blocked, takeable and an agent on it.
+
+Five stagings ride `?id=1..5`, five hero titles ride `?t=1..5`, and a switcher carries both:
+
+| id | staging | the mess | what curia is |
+|----|---------|----------|---------------|
+| 1 | funnel | free scatter, drifting | a ring with a turning collar |
+| 2 | scanner | a neat grid | a full-width scan bar with a lens |
+| 3 | collapse | an overlapping, tilted pile | a disc throwing shockwaves |
+| 4 | lanes | one unsorted column | a sorting bracket, one map close up, every row tagged |
+| 5 | orbit | a cloud turning around the node | a solid disc |
+
+The five hero titles, offered because #551 round 3 confirmed the Matt Pocock wrapper claim
+overrides the headline locked at [#587](https://github.com/alp82/curia/issues/587):
+
+1. The locked line, kept as the control: "Coding agents controlled from your phone".
+2. The wrapper claim on its own line above the locked line.
+3. "Matt Pocock's skills, dispatched to coding agents from your phone".
+4. "Run Matt Pocock's wayfinder from your phone".
+5. The kicker carries it: "curia — a self-hosted wrapper for Matt Pocock's skills".
+
+Title 4 uses "wayfinder", which positioning.md bans as internal vocabulary, so it needs an
+operator ruling before it can ship.
+
+The page still reads with no script and with reduced motion: the track collapses to one screen and
+the three panels stack as ordinary sections.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
