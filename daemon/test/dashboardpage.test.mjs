@@ -136,6 +136,7 @@ const OVERVIEW = () => ({
     { ts: at(400), type: 'esc_open', id: 'esc-7', agent: 'curia-255', ticket: '255', kind: 'choice', prompt: 'Two notes race the same expiry line.' },
     { ts: at(60), type: 'credentials_swept', agent: 'curia-263', ticket: '263', repo: 'alp82/curia' },
   ],
+  deploy: { in_flight: null, last: null, verdict_read_error: null },
   frontier: {
     computed_at: at(120),
     repos: [
@@ -190,6 +191,45 @@ describe('the read screens (#264)', () => {
       assert.match(t, /Fleet \(3\)/)
       assert.match(t, /curia-263/)
       assert.match(t, /Last events/)
+    })
+
+    test('the home screen shows the deploy in flight', () => {
+      const t = text(page.screenHome(payload({
+        deploy: {
+          in_flight: { prev: 'a'.repeat(40), next: 'b'.repeat(40), state: 'rolling-back' },
+          last: null,
+          verdict_read_error: null,
+        },
+      })))
+      assert.match(t, /Deploy/)
+      assert.match(t, /a deploy is in flight: a{7} → b{7}/)
+      assert.match(t, /state rolling-back/)
+    })
+
+    test('the home screen keeps the last deploy verdict and its error excerpt', () => {
+      const t = text(page.screenHome(payload({
+        deploy: {
+          in_flight: null,
+          last: {
+            state: 'rolled-back', prev: 'a'.repeat(40), next: 'b'.repeat(40),
+            reason: 'docker compose could not recreate the services', by: 'u1',
+            resolved_at: at(30), log: 'Cannot connect to the Docker daemon',
+          },
+          verdict_read_error: null,
+        },
+      })))
+      assert.match(t, /Last deploy/)
+      assert.match(t, /ROLLED BACK: a{7} → b{7}/)
+      assert.match(t, /docker compose could not recreate the services/)
+      assert.match(t, /Cannot connect to the Docker daemon/)
+    })
+
+    test('an unreadable deploy verdict is not an empty deploy history', () => {
+      const t = text(page.screenHome(payload({
+        deploy: { in_flight: null, last: null, verdict_read_error: 'the last deploy verdict is unreadable: invalid JSON' },
+      })))
+      assert.match(t, /Last deploy/)
+      assert.match(t, /the last deploy verdict is unreadable: invalid JSON/)
     })
 
     // #384. The strip below says how full a window is. This says curia has

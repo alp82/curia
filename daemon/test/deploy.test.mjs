@@ -29,23 +29,34 @@ function fakeStore() {
 // A git/docker double: answers rev-parse from `shas`, throws where the
 // scenario says so, and records every docker invocation. `dirty` is what
 // `git status --porcelain` prints — the clean tree is the empty string.
-function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', show = {} } = {}) {
+function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', blobIds = {}, ghAuthOk = true } = {}) {
   const docker = []
   const git = []
-  const exec = async (file, args) => {
+  const gh = []
+  const exec = async (file, args, options = {}) => {
+    if (file === 'gh') {
+      gh.push({ args, options })
+      if (!ghAuthOk) throw new Error('not logged into any GitHub hosts')
+      return { stdout: '' }
+    }
     if (file === 'git') {
       git.push(args)
       const verb = args[0]
       if (verb === 'status') return { stdout: dirty }
       if (verb === 'checkout') return { stdout: '' }
       if (verb === 'fetch') return { stdout: '' }
-      if (verb === 'rev-parse') return { stdout: `${args[1] === 'HEAD' ? head : origin}\n` }
+      if (verb === 'rev-parse') {
+        if (args[1].includes(':')) {
+          const f = args[1].split(':').slice(1).join(':')
+          return { stdout: `${blobIds[f]?.incoming ?? 'incoming-blob'}\n` }
+        }
+        return { stdout: `${args[1] === 'HEAD' ? head : origin}\n` }
+      }
       if (verb === 'ls-files') return { stdout: untracked }
       if (verb === 'diff') return { stdout: added }
-      if (verb === 'show') {
-        const f = args[1].split(':').slice(1).join(':')
-        if (show[f] === undefined) throw new Error(`fatal: path '${f}' does not exist`)
-        return { stdout: show[f] }
+      if (verb === 'hash-object') {
+        const f = args.at(-1)
+        return { stdout: `${blobIds[f]?.local ?? 'local-blob'}\n` }
       }
       if (verb === 'merge-base') {
         if (!ffOk) throw new Error('exit 1')
@@ -59,7 +70,7 @@ function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null,
     }
     throw new Error(`unexpected exec: ${file} ${args.join(' ')}`)
   }
-  return { exec, docker, git }
+  return { exec, docker, git, gh }
 }
 
 function build(opts = {}) {
@@ -68,12 +79,17 @@ function build(opts = {}) {
   const sock = path.join(dataDir, 'docker.sock')
   fs.writeFileSync(sock, '')
   const reduction = fakeStore()
-  const { exec, docker, git } = fakeExec(opts)
+  const { exec, docker, git, gh } = fakeExec(opts)
   const deploy = new SelfDeploy({
     repoRoot: opts.repoRoot ?? '/home/alp/curia', dataDir, workRoot: '/home/alp/curia-work', reduction, exec,
-    log: () => {}, port: 4271, home: '/home/alp', dockerSocket: sock,
+    log: () => {}, port: 4271, home: '/home/alp/curia-work/home',
+    env: {
+      PATH: '/usr/bin', GH_TOKEN: 'minted', GITHUB_TOKEN: 'fallback',
+      GH_CONFIG_DIR: '/wrong/gh', XDG_CONFIG_HOME: '/wrong/xdg',
+    },
+    dockerSocket: sock,
   })
-  return { deploy, reduction, docker, git, dataDir }
+  return { deploy, reduction, docker, git, gh, dataDir }
 }
 
 describe('parse and expansion', () => {
@@ -89,6 +105,29 @@ describe('parse and expansion', () => {
 })
 
 describe('the daemon half: preflight and hand-off', () => {
+  test('the preflight checks the active host login from curia home', async () => {
+    const { deploy, gh, docker } = build()
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /deploy handed off/)
+    assert.equal(gh.length, 1)
+    assert.deepEqual(gh[0].args, ['auth', 'status', '--hostname', 'github.com', '--active'])
+    assert.equal(gh[0].options.env.HOME, '/home/alp/curia-work/home')
+    for (const key of ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_CONFIG_DIR', 'XDG_CONFIG_HOME']) {
+      assert.equal(Object.hasOwn(gh[0].options.env, key), false, key)
+    }
+    assert.equal(docker.length, 1)
+  })
+
+  test('a missing or invalid host login refuses the deploy before git runs', async () => {
+    const { deploy, git, docker } = build({ ghAuthOk: false })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /deploy refused: gh could not verify curia's GitHub login/)
+    assert.match(reply, /HOME=\/home\/alp\/curia-work\/home gh auth status/)
+    assert.equal(git.length, 0)
+    assert.equal(docker.length, 0)
+    assert.equal(deploy.readMarker(), null)
+  })
+
   test('an up-to-date checkout deploys nothing', async () => {
     const { deploy, reduction, docker } = build({ head: PREV, origin: PREV })
     const reply = await deploy.run({ by: 'u1' })
@@ -167,11 +206,11 @@ describe('the daemon half: preflight and hand-off', () => {
     const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-repo-'))
     fs.mkdirSync(path.join(repoRoot, 'docs'))
     fs.writeFileSync(path.join(repoRoot, 'docs/check.sh'), 'same bytes\n')
-    const { deploy, reduction, docker } = build({
+    const { deploy, reduction, docker, git } = build({
       repoRoot,
       untracked: 'docs/check.sh\n',
       added: 'docs/check.sh\nsome/other-new-file.mjs\n',
-      show: { 'docs/check.sh': 'same bytes\n' },
+      blobIds: { 'docs/check.sh': { incoming: 'same-blob', local: 'same-blob' } },
     })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /removed untracked docs\/check\.sh/)
@@ -179,6 +218,7 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.equal(fs.existsSync(path.join(repoRoot, 'docs/check.sh')), false)
     assert.equal(reduction.events[0].type, 'deploy_untracked_dup_discarded')
     assert.deepEqual(reduction.events[0].files, ['docs/check.sh'])
+    assert.equal(deployGitComparesBlobIds(git), true)
     assert.equal(docker.length, 1)
   })
 
@@ -190,7 +230,7 @@ describe('the daemon half: preflight and hand-off', () => {
       repoRoot,
       untracked: 'docs/check.sh\n',
       added: 'docs/check.sh\n',
-      show: { 'docs/check.sh': 'the incoming edition\n' },
+      blobIds: { 'docs/check.sh': { incoming: 'incoming-blob', local: 'local-blob' } },
     })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /untracked files that b{7} adds as tracked, with DIFFERENT content: docs\/check\.sh/)
@@ -198,6 +238,22 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.equal(docker.length, 0)
     assert.equal(reduction.events.length, 0)
     assert.equal(deploy.readMarker(), null)
+  })
+
+  test('different invalid UTF-8 bytes are not discarded as an identical copy', async () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-repo-'))
+    fs.mkdirSync(path.join(repoRoot, 'docs'))
+    fs.writeFileSync(path.join(repoRoot, 'docs/check.bin'), Buffer.from([0x80]))
+    const { deploy, docker } = build({
+      repoRoot,
+      untracked: 'docs/check.bin\n',
+      added: 'docs/check.bin\n',
+      blobIds: { 'docs/check.bin': { incoming: 'incoming-blob', local: 'local-blob' } },
+    })
+    const reply = await deploy.run({ by: 'u1' })
+    assert.match(reply, /DIFFERENT content: docs\/check\.bin/)
+    assert.deepEqual(fs.readFileSync(path.join(repoRoot, 'docs/check.bin')), Buffer.from([0x80]))
+    assert.equal(docker.length, 0)
   })
 
   test('an untracked file the deploy does not touch stays none of its business', async () => {
@@ -343,6 +399,14 @@ describe('the surviving daemon half: resolution', () => {
     assert.equal(deploy.status().in_flight.state, 'deploying')
   })
 
+  test('status() names an unreadable last verdict', () => {
+    const { deploy } = build()
+    fs.writeFileSync(deploy.lastPath, '{not json')
+    const status = deploy.status()
+    assert.equal(status.last, null)
+    assert.match(status.verdict_read_error, /last deploy verdict is unreadable/)
+  })
+
   // The excerpt keeps the sibling's narration and the error lines, and drops
   // the docker build noise between them.
   test('logExcerpt reads the last attempt and keeps only the story', () => {
@@ -354,8 +418,12 @@ describe('the surviving daemon half: resolution', () => {
       'error: The following untracked working tree files would be overwritten by merge:',
       '\tdocs/live-checks/461-rollout-copy.sh',
       'Please move or remove them before you merge.',
+      "validating compose.yaml: services.daemon additional properties 'bogus' not allowed",
+      'unable to prepare context: path "/missing" not found',
       '#30 [daemon stage-3 8/9] RUN mkdir -p /run/curia-tmux',
       '#30 CACHED',
+      `#31 ${'build noise '.repeat(7_000)}`,
+      'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?',
       'curl: (7) Failed to connect to 127.0.0.1 port 4271',
       '[self-deploy 2026-08-19T19:21:00Z] rolled back to aaaaaaa',
     ].join('\n'))
@@ -363,6 +431,9 @@ describe('the surviving daemon half: resolution', () => {
     assert.match(out, /deploy aaaaaaa -> bbbbbbb/)
     assert.match(out, /would be overwritten/)
     assert.match(out, /461-rollout-copy\.sh/)
+    assert.match(out, /additional properties 'bogus' not allowed/)
+    assert.match(out, /unable to prepare context/)
+    assert.match(out, /Cannot connect to the Docker daemon/)
     assert.match(out, /curl: \(7\)/)
     assert.doesNotMatch(out, /stage-3/)
     assert.doesNotMatch(out, /landed 2222222/)
@@ -378,6 +449,12 @@ describe('the surviving daemon half: resolution', () => {
     assert.equal(deploy.readMarker(), null)
   })
 })
+
+function deployGitComparesBlobIds(git) {
+  return git.some((args) => args[0] === 'hash-object')
+    && git.some((args) => args[0] === 'rev-parse' && args[1].includes(':'))
+    && !git.some((args) => args[0] === 'show')
+}
 
 describe('the sibling script holds the deploy rule', () => {
   const text = fs.readFileSync(SCRIPT, 'utf8')

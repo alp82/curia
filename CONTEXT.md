@@ -352,6 +352,10 @@ _Avoid_: batch.
 The named fields an agent fills instead of one prose string (#413). One vocabulary serves every surface: `headline`, `question`, `option`, `consequence`, `example`, `visual`, `detail`. Each surface takes a subset and sets its own mandatory floor. The agent writes the parts and the bridge lays them out. Since the flip (#422) every floor is mandatory: a call that omits a required field is refused, and the untyped `prompt`, the bare string option and the top-level `recommended` are refused with it. A refused call still reaches the operator at the cap, as a flagged send. See [ADR-0019](docs/adr/0019-typed-payloads-and-the-lint-grades.md).
 _Avoid_: structured payload, card schema.
 
+**Composite send**:
+One agent call that returns an ordered array of messages (#622). Each entry renders as its own Discord message, with its own typed format and its own optional attachments. At most one message decides, and it posts last, so the buttons sit at the thread bottom. A send carries at most four messages, a `curia.yaml` default with a settings row. The prose message holds the answer to an operator note at up to 1200 characters, and a question of a round may carry a 600-character background block. See [ADR-0026](docs/adr/0026-the-composite-send.md).
+_Avoid_: multi-part response, message batch.
+
 **Lint grade**:
 Which rules of `voice.md` a typed field is held to. Grade A is inline decision text: a hard character cap, one line, no markdown structure and no link. Grade B is block prose: a cap, at most 25 words per sentence, and no heading, table or blockquote. The `visual` field takes neither, because it is not prose. curia checks its width, its height and its fence.
 _Avoid_: strict lint, soft lint.
@@ -557,7 +561,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the standing credential warnings, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. These are the live agents with their context meters and their last contact, the open escalations, the review gate, bridge health, the usage windows, the standing credential warnings, the journal tail, the frontier snapshot, and the six reloadable settings the daemon is running with the instant it read them. It also carries the current deploy and the last deploy verdict with a short error excerpt. The sidecar polls it, and holds no secret, no GitHub token and no journal handle. Each section is nullable on its own, so an unreadable one costs the page nothing else.
 
 **Dashboard**:
 The browser console for the box, on loopback `4273` and Serve `8445`. It draws the overview behind the same identity check every other surface uses.
@@ -715,6 +719,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **GitHub**: ticket state, labels, claims, sub-issue parentage, map bodies, branches, pull requests. The source of truth.
 - **Journal** (`daemon/data/events.db`): every durable curia event, in a `node:sqlite` database ([ADR-0017](docs/adr/0017-the-journal-is-a-queryable-store.md)). The daemon converted at its first boot on [#407](https://github.com/alp82/curia/issues/407), and it left `daemon/data/events.jsonl` on disk for the rollback ([#323](https://github.com/alp82/curia/issues/323)). [#427](https://github.com/alp82/curia/issues/427) deleted that file, so a rollback regenerates it from `body`. A daily gzipped `.dump` under `daemon/data/backups/` bounds what the journal itself can lose, and fourteen are kept ([#357](https://github.com/alp82/curia/issues/357), shipped at [#436](https://github.com/alp82/curia/issues/436)). That copy is a backup and never a second state home.
 - **Verdicts** (`daemon/data/verdicts/`): one captured cross-check verdict per ticket, held for the return path.
+- **Preview registry** (`daemon/data/previews.json`): each preview allocation. Boot recovery probes its dev server before it restores the identity proxy and Serve rule.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
 - **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs, the overseer's checkouts under `overseer/repos/`, and curia's own `HOME` under `home/`. The checkouts are a cache of origin and nothing else, so deleting one costs a re-clone and no work.

@@ -164,7 +164,11 @@ The daemon cannot recreate its own container, so the verb only orders the deploy
 4. On a failed health check the sibling runs `git reset --hard` to the previous ref and recreates again. Code runs from the repo mount, so the previous ref is a full rollback.
 5. The surviving daemon reads the marker at boot, journals `deploy_landed` or `deploy_rolled_back`, announces the outcome in #curia, and deletes the marker.
 
-The sibling logs to `daemon/data/deploy.log`. The fixed container name is the concurrency guard: a second `deploy` while one is in flight is refused. Two checkout states are refused before anything is ordered, and both need ssh: local commits `origin/main` does not have, and uncommitted changes to a tracked file. Untracked files are none of the deploy's business, which is what lets the dashboard's own override files sit in `config/` forever.
+The sibling logs to `daemon/data/deploy.log`. The fixed container name refuses a second `deploy` while one runs.
+
+Before it reads the checkout, the deploy preflight checks the active `github.com` login in curia's HOME. It refuses the deploy if `gh auth status` cannot verify the login.
+
+Local commits and uncommitted changes to a tracked file also cause a refusal before the deploy order. Both states need ssh. An untracked file causes a refusal when `origin/main` adds different content at the same path. The preflight removes a byte-identical copy and records the removal. Other untracked files do not cause a refusal. This rule lets the dashboard keep its override files in `config/`.
 
 Both paths were proven live on 2026-08-10: the verb rolled back a deliberate boot crash on its own, and then landed the revert as a real deploy.
 

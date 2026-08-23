@@ -395,6 +395,27 @@ describe('the two files (#340)', () => {
     assert.ok(!standing.includes('already CLAIMED it in your name'), 'a parameter must not ride the orders')
   })
 
+  test('the standing file invites bounded delegation on both harnesses (#545)', () => {
+    for (const harness of ['claude', 'codex']) {
+      const { standing } = writeParts({ mapNumber: 1, harness })
+      assert.match(standing, /Keep trivial work inline\./, `${harness} keeps trivial work inline`)
+      assert.match(
+        standing,
+        /If a task must read or write significant amounts, delegate it when delegation has no downside\./,
+        `${harness} delegates significant work`,
+      )
+      assert.match(
+        standing,
+        /These standing orders pass to every subagent, and the write bounds bind each subagent as they bind you\./,
+        `${harness} passes the write bounds to each subagent`,
+      )
+      assert.ok(
+        standing.indexOf('Keep trivial work inline.') < standing.indexOf('## Your tools'),
+        `${harness} keeps delegation beside the bounds`,
+      )
+    }
+  })
+
   test('the prompt points at the file, so the bounds never read as missing', () => {
     assert.match(writeParts({ mapNumber: 1 }).prompt, /Your bounds, your tools and the ending are in `CLAUDE\.md`/)
     assert.match(writeParts({ mapNumber: 1, harness: 'codex' }).prompt, /are in `AGENTS\.md`/)

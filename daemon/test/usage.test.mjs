@@ -580,6 +580,27 @@ describe('agentMeters', () => {
     assert.deepEqual(m.windows, [{ label: '5h', pct: 3, elapsedPct: 50, resetsAt: resetsInIso(150) }])
   })
 
+  test('a codex subagent cannot replace its parent on the context meter (#545)', () => {
+    const d = cfgDir()
+    const base = path.join('cfg', 'curia-1', 'sessions', '2026', '08', '19')
+    const parent = write(path.join(base, 'rollout-parent.jsonl'), [
+      { type: 'session_meta', payload: { id: 'parent', thread_source: 'user' } },
+      codexCount({ input: 129200, window: 258400 }),
+    ])
+    write(path.join(base, 'rollout-child.jsonl'), [
+      {
+        type: 'session_meta',
+        payload: { id: 'child', thread_source: 'subagent', parent_thread_id: 'parent' },
+      },
+      codexCount({ input: 2584, window: 258400 }),
+    ])
+    const old = new Date(Date.now() - 60_000)
+    fs.utimesSync(parent, old, old)
+
+    const m = agentMeters({ harness: 'codex', cfgDir: d, model: 'gpt', routing, account: null, now: NOW })
+    assert.equal(m.ctxPct, 50)
+  })
+
   test('the account bars survive an agent whose routing label is gone (#187)', () => {
     // What a daemon restart used to cost. Reconcile rebuilt a live agent with
     // no label, so there was no routing row, so `provider` was never

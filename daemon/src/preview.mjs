@@ -32,10 +32,11 @@
 //   - the Serve port comes from the configured range only, never from the
 //     agent.
 //
-// State posture (#9): the registry is an ephemeral cache. The durable truth is
-// tailscaled's own serve config, which SURVIVES daemon restarts — so a rule
-// outlives the process that made it, and reconcile must re-derive and sweep
-// (the same orphan discipline as the tmux sweep in #33/#19).
+// State posture (#563): the registry entries persist in the daemon data dir.
+// The identity proxies stay process-local. Boot recovery probes each live dev
+// server, reopens its proxy, and reasserts its Serve rule before the orphan
+// sweep. Tailscaled's config still supplies the orphan evidence for rules that
+// no persisted live ticket claims.
 //
 // #168 put the identity check (#151, ADR-0011) in front of this surface too —
 // the third and last thing curia publishes through Serve, and the one ADR-0011
@@ -73,6 +74,8 @@
 
 import net from 'node:net'
 import http from 'node:http'
+import fs from 'node:fs'
+import path from 'node:path'
 import { execFileP } from './exec.mjs'
 import { IdentityProxy, serveHosts, tailnetSelf } from './identity.mjs'
 
@@ -233,6 +236,7 @@ export class PreviewRegistry {
     Proxy = IdentityProxy,
     probe = probePreviewPage,
     journal = () => {},
+    dataDir = null,
   } = {}) {
     this.range = range
     this.reserved = new Set(reserved.filter((p) => Number.isInteger(p)))
@@ -245,8 +249,28 @@ export class PreviewRegistry {
     this.Proxy = Proxy
     this.probe = probe
     this.journal = journal
-    this.byTicket = new Map() // ticket -> { servePort, devPort } — ephemeral (#9)
-    this.proxies = new Map() // servePort -> IdentityProxy — ephemeral, same as above
+    this.stateFile = dataDir ? path.join(dataDir, 'previews.json') : null
+    this.byTicket = new Map()
+    this.proxies = new Map() // IdentityProxy instances stay process-local.
+  }
+
+  #persist() {
+    if (!this.stateFile) return
+    fs.mkdirSync(path.dirname(this.stateFile), { recursive: true })
+    const temporary = `${this.stateFile}.tmp`
+    fs.writeFileSync(temporary, `${JSON.stringify(this.list(), null, 2)}\n`)
+    fs.renameSync(temporary, this.stateFile)
+  }
+
+  #readPersistedEntries() {
+    if (!this.stateFile) return []
+    try {
+      const value = JSON.parse(fs.readFileSync(this.stateFile, 'utf8'))
+      return Array.isArray(value) ? value : []
+    } catch (e) {
+      if (e.code !== 'ENOENT') this.log(`preview recovery ignored unreadable state: ${e.message}`)
+      return []
+    }
   }
 
   // The pairing. One line, deliberately, because every other part of the design
@@ -328,6 +352,7 @@ export class PreviewRegistry {
       }
       const entry = { ...existing, path, url: previewUrl(base, existing.servePort, path) }
       this.byTicket.set(key, entry)
+      this.#persist()
       return { ok: true, ...entry, reused: true, probeStatus: p.status ?? null }
     }
     // The published-port case skips the probe, because on a published port the
@@ -369,8 +394,10 @@ export class PreviewRegistry {
     // If this ticket already had a different dev port, withdraw the stale rule
     // rather than leaking it — serve config outlives the process.
     if (existing) {
-      await this.#serveOff(existing.servePort).catch(() => {})
-      this.#stopProxy(existing.servePort)
+      const withdrawn = await this.withdraw(key)
+      if (!withdrawn.ok) {
+        return this.#refuse(`could not withdraw the existing preview on port ${existing.servePort} (${withdrawn.reason}) — the existing preview stays published`)
+      }
     }
 
     // #168: the gate goes up BEFORE the rule, and a gate that will not go up
@@ -404,6 +431,7 @@ export class PreviewRegistry {
     // blocking tool.
     const url = previewUrl(base, servePort, path)
     this.byTicket.set(key, { servePort, devPort, target, path, url, proxyPort: gate.proxyPort })
+    this.#persist()
     this.log(`preview for ticket ${key}: ${url} -> proxy :${gate.proxyPort} -> ${target}:${devPort} (page answered ${page.slow ? 'slowly — probe timed out' : `HTTP ${page.status}`})`)
     return { ok: true, servePort, devPort, target, path, url, proxyPort: gate.proxyPort, reused: false, probeStatus: page.status ?? null }
   }
@@ -481,23 +509,80 @@ export class PreviewRegistry {
     }
   }
 
+  async #withdrawEntry(ticket, entry, failureMessage) {
+    try {
+      await this.#serveOff(entry.servePort)
+    } catch (e) {
+      this.log(failureMessage(e))
+      return { ok: false, reason: e.message }
+    }
+    this.#stopProxy(entry.servePort)
+    this.byTicket.delete(ticket)
+    return { ok: true }
+  }
+
+  async #withdrawRecoveredEntry(ticket, entry, reason) {
+    this.byTicket.set(ticket, entry)
+    return await this.#withdrawEntry(ticket, entry, (e) => (
+      `WARNING: preview recovery kept the entry for ticket ${ticket} after ${reason} — withdrawal failed: ${e.message}`
+    ))
+  }
+
+  async recover(liveTickets) {
+    const live = new Set([...liveTickets].map(String))
+    const entries = this.#readPersistedEntries()
+    const probes = await Promise.all(entries.map(async (entry) => ({
+      entry,
+      page: live.has(String(entry.ticket))
+        ? await this.probe(entry.target, entry.devPort, { path: entry.path })
+        : null,
+    })))
+    const recovered = []
+    const dropped = []
+    for (const { entry, page } of probes) {
+      const ticket = String(entry.ticket)
+      const { ticket: _persistedTicket, ...preview } = entry
+      if (!live.has(ticket) || !page?.ok || page.slow) {
+        const reason = !live.has(ticket) ? 'the ticket stopped' : 'the dev server did not answer'
+        if ((await this.#withdrawRecoveredEntry(ticket, preview, reason)).ok) dropped.push(ticket)
+        continue
+      }
+      const gate = await this.#openGate(preview.servePort, preview.target, preview.devPort)
+      if (!gate.ok) {
+        if ((await this.#withdrawRecoveredEntry(ticket, preview, 'the identity proxy did not start')).ok) dropped.push(ticket)
+        continue
+      }
+      try {
+        await this.exec('tailscale', ['serve', '--bg', `--https=${preview.servePort}`, `http://127.0.0.1:${gate.proxyPort}`])
+      } catch (e) {
+        this.log(`preview recovery for ${ticket} failed: ${e.message}`)
+        const current = { ...preview, proxyPort: gate.proxyPort }
+        if ((await this.#withdrawRecoveredEntry(ticket, current, 'the Serve rule did not start')).ok) dropped.push(ticket)
+        continue
+      }
+      this.byTicket.set(ticket, { ...preview, proxyPort: gate.proxyPort })
+      recovered.push(ticket)
+    }
+    this.#persist()
+    return { recovered, dropped }
+  }
+
   async withdraw(ticket) {
     const key = String(ticket)
     const entry = this.byTicket.get(key)
     if (!entry) return { ok: true, withdrawn: false }
-    try {
-      await this.#serveOff(entry.servePort)
-    } catch (e) {
+    const withdrawn = await this.#withdrawEntry(key, entry, (e) => {
       // Keep the entry: an un-withdrawn rule is still published, and dropping
       // the record here would make the next sweep the only thing that could
       // ever find it. #168 adds the sharper half — the PROXY stays up too. A
       // rule that is still published must keep its gate, or the failure to
       // withdraw becomes the un-gated dev server this ticket closed.
-      this.log(`WARNING: preview rule for ticket ${key} on :${entry.servePort} REMAINS PUBLISHED — withdrawal failed: ${e.message}`)
-      return { ok: false, reason: e.message }
+      return `WARNING: preview rule for ticket ${key} on :${entry.servePort} REMAINS PUBLISHED — withdrawal failed: ${e.message}`
+    })
+    if (!withdrawn.ok) {
+      return { ok: false, reason: withdrawn.reason }
     }
-    this.#stopProxy(entry.servePort)
-    this.byTicket.delete(key)
+    this.#persist()
     return { ok: true, withdrawn: true, servePort: entry.servePort }
   }
 
@@ -522,9 +607,10 @@ export class PreviewRegistry {
     const swept = []
     for (const [ticket, entry] of [...this.byTicket]) {
       if (!live.has(ticket)) {
-        await this.#serveOff(entry.servePort).catch((e) => this.log(`preview withdraw for ${ticket} failed: ${e.message}`))
-        this.#stopProxy(entry.servePort)
-        this.byTicket.delete(ticket)
+        const withdrawn = await this.#withdrawEntry(
+          ticket, entry, (e) => `preview withdraw for ${ticket} failed: ${e.message}`,
+        )
+        if (!withdrawn.ok) continue
         swept.push({ servePort: entry.servePort, ticket })
         continue
       }
@@ -540,9 +626,10 @@ export class PreviewRegistry {
       if (!this.proxies.get(entry.servePort)?.listening) {
         this.log(`WARNING: the identity proxy for ticket ${ticket}'s preview on :${entry.servePort} is not listening — withdrawing the rule rather than leaving the dev server un-gated`)
         this.journal('preview_gate_lost', { ticket, servePort: entry.servePort, proxyPort: entry.proxyPort ?? null })
-        await this.#serveOff(entry.servePort).catch((e) => this.log(`preview withdraw for ${ticket} failed: ${e.message}`))
-        this.#stopProxy(entry.servePort)
-        this.byTicket.delete(ticket)
+        const withdrawn = await this.#withdrawEntry(
+          ticket, entry, (e) => `preview withdraw for ${ticket} failed: ${e.message}`,
+        )
+        if (!withdrawn.ok) continue
         swept.push({ servePort: entry.servePort, ticket, ungated: true })
       }
     }
@@ -556,6 +643,7 @@ export class PreviewRegistry {
       this.log(`swept orphan preview rule on :${port} (no live ticket claims it)`)
       swept.push({ servePort: port, ticket: null })
     }
+    this.#persist()
     return { swept, skipped: false }
   }
 }

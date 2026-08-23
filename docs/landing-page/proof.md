@@ -8,6 +8,32 @@ This file names each proof element, its form, and who produces it. It sits under
 [the positioning brief](positioning.md): the brief says what the page claims, this file says what
 the page shows. The brief's banned moves apply here — no logo wall, no testimonials, no star count.
 
+## The medium of every story scene
+
+**Settled**: 2026-08-22, in [Choose the medium of every proof moment](https://github.com/alp82/curia/issues/601),
+on the map [Ship the story landing page](https://github.com/alp82/curia/issues/600). The operator
+answered one round of six questions, one per scene.
+
+**Every story scene is built HTML. No scene shows a screenshot.** The six scenes that show curia
+working are scenes 4 to 9 of [the storyboard](../../prototypes/landing-storyboard/NOTES.md): the
+grilling, the preview, the atlas, the harness, one ticket from issue to merge, and the VPS. The
+operator ruled all six the same way, in their own words: "we can build the whole thing in html.
+as realistic as possible. that makes it easier to animate it".
+
+Three rules follow from that round:
+
+- **Build each scene as realistic as possible.** Realism is the defence against the mockup read.
+  HTML is what lets a scene move with the scroll, stay sharp on every screen, and never go stale.
+- **The content stays true.** The grilling question comes from a real escalation. The terminal
+  types lines from a real transcript. The atlas carries real map names. A drawn scene with
+  invented content is the fake proof the brief bans.
+- **The screenshot list for the operator is empty.**
+  [Capture the screenshots the story needs](https://github.com/alp82/curia/issues/602) has nothing
+  to shoot, and the build ships no placeholder boxes for images.
+
+The capture and redaction rules further down stay written, for any later page that does take a
+screenshot. The story page uses none of them.
+
 ## Why the page carries proof at all
 
 Failure mode one is a page that reads like every other agent landing page. The defence is showing
@@ -17,6 +43,10 @@ The operator chose pictures over text (Q1). A page proved only by links is words
 runs straight into failure mode two.
 
 ## The four frames
+
+**Dead for the story page.** The strip left the page at
+[Grill the final landing page](https://github.com/alp82/curia/issues/550), and the medium ruling
+above replaces the capture. The record below stays as the history of that decision.
 
 **One ticket, four frames** — not one image per claim. The reader watches a thing get done rather
 than reading four assertions. A frame-per-claim set was considered and turned down: it argues more

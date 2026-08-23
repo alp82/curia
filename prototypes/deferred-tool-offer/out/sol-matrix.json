@@ -1,0 +1,633 @@
+{
+  "generated_at": "2026-08-22T23:53:56.240Z",
+  "rows": [
+    {
+      "name": "sol-pane-1",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": null,
+      "sentinel": "curia-579-sol-pane-1",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:43:41.598Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-pane-1"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12200,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 266,
+          "reasoning_output_tokens": 167,
+          "total_tokens": 12466
+        },
+        {
+          "input_tokens": 12512,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12527
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24712,
+        "cached_input_tokens": 23040,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 281,
+        "reasoning_output_tokens": 167,
+        "total_tokens": 24993
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 6736
+    },
+    {
+      "name": "sol-pane-2",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": null,
+      "sentinel": "curia-579-sol-pane-2",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:44:05.885Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-pane-2"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12200,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 242,
+          "reasoning_output_tokens": 129,
+          "total_tokens": 12442
+        },
+        {
+          "input_tokens": 12488,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 19,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12507
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24688,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 261,
+        "reasoning_output_tokens": 129,
+        "total_tokens": 24949
+      },
+      "final_message": "Tool result: `RECORDED: the human received the progress update.`",
+      "timed_out": false,
+      "first_tool_latency_ms": 7072
+    },
+    {
+      "name": "sol-pane-3",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": null,
+      "sentinel": "curia-579-sol-pane-3",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:44:30.303Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-pane-3"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12200,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 279,
+          "reasoning_output_tokens": 187,
+          "total_tokens": 12479
+        },
+        {
+          "input_tokens": 12525,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12540
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24725,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 294,
+        "reasoning_output_tokens": 187,
+        "total_tokens": 25019
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 6957
+    },
+    {
+      "name": "sol-pane-4",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": null,
+      "sentinel": "curia-579-sol-pane-4",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:44:53.061Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-pane-4"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12200,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 206,
+          "reasoning_output_tokens": 88,
+          "total_tokens": 12406
+        },
+        {
+          "input_tokens": 12452,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 19,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12471
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24652,
+        "cached_input_tokens": 23040,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 225,
+        "reasoning_output_tokens": 88,
+        "total_tokens": 24877
+      },
+      "final_message": "Tool result: `RECORDED: the human received the progress update.`",
+      "timed_out": false,
+      "first_tool_latency_ms": 5012
+    },
+    {
+      "name": "sol-pane-5",
+      "lane": "pane",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": null,
+      "sentinel": "curia-579-sol-pane-5",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:45:18.982Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-pane-5"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12200,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 344,
+          "reasoning_output_tokens": 225,
+          "total_tokens": 12544
+        },
+        {
+          "input_tokens": 12590,
+          "cached_input_tokens": 12032,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 19,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12609
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24790,
+        "cached_input_tokens": 23040,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 363,
+        "reasoning_output_tokens": 225,
+        "total_tokens": 25153
+      },
+      "final_message": "Tool result: `RECORDED: the human received the progress update.`",
+      "timed_out": false,
+      "first_tool_latency_ms": 8084
+    },
+    {
+      "name": "sol-exec-1",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": 0,
+      "sentinel": "curia-579-sol-exec-1",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:45:44.512Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-exec-1"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12024,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 300,
+          "reasoning_output_tokens": 203,
+          "total_tokens": 12324
+        },
+        {
+          "input_tokens": 12370,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12385
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24394,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 315,
+        "reasoning_output_tokens": 203,
+        "total_tokens": 24709
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 8102
+    },
+    {
+      "name": "sol-exec-2",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": 0,
+      "sentinel": "curia-579-sol-exec-2",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:45:56.894Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-exec-2"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12024,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 266,
+          "reasoning_output_tokens": 177,
+          "total_tokens": 12290
+        },
+        {
+          "input_tokens": 12336,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12351
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24360,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 281,
+        "reasoning_output_tokens": 177,
+        "total_tokens": 24641
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 6769
+    },
+    {
+      "name": "sol-exec-3",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": 0,
+      "sentinel": "curia-579-sol-exec-3",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:46:10.319Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-exec-3"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12024,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 253,
+          "reasoning_output_tokens": 156,
+          "total_tokens": 12277
+        },
+        {
+          "input_tokens": 12323,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12338
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24347,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 268,
+        "reasoning_output_tokens": 156,
+        "total_tokens": 24615
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 5973
+    },
+    {
+      "name": "sol-exec-4",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": 0,
+      "sentinel": "curia-579-sol-exec-4",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:46:24.473Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-exec-4"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12024,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 334,
+          "reasoning_output_tokens": 225,
+          "total_tokens": 12358
+        },
+        {
+          "input_tokens": 12404,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12419
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24428,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 349,
+        "reasoning_output_tokens": 225,
+        "total_tokens": 24777
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 7450
+    },
+    {
+      "name": "sol-exec-5",
+      "lane": "exec",
+      "codex_version": "codex-cli 0.146.0",
+      "model": "gpt-5.6-sol",
+      "effort": "high",
+      "exit_code": 0,
+      "sentinel": "curia-579-sol-exec-5",
+      "obeyed": true,
+      "tool_calls": [
+        {
+          "at": "2026-08-22T23:46:35.079Z",
+          "name": "notify",
+          "args": {
+            "message": "curia-579-sol-exec-5"
+          }
+        }
+      ],
+      "discovery_mode": "exec_catalog",
+      "tool_searches": [],
+      "tool_search_outputs": 0,
+      "model_turns": 2,
+      "turn_tokens": [
+        {
+          "input_tokens": 12024,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 185,
+          "reasoning_output_tokens": 101,
+          "total_tokens": 12209
+        },
+        {
+          "input_tokens": 12255,
+          "cached_input_tokens": 11008,
+          "cache_write_input_tokens": 0,
+          "output_tokens": 15,
+          "reasoning_output_tokens": 0,
+          "total_tokens": 12270
+        }
+      ],
+      "tokens": {
+        "input_tokens": 24279,
+        "cached_input_tokens": 22016,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 200,
+        "reasoning_output_tokens": 101,
+        "total_tokens": 24479
+      },
+      "final_message": "RECORDED: the human received the progress update.",
+      "timed_out": false,
+      "first_tool_latency_ms": 5552
+    }
+  ],
+  "totals": {
+    "pane": {
+      "runs": 5,
+      "obeyed": 5,
+      "searches": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "model_turns": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "discovery_modes": [
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog"
+      ],
+      "second_turn_tokens": [
+        12527,
+        12507,
+        12540,
+        12471,
+        12609
+      ],
+      "total_tokens": [
+        24993,
+        24949,
+        25019,
+        24877,
+        25153
+      ],
+      "first_tool_latency_ms": [
+        6736,
+        7072,
+        6957,
+        5012,
+        8084
+      ],
+      "median_total_tokens": 24993,
+      "median_input_tokens": 24712,
+      "median_cached_input_tokens": 23040,
+      "median_uncached_input_tokens": 1750,
+      "median_output_tokens": 281,
+      "median_reasoning_tokens": 167,
+      "median_first_tool_latency_ms": 6957
+    },
+    "exec": {
+      "runs": 5,
+      "obeyed": 5,
+      "searches": [
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "model_turns": [
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "discovery_modes": [
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog",
+        "exec_catalog"
+      ],
+      "second_turn_tokens": [
+        12385,
+        12351,
+        12338,
+        12419,
+        12270
+      ],
+      "total_tokens": [
+        24709,
+        24641,
+        24615,
+        24777,
+        24479
+      ],
+      "first_tool_latency_ms": [
+        8102,
+        6769,
+        5973,
+        7450,
+        5552
+      ],
+      "median_total_tokens": 24641,
+      "median_input_tokens": 24360,
+      "median_cached_input_tokens": 22016,
+      "median_uncached_input_tokens": 2344,
+      "median_output_tokens": 281,
+      "median_reasoning_tokens": 177,
+      "median_first_tool_latency_ms": 6769
+    }
+  }
+}

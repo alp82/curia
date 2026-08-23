@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The words of every scene — alp82/curia#587</title>
+<style>
+  :root {
+    --bg: #0e1013;
+    --panel: #14171c;
+    --line: #262b33;
+    --text: #e6e8ec;
+    --dim: #969ba5;
+    --accent: #7dd3a0;
+    --new: #e0b25a;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 1rem/1.55 var(--sans); padding-bottom: 4.5rem; }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 0 1rem 2rem; }
+  a { color: var(--accent); }
+
+  header.top { padding: 1.5rem 0 0.5rem; }
+  header.top h1 { font-size: 1.15rem; margin: 0 0 0.3rem; }
+  header.top p { color: var(--dim); font-size: 0.9rem; margin: 0.2rem 0; }
+  header.top code { font-family: var(--mono); font-size: 0.85em; color: var(--accent); }
+
+  .scene { border: 1px solid var(--line); border-radius: 10px; margin: 1.4rem 0; overflow: hidden; }
+  .scene > .head { padding: 0.7rem 0.9rem 0.55rem; border-bottom: 1px solid var(--line); }
+  .scene > .head .num { font-family: var(--mono); color: var(--accent); font-size: 0.8rem; }
+  .scene > .head h2 { display: inline; font-size: 1.02rem; margin: 0 0 0 0.35rem; }
+  .scene > .head p { margin: 0.25rem 0 0; color: var(--dim); font-size: 0.85rem; }
+
+  /* the in-context panel: the scene as currently picked, in the page's look */
+  .reads { background: var(--panel); padding: 1rem 0.9rem 1.1rem; border-bottom: 1px solid var(--line); }
+  .reads .tag { font-family: var(--mono); font-size: 0.68rem; color: var(--dim); letter-spacing: 0.06em; text-transform: uppercase; margin-bottom: 0.55rem; }
+  .p-kicker { font-family: var(--mono); font-size: 0.82rem; color: var(--dim); }
+  .p-kicker b { color: var(--accent); font-weight: 600; }
+  .p-headline { font-size: clamp(1.3rem, 5.5vw, 1.9rem); line-height: 1.15; letter-spacing: -0.02em; font-weight: 640; margin: 0.45rem 0; }
+  .p-bold { font-size: 1.25rem; font-weight: 640; letter-spacing: -0.01em; margin: 0.2rem 0; }
+  .p-sub, .p-line, .p-dogfood { color: var(--dim); font-size: 0.95rem; margin: 0.35rem 0; }
+  .p-skills { color: var(--dim); font-size: 0.85rem; margin: 0.35rem 0; }
+  .p-fact { font-family: var(--mono); font-size: 0.78rem; color: var(--accent); opacity: 0.9; margin: 0.45rem 0 0; line-height: 1.7; }
+  .p-caption { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 0.35rem 0; }
+  .p-heading { font-size: 1.25rem; font-weight: 640; margin: 0.2rem 0; }
+  .p-foot { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
+  .p-btns { margin-top: 0.6rem; }
+  .p-btns span { display: inline-block; font-size: 0.85rem; padding: 0.3rem 0.8rem; border-radius: 6px; margin-right: 0.5rem; }
+  .p-btns span:first-child { background: var(--accent); color: #0b0d10; font-weight: 600; }
+  .p-btns span:last-child { border: 1px solid var(--line); color: var(--text); }
+
+  /* the candidate lists */
+  .slots { padding: 0.4rem 0.9rem 0.8rem; }
+  .slot { margin: 0.8rem 0 0; }
+  .slot .sname { font-family: var(--mono); font-size: 0.72rem; color: var(--dim); letter-spacing: 0.05em; text-transform: uppercase; }
+  .cand { display: flex; gap: 0.55rem; align-items: baseline; padding: 0.45rem 0.55rem; margin: 0.3rem 0; border: 1px solid var(--line); border-radius: 7px; cursor: pointer; }
+  .cand.on { border-color: var(--accent); background: rgba(125, 211, 160, 0.07); }
+  .cand .l { font-family: var(--mono); font-size: 0.8rem; color: var(--accent); flex: none; }
+  .cand .t { font-size: 0.9rem; flex: 1; }
+  .cand .t.gone { color: var(--dim); font-style: italic; }
+  .cand .cp { flex: none; font-family: var(--mono); font-size: 0.72rem; color: var(--dim); border: 1px solid var(--line); border-radius: 5px; padding: 0.1rem 0.45rem; background: none; cursor: pointer; align-self: center; }
+  .cand .cp:active { color: var(--accent); border-color: var(--accent); }
+  .badge { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.05em; border-radius: 4px; padding: 0.05rem 0.3rem; vertical-align: 0.1em; margin-left: 0.4rem; }
+  .badge.cur { color: var(--dim); border: 1px solid var(--line); }
+  .badge.pick { color: #0b0d10; background: var(--accent); border: 1px solid var(--accent); }
+  .badge.new { color: var(--new); border: 1px solid var(--new); }
+  .badge.rec { color: var(--accent); border: 1px solid var(--accent); }
+  .qual { display: block; color: var(--dim); font-size: 0.72rem; font-family: var(--mono); margin-top: 0.1rem; }
+  .free input { width: 100%; background: var(--panel); border: none; color: var(--text); font: 0.9rem var(--sans); outline: none; padding: 0.1rem 0; }
+  .free input::placeholder { color: var(--dim); font-style: italic; }
+  .note { color: var(--dim); font-size: 0.78rem; margin: 0.15rem 0 0; }
+
+  .newlist { border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.9rem 1rem; margin: 1.5rem 0; }
+  .newlist h2 { font-size: 1rem; margin: 0.2rem 0 0.5rem; }
+  .newlist .sc { font-family: var(--mono); font-size: 0.75rem; color: var(--accent); margin-top: 0.6rem; }
+  .newlist .nl { font-size: 0.85rem; margin: 0.2rem 0 0.2rem 0.5rem; }
+  .newlist .nl .l { font-family: var(--mono); color: var(--dim); margin-right: 0.35rem; }
+
+  .pickbar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--panel); border-top: 1px solid var(--line); padding: 0.6rem 1rem calc(0.6rem + env(safe-area-inset-bottom)); display: flex; justify-content: center; }
+  .pickbar button { font: 600 0.9rem var(--sans); background: var(--accent); color: #0b0d10; border: none; border-radius: 7px; padding: 0.5rem 1.2rem; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>The words of every scene</h1>
+    <p><a href="https://github.com/alp82/curia/issues/587">Choose the words of every scene of the final page — alp82/curia#587</a>,
+       on the map <a href="https://github.com/alp82/curia/issues/109">The curia landing page</a>. Throwaway prototype.
+       The words are locked after four rounds: a <code>picked</code> badge marks a locked line,
+       selected by default, so every panel reads as the final page. NOTES.md holds the verdict.</p>
+    <p>The twelve scenes are locked by the storyboard. This page decides only the words.
+       Tap a candidate and the panel above it shows the scene with that line in place.
+       Each slot has a <code>mine</code> row: type your own line there and it becomes the pick.
+       The <code>copy</code> button on a row copies that pick. The bar at the bottom copies
+       every pick on the page in one block, ready to paste into the thread.
+       Lines marked <code>current</code> are on the live page or in the storyboard today.
+       Lines marked <code>new</code> go to the review gate. A dagger (†) marks a number the
+       final build regenerates on build day.</p>
+  </header>
+
+  <div id="scenes"></div>
+
+  <div class="newlist" id="newlist"></div>
+</div>
+
+<div class="pickbar"><button id="copyall">Copy my picks</button></div>
+
+<script>
+'use strict';
+/* PROTOTYPE — throwaway. Data first: every scene, every slot, every candidate.
+   cur: the line is on the live page (curia.sh) or in the locked storyboard today.
+   rec: the recommendation, selected by default. cut:true renders as "no line".
+   q: the quality a candidate aims at, shown small under the line. */
+
+var SCENES = [
+  { n: 1, name: 'The first screen', intent: 'The story runs above: tickets funnel through the curia node into ordered maps. These words sit readable at the bottom.',
+    slots: [
+      { id: 'kicker', kind: 'kicker', name: 'kicker', cands: [
+        { l: 'A', t: 'self-hosted agent dispatcher', cur: true, rec: true },
+        { l: 'B', t: 'an agent dispatcher you run on your own box' },
+        { l: 'C', t: 'a dispatcher for the agents you already run' },
+        { l: 'D', t: 'coding agents, dispatched from Discord' },
+        { l: 'E', t: 'your agents, your box, your phone' }
+      ]},
+      { id: 'headline', kind: 'headline', name: 'headline — five directions, each after a different quality', cands: [
+        { l: 'A', t: 'Many repos, one queue, driven from a phone.', cur: true, q: 'the promise, as it stands' },
+        { l: 'B', t: 'Out of the pile, into one queue, onto your phone.', rec: true, q: 'the promise, in the motion of the story above' },
+        { l: 'C', t: 'Your backlog does not wait for your desk.', q: 'presence — the desk stops mattering' },
+        { l: 'D', t: 'Nothing lands without you.', q: 'rigor — the approve button as the point' },
+        { l: 'E', t: 'GitHub issues in, merged pull requests out.', q: 'the pipeline — concrete in and out' },
+        { l: 'F', t: 'Coding agents on your box, driven from your phone.', q: 'ownership — self-hosted first' }
+      ]},
+      { id: 'sub', kind: 'sub', name: 'the paragraph under the headline', cands: [
+        { l: 'A', t: 'You already run coding agents every day. Curia reads what is takeable across every repo you watch, sends an agent at it, and brings every question, every preview and every approval to the device in your hand.', cur: true },
+        { l: 'B', t: 'You already run coding agents every day. Curia queues the work across your repos and brings every question, every preview and every approval to your phone.', rec: true },
+        { l: 'C', t: 'Curia watches your repos, sends agents at the takeable tickets, and pings your phone when a decision needs you.' },
+        { l: 'D', t: 'Point it at your repos. It sends agents at the open tickets and brings every decision to your phone.' },
+        { l: 'E', cut: true, t: 'cut the paragraph — the story above the fold tells it' }
+      ]},
+      { id: 'skills', kind: 'skills', name: 'the skills line', cands: [
+        { l: 'A', t: 'Curia is a wrapper for Matt Pocock’s skills.', cur: true, rec: true },
+        { l: 'B', t: 'Built on Matt Pocock’s skills.' },
+        { l: 'C', t: 'The skills are Matt Pocock’s. The dispatch is curia’s.' },
+        { l: 'D', t: 'Curia dispatches Matt Pocock’s skills.' },
+        { l: 'E', cut: true, t: 'cut the line' }
+      ]},
+      { id: 'btns', kind: 'btns', name: 'the two buttons', cands: [
+        { l: 'A', t: 'Set it up · Source', cur: true, rec: true },
+        { l: 'B', t: 'Set it up · Read the code' },
+        { l: 'C', t: 'Set it up · GitHub' },
+        { l: 'D', t: 'Read the guide · Source' },
+        { l: 'E', t: 'Set it up · See it work' }
+      ]}
+    ]},
+
+  { n: 2, name: 'Into the mess', intent: 'The scroll dives into the drift seen above the fold. One line over the drifting tickets.',
+    slots: [
+      { id: 'line', kind: 'line', name: 'the mess line', cands: [
+        { l: 'A', t: 'Tickets drift, unordered, across every repo you watch.' },
+        { l: 'B', t: 'Seven repos. Forty open tickets. One of you.', rec: true },
+        { l: 'C', t: 'Every repo has a pile, and every pile waits for your laptop.' },
+        { l: 'D', t: 'You know this screen. Issues everywhere, order nowhere.' },
+        { l: 'E', t: 'The backlog grows in five places at once.' }
+      ]}
+    ]},
+
+  { n: 3, name: 'Maps bring order', intent: 'The long beat, up to two screens. Edges draw in, takeable tickets light up and drain. Carries claim 1.',
+    slots: [
+      { id: 'bold', kind: 'bold', name: 'the bold line (claim 1)', cands: [
+        { l: 'A', t: 'Your tracker is the queue.', cur: true, rec: true },
+        { l: 'B', t: 'The queue already exists. It is your tracker.' },
+        { l: 'C', t: 'GitHub issues are the queue.' },
+        { l: 'D', t: 'No second app. No board to sync.' },
+        { l: 'E', t: 'Maps turn the pile into a queue.' }
+      ]},
+      { id: 'line', kind: 'line', name: 'the story line', cands: [
+        { l: 'A', t: 'Link tickets into maps on GitHub. Curia reads what is takeable, in dependency order, and sends an agent at it.', rec: true },
+        { l: 'B', t: 'Blocked tickets wait. Open ones light up, and agents take them in order.' },
+        { l: 'C', t: 'Draw the edges between tickets. Curia works out what is takeable and takes it.' },
+        { l: 'D', t: 'Blocked waits, takeable runs. The order comes from the edges you draw.' },
+        { l: 'E', cut: true, t: 'no line — the animation carries it' }
+      ]},
+      { id: 'fact', kind: 'fact', name: 'the fact line', cands: [
+        { l: 'A', t: '3† repos watched today · label decides the model · blocked and claimed tickets drop out', cur: true, rec: true },
+        { l: 'B', t: 'a label picks the model · blocked and claimed tickets drop out · no second app' },
+        { l: 'C', t: 'dependency order · a label picks the model · 3† repos watched today' },
+        { l: 'D', t: 'takeable means unblocked and unclaimed · a label picks the model' },
+        { l: 'E', cut: true, t: 'no fact line' }
+      ]}
+    ]},
+
+  { n: 4, name: 'The grilling', intent: 'A Discord thread writes itself: a real question with A, B and C buttons. Carries claim 2.',
+    slots: [
+      { id: 'bold', kind: 'bold', name: 'the bold line (claim 2)', cands: [
+        { l: 'A', t: 'Any device is a full seat.', cur: true, rec: true },
+        { l: 'B', t: 'The question finds you.' },
+        { l: 'C', t: 'Hard questions come with buttons.' },
+        { l: 'D', t: 'Answer from the couch.' },
+        { l: 'E', t: 'Your phone is a full seat.' }
+      ]},
+      { id: 'line', kind: 'line', name: 'the story line', cands: [
+        { l: 'A', t: 'An agent hits a real decision and asks you, in your Discord thread, with buttons.', rec: true },
+        { l: 'B', t: 'You answer A, B or C from wherever you are, and the agent keeps going.' },
+        { l: 'C', t: 'The agent stops, asks, and waits. For hours if it has to.' },
+        { l: 'D', t: 'Every ticket is a Discord thread, and every question lands in it with buttons.' },
+        { l: 'E', cut: true, t: 'no line' }
+      ]},
+      { id: 'fact', kind: 'fact', name: 'the fact line', cands: [
+        { l: 'A', t: 'tickets · next · start 42 · status · attach 42 · resume 42 · cancel 42 · map 109 · review 42', cur: true, rec: true },
+        { l: 'B', t: 'nine† verbs over Discord · one thread per ticket' },
+        { l: 'C', t: 'questions arrive with buttons · answers unblock the agent' },
+        { l: 'D', t: 'tickets · next · start 42 · attach 42 · review 42 · one thread per ticket' },
+        { l: 'E', cut: true, t: 'no fact line' }
+      ]}
+    ]},
+
+  { n: 5, name: 'The preview', intent: 'The phone fills the scene with a running preview of the agent’s work.',
+    slots: [
+      { id: 'line', kind: 'line', name: 'the line', cands: [
+        { l: 'A', t: 'You judge the running page, not the diff.', rec: true },
+        { l: 'B', t: 'Every ticket gets a live preview, served from your own box.' },
+        { l: 'C', t: 'The agent’s work, running, on the phone in your hand.' },
+        { l: 'D', t: 'See it run before you read a line of the diff.' },
+        { l: 'E', t: 'The preview link opens on whatever you are holding.' }
+      ]},
+      { id: 'fact', kind: 'fact', name: 'the fact line', cands: [
+        { l: 'A', t: 'an HTTPS link on your tailnet · one per ticket', rec: true },
+        { l: 'B', t: 'served from your box · reachable from your phone' },
+        { l: 'C', t: 'no deploy · the agent’s dev server, published' },
+        { l: 'D', t: 'one link per ticket · gone when the ticket closes' },
+        { l: 'E', cut: true, t: 'no fact line' }
+      ]}
+    ]},
+
+  { n: 6, name: 'The atlas', intent: 'Every map, its progress, and the needs-you row. Mobile first.',
+    slots: [
+      { id: 'line', kind: 'line', name: 'the line', cands: [
+        { l: 'A', t: 'Every project, its progress, and the row that needs you.', rec: true },
+        { l: 'B', t: 'One screen says where every map stands and what waits on you.' },
+        { l: 'C', t: 'Built for the phone first.' },
+        { l: 'D', t: 'The whole effort at a glance, and what needs you at the top.' },
+        { l: 'E', t: 'Where every project stands, on one screen that fits your phone.' }
+      ]}
+    ]},
+
+  { n: 7, name: 'The harness, live', intent: 'The real terminal in the browser, a toggle across Claude Code and Codex CLI.',
+    slots: [
+      { id: 'line', kind: 'line', name: 'the line', cands: [
+        { l: 'A', t: 'The real terminal, live in your browser tab.', rec: true },
+        { l: 'B', t: 'Attach from a phone and a desktop at once.' },
+        { l: 'C', t: 'No transcript viewer. The actual session.' },
+        { l: 'D', t: 'Watch the agent type, from any device on your tailnet.' },
+        { l: 'E', t: 'The same session, on your desk and in your pocket.' }
+      ]},
+      { id: 'fact', kind: 'fact', name: 'the fact line', cands: [
+        { l: 'A', t: 'Claude Code and Codex CLI · switch per ticket with a label', rec: true },
+        { l: 'B', t: 'Claude Code or Codex CLI · a label decides' },
+        { l: 'C', t: 'attach from two devices at once · neither is the lesser seat' },
+        { l: 'D', t: 'the terminal is tmux · the link is ttyd over Tailscale' },
+        { l: 'E', cut: true, t: 'no fact line — the toggle shows it' }
+      ]}
+    ]},
+
+  { n: 8, name: 'One ticket on GitHub', intent: 'A horizontal sub story from issue to merge. The approve button is the climax. Carries claim 3.',
+    slots: [
+      { id: 'bold', kind: 'bold', name: 'the bold line (claim 3)', cands: [
+        { l: 'A', t: 'An agent cannot finish by talking.', cur: true, rec: true },
+        { l: 'B', t: 'Nothing merges itself.' },
+        { l: 'C', t: 'Talking is not finishing.' },
+        { l: 'D', t: 'Done means merged.' },
+        { l: 'E', t: 'The last word is a button, and you hold it.' }
+      ]},
+      { id: 'caption', kind: 'caption', name: 'the climax caption, on the approve button', cands: [
+        { l: 'A', t: 'The review gate. Approved.', cur: true, rec: true },
+        { l: 'B', t: 'Your approve button. Nothing lands without it.' },
+        { l: 'C', t: 'Approve, or reject in your own words.' },
+        { l: 'D', t: 'The gate. Your thumb.' },
+        { l: 'E', cut: true, t: 'no caption' }
+      ]},
+      { id: 'fact', kind: 'fact', name: 'the fact line', cands: [
+        { l: 'A', t: 'resolved means merged · nothing lands without you', cur: true, rec: true },
+        { l: 'B', t: 'commit · pull request · preview · your approval · merge' },
+        { l: 'C', t: 'a rejection becomes new commits on the same pull request' },
+        { l: 'D', t: 'a stop hook refuses an agent that quits early' },
+        { l: 'E', cut: true, t: 'no fact line' }
+      ]},
+      { id: 'dogfood', kind: 'dogfood', name: 'the dogfood line — closes the scene, count regenerated, pull requests linked', cands: [
+        { l: 'A', t: 'This page was planned, decided and written by curia agents. Each one ended at a review gate, and none of them merged itself.', cur: true },
+        { l: 'B', t: 'Curia built itself this way: about 300† tickets driven from Discord, every one through this gate. Read the merged pull requests.', rec: true },
+        { l: 'C', t: 'The last 300† tickets on this repo were curia agents, and none of them merged itself. Read the pull requests.' },
+        { l: 'D', t: 'About 300† of these gates built curia itself. The pull requests are public.' },
+        { l: 'E', t: 'Curia is built with curia. About 300† tickets driven from Discord, and the pull requests to show for it.' }
+      ]}
+    ]},
+
+  { n: 9, name: 'Your VPS', intent: 'One box, four agent lanes at once, the measured numbers.',
+    slots: [
+      { id: 'bold', kind: 'bold', name: 'the bold line', cands: [
+        { l: 'A', t: 'One small box runs it all.', rec: true },
+        { l: 'B', t: 'It fits on the server you already pay for.' },
+        { l: 'C', t: 'Four lanes, one box.' },
+        { l: 'D', t: 'No fleet. One box.' },
+        { l: 'E', t: 'Your VPS is enough.' }
+      ]},
+      { id: 'fact', kind: 'fact', name: 'the fact line', cands: [
+        { l: 'A', t: '~0.5 GB per agent measured · four at once on one small box', cur: true, rec: true },
+        { l: 'B', t: 'four agents at once · about 0.5 GB each, measured' },
+        { l: 'C', t: '733 MB peak for four agents, measured' },
+        { l: 'D', t: 'about 0.5 GB per agent · headroom for dozens on a 30 GB box' },
+        { l: 'E', cut: true, t: 'no fact line' }
+      ]}
+    ]},
+
+  { n: 10, name: 'Open source', intent: 'The repo, Tailscale, your keys.',
+    slots: [
+      { id: 'bold', kind: 'bold', name: 'the bold line', cands: [
+        { l: 'A', t: 'Your box, your subscription, your keys.', cur: true, rec: true },
+        { l: 'B', t: 'Yours to read, yours to run.' },
+        { l: 'C', t: 'Open source.' },
+        { l: 'D', t: 'Read every line before you run it.' },
+        { l: 'E', t: 'Self-hosted, source open.' }
+      ]},
+      { id: 'fact', kind: 'fact', name: 'the fact line', cands: [
+        { l: 'A', t: 'GitHub for the code · Tailscale for the links · your harness login stays on your box', rec: true },
+        { l: 'B', t: 'your harness login never leaves your box' },
+        { l: 'C', t: 'clone it, read it, run it' },
+        { l: 'D', t: 'no hosted version · no account with us' },
+        { l: 'E', cut: true, t: 'no fact line' }
+      ]}
+    ]},
+
+  { n: 11, name: 'Set it up', intent: 'The five condensed steps only. The complete thirteen live in the README, which the page links.',
+    slots: [
+      { id: 'heading', kind: 'heading', name: 'the heading', cands: [
+        { l: 'A', t: 'Set it up', cur: true, rec: true },
+        { l: 'B', t: 'An evening of setup' },
+        { l: 'C', t: 'Run it yourself' },
+        { l: 'D', t: 'Get it running' },
+        { l: 'E', t: 'Setup, honestly' }
+      ]},
+      { id: 'need', kind: 'line', name: 'the what-you-need line — names Tailscale, Discord and the harness login', cands: [
+        { l: 'A', t: 'What you need: a Linux box that stays on · Node 22 or newer · tmux · ttyd · a Tailscale account · a Discord server you control · Claude Code or Codex CLI, logged in · an evening.', cur: true, rec: true },
+        { l: 'B', t: 'A Linux box that stays on, Node 22, tmux, ttyd, Tailscale, a Discord server you control, and your harness login. Plan an evening.' },
+        { l: 'C', t: 'One Linux box, Node 22, tmux, ttyd, Tailscale, Discord, your harness login, and an evening.' },
+        { l: 'D', t: 'Bring a Linux box that stays on, a Discord server you control, Tailscale, and your harness login. Plan an evening.' },
+        { l: 'E', t: 'a box that stays on · Node 22 · tmux · ttyd · Tailscale · a Discord server · your harness, logged in · an evening' }
+      ]},
+      { id: 'honesty', kind: 'line', name: 'the setup honesty line', cands: [
+        { l: 'A', t: 'Setup is manual and takes an evening. It gets simpler. There is no package yet.', cur: true, rec: true },
+        { l: 'B', t: 'Setup is manual today. A packaged setup with onboarding is coming, without a date.' },
+        { l: 'C', t: 'Thirteen real steps today. A package is coming.' },
+        { l: 'D', t: 'It takes an evening today. It gets simpler.' },
+        { l: 'E', t: 'Manual setup, an evening, no package yet. It gets simpler.' }
+      ]}
+    ]},
+
+  { n: 12, name: 'Footer', intent: 'The GitHub link.',
+    slots: [
+      { id: 'foot', kind: 'foot', name: 'the footer line', cands: [
+        { l: 'A', t: 'curia · GitHub', rec: true },
+        { l: 'B', t: 'curia is open source · GitHub' },
+        { l: 'C', t: 'Built with curia, by curia · GitHub' },
+        { l: 'D', t: 'curia · source on GitHub' },
+        { l: 'E', t: 'GitHub' }
+      ]}
+    ]}
+];
+
+/* ================================================================
+   ROUND 2 — the operator's picks, pasted from the thread, applied
+   as an overlay. A letter picks an existing candidate. An added P
+   row is a line the operator typed. An added R row is this ticket's
+   proposed fix beside a picked line, on the table in round 3.
+   ================================================================ */
+
+var PICKED = {
+  '1.kicker': 'A', '1.headline': 'P', '1.sub': 'R', '1.skills': 'B', '1.btns': 'C',
+  '2.line': 'P',
+  '3.bold': 'E', '3.line': 'R', '3.fact': 'E',
+  '4.bold': 'D', '4.line': 'P', '4.fact': 'P',
+  '5.line': 'P', '5.fact': 'P',
+  '6.line': 'P',
+  '7.line': 'P', '7.fact': 'P',
+  '8.bold': 'P', '8.caption': 'R', '8.fact': 'P', '8.dogfood': 'P',
+  '9.bold': 'E', '9.fact': 'P',
+  '10.bold': 'C', '10.fact': 'P',
+  '11.heading': 'A', '11.need': 'P', '11.honesty': 'P',
+  '12.foot': 'D'
+};
+
+var ADDED = {
+  '1.headline': [
+    { l: 'P', t: 'Coding agents controlled from your phone', pick: true },
+    { l: 'R', t: 'Your coding agents, controlled from your phone.' }
+  ],
+  '1.sub': [
+    { l: 'P', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatching parallel agent without losing track.' },
+    { l: 'R', t: 'Curia knows about all your projects and tells you what to build next. It helps you dispatch parallel agents without losing track.' }
+  ],
+  '2.line': [{ l: 'P', t: 'The backlog panic grows', pick: true }],
+  '3.line': [{ l: 'R', t: 'Blocked tickets wait. Open ones light up, and agents take them in order, straight from your GitHub issues.' }],
+  '4.line': [{ l: 'P', t: 'An agent hits a real decision and asks you in Discord.', pick: true }],
+  '4.fact': [{ l: 'P', t: 'one thread per ticket · parallel chats', pick: true }],
+  '5.line': [{ l: 'P', t: 'Live previews from your phone or workstation', pick: true }],
+  '5.fact': [{ l: 'P', t: 'A secure link on your tailnet', pick: true }],
+  '6.line': [{ l: 'P', t: 'A dashboard that shows where every map stands and which agents are currently running.', pick: true }],
+  '7.line': [{ l: 'P', t: 'Watch the agent type in your browser tab.', pick: true }],
+  '7.fact': [
+    { l: 'P', t: 'Claude Code, Codex, Pi and Opencode are supported', pick: true },
+    { l: 'R', t: 'Claude Code and Codex today · Pi and Opencode next' }
+  ],
+  '8.bold': [{ l: 'P', t: 'You are in charge', pick: true }],
+  '8.caption': [
+    { l: 'P', t: 'Your approval merges the PR and closes the ticket' },
+    { l: 'R', t: 'Your approval merges the pull request and closes the ticket' }
+  ],
+  '8.fact': [
+    { l: 'P', t: 'just type your rejection reasons if you don\'t agree with the result', pick: true },
+    { l: 'R', t: 'type your rejection reasons if you do not agree · they become new commits on the same pull request' }
+  ],
+  '8.dogfood': [{ l: 'P', t: 'This page itself was planned, decided and written by curia agents.', pick: true }],
+  '9.fact': [{ l: 'P', t: 'four agents at once on a small box · about 0.5 GB each', pick: true }],
+  '10.fact': [{ l: 'P', t: 'Your box, your subscription, your keys.', pick: true }],
+  '11.need': [
+    { l: 'P', t: 'One Linux box with Docker, Tailscale, a Discord server and your coding agent subscription', pick: true }
+  ],
+  '11.honesty': [
+    { l: 'P', t: 'All steps are described in the set up guide', pick: true },
+    { l: 'R', t: 'All steps are in the setup guide. Setup is manual today, and packaging is coming.' }
+  ]
+};
+
+(function applyRound2() {
+  SCENES.forEach(function (sc) {
+    sc.slots.forEach(function (sl) {
+      var k = sc.n + '.' + sl.id;
+      sl.cands.forEach(function (c) { delete c.rec; });
+      (ADDED[k] || []).forEach(function (c) { sl.cands.push(c); });
+      var p = PICKED[k];
+      if (p) sl.cands.forEach(function (c) { if (c.l === p) c.pick = true; });
+    });
+  });
+})();
+
+/* ---- state ---- */
+
+var picks = {};   // "n.slot" -> candidate index, or 'mine'
+var mine = {};    // "n.slot" -> free-typed text
+
+function key(sc, sl) { return sc.n + '.' + sl.id; }
+
+function picked(sc, sl) {
+  var p = picks[key(sc, sl)];
+  if (p === 'mine') return { t: mine[key(sc, sl)] || '', free: true };
+  return sl.cands[p];
+}
+
+/* ---- dom helpers ---- */
+
+function h(tag, attrs, kids) {
+  var n = document.createElement(tag);
+  for (var k in (attrs || {})) {
+    if (k === 'text') n.textContent = attrs[k];
+    else if (k === 'onclick') n.onclick = attrs[k];
+    else n.setAttribute(k, attrs[k]);
+  }
+  (kids || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+
+function copyText(txt, btn) {
+  function done() {
+    if (!btn) return;
+    var old = btn.textContent;
+    btn.textContent = 'copied';
+    setTimeout(function () { btn.textContent = old; }, 900);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(txt).then(done, function () { fallback(); });
+  } else fallback();
+  function fallback() {
+    var ta = document.createElement('textarea');
+    ta.value = txt; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    done();
+  }
+}
+
+/* ---- rendering ---- */
+
+function renderPanel(sc) {
+  var panel = h('div', { class: 'reads', id: 'panel-' + sc.n }, [h('div', { class: 'tag', text: 'reads as' })]);
+  sc.slots.forEach(function (sl) {
+    var c = picked(sc, sl);
+    if (c.cut || (c.free && !c.t)) return;
+    if (sl.kind === 'kicker') {
+      var kk = h('div', { class: 'p-kicker' });
+      kk.appendChild(h('b', { text: 'curia' }));
+      kk.appendChild(document.createTextNode(' — ' + c.t));
+      panel.appendChild(kk);
+    } else if (sl.kind === 'btns') {
+      var parts = c.t.split(' · ');
+      panel.appendChild(h('div', { class: 'p-btns' }, parts.map(function (p) { return h('span', { text: p }); })));
+    } else {
+      panel.appendChild(h('div', { class: 'p-' + sl.kind, text: c.t }));
+    }
+  });
+  return panel;
+}
+
+function refreshScene(sc) {
+  var old = document.getElementById('panel-' + sc.n);
+  old.parentNode.replaceChild(renderPanel(sc), old);
+  sc.slots.forEach(function (sl) {
+    var p = picks[key(sc, sl)];
+    (sl._rows || []).forEach(function (r, i) { r.className = 'cand' + (p === i ? ' on' : ''); });
+    if (sl._freeRow) sl._freeRow.className = 'cand free' + (p === 'mine' ? ' on' : '');
+  });
+}
+
+function renderScene(sc) {
+  var card = h('div', { class: 'scene', id: 'scene-' + sc.n });
+  card.appendChild(h('div', { class: 'head' }, [
+    h('span', { class: 'num', text: 'scene ' + sc.n }),
+    h('h2', { text: sc.name }),
+    h('p', { text: sc.intent })
+  ]));
+  card.appendChild(renderPanel(sc));
+  var slots = h('div', { class: 'slots' });
+  sc.slots.forEach(function (sl) {
+    var box = h('div', { class: 'slot' });
+    box.appendChild(h('div', { class: 'sname', text: sl.name }));
+    sl._rows = [];
+    sl.cands.forEach(function (c, i) {
+      var t = h('span', { class: 't' + (c.cut ? ' gone' : ''), text: c.t });
+      if (c.cur) t.appendChild(h('span', { class: 'badge cur', text: 'current' }));
+      else if (!c.cut) t.appendChild(h('span', { class: 'badge new', text: 'new' }));
+      if (c.rec) t.appendChild(h('span', { class: 'badge rec', text: 'rec' }));
+      if (c.pick) t.appendChild(h('span', { class: 'badge pick', text: 'picked' }));
+      if (c.q) t.appendChild(h('span', { class: 'qual', text: c.q }));
+      var cp = h('button', { class: 'cp', text: 'copy', onclick: function (ev) {
+        ev.stopPropagation();
+        picks[key(sc, sl)] = i;
+        refreshScene(sc);
+        copyText(sc.n + ' ' + sl.id + ': ' + c.l + ' — ' + c.t, cp);
+      } });
+      var row = h('div', { class: 'cand', onclick: function () {
+        picks[key(sc, sl)] = i;
+        refreshScene(sc);
+      } }, [h('span', { class: 'l', text: c.l }), t, cp]);
+      sl._rows.push(row);
+      box.appendChild(row);
+    });
+    var input = h('input', { placeholder: 'your own line — type it and it becomes the pick', value: mine[key(sc, sl)] || '' });
+    input.oninput = function () {
+      mine[key(sc, sl)] = input.value;
+      picks[key(sc, sl)] = input.value ? 'mine' : defaultPick(sl);
+      refreshScene(sc);
+    };
+    var mcp = h('button', { class: 'cp', text: 'copy', onclick: function (ev) {
+      ev.stopPropagation();
+      if (mine[key(sc, sl)]) copyText(sc.n + ' ' + sl.id + ': mine — ' + mine[key(sc, sl)], mcp);
+    } });
+    var freeRow = h('div', { class: 'cand free' }, [h('span', { class: 'l', text: '✎' }), h('span', { class: 't' }, [input]), mcp]);
+    sl._freeRow = freeRow;
+    box.appendChild(freeRow);
+    slots.appendChild(box);
+  });
+  card.appendChild(slots);
+  return card;
+}
+
+function defaultPick(sl) {
+  var r = 0;
+  sl.cands.forEach(function (c, i) { if (c.rec) r = i; });
+  sl.cands.forEach(function (c, i) { if (c.pick) r = i; });
+  return r;
+}
+
+function renderNewList() {
+  var box = document.getElementById('newlist');
+  box.appendChild(h('h2', { text: 'Every new line on this page' }));
+  box.appendChild(h('p', { class: 'note', text: 'The full list, for the review gate. A line not on this list is on the live page or in the storyboard already.' }));
+  SCENES.forEach(function (sc) {
+    var fresh = [];
+    sc.slots.forEach(function (sl) {
+      sl.cands.forEach(function (c) { if (!c.cur && !c.cut) fresh.push({ sl: sl, c: c }); });
+    });
+    if (!fresh.length) return;
+    box.appendChild(h('div', { class: 'sc', text: 'scene ' + sc.n + ' — ' + sc.name }));
+    fresh.forEach(function (f) {
+      var d = h('div', { class: 'nl' });
+      d.appendChild(h('span', { class: 'l', text: f.c.l }));
+      d.appendChild(document.createTextNode(f.c.t));
+      box.appendChild(d);
+    });
+  });
+}
+
+document.getElementById('copyall').onclick = function () {
+  var out = ['my picks — curia#587'];
+  SCENES.forEach(function (sc) {
+    sc.slots.forEach(function (sl) {
+      var p = picks[key(sc, sl)];
+      if (p === 'mine') out.push(sc.n + ' ' + sl.id + ': mine — ' + (mine[key(sc, sl)] || ''));
+      else out.push(sc.n + ' ' + sl.id + ': ' + sl.cands[p].l);
+    });
+  });
+  copyText(out.join('\n'), this);
+};
+
+SCENES.forEach(function (sc) {
+  sc.slots.forEach(function (sl) { picks[key(sc, sl)] = defaultPick(sl); });
+});
+var host = document.getElementById('scenes');
+SCENES.forEach(function (sc) { host.appendChild(renderScene(sc)); });
+renderNewList();
+</script>
+</body>
+</html>
