@@ -657,6 +657,22 @@ describe('reconcile epoch scoping (criterion 7)', () => {
 
   const assignedToMe = { ...OPEN_ISSUE, assignees: [{ login: 'me' }] }
 
+  test('boot reconcile recovers previews before the orphan sweep', async () => {
+    const calls = []
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...assignedToMe }),
+    })
+    d.previews = {
+      recover: async (tickets) => { calls.push(['recover', ...tickets]) },
+      sweep: async (tickets) => { calls.push(['sweep', ...tickets]) },
+    }
+
+    await d.reconcile({ boot: true })
+
+    assert.deepEqual(calls, [['recover', '42'], ['sweep', '42']])
+  })
+
   test('a result BEFORE the latest dispatch_claimed does not mask the dead claim', async () => {
     const unclaimed = []
     writeJournal([

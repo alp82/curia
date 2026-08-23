@@ -5880,6 +5880,9 @@ export class Dispatcher {
     // daemon process, since `tailscale serve --bg` config lives in tailscaled.
     if (ctx.sessions && this.previews) {
       const liveTickets = ctx.sessions.map((s) => s.match(SESSION_RE)?.[1]).filter(Boolean)
+      if (boot) {
+        await this.previews.recover(liveTickets).catch((e) => this.log(`preview recovery failed: ${e.message}`))
+      }
       await this.previews.sweep(liveTickets).catch((e) => this.log(`preview sweep failed: ${e.message}`))
     }
 

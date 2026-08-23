@@ -1270,6 +1270,7 @@ const previews = new PreviewRegistry({
   allow: identityAllow,
   proxyFrom: curiaConfig.identity.preview_proxy_from,
   journal: (type, detail) => reduction.journal(type, detail),
+  dataDir: DATA,
 })
 dispatcher.previews = previews // constructed after the dispatcher; teardown + sweep read it here
 
