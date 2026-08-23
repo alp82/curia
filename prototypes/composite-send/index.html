@@ -205,9 +205,10 @@
      last. At most four messages per send. What the structure left open is taste: the dressing, the
      order, the render form of the prose message and the question background, and how images and
      visuals carry intent. This page decides those, one round at a time.</p>
-  <p><b>Round 1 is on the page.</b> Five whole-send variations of one real exchange. Later rounds
-     take the winner's dressing and go on to the prose form, the composition rules and the image
-     use. <code>NOTES.md</code> records every round.</p>
+  <p><b>Round 1 is decided.</b> The small-print rail won on 2026-08-23, with the labels cut to
+     plain descriptive words and no rail on a send of one message. Round 1 also opened a gap the
+     operator named: text that will not fit one message. <b>Round 2 is on the page</b> in three
+     questions, all under the picked rail. <code>NOTES.md</code> records every round.</p>
   <div class="switch">
     <input type="checkbox" id="bounds">
     <label for="bounds"><b>Show the message boundaries.</b> Discord groups messages from one
@@ -216,9 +217,12 @@
   </div>
   <nav class="toc">
     <a href="#today">1 · The send today</a>
-    <a href="#round1">2 · Round 1 — the dressing and the order</a>
-    <a href="#palette">3 · The palette, and what binds it</a>
-    <a href="#next">4 · What the later rounds decide</a>
+    <a href="#round1">2 · Round 1 — the dressing and the order (decided)</a>
+    <a href="#round2a">3 · Round 2 q1 — text that will not fit</a>
+    <a href="#round2b">4 · Round 2 q2 — the prose message</a>
+    <a href="#round2c">5 · Round 2 q3 — the question background</a>
+    <a href="#palette">6 · The palette, and what binds it</a>
+    <a href="#next">7 · What the last round decides</a>
   </nav>
 </header>
 
@@ -265,7 +269,7 @@
 </div>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="round1"><span class="n">2</span> Round 1 — the dressing and the order</h2>
+<h2 class="sec" id="round1"><span class="n">2</span> Round 1 — the dressing and the order (decided)</h2>
 <p class="lead">The same exchange as a composite send: <b>prose</b> answers the note,
    <b>visual</b> carries the numbers, and the <b>choice</b> decides, last. The content is identical
    in all five. They differ in the dressing — titles, small print, the signal emoji — and in
@@ -364,7 +368,7 @@ curia-box (own)  kept        kept</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">V3</span> The small-print rail <span class="rec">· recommended</span></h3>
+  <h3><span class="n">V3</span> The small-print rail <span class="picked">· picked, with the labels cut plain</span></h3>
   <div class="msg"><div class="avatar op">al</div><div class="body">
     <div class="who">alp82 <span class="ts">14:31</span></div>
     <div class="txt"><p>why does the box need its own stack? and what do I lose either way</p></div>
@@ -373,7 +377,7 @@ curia-box (own)  kept        kept</pre>
     <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
     <div class="txt">
       <div class="m first" data-kind="prose">
-        <p class="small">1 of 3 · the answer</p>
+        <p class="small">1 of 3 · answer</p>
         <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
            replaces the first. Your laptop and this box both report to <code>alp82</code>, so
            whichever synced last is the reading you see.</p>
@@ -382,14 +386,14 @@ curia-box (own)  kept        kept</pre>
            is not about the box. It is about which machine owns the <code>alp82</code> reading.</p>
       </div>
       <div class="m" data-kind="visual">
-        <p class="small">2 of 3 · what each stack costs</p>
+        <p class="small">2 of 3 · cost per stack</p>
         <pre>target stack     your 30d    box 30d
 --------------   ---------   -------
 alp82 (shared)   replaced    kept
 curia-box (own)  kept        kept</pre>
       </div>
       <div class="m" data-kind="choice">
-        <p class="small">3 of 3 · decide</p>
+        <p class="small">3 of 3 · decision</p>
         <p>❓ <b>Which stack does the box sync to?</b></p>
         <p><b>A. Its own stack.</b> The box registers as <code>curia-box</code>.<br>
            ↳ Two stacks to read, and no reading ever replaces another.</p>
@@ -404,11 +408,16 @@ curia-box (own)  kept        kept</pre>
       </div>
     </div>
   </div></div>
-  <p class="why">One small-print line per message: its number in the send, and its job in three
-     words. The count tells the reader how far the send runs before it asks, which no other cut
-     says. Mechanics stay small print, which is the ADR-0021 rule already. <b>The cost:</b> the
-     rail is chrome the reader must learn once, and a send of two messages numbers itself for
-     nothing.</p>
+  <p class="why">One small-print line per message: its number in the send, and what the message
+     holds, in plain words. The count tells the reader how far the send runs before it asks, which
+     no other cut says. Mechanics stay small print, which is the ADR-0021 rule already.
+     <b>The cost:</b> the rail is chrome the reader must learn once.</p>
+  <p class="why"><b>Picked on 2026-08-23, with two amendments.</b> The label loses its article and
+     its flourish. Not "the answer" or "what each stack costs", but "answer" and "cost per stack".
+     And a send of one message carries no rail, because there is nothing to count.</p>
+  <p class="why"><b>The rule the pick implies.</b> curia writes the count. The agent writes the
+     label, at most 20 characters, linted as inline text. This is the status-line label rule of
+     ADR-0021, read on a second surface.</p>
 </div>
 
 <div class="cand">
@@ -504,7 +513,479 @@ a second sync replaces the first</pre>
 </div>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="palette"><span class="n">3</span> The palette, and what binds it</h2>
+<h2 class="sec" id="round2a"><span class="n">3</span> Round 2, question 1 — text that will not fit</h2>
+<p class="lead">The gap round 1 opened. The prose message caps at 1200 characters, and some
+   answers are longer than that. Today curia refuses over the cap, three times, and then sends the
+   text flagged. The subject below is a real one: an operator note on
+   <b>The overseer in a terminal: the decision</b> (#571) asking what parking does to a live pane.
+   The honest answer runs to about 1430 characters. Five ways to carry it, all under the rail.</p>
+
+<div class="cand">
+  <h3><span class="n">O1</span> Two prose messages, the agent picks the break <span class="rec">· recommended</span></h3>
+  <div class="msg"><div class="avatar op">al</div><div class="body">
+    <div class="who">alp82 <span class="ts">09:12</span></div>
+    <div class="txt"><p>walk me through what parking actually does to a live pane, and what I lose</p></div>
+  </div></div>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 4 · what parking does</p>
+        <p>Parking stops the process behind a pane and keeps the conversation. Three things happen,
+           in order. The harness takes a stop signal and flushes its rollout to disk. The daemon
+           records the conversation key, the model, the effort and the working directory. The tmux
+           window closes.</p>
+        <p>None of the conversation is lost, because the conversation was never in the pane. It
+           lives in the harness rollout file, which all four lanes write as they go. The pane is a
+           view onto that file.</p>
+      </div>
+      <div class="m" data-kind="prose">
+        <p class="small">2 of 4 · what you lose</p>
+        <p>You lose the process state. A half-typed line in the composer goes. A tool call in
+           flight is cut, and the harness records it as interrupted, so the next turn reads an
+           interrupted call rather than a result. A shell the agent opened for itself dies with the
+           window.</p>
+        <p>Rehydration reverses the first three steps and not the last one. The conversation comes
+           back whole. The interrupted call does not re-run, so an agent that was mid-write returns
+           to a file it half wrote, and it has to look.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>park and rehydrate, one claude pane
+box, 2026-08-19
+
+park        1.4 s   rollout flushed
+window      gone    composer text lost
+rehydrate   9.6 s   conversation byte for byte</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">4 of 4 · decision</p>
+        <p>❓ <b>Is a deploy a forced park, or a kill?</b></p>
+        <p><b>A. A forced park.</b> Every live pane parks, then rehydrates on the next boot.<br>
+           ↳ A deploy costs 11 seconds per pane and loses composer text. Nothing else.</p>
+        <p><b>B. A kill.</b> The panes die and the operator starts them again.<br>
+           ↳ The rollout is never flushed, so the last turn is gone rather than interrupted.</p>
+        <p>Recommendation: <b>A</b>.</p>
+        <p class="small">A button answers. A reply answers too, and it may carry files.</p>
+        <p class="subtext">esc-7</p>
+        <div class="btnrow"><button class="btn pri">A · forced park</button><button class="btn pri">B · kill</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">Composition replaces relaxation, which is what ADR-0026 says in its own words. The
+     agent breaks the answer where the meaning breaks and labels each half on the rail, so the
+     reader gets two named parts instead of one wall. The cap keeps doing its job: every message
+     stays phone-sized. <b>What has to change:</b> the refusal at 1200 must name this path, or the
+     agent burns its three attempts trying to squeeze. <b>The cost:</b> the second prose message
+     spends one of the four slots, so a send that also wants a visual and a card is full.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">O2</span> Raise the prose cap to 2000</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 3 · parking</p>
+        <p>Parking stops the process behind a pane and keeps the conversation. Three things happen,
+           in order. The harness takes a stop signal and flushes its rollout to disk. The daemon
+           records the conversation key, the model, the effort and the working directory. The tmux
+           window closes.</p>
+        <p>None of the conversation is lost, because the conversation was never in the pane. It
+           lives in the harness rollout file, which all four lanes write as they go. The pane is a
+           view onto that file.</p>
+        <p>You lose the process state. A half-typed line in the composer goes. A tool call in
+           flight is cut, and the harness records it as interrupted, so the next turn reads an
+           interrupted call rather than a result. A shell the agent opened for itself dies with the
+           window.</p>
+        <p>Rehydration reverses the first three steps and not the last one. The conversation comes
+           back whole. The interrupted call does not re-run, so an agent that was mid-write returns
+           to a file it half wrote, and it has to look. That is why a deploy is a forced park and
+           not a kill: a kill leaves the rollout unflushed, and the last turn is gone rather than
+           interrupted.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>park and rehydrate, one claude pane
+box, 2026-08-19
+
+park        1.4 s   rollout flushed
+rehydrate   9.6 s   conversation byte for byte</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">3 of 3 · decision</p>
+        <p>❓ <b>Is a deploy a forced park, or a kill?</b> <span class="small">… options as above …</span></p>
+        <div class="btnrow"><button class="btn pri">A · forced park</button><button class="btn pri">B · kill</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">One number changes and nothing else does. 2000 is Discord's own message limit, so
+     the cap stops being curia's judgment and becomes the platform's. <b>The cost:</b> the caps
+     exist to stop exactly this block. Four paragraphs with no break and no label is the wall the
+     operator has to read past to reach the buttons, and raising the number invites it every
+     time.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">O3</span> Keep 1200, refuse, and point at the timeline</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 3 · parking</p>
+        <p>Parking stops the process and keeps the conversation, because the conversation lives in
+           the harness rollout file and the pane is only a view onto it. What you lose is process
+           state: composer text, and a tool call in flight, which comes back marked interrupted
+           rather than done.</p>
+        <p>That is why a deploy parks rather than kills. A kill leaves the rollout unflushed, and
+           the last turn is gone instead of interrupted.</p>
+        <p class="small">The full walkthrough, step by step, is on the timeline.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>park and rehydrate, one claude pane
+box, 2026-08-19
+
+park        1.4 s   rollout flushed
+rehydrate   9.6 s   conversation byte for byte</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">3 of 3 · decision</p>
+        <p>❓ <b>Is a deploy a forced park, or a kill?</b> <span class="small">… options as above …</span></p>
+        <div class="btnrow"><button class="btn pri">A · forced park</button><button class="btn pri">B · kill</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">Today's rule, held. The cap refuses, the agent cuts to 600 characters, and the
+     <code>timeline</code> flag carries the reader to the full reasoning, which is the field
+     ADR-0019 already ships for exactly this. <b>The cost:</b> it answers a different question. The
+     operator asked to be walked through it, and this hands them a link instead. It also spends
+     lint attempts, because the agent learns the cap by being refused at it.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">O4</span> The tail rides as a file</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 3 · parking</p>
+        <p>Parking stops the process behind a pane and keeps the conversation. The harness flushes
+           its rollout, the daemon records the conversation key, and the window closes. None of the
+           conversation is lost, because it lives in the rollout file and the pane is a view onto
+           it.</p>
+      </div>
+      <div class="m" data-kind="files">
+        <p class="small">2 of 3 · the rest of the walkthrough</p>
+        <div class="attachbox"><span class="icon">📄</span><span><span class="fname">parking-walkthrough.md</span><br><span class="fsize">1.4 KB</span></span></div>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">3 of 3 · decision</p>
+        <p>❓ <b>Is a deploy a forced park, or a kill?</b> <span class="small">… options as above …</span></p>
+        <div class="btnrow"><button class="btn pri">A · forced park</button><button class="btn pri">B · kill</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">The files format exists, so the overflow uses it. <b>The cost:</b> this is the
+     move the operator already ruled counterproductive, and ADR-0026 wrote the ruling down: a file
+     carries an artifact, and the explanation lives in a prose message. A phone reader has to
+     download a markdown file to finish a sentence. Shown here because it is the fallback today,
+     and it should lose on the record.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">O5</span> curia splits it</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 4 · parking (1 of 2)</p>
+        <p>Parking stops the process behind a pane and keeps the conversation. Three things happen,
+           in order. The harness takes a stop signal and flushes its rollout to disk. The daemon
+           records the conversation key, the model, the effort and the working directory. The tmux
+           window closes.</p>
+        <p>None of the conversation is lost, because the conversation was never in the pane. It
+           lives in the harness rollout file, which all four lanes write as they go. The pane is a
+           view onto that file.</p>
+      </div>
+      <div class="m" data-kind="prose">
+        <p class="small">2 of 4 · parking (2 of 2)</p>
+        <p>You lose the process state. A half-typed line in the composer goes. A tool call in
+           flight is cut, and the harness records it as interrupted, so the next turn reads an
+           interrupted call rather than a result.</p>
+        <p>Rehydration reverses the first three steps and not the last one. The conversation comes
+           back whole, and an agent that was mid-write returns to a file it half wrote.</p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>park and rehydrate, one claude pane
+box, 2026-08-19
+
+park        1.4 s   rollout flushed
+rehydrate   9.6 s   conversation byte for byte</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">4 of 4 · decision</p>
+        <p>❓ <b>Is a deploy a forced park, or a kill?</b> <span class="small">… options as above …</span></p>
+        <div class="btnrow"><button class="btn pri">A · forced park</button><button class="btn pri">B · kill</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">The agent writes one field of any length and never sees a refusal. curia breaks it
+     at a paragraph edge and numbers the halves on the rail, reusing the fence-aware chunker that
+     already ships. <b>The cost:</b> the break lands where the paragraphs happen to fall, not where
+     the meaning does, and the label repeats because curia cannot write a second one. It also grows
+     a send the agent thought was three into four, so the send cap can refuse a call the agent had
+     no way to size.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="round2b"><span class="n">4</span> Round 2, question 2 — the prose message</h2>
+<p class="lead">Inside one prose message, under the rail line. The subject is the #554 answer from
+   round 1, so it reads against something already familiar. The rail line is identical in all five,
+   and only the body changes.</p>
+
+<div class="cand">
+  <h3><span class="n">P1</span> Plain paragraphs</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · answer</p>
+      <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
+         replaces the first. Your laptop and this box both report to <code>alp82</code>, so
+         whichever synced last is the reading you see.</p>
+      <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers went to zero.
+         They came back at 19:40, when your laptop synced and replaced mine. So the choice is not
+         about the box. It is about which machine owns the <code>alp82</code> reading.</p>
+    </div></div>
+  </div></div>
+  <p class="why">No form at all. The agent writes sentences and curia prints them. <b>The cost:</b>
+     the conclusion is the last sentence of the second paragraph, so a reader who stops early takes
+     away the mechanism and misses the point.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">P2</span> The conclusion first, in bold <span class="rec">· recommended</span></h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · answer</p>
+      <p><b>The choice is not about the box. It is about which machine owns the
+         <code>alp82</code> reading.</b></p>
+      <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
+         replaces the first. Your laptop and this box both report to <code>alp82</code>, so
+         whichever synced last is the reading you see.</p>
+      <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers went to zero.
+         They came back at 19:40, when your laptop synced and replaced mine.</p>
+    </div></div>
+  </div></div>
+  <p class="why">The answer leads, and the mechanism supports it. This is the shape the ending
+     report already takes (ADR-0021) and the shape the verdict took in #606: the finding leads, not
+     the process. It also reads well truncated, which is what a phone does to a long block.
+     <b>The cost:</b> the agent has to know its own conclusion before it writes, and a lead line
+     that only restates the question is worse than no lead line.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">P3</span> The question quoted, then the answer</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · answer</p>
+      <blockquote>why does the box need its own stack? and what do I lose either way</blockquote>
+      <p>A sync publishes one reading per machine per stack, and a second sync on the same stack
+         replaces the first. Your laptop and this box both report to <code>alp82</code>, so
+         whichever synced last is the reading you see.</p>
+      <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers went to zero.
+         So the choice is not about the box. It is about which machine owns the <code>alp82</code>
+         reading.</p>
+    </div></div>
+  </div></div>
+  <p class="why">curia quotes the note the send answers, so the pairing survives however far apart
+     the two messages drift in a busy thread. The quote is curia's layout, not the agent's markup,
+     so the blockquote ban on Grade B prose still holds. <b>The cost:</b> Discord already has a
+     reply affordance that does this, and the operator can see their own message two lines up. It
+     spends four lines saying what the reader just wrote.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">P4</span> A lead sentence, then the facts as a list</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · answer</p>
+      <p>The box does not need its own stack. Your reading does.</p>
+      <p>• A sync publishes one reading per machine per stack.<br>
+         • A second sync on the same stack replaces the first.<br>
+         • Your laptop and the box both report to <code>alp82</code> today.<br>
+         • On 2026-08-18 the box synced at 14:02 and your 30-day numbers went to zero.<br>
+         • They came back at 19:40, when your laptop synced and replaced mine.</p>
+    </div></div>
+  </div></div>
+  <p class="why">Every fact is separable and countable, and the reader can check them one at a
+     time. <b>The cost:</b> a list of five facts states no relation between them, so the reader
+     has to build the argument themselves. It is also the shape that makes an agent pad, because
+     an empty bullet looks like a missing one.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">P5</span> Paragraphs with the load-bearing term in bold</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">14:33</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · answer</p>
+      <p>A sync publishes <b>one reading per machine per stack</b>, and a second sync on the same
+         stack <b>replaces</b> the first. Your laptop and this box both report to
+         <code>alp82</code>, so whichever synced last is the reading you see.</p>
+      <p>I measured it on 2026-08-18. The box synced at 14:02 and your 30-day numbers
+         <b>went to zero</b>. They came back at 19:40, when your laptop synced and replaced mine.
+         So the choice is not about the box. It is about <b>which machine owns the
+         <code>alp82</code> reading</b>.</p>
+    </div></div>
+  </div></div>
+  <p class="why">The eye can skim the bold and get the argument in four fragments, and a slow read
+     still gets whole sentences. <b>The cost:</b> the agent decides what is load-bearing on every
+     paragraph, and an agent that bolds generously produces a speckled block that is harder to read
+     than plain text. No rule can check it.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="round2c"><span class="n">5</span> Round 2, question 3 — the question background</h2>
+<p class="lead">ADR-0026 gave a question of a round an optional background block: Grade B, 600
+   characters, under its line. The question line and the recommendation each stay one line, so the
+   round still reads as a numbered list of decisions. What is open is how the block renders. The
+   round below is real, from <b>The overseer in a terminal: the decision</b> (#571). Question 1
+   carries a background, and questions 2 and 3 do not, which is the normal case.</p>
+
+<div class="cand">
+  <h3><span class="n">B1</span> A plain paragraph</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">16:20</span></div>
+    <div class="txt"><div class="m first" data-kind="round">
+      <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
+      <p><b>1.</b> How many live panes at once?</p>
+      <p>A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18. The box has 8
+         GiB and the daemon holds 1.2 GiB of it. The ten agents run in their own containers, and
+         those are not panes.</p>
+      <p>Recommendation: <b>3</b>.</p>
+      <p><b>2.</b> Does a deploy park every live pane, or kill it?<br>
+         Recommendation: <b>park, and rehydrate on the next boot</b>.</p>
+      <p><b>3.</b> Does the agent cap rise with the pane cap?<br>
+         Recommendation: <b>yes, to 10</b>.</p>
+      <p class="small">A reply answers, and it may carry files.</p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ All as recommended</button></div>
+    </div></div>
+  </div></div>
+  <p class="why">Nothing to learn and nothing to render. <b>The cost:</b> the background is the same
+     weight as the question and the recommendation, so question 1 reads as three separate
+     statements and the numbered list stops looking like a list.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">B2</span> A blockquote under the question line <span class="rec">· recommended</span></h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">16:20</span></div>
+    <div class="txt"><div class="m first" data-kind="round">
+      <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
+      <p><b>1.</b> How many live panes at once?</p>
+      <blockquote>A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18. The
+         box has 8 GiB and the daemon holds 1.2 GiB of it. The ten agents run in their own
+         containers, and those are not panes.</blockquote>
+      <p>Recommendation: <b>3</b>.</p>
+      <p><b>2.</b> Does a deploy park every live pane, or kill it?<br>
+         Recommendation: <b>park, and rehydrate on the next boot</b>.</p>
+      <p><b>3.</b> Does the agent cap rise with the pane cap?<br>
+         Recommendation: <b>yes, to 10</b>.</p>
+      <p class="small">A reply answers, and it may carry files.</p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ All as recommended</button></div>
+    </div></div>
+  </div></div>
+  <p class="why">The bar subordinates the background without shrinking the type, so the numbered
+     list survives and the background is still readable at full size. The agent writes plain text
+     and curia adds the bar, so the Grade B blockquote ban is untouched. <b>The cost:</b> the bar
+     is a new mark in the card vocabulary, and a long background makes a tall bar that pushes the
+     later questions down.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">B3</span> Small print under the question line</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">16:20</span></div>
+    <div class="txt"><div class="m first" data-kind="round">
+      <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
+      <p><b>1.</b> How many live panes at once?</p>
+      <p class="small">A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18.<br>
+         The box has 8 GiB and the daemon holds 1.2 GiB of it.<br>
+         The ten agents run in their own containers, and those are not panes.</p>
+      <p>Recommendation: <b>3</b>.</p>
+      <p><b>2.</b> Does a deploy park every live pane, or kill it?<br>
+         Recommendation: <b>park, and rehydrate on the next boot</b>.</p>
+      <p><b>3.</b> Does the agent cap rise with the pane cap?<br>
+         Recommendation: <b>yes, to 10</b>.</p>
+      <p class="small">A reply answers, and it may carry files.</p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ All as recommended</button></div>
+    </div></div>
+  </div></div>
+  <p class="why">The background is context, and context is what small print is for. <b>The
+     cost:</b> 600 characters of small print is three or four stacked lines, and ADR-0019 holds
+     small print to one line, never stacked, because a phone makes a stack of it unreadable. This
+     cut breaks a rule that was measured, so picking it means changing that rule on purpose.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">B4</span> Behind a spoiler</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">16:20</span></div>
+    <div class="txt"><div class="m first" data-kind="round">
+      <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
+      <p><b>1.</b> How many live panes at once?<br>
+         Background: <span class="spoil">A pane costs 154 to 170 MiB, measured across the four
+         lanes on 2026-08-18. The box has 8 GiB and the daemon holds 1.2 GiB of it.</span><br>
+         Recommendation: <b>3</b>.</p>
+      <p><b>2.</b> Does a deploy park every live pane, or kill it?<br>
+         Recommendation: <b>park, and rehydrate on the next boot</b>.</p>
+      <p><b>3.</b> Does the agent cap rise with the pane cap?<br>
+         Recommendation: <b>yes, to 10</b>.</p>
+      <p class="small">A reply answers, and it may carry files.</p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ All as recommended</button></div>
+    </div></div>
+  </div></div>
+  <p class="why">The round keeps its exact height whatever the background says, and all three
+     questions stay on one screen. <b>The cost:</b> the spoiler is already taken. It is the
+     <code>detail</code> renderer, and <code>detail</code> carries facts about the call, not
+     reasoning about one question. Two meanings behind one tap is the fault ADR-0026 refused when
+     it killed the loose <code>context</code> field. A background nobody taps also decides
+     nothing.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">B5</span> An arrow block, like the choice card's consequence</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">16:20</span></div>
+    <div class="txt"><div class="m first" data-kind="round">
+      <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
+      <p><b>1.</b> How many live panes at once?<br>
+         ↳ A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18. The box has 8
+         GiB and the daemon holds 1.2 GiB of it. The ten agents run in their own containers, and
+         those are not panes.<br>
+         Recommendation: <b>3</b>.</p>
+      <p><b>2.</b> Does a deploy park every live pane, or kill it?<br>
+         Recommendation: <b>park, and rehydrate on the next boot</b>.</p>
+      <p><b>3.</b> Does the agent cap rise with the pane cap?<br>
+         Recommendation: <b>yes, to 10</b>.</p>
+      <p class="small">A reply answers, and it may carry files.</p>
+      <p class="subtext">esc-9</p>
+      <div class="btnrow"><button class="btn ok">✅ All as recommended</button></div>
+    </div></div>
+  </div></div>
+  <p class="why">One mark, already in the card vocabulary, and the whole question stays one visual
+     unit. <b>The cost:</b> ↳ means "what this option costs" on every choice card. Giving it a
+     second meaning breaks the rule this whole map runs on, which is that one name means one
+     thing.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="palette"><span class="n">6</span> The palette, and what binds it</h2>
 <p class="lead">What the five cuts draw from, and the rules that already hold. A variation that
    breaks one of these is not a candidate.</p>
 <ul class="plain">
@@ -519,22 +1000,24 @@ a second sync replaces the first</pre>
       under 1000 characters. Every visual on this page fits both.</li>
   <li><b>The deciding message posts last.</b> ADR-0026. No cut moves it, and V5 reorders only the
       two messages above it.</li>
-  <li><b>Dressing is curia's, not the agent's.</b> A title or a rail curia writes takes no lint
-      attempt. An intent line the agent writes does, which is the whole cost of V4.</li>
+  <li><b>Dressing is curia's, not the agent's.</b> A rail curia writes takes no lint attempt. An
+      intent line the agent writes does, which is the whole cost of V4. The picked rail splits the
+      difference: curia writes the count, the agent writes the label at 20 characters.</li>
+  <li><b>The prose message caps at 1200 characters, and a question background at 600.</b> Those
+      are the two caps ADR-0026 added, and question 1 of round 2 is what happens at the first
+      one.</li>
 </ul>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="next"><span class="n">4</span> What the later rounds decide</h2>
-<p class="lead">Round 1 fixes the dressing and the order. The rounds after it take the winner and
-   go on:</p>
+<h2 class="sec" id="next"><span class="n">7</span> What the last round decides</h2>
+<p class="lead">Rounds 1 and 2 fix the dressing, the overflow and the two render forms. Round 3
+   takes all of it and settles composition:</p>
 <ul class="plain">
-  <li><b>The prose message and the question background.</b> The render form of an answer that runs
-      to 1200 characters, and of the 600-character background under one question of a round.</li>
-  <li><b>Which calls compose what.</b> The composition rules: the answer plus a round, an image
-      beside a question, a files message that stands alone, and what a two-message send looks
-      like.</li>
-  <li><b>The image and the visual.</b> Where an image rides, when a diagram beats a table, and how
-      much a send may show before it asks.</li>
+  <li><b>Which calls compose what.</b> The answer plus a round, an image beside a question, a
+      files message that stands alone, and what <code>notify</code> looks like as an array.</li>
+  <li><b>The image and the visual.</b> Where an image rides, when a diagram beats a table, and
+      whether the per-message <code>visual</code> field of ADR-0019 survives beside the
+      <code>visual</code> message format of ADR-0026.</li>
 </ul>
 
 </main>
