@@ -205,11 +205,12 @@
      last. At most four messages per send. What the structure left open is taste: the dressing, the
      order, the render form of the prose message and the question background, and how images and
      visuals carry intent. This page decides those, one round at a time.</p>
-  <p><b>Rounds 1 and 2 are decided.</b> The small-print rail with plain labels, the prose cap at
-     2000, the conclusion first in bold with a list where the content is a list, and the question
-     background as small print behind an info glyph. <b>Round 3 is on the page</b> in five
-     questions: three that those picks opened, and the two the ticket still owes.
-     <code>NOTES.md</code> records every round.</p>
+  <p><b>Three rounds are decided, and every taste question the ticket named is answered.</b> The
+     small-print rail with plain labels, the prose cap at 1600, the conclusion first in bold with a
+     list where the content is a list, the question background as small print behind 💡, one rule
+     for when the agent composes, and four image forms the agent picks between. <b>Round 4 is on
+     the page</b> with the three loose ends the picks left. <code>NOTES.md</code> records every
+     round.</p>
   <div class="switch">
     <input type="checkbox" id="bounds">
     <label for="bounds"><b>Show the message boundaries.</b> Discord groups messages from one
@@ -227,8 +228,9 @@
     <a href="#round3c">8 · Round 3 q3 — the info glyph</a>
     <a href="#round3d">9 · Round 3 q4 — when the agent composes</a>
     <a href="#round3e">10 · Round 3 q5 — the image and the visual</a>
-    <a href="#palette">11 · The palette, and what binds it</a>
-    <a href="#next">12 · Settled, and still open</a>
+    <a href="#round4">11 · Round 4 — the three loose ends</a>
+    <a href="#palette">12 · The palette, and what binds it</a>
+    <a href="#next">13 · Settled, and still open</a>
   </nav>
 </header>
 
@@ -972,9 +974,8 @@ rehydrate   9.6 s   conversation intact</pre>
   <p class="why"><b>Picked on 2026-08-23, with an info glyph in front of it.</b> Two things follow,
      and both are questions of round 3.</p>
   <p class="why"><b>The glyph is not in the signal set.</b> ADR-0013 fixes eight signals: ⚙️ ✅ ❌
-     ⚠️ 🎫 ⚰️ 🔗 ❓. There is no info glyph among them, so this pick adds one. ℹ️ is the obvious
-     reading and it is what the round 3 mocks use, but the addition is the operator's to confirm.
-     That is question 3 of round 3.</p>
+     ⚠️ 🎫 ⚰️ 🔗 ❓. There is none for information among them, so this pick adds a ninth. Question 3
+     of round 3 settled which one: <b>💡</b>, and the mocks below carry it.</p>
   <p class="why"><b>The stacking has a way out that the mock above missed.</b> The never-stacked
      rule is about authored newlines. A background written as one line with no newline in it is a
      single small-print line that Discord soft-wraps, so it reads as a block and breaks no rule.
@@ -1048,7 +1049,7 @@ rehydrate   9.6 s   conversation intact</pre>
   the operator picked in round 1 stops being true.</div>
 
 <div class="cand">
-  <h3><span class="n">X1</span> One prose entry is always one Discord message <span class="rec">· recommended</span></h3>
+  <h3><span class="n">X1</span> One prose entry is always one Discord message</h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
     <div class="txt">
@@ -1079,6 +1080,39 @@ rehydrate   9.6 s   conversation intact</pre>
      rail costs about 20 characters inside the same message, so curia measures the cap on the
      composed message and the body lands near 1975. <b>The cost:</b> the 1600 limit was set to keep
      a fence off a split, so raising it for prose means the fence rule has to hold on its own.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">X6</span> As picked: the prose cap is the chunk limit, 1600 <span class="picked">· picked</span></h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 3 · parking</p>
+        <p><b>Parking keeps the conversation and loses the process.</b></p>
+        <p>The conversation was never in the pane. It lives in the harness rollout file, which all
+           four lanes write as they go, and the pane is a view onto that file. <span class="small">…
+           up to 1600 characters, and the chunker never sees a reason to split …</span></p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>park        1.4 s   rollout flushed
+rehydrate   9.6 s   conversation intact</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">3 of 3 · decision</p>
+        <p>❓ <b>Is a deploy a forced park, or a kill?</b> <span class="small">… options …</span></p>
+        <div class="btnrow"><button class="btn pri">A · forced park</button><button class="btn pri">B · kill</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why"><b>Picked on 2026-08-23.</b> Neither 1200 nor 2000. The prose cap becomes 1600,
+     the number the chunker already uses, so the lint and the splitter agree and nothing in the
+     daemon has to move. One prose entry is one Discord message by construction, and the rail count
+     is true for free. The cap went up from 1200 either way, which is what round 2 asked for.</p>
+  <p class="why"><b>One number still does not add up, and it is question 1 of round 4.</b> The rail
+     line sits inside the same Discord message as the prose it labels, so a 1600-character field
+     plus a 20-character rail is a 1620-character message, and the chunker splits it at 1600. The
+     cap and the splitter agree on the number and disagree on what they measure.</p>
 </div>
 
 <div class="cand">
@@ -1210,16 +1244,16 @@ rehydrate   9.6 s   conversation intact</pre>
 <p class="lead">The background is small print with an info glyph in front of it. What is open is
    the layout of 600 characters of it, and which glyph. The never-stacked rule of ADR-0019 is about
    authored newlines, so a background written as one line is a single small-print line that Discord
-   wraps. All five cuts use ℹ️ so the layouts compare, and the glyph itself is question 3.</p>
+   wraps. All five cuts use 💡 so the layouts compare, and the glyph itself is question 3.</p>
 
 <div class="cand">
-  <h3><span class="n">I1</span> One line, the glyph in front, Discord wraps it <span class="rec">· recommended</span></h3>
+  <h3><span class="n">I1</span> One line, the glyph in front, Discord wraps it <span class="picked">· picked, and I2 too</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">16:20</span></div>
     <div class="txt"><div class="m first" data-kind="round">
       <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
       <p><b>1.</b> How many live panes at once?</p>
-      <p class="small">ℹ️ A pane costs 154 to 170 MiB, measured across the four lanes on
+      <p class="small">💡 A pane costs 154 to 170 MiB, measured across the four lanes on
          2026-08-18. The box has 8 GiB and the daemon holds 1.2 GiB of it. The ten agents run in
          their own containers, and those are not panes.</p>
       <p>Recommendation: <b>3</b>.</p>
@@ -1240,13 +1274,13 @@ rehydrate   9.6 s   conversation intact</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">I2</span> A glyph line, then the background stacked under it</h3>
+  <h3><span class="n">I2</span> A glyph line, then the background stacked under it <span class="picked">· picked, beside I1</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">16:20</span></div>
     <div class="txt"><div class="m first" data-kind="round">
       <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
       <p><b>1.</b> How many live panes at once?</p>
-      <p class="small">ℹ️ background<br>
+      <p class="small">💡 background<br>
          A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18.<br>
          The box has 8 GiB and the daemon holds 1.2 GiB of it.<br>
          The ten agents run in their own containers, and those are not panes.</p>
@@ -1264,6 +1298,12 @@ rehydrate   9.6 s   conversation intact</pre>
      obvious top. <b>The cost:</b> four stacked small-print lines is what ADR-0019 measured and
      refused, and the word "background" is a label that says nothing the glyph did not. Picking it
      means changing the never-stacked rule for this one block, on purpose.</p>
+  <p class="why"><b>Both layouts picked on 2026-08-23, and the agent chooses per question.</b> A
+     background that argues one point is I1. A background that lists separable facts is I2. This is
+     the P2 ruling read on a second surface: the form follows what the content is.</p>
+  <p class="why"><b>The consequence:</b> ADR-0019 holds small print to one line, never stacked. The
+     question background is now the named exception to that rule, and the rule stands everywhere
+     else.</p>
 </div>
 
 <div class="cand">
@@ -1273,9 +1313,9 @@ rehydrate   9.6 s   conversation intact</pre>
     <div class="txt"><div class="m first" data-kind="round">
       <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
       <p><b>1.</b> How many live panes at once?</p>
-      <p class="small">ℹ️ A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18.<br>
-         ℹ️ The box has 8 GiB and the daemon holds 1.2 GiB of it.<br>
-         ℹ️ The ten agents run in their own containers, and those are not panes.</p>
+      <p class="small">💡 A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18.<br>
+         💡 The box has 8 GiB and the daemon holds 1.2 GiB of it.<br>
+         💡 The ten agents run in their own containers, and those are not panes.</p>
       <p>Recommendation: <b>3</b>.</p>
       <p><b>2.</b> Does a deploy park every live pane, or kill it?<br>
          Recommendation: <b>park, and rehydrate on the next boot</b>.</p>
@@ -1299,7 +1339,7 @@ rehydrate   9.6 s   conversation intact</pre>
     <div class="txt"><div class="m first" data-kind="round">
       <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
       <p><b>1.</b> How many live panes at once?<br>
-         ℹ️ Three panes cost half a gigabyte, and the box has 8.</p>
+         💡 Three panes cost half a gigabyte, and the box has 8.</p>
       <p class="small">A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18.
          The daemon holds 1.2 GiB. The ten agents run in their own containers, and those are not
          panes.</p>
@@ -1327,7 +1367,7 @@ rehydrate   9.6 s   conversation intact</pre>
     <div class="txt"><div class="m first" data-kind="round">
       <p>❓ <b>The overseer pane needs three numbers before it ships.</b></p>
       <p><b>1.</b> How many live panes at once?</p>
-      <p class="small">ℹ️ Three panes cost half a gigabyte, and the box has 8.
+      <p class="small">💡 Three panes cost half a gigabyte, and the box has 8.
          <span class="spoil">154 to 170 MiB per pane, four lanes, 2026-08-18. The daemon holds 1.2
          GiB. The ten agents are containers, not panes.</span></p>
       <p>Recommendation: <b>3</b>.</p>
@@ -1364,11 +1404,12 @@ rehydrate   9.6 s   conversation intact</pre>
       <p class="small"><b>e.</b> 🔍 A pane costs 154 to 170 MiB, measured across the four lanes on 2026-08-18.</p>
     </div>
   </div></div>
-  <div class="note"><b>Recommended: a, ℹ️.</b> It is the only one of the five that means
-    "information" and nothing else. 💡 means an idea, which a measured fact is not. 📌 means pinned
-    or important, which would outrank the question it sits under. 📖 reads as a document, and there
-    is none. 🔍 is one glyph away from 🔎, which already means the cross-check, and two signals
-    that differ by a rotation is the collision ADR-0013 exists to stop.</div>
+  <div class="note"><b>Picked on 2026-08-23: b, 💡.</b> It joins the eight signals of ADR-0013 as
+    the ninth, and it means the background of a question. I had recommended ℹ️ on the grounds that
+    💡 conventionally means an idea rather than a measured fact. The operator ruled otherwise, and
+    the glyph is a taste call on a surface they read every day. The other three lose on the same
+    grounds either way: 📌 would outrank the question it sits under, 📖 promises a document that
+    does not exist, and 🔍 is one rotation from 🔎, which already means the cross-check.</div>
 </div>
 
 <!-- ================================================================ -->
@@ -1467,7 +1508,7 @@ rehydrate   9.6 s   conversation intact</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">K4</span> A message per thing a reader would skip <span class="rec">· recommended</span></h3>
+  <h3><span class="n">K4</span> A message per thing a reader would skip <span class="picked">· picked</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">11:05</span></div>
     <div class="txt">
@@ -1511,6 +1552,10 @@ rehydrate   9.6 s   conversation intact</pre>
      enough to sit in the standing orders and it needs no catalog. <b>The cost:</b> it is a
      judgment, so two agents will split the same content differently, and nothing machine-checkable
      enforces it.</p>
+  <p class="why"><b>Picked on 2026-08-23.</b> One sentence goes into the standing orders and the
+     tool description: a message exists when a reader would want to skip it on its own. Anything a
+     reader always reads together stays one message. No catalog, no shape list, and the structural
+     rules of ADR-0026 are unchanged.</p>
 </div>
 
 <div class="cand">
@@ -1547,13 +1592,17 @@ rehydrate   9.6 s   conversation intact</pre>
    The subject is an image beside a question, which ADR-0026 names. The agent has rendered two
    frontier cuts and wants the operator to pick one. The pictures below are stand-in drawings, not
    real screenshots.</p>
-<div class="note out"><b>One rule to settle with the pick.</b> ADR-0019 gives every message an
-  optional <code>visual</code> field, and ADR-0026 adds <code>visual</code> as a message format.
-  Both should stand: the field is a small table that belongs to its message, and the format is a
-  visual that stands alone and a reader may skip. Say so with the answer if you agree.</div>
+<div class="note out"><b>Decided on 2026-08-23: four of the five stand, and the agent picks per
+  question.</b> G1, G2, G4 and G5 are all available. G3 is cut. Under the K4 rule the choice is one
+  question each time: would this reader want to skip the picture, and does the picture need the
+  full width. G3 lost because a comparison is the one case that needs both images on one screen,
+  and it puts them on two.</div>
+<div class="note out warn"><b>Still open, and it goes to round 4.</b> The question of whether the
+  per-message <code>visual</code> field of ADR-0019 survives beside the <code>visual</code> message
+  format of ADR-0026 came back unanswered. It is question 3 of round 4.</div>
 
 <div class="cand">
-  <h3><span class="n">G1</span> The image rides the deciding message</h3>
+  <h3><span class="n">G1</span> The image rides the deciding message <span class="picked">· kept</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">15:40</span></div>
     <div class="txt"><div class="m first" data-kind="choice">
@@ -1586,7 +1635,7 @@ rehydrate   9.6 s   conversation intact</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">G2</span> One image message, then the decision <span class="rec">· recommended</span></h3>
+  <h3><span class="n">G2</span> One image message, then the decision <span class="picked">· kept</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">15:40</span></div>
     <div class="txt">
@@ -1627,7 +1676,7 @@ rehydrate   9.6 s   conversation intact</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">G3</span> One image per option, captioned by letter</h3>
+  <h3><span class="n">G3</span> One image per option, captioned by letter <span class="rec">· cut</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">15:40</span></div>
     <div class="txt">
@@ -1651,7 +1700,7 @@ rehydrate   9.6 s   conversation intact</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">G4</span> No image, an ASCII diagram instead</h3>
+  <h3><span class="n">G4</span> No image, an ASCII diagram instead <span class="picked">· kept</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">15:40</span></div>
     <div class="txt">
@@ -1679,7 +1728,7 @@ takeable row        blocked by C</pre>
 </div>
 
 <div class="cand">
-  <h3><span class="n">G5</span> The image leads, prose reads it, decision last</h3>
+  <h3><span class="n">G5</span> The image leads, prose reads it, decision last <span class="picked">· kept</span></h3>
   <div class="msg"><div class="avatar curia">cu</div><div class="body">
     <div class="who">curia <span class="app">APP</span><span class="ts">15:40</span></div>
     <div class="txt">
@@ -1716,7 +1765,200 @@ takeable row        blocked by C</pre>
 </div>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="palette"><span class="n">11</span> The palette, and what binds it</h2>
+<h2 class="sec" id="round4"><span class="n">11</span> Round 4 — the three loose ends</h2>
+<p class="lead">Everything the ticket asked is decided. Three things are left, and none of them is
+   a fan-out: two are arithmetic that the 1600 pick left inconsistent, and one is a question of
+   round 3 that came back unanswered. <b>This round offers fewer than five variations per question
+   on purpose.</b> Each is a closing question on a shape that is already picked, so a fifth cut
+   would be a cut invented to reach a number.</p>
+
+<h3 class="sec" style="margin-top:1.6rem">q1 · The rail sits inside the message it labels</h3>
+<p class="lead">The prose cap is 1600 and <code>CHUNK_LIMIT</code> is 1600, but they measure
+   different things. The lint reads the agent's field. The chunker reads what Discord receives,
+   which is the rail line plus the prose. A full 1600-character field arrives as 1620 and splits.</p>
+
+<div class="cand">
+  <h3><span class="n">A1</span> The cap measures the composed message</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · parking</p>
+      <p><span class="small">… 1580 characters, because the rail label "parking" cost 20 …</span></p>
+    </div></div>
+  </div></div>
+  <p class="why">Nothing changes but where the tape measure goes. The refusal names the exact
+     number of characters left after the rail. <b>The cost:</b> the agent's budget moves with the
+     length of its own label, so it cannot be counted before writing, only after a refusal.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">A2</span> The field caps at 1500, and 100 is held for the rail</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · parking</p>
+      <p><span class="small">… 1500 characters, always, whatever the label says …</span></p>
+    </div></div>
+  </div></div>
+  <p class="why">One fixed number the agent can hold in its head, and the composed message can
+     never reach the chunker however long the label runs. <b>The cost:</b> 1500 is a curia judgment
+     again, and it throws away about 80 characters on every send with a short label. It also moves
+     the cap back down, which is the opposite of what round 2 asked for.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">A3</span> The field caps at 1600, and the chunker gets the headroom <span class="rec">· recommended</span></h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · parking</p>
+      <p><span class="small">… 1600 characters, and the chunker splits at 1700 …</span></p>
+    </div></div>
+  </div></div>
+  <p class="why">The agent gets the round number it was given, 1600, and never has to think about
+     the rail. <code>CHUNK_LIMIT</code> rises to 1700, which is still 300 under Discord's 2000, so
+     the margin that keeps a fence off a split survives. The headroom is plumbing the agent never
+     sees. <b>The cost:</b> one shipped constant moves, and 1600 stops being the one number in the
+     system.</p>
+</div>
+
+<h3 class="sec" style="margin-top:1.6rem">q2 · What happens past 1600</h3>
+<p class="lead">2000 would have been Discord's own ceiling. 1600 is not, so there is room above it,
+   and the rule has to say what uses that room.</p>
+
+<div class="cand">
+  <h3><span class="n">W1</span> The agent composes a second prose message, and the refusal says so <span class="rec">· recommended</span></h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 4 · what parking does</p>
+        <p><b>Parking keeps the conversation and loses the process.</b> <span class="small">… to
+           1600 …</span></p>
+      </div>
+      <div class="m" data-kind="prose">
+        <p class="small">2 of 4 · what you lose</p>
+        <p><b>Composer text and any call in flight.</b> <span class="small">… the rest …</span></p>
+      </div>
+      <div class="m" data-kind="visual">
+        <pre>park        1.4 s   rollout flushed
+rehydrate   9.6 s   conversation intact</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">4 of 4 · decision</p>
+        <p>❓ <b>Is a deploy a forced park, or a kill?</b> <span class="small">… options …</span></p>
+        <div class="btnrow"><button class="btn pri">A · forced park</button><button class="btn pri">B · kill</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">Composition is the answer to length, which is what ADR-0026 says in its own words.
+     The break falls where the meaning breaks and both halves get a plain label, so the reader gets
+     two named parts. The refusal at 1600 must name this path, or the agent spends its three
+     attempts squeezing instead of splitting. <b>The cost:</b> the second prose message spends one
+     of the four slots, so a send that also wants a visual and a card is full.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">W2</span> The refusal stands and the agent cuts</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt"><div class="m first" data-kind="prose">
+      <p class="small">1 of 3 · parking</p>
+      <p><b>Parking keeps the conversation and loses the process.</b> <span class="small">… cut to
+         fit 1600 …</span></p>
+      <p class="small">The step-by-step walkthrough is on the timeline.</p>
+    </div></div>
+  </div></div>
+  <p class="why">1600 means 1600, and a cap that can be stepped over is not a cap. The
+     <code>timeline</code> flag already exists for reasoning that does not belong in a card.
+     <b>The cost:</b> the operator raised the cap in round 2 because answers were being cut, and
+     this puts the cutting back. It also spends lint attempts to teach a number.</p>
+</div>
+
+<h3 class="sec" style="margin-top:1.6rem">q3 · The visual field and the visual format</h3>
+<p class="lead">This came back unanswered from round 3. ADR-0019 gives every message an optional
+   <code>visual</code> field. ADR-0026 also lists <code>visual</code> as a message format. One name
+   currently means two things, which is the rule this map runs on.</p>
+
+<div class="cand">
+  <h3><span class="n">U1</span> Both stand, and they carry different things <span class="rec">· recommended</span></h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose with a visual field">
+        <p class="small">1 of 2 · cost per stack</p>
+        <p><b>Your reading needs a stack of its own.</b></p>
+        <pre>alp82 (shared)   replaced   kept
+curia-box (own)  kept       kept</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">2 of 2 · decision</p>
+        <p>❓ <b>Which stack does the box sync to?</b> <span class="small">… options …</span></p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">The field is a small table a reader always reads with the words above it, so under
+     the K4 rule it is not its own message. The format is a diagram a reader may want to skip or
+     dwell on, so it is. Both names describe the same form and they differ in what a reader does
+     with it, which is the rule that already decides every other split. <b>The cost:</b> one word
+     names a field and a format, and a build has to keep them apart.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">U2</span> The field retires, and every visual is its own message</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose">
+        <p class="small">1 of 3 · cost per stack</p>
+        <p><b>Your reading needs a stack of its own.</b></p>
+      </div>
+      <div class="m" data-kind="visual">
+        <p class="small">2 of 3 · the two outcomes</p>
+        <pre>alp82 (shared)   replaced   kept
+curia-box (own)  kept       kept</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">3 of 3 · decision</p>
+        <p>❓ <b>Which stack does the box sync to?</b> <span class="small">… options …</span></p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">One name, one thing, with no exception to remember. Every visual is countable on
+     the rail and skippable on its own. <b>The cost:</b> a two-row table becomes a whole message
+     with its own label, so a send spends a slot on something the reader never wanted separated.
+     It also breaks every shipped surface that carries a <code>visual</code> field today, including
+     the status line, the gate and the verdict.</p>
+</div>
+
+<div class="cand">
+  <h3><span class="n">U3</span> The format retires, and a visual always rides a message</h3>
+  <div class="msg"><div class="avatar curia">cu</div><div class="body">
+    <div class="who">curia <span class="app">APP</span><span class="ts">09:14</span></div>
+    <div class="txt">
+      <div class="m first" data-kind="prose with a visual field">
+        <p class="small">1 of 2 · cost per stack</p>
+        <p><b>Your reading needs a stack of its own.</b></p>
+        <pre>alp82 (shared)   replaced   kept
+curia-box (own)  kept       kept</pre>
+      </div>
+      <div class="m" data-kind="choice">
+        <p class="small">2 of 2 · decision</p>
+        <p>❓ <b>Which stack does the box sync to?</b> <span class="small">… options …</span></p>
+        <div class="btnrow"><button class="btn pri">A · own stack</button><button class="btn pri">B · your stack</button></div>
+      </div>
+    </div>
+  </div></div>
+  <p class="why">One name, one thing, and nothing shipped has to move. A visual is always attached
+     to the words that explain it, which is where a reader wants it most of the time.
+     <b>The cost:</b> a big diagram that stands alone has to be bolted onto a prose message that
+     exists only to carry it, and the catalog of ADR-0026 loses a row it just gained.</p>
+</div>
+
+<!-- ================================================================ -->
+<h2 class="sec" id="palette"><span class="n">12</span> The palette, and what binds it</h2>
 <p class="lead">What the five cuts draw from, and the rules that already hold. A variation that
    breaks one of these is not a candidate.</p>
 <ul class="plain">
@@ -1740,17 +1982,29 @@ takeable row        blocked by C</pre>
 </ul>
 
 <!-- ================================================================ -->
-<h2 class="sec" id="next"><span class="n">12</span> What is settled, and what round 3 owes</h2>
-<p class="lead"><b>Settled.</b> The rail, with curia's count and the agent's plain label at 20
-   characters, and no rail on a send of one. The prose cap at 2000. The conclusion first in bold,
-   with a list where the content is a list. The background as small print behind an info glyph.</p>
-<p class="lead"><b>Open, and on the page above.</b> How a prose entry crosses the 1600 chunk limit
-   and what carries an answer past 2000. The layout of the background block. The glyph itself, which
-   amends the ADR-0013 signal set. The rule for when the agent composes at all. Where an image
-   rides, and whether the per-message <code>visual</code> field survives beside the
-   <code>visual</code> message format.</p>
-<p class="lead">After round 3 the whole ticket is decided, and the picks go into ADR-0026 as an
-   amendment. The build lands with the handoff (#533).</p>
+<h2 class="sec" id="next"><span class="n">13</span> What is settled, and what round 4 owes</h2>
+<p class="lead"><b>Settled over three rounds.</b> Every taste question the ticket named is
+   decided.</p>
+<ul class="plain">
+  <li><b>The dressing.</b> A small-print rail on every message of a send: curia writes the count,
+      the agent writes a plain descriptive label at 20 characters, linted as inline text. A send of
+      one message carries no rail.</li>
+  <li><b>The order.</b> The deciding message posts last, as ADR-0026 fixed. Above it the agent
+      orders by what the reader needs first.</li>
+  <li><b>The prose message.</b> Cap 1600. The conclusion leads in bold, and the body under it is
+      paragraphs or a list, chosen by what the content is.</li>
+  <li><b>The question background.</b> Small print behind 💡, in one wrapped line or a stack, the
+      agent's choice per question. This is the named exception to the never-stacked rule.</li>
+  <li><b>When to compose.</b> A message exists when a reader would want to skip it on its own.
+      Anything a reader always reads together stays one message.</li>
+  <li><b>The image.</b> Four forms stand and the agent picks: on the card, its own message before
+      the card, an ASCII diagram instead, or leading the send with prose reading it.</li>
+</ul>
+<p class="lead"><b>Open, in round 4 above.</b> Where the 1600 tape measure goes when the rail
+   shares the message. What carries an answer past 1600. Whether the <code>visual</code> field and
+   the <code>visual</code> format both stand.</p>
+<p class="lead">After round 4 the picks go into ADR-0026 as an amendment, and the build lands with
+   the handoff (#533).</p>
 
 </main>
 
