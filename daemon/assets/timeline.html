@@ -386,9 +386,9 @@ async function submit() {
   if (r.error) {
     const n = document.createElement('div')
     n.className = 'item note'; n.style.color = 'var(--warn)'
-    n.textContent = 'send failed: ' + r.error
+    n.textContent = (r.unconfirmed ? 'send unconfirmed: ' : 'send failed: ') + r.error
     log.appendChild(n); scroll()
-    box.value = text
+    if (!r.unconfirmed) box.value = text
   }
 }
 

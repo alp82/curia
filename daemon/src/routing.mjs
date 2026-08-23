@@ -311,6 +311,22 @@ export function buildSpawnCmd(routing, harness, model, promptFile) {
   return b.template.replaceAll('{model}', modelId).replaceAll('{prompt_file}', promptFile)
 }
 
+export function buildResumeCmd(routing, harness, model) {
+  const b = routing.harnesses?.[harness]
+  if (!b) {
+    throw new Error(`unknown harness "${harness}". Configured harnesses: ${Object.keys(routing.harnesses ?? {}).join(', ')}`)
+  }
+  const template = b.resumeTemplate ?? b.resume_template
+  if (typeof template !== 'string' || !template.includes('{model}')) {
+    throw new Error(`harness "${harness}" has no resume template with a {model} placeholder`)
+  }
+  const modelId = spawnModelId(routing, model)
+  if (!SAFE_SUBSTITUTION.test(modelId)) {
+    throw new Error(`refusing to substitute {model}: "${modelId}" is not quote-free/shell-safe`)
+  }
+  return template.replaceAll('{model}', modelId)
+}
+
 // Classify pane text as a usage-limit hit. Keys on limit-*reached* phrasing,
 // never an informational mention (field-notes contract 4 — the promotional
 // "You can use up to 50% of your weekly usage limit on Fable 5" text appears

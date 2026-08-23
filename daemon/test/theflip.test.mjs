@@ -130,6 +130,7 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
       'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
       "    ready: '⏵⏵|bypass permissions'",
       '    tool_channel_grace_s: 15',
       '',

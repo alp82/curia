@@ -293,8 +293,8 @@ describe('the `review:` section in routing.yaml (#164)', () => {
     '  opus: { provider: anthropic, harness: claude }',
     '  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol }',
     'harnesses:',
-    "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
-    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'y', tool_channel_grace_s: 20 }",
+    "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', resume_template: 'claude --model {model} --continue', ready: 'x', tool_channel_grace_s: 15 }",
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'codex resume --last --model {model}', ready: 'y', tool_channel_grace_s: 20 }",
   ]
   const load = (review) => {
     const file = path.join(tmp, 'routing.yaml')

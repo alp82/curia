@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { Dispatcher, discordTime, paneTail, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
+import { Dispatcher, discordTime, paneTail, paneConfirmsStall, paneAcceptedNudge, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 import { Reduction } from '../src/reduction.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
 import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
@@ -27,7 +27,11 @@ const ROUTING = {
   defaults: { untyped: 'sonnet' },
   models: { sonnet: { provider: 'anthropic', harness: 'claude' } },
   fallbacks: {},
-  harnesses: { claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ } },
+  harnesses: { claude: {
+    template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"',
+    resumeTemplate: 'claude --model {model} --permission-mode bypassPermissions --continue "Continue the interrupted work."',
+    ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/,
+  } },
 }
 
 // The same routing with a shorter tool-channel window (#194), so a test can sit
@@ -169,6 +173,10 @@ function makeDispatcher(deps = {}, {
     releasedDeaths: (ticket) => journal.releasedDeaths(ticket),
     releasedDeathCounts: () => journal.releasedDeathCounts(),
     agentSpoke: (agent) => journal.agentSpoke(agent),
+    stallRecovery: (ticket) => journal.stallRecovery(ticket),
+    operatorStallLaunch: (ticket) => journal.operatorStallLaunch(ticket),
+    stalledTickets: () => journal.stalledTickets(),
+    pendingStallRespawns: () => journal.pendingStallRespawns(),
     // #377, for the same reason: the cooling the dispatcher seeds itself from
     // at construction is the real reduction over the real journal.
     armedCoolings: () => journal.armedCoolings(),
@@ -711,6 +719,104 @@ describe('reconcile epoch scoping (criterion 7)', () => {
 
     assert.deepEqual(unclaimed, [])
     assert.equal(d.agents.get('curia-42').repo, 'o/r') // re-adopted instead
+  })
+
+  test('adoption completes a stall respawn that started its session before the restart', async () => {
+    writeJournal([
+      { type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', harness: 'claude' },
+      { type: 'stall_nudge_finished', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'stall_respawn_started', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'stall_respawn_launching', repo: 'o/r', ticket: '42', agent: 'curia-42', exit_marker: 'marker' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...assignedToMe }),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.equal(d.reduction.stallRecovery('42').respawned, true)
+    assert.ok(events.some((e) => e.type === 'stall_respawned' && e.recovered_after_restart))
+  })
+
+  test('adoption completes an operator stall resume that started before the restart', async () => {
+    writeJournal([
+      { type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42', by: 'alp82' },
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', harness: 'claude' },
+      { type: 'stall_nudge_finished', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'stall_respawned', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'stall_escalated', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      {
+        type: 'stall_respawn_launching', repo: 'o/r', ticket: '42', agent: 'curia-42',
+        model: 'sonnet', harness: 'claude', kind: 'ticket', operator_after_stall: true,
+      },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({ ...assignedToMe }),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.equal(d.reduction.stallRecovery('42').escalated, false)
+    assert.equal(d.reduction.operatorStallLaunch('42'), null)
+    assert.ok(events.some((e) => e.type === 'agent_spawned'
+      && e.operator_after_stall && e.recovered_after_restart))
+  })
+
+  test('reconcile retries a stall respawn when the restart left no session', async () => {
+    writeJournal([
+      { type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42', by: 'auto' },
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', harness: 'claude' },
+      { type: 'stall_nudge_finished', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'stall_respawn_started', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+    ])
+    fakePrivateClone(path.join(tmp, 'work'), 'o/r', '42')
+    let assigned = true
+    let spawn = null
+    const d = makeDispatcher({
+      listSessions: async () => [],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: assigned ? [{ login: 'me' }] : [] }),
+      unclaim: async () => { assigned = false },
+      claim: async () => { assigned = true },
+      createPrivateClone: async () => { throw new Error('the surviving worktree was replaced') },
+      newSession: async (options) => { spawn = options },
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.match(spawn.shellCmd, /--continue/)
+    assert.ok(events.some((e) => e.type === 'stall_respawn_recovered' && e.outcome === 'ran'))
+    assert.equal(d.reduction.stallRecovery('42').respawned, true)
+    assert.ok(events.findIndex((e) => e.type === 'stall_respawn_launching')
+      < events.findIndex((e) => e.type === 'agent_spawned'))
+  })
+
+  test('one failed restart recovery escalates instead of retrying each reconcile', async () => {
+    writeJournal([
+      { type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42', by: 'auto' },
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', harness: 'claude' },
+      { type: 'stall_nudge_finished', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'stall_respawn_started', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+    ])
+    fakePrivateClone(path.join(tmp, 'work'), 'o/r', '42')
+    let assigned = true
+    let spawns = 0
+    const d = makeDispatcher({
+      listSessions: async () => [],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: assigned ? [{ login: 'me' }] : [] }),
+      unclaim: async () => { assigned = false },
+      claim: async () => { assigned = true },
+      newSession: async () => { spawns += 1; throw new Error('tmux failed') },
+    })
+
+    await d.reconcile({ boot: false })
+    await d.reconcile({ boot: false })
+
+    assert.equal(spawns, 1)
+    assert.equal(d.reduction.stallRecovery('42').escalated, true)
+    assert.equal(events.filter((e) => e.type === 'stall_escalated').length, 1)
   })
 
   test('a re-adopted agent gets its model and harness back from the journal (#187)', async () => {
@@ -2477,7 +2583,7 @@ describe('the auto loop stops taking a ticket that dies at every spawn (#444)', 
     assert.deepEqual(claims, ['o/r#42', 'o/r#42'], 'two containers and two claim round-trips, then nothing')
     assert.equal(events.filter((e) => e.type === 'dispatch_failed').length, 2)
     assert.equal(d.dispatchHolds().length, 1, 'and the surfaces can say which ticket the loop steps over')
-    assert.deepEqual(d.dispatchHolds(), [{ ticket: '42', repo: 'o/r', failures: 2 }])
+    assert.deepEqual(d.dispatchHolds(), [{ ticket: '42', repo: 'o/r', failures: 2, kind: 'failed-spawn' }])
   })
 
   test('the thread hears it once, at the instant the step-over arms', async () => {
@@ -2837,8 +2943,27 @@ describe('a note interrupts instead of queueing (#252)', () => {
     await d.interruptNote('note-1', { by: 'u1' })
     await new Promise((r) => setTimeout(r, 10))
 
-    assert.match(notifies.at(-1).message, /could not put those words/)
+    assert.match(notifies.at(-1).message, /could not confirm those words/)
+    assert.match(notifies.at(-1).message, /Check the pane before you retry/)
     assert.ok(typesOf().includes('note_interrupt_failed'))
+  })
+
+  test('an unconfirmed send does not claim delivery or ask for an immediate retry', async () => {
+    const d = makeDispatcher({
+      sendKey: async () => {},
+      sendText: async () => ({ status: 'unconfirmed', pane: 'idle' }),
+    })
+    d.interruptGraceMs = 0
+    d.agents.set('curia-42', liveAgent())
+    agentNotes.set('curia-42', [queued('note-1')])
+
+    await d.interruptNote('note-1', { by: 'u1' })
+    await new Promise((r) => setTimeout(r, 10))
+
+    assert.match(notifies.at(-1).message, /sent keys/)
+    assert.match(notifies.at(-1).message, /Check the pane before you retry/)
+    assert.ok(typesOf().includes('note_interrupt_unconfirmed'))
+    assert.ok(!typesOf().includes('note_interrupt_delivered'))
   })
 })
 
@@ -3147,6 +3272,26 @@ describe('a failed unclaim is never journalled as dispatch_unclaimed (F1 — the
 
     assert.deepEqual(unclaimed, ['o/r#42'], 'reconcile must retry the release the failed unclaim left behind')
     assert.ok(typesOf().includes('dead_claim_released'))
+  })
+
+  test('reconcile counts a speaking death after its first unclaim failed', async () => {
+    writeJournal([
+      { type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42', by: 'auto' },
+      { type: 'agent_spawned', repo: 'o/r', ticket: '42', agent: 'curia-42', model: 'sonnet', harness: 'claude' },
+      { type: 'agent_mcp_first', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'agent_died', repo: 'o/r', ticket: '42', agent: 'curia-42' },
+      { type: 'unclaim_failed', repo: 'o/r', ticket: '42', agent: 'curia-42', error: 'HTTP 502' },
+    ])
+    const d = makeDispatcher({
+      listSessions: async () => [],
+      fetchIssue: async () => ({ ...OPEN_ISSUE, assignees: [{ login: 'me' }] }),
+      unclaim: async () => {},
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.equal(d.reduction.releasedDeaths('42'), 1)
+    assert.equal(d.reduction.failedSpawns('42'), 0)
   })
 
   test('control: a genuine dispatch_unclaimed still closes the epoch — reconcile leaves it alone', async () => {
@@ -5701,7 +5846,8 @@ describe('agent-liveness sweep (#138)', () => {
     await d.livenessSweep()
 
     assert.equal(d.reduction.releasedDeaths('42'), 1)
-    assert.deepEqual(d.dispatchHolds(), [], 'the first death buys one automatic resume')
+    assert.equal(d.reduction.failedSpawns('42'), 0)
+    assert.deepEqual(d.dispatchHolds(), [], 'the first death permits one automatic resume')
 
     await d.resume('42', { repo: 'o/r', by: 'auto' })
     d.onMcpCall('curia-42')
@@ -5709,7 +5855,8 @@ describe('agent-liveness sweep (#138)', () => {
     await d.livenessSweep()
 
     assert.equal(d.reduction.releasedDeaths('42'), 2)
-    assert.deepEqual(d.dispatchHolds(), [{ ticket: '42', repo: 'o/r', deaths: 2 }])
+    assert.equal(d.reduction.failedSpawns('42'), 0)
+    assert.deepEqual(d.dispatchHolds(), [{ ticket: '42', repo: 'o/r', deaths: 2, kind: 'death-resume' }])
     assert.equal(events.filter((e) => e.type === 'death_resume_held').length, 1)
     assert.equal(notifies.filter((n) => /automatic resume also died/.test(n.message)).length, 1)
 
@@ -5718,7 +5865,265 @@ describe('agent-liveness sweep (#138)', () => {
     d.startAutoLoop()
     await new Promise((resolve) => setTimeout(resolve, 250))
     d.stopAutoLoop()
-    assert.equal(claims, 2, 'later ticks spend no claim or container')
+    assert.equal(claims, 2, 'later ticks claim no ticket and start no container')
+  })
+})
+
+describe('the stall watchdog (#574)', () => {
+  const idlePane = 'API Error: 500 Internal server error\n⏵⏵ bypass permissions on'
+  const activePane = '✻ Working on the next step'
+
+  async function stalled(deps = {}, options = {}) {
+    const spawns = []
+    const d = makeDispatcher({
+      newSession: async (o) => { spawns.push(o) },
+      transcriptActivity: () => ({ mtimeMs: Date.now() - 60_000 }),
+      ...deps,
+    }, options)
+    await d.start('42', { repo: 'o/r', by: 'alp82' })
+    const w = d.agents.get('curia-42')
+    w.state = 'ready'
+    w.readyAt = Date.now() - 60_000
+    w.spawnedAt = Date.now() - 60_000
+    w.mcpSeenAt = Date.now() - 60_000
+    d.stallTimeoutMs = 10
+    d.stallReadbackMs = 0
+    return { d, w, spawns }
+  }
+
+  test('pane confirmation needs an error or an idle prompt without an active marker', () => {
+    const ready = ROUTING.harnesses.claude.readyRe
+    assert.equal(paneConfirmsStall(idlePane, ready), true)
+    assert.equal(paneConfirmsStall('⏵⏵ bypass permissions on', ready), true)
+    assert.equal(paneConfirmsStall('✻ Working\n⏵⏵ bypass permissions on', ready), false)
+    assert.equal(paneConfirmsStall('✻ Working on an old step\nold output\nold output\nold output\nAPI Error: 500\n⏵⏵ bypass permissions on', ready), true)
+    assert.equal(paneConfirmsStall('ordinary output', ready), false)
+    assert.equal(paneAcceptedNudge(idlePane, activePane, ready), true)
+    assert.equal(paneAcceptedNudge(idlePane, idlePane, ready), false)
+  })
+
+  test('an open question disables the watchdog', async () => {
+    let captures = 0
+    const { d } = await stalled({ capturePane: async () => { captures += 1; return idlePane } })
+    escalations = [{ id: 'esc-1', agent: 'curia-42', ticket: '42', status: 'open' }]
+
+    await d.stallSweep()
+
+    assert.equal(captures, 0)
+    assert.ok(!events.some((e) => e.type.startsWith('stall_')))
+  })
+
+  test('the first stall sends one nudge and verifies the pane', async () => {
+    let pane = idlePane
+    const sent = []
+    const { d } = await stalled({
+      capturePane: async () => pane,
+      sendText: async (agent, text) => { sent.push({ agent, text }); pane = activePane },
+    })
+
+    await d.stallSweep()
+
+    assert.equal(sent.length, 1)
+    assert.match(sent[0].text, /Continue/)
+    assert.ok(events.some((e) => e.type === 'stall_nudge_started'))
+    assert.ok(events.some((e) => e.type === 'stall_nudge_accepted' && e.attempt === 1))
+    assert.ok(!events.some((e) => e.type === 'stall_respawn_started'))
+  })
+
+  test('the nudge check waits for a delayed active pane', async () => {
+    let captures = 0
+    const sent = []
+    const { d } = await stalled({
+      capturePane: async () => {
+        captures += 1
+        return captures >= 3 ? activePane : idlePane
+      },
+      sendText: async (agent, text) => { sent.push({ agent, text }) },
+    })
+    d.stallReadbackMs = 50
+
+    await d.stallSweep()
+
+    assert.equal(sent.length, 1)
+    assert.ok(events.some((e) => e.type === 'stall_nudge_accepted'))
+    assert.ok(!events.some((e) => e.type === 'stall_respawn_started'))
+  })
+
+  test('two failed nudge checks cause one resume respawn', async () => {
+    const sent = []
+    const killed = []
+    const { d, spawns } = await stalled({
+      capturePane: async () => idlePane,
+      sendText: async (agent, text) => { sent.push({ agent, text }) },
+      killSession: async (agent) => { killed.push(agent) },
+    })
+
+    await d.stallSweep()
+
+    assert.equal(sent.length, 2)
+    assert.deepEqual(killed, ['curia-42'])
+    assert.equal(spawns.length, 2)
+    assert.match(spawns[1].shellCmd, /--continue/)
+    assert.ok(events.some((e) => e.type === 'stall_respawn_started'))
+    assert.ok(events.some((e) => e.type === 'stall_respawned'))
+    assert.ok(events.some((e) => e.type === 'stall_nudge_finished'))
+  })
+
+  test('an unconfirmed composer blocks the second nudge', async () => {
+    let pane = idlePane
+    const sent = []
+    const { d } = await stalled({
+      capturePane: async () => pane,
+      sendText: async (agent, text) => {
+        sent.push({ agent, text })
+        pane = `${idlePane}\n${text}`
+        return { status: 'unconfirmed', pane }
+      },
+      killSession: async () => {},
+    })
+
+    await d.stallSweep()
+
+    assert.equal(sent.length, 1)
+    assert.ok(events.some((e) => e.type === 'stall_nudge_finished'
+      && /empty composer/.test(e.outcome)))
+    assert.ok(events.some((e) => e.type === 'stall_respawn_started'))
+  })
+
+  test('a rejected nudge attempt leaves only one retry after a restart', async () => {
+    const sent = []
+    const { d } = await stalled({
+      capturePane: async () => idlePane,
+      sendText: async (agent, text) => { sent.push({ agent, text }) },
+    })
+    d.reduction.journal('stall_nudge_rejected', {
+      repo: 'o/r', ticket: 42, agent: 'curia-42', attempt: 1,
+    })
+
+    await d.stallSweep()
+
+    assert.equal(sent.length, 1)
+    assert.ok(events.some((e) => e.type === 'stall_nudge_rejected' && e.attempt === 2))
+    assert.ok(events.some((e) => e.type === 'stall_respawn_started'))
+  })
+
+  test('a stall after the resume respawn escalates and holds automatic dispatch', async () => {
+    let sends = 0
+    const { d, w } = await stalled({
+      capturePane: async () => idlePane,
+      sendText: async () => { sends += 1 },
+    })
+    d.reduction.journal('stall_nudge_finished', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    d.reduction.journal('stall_respawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+
+    await d.stallSweep()
+
+    assert.equal(sends, 0)
+    assert.equal(w.state, 'failed')
+    assert.ok(events.some((e) => e.type === 'stall_escalated'))
+    assert.deepEqual(d.dispatchHolds(), [{
+      ticket: '42', repo: 'o/r', kind: 'stall-watchdog',
+    }])
+    const message = notifies.find((n) => /Automatic stall recovery stops/.test(n.message)).message
+    assert.match(message, /resume 42/)
+    assert.doesNotMatch(message, /cancel/)
+  })
+
+  test('an operator resume keeps the worktree after a stall escalation', async () => {
+    let removals = 0
+    const killed = []
+    const { d, spawns } = await stalled({
+      capturePane: async () => idlePane,
+      sendText: async () => {},
+      killSession: async (session) => { killed.push(session) },
+      removeWorkspace: async () => { removals += 1 },
+    })
+    d.reduction.journal('stall_nudge_finished', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    d.reduction.journal('stall_respawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    await d.stallSweep()
+
+    const reply = await d.resume('42', { repo: 'o/r', by: 'alp82' })
+
+    assert.match(reply, /surviving worktree/)
+    assert.deepEqual(killed, ['curia-42'])
+    assert.equal(removals, 0)
+    assert.equal(spawns.length, 2)
+    assert.match(spawns[1].shellCmd, /--continue/)
+    assert.equal(d.reduction.stallRecovery('42').escalated, false)
+  })
+
+  test('an operator resume refuses a model on another harness', async () => {
+    let kills = 0
+    const routing = {
+      ...ROUTING,
+      models: {
+        ...ROUTING.models,
+        gpt: { provider: 'openai', harness: 'codex', id: 'gpt-5.6-sol' },
+      },
+      harnesses: {
+        ...ROUTING.harnesses,
+        codex: {
+          template: 'codex --model {model} "$(cat {prompt_file})"',
+          resumeTemplate: 'codex resume --last --model {model} "Continue the interrupted work."',
+          ready: '·\\s[~/]', readyRe: /·\s[~/]/, toolChannelGraceS: 15,
+        },
+      },
+    }
+    const { d, spawns } = await stalled({
+      capturePane: async () => idlePane,
+      sendText: async () => {},
+      killSession: async () => { kills += 1 },
+    }, { routing })
+    d.reduction.journal('stall_nudge_finished', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    d.reduction.journal('stall_respawned', { repo: 'o/r', ticket: 42, agent: 'curia-42' })
+    await d.stallSweep()
+
+    const reply = await d.resume('42', { repo: 'o/r', model: 'gpt', by: 'alp82' })
+
+    assert.match(reply, /saved conversation belongs to the claude harness/)
+    assert.equal(kills, 0)
+    assert.equal(spawns.length, 1)
+  })
+
+  test('a failed pane stop keeps the live agent and claim', async () => {
+    let unclaims = 0
+    const { d, w } = await stalled({
+      capturePane: async () => idlePane,
+      sendText: async () => {},
+      killSession: async () => { throw new Error('tmux did not stop') },
+      unclaim: async () => { unclaims += 1 },
+    })
+
+    await d.stallSweep()
+
+    assert.equal(d.agents.get('curia-42'), w)
+    assert.equal(w.state, 'failed')
+    assert.equal(unclaims, 0)
+    assert.ok(events.some((e) => e.type === 'stall_respawn_failed'))
+  })
+
+  test('a failed resume respawn releases the claim and keeps the worktree', async () => {
+    let spawns = 0
+    let unclaims = 0
+    let removals = 0
+    const { d } = await stalled({
+      capturePane: async () => idlePane,
+      sendText: async () => {},
+      newSession: async () => {
+        spawns += 1
+        if (spawns === 2) throw new Error('tmux name collision')
+      },
+      unclaim: async () => { unclaims += 1 },
+      removeWorkspace: async () => { removals += 1 },
+    })
+
+    await d.stallSweep()
+
+    assert.equal(unclaims, 1)
+    assert.equal(removals, 0)
+    assert.equal(d.agents.has('curia-42'), false)
+    assert.ok(events.some((e) => e.type === 'dispatch_unclaimed'))
+    assert.ok(events.some((e) => e.type === 'stall_escalated'))
   })
 })
 

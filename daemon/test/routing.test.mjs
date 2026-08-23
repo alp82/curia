@@ -53,7 +53,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { Cooling, resolveModel, namedModel, candidates, buildSpawnCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
+import { Cooling, resolveModel, namedModel, candidates, buildSpawnCmd, buildResumeCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
 
 const routing = {
   defaults: { grilling: 'fable', prototype: 'fable', research: 'opus', task: 'opus', untyped: 'opus' },
@@ -64,7 +64,11 @@ const routing = {
   },
   fallbacks: { fable: ['opus'], opus: ['sonnet'] },
   harnesses: {
-    claude: { template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"', ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/ },
+    claude: {
+      template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"',
+      resumeTemplate: 'claude --model {model} --permission-mode bypassPermissions --continue "Continue the interrupted work."',
+      ready: '⏵⏵|bypass permissions', toolChannelGraceS: 15, readyRe: /⏵⏵|bypass permissions/,
+    },
   },
 }
 
@@ -315,6 +319,36 @@ describe('buildSpawnCmd', () => {
   // outer wrapper.
   test('a promptFile path containing a single quote is refused', () => {
     assert.throws(() => buildSpawnCmd(routing, 'claude', 'opus', "/home/alp/curia-work/cfg/curia-42/it's-bad.md"))
+  })
+})
+
+describe('buildResumeCmd', () => {
+  test('it substitutes the model into the harness resume command', () => {
+    assert.equal(
+      buildResumeCmd(routing, 'claude', 'opus'),
+      'claude --model opus --permission-mode bypassPermissions --continue "Continue the interrupted work."',
+    )
+  })
+
+  test('it refuses a harness with no resume command', () => {
+    const missing = { ...routing, harnesses: { claude: { ...routing.harnesses.claude, resumeTemplate: '' } } }
+    assert.throws(() => buildResumeCmd(missing, 'claude', 'opus'), /resume template/)
+  })
+
+  test('the codex command resumes the newest session in its agent config directory', () => {
+    const twoHarnesses = {
+      ...routing,
+      models: { ...routing.models, gpt: { provider: 'openai', harness: 'codex', id: 'gpt-5.6-sol' } },
+      harnesses: {
+        ...routing.harnesses,
+        codex: {
+          template: 'codex --model {model} "$(cat {prompt_file})"',
+          resumeTemplate: 'codex resume --last --model {model} "Continue the interrupted work."',
+          ready: '·\\s[~/]', readyRe: /·\s[~/]/,
+        },
+      },
+    }
+    assert.match(buildResumeCmd(twoHarnesses, 'codex', 'gpt'), /codex resume --last --model gpt-5\.6-sol/)
   })
 })
 

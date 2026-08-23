@@ -443,6 +443,7 @@ describe('the settings write and the restart (#265)', () => {
       'models:', '  opus: { provider: anthropic, harness: claude }',
       'harnesses:', '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
       "    ready: 'bypass permissions'", '    tool_channel_grace_s: 15', '',
     ].join('\n'))
 

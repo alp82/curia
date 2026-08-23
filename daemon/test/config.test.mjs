@@ -297,8 +297,8 @@ describe('routing config with a second harness (#39)', () => {
     '  opus: { provider: anthropic, harness: claude }',
     '  gpt: { provider: openai, harness: codex, id: gpt-5.5 }',
     'harnesses:',
-    "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'bypass permissions', tool_channel_grace_s: 15 }",
-    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '\u00b7\\s[~/]', tool_channel_grace_s: 15 }",
+    "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'bypass permissions', tool_channel_grace_s: 15 }",
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: '\u00b7\\s[~/]', tool_channel_grace_s: 15 }",
   ]
 
   function load(lines) {
@@ -314,18 +314,25 @@ describe('routing config with a second harness (#39)', () => {
     assert.equal(cfg.harnesses.claude.readyRe.test('  gpt-5.5 low · ~/curia-work/wt/39'), false)
   })
 
+  test('a harness with no resume command refuses the boot', () => {
+    const lines = BASE.map((line) => line.startsWith('  codex:')
+      ? line.replace(", resume_template: 'resume --model {model}'", '')
+      : line)
+    assert.throws(() => load(lines), /harnesses\.codex\.resume_template/)
+  })
+
   // #33 lost readiness live to a marker that matched nothing, and the whole
   // symptom was silence — so an absent one refuses the boot (#57's precedent).
   test('a harness with no readiness marker refuses the boot', () => {
     const lines = BASE.map((l) => (l.startsWith('  codex:')
-      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"' }"
+      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}' }"
       : l))
     assert.throws(() => load(lines), /harnesses\.codex needs a `ready` regex/)
   })
 
   test('a harness with no tool-channel window refuses the boot (#194)', () => {
     const lines = BASE.map((l) => (l.startsWith('  codex:')
-      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x' }"
+      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x' }"
       : l))
     assert.throws(() => load(lines), /harnesses\.codex needs a positive `tool_channel_grace_s`/)
   })
@@ -333,7 +340,7 @@ describe('routing config with a second harness (#39)', () => {
   test('a zero or negative tool-channel window refuses the boot — it would call every agent mute', () => {
     for (const bad of ['0', '-5']) {
       const lines = BASE.map((l) => (l.startsWith('  codex:')
-        ? `  codex: { template: 'codex --model {model} "$(cat {prompt_file})"', ready: 'x', tool_channel_grace_s: ${bad} }`
+        ? `  codex: { template: 'codex --model {model} "$(cat {prompt_file})"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: ${bad} }`
         : l))
       assert.throws(() => load(lines), /tool_channel_grace_s/)
     }
@@ -345,7 +352,7 @@ describe('routing config with a second harness (#39)', () => {
 
   test('a readiness marker that is not a regex refuses the boot', () => {
     const lines = BASE.map((l) => (l.startsWith('  codex:')
-      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: '[unclosed', tool_channel_grace_s: 15 }"
+      ? "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: '[unclosed', tool_channel_grace_s: 15 }"
       : l))
     assert.throws(() => load(lines), /is not a valid regex/)
   })
@@ -354,9 +361,9 @@ describe('routing config with a second harness (#39)', () => {
   // Stop hook — an agent that cannot be driven or ended.
   test('a harness with no entry in the HARNESS table refuses the boot', () => {
     const lines = [...BASE.slice(0, -2),
-      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
-      "  cursor: { template: 'cursor --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
-      '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', ready: \'x\', tool_channel_grace_s: 15 }',
+      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
+      "  cursor: { template: 'cursor --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
+      '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', resume_template: \'resume --model {model}\', ready: \'x\', tool_channel_grace_s: 15 }',
     ]
     assert.throws(() => load(lines), /harnesses\.cursor has no entry in the HARNESS table/)
   })
@@ -391,7 +398,7 @@ describe('reasoning effort is stated, not inherited (#39)', () => {
     'models:',
     `  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol${effort === null ? '' : `, reasoning_effort: ${effort}`} }`,
     'harnesses:',
-    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
   ]
 
   function load(effort) {
@@ -645,8 +652,8 @@ describe('the tracked file and the override beside it (#292)', () => {
       '  opus: { provider: anthropic, harness: claude }',
       '  gpt: { provider: openai, harness: codex }',
       'harnesses:',
-      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', ready: 'x', tool_channel_grace_s: 15 }",
-      "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', ready: 'y', tool_channel_grace_s: 15 }",
+      "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
+      "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'y', tool_channel_grace_s: 15 }",
       '',
     ].join('\n'))
     fs.writeFileSync(localConfigFile(base), 'models:\n  gpt:\n    active: false\n')

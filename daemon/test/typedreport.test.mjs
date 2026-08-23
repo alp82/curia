@@ -105,6 +105,7 @@ describe('report_result carries the typed fields and the lint gate (#419, real b
       'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
       "    ready: '⏵⏵|bypass permissions'",
       '    tool_channel_grace_s: 15',
       '',

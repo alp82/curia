@@ -498,6 +498,7 @@ describe('TimelineSurface', () => {
   let escalations = []
   let escHistory = []
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
+  let delivery = null
   const workspaceRoot = () => path.join(tmp, 'work')
   // The driven session (#267): the console chat is the overseer, whose
   // transcript sits outside the workspace and whose composer is a turn.
@@ -526,7 +527,10 @@ describe('TimelineSurface', () => {
         identityCheck: () => null,
         escalationsFor: () => escalations,
         escalationHistoryFor: () => escHistory,
-        sendText: async (session, text) => sent.push({ session, text }),
+        sendText: async (session, text) => {
+          sent.push({ session, text })
+          return delivery
+        },
         sendKey: async (session, key) => sent.push({ session, key }),
         capturePane: async () => (typeof pane === 'function' ? pane() : pane),
         composerFor: () => COMPOSER_RE,
@@ -702,6 +706,35 @@ describe('TimelineSurface', () => {
     // the probe on the way in cleared the banner
     const { events } = await sse(port, 'session=curia-9')
     assert.equal(events.find((e) => e.event === 'dialog'), undefined)
+  })
+
+  test('an unconfirmed send clears the shared draft and warns against a retry', async () => {
+    delivery = { status: 'unconfirmed', pane: PANE_COMPOSER }
+    try {
+      await post('/draft', { session: 'curia-9', text: 'check this once' })
+      const r = await post('/send', { session: 'curia-9', text: 'check this once' })
+      assert.equal(r.status, 202)
+      const body = await r.json()
+      assert.equal(body.unconfirmed, true)
+      assert.match(body.error, /did not confirm/)
+      assert.equal(journal.findLast((x) => x.type === 'timeline_send').outcome, 'unconfirmed')
+      const { events } = await sse(port, 'session=curia-9')
+      assert.equal(events.find((e) => e.event === 'hello').data.draft, '')
+    } finally {
+      delivery = null
+    }
+  })
+
+  test('a pane that stays active reports that no text was sent', async () => {
+    delivery = { status: 'not-sent', pane: '✻ Working' }
+    try {
+      const r = await post('/send', { session: 'curia-9', text: 'wait for idle' })
+      assert.equal(r.status, 409)
+      assert.match((await r.json()).error, /did not send/)
+      assert.equal(journal.findLast((x) => x.type === 'timeline_send').outcome, 'not_sent')
+    } finally {
+      delivery = null
+    }
   })
 
   test('during a dialog, Enter refuses and Escape passes — dismissing is not answering', async () => {

@@ -832,12 +832,20 @@ describe('CommandRouter grown verbs (#81)', () => {
   test('status names a ticket the auto loop steps over, and the act that clears it', async () => {
     const box = {
       config: WATCH,
-      dispatchHolds: () => [{ ticket: '444', repo: 'alp82/curia', failures: 2 }],
+      dispatchHolds: () => [
+        { ticket: '444', repo: 'alp82/curia', failures: 2, kind: 'failed-spawn' },
+        { ticket: '578', repo: 'alp82/curia', deaths: 2, kind: 'death-resume' },
+        { ticket: '574', repo: 'alp82/curia', kind: 'stall-watchdog' },
+      ],
       status: async () => ({ agents: [], untracked: [], recent: [] }),
     }
     const reply = await new CommandRouter({ dispatcher: box, attach: {}, log: () => {} }).handle('status', 'u')
     assert.match(reply, /alp82\/curia#444 died at the spawn 2 times, so auto-dispatch steps over it/)
     assert.match(reply, /`start 444` dispatches it again and clears the count/)
+    assert.match(reply, /alp82\/curia#578 died after it spoke/)
+    assert.match(reply, /automatic resume also died/)
+    assert.match(reply, /alp82\/curia#574 needs operator action after automatic stall recovery stopped/)
+    assert.match(reply, /`resume 574` to use the surviving worktree/)
     assert.deepEqual(lintReply(reply), [], 'the step-over speaks the signal set like every other line')
   })
 

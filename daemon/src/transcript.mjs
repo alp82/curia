@@ -133,6 +133,20 @@ export function findTranscript(harness, cfgDir) {
   return newestFile(FILES[harness]?.(cfgDir) ?? [])
 }
 
+// The newest root transcript's last filesystem change. The stall watchdog
+// needs growth evidence, not transcript content. A missing or unreadable file
+// answers null and causes no pane action.
+export function transcriptActivity(harness, cfgDir) {
+  const file = findTranscript(harness, cfgDir)
+  if (!file) return null
+  try {
+    const stat = fs.statSync(file)
+    return { file, mtimeMs: stat.mtimeMs, size: stat.size }
+  } catch {
+    return null
+  }
+}
+
 // The transcript one SESSION ID names (#332, building ADR-0016).
 //
 // Every overseer conversation shares one config dir and one cwd, so they all

@@ -1083,12 +1083,17 @@ function tokenCard(w) {
 }
 
 function dispatchHoldCard(h) {
-  const cause = h.deaths != null
-    ? "died after it spoke, and its automatic resume also died"
-    : `died at the spawn ${esc(h.failures)} times`;
+  const cause = h.kind === "stall-watchdog"
+    ? "needs operator action after automatic stall recovery stopped"
+    : h.kind === "death-resume"
+      ? "died after it spoke, and its automatic resume also died"
+      : `died at the spawn ${esc(h.failures)} times`;
+  const act = h.kind === "stall-watchdog"
+    ? `type <code>resume ${esc(h.ticket)}</code> to use the surviving worktree`
+    : "a <code>start</code> or <code>resume</code> you type dispatches it again and clears the count";
   return `<div class="att-item limit">
     <span class="who">${esc(ticketName(h.repo, h.ticket))}</span>${cause}, so auto-dispatch steps over it
-    <div class="dim">a <code>start</code> or <code>resume</code> you type dispatches it again and clears the count</div></div>`;
+    <div class="dim">${act}</div></div>`;
 }
 
 function attentionList(o) {
@@ -1128,6 +1133,15 @@ const EVENTS = {
   dispatch_held: ["spawn", "warn", (e) => `auto-dispatch steps over ${tkt(e)} — it died at the spawn ${esc(e.failures)} times. A start or a resume you type clears the count`],
   agent_died_released: ["death", "bad", (e) => `${tkt(e)} returned to the frontier after its agent died following tool traffic`],
   death_resume_held: ["death", "warn", (e) => `auto-dispatch steps over ${tkt(e)} — its automatic resume also died. A start or a resume you type clears the count`],
+  stall_detected: ["stall", "warn", (e) => `${who(e)} has no transcript growth and its pane confirms a stall`],
+  stall_nudge_started: ["stall", "warn", (e) => `curia reserved stall nudge ${esc(e.attempt)} for ${who(e)}`],
+  stall_nudge_accepted: ["stall", "", (e) => `${who(e)} showed an active turn after stall nudge ${esc(e.attempt)}`],
+  stall_nudge_rejected: ["stall", "warn", (e) => `${who(e)} showed no active turn after stall nudge ${esc(e.attempt)}`],
+  stall_nudge_finished: ["stall", "warn", (e) => `automatic stall nudges stopped for ${who(e)}${e.outcome ? `: ${esc(e.outcome)}` : ""}`],
+  stall_respawn_started: ["stall", "warn", (e) => `curia started the one resume respawn for ${who(e)}`],
+  stall_respawned: ["stall", "", (e) => `${who(e)} resumed in a fresh harness process`],
+  stall_respawn_failed: ["stall", "bad", (e) => `${who(e)} could not resume after its stall`],
+  stall_escalated: ["stall", "bad", (e) => `${who(e)} needs the operator after automatic stall recovery stopped`],
   dispatch_exhausted: ["cooling", "bad", (e) => `${tkt(e)} could not be dispatched — every model is cooling${e.earliest_reset ? `, the earliest rolls ${esc(clock(e.earliest_reset))}` : ""}`],
   agent_spawned: ["spawn", "", (e) => `${who(e)} spawned on ${esc(e.model)}${e.harness ? ` — ${esc(e.harness)}` : ""}${e.kind ? `, ${esc(e.kind)}` : ""} · ${tkt(e)}`],
   agent_ready: ["spawn", "", (e) => `${who(e)} is at work on ${tkt(e)}`],

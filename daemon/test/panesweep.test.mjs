@@ -412,6 +412,18 @@ describe('which agents the sweep touches (#489)', () => {
     assert.deepEqual(lintReply(said), [])
   })
 
+  test('an unconfirmed pane write does not claim that the parked agent woke', async () => {
+    park('curia-29', '29')
+    d.deps.sendText = async () => ({ status: 'unconfirmed', pane: 'idle' })
+
+    const out = await d.sweepStrandedPanes({ silent: true })
+
+    assert.deepEqual(out.swept, [])
+    assert.ok(events.some((e) => e.type === 'pane_sweep_unconfirmed'))
+    assert.ok(!events.some((e) => e.type === 'pane_sweep_delivered'))
+    assert.match(notifies.at(-1).message, /Check the pane before you retry/)
+  })
+
   test('the sweep journals which agents came from the park set', async () => {
     park('curia-30', '30')
     parkedOnVerdict('curia-31', '31')

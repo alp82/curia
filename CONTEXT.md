@@ -149,6 +149,14 @@ The rule that stops repeated automatic resumes after an agent reached the tool c
 It binds only the auto loop. A `start` or `resume` command from the operator clears the count. The journal stores `agent_died_released` and `death_resume_held`, so a daemon restart does not lose the count. The thread states the hold once. Discord status and the dashboard Needs-you list keep the hold visible. See [#578](https://github.com/alp82/curia/issues/578).
 _Avoid_: failed spawn (that agent never reached the tool channel).
 
+**Stall watchdog**:
+The recovery steps for a live agent whose transcript stops for 15 minutes. An open question, a parked agent, or an active pane prevents action.
+The pane must show an API error or an idle prompt. Curia first sends one continue message and checks the pane. It retries once.
+If the pane shows no active turn after both attempts, curia respawns the harness. It uses the configured resume command.
+If the resumed agent stalls, curia stops automatic recovery. The ticket joins the Needs-you list until the operator dispatches it again.
+The journal stores a start before curia acts and a completion after the effect. A restart retries an incomplete step.
+Curia does not repeat a completed step. See [#574](https://github.com/alp82/curia/issues/574).
+
 **Overseer**:
 The command brain of curia. The standing design is one brain with three skins (Discord, text, voice). The shipped daemon uses a deterministic router instead.
 

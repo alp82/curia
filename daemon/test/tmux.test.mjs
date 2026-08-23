@@ -12,7 +12,7 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { hasSession, listSessions, newSession, capturePane, killSession, wrapShellCmd, sendText, sendKey, PANE_WRITE_GAP_MS } from '../src/tmux.mjs'
+import { hasSession, listSessions, newSession, capturePane, killSession, wrapShellCmd, sendText, sendKey, paneShowsActiveTurn, PANE_WRITE_GAP_MS } from '../src/tmux.mjs'
 import { paneTail, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 
 // Inside any tmux pane — every curia agent runs there — tmux exports $TMUX,
@@ -258,13 +258,22 @@ describe('pane writes are spaced so a codex composer cannot fold them (#223)', (
   // the spacing of the real execFile calls.
   const FAKE = `#!/usr/bin/env node
 const fs = require('fs')
-fs.appendFileSync(process.env.CURIA_TMUX_LOG, Date.now() + ' ' + process.argv.slice(2).join(' ') + '\\n')
+const args = process.argv.slice(2)
+const line = args.join(' ')
+fs.appendFileSync(process.env.CURIA_TMUX_LOG, Date.now() + ' ' + line + '\\n')
+if (process.env.CURIA_TMUX_FAIL_WRITE === '1' && args[0] === 'send-keys') process.exit(1)
+if (args[0] === 'capture-pane') {
+  const target = args[args.indexOf('-t') + 1]
+  const prior = fs.readFileSync(process.env.CURIA_TMUX_LOG, 'utf8')
+  const active = prior.includes('send-keys -t ' + target + ' Enter')
+  process.stdout.write((process.env.CURIA_TMUX_ACTIVE === '1' || (active && process.env.CURIA_TMUX_STATIC !== '1')) ? '✻ Working\\n' : '⏵⏵ bypass permissions on\\n')
+}
 `
 
   const calls = () => fs.readFileSync(log, 'utf8').split('\n').filter(Boolean).map((line) => {
     const at = line.slice(0, line.indexOf(' '))
     return { at: Number(at), args: line.slice(at.length + 1) }
-  })
+  }).filter((call) => call.args.startsWith('send-keys '))
 
   test.beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-paced-'))
@@ -279,6 +288,9 @@ fs.appendFileSync(process.env.CURIA_TMUX_LOG, Date.now() + ' ' + process.argv.sl
   test.afterEach(() => {
     process.env.PATH = savedPath
     delete process.env.CURIA_TMUX_LOG
+    delete process.env.CURIA_TMUX_STATIC
+    delete process.env.CURIA_TMUX_ACTIVE
+    delete process.env.CURIA_TMUX_FAIL_WRITE
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
@@ -293,6 +305,34 @@ fs.appendFileSync(process.env.CURIA_TMUX_LOG, Date.now() + ' ' + process.argv.sl
       c[1].at - c[0].at > CODEX_PASTE_WINDOW_MS,
       `the Enter landed ${c[1].at - c[0].at}ms after the text — inside codex's fold window, where it is a newline`,
     )
+  })
+
+  test('a pane write without an active read-back returns an unconfirmed result', async () => {
+    process.env.CURIA_TMUX_STATIC = '1'
+    const result = await sendText('curia-223-static', 'ship it', { readbackMs: 0 })
+    assert.equal(result.status, 'unconfirmed')
+    delete process.env.CURIA_TMUX_STATIC
+  })
+
+  test('a pane that stays active gets no text', async () => {
+    process.env.CURIA_TMUX_ACTIVE = '1'
+    const result = await sendText('curia-223-active', 'ship it', { readbackMs: 0 })
+    assert.equal(result.status, 'not-sent')
+    assert.deepEqual(calls(), [])
+    delete process.env.CURIA_TMUX_ACTIVE
+  })
+
+  test('a failed tmux write returns an unconfirmed result', async () => {
+    process.env.CURIA_TMUX_FAIL_WRITE = '1'
+    const result = await sendText('curia-223-failed', 'ship it', { readbackMs: 0 })
+    assert.equal(result.status, 'unconfirmed')
+    assert.match(result.error, /Command failed/)
+    delete process.env.CURIA_TMUX_FAIL_WRITE
+  })
+
+  test('plain prose cannot claim that a pane has an active turn', () => {
+    assert.equal(paneShowsActiveTurn('Why is this not working?'), false)
+    assert.equal(paneShowsActiveTurn('✻ Working on the next step'), true)
   })
 
   test('two writers to one pane are serialised, so no write folds into another', async () => {

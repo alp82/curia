@@ -125,6 +125,7 @@ describe('a blocked ask_human keeps its stream alive (index.mjs, real boot + rea
       'harnesses:',
       '  claude:',
       '    template: claude --model {model} "$(cat {prompt_file})"',
+      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
     "    ready: '\u23f5\u23f5|bypass permissions'",
     "    tool_channel_grace_s: 15",
       '',

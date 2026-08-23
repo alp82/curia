@@ -140,6 +140,8 @@ export class Reduction {
     this.spawnFailures = new Map() // ticket -> its consecutive failed spawns (#444)
     this.releasedDeathCountsByTicket = new Map() // ticket -> released deaths after tool traffic (#578)
     this.speakingAgents = new Set() // agents whose current epoch reached the tool channel (#578)
+    this.stallRecoveries = new Map() // ticket -> durable watchdog recovery steps (#574)
+    this.operatorStallLaunches = new Map() // ticket -> operator stall respawn interrupted during launch (#574)
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
     this.tokenWarnings = new Map() // credential key -> the last warning curia said about it (#380)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
@@ -267,12 +269,15 @@ export class Reduction {
     //   dispatch_claimed  a dispatch the auto loop did not make. The operator
     //                     typed it, and a fresh order deserves a fresh count.
     //                     `by` names the caller, and only `auto` is the loop.
+    const operatorDispatch = ev.ticket != null && ((ev.type === 'dispatch_claimed'
+      && !['auto', 'stall-recovery'].includes(ev.by))
+      || (ev.type === 'agent_spawned' && ev.operator_after_stall))
     if (ev.ticket != null && ev.type === 'dispatch_failed') {
       const key = String(ev.ticket)
       const held = this.spawnFailures.get(key)
       this.spawnFailures.set(key, { repo: ev.repo ?? held?.repo ?? null, count: (held?.count ?? 0) + 1 })
     }
-    if (ev.ticket != null && (ev.type === 'agent_mcp_first' || (ev.type === 'dispatch_claimed' && ev.by !== 'auto'))) {
+    if (ev.ticket != null && (ev.type === 'agent_mcp_first' || operatorDispatch)) {
       this.spawnFailures.delete(String(ev.ticket))
     }
 
@@ -290,8 +295,44 @@ export class Reduction {
         count: (held?.count ?? 0) + 1,
       })
     }
-    if (ev.ticket != null && ev.type === 'dispatch_claimed' && ev.by !== 'auto') {
+    if (operatorDispatch) {
       this.releasedDeathCountsByTicket.delete(String(ev.ticket))
+    }
+
+    // The stall watchdog stores completed recovery steps per ticket (#574).
+    // A start event reserves an effect but does not claim that it happened.
+    // A restart can finish an interrupted step instead of skipping it.
+    const nudgeDone = ['stall_nudge_accepted', 'stall_nudge_finished'].includes(ev.type)
+    const nudgeCleared = ev.type === 'stall_cleared_before_nudge'
+    const respawnDone = ev.type === 'stall_respawned'
+      || (ev.type === 'agent_spawned' && ev.retry_after_stall && !ev.operator_after_stall)
+    const nudgeAttempt = ['stall_nudge_started', 'stall_nudge_rejected'].includes(ev.type)
+    const respawnStarting = ev.type === 'stall_respawn_started'
+    const respawnLaunching = ev.type === 'stall_respawn_launching'
+    if (ev.ticket != null && respawnLaunching && ev.operator_after_stall) {
+      this.operatorStallLaunches.set(String(ev.ticket), { ...ev })
+    }
+    if (operatorDispatch) this.operatorStallLaunches.delete(String(ev.ticket))
+    if (ev.ticket != null && (nudgeDone || nudgeCleared || nudgeAttempt || respawnDone || respawnStarting || respawnLaunching || ev.type === 'stall_escalated')) {
+      const key = String(ev.ticket)
+      const prior = this.stallRecoveries.get(key) ?? {
+        repo: ev.repo ?? null, nudged: false, nudgeAttempts: 0,
+        respawnStarted: false, respawned: false, respawnLaunching: false, escalated: false,
+      }
+      this.stallRecoveries.set(key, {
+        repo: ev.repo ?? prior.repo ?? null,
+        nudged: prior.nudged || nudgeDone,
+        nudgeAttempts: nudgeCleared && !prior.nudged && Number(ev.attempt) === prior.nudgeAttempts
+          ? Math.max(0, prior.nudgeAttempts - 1)
+          : Math.max(prior.nudgeAttempts, nudgeAttempt ? Number(ev.attempt) || 0 : 0),
+        respawnStarted: prior.respawnStarted || respawnStarting || respawnDone,
+        respawned: prior.respawned || respawnDone,
+        respawnLaunching: respawnDone ? false : (prior.respawnLaunching || respawnLaunching),
+        escalated: prior.escalated || ev.type === 'stall_escalated',
+      })
+    }
+    if (operatorDispatch) {
+      this.stallRecoveries.delete(String(ev.ticket))
     }
 
     // The cooling curia has already MEASURED (#377). A reduction for the reason
@@ -1313,6 +1354,31 @@ export class Reduction {
   releasedDeathCounts() {
     return [...this.releasedDeathCountsByTicket.entries()]
       .map(([ticket, v]) => ({ ticket, repo: v.repo, deaths: v.count }))
+  }
+
+  stallRecovery(ticket) {
+    const found = this.stallRecoveries.get(String(ticket))
+    return found ? { ...found } : {
+      repo: null, nudged: false, nudgeAttempts: 0,
+      respawnStarted: false, respawned: false, respawnLaunching: false, escalated: false,
+    }
+  }
+
+  operatorStallLaunch(ticket) {
+    const found = this.operatorStallLaunches.get(String(ticket))
+    return found ? { ...found } : null
+  }
+
+  stalledTickets() {
+    return [...this.stallRecoveries.entries()]
+      .filter(([, value]) => value.escalated)
+      .map(([ticket, value]) => ({ ticket, repo: value.repo }))
+  }
+
+  pendingStallRespawns() {
+    return [...this.stallRecoveries.entries()]
+      .filter(([, value]) => value.respawnStarted && !value.respawned && !value.escalated)
+      .map(([ticket, value]) => ({ ticket, repo: value.repo }))
   }
 
   // Every landed cap the journal states, as `{ models, providers }` of

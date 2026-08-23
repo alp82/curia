@@ -25,10 +25,10 @@ import {
   deleteRemoteBranch, pullRequestDiff, approvePullRequest,
 } from './github.mjs'
 import {
-  resolveModel, candidates, buildSpawnCmd, spawnModelId, parseUsageLimit, parseCreditGate,
+  resolveModel, candidates, buildSpawnCmd, buildResumeCmd, spawnModelId, parseUsageLimit, parseCreditGate,
   carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
 } from './routing.mjs'
-import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey } from './tmux.mjs'
+import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey, paneShowsActiveTurn } from './tmux.mjs'
 import {
   createPrivateClone, removeWorkspace,
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
@@ -47,6 +47,7 @@ import { ownersOf } from './overseercreds.mjs'
 import { ensureAgentImage } from './image.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
+import { transcriptActivity } from './transcript.mjs'
 import { mintAgentToken, forgetAgentToken, sweepAgentTokens } from './agenttoken.mjs'
 import {
   GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, GUEST_GUARD_ENV, ENV_FILE, PORTS_PER_AGENT,
@@ -206,7 +207,7 @@ export function discordTime(date) {
 
 const DEFAULT_DEPS = {
   repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
-  hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey,
+  hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey, transcriptActivity,
   createPrivateClone, removeWorkspace, removeConfigDir, removeCredentials,
   createReviewCheckout, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, setGitIdentity,
@@ -265,6 +266,13 @@ export const FAILED_SPAWN_CAP = 2
 // operator command, which starts a new count.
 export const RELEASED_DEATH_CAP = 2
 
+// A working agent gets fifteen minutes with no transcript growth before the
+// pane can confirm a stall. The operator set this window on #578.
+export const STALL_TIMEOUT_MS = 15 * 60 * 1000
+
+const STALL_ERROR_RE = /\bAPI Error(?:\s*:\s*\d+)?\b/i
+const STALL_ACTIVE_LINES = 3
+
 // How many trailing pane lines the two pane classifiers are allowed to see.
 const PANE_TAIL_LINES = 20
 
@@ -287,6 +295,31 @@ export function paneTail(pane, lines = PANE_TAIL_LINES) {
   const rows = String(pane ?? '').split('\n')
   while (rows.length && !rows[rows.length - 1].trim()) rows.pop()
   return rows.slice(-lines).join('\n')
+}
+
+function reTest(re, text) {
+  if (!re) return false
+  re.lastIndex = 0
+  return re.test(text)
+}
+
+// Pane text confirms a stalled transcript only when it shows a narrow idle or
+// error signal. An active marker vetoes the match.
+export function paneConfirmsStall(pane, readyRe) {
+  const tail = paneTail(pane)
+  if (paneShowsActiveTurn(pane, STALL_ACTIVE_LINES)) return false
+  return STALL_ERROR_RE.test(tail) || reTest(readyRe, tail)
+}
+
+// A nudge reached the harness when the pane changed from the confirmed stall
+// to an active marker. This read-back prevents a swallowed Enter from counting.
+export function paneAcceptedNudge(before, after, readyRe) {
+  const prior = paneTail(before)
+  const next = paneTail(after)
+  return prior !== next
+    && paneConfirmsStall(prior, readyRe)
+    && paneShowsActiveTurn(next, STALL_ACTIVE_LINES)
+    && !paneConfirmsStall(next, readyRe)
 }
 
 export function textCarriesLimitPhrase(...parts) {
@@ -463,6 +496,12 @@ export class Dispatcher {
     // reset (the same reason `interruptGraceMs` above is one).
     this.resumeGraceMs = RESUME_GRACE_MS
     this.wakeFloorMs = WAKE_FLOOR_MS
+    // The stall window is a field so tests can drive all recovery steps without
+    // waiting fifteen minutes.
+    this.stallTimeoutMs = STALL_TIMEOUT_MS
+    // A sent line does not make the harness update its pane at once. This field
+    // gives the pane time to show an active turn. Tests can use a shorter wait.
+    this.stallReadbackMs = 5_000
     // The dashboard's frontier and the instant reconcile computed it (#262).
     // Null until the first pass lands, which is how `GET /overview` says "no
     // frontier has been read yet" rather than "the frontier is empty".
@@ -808,7 +847,7 @@ export class Dispatcher {
   //
   // `reuse` is the resume contract (#81): inherit the surviving worktree
   // instead of recreating it — see #dispatch.
-  async start(ticketArg, { repo, model, by, reuse = false, threadId = null } = {}) {
+  async start(ticketArg, { repo, model, by, reuse = false, conversationResume = false, threadId = null } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -854,7 +893,9 @@ export class Dispatcher {
 
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
-      return (await this.#dispatch(theRepo, n, issue, { model, by, reuse, threadId })) ?? this.#exhaustedReply()
+      return (await this.#dispatch(theRepo, n, issue, {
+        model, by, reuse, conversationResume, threadId,
+      })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
     }
@@ -1094,7 +1135,10 @@ export class Dispatcher {
   // `reuse` (the resume contract, #81): a surviving worktree is inherited as it
   // stands — uncommitted files and local commits included — instead of being
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
-  async #dispatch(repo, n, issue, { model, instruction = null, by, reuse = false, threadId = null, charting = false }) {
+  async #dispatch(repo, n, issue, {
+    model, instruction = null, by, reuse = false, conversationResume = false,
+    threadId = null, charting = false,
+  }) {
     const session = `curia-${n}`
     // #241: a new-map dispatch is charting with no map, so there is no number to
     // name anywhere below. Everything downstream reads THIS rather than a falsy
@@ -1140,7 +1184,9 @@ export class Dispatcher {
     // The named model steps over a PREDICTED hold and never over a landed cap
     // (#384): the operator has read the same bars and wants the last of that
     // window spent here.
-    const cands = candidates(this.routing, modelName, this.cooling, { named: namedModel(labels, model) })
+    const cands = conversationResume
+      ? [modelName]
+      : candidates(this.routing, modelName, this.cooling, { named: namedModel(labels, model) })
     if (!cands.length) {
       // exhaustion BEFORE the claim — never claim what cannot be spawned.
       // Returns null when #exhausted's latched notify fired (so a confirm
@@ -1255,7 +1301,7 @@ export class Dispatcher {
 
       const plan = await this.#spawnPlan({
         session, ticket: n, repo, harness: harnessName, model: useModel,
-        wtPath, cfgDir, promptFile, ports,
+        wtPath, cfgDir, promptFile, ports, resume: conversationResume,
       })
       const container = plan.container
       const exitMarker = newExitMarker()
@@ -1275,6 +1321,7 @@ export class Dispatcher {
         // The journal is the state home for what a restart cannot re-derive
         // from tmux: which image this agent runs and which ports it published.
         sandbox: 'docker', image: container.image, ports: container.ports,
+        ...(conversationResume ? { retry_after_stall: true } : {}),
       })
 
       const agent = {
@@ -1386,8 +1433,10 @@ export class Dispatcher {
   // line and an EMPTY pane environment: the container carries its own through
   // `--env-file`, and a pane env would put every value of it in `ps` — the cost
   // #155 measured and asked #156 not to repeat.
-  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports, reviewer = false }) {
-    const harnessCmd = buildSpawnCmd(this.routing, harness, model, path.join(GUEST_CFG, path.basename(promptFile)))
+  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports, reviewer = false, resume = false }) {
+    const harnessCmd = resume
+      ? buildResumeCmd(this.routing, harness, model)
+      : buildSpawnCmd(this.routing, harness, model, path.join(GUEST_CFG, path.basename(promptFile)))
     const container = await this.#prepareContainer({
       session, ticket, repo, harness, wtPath, cfgDir, spawnCmd: harnessCmd,
       sandbox: this.config.sandbox, ports, reviewer,
@@ -2673,7 +2722,7 @@ export class Dispatcher {
   // a different side-channel layout — and a same-harness respawn re-seeds too,
   // because one path is easier to trust than a branch that has to be right
   // about when it matters.
-  async #respawnOn(agent, next, journalData = {}, { freshPorts = false } = {}) {
+  async #respawnOn(agent, next, journalData = {}, { freshPorts = false, resume = false } = {}) {
     const nextHarness = this.routing.models[next].harness
     // #174: the planted-config refusal is per harness, and this is where the
     // harness moves. It runs BEFORE #reshapeWorkspace and #armAgent, so a
@@ -2726,12 +2775,20 @@ export class Dispatcher {
       const plan = await this.#spawnPlan({
         session: agent.session, ticket: agent.ticket, repo: agent.repo,
         harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
-        promptFile: agent.promptFile, ports, reviewer: Boolean(agent.reviewer),
+        promptFile: agent.promptFile, ports, reviewer: Boolean(agent.reviewer), resume,
       })
       // A fresh marker per spawn: the old session is dead, and reusing its nonce
       // would let the previous life's exit line — still on screen for a moment —
       // read as the successor's death.
       const exitMarker = newExitMarker()
+      if (journalData.retry_after_stall) {
+        this.reduction.journal('stall_respawn_launching', {
+          repo: agent.repo, ticket: agent.ticket, agent: agent.session, exit_marker: exitMarker,
+          model: next, harness: nextHarness, image: plan.container.image, ports: plan.container.ports,
+          kind: spawnKind(agent), instruction: agent.instruction ?? null,
+          operator_after_stall: Boolean(journalData.operator_after_stall),
+        })
+      }
       await this.deps.newSession({ name: agent.session, cwd: agent.wtPath, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
       agent.ports = plan.container.ports
       agent.sandbox = 'docker'
@@ -2929,7 +2986,7 @@ export class Dispatcher {
     this.notify(n, `⚠️ ${repo ? `${repo}#${n}` : `#${n}`} died at the spawn ${failures} times in a row, so auto-dispatch steps over it now. Fix the cause, then \`start ${n}\` or \`resume ${n}\` — a dispatch you type clears the count, and so does an agent that reaches its curia tools.`)
   }
 
-  // Record a death after tool traffic. The first death buys one automatic
+  // Record a death after tool traffic. The first death permits one automatic
   // resume. The second death stops the auto loop until the operator acts.
   #releasedDeath({ repo, ticket, agent }) {
     const n = String(ticket)
@@ -2945,6 +3002,7 @@ export class Dispatcher {
   #steppedOver(ticket) {
     return (this.reduction.failedSpawns?.(ticket) ?? 0) >= FAILED_SPAWN_CAP
       || (this.reduction.releasedDeaths?.(ticket) ?? 0) >= RELEASED_DEATH_CAP
+      || Boolean(this.reduction.stallRecovery?.(ticket)?.escalated)
   }
 
   // Every ticket the auto loop steps over, for the surfaces that say so (#444):
@@ -2954,10 +3012,16 @@ export class Dispatcher {
   dispatchHolds() {
     const spawns = (this.reduction.spawnFailureCounts?.() ?? [])
       .filter((r) => r.failures >= FAILED_SPAWN_CAP)
+      .map((r) => ({ ...r, kind: 'failed-spawn' }))
     const heldTickets = new Set(spawns.map((r) => String(r.ticket)))
     const deaths = (this.reduction.releasedDeathCounts?.() ?? [])
       .filter((r) => r.deaths >= RELEASED_DEATH_CAP && !heldTickets.has(String(r.ticket)))
-    return [...spawns, ...deaths]
+      .map((r) => ({ ...r, kind: 'death-resume' }))
+    for (const row of deaths) heldTickets.add(String(row.ticket))
+    const stalls = (this.reduction.stalledTickets?.() ?? [])
+      .filter((r) => !heldTickets.has(String(r.ticket)))
+      .map((r) => ({ ...r, kind: 'stall-watchdog' }))
+    return [...spawns, ...deaths, ...stalls]
   }
 
   // What a failure message says about the claim after #releaseClaim ran. Two
@@ -5177,13 +5241,23 @@ export class Dispatcher {
       // separate write from the text on purpose: tmux paces and queues per pane
       // (#223), so the two land in order with the composer clear between them.
       await this.deps.sendKey(session, 'Escape')
-      await this.deps.sendText(session, text)
+      const delivery = await this.deps.sendText(session, text)
+      if (delivery?.status === 'not-sent') {
+        this.reduction.journal('note_interrupt_failed', { agent: session, ticket, reason: 'the pane stayed active before the send' })
+        this.notify(ticket, `⚠️ curia did not send those words to \`${session}\` because its pane stayed active. Say them again after the pane stops.`)
+        return
+      }
+      if (delivery?.status === 'unconfirmed') {
+        this.reduction.journal('note_interrupt_unconfirmed', { agent: session, ticket })
+        this.notify(ticket, `⚠️ curia sent keys for these words to \`${session}\`, but the pane did not confirm a new turn: ${said}. Check the pane before you retry.`)
+        return
+      }
     } catch (e) {
       this.reduction.journal('note_interrupt_failed', { agent: session, ticket, reason: e.message })
       // Prose, but NOT deduped: this line answers words the operator just
       // typed, and an answer to an act is owed once per act. Silence here would
       // read as delivery (#256).
-      this.notify(ticket, `⚠️ curia could not put those words to \`${session}\` — ${failureProse(e.message)}. The words are NOT with the agent: say them again.`)
+      this.notify(ticket, `⚠️ curia could not confirm those words in \`${session}\`: ${failureProse(e.message)}. Check the pane before you retry.`)
       return
     }
     this.reduction.journal('note_interrupt_delivered', { agent: session, ticket })
@@ -5332,7 +5406,15 @@ export class Dispatcher {
     const held = on === 'ending' ? '`report_result`' : '`request_review`'
     try {
       await this.deps.sendKey(agent, 'Escape')
-      await this.deps.sendText(agent, text)
+      const delivery = await this.deps.sendText(agent, text)
+      if (delivery?.status === 'not-sent') {
+        throw new Error('the pane stayed active before the send')
+      }
+      if (delivery?.status === 'unconfirmed') {
+        this.reduction.journal('pane_sweep_unconfirmed', { agent, ticket, id, on })
+        this.notify(ticket, `⚠️ curia sent keys to \`${agent}\`, but the pane did not confirm a new turn. Check the pane before you retry.`)
+        return false
+      }
     } catch (e) {
       this.reduction.journal('pane_sweep_failed', { agent, ticket, id, on, reason: e.message })
       this.notify(ticket, on
@@ -5468,7 +5550,28 @@ export class Dispatcher {
   async resume(n, { repo, model, by, threadId } = {}) {
     const ticket = String(n)
     const session = `curia-${ticket}`
-    if (this.agents.has(session) || this.inFlight.has(session) || await this.deps.hasSession(session).catch(() => false)) {
+    const stalled = this.agents.get(session)
+    if (stalled?.state === 'failed' && this.reduction.stallRecovery?.(ticket)?.escalated) {
+      const next = model ?? stalled.model
+      if (this.routing.models[next]?.harness !== stalled.harness) {
+        return `❌ cannot resume \`${session}\` on ${next}. Its saved conversation belongs to the ${stalled.harness} harness.`
+      }
+      try {
+        await this.deps.killSession(session)
+      } catch (e) {
+        return `❌ \`${session}\` still has a live pane, and curia could not stop it. ${failureProse(e.message)}. Retry \`resume ${ticket}\`.`
+      }
+      try {
+        await this.#respawnOn(stalled, next, {
+          retry_after_stall: true, operator_after_stall: true, by: by ?? 'unknown',
+        }, { resume: true })
+        return `⚙️ resumed ${stalled.repo}#${ticket} on the surviving worktree after the stall hold`
+      } catch (e) {
+        const released = await this.#releaseClaim(stalled, `operator resume after a stall failed: ${e.message}`)
+        return `❌ could not resume ${stalled.repo}#${ticket}: ${failureProse(e.message)}. ${released ? 'The claim is released. Retry the command.' : 'The issue is still assigned. Reconcile will retry the claim release.'}`
+      }
+    }
+    if (stalled || this.inFlight.has(session) || await this.deps.hasSession(session).catch(() => false)) {
       return `▶️ \`${session}\` is already running — \`cancel ${ticket}\` first, or \`attach ${ticket}\``
     }
     // A resumed map dispatch inherits the instruction that rode the original
@@ -5650,6 +5753,172 @@ export class Dispatcher {
     }
   }
 
+  // A live tmux pane can hold a dead turn. Transcript age is the primary
+  // signal. A narrow pane match confirms it before this method types or kills.
+  async stallSweep() {
+    for (const w of [...this.agents.values()]) {
+      if (w.reviewer || w.state !== 'ready' || w.resultReceived) continue
+      if (this.#openEscalationsFor(w.session).length) continue
+      const recovery = this.reduction.stallRecovery?.(w.ticket) ?? {}
+      if (recovery.escalated) continue
+
+      let activity
+      try {
+        activity = this.deps.transcriptActivity(w.harness, w.cfgDir)
+      } catch {
+        continue
+      }
+      if (!Number.isFinite(activity?.mtimeMs)) continue
+      const lastGrowth = Math.max(activity.mtimeMs, w.readyAt ?? 0, w.spawnedAt ?? 0)
+      if (Date.now() - lastGrowth < this.stallTimeoutMs) continue
+
+      let pane
+      try {
+        pane = await this.deps.capturePane(w.session)
+      } catch {
+        continue
+      }
+      const readyRe = this.routing.harnesses[w.harness]?.readyRe
+      if (!paneConfirmsStall(pane, readyRe)) continue
+      if (this.agents.get(w.session) !== w || w.state !== 'ready') continue
+
+      this.reduction.journal('stall_detected', {
+        repo: w.repo, ticket: w.ticket, agent: w.session,
+        idle_ms: Math.round(Date.now() - lastGrowth),
+      })
+      if (!recovery.nudged) {
+        const accepted = await this.#nudgeStalledAgent(w, pane, readyRe)
+        if (accepted) continue
+      }
+      if (!recovery.respawned) {
+        await this.#respawnStalledAgent(w)
+        continue
+      }
+      this.#escalateStall(w, 'the agent stalled again after one nudge and one resume respawn')
+    }
+  }
+
+  async #nudgeStalledAgent(w, firstPane, readyRe) {
+    let before = firstPane
+    const text = 'Continue the interrupted work. Report progress through curia.'
+    const used = this.reduction.stallRecovery?.(w.ticket)?.nudgeAttempts ?? 0
+    for (let attempt = used + 1; attempt <= 2; attempt += 1) {
+      if (this.agents.get(w.session) !== w || w.state !== 'ready') return true
+      this.reduction.journal('stall_nudge_started', {
+        repo: w.repo, ticket: w.ticket, agent: w.session, attempt,
+      })
+      try {
+        const delivery = await this.deps.sendText(w.session, text)
+        if (delivery?.status === 'not-sent') {
+          this.reduction.journal('stall_cleared_before_nudge', {
+            repo: w.repo, ticket: w.ticket, agent: w.session, attempt,
+          })
+          return true
+        }
+        const deliveredPane = typeof delivery === 'string' ? delivery : delivery?.pane
+        const readback = deliveredPane && paneAcceptedNudge(before, deliveredPane, readyRe)
+          ? { active: true, pane: deliveredPane }
+          : await this.#waitForNudge(w, before, readyRe)
+        if (readback.active) {
+          this.reduction.journal('stall_nudge_accepted', {
+            repo: w.repo, ticket: w.ticket, agent: w.session, attempt,
+          })
+          this.notify(w.ticket, `⚙️ \`${w.session}\` stopped writing its transcript. Curia confirmed an idle pane and sent one continue message. The pane then showed an active turn.`)
+          return true
+        }
+        this.reduction.journal('stall_nudge_rejected', {
+          repo: w.repo, ticket: w.ticket, agent: w.session, attempt,
+          reason: 'the pane did not show an active turn',
+        })
+        // A failed Enter can leave the text in the composer. Retry only when
+        // the pane still matches the known empty idle pane from before the
+        // send. A changed pane without an active marker is not safe to write.
+        if (attempt < 2 && (readback.pane !== before || !paneConfirmsStall(readback.pane, readyRe))) {
+          this.reduction.journal('stall_nudge_finished', {
+            repo: w.repo, ticket: w.ticket, agent: w.session,
+            outcome: 'the pane did not confirm an empty composer',
+          })
+          return false
+        }
+        before = readback.pane
+      } catch (e) {
+        this.reduction.journal('stall_nudge_rejected', {
+          repo: w.repo, ticket: w.ticket, agent: w.session, attempt, reason: e.message,
+        })
+        let after = null
+        try {
+          after = await this.deps.capturePane(w.session)
+        } catch {
+          // A pane that cannot prove the composer empty permits no retry.
+        }
+        if (attempt < 2 && (after !== before || !paneConfirmsStall(after, readyRe))) {
+          this.reduction.journal('stall_nudge_finished', {
+            repo: w.repo, ticket: w.ticket, agent: w.session,
+            outcome: 'the pane did not confirm an empty composer',
+          })
+          return false
+        }
+        before = after
+      }
+    }
+    this.reduction.journal('stall_nudge_finished', {
+      repo: w.repo, ticket: w.ticket, agent: w.session, outcome: 'no active turn',
+    })
+    return false
+  }
+
+  async #waitForNudge(w, before, readyRe) {
+    const deadline = Date.now() + this.stallReadbackMs
+    let pane = before
+    do {
+      pane = await this.deps.capturePane(w.session)
+      if (paneAcceptedNudge(before, pane, readyRe)) return { active: true, pane }
+      if (Date.now() >= deadline) break
+      await sleep(Math.min(250, deadline - Date.now()))
+    } while (this.agents.get(w.session) === w && w.state === 'ready')
+    return { active: false, pane }
+  }
+
+  async #respawnStalledAgent(w) {
+    this.reduction.journal('stall_respawn_started', {
+      repo: w.repo, ticket: w.ticket, agent: w.session,
+    })
+    try {
+      await this.deps.killSession(w.session)
+    } catch (e) {
+      this.reduction.journal('stall_respawn_failed', {
+        repo: w.repo, ticket: w.ticket, agent: w.session, reason: `the pane could not stop: ${e.message}`,
+      })
+      this.#escalateStall(w, `curia could not stop the stalled pane: ${failureProse(e.message)}`)
+      return
+    }
+    try {
+      await this.#respawnOn(w, w.model, { retry_after_stall: true }, { resume: true })
+      this.reduction.journal('stall_respawned', {
+        repo: w.repo, ticket: w.ticket, agent: w.session, model: w.model, harness: w.harness,
+      })
+      this.notify(w.ticket, `⚙️ \`${w.session}\` stayed stalled after two pane checks. Curia respawned its harness once and resumed the latest conversation.`)
+    } catch (e) {
+      this.reduction.journal('stall_respawn_failed', {
+        repo: w.repo, ticket: w.ticket, agent: w.session, reason: e.message,
+      })
+      const released = await this.#releaseClaim(w, `resume respawn after a stall failed: ${e.message}`)
+      this.#escalateStall(w, `the resume respawn failed: ${failureProse(e.message)}`, { live: false })
+      if (!released) this.notify(w.ticket, `⚠️ \`${w.session}\`: claim release FAILED. The issue is still assigned. Reconcile will retry.`)
+    }
+  }
+
+  #escalateStall(w, reason, { live = true } = {}) {
+    if (this.reduction.stallRecovery?.(w.ticket)?.escalated) return
+    if (live && this.agents.get(w.session) === w) w.state = 'failed'
+    this.reduction.journal('stall_escalated', {
+      repo: w.repo, ticket: w.ticket, agent: w.session, reason,
+    })
+    this.notify(w.ticket, live
+      ? `⚠️ \`${w.session}\` needs operator action. Automatic stall recovery stops because ${reason}. Type \`resume ${w.ticket}\` to retry on the surviving worktree.`
+      : `⚠️ \`${w.session}\` could not resume after its stall. ${reason}. Automatic recovery stops. Type \`resume ${w.ticket}\`.`)
+  }
+
   // #386: the harness command dies, the pane survives as a bare bash shell,
   // and every liveness read off `tmux ls` keeps saying "ready". The exit
   // marker (#169) is already printed into that pane; before this sweep,
@@ -5767,10 +6036,10 @@ export class Dispatcher {
         // is the death the loop repeats. The count clears on `agent_mcp_first`,
         // so an agent that spoke before it died lands here at zero and the loop
         // resumes it as #376 says. A kept claim is off the frontier already.
-        if (outcome === 'released') {
+        if (outcome === 'released' && !spoke) {
           this.#failedSpawn({ repo, ticket, agent: session, reason: 'the agent died without reporting a result' })
-          if (spoke) this.#releasedDeath({ repo, ticket, agent: session })
         }
+        if (outcome === 'released' && spoke) this.#releasedDeath({ repo, ticket, agent: session })
       } catch (e) {
         claimLine = `the claim decision failed (${e.message}) — reconcile will retry`
       }
@@ -5794,6 +6063,7 @@ export class Dispatcher {
 
     if (ctx.login && ctx.sessions) {
       await this.#reconcileSessions(ctx)
+      await this.#reconcilePendingStallRespawns(ctx)
       await this.#reconcileDeadClaims(ctx)
     } else if (!ctx.login) {
       // No claim login ⇒ NO positive evidence about who owns what. Both passes
@@ -5934,6 +6204,72 @@ export class Dispatcher {
     await this.#computeFrontier()
   }
 
+  async #reconcilePendingStallRespawns({ login, sessions, failedRepos, getIssue, skipRepo }) {
+    for (const pending of this.reduction.pendingStallRespawns?.() ?? []) {
+      const ticket = String(pending.ticket)
+      const session = `curia-${ticket}`
+      if (sessions.includes(session) || this.agents.has(session) || this.inFlight.has(session)) continue
+      const repo = pending.repo ?? this.#epochRepo(ticket)
+      if (!repo || failedRepos.has(repo)) continue
+      let issue
+      try {
+        issue = await getIssue(repo, ticket)
+      } catch (e) {
+        skipRepo(repo, e)
+        continue
+      }
+      if (!issue || issue.state !== 'open') continue
+      const assignees = (issue.assignees ?? []).map((a) => a.login)
+      if (assignees.some((name) => name !== login)) continue
+      if (assignees.includes(login)) {
+        try {
+          await this.deps.unclaim(repo, ticket, login)
+          this.reduction.journal('dispatch_unclaimed', {
+            repo, ticket, agent: session, reason: 'restart interrupted the stall respawn',
+          })
+        } catch (e) {
+          this.reduction.journal('unclaim_failed', {
+            repo, ticket, agent: session, reason: 'restart interrupted the stall respawn', error: e.message,
+          })
+          continue
+        }
+      }
+      const model = this.#epochSpawn(session)?.model
+      if (!model || !this.routing.models[model]) {
+        this.reduction.journal('stall_escalated', {
+          repo, ticket, agent: session, reason: 'the interrupted respawn has no configured model',
+        })
+        this.notify(ticket, `⚠️ curia cannot resume \`${session}\` after the restart because its model is unavailable. Type \`resume ${ticket}\`.`)
+        continue
+      }
+      // Reserve the launch before start can create a session. If the daemon
+      // stops after that effect, adoption completes the saved recovery step.
+      this.reduction.journal('stall_respawn_launching', {
+        repo, ticket, agent: session, recovered_after_restart: true,
+      })
+      let reply
+      try {
+        reply = await this.start(ticket, {
+          repo, model, by: 'stall-recovery', reuse: true, conversationResume: true,
+        })
+      } catch (e) {
+        reply = `the recovery dispatch failed: ${e.message}`
+      }
+      const ran = /^⚙️ dispatched/.test(reply)
+      this.reduction.journal('stall_respawn_recovered', {
+        repo, ticket, agent: session, outcome: ran ? 'ran' : 'failed', reply,
+      })
+      if (ran) {
+        this.notify(ticket, `⚙️ a daemon restart interrupted the stall respawn. Curia resumed \`${session}\` on its saved conversation and worktree.`)
+      } else {
+        this.reduction.journal('stall_escalated', {
+          repo, ticket, agent: session, reason: `the restart recovery failed: ${reply}`,
+        })
+        this.notify(ticket, `⚠️ curia could not resume \`${session}\` after the restart. Type \`resume ${ticket}\` to retry from its saved worktree.`)
+      }
+    }
+  }
+
   // Everything the passes share: the latest dispatch epoch per ticket, the
   // viewer identity, live curia sessions, and a per-pass issue cache whose
   // failures are remembered so one bad repo is skipped, not retried.
@@ -6056,7 +6392,8 @@ export class Dispatcher {
           // spec, and the account bars hang off that spec. The journal is the
           // state home for what a restart cannot re-derive, so it answers here
           // exactly as it does for the repo and the charting kind.
-          const spawn = this.#epochSpawn(session)
+          const operatorStallLaunch = this.reduction.operatorStallLaunch?.(n)
+          const spawn = operatorStallLaunch ?? this.#epochSpawn(session)
           // a FRESH instance id: any confirm bound before the restart lapses
           // at boot rather than matching an adopted agent it never described
           const instance = `${session}@adopted-${Date.now()}`
@@ -6076,6 +6413,21 @@ export class Dispatcher {
             charting, instruction,
             resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
           })
+          if (operatorStallLaunch) {
+            this.reduction.journal('agent_spawned', {
+              repo, ticket: n, agent: session, instance,
+              model: spawn.model, harness: spawn.harness,
+              kind: spawn.kind ?? spawnKind({ charting }), instruction: spawn.instruction ?? instruction,
+              sandbox: 'docker', image: spawn.image, ports,
+              operator_after_stall: true, recovered_after_restart: true,
+            })
+          }
+          const stall = this.reduction.stallRecovery?.(n)
+          if (!operatorStallLaunch && stall?.respawnLaunching && !stall.respawned) {
+            this.reduction.journal('stall_respawned', {
+              repo, ticket: n, agent: session, recovered_after_restart: true,
+            })
+          }
           this.log(`reconcile: re-adopted live agent ${session} (${repo}#${n})`)
           // The same reason the confirms lapse here (#208): a pre-restart note
           // named a pre-restart instance, and this one is new. The agent IS
@@ -6309,7 +6661,13 @@ export class Dispatcher {
       if (sessions.includes(session) || this.agents.has(session) || this.inFlight.has(session)) continue
       if (this.reduction.questions.closedAfterEpoch(ticket, session)) continue
       try {
-        await this.#settleDeadClaim({ repo, ticket, session, login, getIssue })
+        const outcome = await this.#settleDeadClaim({ repo, ticket, session, login, getIssue })
+        if (outcome === 'released' && this.reduction.agentSpoke?.(session)) {
+          this.#releasedDeath({ repo, ticket, agent: session })
+        }
+        if (outcome === 'released' && !this.reduction.agentSpoke?.(session)) {
+          this.#failedSpawn({ repo, ticket, agent: session, reason: 'the agent died without reporting a result' })
+        }
       } catch (e) {
         skipRepo(repo, e)
       }
@@ -6555,6 +6913,7 @@ export class Dispatcher {
     // #138: the liveness sweep rides the dispatch tick — dead agents stop
     // lying on every surface before anything new is dispatched.
     await this.livenessSweep().catch((e) => this.log('liveness sweep failed:', e.message))
+    await this.stallSweep().catch((e) => this.log('stall sweep failed:', e.message))
     // #384: the hold rides this tick for the reason the sweep does — it is not a
     // dispatch, and the box holds the same way whether auto-dispatch is on or
     // off. So it runs ABOVE the gate below.
