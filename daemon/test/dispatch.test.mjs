@@ -6723,7 +6723,10 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
       return outcomes[Math.min(this.calls - 1, outcomes.length - 1)]
     },
     fanOut: () => ({ healed: [], errors: [] }),
-    state: () => ({ consumer: 'codex', state: 'expiring' }),
+    // The PROVIDER is part of the row and not a decoration (#648): the store,
+    // the cooling table and #661's lane field are all keyed by it, so a double
+    // without one is a row no surface could place on a lane.
+    state: () => ({ consumer: 'codex', provider: 'openai', state: 'expiring' }),
   })
 
   const TERMINAL = {
@@ -6880,6 +6883,39 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.equal(await d.checkAnthropicCredential({ trigger: 'overseer_turn' }), null)
   })
 
+  // #661: the alarm fires while the operator is asleep and away from the box,
+  // and everything it asks of them lives on one screen. So it carries the way
+  // there rather than the name of a page they have to go and find.
+  test('the alarm links to the Credentials screen, at its own hash', async () => {
+    const says = []
+    const asked = []
+    const d = makeDispatcher({}, { credentials: brokerSaying(TERMINAL) })
+    d.announce = async (t) => { says.push(t); return true }
+    d.startReauth = async () => 'ok'
+    d.dashboardLink = async (hash) => { asked.push(hash); return `https://box.tail1234.ts.net:8443/${hash}` }
+
+    await d.syncModelCredentials()
+
+    assert.deepEqual(asked, ['#credentials'], 'the screen names its own hash — the daemon does not spell it a second time')
+    assert.match(says[0], /Credentials: https:\/\/box\.tail1234\.ts\.net:8443\/#credentials/)
+  })
+
+  // A link that could not be composed costs the line and nothing else. The hold
+  // stands, the login is running, and the journal has both.
+  test('a dashboard link that cannot be composed does not cost the alarm', async () => {
+    const says = []
+    const d = makeDispatcher({}, { credentials: brokerSaying(TERMINAL) })
+    d.announce = async (t) => { says.push(t); return true }
+    d.startReauth = async () => 'ok'
+    d.dashboardLink = async () => { throw new Error('tailscale status carries no Self.DNSName') }
+
+    await d.syncModelCredentials()
+
+    assert.equal(says.length, 1)
+    assert.match(says[0], /cannot be refreshed/)
+    assert.ok(!says[0].includes('Credentials:'))
+  })
+
   // ONCE PER TRANSITION. The broker latches itself off the wire so a second
   // tick never reports terminal again — this pins the dispatcher's own guard,
   // the way the auth-session refusals are pinned on both paths.
@@ -6956,6 +6992,53 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     const said = await d.startReauth({})
     assert.match(said, /owns no `openai` credential/)
     assert.match(said, /can re-authenticate: anthropic/)
+  })
+
+  // WHAT IS BROKEN BEHIND THE CREDENTIAL (#661, #645 finding 2). A dead
+  // credential is a fact about the box, not about a file: one lane stops
+  // dispatching, and every live agent on it is frozen mid-ticket. It could not
+  // ride `pre_cooling` — that structure is usage-shaped, a window, a percent and
+  // a reset instant, and a credential hold has none of the three — so the row
+  // carries its own field, and the surfaces compose the sentence from it.
+  test('every row says whether its lane dispatches, and who is on it', async () => {
+    const d = makeDispatcher({}, { credentials: brokerSaying(TERMINAL) })
+    d.announce = async () => true
+    d.startReauth = async () => 'ok'
+    d.agents.set('curia-574', { session: 'curia-574', ticket: '574', provider: 'openai', cfgDir: '/nowhere' })
+    d.agents.set('curia-578', { session: 'curia-578', ticket: '578', provider: 'openai', cfgDir: '/nowhere' })
+    d.agents.set('curia-600', { session: 'curia-600', ticket: '600', provider: 'anthropic', cfgDir: '/nowhere' })
+
+    const before = d.credentialsStatus().consumers
+    for (const row of before) {
+      assert.equal(row.lane.dispatching, true)
+      assert.deepEqual(row.lane.agents, [], 'a working lane names no frozen agents, because there are none')
+    }
+
+    await d.syncModelCredentials()
+
+    const after = d.credentialsStatus().consumers
+    const openai = after.filter((r) => r.lane.provider === 'openai')
+    const anthropic = after.filter((r) => r.lane.provider === 'anthropic')
+    assert.equal(openai.length, 1)
+    assert.equal(openai[0].lane.dispatching, false)
+    assert.deepEqual(openai[0].lane.agents, ['curia-574', 'curia-578'])
+    // BOTH ANTHROPIC ROWS ANSWER THE SAME, because one lane serves them both.
+    assert.equal(anthropic.length, 2)
+    for (const row of anthropic) {
+      assert.equal(row.lane.dispatching, true, 'the surviving lane still dispatches')
+      assert.deepEqual(row.lane.agents, [])
+    }
+  })
+
+  // The reason is NOT copied here. The row's own `held` and `why` carry it, and
+  // two accounts of one fault are free to disagree.
+  test('the lane field states facts and composes no second account of the fault', async () => {
+    const d = makeDispatcher({}, { credentials: brokerSaying(TERMINAL) })
+    d.announce = async () => true
+    d.startReauth = async () => 'ok'
+    await d.syncModelCredentials()
+    const lane = d.credentialsStatus().consumers[0].lane
+    assert.deepEqual(Object.keys(lane).sort(), ['agents', 'dispatching', 'provider'])
   })
 
   // The scratch config dir holds the credential the login is about to write.
@@ -7241,6 +7324,79 @@ describe('signing the anthropic lane back in (#660)', () => {
     assert.match(said, /paste the code/i)
     assert.ok(!/one-time code that lives fifteen minutes/.test(said), 'that is the codex lane’s sentence')
     assert.ok(events.some((e) => e.type === 'reauth_requested' && e.provider === 'anthropic'))
+  })
+
+  // #661, closing #645 finding 4. The terminal is the path that ALWAYS works —
+  // everything else on the card is scraped off a pane, and a scrape is a guess
+  // about somebody else's wording. The daemon had been composing this link for
+  // Discord since the first commit and the dashboard had none, so the card told
+  // an operator on a phone to open something they had no way to open.
+  //
+  // ONE COMPOSITION, TWO SURFACES: the same guarded call, stamped on the flow.
+  test('the terminal link reaches the dashboard, not only Discord', async () => {
+    const d = anthropicDispatcher()
+    d.reauth.newSession = async () => {}
+    d.reauth.hasSession = async () => false
+    d.attachSessionLink = async (session) => `https://box.tail1234.ts.net:8443/?arg=${session}`
+
+    const said = await d.startReauth({ provider: 'anthropic' })
+
+    assert.match(said, /Terminal: https:\/\/box\.tail1234\.ts\.net:8443\/\?arg=curia-auth-anthropic/)
+    assert.equal(d.credentialsStatus().reauth.terminal_url,
+      'https://box.tail1234.ts.net:8443/?arg=curia-auth-anthropic')
+  })
+
+  // A surface that cannot be published reads as NO link, never as a link that
+  // 403s the operator who opens it.
+  test('a terminal link curia could not publish is null on the wire, not a guess', async () => {
+    const d = anthropicDispatcher()
+    d.reauth.newSession = async () => {}
+    d.reauth.hasSession = async () => false
+    d.attachSessionLink = async () => { throw new Error('the attach identity proxy is not up') }
+
+    const said = await d.startReauth({ provider: 'anthropic' })
+
+    assert.match(said, /could not publish a terminal link/)
+    assert.equal(d.credentialsStatus().reauth.terminal_url, null)
+  })
+
+  // A RESTART LOSES THE LINK, NOT THE LOGIN (#671 with #661). The journal keeps
+  // the clock and nothing else, so a re-adopted flow starts with no terminal URL
+  // — and the terminal is the path that always works when the scrape misses. The
+  // first tick that takes the login back composes it again.
+  test('a login re-adopted after a restart gets its terminal link back', async () => {
+    const d = anthropicDispatcher()
+    d.attachSessionLink = async (session) => `https://box.tail1234.ts.net:8443/?arg=${session}`
+    d.reauth.poll = async () => null
+    // What `#resume` leaves behind: the clock off the journal, and no link.
+    d.reauth.flow = {
+      provider: 'anthropic', session: 'curia-auth-anthropic', state: 'waiting',
+      url: null, code: null, codeSeen: false, typed: true, terminalUrl: null,
+      startedAt: Date.now(), deadline: Date.now() + 1800000, codeLifeMs: null,
+    }
+
+    await d.pollReauth()
+
+    assert.equal(d.reauth.flow?.terminalUrl, 'https://box.tail1234.ts.net:8443/?arg=curia-auth-anthropic')
+  })
+
+  // And a surface that still cannot be published reads as NO link on this path
+  // too. The next tick asks again, because the panel says "no terminal link"
+  // rather than linking nowhere, and one that 403s would be worse than neither.
+  test('a link that still cannot be published stays null on a re-adopted flow', async () => {
+    const d = anthropicDispatcher()
+    d.attachSessionLink = async () => { throw new Error('the attach identity proxy is not up') }
+    d.reauth.poll = async () => null
+    // What `#resume` leaves behind: the clock off the journal, and no link.
+    d.reauth.flow = {
+      provider: 'anthropic', session: 'curia-auth-anthropic', state: 'waiting',
+      url: null, code: null, codeSeen: false, typed: true, terminalUrl: null,
+      startedAt: Date.now(), deadline: Date.now() + 1800000, codeLifeMs: null,
+    }
+
+    await d.pollReauth()
+
+    assert.equal(d.reauth.flow?.terminalUrl, null)
   })
 
   // The hold path and the operator's verb land on ONE flow, so a login already

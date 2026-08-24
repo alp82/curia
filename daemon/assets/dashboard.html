@@ -1,8 +1,9 @@
 <!doctype html>
 <meta charset="utf-8">
 <!-- The console (#263 the shell, #264 the read screens, #265 the settings write,
-     #266 the operator verbs), on the look settled by the prototype (#248):
-     dark-first tokens, system mono for data, one accent.
+     #266 the operator verbs, #661 the Credentials screen), on the look settled
+     by the prototype (#248): dark-first tokens, system mono for data, one
+     accent.
 
      THE STAMP BELOW IS LOAD-BEARING. This page and daemon/src/dashboard.mjs are
      two halves of one protocol, and there is no build step — the file on disk IS
@@ -11,8 +12,10 @@
      speaks and the server refuses anything else (#70's rule, as timeline.html
      carries it).
 
-     The four read screens draw one payload: `GET /api/overview`, which is the
-     sidecar's held snapshot of the daemon's own `GET /overview` (#262). A chat
+     The read screens draw one payload: `GET /api/overview`, which is the
+     sidecar's held snapshot of the daemon's own `GET /overview` (#262).
+     Credentials (#661) is one of them: it draws the poll and takes no read of
+     its own, and its single button goes through the verb seam below. A chat
      (#267) draws nothing: it is the timeline page, served at /chat. What the
      Chat screen draws is the PICKER over the browser conversations (#333), off
      a read of its own — `GET /api/console`, taken on arrival, not on the poll.
@@ -34,7 +37,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=6">
+<meta name="curia-dashboard" content="proto=7">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>curia</title>
 <style>
@@ -164,6 +167,71 @@
      spacing because the operator retypes it into another device by eye, and
      `83CC-A4ZTO` is four characters that all rhyme at 13px. */
   .reauth-code { display: inline-block; margin-top: 4px; font-family: ui-monospace, Menlo, monospace; font-size: 22px; font-weight: 700; letter-spacing: 3px; user-select: all; }
+
+  /* ---------- credentials (#661, on the shape the #645 prototype settled) ----
+     One row per consumer, and the live login as a PANEL above the table. The
+     login is a flow with a clock on it — a countdown, a link, a code to read or
+     to type, and a fallback — and a table row carrying all four is a panel that
+     has not admitted it yet. */
+  table.creds { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--bg-raise); }
+  table.creds th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+    color: var(--ink-faint); padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  table.creds td { padding: 11px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.creds tr:last-child td { border-bottom: 0; }
+  table.creds .who { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+  table.creds .why { color: var(--ink-dim); font-size: 12px; }
+  .chip { display: inline-block; border-radius: 999px; padding: 2px 9px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .chip.ok { background: var(--chip-ok-bg); color: var(--ok); }
+  .chip.bad { background: var(--chip-bad-bg); color: var(--bad); }
+  .chip.idle { background: var(--bg-inset); color: var(--ink-faint); }
+
+  /* A held lane is BAD, not warn, and not the `.unread` marking: nothing here
+     is a fact about the read. One lane has stopped dispatching and every agent
+     on it is frozen, which is the worst thing this page ever has to say. */
+  .lane-held {
+    border-left: 3px solid var(--bad); background: var(--chip-bad-bg);
+    border-radius: 0 8px 8px 0; padding: 9px 12px; font-size: 13px; margin-bottom: 10px;
+  }
+
+  .flow { border: 1px solid var(--accent); background: var(--chip-ok-bg); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  /* The scrape missed. Warn and not bad: nothing is broken, curia just could
+     not read somebody else's wording, and the terminal below still works. */
+  .flow.blind { border-color: var(--warn); background: var(--chip-warn-bg); }
+  .flow h3 { font-size: 15px; margin: 8px 0; }
+  .flow-step { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 11px; }
+  .flow-step .n {
+    flex: none; width: 21px; height: 21px; border-radius: 50%; background: var(--accent);
+    color: var(--accent-ink); font-size: 12px; font-weight: 700; display: grid; place-items: center;
+  }
+  .flow-link { display: inline-block; margin-top: 3px; font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  .flow-fall { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 9px; display: flex; gap: 12px; flex-wrap: wrap; align-items: baseline; font-size: 12.5px; }
+  .flow-fall .dim { color: var(--ink-dim); font-size: 12px; }
+
+  /* FOUND BY LOOKING, NOT BY REASONING (#645 finding 6). At 390px the six-column
+     table did not wrap — it overflowed, and the column it pushed off the screen
+     was the one holding the one button. So the Sign-in press was unreachable at
+     the alarm, on the device the whole no-ssh requirement exists for.
+
+     Below 640px every row restacks as a card: the consumer and its state first,
+     the rest labelled by the header the row no longer has, and the action full
+     width at the bottom where a thumb is. */
+  @media (max-width: 640px) {
+    table.creds, table.creds tbody, table.creds tr, table.creds td { display: block; width: 100%; }
+    table.creds thead { display: none; }
+    table.creds tr { border-bottom: 1px solid var(--line); padding: 12px; }
+    table.creds tr:last-child { border-bottom: 0; }
+    table.creds td { border: 0; padding: 2px 0; }
+    table.creds td.c-who { font-size: 15px; margin-bottom: 4px; }
+    table.creds td[data-label]::before {
+      content: attr(data-label) " ";
+      font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+      color: var(--ink-faint); font-weight: 700; margin-right: 6px;
+    }
+    table.creds td.c-act { margin-top: 10px; }
+    table.creds td.c-act .btn { display: block; width: 100%; padding: 13px; font-size: 15px; }
+  }
 
   /* The pre-emptive hold (#384). It sits at the top of Home, above everything,
      because it explains a box that looks idle and is not: curia is dispatching
@@ -405,6 +473,10 @@ const SCREENS = {
   frontier: ["Frontier", screenFrontier],
   feed:     ["Feed",     screenFeed],
   chat:     ["Chat",     screenChat],
+  /* #661. It sits after the read screens and before Settings because it is
+     read most of the time and acted on rarely — and because the one act it
+     carries is not a config change. */
+  credentials: ["Credentials", screenCredentials],
   settings: ["Settings", screenSettings],
 };
 const NAMES = Object.keys(SCREENS);
@@ -479,9 +551,28 @@ function ticketName(repo, ticket) {
    rolls on its own clock, and a token that nobody mints stays dead and takes
    every agent's first `gh` call with it. So the badge stays hot until the act
    happens, which is the whole point of moving this off a log line. */
+/* A MODEL CREDENTIAL IS COUNTED SINCE #661, and it was the one failure most in
+   need of a hot badge: nothing rolls it on a clock, one lane stops dispatching,
+   and every live agent on that lane freezes mid-ticket. By this function's own
+   stated test it is the strongest member of the set, and it was the only member
+   missing — so the badge stayed cold at 3am on the worst thing the box can do.
+
+   IT COUNTS POINTERS, NOT CONSUMERS, and that is the loose end #661 was asked to
+   pick. Three dead rows behind one provider are one act — a login — reached by
+   one visit to one screen, and the list shows exactly one line for them. This
+   number and that list must agree on what an item is, or the badge teaches the
+   operator that it means less than it says. What the collapse could have hidden
+   is not hidden: the pointer names every consumer behind it, and the screen it
+   points at states each one's own row.
+
+   Nothing else moves. Usage limits are still NOT counted: a spent window is on
+   the attention list because it explains a slow box, and nobody can answer it.
+   A GitHub credential warning IS counted (#380), by the same test — a token
+   nobody mints stays dead and takes every agent's first `gh` call with it. */
 function needsYou(o) {
   return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0)
-    + (o?.token_warnings?.length ?? 0) + (o?.dispatch_holds?.length ?? 0);
+    + (o?.token_warnings?.length ?? 0) + (o?.dispatch_holds?.length ?? 0)
+    + credentialPointers(o).length;
 }
 
 /* ---- the operator verbs (#266) ----------------------------------------------
@@ -1100,89 +1191,80 @@ function dispatchHoldCard(h) {
     <div class="dim">${act}</div></div>`;
 }
 
-/* The model credential (#642, ADR-0027).
+/* The model credentials, as ONE POINTER (#642, ADR-0027; moved here by #661).
 
-   TWO SHAPES, and only one of them is a card the operator acts on.
+   THE DETAIL LIVES ON THE SCREEN THAT OWNS IT. Until #661 this list carried the
+   whole flow — the link, the one-time code, a card per dead consumer — because
+   there was no other surface. There is one now, and saying it in both places is
+   how two surfaces drift apart. So what stays here is the pointer: enough to
+   know a credential wants you, and the way to the screen that says everything
+   else.
 
-   The RE-AUTHENTICATION card is the reason this page carries the flow at all: a
-   device login prints a link and a one-time code into a terminal, and reading a
-   code off a terminal on a phone at 3am is the experience this replaces. It sits
-   at the top of the attention list, because while it is up nothing else on the
-   box matters as much.
+   AT MOST TWO LINES, and never one that hides the other. A login in flight is
+   the act, so it speaks for its own provider; a dead credential on any OTHER
+   provider still gets its own line, because a running openai login is no news
+   at all about a dead anthropic one. */
 
-   IT DEGRADES, NEVER DEAD-ENDS. The link and the code are scraped off the pane,
-   and a scrape is a guess about somebody else's wording. When either is missing
-   the card says so and points at the terminal, which is the path that always
-   works — the card is an optimization over it and never a replacement for it.
+/* The five states the wire can carry, and what each means for the box. `valid`
+   and `expiring` are silent on this list: the daemon refreshes inside the last
+   quarter of a token's life and says nothing about work it is already doing.
+   `unowned` is silent because there is nothing to press, and `unknown` because
+   a credential seeded from an env file states no date — that is a fact for the
+   Credentials screen, not a permanent nudge on the list an operator reads to
+   find what is actually wrong. */
+const CRED_STATE = {
+  valid:      { tone: "ok",   says: "healthy" },
+  expiring:   { tone: "ok",   says: "inside the last quarter of its life — the daemon refreshes it on a tick" },
+  expired:    { tone: "bad",  says: "dead: no agent on this lane can take a turn", act: true },
+  unreadable: { tone: "bad",  says: "on disk but unparseable — curia cannot judge its life", act: true },
+  absent:     { tone: "bad",  says: "there is no credential file at all", act: true },
+  unknown:    { tone: "idle", says: "seeded from an env file, so curia knows no date for it" },
+  unowned:    { tone: "idle", says: "not brokered by this daemon" },
+};
+const credState = (c) => CRED_STATE[c.state] ?? { tone: "idle", says: c.why ?? "" };
+/* A consumer the operator has to act on. A HELD lane counts whatever the state
+   word says (#646): the access token can be perfectly valid for another two
+   days and the lane still be unrecoverable. */
+const credWants = (c) => Boolean(credState(c).act || c.held || c.last_error);
+const deadCredentials = (o) => (o?.credentials?.consumers ?? []).filter(credWants);
+const reauthWaiting = (o) => (o?.credentials?.reauth?.state === "waiting" ? o.credentials.reauth : null);
 
-   The code is on this page and on no other surface. Discord carries the alarm
-   and a link here; a one-time auth code in a chat log is a credential in a chat
-   log. */
-/* TWO LANES SINCE #660, and the card differs in exactly one line. `typed` says
-   whether the operator puts a code IN rather than reads one OUT: the openai lane
-   shows a code to enter in the browser, and the anthropic lane has a code to
-   paste back into the terminal instead. The token that lane produces reaches
-   this page from nowhere — it goes straight from the pane to the store. */
-function reauthCard(r) {
-  if (!r || r.state !== "waiting") return [];
-  const mins = Math.floor((r.seconds_left ?? 0) / 60);
-  const link = r.url
-    ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`
-    : `<span class="dim">curia could not read the link off the pane — open the terminal</span>`;
-  const second = r.typed
-    ? `<span class="dim">paste the code the browser shows back into the terminal</span>`
-    : (r.code
-      ? `<code class="reauth-code">${esc(r.code)}</code>`
-      : `<span class="dim">curia could not read the code off the pane — open the terminal</span>`);
-  const how = r.typed
-    ? "is signing in — open the link, then paste the code back into the terminal"
-    : "is signing in — open the link, then enter the code";
-  return [`<div class="att-item token">
-    <span class="who">${esc(r.provider)}</span>${how}
-    <div>${link}</div>
-    <div>${second}</div>
-    <div class="dim">the session is <code>${esc(r.session)}</code>; it closes in ${mins} min if nothing completes it</div></div>`];
+/* THE VERB NAMES THE PROVIDER (#660). Two of the three rows are anthropic, and
+   a bare `reauth` on either of them would start the openai login instead. */
+const credProviders = (rows) => [...new Set(rows.map((c) => c.provider).filter(Boolean))];
+
+function credentialPointers(o) {
+  const flow = reauthWaiting(o);
+  const items = [];
+  if (flow) {
+    const mins = Math.floor((flow.seconds_left ?? 0) / 60);
+    items.push(`<div class="att-item token"><span class="who">${esc(flow.provider)}</span>is signing in —
+      the link${flow.typed ? "" : " and the code"} ${credLink("are on Credentials")} (${esc(mins)} min left)</div>`);
+  }
+  /* A dead consumer on the provider now signing in is the SAME news as the line
+     above, so it is not said twice. One on any other provider is not. */
+  const rest = deadCredentials(o).filter((c) => !flow || c.provider !== flow.provider);
+  if (rest.length) {
+    items.push(`<div class="att-item token"><span class="who">${esc(rest.map((c) => c.consumer).join(", "))}</span>the model
+      credential ${rest.length > 1 ? "cannot be used" : credSays(rest[0])} — ${credLink("open Credentials")} to sign in</div>`);
+  }
+  return items;
 }
-
-/* A consumer whose credential the operator has to act on. `valid` and
-   `expiring` are silent: the daemon refreshes inside the last quarter of the
-   token's life and says nothing about work it is already doing.
-
-   `unowned` is silent because there is nothing to press: this daemon was handed
-   no store for that provider. `unknown` is silent for a different reason (#648)
-   — a credential seeded from an env file states no date, so curia says so on the
-   Credentials screen rather than putting a permanent nudge on the list an
-   operator reads to find what is actually wrong. */
-/* The second argument is the login that ended without a credential (#721).
-   It is drawn HERE rather than as a card of its own, because this card is the
-   one that already stands and already says to sign in: an operator who pressed
-   the button and watched the attempt disappear needs one more sentence, not one
-   more item on the list. It shows only for the provider it belongs to. */
-function credentialCard(c, ended) {
-  if (!["expired", "unreadable", "absent"].includes(c.state) && !c.last_error) return [];
-  /* A HELD credential (#646) is the one case where the state word would lie.
-     The access token can be perfectly valid for another two days and still be
-     unrecoverable, so the card names the lane rather than the token, and says
-     what happened to the agents on it. */
-  const why = c.held?.why ?? c.last_error ?? c.why ?? "";
-  const what = c.held
-    ? "cannot be refreshed — the lane is held and its agents are frozen in place"
-    : `is ${esc(c.state)}`;
-  /* THE VERB NAMES THE PROVIDER (#660). Two of the three rows are anthropic, and
-     a bare `reauth` on either of them would start the openai login instead. */
-  const verb = c.provider ? `reauth ${c.provider}` : "reauth";
-  const last = ended && ended.provider === c.provider && ended.why
-    ? `<div class="dim">the last login ended at ${esc(clock(ended.ended_at))}: ${esc(ended.why)}</div>`
-    : "";
-  return [`<div class="att-item token">
-    <span class="who">${esc(c.consumer)}</span>the model credential ${what}
-    <div class="dim">${esc(why)} — type <code>${esc(verb)}</code> to sign in from a browser</div>${last}</div>`];
+/* One consumer, in the vocabulary the screen uses, so the pointer and the row
+   cannot say different words about one fault. */
+function credSays(c) {
+  return c.held ? "cannot be refreshed and the lane is held" : `is ${esc(c.state)}`;
+}
+/* The hash IS the route (#661): the Discord alarm sends an operator to the same
+   `#credentials` this link does, so somebody arriving through the front door
+   pays one tap and somebody arriving through Discord pays none. */
+function credLink(words) {
+  return `<a href="#credentials" onclick="goto('credentials');return false">${esc(words)}</a>`;
 }
 
 function attentionList(o) {
   const items = [
-    ...reauthCard(o.credentials?.reauth),
-    ...(o.credentials?.consumers ?? []).flatMap((c) => credentialCard(c, o.credentials?.reauth_ended)),
+    ...credentialPointers(o),
     ...(o.escalations ?? []).map(escCard),
     ...(o.review_gate ?? []).map(gateCard),
     ...(o.token_warnings ?? []).map(tokenCard),
@@ -1292,6 +1374,46 @@ const EVENTS = {
   token_cleared: ["credential", "", (e) => (e.fault === "unreachable"
     ? `${esc(e.key)} reaches ${esc(e.repo)} again`
     : `${esc(e.key)} is renewed`)],
+  /* The model credentials (#642, #646, #648, #660) — prose by #661.
+     They fell through the fallback until now, and the fallback names an agent
+     or a ticket subject: a credential event carries neither, so the busiest
+     hour this map exists for read as `credential refresh failed — —`. What each
+     line says is the CONSEQUENCE, not the field: a hold is a lane that stopped,
+     a fan-out is agents that healed, and an adoption is a lane that came back.
+     The one-time code is in none of them, and neither is the anthropic token —
+     the journal never held either, and this table cannot print what is not
+     there. */
+  credential_refreshed: ["credential", "", (e) => `the ${esc(e.consumer)} model credential was refreshed${
+    e.expires_at ? ` — it now expires ${esc(clock(e.expires_at))}` : ""}`],
+  /* Warn and not bad, even when it is terminal: the bad news is the hold two
+     lines down, which is the same tick and says what stopped. A failure that
+     did NOT hold the lane is a retry, and the file on disk still stands. */
+  credential_refresh_failed: ["credential", "warn", (e) => `the ${esc(e.consumer)} model credential could not be refreshed${
+    e.attempt ? ` — attempt ${esc(e.attempt)} of ${esc(e.of)}` : ""}: ${esc(e.why ?? e.code ?? "no reason recorded")}`],
+  /* Its own line rather than a fifth failure (#646): "the provider said it is
+     dead" and "curia stopped believing the unknown" are different facts, and
+     only the first is evidence about the credential. */
+  credential_refresh_exhausted: ["credential", "bad", (e) => `curia gave up refreshing the ${esc(e.consumer)} model credential after ${
+    esc(e.attempts ?? "several")} answers it does not recognise — the last was: ${esc(e.why ?? "none recorded")}`],
+  credential_hold: ["credential", "bad", (e) => `the ${esc(e.provider)} lane is held — ${esc(e.why)}. Nothing new dispatches to it${
+    e.frozen?.length ? `, and ${esc(e.frozen.length)} live agent(s) are frozen in place: ${esc(e.frozen.join(", "))}` : ", and no agent was running on it"}`],
+  credential_hold_lifted: ["credential", "", (e) => `the ${esc(e.provider)} lane is dispatching again`],
+  credential_adopted: ["credential", "", (e) => `curia adopted a fresh ${esc(e.provider)} credential`],
+  credential_seeded: ["credential", "", (e) => `the ${esc(e.provider)} credential store was seeded from ${esc(e.from)} — it carries no adoption instant, so its expiry reads unknown until someone signs in`],
+  credential_fanned_out: ["credential", "", (e) => `${esc((e.agents ?? []).length)} live ${esc(e.consumer)} agent(s) took the fresh credential${
+    e.agents?.length ? `: ${esc(e.agents.join(", "))}` : ""}`],
+  /* The login (#642, #660). The link and the code are on the Credentials
+     screen and on no other surface, so these lines say that a login is running
+     and never what is in it. */
+  reauth_requested: ["credential", "warn", (e) => `a ${esc(e.provider)} sign-in was asked for${e.by ? ` by ${esc(e.by)}` : ""}`],
+  reauth_started: ["credential", "warn", (e) => `a ${esc(e.provider)} sign-in is running in ${esc(e.session)} — the link is on the Credentials screen`],
+  reauth_code_seen: ["credential", "warn", (e) => `curia read the ${esc(e.provider)} sign-in off its pane`],
+  reauth_completed: ["credential", "", (e) => `the ${esc(e.provider)} sign-in completed after ${esc(dur(e.after_s))}${
+    e.expires_at ? ` — the credential now expires ${esc(clock(e.expires_at))}` : ""}`],
+  reauth_failed: ["credential", "bad", (e) => `the ${esc(e.provider)} sign-in failed after ${esc(dur(e.after_s))}${
+    e.why ? ` — ${esc(e.why)}` : ""}. Nothing was changed`],
+  reauth_timed_out: ["credential", "bad", (e) => `the ${esc(e.provider)} sign-in timed out after ${esc(dur(e.after_s))}. Nothing was changed`],
+  reauth_abandoned: ["credential", "warn", (e) => `the ${esc(e.provider)} sign-in session went away after ${esc(dur(e.after_s))}. Nothing was changed`],
   bridge_wedged: ["bridge", "bad", (e) => `the Discord bridge is wedged`],
   bridge_recovered: ["bridge", "", (e) => `the Discord bridge is back`],
   bridge_health: ["bridge", "", (e) => `bridge ${esc(e.previous)} → ${esc(e.state)} — ${esc(e.reason)}`],
@@ -2031,6 +2153,210 @@ async function doDeleteConversation(key) {
   if (typeof confirm === "function" && !confirm(ask)) return;
   await verb("chat-del-" + key, "/api/console/delete", { key });
   loadConversations();
+}
+
+/* ---- credentials (#661, the shape the #645 prototype settled) ---------------
+
+   THE SCREEN THAT ANSWERS "WHAT IS THE STATE OF ALL THREE?" — the question no
+   other surface could take. The attention list is built to be empty: `valid`
+   and `expiring` are silent by design, so before this screen existed there was
+   nowhere to look when nothing was wrong, and "when does this expire?" had no
+   answer short of an incident. `unowned` in particular was an ABSENCE, and an
+   absence reads as nothing rather than as a fact about what this daemon owns.
+
+   Three rows, two stores. The claude containers and the overseer run on one
+   value from one account, so each row names its provider rather than leaving an
+   operator to infer the sharing from two identical dates — and one Sign-in
+   press serves both, which the second row says instead of offering a second
+   button for the same act.
+
+   NO API-KEY FIELD, here or anywhere. Subscription only, and this page offers
+   nothing to type a credential into. */
+
+/* WHAT IS BROKEN BEHIND THE CREDENTIAL (#645 finding 2). A dead credential is a
+   fact about the box, not about a file. The wire carries the two facts — the
+   lane is not dispatching, and these agents are on it — and the sentence is
+   composed here, once, for every surface that needs it. */
+function credBlast(c, said) {
+  const lane = c.lane;
+  if (!lane || lane.dispatching) return "";
+  /* ONE LANE, ONE SENTENCE. Two of the three rows are anthropic and answer the
+     same lane, so a held anthropic lane would otherwise say the same thing
+     twice — which reads as two incidents. */
+  if (said.has(lane.provider)) return "";
+  said.add(lane.provider);
+  const frozen = lane.agents ?? [];
+  return `the ${esc(lane.provider ?? c.provider ?? "")} lane is held — nothing new dispatches to it`
+    + (frozen.length
+      ? `, and ${esc(frozen.length)} live agent(s) are frozen mid-ticket, not lost: ${esc(frozen.join(", "))}.
+         They keep their pane, claim and worktree, and heal on the tick after a fresh credential lands.`
+      : ", and no agent was running on it.");
+}
+
+/* How long a token has, said the way an operator asks it. */
+function until(iso) {
+  if (!iso) return "no stated expiry";
+  const ms = Date.parse(iso) - Date.now();
+  if (!Number.isFinite(ms)) return "no stated expiry";
+  if (ms <= 0) return "expired";
+  const d = ms / 86400000;
+  if (d >= 1) return d.toFixed(1) + " days";
+  const h = ms / 3600000;
+  if (h >= 1) return h.toFixed(1) + " hours";
+  return Math.round(ms / 60000) + " min";
+}
+const mmss = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, "0")}`;
+
+/* The live login, as a PANEL above the table and not a row inside it: a flow
+   with a countdown, a copyable code and a terminal fallback is a panel whatever
+   it is called.
+
+   IT DEGRADES, NEVER DEAD-ENDS. The link and the code are scraped off a pane,
+   and a scrape is a guess about somebody else's wording. When either is missing
+   the panel says so and hands over the terminal, which is the path that always
+   works — the scrape is an optimization over it and never a replacement.
+
+   TWO LANES (#660), differing in one step. `typed` says whether the operator
+   puts a code IN rather than reads one OUT: openai shows a code to enter in the
+   browser, anthropic asks for one to be pasted back into the terminal. The
+   token that lane produces reaches this page from nowhere. */
+function credFlow(r) {
+  if (!r || r.state !== "waiting") return "";
+  const blind = !r.url || (!r.typed && !r.code);
+  const second = r.typed
+    ? `<div class="flow-step"><span class="n">2</span><div>
+         <div>Paste the code the browser shows back into the terminal</div>
+         <div class="dim-note">curia cannot type it for you: the login pane refuses every write curia can make, which is what keeps the stall ladder out of a login prompt.</div>
+       </div></div>`
+    : `<div class="flow-step"><span class="n">2</span><div>
+         <div>Enter this code</div>
+         <code class="reauth-code">${esc(r.code)}</code>
+       </div></div>`;
+  const third = r.typed
+    ? `<div class="flow-step"><span class="n">3</span><div>
+         <div>Nothing else to do</div>
+         <div class="dim-note">curia reads the token out of the pane, asks Anthropic whether it authenticates, and adopts it only on a yes.</div>
+       </div></div>`
+    : `<div class="flow-step"><span class="n">3</span><div>
+         <div>Nothing is pasted back</div>
+         <div class="dim-note">curia watches the scratch config dir and adopts the credential the moment it lands.</div>
+       </div></div>`;
+  return `<div class="flow${blind ? " blind" : ""}">
+    <div class="eyebrow">${esc(r.provider)} · signing in · ${esc(mmss(r.seconds_left ?? 0))} left</div>
+    ${blind
+      ? `<h3>curia could not read the login off the pane</h3>
+         <p class="dim-note" style="margin:0 0 10px">The wording changed, or the pane has not printed it yet. The terminal always works.</p>`
+      : `<div class="flow-step"><span class="n">1</span><div>
+           <div>Open the link</div>
+           <a class="flow-link" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>
+         </div></div>
+         ${second}
+         ${third}`}
+    <div class="flow-fall">
+      ${/* THE PATH THAT ALWAYS WORKS (#645 finding 4). The card named the
+            terminal and never linked it, and the daemon had composed the link
+            for Discord since the first commit. It rides the payload now. */
+        r.terminal_url
+          ? `<a href="${esc(r.terminal_url)}" target="_blank" rel="noopener">Open the terminal instead →</a>`
+          : `<span class="dim-note">curia could not publish a terminal link for this session.</span>`}
+      <span class="dim">session <code>${esc(r.session)}</code>${r.expires_at ? `, torn down at ${esc(clock(r.expires_at))}` : ""}</span>
+    </div>
+  </div>`;
+}
+
+/* One consumer. `signer` is the provider whose Sign-in button has already been
+   drawn on this table, so one login is offered once however many rows it heals.
+
+   `ended` is the login that finished without a credential (#721), and it is
+   drawn HERE rather than as an item of its own: this row is the one that already
+   stands and already offers the way back, so an operator who pressed Sign in and
+   watched the attempt disappear needs one more sentence, not one more place to
+   look. It shows only on the rows of the provider it belongs to. */
+function credRow(c, signer, flow, ended) {
+  const st = credState(c);
+  /* A login already running on this provider is the act. Offering a second
+     Sign-in press beside the panel that is mid-flow would start nothing — the
+     flow hands back the session it already has — and would read as two ways in
+     where there is one. */
+  const signing = flow && flow.state === "waiting" && flow.provider === c.provider;
+  const act = signing
+    ? `<span class="dim-note">signing in now — the link is in the panel above</span>`
+    : credWants(c)
+      ? (c.provider && signer.has(c.provider)
+        ? `<span class="dim-note">the same login signs this in</span>`
+        : credSignIn(c, signer))
+      : `<span class="dim-note">${c.state === "unowned" ? "nothing to press" : "nothing to do"}</span>`;
+  /* The state word LIES on a held lane (#646) and only there: the access token
+     can be valid for another two days and the lane still be unrecoverable. So
+     the chip names the lane instead of the token, and the reason sits under it. */
+  const chip = c.held
+    ? `<span class="chip bad">held</span>`
+    : `<span class="chip ${st.tone}">${esc(c.state)}</span>`;
+  const why = c.held?.why ?? c.last_error ?? c.why ?? st.says;
+  const last = ended && ended.provider === c.provider && ended.why
+    ? `<div class="dim-note">the last login ended at ${esc(clock(ended.ended_at))}: ${esc(ended.why)}</div>`
+    : "";
+  return `<tr>
+    <td class="c-who"><span class="who">${esc(c.consumer)}</span>
+      <span class="dim-note mono" style="display:block;margin-top:2px">${esc(c.provider ?? "no provider")}</span></td>
+    <td data-label="state">${chip}</td>
+    <td class="num" data-label="expires">${c.expires_at
+      ? `${esc(until(c.expires_at))}<div class="dim-note">${esc(clock(c.expires_at))}</div>`
+      : `<span class="dim-note">—</span>`}</td>
+    <td class="num" data-label="last refresh">${c.last_refresh_at
+      ? esc(clock(c.last_refresh_at))
+      : `<span class="dim-note">never</span>`}</td>
+    <td class="why" data-label="why">${esc(why)}${last}</td>
+    <td class="c-act">${act}</td>
+  </tr>`;
+}
+
+/* The one press on this screen, and the reason the screen exists: the recovery
+   from a dead credential has to reach a phone. It runs the operator's own
+   `reauth <provider>` through the command seam, so a press and a typed line are
+   one act — and what it shows afterwards is curia's own sentence about what
+   happened, including a refusal. */
+function credSignIn(c, signer) {
+  if (!c.provider) return `<span class="dim-note">no provider to sign in</span>`;
+  signer.add(c.provider);
+  const k = "reauth:" + c.provider;
+  /* What curia answered sits at the control that asked, once — the press was on
+     this row, and the other row of a shared provider offers no button to hang a
+     second copy of it on. */
+  return `<button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="startReauth('${js(c.provider)}')">
+    ${busy(k) ? "…" : "Sign in from a browser"}</button>${said(k)}`;
+}
+const startReauth = (provider) => verb("reauth:" + provider, "/api/reauth", { provider });
+
+function screenCredentials(p) {
+  const o = p?.overview;
+  if (!o) return noSnapshot(p, "Credentials");
+  /* Null is not empty (rule 2). A daemon that answered with no credentials
+     section at all is not a box that owns no credentials. */
+  const c = o.credentials;
+  if (!c) {
+    return `${head(p, "Credentials")}
+      <div class="unread">This snapshot carries no credentials section — the daemon answering it is older than this page.</div>`;
+  }
+  const rows = c.consumers ?? [];
+  /* Two passes over the rows, each with a set that keeps one lane and one login
+     from being said twice: `lanes` for the sentences above the table, `signer`
+     for the button inside it. */
+  const lanes = new Set();
+  const signer = new Set();
+  const held = rows.map((r) => credBlast(r, lanes)).filter(Boolean);
+  return `${head(p, "Credentials")}
+    ${held.map((b) => `<div class="lane-held">${b}</div>`).join("")}
+    ${credFlow(c.reauth)}
+    <div class="h-sect"><h3>Model credentials (${esc(rows.length)})</h3>
+      ${rows.length ? `<div class="tbl-wrap"><table class="creds">
+        <thead><tr>
+          <th>consumer</th><th>state</th><th>expires</th><th>last refresh</th><th>why</th><th></th>
+        </tr></thead>
+        <tbody>${rows.map((r) => credRow(r, signer, c.reauth, c.reauth_ended)).join("")}</tbody>
+      </table></div>` : `<div class="empty">This daemon brokers no model credential.</div>`}
+      <p class="dim-note" style="margin-top:10px">Subscription credentials only. curia holds no API key, and this page offers no field for one.</p>
+    </div>`;
 }
 
 function screenSettings(p) {

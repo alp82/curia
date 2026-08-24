@@ -837,10 +837,35 @@ describe('the operator verbs (#266)', () => {
     assert.equal(sent('/note').body.mode, 'queue', 'anything that is not the second mode is the default')
   })
 
+  // The Credentials screen's one press (#661), and the reason that screen
+  // exists: the recovery from a dead model credential has no ssh in it, so the
+  // act has to reach a phone. Through the command seam like every other verb,
+  // so a press journals what a typed line journals.
+  test('sign-in composes `reauth <provider>` — the browser names a provider, never a line', async () => {
+    const res = await press('/api/reauth', { provider: 'anthropic' })
+    assert.equal(res.status, 200)
+    assert.equal(sent('/command').body.text, 'reauth anthropic')
+    assert.equal(sent('/command').body.by, 'alp@example.com')
+  })
+
+  // The daemon refuses an unknown provider by naming what it CAN sign in, and
+  // that sentence is the reply the button shows. This surface only keeps a
+  // browser from writing the rest of the line.
+  test('an unknown provider still reaches the daemon, because the refusal is its sentence', async () => {
+    reply['/command'] = [200, { reply: '❌ curia owns no `azure` credential… It can re-authenticate: openai, anthropic' }]
+    const res = await press('/api/reauth', { provider: 'azure' })
+    assert.equal(res.status, 200)
+    assert.equal(sent('/command').body.text, 'reauth azure')
+    assert.match(JSON.parse(res.text).reply, /It can re-authenticate: openai, anthropic/)
+  })
+
   // ---- what may not cross it -----------------------------------------------
 
   test('a field the daemon would parse as something else is refused HERE, before the wire', async () => {
     for (const [route, body, why] of [
+      ['/api/reauth', { provider: 'openai; rm -rf /' }, /provider name/],
+      ['/api/reauth', { provider: 'openai anthropic' }, /provider name/],
+      ['/api/reauth', { provider: '' }, /provider name/],
       ['/api/start', { repo: 'alp82/curia; rm -rf /', ticket: '1' }, /owner\/name repo/],
       ['/api/start', { repo: 'alp82/curia', ticket: '1 model=x' }, /ticket number/],
       ['/api/cancel', { ticket: 'all' }, /ticket number/],
