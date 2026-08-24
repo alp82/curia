@@ -48,6 +48,7 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 - [ADR-0008](0008-resolved-means-merged.md): Resolved means merged. The agent stays alive through the review, and the Stop hook enforces the ending.
 - [ADR-0010](0010-the-cross-check.md): The cross-check is a button on the review gate. A reviewer on the other provider returns a verdict, and the builder answers it before the operator decides.
+- [ADR-0028](0028-local-only-work-is-salvaged-before-a-clone-dies.md): Local-only work is salvaged before a clone dies. Uncommitted changes and unpushed commits are two named predicates, the salvage is a branch on GitHub rather than a patch on the box, and cancel says so. Decided, not built.
 
 ## Attach surfaces
 

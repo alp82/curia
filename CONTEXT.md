@@ -538,6 +538,12 @@ The daemon's push of `curia/<n>` and the open or update of the one pull request 
 **Workspace lease**:
 The hold on a worktree and branch until the pull request is positively merged. Every uncertain case keeps the workspace.
 
+**Local-only work**:
+Work that exists in no place but one private clone. Two kinds, and they stay two named predicates rather than one widened one: **unpushed commits**, which `hasUnpushedCommits` answers from `git rev-list --count`, and **uncommitted changes**, which `hasUncommittedChanges` answers from `git status --porcelain`. Untracked files count as work; the repo's `.gitignore` and the clone's own `.git/info/exclude` are what separate work from noise. The distinction is load-bearing because the cross-check callers ask about the pushed tip only, and a dirty tree is no reason to refuse a cross-check. Every guard curia had before [#649](https://github.com/alp82/curia/issues/649) read the first kind and was blind to the second. See [ADR-0028](docs/adr/0028-local-only-work-is-salvaged-before-a-clone-dies.md).
+
+**Salvage branch**:
+Where local-only work goes before curia destroys the clone holding it: `curia/<n>-salvage-<stamp>`, committed by curia and pushed. It accumulates and never overwrites, because a salvage that destroys the previous salvage is the same loss one level up. Cancel and the workspace lease capture one and then proceed; the orphan sweep keeps the clone instead; `start <n>` refuses over a surviving clone and names `resume <n>`. A push that fails keeps the clone and says so. Nothing deletes a salvage branch. It is a branch on the tracker rather than a patch on the box because a patch is what nobody reads. See [ADR-0028](docs/adr/0028-local-only-work-is-salvaged-before-a-clone-dies.md) and [#649](https://github.com/alp82/curia/issues/649).
+
 **Repair**:
 The daemon's completion of resolve-protocol steps the agent missed, recorded as repairs.
 
