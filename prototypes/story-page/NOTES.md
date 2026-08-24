@@ -906,6 +906,264 @@ script reaches for is in the markup, and the build rules hold (no image, no remo
 webfont). Each check was validated by breaking the
 file on purpose first, one break at a time, and every break produced exactly one failure.
 
+## The atlas scene ([#628](https://github.com/alp82/curia/issues/628))
+
+Scene 6, the atlas. The operator's note at #551 round 2, verbatim: "the dashboard should show just
+the first map but with the tickets below as in the prototypes defined".
+
+**Round 1.** The old scene showed three maps as three bands and no tickets at all. It is gone. The
+scene now shows ONE map with its work under it, in the shapes
+[prototypes/maps-screen/](../maps-screen/) decided at
+[#522](https://github.com/alp82/curia/issues/522): the head with its fraction, the progress band,
+and the ticket rows below.
+
+**The map is this map.** Scene 6 shows [#600](https://github.com/alp82/curia/issues/600), the map
+that is building this page, and every count is what the tracker held while this round was worked
+(#601: real records):
+
+| state | count | what it is |
+|-------|-------|------------|
+| walked | 10 | closed children, #627 the most recent |
+| in flight | 1 | #628, this ticket, claimed and running on `claude-opus-5` |
+| blocked | 5 | #629, #630, #631, #604, #145, one behind the other |
+| the fog | 2 | the two patches under Not yet specified |
+
+Nothing is takeable, because the one unblocked ticket is the one being worked. The map really is a
+single chain, which is why several compositions can read it as one.
+
+**The five differ by composition**, not by ornament. All five carry the same head, the same counts
+and the same rows:
+
+| id | composition | what it does with the map and its tickets |
+|----|-------------|-------------------------------------------|
+| 1 | panel | the maps screen transplanted: worded band, then every group under its own label |
+| 2 | counters | no band and no group labels. Four big counts, then ONE flat list by state |
+| 3 | board | every ticket is a card edged in its state, with its type and routed model |
+| 4 | live | the running ticket leads at full size, and the rest of the map queues behind it |
+| 5 | chain | the tickets are links off one rail, and the band drops to the foot as the summary |
+
+The round bar rides `?id=1..5` and swaps a composition in place, so the operator compares the five
+without leaving the scene. It is round chrome, and it leaves the file with the round that settles
+this scene, the way the identity switcher left it at #624.
+
+**Eight build checks** ran against the file, since no agent on this ticket has eyes on it: five
+compositions numbered in order with a bar button each, the same real ticket numbers in every one of
+them, the same counts however a composition states them and a sum that matches the map's sixteen
+tickets, no two compositions sharing more than half their skeleton, every class styled and every
+hook in the markup, composition 1 showing with no script and the bar hidden until the script runs,
+the build rules of [build.md](../../docs/landing-page/build.md), and balanced markup. Each check was
+validated by breaking the file on purpose first, one break at a time, and every break produced
+exactly one failure.
+
+**Two faults the checks caught before the operator saw them.** The first cut of composition 2 was a
+vertical band with the ticket rows hanging off it. The distinctness check measured 66 per cent of
+its skeleton shared with composition 1, which was fair: both were a head, a band and labeled groups
+of the same row. It became the counters instead. The count check then failed on composition 2,
+because it assumed every composition draws a band. A composition that states the counts another way
+is not a fault, so the check now reads the counts from whichever shape carries them.
+
+**The operator's answer.** No pick. The scene needs two screens, and the second one has to look
+like the prototype that decided it:
+
+> make it 2 screens. a simplified home dashboard and something like the panel but looking like the
+> result of the respective prototype (the one with the red lined background for blocked and the
+> diagonal grey stripes for the fog)
+
+The red-lined blocked box and the striped fog strip are
+[prototypes/frontier-visual/](../frontier-visual/) ([#588](https://github.com/alp82/curia/issues/588))
+round 5. The three questions the answer did not touch ride into round 2.
+
+**Round 2.** The scene is two screens now, and both redraw a decided curia screen rather than a
+band of this ticket's invention:
+
+1. **The home** is the synthesis home of [prototypes/home-directions/](../home-directions/)
+   ([#519](https://github.com/alp82/curia/issues/519)), simplified for a phone: the ring of what
+   needs you, the agents that run, and one progress bar per map. The log tail and the token
+   readouts are gone, which is what "simplified" came down to.
+2. **The map** is the stops line of [prototypes/frontier-visual/](../frontier-visual/)
+   ([#588](https://github.com/alp82/curia/issues/588)), decided over six rounds: the walked stop,
+   the running row, the frontier rule, then the blocked in their **red-lined box** and the fog on
+   its **diagonal grey stripes**. Those two treatments are the ones the operator named, lifted
+   value for value.
+
+**The numbers are still real, and there are more of them now.** The home carries the three open
+maps of this repo: Build the Atlas operator experience at 8/42, Model credentials and
+provider-account failures at 16/19, and Ship the story landing page at 10/16 +2. The map screen
+shows the frontier as it really stands, which is empty: the one unblocked ticket is the one being
+worked, so the scene says "nothing takeable. the way is in flight", which is the empty-frontier
+line #588 decided.
+
+**The two screens live once.** Composition 1 holds them both, and the script clones them into the
+other four, the way the preview scene fills its workstation from one pool. So the page still reads
+whole with no script at all.
+
+The five variations are how the two screens are put together:
+
+| id | composition | what the reader sees |
+|----|-------------|----------------------|
+| 1 | stack | the home whole, a drill line, then the map under it |
+| 2 | drill | one frame. The map slides up over the home as the scene arrives |
+| 3 | pair | two cards in depth, the map standing in front of the home |
+| 4 | focus | the map leads at full size, and the home is the inset it came from |
+| 5 | ribbon | the home shrinks to one status line, and the map takes the room |
+
+**Ten build checks** ran against the file: five numbered compositions with a bar button each, both
+screens present and living once with a slot in every other composition, the home carrying the ring
+and the agents and one bar per open map, the map carrying the stops line with the red-lined box and
+the striped strip, the counts matching the tracker snapshot and summing to the map's sixteen
+tickets, five layouts that each style themselves, every class styled and every hook in the markup,
+composition 1 reading with no script, the build rules, and balanced markup. Each was validated by
+breaking the file on purpose first, and every break produced exactly the failure it should.
+
+**One fault the checks caught.** Composition 1 had a single layout rule of its own, which the
+distinctness check called out. That was fair: stacking two screens is not a composition until it
+says how they meet. It has the drill line between them now.
+
+**One fault reading caught.** The drill overlay was absolutely placed against a frame the home
+sized, so a map taller than the home would have been clipped by it. Both screens share one grid
+cell now, so the frame is as tall as the taller of the two.
+
+**The operator's answer.** Rejected, with a screenshot:
+
+> looks completely broken. move the title to the center and move the slightly tilted dashboard
+> screens left and right, both facing the title
+>
+> 5 variations like this and you can experiment with layout, etc.
+
+The screenshot showed the fault plainly, and it is the SAME fault the preview scene hit at #627
+round 3. At desktop width the claim sat in a centered `.wrap` on the left while the panel leaned
+right inside a `.shot`, so the title stood alone with a screen of dead space beside it, and the
+panel ran off the fold as one endless list. Round 2 read fine on a phone and fell apart on a
+desktop, because nothing in the scene placed the claim and the evidence against each other.
+
+**Round 3.** The repair is the one #627 already proved, and the composition is the one the
+operator drew.
+
+**The scene is one composition canvas.** The `.wrap` and the `.shot` are gone from it. The claim
+and both screens are grid items of `.at`, placed for a phone and placed again past 60rem. On a
+wide screen the grid is three columns, `hm claim mp`, so the title stands between the screens
+rather than beside a gap.
+
+**The claim is centered, and the screens face it.** `rotateY` turns a screen's normal toward the
+side it is rotated to, so the home takes a positive angle and the map a negative one, and both
+faces point at the title. A build check asserts those signs, because getting one backwards would
+turn a screen away from the claim and nobody here can see it.
+
+**A screen is a screen now.** Each one is a bounded card with its own header strip that clips what
+runs past its bottom edge. Round 2 let the panel grow for ever, which is what made it run off the
+fold.
+
+The five compositions on `?id=1..5`, all of them centered claim, both screens tilted toward it:
+
+| id | composition | what the reader sees |
+|----|-------------|----------------------|
+| 1 | flank | the plain reading. Same size, same tilt, level with the claim between them |
+| 2 | stagger | depth rather than symmetry: the map larger and lower, the home smaller and higher |
+| 3 | converge | a harder perspective, the screens turned well in, the claim in the pocket they leave |
+| 4 | rise | two tall walls running past the claim top and bottom, cut by the section edges |
+| 5 | desk | both screens lie back on one baseline, the way two monitors sit on a desk |
+
+**Eleven build checks** ran against the file: the canvas holding all three items with no `.wrap`
+and no `.shot`, the claim centered and every tilt facing it and staying slight, five compositions
+that each lay the canvas out and differ in their declarations rather than only in their number,
+the screens bounded and headed, the home carrying the #519 ring and agents and one bar per open
+map, the map carrying the #588 stops line with the red-lined box and the striped strip, the counts
+matching the tracker snapshot, every class styled and every hook present, the page reading with no
+script and with reduced motion, the build rules, and balanced markup. Each was validated by
+breaking the file on purpose first.
+
+**Two faults the validation caught in the checks themselves**, which is the lesson this file keeps
+relearning. A distinctness check compared whole CSS rules, so two compositions with different
+selectors always looked different even when their declarations were identical. It compares the
+declarations now. And a break that was meant to prove the `.wrap` check landed in a different
+scene, so the check had never actually been shown a failure. Both were fixed and then proved.
+
+**One fault reading caught.** The screens come in on opacity, so they read a class the scene wears
+rather than the reveal's own. With reduced motion the observers never attach, so the screens would
+have stayed invisible. The fail-open path sets that class too now, and a reduced-motion rule shows
+them outright.
+
+**The operator's answer.** The composition is settled, and nothing else is open:
+
+> 1 - i have nothing to complain
+
+## The verdict of the atlas scene ([#628](https://github.com/alp82/curia/issues/628))
+
+**Locked over three operator rounds.** The four compositions that lost, and the bar that carried
+them, left the file with the round that settled it, the way the identity switcher left it at #624.
+
+**What the scene is, finally:**
+
+1. **Two screens, not one map.** Round 1 offered one map with its tickets under it. The operator
+   ruled that too little: the scene shows a **home dashboard** and **one map**, side by side.
+2. **Both screens redraw a DECIDED curia screen**, in the V6 dashboard tokens
+   ([#519](https://github.com/alp82/curia/issues/519)). Nothing in this scene is a shape this
+   ticket invented.
+   - The home is the synthesis home of [prototypes/home-directions/](../home-directions/) (#519),
+     cut back for a phone: the ring of what needs you, the agents that run, one progress bar per
+     map. The log tail and the token readouts are gone.
+   - The map is the stops line of [prototypes/frontier-visual/](../frontier-visual/)
+     ([#588](https://github.com/alp82/curia/issues/588)), decided there over six rounds: the
+     walked stop, the running row, the frontier rule, then the blocked in their **red-lined box**
+     and the fog on its **diagonal grey stripes**. The operator named those two treatments by
+     sight, and they are lifted value for value.
+3. **The claim stands between them, and both screens face it.** `rotateY` turns a screen's normal
+   toward the side it is rotated to, so the home takes a positive angle and the map a negative one.
+4. **The scene is one composition canvas.** The claim and both screens are grid items of `.at`,
+   placed for a phone and placed again past 60rem, where the grid is three columns.
+5. **A screen is bounded.** Each one is a card with its own header strip that clips what runs past
+   its bottom edge.
+6. **The counts are real** ([#601](https://github.com/alp82/curia/issues/601)). The home carries
+   this repo's three open maps at their true fractions: Build the Atlas operator experience at
+   8/42, Model credentials and provider-account failures at 16/19, and Ship the story landing page
+   at 10/16 +2. The map screen is #600, the map that is building this page, and the agent on the
+   home screen is the one that built this scene. The frontier is empty, because the one unblocked
+   ticket is the one being worked.
+
+**One deliberate deviation from the identity**, taken on the operator's round 2 instruction and
+recorded here rather than buried: the claim is **centred**. [#624](https://github.com/alp82/curia/issues/624)
+rule 2 docks a scene's claim to its own side, and this scene is `sL`. Two screens flanking a title
+need a middle to face, so the claim takes it.
+
+**The fault that cost a round, and why it is worth keeping.** Round 2 read fine on a phone and
+broke at desktop width. The claim sat in a centred `.wrap` while the evidence leaned right inside a
+`.shot`, so the title stood alone with a screen of dead space beside it. That is the SAME fault the
+preview scene hit at [#627](https://github.com/alp82/curia/issues/627) round 3, and the same repair
+fixed it. **A scene that boxes its claim and its evidence in two separate centred containers has no
+composition at all**, and the fault only shows at a width no agent here can see.
+
+**Eleven build checks** run against the file, since no agent on this ticket has eyes on it: the
+canvas holding all three items with no `.wrap` and no `.shot`, the claim centred and both tilts
+facing it and staying slight, the losing compositions and the bar gone, the screens bounded and
+headed, the home carrying the #519 ring and agents and one bar per open map, the map carrying the
+#588 stops line with the red-lined box and the striped strip, the counts matching the tracker
+snapshot, every class styled and every hook present, the page reading with no script and with
+reduced motion, the build rules, and balanced markup.
+
+**Five wrong records in scene 3, found by reading this scene's data against the tracker.** The
+opening arc names real tickets, and #601 rules that every scene shows real records, so a twelfth
+check now compares every one of them against `gh`. Five disagreed, and the operator ruled all five
+fixed:
+
+| ticket | the page said | the tracker says |
+|--------|---------------|------------------|
+| #627 | the atlas scene | the phone preview scene, and #628 is the atlas |
+| #601 | research | grilling |
+| #644 | task | research |
+| #587 | grilling | prototype |
+| #578 | grilling | task |
+
+The operator was asked about #627 alone, at every round from the first. Their ruling was the
+reason, not the instance: it is a correction to a real record, and #601 rules that every scene
+shows real records. The other four are the same error, so they went with it.
+
+**Two of the checks were wrong before they were right**, which is the lesson this file keeps
+relearning. A distinctness check compared whole CSS rules, so two compositions with different
+selectors always looked different even when their declarations were identical. And a break meant to
+prove the `.wrap` check landed in a different scene, so that check had never been shown a failure
+at all. **A green check that has never been shown a known failure proves nothing**, and neither
+does a break you did not confirm landed.
+
 ## The verdict of the preview scene ([#627](https://github.com/alp82/curia/issues/627))
 
 **Locked over five operator rounds.** Round 5 settled the last of it: "type is great, lets lock it
