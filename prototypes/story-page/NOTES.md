@@ -757,6 +757,62 @@ Five presses ride `?d=1..5`:
 window up to 16.5px, which is about what the client itself uses. The floor of 7px on the smallest
 screens is unchanged.
 
+## The verdict of the Discord scene ([#626](https://github.com/alp82/curia/issues/626))
+
+**Locked over six operator rounds.** Every variation that lost, and the switcher that carried them,
+left the file with the round that settled it, the way the identity switcher left it at #624.
+
+**Round 6** was the last, and it was corrections. The operator picked **lift**, with the swell
+centred rather than rising, the pulse ring on top of it, and both bigger. They ruled the thread
+names down again to `[ICON] 2 · grilling` with a wider channel list. And they caught a layout fault
+in the button rows.
+
+**The fault, and why it is worth writing down.** The rows were thrown apart and wrapped at two
+buttons a line. The cause was the streaming: `chars()` splits every text node into one span per
+character, and the whitespace BETWEEN two buttons in the markup is a text node. In a flex row each
+of those spans is a flex ITEM, and each one takes the row's `gap`. Twenty spaces of indentation
+became twenty flex items and about 250px of dead air. The fix is one line: a whitespace-only text
+node is skipped unless it sits inside a code block, where the spaces are the content.
+
+The lesson is the round-1 one again, sharpened. Round 1's `chars()` skipped whitespace with
+`!txt.trim()`. Round 3 changed it to `!n.nodeValue` so the ASCII timeline kept its columns, and that
+change carried this fault into three rounds of previews. **A guard that is loosened for one caller
+has to be re-checked against every other caller,** and the operator's eyes were the only check
+this file had.
+
+**What the scene is, finally:**
+
+1. **The claim leads and holds.** "Answer from the couch." rides to the top of the screen and
+   sticks. What it leaves is the room the window may take.
+2. **The window is placed against a stage that is the viewport**, so its distance from the bottom
+   edge is a constant at every scroll position and every height. It cannot be cut off.
+3. **It unfolds from the bottom row up**, so the typing row is the first thing on screen, holds
+   there while curia thinks, then grows upward as the card streams in character by character.
+4. **The chrome is the desktop client**, read off the operator's own screenshot rather than
+   guessed: the title bar, the rail, threads nested under their channel, the breadcrumb header, the
+   member list that drops on a narrow screen, the account panel, and the composer's tool row.
+5. **The card is curia#601** in the ADR-0025 shape, and its answer is what built every proof scene
+   on this page.
+6. **The press is shown**, and then curia does the true thing: it edits the card and clears its
+   components, so the rows collapse, the mark comes up in small print, the message wears
+   `(edited)`, and the thread turns green in the header and the channel list at once.
+
+**Two deliberate deviations from what curia really posts**, both taken on the operator's ruling
+that this page reads to a stranger first, and both recorded here rather than buried:
+
+- **Thread names.** The page says `⏳ 2 · grilling`. `bridge.mjs:644` writes
+  `🎫 601 · curia · grilling`. The number is short and the repo is gone.
+- **The card shape.** The page shows ADR-0025, which is accepted but not yet in `bridge.mjs`. The
+  operator ruled that the page must not go live ahead of it, so this becomes a build-day check on
+  the cutover ticket ([#604](https://github.com/alp82/curia/issues/604)), beside the one scene 7
+  already carries for the harness names.
+
+**Where the font still falls short.** The page ships no webfont, so the window runs Discord's own
+fallback stack. gg sans is licensed and never loads. On an Apple device that lands on Helvetica,
+which is what Discord itself falls back to, and it is narrower and more closed than gg sans. The
+names and the bold lines run slightly short of the real thing. Nothing in the system stack is
+closer.
+
 ## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
 
 **Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
