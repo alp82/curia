@@ -1132,6 +1132,40 @@ prints as you watch, then hands to codex). Four questions went with them: the co
 the TUIs read as real, whether 58 columns is the right density on a phone, and whether the winner
 should print itself.
 
+**The operator's answer to round 1**, verbatim:
+
+> let's try the rail and fallback to the bottom tabs on mobile. never both
+>
+> the type variation is good in theory but looks not very nice, too fast, hard to follow. make more
+> variations that try different distinct unique things style, motion and layout wise
+
+Two things settled with that reply, and they hold for every later round:
+
+1. **The control is the rail past 60rem and bottom tabs below it, and never both.** So the tmux
+   status bar went back to being what a real one is: text that states the current window, not a
+   button. Exactly one control is on screen at any width, and a build check asserts it.
+2. **The printing stays, and it slows down.** Round 1 printed a line every 52ms and looped. Nothing
+   prints faster than a line every 180ms now, and the run happens ONCE. Scrolling back used to
+   restart the session under the reader, which is part of what made it hard to follow.
+
+**Round 2.** Five compositions over that settled control, each reaching the reading a different
+way in style, motion and layout: 1 step (curia's quiet frame, the session arriving a block at a
+time so a tool call and its result land together), 2 crawl (edge to edge under a vignette, prose
+typing character by character while tool rows land whole), 3 desk (the pane tilted under a stage
+light, with the SCROLL lighting the session so the reader sets the pace and can hold anywhere),
+4 cut (a hard diagonal stage cut, the pane wiping in from the scene side and then printing block
+by block), 5 relay (the browser tab the claim names, claude printing, the tmux window flipping,
+codex carrying on).
+
+**The typing takes no per-character spans.** A line is clipped to a whole number of `ch`, and on a
+monospace grid 1ch IS one column, so the clip lands between characters exactly. The Discord scene
+split text into one span per character at [#626](https://github.com/alp82/curia/issues/626), and
+the whitespace between two elements became a flex item that cost about 250px of dead air. Clipping
+cannot repeat that fault, because it adds no nodes at all.
+
+**Two questions came back unanswered**, so they ride into round 3: whether the two TUIs read as
+their real counterparts now, and whether 58 columns is the right density on a phone.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3

@@ -1301,23 +1301,34 @@
      close and the pane clips rather than reflowing.
 
      Each pane is a SCROLLBACK and a COMPOSER, the way both TUIs are
-     built: .tm-out holds the transcript and is bottom-aligned inside a
-     bounded screen, .tm-in holds the input row and the status footer
-     and never moves.
+     built: .tm-out holds the transcript and is pushed to the bottom of
+     the pane, .tm-in holds the input row and the status footer and
+     never moves.
+
+     THE CONTROL, settled at round 1: the harness rail past 60rem, the
+     bottom tabs below it, and never both. So the tmux status bar is
+     what a real one is — text stating the current window, not a
+     button. Exactly one control is on screen at any width.
 
      The scene is ONE composition canvas — the claim, the terminal and
      the fact line are grid items of .tm. No .wrap and no .shot: that
      pair broke the preview scene at #627 round 3 and the atlas at #628
      round 2, at a desktop width no agent here can see.
 
-     ROUND 1 of #629 offers five compositions on ?id=1..5. They differ
-     in the chrome around the pane and in how the two harnesses are
-     reached, not in ornament:
-       1 tab    a browser window on the tailnet URL; tmux windows switch
-       2 split  one tmux, both harnesses at once in a split
-       3 full   edge to edge, no chrome but the status bar
-       4 rail   curia's own frame: a harness rail beside the pane
-       5 type   the session prints as you watch, then hands to codex
+     ROUND 2 of #629 offers five compositions on ?id=1..5 over that
+     settled control. Round 1's printing was "too fast, hard to follow",
+     so no variation prints faster than a line every 180ms, and each
+     one reaches the reading differently — in style, motion and layout:
+       1 step     curia's quiet frame; the session arrives a BLOCK at a
+                  time, a tool call and its result together
+       2 crawl    edge to edge under a vignette; prose TYPES character
+                  by character while tool rows land whole
+       3 desk     the pane tilted under a stage light; the SCROLL lights
+                  the session, so the reader sets the pace
+       4 cut      a hard diagonal stage cut; the pane wipes in from the
+                  scene side, then prints block by block
+       5 relay    the browser tab of the claim; claude prints, the tmux
+                  window flips, and codex carries on
      ================================================================ */
   .tm {
     position: relative; width: 100%; max-width: 96rem; margin: 0 auto;
@@ -1332,21 +1343,24 @@
 
   /* ---- the window ---- */
   .tmw {
-    position: relative; background: #0b0e12; border: 1px solid #262d33; border-radius: 10px; overflow: hidden;
+    position: relative; background: #0b0e12; border: 1px solid #262d33;
+    border-radius: 10px; overflow: hidden;
+    display: grid; grid-template-columns: minmax(0, 1fr);
     box-shadow: 0 1.6rem 3.2rem -1.2rem rgba(0, 0, 0, 0.85), 0 0.3rem 1rem rgba(0, 0, 0, 0.4);
   }
+  .tm-body { min-width: 0; background: #0b0e12; }
   .tm-panes { display: block; }
   .tm-pane {
     display: flex; flex-direction: column; min-width: 0;
-    min-height: var(--tmh, 14rem);
+    min-height: var(--tmh, 15rem);
   }
   .tm-pane[hidden] { display: none; }
   /* The scrollback sits at the BOTTOM of the pane and the composer under
      it, the way both TUIs hold their input row against the last line.
      margin-top: auto does that, and the pane stays a block box: with
-     display: flex here, composition 5's per-line spans would each become
-     a flex item and the newlines between them would take rows of their
-     own. */
+     display: flex here, the per-line spans the printer needs would each
+     become a flex item and the newlines between them would take rows of
+     their own. */
   .tm-out { display: block; margin: auto 0 0; padding: 0.5rem 0.6rem 0; overflow: hidden; }
   .tm-in { margin: 0; padding: 0.2rem 0.6rem 0.5rem; overflow: hidden; }
   .tm-out, .tm-in {
@@ -1379,8 +1393,21 @@
   .tm-in .cur { background: #d7dce4; color: #0b0e12; animation: blink 1.05s steps(1) infinite; }
   @keyframes blink { 50% { background: none; color: #d7dce4; } }
 
-  /* ---- the tmux status bar: the window list IS the harness switch,
-     the way C-b n is in a real session ---- */
+  /* ---- the printer. A line is hidden, revealed, or mid-type. Typing
+     clips the line to a whole number of characters, which a monospace
+     grid makes exact: 1ch IS one column. No per-character spans, so
+     the whitespace fault the Discord scene hit at #626 cannot recur. */
+  .js .tm.printing .tm-out .ln { visibility: hidden; }
+  .js .tm.printing .tm-out .ln.on { visibility: visible; }
+  .js .tm.printing .tm-out .ln.typing {
+    visibility: visible; display: inline-block; vertical-align: top;
+    overflow: hidden; white-space: pre;
+  }
+  .js .tm.printing .tm-in { opacity: 0.5; transition: opacity 0.5s var(--ease); }
+  .js .tm.printing.done .tm-in { opacity: 1; }
+
+  /* ---- the tmux status bar. A real one is text, not a control, and
+     round 1 settled that the rail and the tabs are the control. ---- */
   .tmux {
     display: flex; align-items: center; gap: 0.15rem;
     background: #1c3d33; color: #9fe0c6; padding: 0 0.45rem;
@@ -1388,15 +1415,38 @@
   }
   .tmux .sess { padding-right: 0.4rem; }
   .tmux .clock { margin-left: auto; padding-left: 0.5rem; }
-  .tmw-btn {
-    border: 0; background: none; color: #9fe0c6; font: inherit; padding: 0 0.35rem;
-    cursor: pointer; border-radius: 2px;
-  }
-  .tmw-btn::after { content: ' '; }
-  .tmw-btn[aria-pressed="true"] { background: #9fe0c6; color: #0b2019; }
-  .tmw-btn[aria-pressed="true"]::after { content: '*'; }
+  .tmw-win { padding: 0 0.35rem; border-radius: 2px; }
+  .tmw-win::after { content: ' '; }
+  .tmw-win.on { background: #9fe0c6; color: #0b2019; }
+  .tmw-win.on::after { content: '*'; }
 
-  /* ---- the browser around the tab (composition 1) ---- */
+  /* ---- the control past 60rem: curia's harness rail ---- */
+  .tm-rail { display: none; background: #0f1116; border-bottom: 1px solid #262d33; }
+  .tm-rail .rh {
+    margin: 0; font: 700 0.56rem var(--mono); letter-spacing: 0.2em; text-transform: uppercase;
+    color: #8a93a3; padding: 0.7rem 0.75rem 0.45rem;
+  }
+  .tm-rail .rl { padding: 0 0.5rem 0.6rem; }
+  .tm-rail button {
+    display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
+    color: #aab3c1; font: 0.75rem/1.35 var(--sans); padding: 0.5rem 0.6rem; border-radius: 8px;
+  }
+  .tm-rail button + button { margin-top: 0.2rem; }
+  .tm-rail button b { display: block; font-weight: 700; color: #e6e9ef; }
+  .tm-rail button span { font: 0.62rem var(--mono); color: #79808d; }
+  .tm-rail button[aria-pressed="true"] { background: #15281f; }
+  .tm-rail button[aria-pressed="true"] b { color: #7dd3a0; }
+
+  /* ---- the control below 60rem: bottom tabs. NEVER both (round 1) ---- */
+  .tm-tabs { display: flex; border-top: 1px solid #262d33; background: #0f1116; }
+  .tm-tabs button {
+    flex: 1; border: 0; background: none; cursor: pointer; color: #8a93a3;
+    font: 700 0.74rem var(--sans); padding: 0.6rem 0.4rem;
+    border-top: 2px solid transparent; margin-top: -1px;
+  }
+  .tm-tabs button[aria-pressed="true"] { color: #7dd3a0; border-top-color: #7dd3a0; background: #0b0e12; }
+
+  /* ---- the browser around the tab (composition 5) ---- */
   .br { display: none; background: #16181d; border-bottom: 1px solid #262d33; }
   .br-tabs { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.55rem 0; }
   .br-dot { width: 0.46rem; height: 0.46rem; border-radius: 50%; flex: none; background: #3d444d; }
@@ -1414,83 +1464,85 @@
   }
   .br-url .lock { color: #7dd3a0; }
 
-  /* ---- curia's own frame (composition 4) ---- */
-  .tm-rail { display: none; }
-  .tm-rail .rh {
-    font: 700 0.56rem var(--mono); letter-spacing: 0.2em; text-transform: uppercase;
-    color: #8a93a3; padding: 0.6rem 0.7rem 0.4rem;
-  }
-  .tm-rail button {
-    display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
-    color: #aab3c1; font: 0.72rem/1.35 var(--sans); padding: 0.42rem 0.7rem; border-radius: 7px;
-  }
-  .tm-rail button b { display: block; font-weight: 700; color: #e6e9ef; }
-  .tm-rail button span { font: 0.62rem var(--mono); color: #79808d; }
-  .tm-rail button[aria-pressed="true"] { background: #15281f; }
-  .tm-rail button[aria-pressed="true"] b { color: #7dd3a0; }
-
-  /* ---- the split (composition 2) ---- */
-  .tm-panes.split .tm-pane { display: flex !important; }
-  .tm-panes.split .tm-pane + .tm-pane { border-top: 1px solid #2c3540; }
-  .tm-panes.split .tm-pane { min-height: var(--tmhs, 10rem); }
-
   /* the identity saturates the evidence with the scroll value (#624
      rule 5); the .shot that used to carry it is gone from this scene */
   #term-scene .tm-stage { filter: saturate(calc(0.62 + 0.38 * var(--p, 1))); }
 
   /* ================= the five compositions ================= */
 
-  /* 1 tab — a browser window on the tailnet URL. */
-  .tm.c1 .br { display: block; }
-  .tm.c1 .tm-stage { max-width: 46rem; margin-right: 0; }
+  /* 1 step — curia's quiet frame. A header strip states the session,
+     and the session arrives a block at a time. */
+  .tm.c1 .tmw { border-color: #313a44; }
+  .tm.c1 .tm-body { box-shadow: inset 0 1px 0 #ffffff0f; }
+  .tm.c1 .tm-stage { max-width: 50rem; margin-right: 0; }
 
-  /* 2 split — one tmux, both harnesses at once. */
-  .tm.c2 .tmux .tmw-btn { pointer-events: none; }
-
-  /* 3 full — edge to edge, no chrome but the status bar. */
-  .tm.c3 { max-width: none; padding: 0; }
-  .tm.c3 > .claim, .tm.c3 > .fact {
+  /* 2 crawl — edge to edge under a vignette, prose typing itself. */
+  .tm.c2 { max-width: none; padding: 0; }
+  .tm.c2 > .claim, .tm.c2 > .fact {
     width: 100%; max-width: 96rem; margin: 0 auto;
     padding: 0 clamp(1.1rem, 5vw, 4rem);
   }
-  .tm.c3 .tmw { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; }
-  .tm.c3 .tm-pane { min-height: var(--tmhf, 22rem); }
+  .tm.c2 .tmw { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; }
+  .tm.c2 .tm-body { position: relative; }
+  .tm.c2 .tm-body::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(120% 80% at 50% 45%, transparent 45%, #05070a 100%);
+  }
+  .tm.c2 .tm-pane { min-height: var(--tmhf, 21rem); }
 
-  /* 4 rail — curia's frame, a harness rail beside the pane. */
-  .tm.c4 .tmw { display: grid; grid-template-columns: minmax(0, 1fr); background: #0f1116; }
-  .tm.c4 .tm-rail { display: block; background: #0f1116; border-bottom: 1px solid #262d33; }
-  .tm.c4 .tm-rail .rl { display: flex; gap: 0.3rem; padding: 0 0.5rem 0.5rem; }
-  .tm.c4 .tm-rail button { width: auto; flex: 1; }
-  .tm.c4 .tm-body { background: #0b0e12; min-width: 0; }
-  .tm.c4 .tm-stage { max-width: 48rem; margin-right: 0; }
+  /* 3 desk — the pane on a lit plane, and the SCROLL lights the run. */
+  .tm.c3 .tm-stage { perspective: 1400px; }
+  .tm.c3 .tmw {
+    transform: rotateY(7deg) rotateX(2deg); transform-origin: 100% 50%;
+    border-color: #33404a;
+    box-shadow: 0 2.4rem 4rem -1.4rem rgba(0, 0, 0, 0.9), -1.2rem 0 3rem -1.6rem #7dd3a055;
+  }
+  .tm.c3 .tm-stage::before {
+    content: ''; position: absolute; inset: -12% -6% -18% -20%; pointer-events: none; z-index: -1;
+    background: radial-gradient(60% 55% at 12% 8%, #7dd3a033, transparent 70%);
+  }
 
-  /* 5 type — the session prints as you watch. */
-  .tm.c5 .tm-out .ln { visibility: hidden; }
-  .tm.c5 .tm-out .ln.on { visibility: visible; }
-  .tm.c5 .tm-in { opacity: 0.55; }
-  .tm.c5 .tm-stage { max-width: 44rem; margin-right: 0; }
+  /* 4 cut — a hard diagonal stage cut, the pane wiping in from the
+     scene side (#624 round 2's slash language, placed at last). */
+  .tm.c4 .tmw { border-radius: 0; border-color: #7dd3a04d; border-left-width: 3px; border-left-color: #7dd3a0; }
+  .tm.c4 .tm-stage::after {
+    content: ''; position: absolute; inset: -1.4rem -1rem -1.4rem -2.2rem; z-index: -1;
+    background: linear-gradient(107deg, #7dd3a01f 0 46%, transparent 46.4%);
+    clip-path: polygon(0 0, 100% 0, 92% 100%, 0 100%);
+  }
+  .js .tm.c4 .tmw { clip-path: inset(0 0 0 100%); transition: clip-path 0.7s var(--ease); }
+  .js .tm.c4.lit .tmw { clip-path: inset(0 0 0 0); }
+
+  /* 5 relay — the browser tab the claim names, and the handover. */
+  .tm.c5 .br { display: block; }
+  .tm.c5 .tm-stage { max-width: 47rem; margin-right: 0; }
 
   @media (prefers-reduced-motion: reduce) {
-    .tm.c5 .tm-out .ln { visibility: visible; }
+    .js .tm.printing .tm-out .ln { visibility: visible; }
+    .js .tm.printing .tm-in { opacity: 1; }
+    .js .tm.c4 .tmw { clip-path: none; transition: none; }
+    .tm.c3 .tmw { transform: none; }
     .tm-in .cur { animation: none; }
   }
 
   @media (min-width: 60rem) {
     .tm {
       column-gap: clamp(1.5rem, 3vw, 3rem);
-      grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.85fr);
+      grid-template-columns: minmax(0, 1.4fr) minmax(15rem, 0.8fr);
       grid-template-areas: "term claim" "term fact";
       align-items: center;
     }
     .tm > .fact { align-self: start; }
-    .tm.c3 { grid-template-columns: minmax(0, 1fr); grid-template-areas: "claim" "term" "fact"; }
-    .tm.c1 .tm-stage, .tm.c4 .tm-stage, .tm.c5 .tm-stage { max-width: none; }
-    .tm.c2 .tm-panes.split { display: grid; grid-template-columns: 1fr 1fr; }
-    .tm.c2 .tm-panes.split .tm-pane + .tm-pane { border-top: 0; border-left: 1px solid #2c3540; }
-    .tm.c4 .tmw { grid-template-columns: 12.5rem minmax(0, 1fr); }
-    .tm.c4 .tm-rail { border-bottom: 0; border-right: 1px solid #262d33; }
-    .tm.c4 .tm-rail .rl { display: block; }
-    .tm.c4 .tm-rail button { width: 100%; }
+    /* the control swaps here, and only here: rail on, tabs off */
+    .tmw { grid-template-columns: 12.5rem minmax(0, 1fr); }
+    .tm-rail { display: block; border-bottom: 0; border-right: 1px solid #262d33; }
+    .tm-tabs { display: none; }
+    .tm.c1 .tm-stage, .tm.c5 .tm-stage { max-width: none; }
+    .tm.c2 { grid-template-columns: minmax(0, 1fr); grid-template-areas: "claim" "term" "fact"; }
+    .tm.c2 .tmw { grid-template-columns: 14rem minmax(0, 1fr); }
+    .tm.c3 .tmw { transform: rotateY(9deg) rotateX(1.5deg); }
+    .tm.c4 .tm-stage::after { inset: -2rem -1.5rem -2rem -4rem; }
+    .tm.c5 .tmw { grid-template-columns: 13rem minmax(0, 1fr); }
   }
 
   /* ---- the round switcher; it leaves the file when the scene locks ---- */
@@ -1507,7 +1559,6 @@
     font: 700 0.66rem var(--mono); border-radius: 999px; padding: 0.2rem 0.55rem;
   }
   .idsw button.on { background: var(--st-agent); border-color: var(--st-agent); color: #08090c; }
-
   /* ================================================================
      Scene 8 — one ticket on GitHub. A horizontal run from issue to
      merge, in GitHub's dark colors. The approve button is the climax.
@@ -2116,6 +2167,11 @@
        numbers are the measured ones in
        docs/research/codex-deferred-curia-tools.md.
 
+       ROUND 1 settled the control: the harness rail at desktop width,
+       bottom tabs on a phone, and NEVER BOTH. So the tmux status bar
+       is what a real one is — text that states the current window, not
+       a button. One control is on screen at any width.
+
        The scene is ONE composition canvas: the claim, the terminal and
        the fact line are grid items of .tm. No .wrap, no .shot.
        ?id=1..5 puts a composition class on the canvas, so both panes
@@ -2130,17 +2186,8 @@
       <div class="tm-stage rv">
         <div class="tmw">
           <span class="tm-ruler" aria-hidden="true"></span>
-          <!-- composition 1: the browser the tab lives in -->
-          <div class="br">
-            <div class="br-tabs">
-              <i class="br-dot r"></i><i class="br-dot y"></i><i class="br-dot g"></i>
-              <span class="br-tab on">curia · terminal</span>
-              <span class="br-tab">alp82/curia · issues</span>
-            </div>
-            <div class="br-url"><span class="lock">&#9919;</span>box.tailnet.ts.net/terminal/?arg=curia-629</div>
-          </div>
 
-          <!-- composition 4: curia's own frame picks the harness -->
+          <!-- the control at desktop width -->
           <div class="tm-rail">
             <p class="rh">harness</p>
             <div class="rl">
@@ -2150,6 +2197,16 @@
           </div>
 
           <div class="tm-body">
+            <!-- composition 5: the browser the tab lives in -->
+            <div class="br">
+              <div class="br-tabs">
+                <i class="br-dot r"></i><i class="br-dot y"></i><i class="br-dot g"></i>
+                <span class="br-tab on">curia · terminal</span>
+                <span class="br-tab">alp82/curia · issues</span>
+              </div>
+              <div class="br-url"><span class="lock">&#9919;</span>box.tailnet.ts.net/terminal/?arg=curia-629</div>
+            </div>
+
             <div class="tm-panes" id="tm-panes">
         <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code">
           <pre class="tm-out"><i class="lg"> ▐▛███▜▌</i>   Claude Code v2.1.220
@@ -2216,12 +2273,18 @@
 <i class="d">  gpt-5.6-sol high · /workspace</i></pre>
         </div>
             </div>
-            <div class="tmux">
+            <div class="tmux" aria-hidden="true">
               <span class="sess">[curia]</span>
-              <button class="tmw-btn" type="button" data-h="claude" aria-pressed="true">0:claude</button>
-              <button class="tmw-btn" type="button" data-h="codex" aria-pressed="false">1:codex</button>
+              <span class="tmw-win" data-h="claude">0:claude</span>
+              <span class="tmw-win" data-h="codex">1:codex</span>
               <span class="clock">"box" 19:42</span>
             </div>
+          </div>
+
+          <!-- the control on a phone; the rail and these are never both on -->
+          <div class="tm-tabs">
+            <button type="button" data-h="claude" aria-pressed="true">Claude Code</button>
+            <button type="button" data-h="codex" aria-pressed="false">Codex</button>
           </div>
         </div>
       </div>
@@ -2605,9 +2668,9 @@ if (prefersStill || !window.IntersectionObserver) {
    Scene 7 (#629) — the harness, live.
 
    Three jobs, none of which the page depends on: it fits the pane to
-   58 columns, it switches the harness, and in composition 5 it prints
-   the session. With no script both panes stand whole, one above the
-   other, at the CSS clamp size.
+   58 columns, it switches the harness, and it prints the session. With
+   no script both panes stand whole, one above the other, at the CSS
+   clamp size.
 
    THE FIT is what makes the panes read as terminals. A terminal is a
    character grid: the Codex banner box, the Claude composer rules and
@@ -2615,6 +2678,16 @@ if (prefersStill || !window.IntersectionObserver) {
    only if 58 columns are exactly as wide as the frame. The ruler is a
    58ch box measured against the live frame, and the font size is the
    ratio. It is linear, so one measurement lands it.
+
+   THE CONTROL was settled at round 1: the rail past 60rem, the bottom
+   tabs below it, never both. Both drive the same state, and the tmux
+   status bar only states which window is current, the way a real one
+   does.
+
+   THE PRINTER. Round 1 printed a line every 52ms, and the operator
+   read it as too fast to follow. Nothing here goes faster than a line
+   every 180ms, each composition arrives at the reading a different
+   way, and the run happens ONCE per entry rather than looping.
    ================================================================ */
 (function () {
   var scene = document.getElementById('term-scene');
@@ -2623,9 +2696,10 @@ if (prefersStill || !window.IntersectionObserver) {
 
   var win = tm.querySelector('.tmw');
   var ruler = tm.querySelector('.tm-ruler');
-  var panesEl = document.getElementById('tm-panes');
   var panes = [].slice.call(tm.querySelectorAll('.tm-pane'));
-  var picks = [].slice.call(tm.querySelectorAll('.tmw-btn, .tm-rail button'));
+  var picks = [].slice.call(tm.querySelectorAll('.tm-rail button, .tm-tabs button'));
+  var wins = [].slice.call(tm.querySelectorAll('.tmw-win'));
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   var comp = 1;
   var harness = 'claude';
 
@@ -2641,40 +2715,37 @@ if (prefersStill || !window.IntersectionObserver) {
     var base = parseFloat(window.getComputedStyle(ruler).fontSize);
     var wide = ruler.getBoundingClientRect().width;
     if (!wide || !base) return;
-    var next = base * avail / wide;
-    win.style.setProperty('--tmfs', Math.max(5.5, Math.min(15, next)).toFixed(2) + 'px');
+    win.style.setProperty('--tmfs', Math.max(5.5, Math.min(15, base * avail / wide)).toFixed(2) + 'px');
   }
 
-  /* ---- the harness: the tmux window list and curia's rail both
-     drive the same state, and composition 2 shows both at once ---- */
+  /* ---- the harness ---- */
+  function paneOf(h) {
+    return panes.filter(function (p) { return p.getAttribute('data-h') === h; })[0];
+  }
   function showHarness(h) {
     harness = h;
-    var both = comp === 2;
-    panes.forEach(function (p) { p.hidden = !both && p.getAttribute('data-h') !== h; });
-    picks.forEach(function (b) {
-      b.setAttribute('aria-pressed', String(both || b.getAttribute('data-h') === h));
-    });
+    panes.forEach(function (p) { p.hidden = p.getAttribute('data-h') !== h; });
+    picks.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-h') === h)); });
+    wins.forEach(function (w) { w.classList.toggle('on', w.getAttribute('data-h') === h); });
     fit();
   }
   picks.forEach(function (b) {
     b.addEventListener('click', function () {
-      if (comp === 2) return;
-      showHarness(b.getAttribute('data-h'));
-      stopType();
-      clearTimeout(hold);
-      hold = setTimeout(startType, 9000);
+      var h = b.getAttribute('data-h');
+      if (h === harness) return;
+      stopPrint();
+      showHarness(h);
+      /* a hand on the control takes the pane over: it stands whole
+         rather than replaying under the reader */
+      settle();
     });
   });
 
-  /* ---- composition 5 prints the session, so every ─ rule and every
-     ⎿ row arrives the way it does in the pane. Each .tm-out line is
-     wrapped once; the reveal is visibility only, so the frame never
-     resizes and the words never move. ---- */
-  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  var wrapped = false;
-  function wrapLines() {
-    if (wrapped) return;
-    wrapped = true;
+  /* ---- the printer ---- */
+  var lined = false;
+  function lineUp() {
+    if (lined) return;
+    lined = true;
     panes.forEach(function (p) {
       var out = p.querySelector('.tm-out');
       out.innerHTML = out.innerHTML.split('\n').map(function (l) {
@@ -2682,64 +2753,166 @@ if (prefersStill || !window.IntersectionObserver) {
       }).join('\n');
     });
   }
-  var timer = null, hold = null;
-  function lines(h) {
-    var p = panes.filter(function (n) { return n.getAttribute('data-h') === h; })[0];
-    return [].slice.call(p.querySelectorAll('.tm-out .ln'));
-  }
-  function clearLines() {
-    panes.forEach(function (p) {
-      [].slice.call(p.querySelectorAll('.tm-out .ln')).forEach(function (l) { l.classList.remove('on'); });
+  function linesOf(h) { return [].slice.call(paneOf(h).querySelectorAll('.tm-out .ln')); }
+  /* a block is a run of lines with no blank line in it, which is how
+     both TUIs group a tool call with the result under it */
+  function blocksOf(h) {
+    var out = [], run = [];
+    linesOf(h).forEach(function (l) {
+      if (l.textContent.trim() === '') { if (run.length) { out.push(run); run = [] } }
+      else run.push(l);
     });
+    if (run.length) out.push(run);
+    return out;
   }
-  function printPane(h, done) {
-    showHarness(h);
-    var ls = lines(h), i = 0;
-    timer = setInterval(function () {
-      if (i >= ls.length) { clearInterval(timer); timer = null; setTimeout(done, 1400); return; }
+  var clock = null, chain = [];
+  function stopPrint() {
+    if (clock) { clearTimeout(clock); clock = null; }
+    chain = [];
+  }
+  function bare() {
+    lineUp();
+    panes.forEach(function (p) {
+      [].slice.call(p.querySelectorAll('.tm-out .ln')).forEach(function (l) {
+        l.classList.remove('on', 'typing');
+        l.style.removeProperty('width');
+      });
+    });
+    tm.classList.remove('done');
+  }
+  function settle() {
+    stopPrint();
+    lineUp();
+    panes.forEach(function (p) {
+      [].slice.call(p.querySelectorAll('.tm-out .ln')).forEach(function (l) {
+        l.classList.add('on');
+        l.classList.remove('typing');
+        l.style.removeProperty('width');
+      });
+    });
+    tm.classList.add('done');
+  }
+  /* a tool row, a rule and a banner row land whole, the way both TUIs
+     print them. Only prose streams, which is also what the model does */
+  function streams(l) { return !/<i class="(tn|bd|bx|lg|pad)"/.test(l.innerHTML) && l.textContent.trim() !== ''; }
+  function typeLine(l, cps, done) {
+    var n = l.textContent.length;
+    if (!n) { l.classList.add('on'); return step(done, 90); }
+    l.classList.add('typing');
+    l.style.width = '0ch';
+    var i = 0;
+    (function tick() {
+      i += 1;
+      l.style.width = i + 'ch';
+      if (i >= n) {
+        l.classList.remove('typing');
+        l.classList.add('on');
+        l.style.removeProperty('width');
+        return step(done, 140);
+      }
+      clock = setTimeout(tick, cps);
+    })();
+  }
+  function step(fn, ms) { clock = setTimeout(fn, ms); }
+
+  /* one printed run, per composition */
+  function printLines(h, pace, done) {          /* a line at a time */
+    var ls = linesOf(h), i = 0;
+    (function tick() {
+      if (i >= ls.length) return step(done, 300);
       ls[i].classList.add('on');
       i += 1;
-    }, 52);
+      clock = setTimeout(tick, pace);
+    })();
   }
-  function startType() {
-    if (comp !== 5 || still || timer) return;
-    wrapLines();
-    clearLines();
-    printPane('claude', function () {
-      printPane('codex', function () {
-        hold = setTimeout(startType, 1800);
-      });
-    });
+  function printBlocks(h, beat, done) {         /* a whole block at a time */
+    var bs = blocksOf(h), i = 0;
+    linesOf(h).forEach(function (l) { if (l.textContent.trim() === '') l.classList.add('on'); });
+    (function tick() {
+      if (i >= bs.length) return step(done, 300);
+      bs[i].forEach(function (l) { l.classList.add('on'); });
+      i += 1;
+      clock = setTimeout(tick, beat);
+    })();
   }
-  function stopType() {
-    if (timer) { clearInterval(timer); timer = null; }
-    clearTimeout(hold);
-    if (comp === 5) { wrapLines(); clearLines(); }
+  function printTyped(h, done) {                /* prose types, rows land */
+    var ls = linesOf(h), i = 0;
+    (function tick() {
+      if (i >= ls.length) return step(done, 300);
+      var l = ls[i];
+      i += 1;
+      if (streams(l)) return typeLine(l, 16, tick);
+      l.classList.add('on');
+      clock = setTimeout(tick, l.textContent.trim() === '' ? 60 : 190);
+    })();
   }
 
-  /* ---- the round: ?id=1..5 puts the composition on the canvas ---- */
-  function setComp(n) {
-    comp = n;
-    tm.className = 'tm c' + n;
-    panesEl.classList.toggle('split', n === 2);
-    stopType();
-    if (n === 5 && !still) { wrapLines(); clearLines(); } else if (wrapped) {
-      panes.forEach(function (p) {
-        [].slice.call(p.querySelectorAll('.tm-out .ln')).forEach(function (l) { l.classList.add('on'); });
+  function run() {
+    if (still) return settle();
+    /* the class goes on FIRST: the lines are only hidden under it, so
+       baring them before it is set flashes the whole pane for a frame */
+    tm.classList.add('printing');
+    bare();
+    var end = function () { tm.classList.add('done'); };
+    if (comp === 1) printBlocks('claude', 780, end);
+    else if (comp === 2) printTyped('claude', end);
+    else if (comp === 4) { tm.classList.add('lit'); step(function () { printBlocks('claude', 900, end); }, 620); }
+    else if (comp === 5) {
+      printLines('claude', 190, function () {
+        step(function () {
+          showHarness('codex');
+          printLines('codex', 190, end);
+        }, 1500);
       });
     }
-    showHarness(harness);
+  }
+
+  /* composition 3 has no clock at all: the SCROLL lights the session,
+     so the reader sets the pace and can hold anywhere in it */
+  var scrollLit = false;
+  function lightByScroll() {
+    if (comp !== 3 || still) return;
+    var r = tm.getBoundingClientRect();
+    var vh = window.innerHeight;
+    var p = (vh - r.top) / (vh * 0.55 + r.height * 0.5);
+    p = p < 0 ? 0 : p > 1 ? 1 : p;
+    var ls = linesOf(harness);
+    var cut = Math.round(p * ls.length);
+    ls.forEach(function (l, i) { l.classList.toggle('on', i < cut); });
+    tm.classList.toggle('done', cut >= ls.length);
+  }
+
+  /* ---- the round ---- */
+  function setComp(n) {
+    stopPrint();
+    comp = n;
+    tm.className = 'tm c' + n;
+    scrollLit = n === 3 && !still;
+    ran = false;
+    if (n === 3) { tm.classList.add('printing'); lineUp(); bare(); tm.classList.add('printing'); }
+    showHarness('claude');
     [].slice.call(document.querySelectorAll('.idsw button')).forEach(function (b) {
       b.classList.toggle('on', Number(b.getAttribute('data-id')) === n);
     });
-    requestAnimationFrame(fit);
-    if (n === 5) startType();
+    requestAnimationFrame(function () { fit(); if (seen) start(); });
   }
 
-  var NAMES = ['tab', 'split', 'full', 'rail', 'type'];
+  /* The run happens ONCE. Round 1 replayed it on every entry, which is
+     part of what made it hard to follow: scrolling back restarted the
+     session under the reader. Scrolling away mid-print settles the pane
+     whole instead of leaving it half written. */
+  var seen = false, ran = false;
+  function start() {
+    if (comp === 3) { lightByScroll(); return; }
+    if (ran) return;
+    ran = true;
+    run();
+  }
+
+  var NAMES = ['step', 'crawl', 'desk', 'cut', 'relay'];
   var sw = document.createElement('nav');
   sw.className = 'idsw';
-  sw.setAttribute('aria-label', 'round 1 of #629');
+  sw.setAttribute('aria-label', 'round 2 of #629');
   sw.innerHTML = '<span>#629</span>' + NAMES.map(function (nm, k) {
     return '<button type="button" data-id="' + (k + 1) + '" title="' + nm + '">' + (k + 1) + '</button>';
   }).join('');
@@ -2760,14 +2933,21 @@ if (prefersStill || !window.IntersectionObserver) {
   if (window.ResizeObserver) new ResizeObserver(fit).observe(win);
   window.addEventListener('resize', fit, { passive: true });
   window.addEventListener('load', fit);
+  window.addEventListener('scroll', function () {
+    if (scrollLit && seen) requestAnimationFrame(lightByScroll);
+  }, { passive: true });
 
   if (window.IntersectionObserver) {
     new IntersectionObserver(function (es) {
       es.forEach(function (e) {
         fit();
-        if (e.isIntersecting) startType(); else stopType();
+        if (e.isIntersecting) { seen = true; start(); }
+        else if (comp !== 3 && ran) settle();
       });
-    }, { threshold: 0.15 }).observe(tm);
+    }, { threshold: 0.2 }).observe(tm);
+  } else {
+    seen = true;
+    settle();
   }
 })();
 
