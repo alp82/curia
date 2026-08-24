@@ -962,6 +962,67 @@ of the same row. It became the counters instead. The count check then failed on 
 because it assumed every composition draws a band. A composition that states the counts another way
 is not a fault, so the check now reads the counts from whichever shape carries them.
 
+**The operator's answer.** No pick. The scene needs two screens, and the second one has to look
+like the prototype that decided it:
+
+> make it 2 screens. a simplified home dashboard and something like the panel but looking like the
+> result of the respective prototype (the one with the red lined background for blocked and the
+> diagonal grey stripes for the fog)
+
+The red-lined blocked box and the striped fog strip are
+[prototypes/frontier-visual/](../frontier-visual/) ([#588](https://github.com/alp82/curia/issues/588))
+round 5. The three questions the answer did not touch ride into round 2.
+
+**Round 2.** The scene is two screens now, and both redraw a decided curia screen rather than a
+band of this ticket's invention:
+
+1. **The home** is the synthesis home of [prototypes/home-directions/](../home-directions/)
+   ([#519](https://github.com/alp82/curia/issues/519)), simplified for a phone: the ring of what
+   needs you, the agents that run, and one progress bar per map. The log tail and the token
+   readouts are gone, which is what "simplified" came down to.
+2. **The map** is the stops line of [prototypes/frontier-visual/](../frontier-visual/)
+   ([#588](https://github.com/alp82/curia/issues/588)), decided over six rounds: the walked stop,
+   the running row, the frontier rule, then the blocked in their **red-lined box** and the fog on
+   its **diagonal grey stripes**. Those two treatments are the ones the operator named, lifted
+   value for value.
+
+**The numbers are still real, and there are more of them now.** The home carries the three open
+maps of this repo: Build the Atlas operator experience at 8/42, Model credentials and
+provider-account failures at 16/19, and Ship the story landing page at 10/16 +2. The map screen
+shows the frontier as it really stands, which is empty: the one unblocked ticket is the one being
+worked, so the scene says "nothing takeable. the way is in flight", which is the empty-frontier
+line #588 decided.
+
+**The two screens live once.** Composition 1 holds them both, and the script clones them into the
+other four, the way the preview scene fills its workstation from one pool. So the page still reads
+whole with no script at all.
+
+The five variations are how the two screens are put together:
+
+| id | composition | what the reader sees |
+|----|-------------|----------------------|
+| 1 | stack | the home whole, a drill line, then the map under it |
+| 2 | drill | one frame. The map slides up over the home as the scene arrives |
+| 3 | pair | two cards in depth, the map standing in front of the home |
+| 4 | focus | the map leads at full size, and the home is the inset it came from |
+| 5 | ribbon | the home shrinks to one status line, and the map takes the room |
+
+**Ten build checks** ran against the file: five numbered compositions with a bar button each, both
+screens present and living once with a slot in every other composition, the home carrying the ring
+and the agents and one bar per open map, the map carrying the stops line with the red-lined box and
+the striped strip, the counts matching the tracker snapshot and summing to the map's sixteen
+tickets, five layouts that each style themselves, every class styled and every hook in the markup,
+composition 1 reading with no script, the build rules, and balanced markup. Each was validated by
+breaking the file on purpose first, and every break produced exactly the failure it should.
+
+**One fault the checks caught.** Composition 1 had a single layout rule of its own, which the
+distinctness check called out. That was fair: stacking two screens is not a composition until it
+says how they meet. It has the drill line between them now.
+
+**One fault reading caught.** The drill overlay was absolutely placed against a frame the home
+sized, so a map taller than the home would have been clipped by it. Both screens share one grid
+cell now, so the frame is as tall as the taller of the two.
+
 ## The verdict of the preview scene ([#627](https://github.com/alp82/curia/issues/627))
 
 **Locked over five operator rounds.** Round 5 settled the last of it: "type is great, lets lock it
