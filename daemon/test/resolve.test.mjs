@@ -181,7 +181,11 @@ function fixture({ issues, overrides = {}, result = { status: 'resolved', summar
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [{ sha: 'abc1234', subject: 'do it' }],
     pushBranch: async (wt, repo, branch) => { calls.push({ op: 'push', branch }); return 'abc1234' },
-    hasUnpushedWork: async () => false,
+    hasUnpushedCommits: async () => false,
+    // #649: nothing local-only, and no salvage. A test that is about the salvage
+    // passes its own — the real ones reach a real clone on disk.
+    hasUncommittedChanges: async () => false,
+    salvageLocalOnlyWork: async () => ({ salvaged: false, branch: null, sha: null }),
     // the happy path since #54: the agent merged what a human approved
     findPullRequest: async () => ({ number: 7, url: 'https://github.com/o/r/pull/7', state: 'MERGED' }),
     createPullRequest: async (repo, opts) => { calls.push({ op: 'pr', ...opts }); return 'https://github.com/o/r/pull/7' },
@@ -434,7 +438,7 @@ describe('resolveAndLand: is the code IN', () => {
       overrides: {
         ...withComment,
         findPullRequest: async () => ({ number: 7, url: 'u', state: 'OPEN' }),
-        hasUnpushedWork: async () => true,
+        hasUnpushedCommits: async () => true,
       },
     })
     await h.run()

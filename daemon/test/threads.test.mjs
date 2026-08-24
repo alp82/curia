@@ -1075,7 +1075,11 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       createPullRequest: async () => 'url', setPullRequestBody: async () => {},
       deleteRemoteBranch: async () => ({ deleted: true }),
       defaultBranchOf: async () => 'main', commitsOnBranch: async () => [],
-      pushBranch: async () => 'abc', hasUnpushedWork: async () => false,
+      pushBranch: async () => 'abc', hasUnpushedCommits: async () => false,
+      // #649: nothing local-only, and no salvage. A test that is about the salvage
+      // passes its own — the real ones reach a real clone on disk.
+      hasUncommittedChanges: async () => false,
+      salvageLocalOnlyWork: async () => ({ salvaged: false, branch: null, sha: null }),
       ...deps,
     },
   })

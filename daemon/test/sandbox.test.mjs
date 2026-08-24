@@ -578,7 +578,11 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
     assertServe: async () => {},
     serveOff: async () => {},
     defaultBranchOf: async () => 'main',
-    hasUnpushedWork: async () => false,
+    hasUnpushedCommits: async () => false,
+    // #649: nothing local-only, and no salvage. A test that is about the salvage
+    // passes its own — the real ones reach a real clone on disk.
+    hasUncommittedChanges: async () => false,
+    salvageLocalOnlyWork: async () => ({ salvaged: false, branch: null, sha: null }),
     findPullRequest: async () => null,
     ensureAgentImage: async () => ({ ref: 'curia-agent:test', built: false }),
     assertSideChannel: async () => '10.0.1.1',

@@ -161,7 +161,11 @@ function makeDispatcher(deps = {}, { routing = ROUTING, minter = workingMinter()
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [],
     pushBranch: async () => 'abc1234',
-    hasUnpushedWork: async () => false,
+    hasUnpushedCommits: async () => false,
+    // #649: nothing local-only, and no salvage. A test that is about the salvage
+    // passes its own — the real ones reach a real clone on disk.
+    hasUncommittedChanges: async () => false,
+    salvageLocalOnlyWork: async () => ({ salvaged: false, branch: null, sha: null }),
     setPullRequestBody: async () => {},
     // #389: a spawn authors the worktree as the bot, so it reaches git. Inert
     // here — dispatch.test.mjs owns the identity itself.
@@ -464,7 +468,7 @@ describe('Dispatcher.crossCheck (#164)', () => {
     fs.mkdirSync(wt, { recursive: true })
     const spawned = []
     const d = makeDispatcher({
-      hasUnpushedWork: async () => true,
+      hasUnpushedCommits: async () => true,
       newSession: async (o) => spawned.push(o.name),
     })
     withBuilder(d, { wtPath: wt })
@@ -478,7 +482,7 @@ describe('Dispatcher.crossCheck (#164)', () => {
   test('an indeterminate unpushed check refuses too — the evidence rule', async () => {
     const wt = path.join(tmp, 'work', 'repos', 'o__r', 'wt', '42')
     fs.mkdirSync(wt, { recursive: true })
-    const d = makeDispatcher({ hasUnpushedWork: async () => { throw new Error('git is wedged') } })
+    const d = makeDispatcher({ hasUnpushedCommits: async () => { throw new Error('git is wedged') } })
     withBuilder(d, { wtPath: wt })
     assert.match(await d.crossCheck('42'), /could not tell whether #42 holds unpushed commits/)
   })

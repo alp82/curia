@@ -1,6 +1,6 @@
 # ADR-0028: Local-only work is salvaged before a clone dies
 
-**Status**: accepted (2026-08). Decided, not built.
+**Status**: accepted (2026-08). Built, by [#649](https://github.com/alp82/curia/issues/649).
 **Provenance**: [Teardown sees uncommitted work (#649)](https://github.com/alp82/curia/issues/649), charted from the credential incident recorded in [#641](https://github.com/alp82/curia/issues/641). Extends [ADR-0001](0001-github-is-the-only-durable-state-home.md) to the agent's working tree.
 
 ## Context
@@ -49,7 +49,7 @@ The commit is authored by curia. The clone carries the ticket owner's git identi
 - **Cancel captures, then proceeds.** A teardown was ordered and the teardown happens. Curia's job at an ordered ending is not to argue with the order, it is to not lose the work silently.
 - **The workspace lease captures, then proceeds.** The pull request is merged, so anything still dirty is by definition not what landed. Keeping the clone instead would leak disk on the common happy ending, forever, with no sweep able to take it: the orphan sweep would find it dirty and keep it too.
 - **The orphan sweep keeps.** Nothing is established and nobody ordered anything. This is the same evidence rule it already runs for commits, where "cannot tell" means keep.
-- **`start <n>` refuses.** `createPrivateClone` opens with an unconditional `rmSync`, and #376 already taught the tick's auto loop to check the path and resume rather than start. The operator's verb gets the same rule in the shape `start` already uses for every other anomaly: refuse, and name the way out, which is `resume <n>`. No salvage branch is spent on a teardown that does not have to happen.
+- **`start <n>` refuses**, and so does `map <n>`, which is the charting verb's copy of the same dispatch. `createPrivateClone` opens with an unconditional `rmSync`, and #376 already taught the tick's auto loop to check the path and resume rather than start. The operator's verb gets the same rule in the shape `start` already uses for every other anomaly: refuse, and name the way out, which is `resume <n>`. No salvage branch is spent on a teardown that does not have to happen.
 - **The review checkout is untouched.** It is a detached HEAD at a pushed sha and holds nothing that exists nowhere else.
 
 ### A failed capture keeps the clone
@@ -65,7 +65,7 @@ A keep stays journal-only, which is what `orphan_worktree_kept` and `lease_kept`
 ## Consequences
 
 - Salvage branches accumulate in watched repos and nothing deletes them. This is accepted: a salvage branch is a few kilobytes and is the record of a loss, so the person who wants it gone deletes it. Retention would pull in a durable-salvage story - browsing, restoring, expiring - that #649 ruled out of scope.
-- The rename of `hasUnpushedWork` touches `dispatch.mjs:2344`, `dispatch.mjs:7033`, and `resolve.mjs:507`. None of them changes behavior. The rename is the point: those three ask about the pushed tip, and after this ADR there is a second question they must not be mistaken for.
+- The rename of `hasUnpushedWork` touches three call sites. Two of them - the cross-check guard in `dispatch.mjs` and the repair push in `resolve.mjs` - do not change behavior, and the rename is the point: they ask about the pushed tip, and after this ADR there is a second question they must not be mistaken for. The third is the orphan sweep, which decision 4 above deliberately widens to the second question as well.
 - Curia becomes a committer in watched repos, on branches no human asked for. The commit author makes that visible rather than hiding it under the ticket owner's name.
 - ADR-0001's reach extends from tracker state to the agent's working tree. The claim it makes is unchanged: there is one durable home, and it is not this box.
 - The #297 Stop hook nudge for charting sessions stays. It is better to have the agent commit its own findings with its own message than to have curia salvage them under a machine one. The salvage is the floor, not the replacement.

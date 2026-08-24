@@ -1,5 +1,5 @@
 // #53: an agent shares the host credential store instead of snapshotting it.
-import { test, describe, before, after } from 'node:test'
+import { test, describe, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,6 +11,8 @@ import {
   seedConfigDir, agentEnv, retiredAgentTokenKeys, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
   writeConnectionSettings, removeCredentials, untrustedProjectConfig, plantedSkills, MCP_SERVER_NAME,
   checkoutTicketBranch, remoteBranchExists, defaultBranchOf,
+  // #649, ADR-0028
+  hasUncommittedChanges, hasUnpushedCommits, salvageBranchFor, salvageLocalOnlyWork,
 } from '../src/workspace.mjs'
 
 describe('per-agent config dir (#53)', () => {
@@ -900,5 +902,152 @@ describe('the codex agent harness (#39)', () => {
     assert.deepEqual(plantedSkills(wtPath, 'claude', undefined), [])
     // the directory exists but holds no SKILL.md, so no harness loads it
     assert.deepEqual(plantedSkills(wtPath, 'claude', ['wayfinder']), [])
+  })
+})
+
+// ---- local-only work, and the salvage that carries it out (#649, ADR-0028) --
+//
+// Every guard curia owned before this counted COMMITS. A tree an agent edited
+// for six hours and never committed was invisible to all of them, and three
+// teardown paths destroyed the clone holding it. These drive the real git, on a
+// real local origin, because the whole mechanism is git plumbing and a double of
+// it would be a second opinion about what `add -A` picks up.
+describe('local-only work and its salvage (#649)', () => {
+  let tmp, origin, wt
+  const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' })
+  const branchesOnOrigin = () => git(origin, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/')
+    .split('\n').map((l) => l.trim()).filter(Boolean)
+
+  // A FRESH clone per test: a salvage commits and pushes, so a shared fixture
+  // would have each case reading the last one's leftovers.
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-salvage-'))
+    origin = path.join(tmp, 'origin.git')
+    const seed = path.join(tmp, 'seed')
+    execFileSync('git', ['init', '--bare', '-b', 'main', origin])
+    execFileSync('git', ['clone', origin, seed])
+    fs.writeFileSync(path.join(seed, 'README.md'), 'base\n')
+    fs.writeFileSync(path.join(seed, '.gitignore'), 'noise.log\n')
+    git(seed, 'add', '.')
+    git(seed, '-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-m', 'base')
+    git(seed, 'push', 'origin', 'main')
+
+    wt = path.join(tmp, 'repos', 'o__r', 'wt', '42')
+    fs.mkdirSync(path.dirname(wt), { recursive: true })
+    execFileSync('git', ['clone', origin, wt])
+    git(wt, 'remote', 'set-head', 'origin', 'main')
+    // what `createPrivateClone` writes: the agent's own git identity, and the
+    // exclude file that hides curia's plumbing from the agent's commits
+    git(wt, 'config', 'user.name', 'Ticket Owner')
+    git(wt, 'config', 'user.email', 'owner@example.com')
+    fs.appendFileSync(path.join(wt, '.git', 'info', 'exclude'), '\n.mcp.json\n.claude/\n.curia-prompt.md\n')
+    git(wt, 'checkout', '-B', 'curia/42', 'origin/main')
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('the branch name carries a sortable UTC stamp, and every salvage gets its own', () => {
+    assert.equal(salvageBranchFor(42, Date.parse('2026-08-24T10:11:12.345Z')), 'curia/42-salvage-2026-08-24T10-11-12Z')
+    assert.equal(salvageBranchFor('chat-1', Date.parse('2026-08-24T10:11:12Z')), 'curia/chat-1-salvage-2026-08-24T10-11-12Z')
+  })
+
+  test('hasUncommittedChanges counts untracked files and ignores what the two ignore files hide', async () => {
+    assert.equal(await hasUncommittedChanges(wt), false)
+
+    // both ignore rules: the repo's .gitignore, and the clone's own exclude
+    fs.writeFileSync(path.join(wt, 'noise.log'), 'chatter\n')
+    fs.writeFileSync(path.join(wt, '.curia-prompt.md'), 'the prompt\n')
+    assert.equal(await hasUncommittedChanges(wt), false, 'ignored files are noise, not work')
+
+    fs.writeFileSync(path.join(wt, 'findings.md'), 'six hours of it\n')
+    assert.equal(await hasUncommittedChanges(wt), true, 'an untracked file an agent wrote IS work')
+  })
+
+  test('an unreadable clone throws rather than reading as clean', async () => {
+    await assert.rejects(() => hasUncommittedChanges(path.join(tmp, 'not-a-repo')),
+      'callers read a throw as "keep" — a swallowed error would read as "nothing there"')
+  })
+
+  test('a clone with nothing local-only is not salvaged, and no branch is spent on it', async () => {
+    const out = await salvageLocalOnlyWork(wt, 'o/r', '42', { remote: origin })
+
+    assert.deepEqual(out, { salvaged: false, branch: null, sha: null })
+    assert.deepEqual(branchesOnOrigin(), ['main'])
+  })
+
+  test('a clone that is already gone is not a loss and must not read as one', async () => {
+    assert.deepEqual(
+      await salvageLocalOnlyWork(path.join(tmp, 'never-existed'), 'o/r', '42', { remote: origin }),
+      { salvaged: false, branch: null, sha: null },
+    )
+  })
+
+  test('an uncommitted tree is committed and pushed, untracked files and all, authored by curia', async () => {
+    fs.writeFileSync(path.join(wt, 'README.md'), 'edited\n')
+    fs.mkdirSync(path.join(wt, 'docs', 'research'), { recursive: true })
+    fs.writeFileSync(path.join(wt, 'docs', 'research', 'note.md'), 'never added\n')
+    fs.writeFileSync(path.join(wt, 'noise.log'), 'chatter\n')
+    fs.writeFileSync(path.join(wt, '.curia-prompt.md'), 'the prompt\n')
+
+    const out = await salvageLocalOnlyWork(wt, 'o/r', '42', { at: Date.parse('2026-08-24T03:04:05Z'), remote: origin })
+
+    assert.equal(out.salvaged, true)
+    assert.equal(out.branch, 'curia/42-salvage-2026-08-24T03-04-05Z')
+    assert.ok(branchesOnOrigin().includes(out.branch), 'the work is on the tracker, not in a patch on the box')
+
+    const files = git(origin, 'ls-tree', '-r', '--name-only', out.branch).split('\n').filter(Boolean)
+    assert.ok(files.includes('docs/research/note.md'), '`git diff HEAD` would have dropped this one')
+    assert.ok(!files.includes('noise.log'), '.gitignore separates work from noise')
+    assert.ok(!files.includes('.curia-prompt.md'), 'and so does the clone\'s own exclude file')
+    assert.match(git(origin, 'show', `${out.branch}:README.md`), /edited/)
+
+    // the clone carries the ticket owner's identity, and a machine commit of a
+    // tree nobody reviewed must not read as theirs
+    assert.equal(git(origin, 'log', '-1', '--format=%an', out.branch).trim(), 'curia')
+    assert.equal(git(origin, 'log', '-1', '--format=%cn', out.branch).trim(), 'curia')
+  })
+
+  test('a local-only COMMIT rides along, with no dirty tree to trigger the capture', async () => {
+    fs.writeFileSync(path.join(wt, 'work.txt'), 'committed and never pushed\n')
+    git(wt, 'add', '.')
+    git(wt, 'commit', '-m', 'the agent\'s own commit')
+
+    assert.equal(await hasUncommittedChanges(wt), false)
+    assert.equal(await hasUnpushedCommits(wt, 'curia/42', 'main'), true)
+
+    const out = await salvageLocalOnlyWork(wt, 'o/r', '42', { at: Date.parse('2026-08-24T03:04:05Z'), remote: origin })
+
+    assert.equal(out.salvaged, true)
+    // the agent's own commit, under the agent's own name — pushing HEAD carries
+    // it rather than re-authoring it
+    assert.equal(git(origin, 'log', '-1', '--format=%s', out.branch).trim(), 'the agent\'s own commit')
+    assert.equal(git(origin, 'log', '-1', '--format=%an', out.branch).trim(), 'Ticket Owner')
+  })
+
+  test('salvage accumulates: a second one never overwrites the first', async () => {
+    fs.writeFileSync(path.join(wt, 'first.md'), 'one\n')
+    const one = await salvageLocalOnlyWork(wt, 'o/r', '42', { at: Date.parse('2026-08-24T03:04:05Z'), remote: origin })
+    fs.writeFileSync(path.join(wt, 'second.md'), 'two\n')
+    const two = await salvageLocalOnlyWork(wt, 'o/r', '42', { at: Date.parse('2026-08-24T04:05:06Z'), remote: origin })
+
+    assert.notEqual(one.branch, two.branch)
+    const heads = branchesOnOrigin()
+    assert.ok(heads.includes(one.branch) && heads.includes(two.branch),
+      'a salvage that destroys the previous salvage is the same silent loss one level up')
+    assert.ok(!git(origin, 'ls-tree', '-r', '--name-only', one.branch).includes('second.md'))
+    assert.ok(git(origin, 'ls-tree', '-r', '--name-only', two.branch).includes('first.md'))
+  })
+
+  test('a push that fails throws, so the caller keeps the clone', async () => {
+    fs.writeFileSync(path.join(wt, 'findings.md'), 'six hours of it\n')
+
+    await assert.rejects(
+      () => salvageLocalOnlyWork(wt, 'o/r', '42', { remote: path.join(tmp, 'no-such-origin.git') }),
+      'destroying the only copy because a push failed is the bug this closes',
+    )
+  })
+
+  test('a clone whose repo curia cannot name has nowhere to push, and says so', async () => {
+    fs.writeFileSync(path.join(wt, 'findings.md'), 'six hours of it\n')
+    await assert.rejects(() => salvageLocalOnlyWork(wt, null, '42'), /nowhere to push/)
   })
 })

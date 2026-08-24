@@ -110,6 +110,15 @@ const workingMinter = () => ({
 })
 
 // Deps default to inert doubles; each test overrides only what it asserts on.
+// #649: `start` REFUSES over a clone still on disk, because createPrivateClone
+// opens with an unconditional rmSync. Every real ending removes the clone, so a
+// test simulating "the agent is gone" has to remove it too — otherwise the
+// second start is refused rather than dispatched, and the test is measuring the
+// refusal instead of what it came for.
+function cloneGone(ticket, repo = 'o/r') {
+  fs.rmSync(path.join(tmp, 'work', 'repos', repo.replace('/', '__'), 'wt', String(ticket)), { recursive: true, force: true })
+}
+
 function makeDispatcher(deps = {}, {
   watch = [{ repo: 'o/r', mode: 'auto' }], readyTimeoutS = 45, routing = ROUTING,
   skills = null, stopNudgeBudget = 3,
@@ -267,7 +276,11 @@ function makeDispatcher(deps = {}, {
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [],
     pushBranch: async () => 'abc1234',
-    hasUnpushedWork: async () => false,
+    hasUnpushedCommits: async () => false,
+    // #649: nothing local-only, and no salvage. A test that is about the salvage
+    // passes its own — the real ones reach a real clone on disk.
+    hasUncommittedChanges: async () => false,
+    salvageLocalOnlyWork: async () => ({ salvaged: false, branch: null, sha: null }),
     setPullRequestBody: async () => {},
     deleteRemoteBranch: async () => ({ deleted: true }),
   }
@@ -345,6 +358,7 @@ describe('in-flight admission guard (criterion 3)', () => {
     const d = makeDispatcher({ claim: async () => { claims += 1 } })
     await d.start('42', { repo: 'o/r' })
     d.agents.delete('curia-42') // simulate the agent having gone away
+    cloneGone('42')
     const again = await d.start('42', { repo: 'o/r' })
     assert.match(again, /dispatched/)
     assert.equal(claims, 2)
@@ -947,7 +961,7 @@ describe('reconcile epoch scoping (criterion 7)', () => {
       killSession: async () => {},
       removeWorkspace: async () => {},
       removeConfigDir: () => {},
-      hasUnpushedWork: async () => false,
+      hasUnpushedCommits: async () => false,
     })
 
     await d.reconcile({ boot: false })
@@ -965,7 +979,7 @@ describe('reconcile epoch scoping (criterion 7)', () => {
       killSession: async () => {},
       removeWorkspace: async () => {},
       removeConfigDir: () => {},
-      hasUnpushedWork: async () => false,
+      hasUnpushedCommits: async () => false,
     })
 
     await d.reconcile({ boot: false })
@@ -1660,6 +1674,7 @@ describe('the claim assigns dispatch.claim_login (#390)', () => {
     await d.start('42', { repo: 'o/r' })
     d.config.dispatch.claim_login = 'someone-else'
     d.agents.delete('curia-42')
+    cloneGone('42')
     await d.start('42', { repo: 'o/r' })
 
     assert.deepEqual(assigned, ['alp82', 'someone-else'])
@@ -3823,7 +3838,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       killSession: async () => {},
       removeWorkspace: async () => {},
       removeConfigDir: () => { throw new Error('ENOTEMPTY, Directory not empty') },
-      hasUnpushedWork: async () => false,
+      hasUnpushedCommits: async () => false,
     })
     let surfacesAsserted = false
     d.timeline = { assert: async () => { surfacesAsserted = true; return { verified: true } } }
@@ -3843,7 +3858,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       killSession: async (n) => destroyed.push(`kill:${n}`),
       removeWorkspace: async (wt) => destroyed.push(`workspace:${wt}`),
       removeConfigDir: () => {},
-      hasUnpushedWork: async () => true,
+      hasUnpushedCommits: async () => true,
     })
 
     await d.reconcile({ boot: false })
@@ -3862,7 +3877,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       killSession: async () => {},
       removeWorkspace: async (wt) => destroyed.push(wt),
       removeConfigDir: () => {},
-      hasUnpushedWork: async () => { throw new Error('git exploded') },
+      hasUnpushedCommits: async () => { throw new Error('git exploded') },
     })
 
     await d.reconcile({ boot: false })
@@ -3880,7 +3895,7 @@ describe('the orphan sweep cannot destroy unlanded work (#41)', () => {
       killSession: async (n) => destroyed.push(`kill:${n}`),
       removeWorkspace: async (wt) => destroyed.push(`workspace:${wt}`),
       removeConfigDir: (dir) => destroyed.push(`cfg:${path.basename(dir)}`),
-      hasUnpushedWork: async () => false,
+      hasUnpushedCommits: async () => false,
     })
 
     await d.reconcile({ boot: false })
@@ -3927,6 +3942,7 @@ describe('the spawn prompt names the parent map (#41)', () => {
     assert.equal(prompt.mapNumber, null)
 
     prompt = null
+    cloneGone('42')
     const d2 = makeDispatcher({
       fetchIssue: async (repo, n) => {
         if (String(n) === '1') throw new Error('HTTP 502')
@@ -5763,6 +5779,7 @@ describe('agent-liveness sweep (#138)', () => {
     await d.start('42', { repo: 'o/r' })
     await d.deps.killSession('curia-42')
     d.agents.delete('curia-42')
+    cloneGone('42')
     await d.start('42', { repo: 'o/r' })
     state.assigned = true
 
@@ -6808,5 +6825,236 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     await d.reconcile({ boot: false })
 
     assert.deepEqual(swept, ['curia-77'], 'the dead agent is swept and the live login is not')
+  })
+})
+
+// #649, ADR-0028. Three paths destroyed a private clone without ever asking
+// what was in it. Two of them now CAPTURE first, one KEEPS, and `start` refuses
+// rather than clone over one. The salvage itself is git plumbing and is driven
+// against a real clone in workspace.test.mjs; what these cases pin is which path
+// does which, and what the operator is told.
+describe('teardown sees uncommitted work (#649)', () => {
+  const salvaged = (branch) => async () => ({ salvaged: true, branch, sha: 'deadbee' })
+  const cannotSalvage = (why) => async () => { throw new Error(why) }
+  const tracked = (d) => d.agents.set('curia-42', {
+    repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/w/42', cfgDir: '/c/curia-42', state: 'ready',
+  })
+
+  describe('cancel captures, then proceeds', () => {
+    test('the work is captured before the clone goes, and the line names the branch', async () => {
+      const acts = []
+      const d = makeDispatcher({
+        salvageLocalOnlyWork: async (wt, repo, n) => {
+          acts.push(`salvage:${wt}`)
+          return { salvaged: true, branch: `curia/${n}-salvage-2026-08-24T03-04-05Z`, sha: 'deadbee' }
+        },
+        removeWorkspace: async (wt) => acts.push(`workspace:${wt}`),
+        unclaim: async () => acts.push('unclaim'),
+        killSession: async () => acts.push('kill'),
+        removeConfigDir: () => {},
+      })
+      tracked(d)
+
+      const reply = await d.cancel('42', { by: 'test' })
+
+      assert.deepEqual(acts, ['kill', 'salvage:/w/42', 'workspace:/w/42', 'unclaim'],
+        'the capture has to happen BEFORE the removal, or it captures nothing')
+      assert.match(reply, /worktree removed, ticket re-frontiered/)
+      assert.match(reply, /curia\/42-salvage-2026-08-24T03-04-05Z/,
+        'a salvage branch nobody is told about is a patch nobody reads')
+      assert.ok(events.some((e) => e.type === 'work_salvaged'
+        && e.teardown === 'cancel' && e.branch === 'curia/42-salvage-2026-08-24T03-04-05Z' && e.ticket === '42'))
+    })
+
+    test('a clone holding nothing local-only is removed with no branch spent and nothing said', async () => {
+      const d = makeDispatcher({ removeConfigDir: () => {} })
+      tracked(d)
+
+      const reply = await d.cancel('42', { by: 'test' })
+
+      assert.match(reply, /worktree removed, ticket re-frontiered/)
+      assert.ok(!/salvage/.test(reply), 'nothing was captured, so there is nothing to name')
+      assert.ok(!typesOf().includes('work_salvaged'))
+    })
+
+    test('a capture curia could not make KEEPS the clone, and the line says all three', async () => {
+      const acts = []
+      const d = makeDispatcher({
+        salvageLocalOnlyWork: cannotSalvage('HTTP 502 from github.com'),
+        removeWorkspace: async (wt) => acts.push(`workspace:${wt}`),
+        unclaim: async () => acts.push('unclaim'),
+        killSession: async () => acts.push('kill'),
+        removeConfigDir: () => {},
+      })
+      tracked(d)
+
+      const reply = await d.cancel('42', { by: 'test' })
+
+      assert.deepEqual(acts, ['kill', 'unclaim'], 'the only copy survives a network failure')
+      // the session is gone, the claim moved, and the clone is still on the box
+      assert.match(reply, /cancelled — session killed/)
+      assert.match(reply, /ticket re-frontiered/)
+      assert.match(reply, /clone is KEPT at `\/w\/42`/)
+      assert.match(reply, /HTTP 502 from github\.com/)
+      assert.ok(events.some((e) => e.type === 'salvage_failed' && e.teardown === 'cancel' && /502/.test(e.error)))
+      assert.ok(events.some((e) => e.type === 'dispatch_unclaimed'), 'the agent ends either way — that is what was ordered')
+    })
+
+    test('a charting session is salvaged by the same mechanism, with no special case', async () => {
+      const salvages = []
+      const d = makeDispatcher({
+        salvageLocalOnlyWork: async (wt, repo, n) => {
+          salvages.push(n)
+          return { salvaged: true, branch: `curia/${n}-salvage-2026-08-24T03-04-05Z`, sha: 'deadbee' }
+        },
+        unclaim: async () => { throw new Error('a charting dispatch has no claim to release') },
+        removeConfigDir: () => {},
+      })
+      d.agents.set('curia-chat-1', {
+        repo: 'o/r', ticket: 'chat-1', session: 'curia-chat-1', wtPath: '/w/chat-1',
+        cfgDir: '/c/curia-chat-1', state: 'ready', charting: true,
+      })
+
+      const reply = await d.cancel('chat-1', { by: 'test' })
+
+      assert.deepEqual(salvages, ['chat-1'])
+      assert.match(reply, /curia\/chat-1-salvage-2026-08-24T03-04-05Z/)
+      assert.match(reply, /checkout removed/)
+    })
+  })
+
+  describe('the merge path captures, then proceeds', () => {
+    const liveAgent = (d) => d.agents.set('curia-42', {
+      repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/w/42', cfgDir: '/c/curia-42',
+      state: 'ready', instance: 'curia-42@1',
+    })
+    const withResult = () => fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
+
+    test('what is still dirty at a merge is not what landed, so it is captured and the clone still goes', async () => {
+      const acts = []
+      const d = makeDispatcher({
+        findPullRequest: async () => ({ number: 7, url: 'https://x/pull/7', state: 'MERGED' }),
+        salvageLocalOnlyWork: async () => { acts.push('salvage'); return salvaged('curia/42-salvage-2026-08-24T03-04-05Z')() },
+        removeWorkspace: async () => acts.push('rm'),
+      })
+      liveAgent(d)
+      withResult()
+
+      await d.onAgentDone('curia-42')
+
+      assert.deepEqual(acts, ['salvage', 'rm'])
+      assert.match(notifies.at(-1).message, /captured on `curia\/42-salvage-2026-08-24T03-04-05Z` first/)
+      assert.ok(events.some((e) => e.type === 'work_salvaged' && e.teardown === 'lease'))
+      assert.ok(events.some((e) => e.type === 'lease_released' && e.salvage === 'curia/42-salvage-2026-08-24T03-04-05Z'))
+    })
+
+    test('a capture it cannot make keeps the workspace, the way every other branch here does', async () => {
+      let removed = false
+      const d = makeDispatcher({
+        findPullRequest: async () => ({ number: 7, url: 'https://x/pull/7', state: 'MERGED' }),
+        salvageLocalOnlyWork: cannotSalvage('git is wedged'),
+        removeWorkspace: async () => { removed = true },
+      })
+      liveAgent(d)
+      withResult()
+
+      await d.onAgentDone('curia-42')
+
+      assert.equal(removed, false)
+      assert.ok(events.some((e) => e.type === 'lease_kept' && /could not be captured.*wedged/.test(e.reason)))
+      assert.match(notifies.at(-1).message, /worktree KEPT/)
+    })
+  })
+
+  describe('the orphan sweep keeps', () => {
+    // Nothing is established and nobody ordered anything, so a dirty tree gets
+    // the same answer its commits already get — and it costs no salvage branch.
+    const orphan = (deps) => {
+      fs.writeFileSync(path.join(tmp, 'data', 'events.jsonl'),
+        JSON.stringify({ type: 'dispatch_claimed', repo: 'o/r', ticket: '42', agent: 'curia-42' }) + '\n')
+      return makeDispatcher({
+        listSessions: async () => ['curia-42'],
+        fetchIssue: async () => ({ ...OPEN_ISSUE, state: 'closed', assignees: [] }),
+        killSession: async () => {},
+        removeConfigDir: () => {},
+        hasUnpushedCommits: async () => false,
+        ...deps,
+      })
+    }
+
+    test('a tree with uncommitted work keeps its clone, and nothing is pushed for it', async () => {
+      const destroyed = []
+      const d = orphan({
+        hasUncommittedChanges: async () => true,
+        removeWorkspace: async (wt) => destroyed.push(wt),
+        salvageLocalOnlyWork: async () => { throw new Error('the sweep must never capture — rubble is cheaper') },
+      })
+
+      await d.reconcile({ boot: false })
+
+      assert.deepEqual(destroyed, [])
+      assert.ok(events.some((e) => e.type === 'orphan_worktree_kept'
+        && /uncommitted changes that exist nowhere else/.test(e.reason)))
+    })
+
+    test('an unreadable dirty check keeps it too — "cannot tell" is not "nothing there"', async () => {
+      const destroyed = []
+      const d = orphan({
+        hasUncommittedChanges: async () => { throw new Error('git exploded') },
+        removeWorkspace: async (wt) => destroyed.push(wt),
+      })
+
+      await d.reconcile({ boot: false })
+
+      assert.deepEqual(destroyed, [])
+      assert.ok(events.some((e) => e.type === 'orphan_worktree_kept'
+        && /could not tell whether it holds uncommitted changes \(git exploded\)/.test(e.reason)))
+    })
+  })
+
+  describe('start refuses over a surviving clone', () => {
+    test('the refusal names `resume`, spends no salvage branch, and claims nothing', async () => {
+      const acts = []
+      const d = makeDispatcher({
+        claim: async () => acts.push('claim'),
+        createPrivateClone: async () => { throw new Error('createPrivateClone opens with an unconditional rmSync') },
+        salvageLocalOnlyWork: async () => { throw new Error('a refusal costs no salvage branch') },
+      })
+      fakePrivateClone(path.join(tmp, 'work'), 'o/r', '42')
+
+      const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+
+      assert.match(reply, /^❌/)
+      assert.match(reply, /still has a clone on disk/)
+      assert.match(reply, /`resume 42` inherits it instead/)
+      assert.deepEqual(acts, [], 'a refused start claims nothing')
+      assert.ok(events.some((e) => e.type === 'start_refused_over_clone' && e.ticket === '42' && e.by === 'test'))
+    })
+
+    test('`map <n>` refuses over a charting clone for the same reason', async () => {
+      const d = makeDispatcher({
+        fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:map' }] }),
+        createPrivateClone: async () => { throw new Error('createPrivateClone opens with an unconditional rmSync') },
+      })
+      fakePrivateClone(path.join(tmp, 'work'), 'o/r', '42')
+
+      const reply = await d.chart('42', { repo: 'o/r', instruction: 'chart it', by: 'test' })
+
+      assert.match(reply, /still has a charting clone on disk/)
+      assert.match(reply, /`resume 42` inherits it instead/)
+      assert.ok(events.some((e) => e.type === 'start_refused_over_clone' && e.verb === 'map'),
+        'the one curia KEPT because a salvage failed must not die to the next map dispatch')
+    })
+
+    test('a resume is exempt — inheriting the clone is the whole point of it', async () => {
+      const wt = fakePrivateClone(path.join(tmp, 'work'), 'o/r', '42')
+      const d = makeDispatcher({
+        createPrivateClone: async () => { throw new Error('a resume must never reach the clone') },
+      })
+
+      await d.start('42', { repo: 'o/r', reuse: true })
+
+      assert.equal(d.agents.get('curia-42')?.wtPath, wt)
+    })
   })
 })

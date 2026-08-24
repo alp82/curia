@@ -260,7 +260,7 @@ _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `re
 A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree, the model of the last spawn, which the journal states, and the inherited exchange (#374). It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
 
 **Cancel**:
-The one act that ends a running agent. It kills the session, removes the worktree and releases the GitHub claim. It closes every open question of that agent, and the ticket goes back to the frontier. The word has one place: `cancel <n>` in the command channel. No button on a question ends anything.
+The one act that ends a running agent. It kills the session, captures anything in the clone that exists nowhere else onto a **salvage branch**, removes the worktree and releases the GitHub claim. A capture curia cannot make keeps the worktree instead, and the line says so - the session and the claim end either way, because that is what was ordered. It closes every open question of that agent, and the ticket goes back to the frontier. The word has one place: `cancel <n>` in the command channel. No button on a question ends anything.
 
 ### Agents
 
@@ -536,13 +536,13 @@ How many times the Stop hook may refuse one agent's stop (`stop_nudge_budget`).
 The daemon's push of `curia/<n>` and the open or update of the one pull request per ticket. Agents never push.
 
 **Workspace lease**:
-The hold on a worktree and branch until the pull request is positively merged. Every uncertain case keeps the workspace.
+The hold on a worktree and branch until the pull request is positively merged. Every uncertain case keeps the workspace. What is merged has landed, so anything still uncommitted at the end of the lease is captured onto a **salvage branch** before the worktree goes.
 
 **Local-only work**:
 Work that exists in no place but one private clone. Two kinds, and they stay two named predicates rather than one widened one: **unpushed commits**, which `hasUnpushedCommits` answers from `git rev-list --count`, and **uncommitted changes**, which `hasUncommittedChanges` answers from `git status --porcelain`. Untracked files count as work; the repo's `.gitignore` and the clone's own `.git/info/exclude` are what separate work from noise. The distinction is load-bearing because the cross-check callers ask about the pushed tip only, and a dirty tree is no reason to refuse a cross-check. Every guard curia had before [#649](https://github.com/alp82/curia/issues/649) read the first kind and was blind to the second. See [ADR-0028](docs/adr/0028-local-only-work-is-salvaged-before-a-clone-dies.md).
 
 **Salvage branch**:
-Where local-only work goes before curia destroys the clone holding it: `curia/<n>-salvage-<stamp>`, committed by curia and pushed. It accumulates and never overwrites, because a salvage that destroys the previous salvage is the same loss one level up. Cancel and the workspace lease capture one and then proceed; the orphan sweep keeps the clone instead; `start <n>` refuses over a surviving clone and names `resume <n>`. A push that fails keeps the clone and says so. Nothing deletes a salvage branch. It is a branch on the tracker rather than a patch on the box because a patch is what nobody reads. See [ADR-0028](docs/adr/0028-local-only-work-is-salvaged-before-a-clone-dies.md) and [#649](https://github.com/alp82/curia/issues/649).
+Where local-only work goes before curia destroys the clone holding it: `curia/<n>-salvage-<stamp>`, committed by curia and pushed. It accumulates and never overwrites, because a salvage that destroys the previous salvage is the same loss one level up. Cancel and the workspace lease capture one and then proceed; the orphan sweep keeps the clone instead; `start <n>` and `map <n>` both refuse over a surviving clone and name `resume <n>`. A push that fails keeps the clone and says so. Nothing deletes a salvage branch. It is a branch on the tracker rather than a patch on the box because a patch is what nobody reads. See [ADR-0028](docs/adr/0028-local-only-work-is-salvaged-before-a-clone-dies.md) and [#649](https://github.com/alp82/curia/issues/649).
 
 **Repair**:
 The daemon's completion of resolve-protocol steps the agent missed, recorded as repairs.
