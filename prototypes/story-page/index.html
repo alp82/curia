@@ -297,9 +297,24 @@
      the time the claim arrives. A stage that sticks late anchors the
      window late, and the window is then still climbing while the card
      lands in it. That is what cut the composer off the bottom edge in
-     round 2. */
-  .grill-track { position: relative; margin-top: -115svh; height: 250svh; }
-  .grill-stage { position: sticky; top: 0; height: 100svh; pointer-events: none; }
+     round 2.
+
+     The pull is sized for the WORST claim, not the average one. A phone
+     wraps the claim to three lines, and a claim that tall pushed the
+     track down far enough that the stage was still travelling when the
+     window unfolded, so it appeared in mid-air and jumped. At 160svh
+     the stage is stuck before the section is anywhere near the fold,
+     whatever the claim measures. */
+  .grill-track { position: relative; margin-top: -160svh; height: 295svh; }
+  .grill-stage {
+    position: sticky; top: 0; pointer-events: none;
+    height: 100svh;
+    /* A phone's bottom edge MOVES as the URL bar slides away, and svh
+       is the height with that bar showing. The window is anchored to
+       the bottom of this stage, so the stage has to follow the live
+       edge or the window floats away from it. */
+    height: 100dvh;
+  }
   .grill-stage::before {
     content: ''; position: absolute; inset: 22svh -25vw -6svh -25vw; opacity: var(--in, 0);
     background: radial-gradient(48vmax 42vmax at 32% 80%,
@@ -333,7 +348,7 @@
        Its bottom edge keeps the same padding from the bottom of the
        screen at every scroll position, so it can only grow upward and
        it can never be cut off. */
-    position: absolute; left: 0; right: 0; bottom: 2.6svh; margin: 0 auto;
+    position: absolute; left: 0; right: 0; bottom: 1.15rem; margin: 0 auto;
     width: calc(100% - 1.1rem); max-width: 52rem;
     /* Round 5: bigger in both dimensions wherever there is room. */
     height: auto; max-height: var(--cap, 62svh);
@@ -1621,7 +1636,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
      A desktop window on a phone is a miniature, and no font size
      changes that. On a wide screen it lands near life size. ---- */
   function cap() {
-    var vh = window.innerHeight;
+    var vh = stage.getBoundingClientRect().height || window.innerHeight;
     /* Where the claim rests once it sticks: 3svh, plus its own height.
        Read from the layout, never from the live rect, which moves.
        What is left under it, minus the window's own bottom padding and
@@ -1794,42 +1809,63 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
        HOLD   it stands there thinking
        GROW   the card streams in, block by block, and it grows
        q = 1  the card is whole and the claim has reached the top
-       BEAT   the press, the receipt, and the thread turns green */
+       BEAT   the press, the receipt, and the thread turns green
+
+     EVERY height here comes off the stage, never off window.innerHeight.
+     The stage is one viewport tall by its own CSS, so measuring it is
+     the only way the script and the stylesheet can agree. A phone hides
+     its URL bar on the scroll, which moves innerHeight by a tenth of
+     itself mid-scene and drags every threshold with it. */
   var FOLD = 0.78, GROW = 0.60, END = 0.07, BEAT = 0.16;
   var track = stage.parentNode;
   var lead = 0;
 
+  function vh() { return stage.getBoundingClientRect().height || window.innerHeight; }
+
   function measure() {
     dc.classList.add('on');
+    dc.classList.add('folding');
+    stage.style.setProperty('--in', '0');
     fit();
-    apply(0);
     lead = track.offsetTop - head.offsetTop;
   }
   measure();
-  window.addEventListener('resize', measure, { passive: true });
+
+  /* A phone fires a resize every time its URL bar slides away, with the
+     width unchanged. Re-measuring on one of those re-fits the card and
+     resets the fold UNDER the reader, which is what broke the appear on
+     mobile. Only a real change of the viewport counts. */
+  var lastW = window.innerWidth, lastH = window.innerHeight;
+  window.addEventListener('resize', function () {
+    var w = window.innerWidth, h = window.innerHeight;
+    if (w === lastW && Math.abs(h - lastH) < lastH * 0.25) return;
+    lastW = w;
+    lastH = h;
+    measure();
+  }, { passive: true });
 
   var raf = 0;
   (function tick() {
     raf = requestAnimationFrame(tick);
     if (document.hidden) return;
-    var vh = window.innerHeight;
+    var v = vh();
     var pr = pin.getBoundingClientRect();
-    if (pr.bottom < 0 || pr.top > vh) return;
+    if (pr.bottom < 0 || pr.top > v) return;
     var ht = head.getBoundingClientRect().top;
 
     /* --in rides the STAGE, so the stage light can read it too. A
        custom property only ever travels downward. */
-    var inn = clampNum((vh * FOLD - ht) / (vh * (FOLD - GROW)), 0, 1);
+    var inn = clampNum((v * FOLD - ht) / (v * (FOLD - GROW)), 0, 1);
     stage.style.setProperty('--in', inn.toFixed(3));
     dc.classList.toggle('folding', inn < 1);
 
-    var q = clampNum((vh * GROW - ht) / (vh * (GROW - END)), 0, 1);
+    var q = clampNum((v * GROW - ht) / (v * (GROW - END)), 0, 1);
     apply(q);
     typing.classList.toggle('gone', q >= 1);
 
     /* The claim sticks at the top, so its rect stops moving and cannot
        time the beat. The track never sticks, so it can. */
-    answer(q >= 1 && track.getBoundingClientRect().top < vh * (END - BEAT) + lead);
+    answer(q >= 1 && track.getBoundingClientRect().top < v * (END - BEAT) + lead);
   })();
 })();
 

@@ -807,6 +807,30 @@ that this page reads to a stranger first, and both recorded here rather than bur
   the cutover ticket ([#604](https://github.com/alp82/curia/issues/604)), beside the one scene 7
   already carries for the harness names.
 
+**The gate rejected round 6 on mobile:** "Looks good. On mobile the appear logic is a bit broken
+though." The screenshot came as an attachment under `daemon/data/`, which a ticket container does
+not mount, so this was worked from the words and from what is mobile-specific in the code. Three
+faults were there, and all three are phone-only:
+
+1. **A resize reset the scene under the reader.** A phone fires a resize every time its URL bar
+   slides away on the scroll. `measure()` ran on every one of them, and it re-fitted the card and
+   called `apply(0)`, which collapses the message to nothing. Now `apply(0)` is gone from
+   `measure()`, and a resize whose width is unchanged and whose height moved less than a quarter is
+   ignored.
+2. **The script and the stylesheet disagreed about a viewport.** The stage is one viewport tall in
+   CSS. The script read `window.innerHeight`, which on a phone moves by about a tenth of itself as
+   the bar hides, so every threshold slid mid-scroll. The script now measures the stage itself, so
+   the two agree by construction.
+3. **The stage was still travelling when the window unfolded.** The track is pulled up under the
+   claim so the stage is stuck before the window appears, and that pull was sized for a claim two
+   lines tall. A phone wraps the claim to three, which pushed the track down far enough that the
+   stage had not stuck yet, so the window appeared in mid-air and jumped into place. The pull went
+   from 115svh to 160svh, which is past the worst claim rather than past the average one.
+
+The bottom edge also moves on a phone, and `svh` is the height with the URL bar showing. The stage
+is `100dvh` now, so the window's bottom follows the live edge instead of floating above it, and the
+window's own gap is a `rem` rather than a viewport unit.
+
 **Where the font still falls short.** The page ships no webfont, so the window runs Discord's own
 fallback stack. gg sans is licensed and never loads. On an Apple device that lands on Helvetica,
 which is what Discord itself falls back to, and it is narrower and more closed than gg sans. The
