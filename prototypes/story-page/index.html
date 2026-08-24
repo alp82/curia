@@ -268,30 +268,44 @@
   /* ================================================================
      Scene 4 — the grilling (#626). A real escalation, curia#377, in
      the card shape the operator picked at #415, inside Discord's own
-     chrome. The chat ASSEMBLES as it rises: the typing row alone at
-     the fold, the card streaming in on the scroll, and the whole of
-     it standing by the time the frame is two thirds up the viewport.
+     chrome.
 
-     Five chromes ride ?d=1..5 — 1 phone app, 2 desktop app, 3 thread
-     panel, 4 the bare message, 5 the phone app with the channel
-     behind it. The switcher is a round-only control.
+     Round 2: the chrome is Discord's desktop app, and the
+     window keeps its BOTTOM on the bottom edge of the viewport. It
+     comes in at its minimum height, showing nothing but the typing
+     row, and it GROWS upward as the card arrives, while the claim
+     rides up to the top of the screen and sticks there.
+
+     Five growths ride ?d=1..5 — 1 grow, 2 window, 3 stream, 4 fill,
+     5 history. The switcher is a round-only control.
 
      The page ships no webfont (build.md), so the type is Discord's
      own fallback stack. gg sans is licensed, and it never loads here.
      ================================================================ */
   .grillpin { padding-bottom: 0; }
-  /* The lead holds the frame at the fold while the claim is read, so
-     the chat comes AFTER the title and rises from the bottom edge.
-     Landing on #grill-pin puts the claim at the top of the screen and
-     the frame exactly at the fold, which is where its assembly starts. */
-  .grill-track { position: relative; padding-top: 67svh; height: 220svh; }
+  /* The claim leads, then rides to the top and holds there while the
+     window grows under it. The cap the script sets on the window
+     keeps the two apart, so the words never sit on the evidence. */
+  .grill-head { position: sticky; top: 4svh; z-index: 2; }
+  .grill-track { position: relative; height: 150svh; margin-top: 1.2rem; }
+  /* bottom: 0 is the whole mechanic. The window scrolls in from below,
+     its bottom edge catches on the bottom of the viewport, and every
+     block that arrives grows it upward from there. */
   .grill-stage {
-    position: sticky; top: 6svh; height: 88svh;
-    display: flex; align-items: stretch; justify-content: center;
-    padding: 0 1.1rem;
+    position: sticky; bottom: 0; display: flex; justify-content: center;
+    padding: 0 0.6rem;
+  }
+  /* The identity orb of #624 is placed at 20% of a section, which works
+     while a scene is a screen tall. This one is nearly two, so the
+     window carries its own orb and the stage light stays behind it. */
+  .grill-stage::before {
+    content: ''; position: absolute; left: -25vw; right: -25vw; bottom: -4svh;
+    height: 112svh; pointer-events: none;
+    background: radial-gradient(48vmax 42vmax at 32% 76%,
+      rgba(var(--scb), calc(0.09 + 0.13 * var(--p, 1))), transparent 64%);
   }
   @media (min-width: 64rem) {
-    .sL .grill-stage { justify-content: flex-end; padding-right: 7vw; }
+    .grill-stage { padding: 0 7vw; }
   }
 
   .dc {
@@ -313,52 +327,47 @@
     font-size: var(--fs, 0.8rem);
     line-height: 1.375;
     color: var(--dc-ink);
-    width: 100%; max-width: 23rem; height: 100%;
-    display: flex; overflow: hidden;
+    position: relative;
+    width: 100%; max-width: 46rem;
+    height: auto; max-height: var(--cap, 68svh);
+    display: flex; flex-direction: column; overflow: hidden;
     background: var(--dc-chat);
-    border-radius: 14px;
-    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -12px 60px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
     filter: saturate(calc(0.7 + 0.3 * var(--p, 1)));
   }
+  /* The window is a title bar over one row: rail, channels, chat pane. */
+  .dc-pane { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .dc-bar {
+    display: none; flex: none; align-items: center; gap: 0.45em;
+    padding: 0.5em 0.8em; background: var(--dc-rail); color: var(--dc-mute);
+    font-size: 0.85em; font-weight: 500;
+  }
+  .dc-bar .dots { display: flex; gap: 0.35em; flex: none; }
+  .dc-bar .dots i { width: 0.65em; height: 0.65em; border-radius: 50%; background: #4e5058; }
+  .dc-bar .dots i:nth-child(1) { background: #ed4245; }
+  .dc-bar .dots i:nth-child(2) { background: #fee75c; }
+  .dc-bar .dots i:nth-child(3) { background: #23a55a; }
+  .dc-bar .wn { flex: 1; text-align: center; }
   .dc * { min-width: 0; }
   .dc b, .dc strong { font-weight: 700; color: var(--dc-name); }
   .dc code {
     background: var(--dc-code); border-radius: 4px; padding: 0.05em 0.25em;
     font: 0.85em/1.2 var(--dc-mono); color: var(--dc-ink);
   }
-  .dc-app { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-
-  /* ---- the phone status bar ---- */
-  .dc-status {
-    display: none; align-items: center; justify-content: space-between;
-    padding: 0.5em 1.1em 0.15em; font-size: 0.85em; font-weight: 600;
-    color: var(--dc-name); background: var(--dc-chat);
+  .dc-app { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  /* The rail and the channel list must add NO height of their own, or
+     the window could never come in short. Their contents hang from the
+     top of a box that measures zero, so the growing window reveals more
+     of the channel list from the bottom, the way a resize does. */
+  .dc-rail, .dc-side { position: relative; overflow: hidden; }
+  .dc-rail .fill, .dc-side .fill { position: absolute; top: 0; left: 0; right: 0; }
+  .dc-rail .fill {
+    display: flex; flex-direction: column; align-items: center; gap: 0.5em; padding: 0.6em 0;
   }
-  .dc-status .sig { display: flex; align-items: flex-end; gap: 0.14em; height: 0.72em; }
-  .dc-status .sig i { width: 0.19em; background: var(--dc-name); border-radius: 0.5px; }
-  .dc-status .sig i:nth-child(1) { height: 35%; }
-  .dc-status .sig i:nth-child(2) { height: 58%; }
-  .dc-status .sig i:nth-child(3) { height: 80%; }
-  .dc-status .sig i:nth-child(4) { height: 100%; }
-  .dc-status .bat {
-    width: 1.5em; height: 0.72em; border-radius: 0.22em; position: relative;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
-  }
-  .dc-status .bat::before {
-    content: ''; position: absolute; inset: 0.14em; right: 0.42em;
-    background: var(--dc-name); border-radius: 0.08em;
-  }
-  .dc-status .bat::after {
-    content: ''; position: absolute; left: 100%; top: 0.24em; width: 0.1em; height: 0.24em;
-    background: rgba(255, 255, 255, 0.42); border-radius: 0 0.1em 0.1em 0;
-  }
-  .dc-status .right { display: flex; align-items: center; gap: 0.4em; }
 
   /* ---- the guild rail and the channel sidebar ---- */
-  .dc-rail {
-    display: none; flex: 0 0 3.4em; background: var(--dc-rail);
-    flex-direction: column; align-items: center; gap: 0.5em; padding: 0.6em 0;
-  }
+  .dc-rail { flex: 0 0 3.4em; background: var(--dc-rail); }
   .dc-rail i {
     position: relative;
     width: 2.3em; height: 2.3em; border-radius: 35%; display: grid; place-items: center;
@@ -371,10 +380,7 @@
     background: #fff; border-radius: 0 0.28em 0.28em 0;
   }
   .dc-rail hr { width: 1.6em; border: none; border-top: 1px solid #35373c; margin: 0.15em 0; }
-  .dc-side {
-    display: none; flex: 0 0 9.5em; background: var(--dc-side);
-    flex-direction: column; overflow: hidden;
-  }
+  .dc-side { flex: 0 0 9.2em; background: var(--dc-side); }
   .dc-side .gname {
     padding: 0.85em 0.8em; font-weight: 700; color: var(--dc-name);
     border-bottom: 1px solid var(--dc-edge); font-size: 0.95em;
@@ -392,16 +398,18 @@
   .dc-side .ch s { text-decoration: none; color: #6d6f78; }
   .dc-side .ch.on { background: #404249; color: var(--dc-name); }
   .dc-side .ch.un { color: var(--dc-name); font-weight: 600; }
+  /* A desktop window on a phone is a miniature. Narrowing the rail and
+     the channel list buys the chat pane back what it can. */
+  @media (max-width: 40rem) {
+    .dc-rail { flex-basis: 3em; }
+    .dc-side { flex-basis: 8em; }
+  }
 
   /* ---- the channel header ---- */
   .dc-head {
     display: flex; align-items: center; gap: 0.4em; flex: none;
     padding: 0.7em 0.8em; color: var(--dc-name); font-weight: 600;
     box-shadow: 0 1px 0 var(--dc-edge), 0 1.5px 0 rgba(0, 0, 0, 0.05);
-  }
-  .dc-head .back {
-    display: none; color: var(--dc-int); font-weight: 400; flex: none;
-    font-size: 1.4em; line-height: 0.8; margin-right: 0.05em;
   }
   .dc-head .hash { color: var(--dc-mute); font-weight: 400; font-size: 1.15em; flex: none; }
   .dc-head .tt {
@@ -411,8 +419,12 @@
   .dc-head .icons { display: flex; gap: 0.55em; color: var(--dc-int); flex: none; }
 
   /* ---- the message log ---- */
+  /* flex-basis MUST stay auto. With a basis of 0 the log contributes no
+     height to a window that sizes itself to its content, and nothing
+     would grow. It shrinks instead, once the window meets its cap, and
+     then it clips from the top the way a chat does. */
   .dc-log {
-    flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
+    flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
     justify-content: flex-end; padding: 0 0 0.4em;
   }
   .dc-hist { display: none; }
@@ -477,9 +489,12 @@
   .dc-mark b { color: var(--dc-mute); }
 
   /* ---- the typing row and the composer ---- */
+  /* The desktop client puts the typing row UNDER the text box, and the
+     operator wants nothing but that row at the bottom when the window
+     comes in. Both hold with the composer ordered above it. */
   .dc-typing {
-    flex: none; display: flex; align-items: center; gap: 0.45em;
-    padding: 0.3em 1em 0.35em; font-size: 0.8em; color: var(--dc-ink);
+    order: 2; flex: none; display: flex; align-items: center; gap: 0.45em;
+    padding: 0.1em 1em 0.5em; font-size: 0.8em; color: var(--dc-ink);
     min-height: 1.6em;
   }
   .dc-typing b { color: var(--dc-name); font-weight: 700; }
@@ -495,8 +510,8 @@
     30% { transform: translateY(-0.25em); opacity: 1; }
   }
   .dc-composer {
-    flex: none; display: flex; align-items: center; gap: 0.6em;
-    margin: 0.15em 0.7em 0.7em; padding: 0.6em 0.75em;
+    order: 1; flex: none; display: flex; align-items: center; gap: 0.6em;
+    margin: 0.15em 0.7em 0.15em; padding: 0.6em 0.75em;
     background: var(--dc-input); border-radius: 8px; color: #6d6f78;
   }
   .dc-composer .plus {
@@ -506,35 +521,22 @@
   .dc-composer .ph { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dc-composer .tools { display: flex; gap: 0.45em; color: var(--dc-int); flex: none; }
 
-  /* ---- what each chrome shows ---- */
-  .dc[data-d="1"] .dc-status, .dc[data-d="5"] .dc-status { display: flex; }
-  .dc[data-d="1"] .dc-head .back, .dc[data-d="5"] .dc-head .back { display: block; }
-  .dc[data-d="2"] { max-width: 46rem; }
-  .dc[data-d="2"] .dc-rail, .dc[data-d="2"] .dc-side { display: flex; }
-  .dc[data-d="2"] .dc-typing { order: 2; padding-top: 0; }
-  .dc[data-d="2"] .dc-composer { order: 1; margin-bottom: 0.15em; }
-  .dc[data-d="2"] .dc-app { display: flex; flex-direction: column; }
-  .dc[data-d="3"] .dc-crumb { display: flex; }
-  .dc[data-d="3"] .dc-head .hash { display: none; }
-  .dc[data-d="4"] .dc-head, .dc[data-d="4"] .dc-composer, .dc[data-d="4"] .dc-status { display: none; }
-  .dc[data-d="4"] { background: transparent; box-shadow: none; }
-  .dc[data-d="4"] .dc-log { justify-content: flex-end; }
-  .dc[data-d="4"] .dc-msg { background: var(--dc-chat); border-radius: 12px; padding: 0.8em 1em; }
-  .dc[data-d="4"] .dc-typing { padding-left: 1.1em; }
+  /* ---- what each growth shows. The chrome is the desktop app in all
+     five, picked by the operator at round 1. ---- */
+
+  /* 2 window — the app sits in its own window on a desk. */
+  .dc[data-d="2"] { border-radius: 12px; margin-bottom: 1.6svh; }
+  .dc[data-d="2"] .dc-bar { display: flex; }
+
+  /* 4 fill — the app owns the bottom edge, corner to corner. */
+  .dc[data-d="4"] { border-radius: 0; max-width: none; }
+  .grill-stage.wide { padding: 0; }
+
+  /* 5 history — the channel above the card, pushed out of the top as
+     the card grows. */
   .dc[data-d="5"] .dc-hist { display: block; }
   .dc[data-d="5"] .dc-sys { display: flex; }
-  .dc[data-d="1"] .dc-head .icons, .dc[data-d="5"] .dc-head .icons { font-size: 1.05em; }
-  .dc-crumb {
-    display: none; align-items: center; gap: 0.35em; flex: none;
-    padding: 0.4em 0.9em 0.5em; color: var(--dc-mute); font-size: 0.85em;
-    box-shadow: 0 1px 0 var(--dc-edge);
-  }
-  .dc-crumb .pill {
-    background: #404249; border-radius: 4px; padding: 0.1em 0.4em; color: var(--dc-ink);
-  }
-
-  /* The history behind the escalation, in variation 5. */
-  .dc-hist .dc-msg { opacity: 0.9; }
+  .dc-hist .dc-msg { opacity: 0.92; }
 
   /* Assembly. Without the script, or with reduced motion, every block
      of the card stands and the typing row is gone. */
@@ -794,6 +796,16 @@
   .scene .rv.in { transition-duration: 0.38s; }
   .scene .tw.in { transition-duration: 0.3s; }
 
+  /* With reduced motion the grilling scene is an ordinary section: no
+     track, no sticky, no growth, and the whole card standing. */
+  @media (prefers-reduced-motion: reduce) {
+    .grill-head, .grill-stage { position: static; }
+    .grill-track { height: auto; }
+    .grill-stage::before { display: none; }
+    .dc { max-height: none; margin: 0 auto; border-radius: 12px; }
+    .dc-typing { display: none; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .js .rv, .js .tw { opacity: 1 !important; transform: none !important; clip-path: none !important; }
@@ -875,11 +887,12 @@
        on this repo (curia#377), in the card shape the operator picked
        at #415 — every line of it is what daemon/src/card.mjs composes
        and daemon/src/bridge.mjs posts. The real answer was A, the
-       journal. The chat assembles as the frame rises: the typing row
-       alone at the fold, the card streaming in, the whole of it at two
-       thirds of the viewport, then the press and the receipt. -->
+       journal. The window comes in at its minimum height showing only
+       the typing row, catches the bottom edge of the viewport, and
+       grows upward as the card arrives, while the claim rides to the
+       top of the screen. Then the press and the receipt. -->
   <section class="scene sL grillpin" id="grill-pin" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
-    <div class="wrap">
+    <div class="wrap grill-head" id="grill-head">
       <header class="claim rv">
         <p class="kick"><span class="kn">03</span><span class="kname">the grilling</span></p>
         <h2 class="bold">Answer from the couch.</h2>
@@ -891,48 +904,44 @@
       <div class="grill-stage">
         <div class="dc" id="grill" data-d="1">
 
-          <!-- the guild rail and the channel list, desktop chrome only -->
+          <div class="dc-bar" aria-hidden="true">
+            <span class="dots"><i></i><i></i><i></i></span>
+            <span class="wn">Discord</span>
+          </div>
+
+          <div class="dc-pane">
+
+          <!-- the guild rail and the channel list. Neither adds height:
+               the window has to be able to come in short. -->
           <div class="dc-rail" aria-hidden="true">
-            <i class="on">c</i>
-            <hr>
-            <i>ds</i>
-            <i>ml</i>
+            <div class="fill">
+              <i class="on">c</i>
+              <hr>
+              <i>ds</i>
+              <i>ml</i>
+            </div>
           </div>
           <div class="dc-side" aria-hidden="true">
-            <div class="gname">curia <span>˅</span></div>
-            <div class="cat">Tickets</div>
-            <div class="ch on"><s>#</s> curia</div>
-            <div class="ch un"><s>⏳</s> 377 · curia</div>
-            <div class="ch"><s>🔎</s> 371 · curia</div>
-            <div class="ch"><s>✅</s> 364 · curia</div>
-            <div class="cat">Boxes</div>
-            <div class="ch"><s>#</s> overseer</div>
+            <div class="fill">
+              <div class="gname">curia <span>˅</span></div>
+              <div class="cat">Tickets</div>
+              <div class="ch on"><s>#</s> curia</div>
+              <div class="ch un"><s>⏳</s> 377 · curia</div>
+              <div class="ch"><s>🔎</s> 371 · curia</div>
+              <div class="ch"><s>✅</s> 364 · curia</div>
+              <div class="cat">Boxes</div>
+              <div class="ch"><s>#</s> overseer</div>
+            </div>
           </div>
 
           <div class="dc-app">
-            <div class="dc-status" aria-hidden="true">
-              <span>13:03</span>
-              <span class="right">
-                <span class="sig"><i></i><i></i><i></i><i></i></span>
-                <span class="bat"></span>
-              </span>
-            </div>
-
             <div class="dc-head">
-              <span class="back" aria-hidden="true">‹</span>
               <span class="hash" aria-hidden="true">#</span>
               <span class="tt" id="dc-title">⏳ 377 · curia · grilling</span>
               <span class="icons" aria-hidden="true">
                 <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="8.5" r="5"/><path d="M12.5 12.5 L17 17" stroke-linecap="round"/></svg>
                 <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7.5" cy="6.5" r="3"/><path d="M2 16c0-3 2.5-4.5 5.5-4.5S13 13 13 16" stroke-linecap="round"/><circle cx="14.5" cy="7" r="2.3"/></svg>
               </span>
-            </div>
-
-            <div class="dc-crumb" aria-hidden="true">
-              <span class="pill">Thread</span>
-              <span>#curia</span>
-              <span>›</span>
-              <span>377 · curia · grilling</span>
             </div>
 
             <div class="dc-log" id="dc-log">
@@ -1007,6 +1016,7 @@
                 <svg width="1.05em" height="1.05em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.2"/><path d="M7 12c.9 1 1.9 1.5 3 1.5s2.1-.5 3-1.5" stroke-linecap="round"/><circle cx="7.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r=".9" fill="currentColor" stroke="none"/></svg>
               </span>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -1416,16 +1426,17 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
    when the operator presses. The question is the real escalation of
    curia#377, in the card shape picked at #415.
 
-   The assembly is scroll POSITION, never a clock. q says how far the
-   frame has risen: 0 while it sits at the fold, 1 once its top stands
-   two thirds of the viewport up, which is where the operator asked
-   for the whole card to be shown. The press and the receipt ride the
-   pin travel after that, so the answer lands last.
+   The assembly is scroll POSITION, never a clock. The window keeps its
+   bottom on the bottom edge of the viewport and GROWS: q is 0 the
+   moment it catches that edge, showing nothing but the typing row, and
+   1 by the time the claim has ridden to the top of the screen. The
+   press and the receipt ride the pin travel after that, so the answer
+   lands last.
 
-   Five chromes ride ?d=1..5, and each one assembles its own way:
-   1 phone, streamed word by word · 2 desktop, block by block ·
-   3 thread panel, typed with a caret · 4 the bare message, each block
-   rising from the typing row · 5 the phone with the channel behind it.
+   Five growths ride ?d=1..5, all in the desktop chrome the operator
+   picked at round 1: 1 grow · 2 window, in its own frame on a desk ·
+   3 stream, typed with a caret · 4 fill, corner to corner ·
+   5 history, the channel pushed out of the top as the card grows.
    ================================================================ */
 (function () {
   var dc = document.getElementById('grill');
@@ -1443,13 +1454,16 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
       (n.classList.contains('dc-b') || n.classList.contains('dc-row'));
   });
 
-  /* ---- the round switcher. It leaves the file when the chrome is
+  /* ---- the round switcher. It leaves the file when the growth is
      picked, the way the identity switcher left it at #624. ---- */
-  var MODE = { '1': 'stream', '2': 'pop', '3': 'type', '4': 'rise', '5': 'pop' };
-  var NAME = { '1': 'phone', '2': 'desktop', '3': 'thread', '4': 'bare', '5': 'channel' };
+  var MODE = { '1': 'pop', '2': 'pop', '3': 'type', '4': 'pop', '5': 'pop' };
+  var NAME = { '1': 'grow', '2': 'window', '3': 'stream', '4': 'fill', '5': 'history' };
   var pick = (/[?&]d=([1-5])/.exec(location.search) || [])[1] || '1';
   dc.setAttribute('data-d', pick);
   var mode = MODE[pick];
+  var stage = dc.parentNode;
+  var head = document.getElementById('grill-head');
+  if (pick === '4') stage.classList.add('wide');
   (function () {
     var bar = document.createElement('nav');
     bar.className = 'dswitch';
@@ -1463,29 +1477,46 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     document.body.appendChild(bar);
   })();
 
-  /* ---- the type never breaks out of the frame. gg sans is licensed
-     and the page ships no webfont, so the card is measured at its own
-     size and the whole of it is made to fit the log. ---- */
+  /* ---- how tall the window may grow, and how big its type is.
+
+     The cap is whatever the claim leaves: the claim sticks near the
+     top of the screen and the window grows up from the bottom edge,
+     so the gap between them is the room the card has. The type is
+     then shrunk until the WHOLE card fits that room, because the
+     operator asked for the whole of it to be shown.
+
+     A desktop window on a phone is a miniature, and no font size
+     changes that. On a wide screen it lands near life size. ---- */
+  function cap() {
+    var vh = window.innerHeight;
+    /* where the claim rests once it sticks: 4svh, plus its own height.
+       Read from the layout, never from the live rect, which moves. */
+    var below = vh * 0.04 + (head ? head.offsetHeight : 0);
+    return clampNum(vh - below - vh * 0.025, vh * 0.42, vh * 0.86);
+  }
   function base() {
     var w = dc.clientWidth || 320;
-    var d = w / (pick === '2' ? 44 : 26);
-    return clampNum(d, pick === '2' ? 7 : 9.5, 15);
+    return clampNum(w / 40, 7, 15);
   }
+  var hist = dc.querySelector('.dc-hist');
   function fit() {
     var on = dc.classList.contains('on');
     dc.classList.remove('on');
+    dc.style.maxHeight = 'none';
+    /* Variation 5 WANTS its history clipped out of the top, so the fit
+       measures the card alone and lets the older messages ride up. */
+    if (pick === '5' && hist) hist.style.display = 'none';
+    var room = cap();
+    dc.style.setProperty('--cap', room.toFixed(0) + 'px');
     var b = base();
-    for (var pass = 0; pass < 3; pass++) {
+    for (var pass = 0; pass < 4; pass++) {
       dc.style.setProperty('--fs', b.toFixed(2) + 'px');
-      var need = 0;
-      [].slice.call(log.children).forEach(function (c) {
-        if (getComputedStyle(c).display === 'none') return;
-        need += c.offsetHeight;
-      });
-      var have = log.clientHeight;
-      if (!have || need <= have) break;
-      b = Math.max(b * (have / need), 9);
+      var need = dc.offsetHeight;
+      if (need <= room) break;
+      b = Math.max(b * (room / need), 7);
     }
+    if (pick === '5' && hist) hist.style.display = '';
+    dc.style.maxHeight = '';
     if (on) dc.classList.add('on');
   }
 
@@ -1537,9 +1568,15 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     }
   }
 
+  var msg = document.getElementById('dc-msg');
   function apply(q) {
     var n = blocks.length;
     var t = q * n;
+    /* Nothing of the message exists before its first block, not even
+       the name row. The window has to come in showing the typing row
+       and nothing else. */
+    if (dc.classList.contains('on')) msg.style.display = q > 0 ? '' : 'none';
+    else msg.style.display = '';
     for (var i = 0; i < n; i++) {
       var b = blocks[i];
       var f = t - i;
@@ -1585,23 +1622,39 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   if (prefersStill || !window.requestAnimationFrame) { still(); return; }
   window.addEventListener('error', still);
 
-  dc.classList.add('on');
-  fit();
-  window.addEventListener('resize', fit, { passive: true });
+  /* The growth starts the moment the window has caught the bottom edge
+     of the viewport, and it is done by the time the claim reaches the
+     top of the screen. Both moments are read off the track, which moves
+     with the scroll at a steady rate, so one number drives the whole
+     scene. The window itself never travels: it grows. */
+  var END = 0.10;
+  var track = stage.parentNode;
+  var minH = 0, lead = 0;
+
+  function measure() {
+    dc.classList.add('on');
+    fit();
+    apply(0);
+    minH = dc.offsetHeight;
+    lead = track.offsetTop - head.offsetTop;
+  }
+  measure();
+  window.addEventListener('resize', measure, { passive: true });
 
   var raf = 0;
   (function tick() {
     raf = requestAnimationFrame(tick);
     if (document.hidden) return;
     var vh = window.innerHeight;
-    var r = dc.getBoundingClientRect();
-    if (r.bottom < -vh || r.top > vh * 2) return;
-    var q = clampNum((vh - r.top) / (vh * 0.66), 0, 1);
+    var pr = pin.getBoundingClientRect();
+    if (pr.bottom < 0 || pr.top > vh) return;
+    var a = vh - minH;
+    var b = vh * END + lead;
+    var q = a > b ? clampNum((a - track.getBoundingClientRect().top) / (a - b), 0, 1) : 1;
     apply(q);
     typing.classList.toggle('gone', q >= 1);
-    var pr = pin.getBoundingClientRect();
     var trav = pr.height - vh;
-    answer(q >= 1 && trav > 0 && -pr.top / trav > 0.72);
+    answer(q >= 1 && trav > 0 && -pr.top / trav > 0.74);
   })();
 })();
 

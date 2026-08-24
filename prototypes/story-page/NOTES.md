@@ -556,6 +556,55 @@ against the log and shrinks the root size until it fits, with a floor of 9px. Th
 life-size type with the top of the message clipped, the way a real chat clips. That is a round 1
 question.
 
+**The operator picked the desktop chrome** and rewrote the mechanic:
+
+> lets continue further iterations with desktop
+>
+> then answer from the couch title should very soon after start with scrolling the discord window
+> into screen. it should be minimum height and just show "writing ..." note that the bot has
+> something to say. the bottom of the discord window stays fixed at the viewport bottom edge and
+> it grows veritcally as more and more messages appear while scrolling the "answer from the couch"
+> approaches the top
+
+The three other questions of round 1 came back unanswered, so they ride into round 2.
+
+**Round 2.** The window no longer travels. It comes in at its minimum height, catches the bottom
+edge of the viewport, and GROWS upward as the card arrives. The claim leads, rides to the top of
+the screen and sticks there, and the gap it leaves is the room the window may take.
+
+The mechanics, in one place:
+
+- **`position: sticky; bottom: 0`** on the stage is the whole trick. The window scrolls in from
+  below, its bottom edge catches the viewport bottom, and every block that lands grows it upward.
+- **Minimum height means minimum.** At `q` 0 the whole message is gone, name row and all, so the
+  window is a header, a text box and the typing row. The guild rail and the channel list are
+  absolutely placed inside boxes that measure zero, or the window could never come in short. The
+  growing window then reveals more of the channel list, the way a resize does.
+- **The clock is the track.** `q` is 0 the moment the window catches the bottom edge, which the
+  script computes from the window's own minimum height, and 1 when the claim reaches a tenth of
+  the way down the screen. One number drives the whole scene.
+- **The cap keeps the words off the evidence.** The script measures where the claim comes to rest
+  and gives the window everything below it, then shrinks the type until the whole card fits that
+  room. On a wide screen the type lands near life size. On a phone a desktop window is a
+  miniature, and no font size changes that.
+- **The typing row sits under the text box**, which is where the desktop client puts it, and which
+  is also what the operator asked for: nothing but that row at the bottom when the window arrives.
+
+Five growths ride `?d=1..5`, all in the desktop chrome:
+
+1. **grow** — the plain reading. Blocks land, the window grows.
+2. **window** — the app in its own frame on a desk, with a title bar and full rounding.
+3. **stream** — the characters type themselves into the block that is landing, with a caret.
+4. **fill** — corner to corner. The app owns the bottom edge of the screen, square.
+5. **history** — the start line and the claim message sit above the card and are pushed out of the
+   top as it grows. The fit ignores them on purpose, so they really do ride out.
+
+Three bugs in the first cut of this, caught by reading rather than by looking: a `flex: 1` on the
+log gave it a basis of zero, so a window that sizes itself to its content had nothing to grow on.
+A narrow-screen rule for the rail sat above the rule it meant to override, so it never applied.
+The message name row survived at `q` 0, so the window came in showing a header with nothing under
+it instead of the typing row alone.
+
 ## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
 
 **Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
