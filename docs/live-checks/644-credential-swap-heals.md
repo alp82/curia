@@ -81,10 +81,14 @@ resumed.
 a nudge, because a turn that died leaves the agent idle at the composer and nothing restarts it. That
 nudge is exactly rung 1 of #578's stall ladder.
 
-**Settled by construction (#644, claude).** The claude lane cannot be healed this way. `modelCredential`
-in `sandbox.mjs` hands the container its credential as an environment variable, and a running process's
-environment cannot be changed from outside. Freeze-versus-kill therefore differs per consumer, and the
-claude lane needs the relocation in #648 before freeze is even reachable.
+~~**Settled by construction (#644, claude).** The claude lane cannot be healed this way.~~
+**Wrong, and overturned by measurement on 2026-08-24 — see [659](659-claude-credential-file.md).**
+The inference above was that `modelCredential` in `sandbox.mjs` hands the container its credential as
+an environment variable, a running process's environment cannot be changed from outside, and therefore
+nothing could reach it. The second step is true and the conclusion does not follow: the CLI also reads
+`<CLAUDE_CONFIG_DIR>/.credentials.json`, that dir is already a mount, and writing a good file into a
+running agent heals it even while the expired environment variable is still in its environment.
+Freeze is reachable on the claude lane, and it does not wait on #648.
 
 ## 4. What a spent refresh token returns
 
