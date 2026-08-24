@@ -1153,7 +1153,12 @@ function reauthCard(r) {
    — a credential seeded from an env file states no date, so curia says so on the
    Credentials screen rather than putting a permanent nudge on the list an
    operator reads to find what is actually wrong. */
-function credentialCard(c) {
+/* The second argument is the login that ended without a credential (#721).
+   It is drawn HERE rather than as a card of its own, because this card is the
+   one that already stands and already says to sign in: an operator who pressed
+   the button and watched the attempt disappear needs one more sentence, not one
+   more item on the list. It shows only for the provider it belongs to. */
+function credentialCard(c, ended) {
   if (!["expired", "unreadable", "absent"].includes(c.state) && !c.last_error) return [];
   /* A HELD credential (#646) is the one case where the state word would lie.
      The access token can be perfectly valid for another two days and still be
@@ -1166,15 +1171,18 @@ function credentialCard(c) {
   /* THE VERB NAMES THE PROVIDER (#660). Two of the three rows are anthropic, and
      a bare `reauth` on either of them would start the openai login instead. */
   const verb = c.provider ? `reauth ${c.provider}` : "reauth";
+  const last = ended && ended.provider === c.provider && ended.why
+    ? `<div class="dim">the last login ended at ${esc(clock(ended.ended_at))}: ${esc(ended.why)}</div>`
+    : "";
   return [`<div class="att-item token">
     <span class="who">${esc(c.consumer)}</span>the model credential ${what}
-    <div class="dim">${esc(why)} — type <code>${esc(verb)}</code> to sign in from a browser</div></div>`];
+    <div class="dim">${esc(why)} — type <code>${esc(verb)}</code> to sign in from a browser</div>${last}</div>`];
 }
 
 function attentionList(o) {
   const items = [
     ...reauthCard(o.credentials?.reauth),
-    ...(o.credentials?.consumers ?? []).flatMap(credentialCard),
+    ...(o.credentials?.consumers ?? []).flatMap((c) => credentialCard(c, o.credentials?.reauth_ended)),
     ...(o.escalations ?? []).map(escCard),
     ...(o.review_gate ?? []).map(gateCard),
     ...(o.token_warnings ?? []).map(tokenCard),

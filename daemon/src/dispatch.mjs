@@ -2011,7 +2011,11 @@ export class Dispatcher {
       await this.announce(`✅ \`${provider}\` is authenticated again, and ${who}`)
       return outcome
     }
-    await this.announce(`⚠️ the \`${provider}\` re-authentication ended as **${outcome.state}**. Nothing was changed. Type \`reauth ${provider}\` to start another one.`)
+    // THE STATE WORD IS NOT THE SENTENCE (#721). `abandoned` read as an accusation
+    // for the one ending nobody could have prevented - the codex code running
+    // out - so the alarm says what happened in words, and the flow supplies them.
+    const why = outcome.why ? ` — ${outcome.why}` : ''
+    await this.announce(`⚠️ the \`${provider}\` re-authentication ended as **${outcome.state}**${why}. Nothing was changed. Type \`reauth ${provider}\` to start another one.`)
     return outcome
   }
 
@@ -2049,6 +2053,11 @@ export class Dispatcher {
           : unowned(consumer, ANTHROPIC_PROVIDER))),
       ],
       reauth: this.reauth?.state() ?? null,
+      // The sentence a login that ended leaves behind (#721). The live card is
+      // gone by the time the page next asks, and the credential card that
+      // already stands is where this lands - so an operator who was signing in
+      // is told why it stopped instead of finding the attempt simply absent.
+      reauth_ended: this.reauth?.ending ?? null,
     }
   }
 

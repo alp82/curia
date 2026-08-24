@@ -447,7 +447,26 @@ Waiting for you to sign in...
 `
 
   test('the link and the code come off the pane', () => {
-    assert.deepEqual(scrapeDeviceAuth(pane), { url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO' })
+    assert.deepEqual(scrapeDeviceAuth(pane), {
+      url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO', codeLifeMs: 15 * 60 * 1000,
+    })
+  })
+
+  // #721: the fifteen is READ, not assumed. It decides whether a vanished
+  // session is reported as a timeout or as an abandonment, and a number that
+  // lives only in prose is one OpenAI can change without curia noticing.
+  test('the code states its own lifetime, whatever the number is', () => {
+    const said = (n) => scrapeDeviceAuth(pane.replace('15 minutes', n)).codeLifeMs
+    assert.equal(said('20 minutes'), 20 * 60 * 1000)
+    assert.equal(said('1 minute'), 60 * 1000)
+  })
+
+  // The miss falls back to the lane's declared lifetime rather than to zero: a
+  // frame that says nothing must not make every ending look like a timeout.
+  test('a frame that does not state the lifetime states null', () => {
+    assert.equal(scrapeDeviceAuth(pane.replace('(expires in 15 minutes)', '')).codeLifeMs, null)
+    assert.equal(scrapeDeviceAuth('expires in 15 minutes, somewhere else entirely').codeLifeMs, null)
+    assert.equal(new DeviceLoginLane({ broker: null }).codeLifeMs, 15 * 60 * 1000)
   })
 
   // A card that shows four wrong characters sends the operator round the loop a
@@ -455,14 +474,15 @@ Waiting for you to sign in...
   // matched loosely. A pane with no code answers null, and the card degrades to
   // "open the terminal" — never to a dead end.
   test('a pane with no code yields no code, rather than something code-shaped', () => {
-    assert.deepEqual(scrapeDeviceAuth('GPT-5.6 is READY-TO-GO and the LANE-IS-OPEN'), { url: null, code: null })
-    assert.deepEqual(scrapeDeviceAuth(''), { url: null, code: null })
-    assert.deepEqual(scrapeDeviceAuth(null), { url: null, code: null })
+    const nothing = { url: null, code: null, codeLifeMs: null }
+    assert.deepEqual(scrapeDeviceAuth('GPT-5.6 is READY-TO-GO and the LANE-IS-OPEN'), nothing)
+    assert.deepEqual(scrapeDeviceAuth(''), nothing)
+    assert.deepEqual(scrapeDeviceAuth(null), nothing)
   })
 
   test('a half-drawn pane gives what it has, and null for the rest', () => {
     assert.deepEqual(scrapeDeviceAuth('open https://auth.openai.com/codex/device now'), {
-      url: 'https://auth.openai.com/codex/device', code: null,
+      url: 'https://auth.openai.com/codex/device', code: null, codeLifeMs: null,
     })
   })
 })
@@ -625,6 +645,84 @@ describe('the re-authentication flow (#642)', () => {
     sessions.delete('curia-auth-openai')
     assert.equal((await f.poll()).state, 'abandoned')
     assert.equal(events.at(-1)[0], 'reauth_abandoned')
+  })
+
+  // #721. Both endings present identically — the session is gone and no
+  // credential arrived — and the code's own clock is the only thing on the box
+  // that can tell them apart: codex logs neither ending, and the pane is gone
+  // before the next tick can read it. Measured in
+  // docs/live-checks/680-device-code-expiry.md; what is asserted here is the
+  // rule, not the ending, because the ending cost two containers and half an
+  // hour of wall clock.
+  test('a session that vanishes AFTER the code ran out timed out, and says so', async () => {
+    let now = 1_000_000_000_000
+    const events = []
+    const { f, sessions } = flow({ now: () => now, journal: (e, d) => events.push([e, d]) })
+    await f.start({ provider: 'openai' })
+    now += 15 * 60 * 1000
+    sessions.delete('curia-auth-openai')
+    const out = await f.poll()
+    assert.equal(out.state, 'expired')
+    assert.match(out.why, /one-time code ran out/)
+    assert.equal(events.at(-1)[0], 'reauth_code_expired')
+    assert.equal(events.at(-1)[1].code_life_s, 15 * 60)
+    // and the card can still say it once the live flow is cleared
+    f.clear()
+    assert.equal(f.state(), null)
+    assert.equal(f.ending.state, 'expired')
+    assert.equal(f.ending.provider, 'openai')
+  })
+
+  test('a session that vanishes BEFORE the code ran out was closed, and says that instead', async () => {
+    let now = 1_000_000_000_000
+    const events = []
+    const { f, sessions } = flow({ now: () => now, journal: (e, d) => events.push([e, d]) })
+    await f.start({ provider: 'openai' })
+    now += 15 * 60 * 1000 - 1
+    sessions.delete('curia-auth-openai')
+    const out = await f.poll()
+    assert.equal(out.state, 'abandoned')
+    assert.match(out.why, /closed before its code ran out/)
+    assert.equal(events.at(-1)[0], 'reauth_abandoned')
+  })
+
+  // The pane outranks the lane, because the pane is the login speaking for
+  // itself. A code codex says lives five minutes ends a vanished session at
+  // five, not at the fifteen the lane declares.
+  test('the lifetime the pane states is the one the ending is judged against', async () => {
+    let now = 1_000_000_000_000
+    const { f, sessions, calls } = flow({ now: () => now })
+    await f.start({ provider: 'openai' })
+    calls.pane = '2. Enter this one-time code (expires in 5 minutes)\n   83CC-A4ZTO\n'
+    await f.poll()
+    now += 5 * 60 * 1000
+    sessions.delete('curia-auth-openai')
+    assert.equal((await f.poll()).state, 'expired')
+  })
+
+  // A fresh login drops the last one's sentence, so the page never shows an
+  // ending beside a live attempt.
+  test('starting another login clears the ending the last one left', async () => {
+    const { f, sessions } = flow()
+    await f.start({ provider: 'openai' })
+    sessions.delete('curia-auth-openai')
+    await f.poll()
+    f.clear()
+    assert.equal(f.ending.state, 'abandoned')
+    await f.start({ provider: 'openai' })
+    assert.equal(f.ending, null)
+  })
+
+  // The window is the lane's, not the flow's (#721). Codex's fifteen always
+  // arrives first, so the thirty has only ever been the anthropic lane's — and
+  // a shared number one lane can never reach looks like a decision and is not.
+  test('each lane declares its own window and its own code lifetime', () => {
+    const codex = new DeviceLoginLane({ broker: null })
+    const anthropic = new SetupTokenLane({ store: null })
+    assert.equal(codex.windowMs, REAUTH_TIMEOUT_MS)
+    assert.equal(anthropic.windowMs, REAUTH_TIMEOUT_MS)
+    assert.equal(anthropic.codeLifeMs, null)
+    assert.equal(anthropic.scrape('anything').codeLifeMs, null)
   })
 
   // The evidence rule the whole daemon runs on: an indeterminate tmux is not
