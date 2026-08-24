@@ -144,6 +144,7 @@ export class Reduction {
     this.operatorStallLaunches = new Map() // ticket -> operator stall respawn interrupted during launch (#574)
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
     this.tokenWarnings = new Map() // credential key -> the last warning curia said about it (#380)
+    this.openLogins = new Map() // provider -> the re-authentication the journal has started and not ended (#671)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
     this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
@@ -684,6 +685,35 @@ export class Reduction {
         this.pendingTurns.delete(ev.key)
         break
       }
+      // ---- the login a restart can kill (#671) -----------------------------
+      //
+      // `ReauthFlow.flow` is process state, and the module keeps no file on
+      // purpose. So the one fact a restart cannot re-derive lives here, the way
+      // the killed overseer turn above does: one event when the login starts,
+      // one when it ends, and the boot reads what is left between them.
+      //
+      // WHAT IS KEPT IS THE CLOCK, and only the clock. The session name is the
+      // provider's own, the pane still holds the link and the code, and the
+      // credential is wherever the login left it — so `startedAt` is the only
+      // thing the dead process was holding that nothing else can restate.
+      //
+      // A LINE CURIA CANNOT CLOCK IS NOT AN OPEN LOGIN. Every event is stamped
+      // by `_append`, so an unreadable `ts` means a record nothing can put a
+      // deadline on, and inventing one would either kill a live login early or
+      // hand it a second window. It is stepped over instead.
+      case 'reauth_started': {
+        const startedAt = Date.parse(ev.ts ?? '')
+        if (!ev.provider || !Number.isFinite(startedAt)) break
+        this.openLogins.set(ev.provider, { provider: ev.provider, session: ev.session ?? null, startedAt })
+        break
+      }
+      case 'reauth_completed':
+      case 'reauth_timed_out':
+      case 'reauth_abandoned':
+      case 'reauth_failed': {
+        this.openLogins.delete(ev.provider)
+        break
+      }
     }
 
     // The seam crossings of the pending turn, counted off the COMMAND event the
@@ -938,6 +968,20 @@ export class Reduction {
   // includes turns that are merely running.
   pendingOverseerTurns() {
     return [...this.pendingTurns.values()].map((t) => ({ ...t, commands: [...t.commands] }))
+  }
+
+  // The re-authentication the journal has started and not ended, or null (#671).
+  //
+  // The OLDEST one, because it is the one nearest its deadline, and because the
+  // flow carries one login at a time. A second provider's login is not lost: it
+  // is still open here, and it resumes on the tick after the first one ends.
+  //
+  // Sorted rather than taken in insertion order. `Map.set` on a key that is
+  // already there keeps its original position, so a provider signing in for the
+  // second time would otherwise read as the older of the two.
+  openLogin() {
+    const open = [...this.openLogins.values()].sort((a, b) => a.startedAt - b.startedAt)
+    return open.length ? { ...open[0] } : null
   }
 
   // What a surface says about the last turn a restart killed on one

@@ -204,6 +204,10 @@ function makeDispatcher(deps = {}, {
     // #377, for the same reason: the cooling the dispatcher seeds itself from
     // at construction is the real reduction over the real journal.
     armedCoolings: () => journal.armedCoolings(),
+    // #671, for the same reason again: the login a restart interrupted is read
+    // back off the journal the flow wrote it to, and a double with its own copy
+    // would prove the resume against a record no daemon ever wrote.
+    openLogin: () => journal.openLogin(),
     // #485: the stranded-map alarm is the real reduction's, for the reason the
     // backup's is — it must stand across passes and across a deploy.
     standingStrandedMaps: () => journal.standingStrandedMaps(),
@@ -7252,5 +7256,52 @@ describe('signing the anthropic lane back in (#660)', () => {
     await assert.rejects(d.deps.sendText('curia-auth-anthropic', 'continue'), /re-authentication session/)
     await assert.rejects(d.deps.sendKey('curia-auth-anthropic', 'Enter'), /re-authentication session/)
     assert.deepEqual(writes, [], 'the operator types the code, and curia never does')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// #671: a restart does not end a login
+// ---------------------------------------------------------------------------
+//
+// `ReauthFlow.flow` is process state, so a daemon replaced mid-login used to
+// leave the operator a Credentials screen that drew nothing: no link, no code,
+// no countdown, and no fallback. The flow's own resume is unit-tested in
+// reauthresume.test.mjs. What these two pin is the WIRING — that the record the
+// flow journals is the record the next daemon reads, and that the panel is back
+// before the operator's next look rather than a tick later.
+describe('a restart does not end a login (#671)', () => {
+  const started = (d) => {
+    d.reduction.journal('reauth_started', { provider: 'anthropic', session: 'curia-auth-anthropic' })
+    return events.at(-1).ts
+  }
+
+  test('the poll takes back the login the journal is still holding open', async () => {
+    const d = makeDispatcher({ hasSession: async () => true })
+    d.announce = async () => true
+    d.reauth.capturePane = async () => ''
+    assert.equal(d.credentialsStatus().reauth, null, 'the panel a restart leaves blank')
+
+    const at = started(d)
+    await d.pollReauth()
+
+    const panel = d.credentialsStatus().reauth
+    assert.equal(panel.state, 'waiting')
+    assert.equal(panel.provider, 'anthropic')
+    assert.equal(panel.session, 'curia-auth-anthropic')
+    assert.equal(panel.started_at, at, 'the clock is the journal’s, not this process’s')
+  })
+
+  // The operator may be standing at a browser right now, so the first pass that
+  // CAN draw the panel is the one that does — the reason boot reconcile heals
+  // the GitHub and overseer credentials rather than waiting for the tick.
+  test('boot reconcile draws it, without waiting for the first tick', async () => {
+    const d = makeDispatcher({ hasSession: async () => true, listSessions: async () => [] })
+    d.announce = async () => true
+    d.reauth.capturePane = async () => ''
+    const at = started(d)
+
+    await d.reconcile({ boot: true })
+
+    assert.equal(d.credentialsStatus().reauth.started_at, at)
   })
 })

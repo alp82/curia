@@ -87,6 +87,16 @@ Session rules: the prefix is `curia-auth-`, one session per **provider** enforce
 
 The session is keyed by provider and not by consumer, which the codex lane's name said from the first commit while the code called it a consumer. [#660](https://github.com/alp82/curia/issues/660) made the word matter: one `anthropic` login serves the claude containers **and** the overseer, so there is no consumer to name.
 
+### A restart does not end a login
+
+The flow itself is process state, and it keeps no file, the same posture the credential hold takes. That left a daemon replaced mid-login with three faults at once ([#671](https://github.com/alp82/curia/issues/671)): a Credentials screen drawing no panel, a finished credential nobody adopted, and a session no sweep may walk, holding a window whose clock died with the process.
+
+**The journal carries what a restart cannot re-derive**, the way [ADR-0015](0015-the-overseer-is-a-service.md) carries the overseer turn a restart kills: one `reauth_started` line, one terminal line, and the boot reads what is left between them. The next daemon re-adopts the login on its first poll, and boot reconcile runs that poll rather than leaving the panel blank for a tick.
+
+**Only the clock comes back.** The session is named by its provider, the pane still holds the link and the code and is scraped again on the same tick, and the credential is wherever the login left it. So `startedAt` is the one fact the dead process was holding that nothing else can restate, and keeping it honest is what stops a login outliving its window twice over. A record curia cannot date is not resumed, and a session the journal never saw is still adopted, on a fresh window.
+
+Nothing about the outcome is decided by the resume. The ordinary poll finishes it: adopted when the operator completed the login in the browser while curia was down, timed out when the window is spent, abandoned when the pane is gone. The session is the liveness and the record is not, so an open record whose session is gone never answers "already running" to an operator asking for a login.
+
 ### Completion is per lane, and only one lane has a file
 
 This ADR originally stated one completion rule — the credential file appearing in the scratch config dir. That rule is **codex's**, not the mechanism's. [#659](https://github.com/alp82/curia/issues/659) measured that `claude setup-token` writes no credential file at all: it prints the token once, into a redrawing Ink TUI on stdout, and saves nothing. So the anthropic lane has nothing to detect by that rule, and its completion signal is **the token appearing in the pane**.

@@ -696,7 +696,8 @@ export const REAUTH_STATES = Object.freeze(['starting', 'waiting', 'done', 'time
 // broker is: the daemon may be replaced at any moment, and a flow that lived in
 // a promise would vanish with it. What survives a restart is the tmux session
 // and whatever the login leaves behind, both of which the lane re-reads from
-// scratch.
+// scratch — plus one line in the journal saying when the login began, which is
+// the only thing neither of them can restate (#671).
 //
 // KEYED BY PROVIDER, NOT BY CONSUMER (#660), and the rename is a correction
 // rather than a tidy-up. `curia-auth-openai` was provider-keyed from the first
@@ -714,6 +715,7 @@ export class ReauthFlow {
   constructor({
     lanes = {}, image, agentUid, cfgDirFor, docker = 'docker',
     newSession, capturePane, killSession, hasSession, stopContainer,
+    openLogin = () => null,
     now = Date.now, log = () => {}, journal = () => {},
   }) {
     this.lanes = lanes
@@ -731,6 +733,10 @@ export class ReauthFlow {
     this.killSession = killSession
     this.hasSession = hasSession
     this.stopContainer = stopContainer
+    // What a restart cannot re-derive, read back off the journal (#671). It is
+    // injected the way `now` and `hasSession` are, so this class still holds no
+    // reduction and no file — it asks one question and gets one record.
+    this.openLogin = openLogin
     this.now = now
     this.log = log
     this.journal = journal
@@ -795,11 +801,21 @@ export class ReauthFlow {
     const session = authSessionName(provider)
     if (this.flow && this.flow.state === 'waiting') return { started: false, session, why: 'a re-authentication is already running for this provider' }
     if (await this.hasSession(session)) {
-      // A session with no flow record is one a previous daemon process started.
-      // Adopt the record rather than killing the operator's half-finished login.
-      if (!this.flow) this.#track(provider, session)
+      // A session with no flow is one a previous daemon process started. Adopt
+      // it rather than killing the operator's half-finished login, and take its
+      // clock off the journal where there is one (#671) — the tick has usually
+      // resumed it already, and an operator typing `reauth` in the first minute
+      // after a restart is what makes it worth asking here too.
+      //
+      // A session the journal never saw still gets adopted, on a fresh window.
+      // A deadline nothing can date is worse than a generous one.
+      if (!this.flow && !this.#resume(provider)) this.#track(provider, session)
       return { started: false, session, why: 'a re-authentication session is already open — attach to it' }
     }
+    // THE SESSION IS THE LIVENESS, NOT THE RECORD, and the order above is what
+    // says so. An open journal record whose session is gone must not answer
+    // "already running" to an operator asking for a login: nothing is running,
+    // and the `reauth_started` this start writes replaces the stale record.
     const cfgDir = this.cfgDirFor(session)
     fs.mkdirSync(cfgDir, { recursive: true })
     lane.prepare(cfgDir)
@@ -813,7 +829,7 @@ export class ReauthFlow {
     return { started: true, session }
   }
 
-  #track(provider, session) {
+  #track(provider, session, startedAt = this.now()) {
     this.flow = {
       provider,
       session,
@@ -823,9 +839,42 @@ export class ReauthFlow {
       code: null,
       codeSeen: false,
       typed: Boolean(this.laneFor(provider)?.typed),
-      startedAt: this.now(),
-      deadline: this.now() + REAUTH_TIMEOUT_MS,
+      startedAt,
+      deadline: startedAt + REAUTH_TIMEOUT_MS,
     }
+  }
+
+  // Take back a login a previous daemon process started (#671).
+  //
+  // The flow is process state and the module keeps no file, which is the same
+  // posture the credential hold takes. What a restart cannot re-derive lives in
+  // the journal instead — one `reauth_started` line, one terminal line, and the
+  // boot reads what is left between them, the way ADR-0015 reads an overseer
+  // turn a restart killed.
+  //
+  // ONLY THE CLOCK COMES BACK. The session is named by its provider, the pane
+  // still holds the link and the code and is scraped again on this same tick,
+  // and the credential is wherever the login left it. The deadline is the one
+  // fact the dead process was holding that nothing else can restate, and
+  // keeping it honest is what stops a login outliving its window twice over.
+  //
+  // NOTHING IS DECIDED HERE and nothing is announced. The record is tracked,
+  // and the ordinary poll below finishes it: adopted when the operator
+  // completed the login in the browser while curia was down, timed out when the
+  // window is spent, abandoned when the pane is gone. Repeating that ordering
+  // here is how the two copies would come to disagree.
+  #resume(provider = null) {
+    if (this.flow) return null
+    const record = this.openLogin()
+    if (!record || !this.laneFor(record.provider)) return null
+    // `start` names the provider it is being asked for, and another provider's
+    // open login is not an answer to that question. The poll names nothing and
+    // takes whichever record the journal hands it.
+    if (provider && record.provider !== provider) return null
+    const session = authSessionName(record.provider)
+    this.#track(record.provider, session, record.startedAt)
+    this.log(`re-adopted the ${record.provider} re-authentication that began ${new Date(record.startedAt).toISOString()} — the session is ${session}`)
+    return this.flow
   }
 
   // One poll, from the dispatch tick. Never throws — an unreadable pane proves
@@ -836,6 +885,9 @@ export class ReauthFlow {
   // than torn down; and the pane is scraped before either, so the card is
   // populated even on the tick that finishes the flow.
   async poll() {
+    // A restart is not an ending (#671). Before this asks whether there is a
+    // login to poll, it asks the journal whether a previous process left one.
+    this.#resume()
     if (!this.flow || this.flow.state !== 'waiting') return null
     const pane = await this.#scrape()
     const adopted = await this.#adoptIfComplete(pane)
