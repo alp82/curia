@@ -612,7 +612,22 @@ export const isAuthSession = (name) => AUTH_SESSION_RE.test(String(name ?? ''))
 // Thirty minutes, comfortably past the device code's own fifteen. The margin is
 // for the operator, not the code: a phone that locks, a browser that asks for a
 // second factor, a person who walks away mid-login and comes back.
+//
+// IT IS THE DEFAULT AND NOT THE RULE (#721). Each lane declares its own window,
+// because a shared number one lane can never reach looks like a decision and is
+// not: the codex login exits on its own at fifteen minutes and takes its session
+// with it, so this window has only ever fired on the anthropic lane. Declaring
+// it twice is what turns "never reached" from an accident into a statement.
 export const REAUTH_TIMEOUT_MS = 30 * 60 * 1000
+
+// How long the codex one-time code lives, when the pane does not say.
+//
+// Measured on the box (docs/live-checks/680-device-code-expiry.md): the login
+// exits at fifteen minutes with `device auth timed out after 15 minutes`. The
+// number is read off the pane where it can be (`DEVICE_CODE_LIFE_RE` below), and
+// this is the fallback for a frame that never showed it - so if OpenAI changes
+// the lifetime, curia follows it rather than going quietly wrong.
+export const DEVICE_CODE_LIFE_MS = 15 * 60 * 1000
 
 // What the card reads off the pane.
 //
@@ -625,11 +640,23 @@ export const REAUTH_TIMEOUT_MS = 30 * 60 * 1000
 export const DEVICE_URL_RE = /https:\/\/auth\.openai\.com\/codex\/device[^\s]*/
 export const DEVICE_CODE_RE = /one-time code[^\n]*\n\s*([A-Z0-9]{4}-[A-Z0-9]{4,8})/
 
+// THE CODE'S OWN CLOCK, off the line the code pattern already anchors on (#721):
+//
+//     2. Enter this one-time code (expires in 15 minutes)
+//
+// Read rather than assumed, because that fifteen decides which sentence curia
+// tells the operator about a login that ended, and a number living only in prose
+// is one upstream can change without anybody noticing. A frame that does not
+// state it reads `null`, and the lane's declared lifetime stands in.
+export const DEVICE_CODE_LIFE_RE = /one-time code[^\n]*?expires in (\d+) minutes?/
+
 export function scrapeDeviceAuth(pane) {
   const text = String(pane ?? '')
+  const minutes = Number(text.match(DEVICE_CODE_LIFE_RE)?.[1])
   return {
     url: text.match(DEVICE_URL_RE)?.[0] ?? null,
     code: text.match(DEVICE_CODE_RE)?.[1] ?? null,
+    codeLifeMs: Number.isFinite(minutes) && minutes > 0 ? minutes * 60 * 1000 : null,
   }
 }
 
@@ -688,7 +715,26 @@ export function setupTokenRunCmd(opts) {
 
 // The states a flow reports. `waiting` is the long one — the operator has the
 // link and the code and curia has nothing to do but watch the file appear.
-export const REAUTH_STATES = Object.freeze(['starting', 'waiting', 'done', 'timeout', 'abandoned', 'failed'])
+//
+// `expired` AND `abandoned` ARE TWO ENDINGS, not one (#721). Both present the
+// same way - the session is gone and no credential arrived - and until the code
+// carried a clock, curia said `abandoned` to both. That word blames the operator
+// for closing a window, and on the codex lane the ordinary ending is the
+// opposite: the login exits by itself when its code runs out, and the operator
+// never had a window to close. The code's own lifetime is the only thing on the
+// box that can tell the two apart, because codex logs neither ending and the
+// pane is gone before the next tick can read it.
+export const REAUTH_STATES = Object.freeze(['starting', 'waiting', 'done', 'timeout', 'expired', 'abandoned', 'failed'])
+
+// What each ending means, in the operator's words. One sentence per state,
+// written once: the dashboard card, the Discord alarm and the journal detail all
+// say the same thing, so a login that ended does not get three accounts of why.
+export const REAUTH_ENDING_WHY = Object.freeze({
+  timeout: 'nobody finished it before curia stopped waiting',
+  expired: 'the one-time code ran out before anybody finished the login',
+  abandoned: 'the login session closed before its code ran out',
+  failed: 'the login produced a credential curia refused',
+})
 
 // One re-authentication, from `start` to a credential on disk.
 //
@@ -777,6 +823,18 @@ export class ReauthFlow {
     }
   }
 
+  // The last login that ended without a credential, kept after `clear()` has
+  // taken the live card away (#721).
+  //
+  // WHY THIS OUTLIVES THE FLOW. The credential card that sent the operator here
+  // still stands and still says to sign in, so nobody is stranded - but a login
+  // that vanished mid-attempt without a sentence is the same class of bug as the
+  // credential that vanished without one. This is the sentence, and the card
+  // that already stands is where it lands. It is dropped the moment another
+  // login for that provider starts or completes, so the page never shows a
+  // stale ending beside a live attempt.
+  ending = null
+
   // The lane for one provider, or a refusal naming what this daemon can sign in.
   laneFor(provider) {
     return this.lanes[provider] ?? null
@@ -823,6 +881,7 @@ export class ReauthFlow {
       name: session, image: this.image, cfgDir, agentUid: this.agentUid, docker: this.docker,
     })
     await this.newSession({ name: session, cwd: cfgDir, shellCmd })
+    if (this.ending?.provider === provider) this.ending = null
     this.#track(provider, session)
     this.journal('reauth_started', { provider, session })
     this.log(`re-authentication started for ${provider} in tmux session ${session}`)
@@ -830,6 +889,7 @@ export class ReauthFlow {
   }
 
   #track(provider, session, startedAt = this.now()) {
+    const lane = this.laneFor(provider)
     this.flow = {
       provider,
       session,
@@ -838,9 +898,15 @@ export class ReauthFlow {
       url: null,
       code: null,
       codeSeen: false,
-      typed: Boolean(this.laneFor(provider)?.typed),
+      typed: Boolean(lane?.typed),
       startedAt,
-      deadline: startedAt + REAUTH_TIMEOUT_MS,
+      // BOTH CLOCKS COME OFF THE LANE (#721), and they are different clocks.
+      // The window is curia's patience; the code's lifetime is the login's own,
+      // and only the second one can say whether a vanished session timed out or
+      // was closed. A lane with no code of its own states `null` and its
+      // vanishings all read as abandonment, which is the truth there.
+      deadline: startedAt + (Number.isFinite(lane?.windowMs) ? lane.windowMs : REAUTH_TIMEOUT_MS),
+      codeLifeMs: Number.isFinite(lane?.codeLifeMs) ? lane.codeLifeMs : null,
     }
   }
 
@@ -903,8 +969,26 @@ export class ReauthFlow {
     } catch {
       return null // indeterminate tmux is not absence, here as everywhere
     }
-    if (!present) return this.#end('abandoned', 'reauth_abandoned')
+    if (!present) return this.#endVanished()
     return null
+  }
+
+  // The session is gone and no credential arrived. Which of the two endings is
+  // that?
+  //
+  // THE CODE'S AGE DECIDES, and it is counted from `startedAt` (#721). That
+  // instant is a few seconds before codex printed the code, so it makes the code
+  // look slightly older than it is - which fails toward calling an abandonment a
+  // timeout, and that is the harmless direction. The other candidate, the
+  // `reauth_code_seen` instant, is a tick late and fails toward calling a
+  // timeout an abandonment: the exact sentence this exists to stop curia saying.
+  // `startedAt` also survives a restart already, because #671 restores it.
+  #endVanished() {
+    const life = this.flow.codeLifeMs
+    if (Number.isFinite(life) && this.now() - this.flow.startedAt >= life) {
+      return this.#end('expired', 'reauth_code_expired', { code_life_s: Math.round(life / 1000) })
+    }
+    return this.#end('abandoned', 'reauth_abandoned')
   }
 
   // Returns the pane text so the completion check reads the SAME capture the
@@ -919,9 +1003,12 @@ export class ReauthFlow {
     } catch {
       return null
     }
-    const { url, code } = this.laneFor(this.flow.provider).scrape(pane)
+    const { url, code, codeLifeMs } = this.laneFor(this.flow.provider).scrape(pane)
     if (url) this.flow.url = url
     if (code) this.flow.code = code
+    // The pane outranks the lane's declared number, because the pane is the
+    // login speaking for itself. A frame that says nothing changes nothing.
+    if (Number.isFinite(codeLifeMs)) this.flow.codeLifeMs = codeLifeMs
     // Journalled ONCE and WITHOUT the code, so the record says the operator had
     // something to act on without becoming a place the code is written down.
     if (code && !this.flow.codeSeen) {
@@ -976,9 +1063,17 @@ export class ReauthFlow {
   #end(state, event, extra = {}) {
     const flow = this.flow
     flow.state = state
+    const why = REAUTH_ENDING_WHY[state] ?? null
     const detail = { provider: flow.provider, session: flow.session, after_s: Math.round((this.now() - flow.startedAt) / 1000), ...extra }
+    if (why && !detail.why) detail.why = why
     this.journal(event, detail)
-    if (state !== 'done') this.log(`re-authentication for ${flow.provider} ended as ${state} after ${detail.after_s}s`)
+    // The ending the surfaces read. Only a login that produced no credential
+    // leaves one: `done` is announced on its own tick and has nothing left to
+    // explain, and a stale success beside the next attempt would be noise.
+    this.ending = state === 'done'
+      ? null
+      : { provider: flow.provider, state, why, ended_at: new Date(this.now()).toISOString(), after_s: detail.after_s }
+    if (state !== 'done') this.log(`re-authentication for ${flow.provider} ended as ${state} after ${detail.after_s}s — ${why ?? 'no reason recorded'}`)
     // Detached, and in that order: the session first, then the container the
     // session's client may already have taken with it. Neither failure may
     // reach the caller — the outcome is already decided and journalled, and a
@@ -1000,7 +1095,7 @@ export class ReauthFlow {
     } catch (e) {
       this.log(`could not remove the re-authentication scratch dir ${flow.cfgDir} (${e.message})`)
     }
-    return { provider: flow.provider, state, ...extra }
+    return { provider: flow.provider, state, why, ...extra }
   }
 
   // Drop a finished flow so the surfaces stop drawing it. The dispatcher calls
@@ -1544,6 +1639,15 @@ export class DeviceLoginLane {
   // made this shape win for a phone.
   typed = false
 
+  // THIS LANE ENDS ON THE CODE'S CLOCK, NOT ON CURIA'S (#721). The login exits
+  // by itself at fifteen minutes and takes its tmux session with it, so the
+  // window below is a backstop that has never fired here - it is stated anyway,
+  // because a session that outlived its own code is exactly the case nothing
+  // else would end.
+  codeLifeMs = DEVICE_CODE_LIFE_MS
+
+  windowMs = REAUTH_TIMEOUT_MS
+
   constructor({ broker }) {
     this.broker = broker
   }
@@ -1588,6 +1692,15 @@ export class SetupTokenLane {
   // writable ttyd terminal is where it happens.
   typed = true
 
+  // NO CODE WITH A LIFE OF ITS OWN, and `null` is the statement rather than the
+  // gap (#721). The authorize URL's own expiry has never been measured, so this
+  // lane claims nothing about it and every vanished session here reads as an
+  // abandonment. The thirty-minute window is the only clock on this lane, and it
+  // is the only lane it has ever fired on.
+  codeLifeMs = null
+
+  windowMs = REAUTH_TIMEOUT_MS
+
   constructor({ store, check = checkAnthropicToken }) {
     this.store = store
     this.check = check
@@ -1613,7 +1726,7 @@ export class SetupTokenLane {
   // No code to show. The codex lane reads one OUT of the pane for the operator;
   // here the operator puts one IN, so the card carries the link alone and says
   // nothing it would have to invent.
-  scrape(pane) { return { url: scrapeAuthorizeUrl(pane), code: null } }
+  scrape(pane) { return { url: scrapeAuthorizeUrl(pane), code: null, codeLifeMs: null } }
 
   // THE PANE IS THE CREDENTIAL CHANNEL, which is what the whole slice turns on.
   //

@@ -319,6 +319,39 @@ describe('the read screens (#264)', () => {
       assert.ok(!/credential is expiring/.test(t), 'the state word would be true about the token and false about the lane')
     })
 
+    // #721: a login that disappeared without a sentence is the same class of bug
+    // as the credential that disappeared without one. The card that already
+    // stands is where the sentence lands, so the operator who pressed the button
+    // is told why the attempt is gone rather than finding it simply absent.
+    test('the card says why the last login ended, and only for its own provider', () => {
+      const ended = {
+        provider: 'openai', state: 'expired', after_s: 900, ended_at: '2026-08-24T10:15:00Z',
+        why: 'the one-time code ran out before anybody finished the login',
+      }
+      const row = (consumer, provider) => ({
+        consumer, provider, state: 'expired', expires_at: null, last_error: 'the access token expired',
+      })
+      const t = text(page.screenHome(payload({
+        credentials: { consumers: [row('codex', 'openai'), row('claude', 'anthropic')], reauth: null, reauth_ended: ended },
+      })))
+      assert.match(t, /the last login ended at .*the one-time code ran out before anybody finished the login/)
+      assert.equal(t.match(/the last login ended/g).length, 1, 'the anthropic row is not told about an openai login')
+      // and the way back is still on the card the sentence joined
+      assert.match(t, /reauth openai/)
+    })
+
+    // Nothing to say is said as nothing. A page with no ended login draws the
+    // ordinary card, unchanged.
+    test('a card with no ended login behind it gains no line', () => {
+      const t = text(page.screenHome(payload({
+        credentials: {
+          consumers: [{ consumer: 'codex', provider: 'openai', state: 'expired', expires_at: null, last_error: 'the access token expired' }],
+          reauth: null, reauth_ended: null,
+        },
+      })))
+      assert.ok(!/the last login ended/.test(t))
+    })
+
     test('a credential warning IS counted, because an operator act is what ends it', () => {
       // The rule that separates it from a spent window, which the count skips:
       // a window rolls on its own clock, and a token nobody mints stays dead.

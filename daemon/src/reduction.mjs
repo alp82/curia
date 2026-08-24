@@ -709,6 +709,10 @@ export class Reduction {
       }
       case 'reauth_completed':
       case 'reauth_timed_out':
+      // A code that ran out is an ending like any other here (#721). What it is
+      // NOT is an abandonment, and the two events are separate so the journal
+      // can say which one happened months later.
+      case 'reauth_code_expired':
       case 'reauth_abandoned':
       case 'reauth_failed': {
         this.openLogins.delete(ev.provider)
