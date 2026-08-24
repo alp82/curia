@@ -711,12 +711,34 @@
      of the pair differently. The layouts are at the foot of this
      stylesheet.
      ================================================================ */
-  #preview .shot > * { max-width: 42rem; }
+  /* The scene is ONE composition canvas, not a stack of centred
+     blocks. Round 2 kept the claim in a centred .wrap while the
+     devices leaned left inside a .shot, and at desktop width that
+     put the title in the middle with the screens jammed against the
+     left edge. The claim, both devices, the switcher and the fact
+     line are grid items of this canvas now, and every variation
+     places all five of them, at both widths. */
   .pv {
     --pvw: min(74vw, 15.5rem);
     --dwell: 3s;
-    width: 100%; display: flex; flex-direction: column; align-items: center; gap: 1.15rem;
+    position: relative; width: 100%; max-width: 96rem; margin: 0 auto;
+    padding: 0 clamp(1.1rem, 5vw, 4.5rem);
+    display: grid; row-gap: 1.1rem; align-content: start;
   }
+  .pv > .claim { margin: 0; }
+  .pv > .fact { margin: 0; }
+  /* The identity saturates the evidence with the scroll value. The
+     .shot that used to carry that filter is gone from this scene, so
+     the devices carry it themselves. */
+  #preview .pv-dev, #preview .pv-desk { filter: saturate(calc(0.6 + 0.4 * var(--p, 1))); }
+  /* The devices come in with opacity alone. A reveal transform would
+     fight the transform a composition puts on them. */
+  #preview .pv-dev, #preview .pv-desk { opacity: 0; transition: opacity 0.5s var(--ease); }
+  #preview.seen .pv-dev { opacity: 1; }
+  /* A composition that wants the workstation held back says so with
+     --deskop rather than with an opacity the reveal would fight. */
+  #preview.seen .pv-desk { opacity: var(--deskop, 1); }
+  .js #preview .kick, .js #preview .bold { text-wrap: balance; }
 
   /* ---- the device. A titanium rail, a black bezel, the island, the
      status bar, the home indicator and one specular pass. Nothing
@@ -945,69 +967,214 @@
   }
 
   /* ================================================================
-     Round 2 — the operator picked pair, and asked for five distinct
-     LAYOUTS of its three elements: the phone, the workstation and the
-     round switcher. Each one places all three differently.
+     Round 3 — the operator rejected all five layouts of round 2:
+     "they all look bad. title is always in the middle. screens are
+     always left aligned which is a weird combo. make the 5 next
+     variations vastly distinct and get more creative in display,
+     style and layout." Their screenshot showed the fault: at desktop
+     width the claim floated in a centred column while both devices
+     sat against the left edge, with a screen of dead space beside
+     them.
 
-       1 corner   the phone hangs off the window's bottom-left corner
-       2 desk     both devices on one baseline, switcher centred under
-       3 overlap  the phone stands in front of a turned window
-       4 split    the window bleeds off the edge, the switcher a spine
-       5 stack    switcher on top, window, then the phone under it
+     So a variation is now a whole composition, and the title is part
+     of it, the way the opening arc plays with its claims (#625).
+     Each one is written twice: for a phone, and for a wide screen.
+
+       1 bleed   the phone runs off the edge, the claim holds the rest
+       2 desk    the workstation lies back in perspective
+       3 field   a bright field that repaints as the round turns
+       4 strip   the whole round as five devices on a filmstrip
+       5 stage   one spotlight, one phone, the workstation lying flat
      ================================================================ */
 
-  /* 1 corner. The markup puts the phone first, so every layout says
-     where each element goes rather than take the order it is given.
-     Nothing here is taken out of the flow, so the pair cannot overrun
-     the words under it at any width. */
-  #preview[data-v="1"] .pv { display: flex; flex-direction: column; align-items: flex-start; gap: 0; }
-  #preview[data-v="1"] .pv-desk { order: 1; width: 84%; align-self: flex-end; }
-  #preview[data-v="1"] .pv-dev { order: 2; --pvw: min(38vw, 10rem); margin: -22% 0 0 3%; }
-  #preview[data-v="1"] .pv-rail { order: 3; align-self: flex-end; margin-top: 1rem; }
+  /* ---- 1 bleed. Scale is the whole idea: the phone is enormous and
+     the edge of the page cuts it, so the screen reads as a thing in
+     the room rather than a picture of one. ---- */
+  #preview[data-v="1"] .pv {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "rail" "dev" "fact";
+    padding-right: 0;
+  }
+  #preview[data-v="1"] .claim { grid-area: claim; text-align: left; max-width: 20ch; }
+  #preview[data-v="1"] .pv-rail { grid-area: rail; justify-self: start; }
+  #preview[data-v="1"] .fact { grid-area: fact; text-align: left; padding-right: clamp(1.1rem, 5vw, 4.5rem); }
+  #preview[data-v="1"] .pv-dev {
+    grid-area: dev; --pvw: min(86vw, 21rem); justify-self: end; margin-right: -14vw;
+  }
+  #preview[data-v="1"] .pv-desk {
+    grid-area: dev; width: 62%; align-self: end; justify-self: start;
+    margin: 0 0 6% clamp(1.1rem, 5vw, 4.5rem); z-index: 3;
+  }
+  @media (min-width: 60rem) {
+    #preview[data-v="1"] .pv {
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      grid-template-areas: "claim dev" "rail dev" "fact dev";
+      align-content: center; column-gap: 3vw; row-gap: 1.4rem;
+    }
+    #preview[data-v="1"] .claim { align-self: end; max-width: 16ch; }
+    /* The cap in svh keeps the device inside the screen it is shown
+       on: at 9 by 19.5, a width of 36svh is 78svh tall. */
+    #preview[data-v="1"] .pv-dev { --pvw: min(30vw, 22rem, 36svh); align-self: center; margin-right: -9vw; }
+    #preview[data-v="1"] .pv-desk { width: 52%; margin-bottom: 10%; margin-left: 0; }
+  }
 
-  /* 2 desk. Both devices stand on one baseline, the way they stand on
-     a desk, and the round runs under the pair of them. */
+  /* ---- 2 desk. The workstation lies back on the desk in
+     perspective and the phone stands in front of it, which is what
+     the two of them look like when you are working. ---- */
   #preview[data-v="2"] .pv {
-    display: grid; grid-template-columns: 1fr auto;
-    grid-template-areas: "win phone" "rail rail";
-    align-items: end; column-gap: 4%; row-gap: 1.1rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "dev" "rail" "fact";
+    perspective: 1400px;
   }
-  #preview[data-v="2"] .pv-desk { grid-area: win; width: 100%; }
-  #preview[data-v="2"] .pv-dev { grid-area: phone; --pvw: min(30vw, 8rem); }
-  #preview[data-v="2"] .pv-rail { grid-area: rail; justify-self: center; }
+  #preview[data-v="2"] .claim { grid-area: claim; text-align: left; }
+  #preview[data-v="2"] .pv-rail { grid-area: rail; justify-self: end; }
+  #preview[data-v="2"] .fact { grid-area: fact; text-align: right; }
+  #preview[data-v="2"] .pv-desk {
+    grid-area: dev; width: 100%; align-self: center;
+    transform: rotateX(17deg) rotateY(-11deg) rotate(1.2deg);
+    transform-origin: 60% 100%;
+    box-shadow: 0 3rem 4rem -1.5rem rgba(0, 0, 0, 0.8);
+  }
+  #preview[data-v="2"] .pv-dev {
+    grid-area: dev; --pvw: min(40vw, 11rem); justify-self: start; align-self: end;
+    margin: 0 0 -6% 4%; z-index: 3; transform: rotate(-2.5deg);
+  }
+  @media (min-width: 60rem) {
+    #preview[data-v="2"] .pv {
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+      grid-template-areas: "claim dev" "rail dev" "fact dev";
+      align-content: center; column-gap: 3vw;
+    }
+    #preview[data-v="2"] .claim { align-self: end; max-width: 15ch; }
+    #preview[data-v="2"] .pv-rail { justify-self: start; }
+    #preview[data-v="2"] .fact { text-align: left; }
+    #preview[data-v="2"] .pv-dev { --pvw: min(15vw, 13rem); margin-bottom: -4%; }
+  }
 
-  /* 3 overlap. One preview, two devices, and the phone is plainly in
-     front: it stands over a window turned a little off square. */
+  /* ---- 3 field. The section keeps a bright field of its own, and
+     that field takes the colour of whichever design is showing. The
+     round repaints the page every three seconds, which is the point
+     the scene is making. ---- */
   #preview[data-v="3"] .pv {
-    display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 0.7rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "dev" "rail" "fact";
+    row-gap: 1.3rem;
   }
-  #preview[data-v="3"] .pv-rail { grid-column: 1; grid-row: 1; flex-direction: column; }
-  #preview[data-v="3"] .pv-desk { grid-column: 2; grid-row: 1; width: 100%; transform: rotate(-2.5deg); }
+  #preview[data-v="3"] .pv::before {
+    content: ''; position: absolute; z-index: 0; grid-area: dev;
+    top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
+    background: var(--pvbg, #fff); transition: background 0.45s var(--ease);
+  }
+  /* The words keep their own ground over any field or glow: the
+     identity never dims them (#624 rule 5). */
+  #preview[data-v="3"] .claim, #preview[data-v="3"] .pv-rail, #preview[data-v="3"] .fact,
+  #preview[data-v="5"] .claim, #preview[data-v="5"] .pv-rail, #preview[data-v="5"] .fact {
+    position: relative; z-index: 4;
+  }
+  #preview[data-v="3"] .claim { grid-area: claim; text-align: left; }
   #preview[data-v="3"] .pv-dev {
-    grid-column: 2; grid-row: 1; justify-self: center; z-index: 3;
-    --pvw: min(42vw, 11rem);
+    grid-area: dev; --pvw: min(56vw, 14rem); justify-self: center; z-index: 2;
+    margin: 2.2rem 0;
+  }
+  #preview[data-v="3"] .pv-desk {
+    grid-area: dev; width: 46%; justify-self: end; align-self: center; z-index: 1;
+    margin-right: -18%;
+  }
+  #preview[data-v="3"] .pv-rail { grid-area: rail; justify-self: center; }
+  #preview[data-v="3"] .fact { grid-area: fact; text-align: center; }
+  @media (min-width: 60rem) {
+    #preview[data-v="3"] .pv {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      grid-template-areas: "claim dev" "rail dev" "fact dev";
+      align-content: center; column-gap: 3vw;
+    }
+    #preview[data-v="3"] .pv::before {
+      left: 0; right: -50vw; width: auto; transform: none; top: -2.5rem; bottom: -2.5rem;
+    }
+    #preview[data-v="3"] .claim { align-self: end; max-width: 15ch; }
+    #preview[data-v="3"] .pv-rail { justify-self: start; }
+    #preview[data-v="3"] .fact { text-align: left; }
+    #preview[data-v="3"] .pv-dev { --pvw: min(20vw, 16rem); margin: 3rem 0; }
+    #preview[data-v="3"] .pv-desk { width: 40%; margin-right: -12%; }
   }
 
-  /* 4 split. The window runs off the left edge of the page, so the
-     workstation reads as the bigger surface, and the switcher is the
-     spine between the two devices. */
+  /* ---- 4 strip. A round is five screens, so the scene shows five
+     screens. The script clones the device once per design and the
+     strip slides, which makes the switcher the thing you watch. ---- */
   #preview[data-v="4"] .pv {
-    display: grid; grid-template-columns: 1fr auto auto; align-items: center; column-gap: 0.7rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "strip" "rail" "fact";
+    padding-left: 0; padding-right: 0;
   }
+  #preview[data-v="4"] .claim,
+  #preview[data-v="4"] .pv-rail,
+  #preview[data-v="4"] .fact { padding: 0 clamp(1.1rem, 5vw, 4.5rem); }
+  #preview[data-v="4"] .claim { grid-area: claim; text-align: left; }
+  #preview[data-v="4"] .pv-rail { grid-area: rail; justify-self: start; }
+  #preview[data-v="4"] .fact { grid-area: fact; text-align: left; }
+  /* Without the script there is no strip, so the one device in the
+     markup stands in the strip's place rather than falling out of the
+     composition. */
+  #preview[data-v="4"] .pv-dev { grid-area: strip; justify-self: center; }
+  #preview[data-v="4"] .pv-strip {
+    grid-area: strip; position: relative; z-index: 2; display: flex; align-items: center;
+    gap: 6vw; width: max-content; margin-top: 1rem;
+    transform: translateX(var(--slide, 0px));
+    transition: transform 0.6s var(--ease);
+  }
+  #preview[data-v="4"] .pv-strip .pv-dev {
+    --pvw: min(46vw, 13rem); flex: none; opacity: 0.34;
+    transform: scale(0.82); transform-origin: 50% 50%;
+    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
+  }
+  #preview[data-v="4"] .pv-strip .pv-dev.lead { opacity: 1; transform: none; }
   #preview[data-v="4"] .pv-desk {
-    grid-column: 1; grid-row: 1; width: calc(100% + 2.5rem); margin-left: -2.5rem;
+    grid-area: strip; width: 76%; justify-self: center; align-self: center;
+    --deskop: 0.22; z-index: 1; filter: saturate(0.5);
   }
-  #preview[data-v="4"] .pv-rail { grid-column: 2; grid-row: 1; flex-direction: column; }
-  #preview[data-v="4"] .pv-dev { grid-column: 3; grid-row: 1; --pvw: min(34vw, 9rem); }
+  @media (min-width: 60rem) {
+    #preview[data-v="4"] .pv { row-gap: 1.4rem; }
+    /* Without the script there is no strip, so the one device in the
+     markup stands in the strip's place rather than falling out of the
+     composition. */
+  #preview[data-v="4"] .pv-dev { grid-area: strip; justify-self: center; }
+  #preview[data-v="4"] .pv-strip { gap: 3vw; }
+    #preview[data-v="4"] .pv-strip .pv-dev { --pvw: min(15vw, 14rem); }
+    #preview[data-v="4"] .pv-desk { width: 44%; }
+  }
 
-  /* 5 stack. A column for a reader holding a phone: the round on top,
-     the workstation, then the phone leaning into it. */
+  /* ---- 5 stage. One hard light, one phone, and the workstation
+     lying flat behind it. The screen is the only colour in the
+     scene, and its own key colour spills onto the dark. ---- */
   #preview[data-v="5"] .pv {
-    display: flex; flex-direction: column; align-items: center; gap: 0.9rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "dev" "rail" "fact";
+    justify-items: center; row-gap: 1.2rem;
   }
-  #preview[data-v="5"] .pv-rail { order: 1; }
-  #preview[data-v="5"] .pv-desk { order: 2; width: 100%; }
-  #preview[data-v="5"] .pv-dev { order: 3; --pvw: min(40vw, 10.5rem); margin-top: -7%; }
+  #preview[data-v="5"] .pv::before {
+    content: ''; position: absolute; z-index: 0; inset: -6% -25% -12% -25%;
+    background:
+      radial-gradient(38% 46% at 50% 34%, rgba(255, 255, 255, 0.09), transparent 70%),
+      radial-gradient(46% 40% at 50% 62%, var(--pvglow, transparent), transparent 72%);
+    transition: background 0.5s var(--ease); pointer-events: none;
+  }
+  #preview[data-v="5"] .claim { grid-area: claim; text-align: center; }
+  #preview[data-v="5"] .pv-rail { grid-area: rail; }
+  #preview[data-v="5"] .fact { grid-area: fact; text-align: center; }
+  #preview[data-v="5"] .pv-dev {
+    grid-area: dev; --pvw: min(64vw, 16rem); z-index: 3; margin: 1.5rem 0 0;
+    transform: rotate(-1.5deg);
+  }
+  #preview[data-v="5"] .pv-desk {
+    grid-area: dev; width: 88%; align-self: end; z-index: 1;
+    transform: perspective(900px) rotateX(56deg) scale(0.96);
+    transform-origin: 50% 100%; --deskop: 0.55; margin-bottom: -6%;
+  }
+  @media (min-width: 60rem) {
+    #preview[data-v="5"] .pv { row-gap: 1.5rem; }
+    #preview[data-v="5"] .pv-dev { --pvw: min(21vw, 18rem); }
+    #preview[data-v="5"] .pv-desk { width: 46%; }
+  }
 
   .pv-desk { width: 84%; }
   .pv-win {
@@ -1518,118 +1685,112 @@
        from the box over the tailnet, with the round switcher curia
        ships in every prototype, cycling on its own. -->
   <section class="scene sR" id="preview" data-stage="agent" data-n="04" data-name="the preview" data-v="1" style="--g1:#0c2226;--g2:#081316">
-    <div class="wrap">
+    <div class="pv" id="pv">
       <header class="claim rv">
         <p class="kick"><span class="kn">04</span><span class="kname">the preview</span></p>
         <h2 class="bold">Live previews from your phone or workstation</h2>
       </header>
-    </div>
-    <div class="shot rv">
-      <div class="pv" id="pv">
-        <div class="pv-dev">
-          <div class="pv-phone">
-            <span class="pv-btn b1"></span>
-            <span class="pv-btn b2"></span>
-            <span class="pv-btn b3"></span>
-            <span class="pv-btn b4"></span>
-            <div class="pv-bezel">
-              <div class="pv-screen">
-               <div class="pv-inner">
+      <div class="pv-dev">
+        <div class="pv-phone">
+          <span class="pv-btn b1"></span>
+          <span class="pv-btn b2"></span>
+          <span class="pv-btn b3"></span>
+          <span class="pv-btn b4"></span>
+          <div class="pv-bezel">
+            <div class="pv-screen">
+             <div class="pv-inner">
 
-                <!-- The prototype: one page of content, five art
-                     directions, which is the round curia sends. -->
-                <div class="pv-site" id="pv-pool">
-                  <article class="pv-v v-sun on">
-                    <span class="pv-art"></span>
-                    <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                    <h3 class="pv-h">Bread, before the sun.</h3>
-                    <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                    <span class="pv-cta">Today’s bake</span>
-                  </article>
-                  <article class="pv-v v-acid">
-                    <span class="pv-art"></span>
-                    <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                    <h3 class="pv-h">Bread, before the sun.</h3>
-                    <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                    <span class="pv-cta">Today’s bake</span>
-                  </article>
-                  <article class="pv-v v-bloom">
-                    <span class="pv-art"></span>
-                    <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                    <h3 class="pv-h">Bread, before the sun.</h3>
-                    <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                    <span class="pv-cta">Today’s bake</span>
-                  </article>
-                  <article class="pv-v v-riso">
-                    <span class="pv-art"></span>
-                    <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                    <h3 class="pv-h">Bread, before the sun.</h3>
-                    <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                    <span class="pv-cta">Today’s bake</span>
-                  </article>
-                  <article class="pv-v v-dusk">
-                    <span class="pv-art"></span>
-                    <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                    <h3 class="pv-h">Bread, before the sun.</h3>
-                    <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                    <span class="pv-cta">Today’s bake</span>
-                  </article>
-                </div>
-
-                <div class="pv-status">
-                  <span>9:41</span>
-                  <span class="rt">
-                    <span class="pv-sig"><s></s><s></s><s></s><s></s></span>
-                    <span class="pv-wifi"><s></s><s></s><s></s></span>
-                    <span class="pv-batt"><s></s></span>
-                  </span>
-                </div>
-
-                <div class="pv-sw" id="pv-sw">
-                  <button type="button" data-pvi="0" class="on">1</button>
-                  <button type="button" data-pvi="1">2</button>
-                  <button type="button" data-pvi="2">3</button>
-                  <button type="button" data-pvi="3">4</button>
-                  <button type="button" data-pvi="4">5</button>
-                  <span class="prog"><s></s></span>
-                </div>
-
-                <div class="pv-bar">
-                  <span class="aa">aA</span>
-                  <span class="u"><span class="lk">🔒</span> <b>box.tailnet.ts.net</b>:9000</span>
-                  <span class="rl">⟳</span>
-                </div>
-
-                <span class="pv-home"></span>
-                <span class="pv-glare"></span>
-                <span class="pv-island"><i></i></span>
-               </div>
+              <!-- The prototype: one page of content, five art
+                   directions, which is the round curia sends. -->
+              <div class="pv-site" id="pv-pool">
+                <article class="pv-v v-sun on">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
+                  <h3 class="pv-h">Bread, before the sun.</h3>
+                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
+                  <span class="pv-cta">Today’s bake</span>
+                </article>
+                <article class="pv-v v-acid">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
+                  <h3 class="pv-h">Bread, before the sun.</h3>
+                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
+                  <span class="pv-cta">Today’s bake</span>
+                </article>
+                <article class="pv-v v-bloom">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
+                  <h3 class="pv-h">Bread, before the sun.</h3>
+                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
+                  <span class="pv-cta">Today’s bake</span>
+                </article>
+                <article class="pv-v v-riso">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
+                  <h3 class="pv-h">Bread, before the sun.</h3>
+                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
+                  <span class="pv-cta">Today’s bake</span>
+                </article>
+                <article class="pv-v v-dusk">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
+                  <h3 class="pv-h">Bread, before the sun.</h3>
+                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
+                  <span class="pv-cta">Today’s bake</span>
+                </article>
               </div>
-            </div>
-          </div>
-        </div>
 
-        <!-- The workstation half of the claim. The script fills this
-             window from the pool above, so both devices show one
-             preview rather than two copies of it. -->
-        <div class="pv-desk" id="pv-desk" aria-hidden="true">
-          <div class="pv-win">
-            <div class="pv-wt"><s></s><s></s><s></s>
-              <span class="wu"><b>box.tailnet.ts.net</b>:9000</span>
+              <div class="pv-status">
+                <span>9:41</span>
+                <span class="rt">
+                  <span class="pv-sig"><s></s><s></s><s></s><s></s></span>
+                  <span class="pv-wifi"><s></s><s></s><s></s></span>
+                  <span class="pv-batt"><s></s></span>
+                </span>
+              </div>
+
+              <div class="pv-sw" id="pv-sw">
+                <button type="button" data-pvi="0" class="on">1</button>
+                <button type="button" data-pvi="1">2</button>
+                <button type="button" data-pvi="2">3</button>
+                <button type="button" data-pvi="3">4</button>
+                <button type="button" data-pvi="4">5</button>
+                <span class="prog"><s></s></span>
+              </div>
+
+              <div class="pv-bar">
+                <span class="aa">aA</span>
+                <span class="u"><span class="lk">🔒</span> <b>box.tailnet.ts.net</b>:9000</span>
+                <span class="rl">⟳</span>
+              </div>
+
+              <span class="pv-home"></span>
+              <span class="pv-glare"></span>
+              <span class="pv-island"><i></i></span>
+             </div>
             </div>
-            <div class="pv-wb" id="pv-wb"></div>
           </div>
         </div>
-        <nav class="pv-rail" id="pv-rail" aria-label="the round">
-          <button type="button" data-pvi="0" class="on">1</button>
-          <button type="button" data-pvi="1">2</button>
-          <button type="button" data-pvi="2">3</button>
-          <button type="button" data-pvi="3">4</button>
-          <button type="button" data-pvi="4">5</button>
-        </nav>
       </div>
-    </div>
-    <div class="wrap">
+
+      <!-- The workstation half of the claim. The script fills this
+           window from the pool above, so both devices show one
+           preview rather than two copies of it. -->
+      <div class="pv-desk" id="pv-desk" aria-hidden="true">
+        <div class="pv-win">
+          <div class="pv-wt"><s></s><s></s><s></s>
+            <span class="wu"><b>box.tailnet.ts.net</b>:9000</span>
+          </div>
+          <div class="pv-wb" id="pv-wb"></div>
+        </div>
+      </div>
+      <nav class="pv-rail" id="pv-rail" aria-label="the round">
+        <button type="button" data-pvi="0" class="on">1</button>
+        <button type="button" data-pvi="1">2</button>
+        <button type="button" data-pvi="2">3</button>
+        <button type="button" data-pvi="3">4</button>
+        <button type="button" data-pvi="4">5</button>
+      </nav>
       <p class="fact rv">A secure link on your tailnet</p>
     </div>
   </section>
@@ -1939,11 +2100,12 @@ if (prefersStill || !window.IntersectionObserver) {
    turns on its own while the scene is on screen. A tap takes it
    over, and the cycle comes back eight seconds later.
 
-   Round 2's five layouts ride ?id=1..5: 1 corner, 2 desk,
-   3 overlap, 4 split, 5 stack. Each places the phone, the
-   workstation and the switcher differently. Without this script the
-   phone still shows the first design, whole, and the workstation
-   window stands empty rather than wrong.
+   Round 3's five compositions ride ?id=1..5: 1 bleed, 2 desk,
+   3 field, 4 strip, 5 stage. Each places the claim, both devices,
+   the switcher and the fact line for itself, at both widths.
+   Without this script the phone still shows the first design,
+   whole, and the workstation window stands empty rather than
+   wrong.
    ================================================================ */
 
 (function () {
@@ -1951,7 +2113,7 @@ if (prefersStill || !window.IntersectionObserver) {
   var pv = document.getElementById('pv');
   if (!scene || !pv) return;
 
-  var NAME = { '1': 'corner', '2': 'desk', '3': 'overlap', '4': 'split', '5': 'stack' };
+  var NAME = { '1': 'bleed', '2': 'desk', '3': 'field', '4': 'strip', '5': 'stage' };
   var pick = (/[?&]id=([1-5])/.exec(location.search) || [])[1] || '1';
   scene.setAttribute('data-v', pick);
 
@@ -2006,10 +2168,15 @@ if (prefersStill || !window.IntersectionObserver) {
        showing. The plates behind the stack take its key color the
        same way. */
     var cs = getComputedStyle(pool[at]);
-    ['--pvfg', '--pvkey'].forEach(function (k) {
+    ['--pvfg', '--pvkey', '--pvbg'].forEach(function (k) {
       var v = cs.getPropertyValue(k);
       if (v) pv.style.setProperty(k, v.trim());
     });
+    /* 5 stage lights the dark with the design's own key colour. The
+       page ships no colour function that would do this in CSS alone,
+       so the rgba is built here. */
+    pv.style.setProperty('--pvglow', glow(cs.getPropertyValue('--pvkey').trim()));
+    if (strip) walkStrip();
     /* Restart the dwell bar. Clearing the animation and forcing a
        reflow is the only way to replay a CSS animation on demand. */
     if (prog) { prog.style.animation = 'none'; void prog.offsetWidth; prog.style.animation = ''; }
@@ -2019,14 +2186,57 @@ if (prefersStill || !window.IntersectionObserver) {
      give it less, so the whole mock is zoomed to what it actually
      got: a smaller phone, not a zoomed-in page. */
   var REF = 15.5 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
-  var scr = pv.querySelector('.pv-screen');
   function fitPhone() {
-    var w = scr.clientWidth;
-    if (w > 0) scr.style.setProperty('--k', (w / REF).toFixed(4));
+    [].slice.call(pv.querySelectorAll('.pv-screen')).forEach(function (el) {
+      var w = el.clientWidth;
+      if (w > 0) el.style.setProperty('--k', (w / REF).toFixed(4));
+    });
   }
+  window.addEventListener('resize', function () { fitPhone(); walkStrip(); }, { passive: true });
+
+  function glow(hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return 'transparent';
+    var n = parseInt(m[1], 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',0.34)';
+  }
+
+  /* 4 strip: a round is five screens, so the scene shows five. The
+     device is cloned once per design, each clone pinned to its own,
+     and the strip slides the active one to the middle. The original
+     device stays in the document, hidden: the designs inside it are
+     what every other variation reads its colours from. */
+  var strip = null, clones = [];
+  if (pick === '4') {
+    var dev = pv.querySelector('.pv-dev');
+    strip = document.createElement('div');
+    strip.className = 'pv-strip';
+    pv.insertBefore(strip, dev);
+    pool.forEach(function (design, i) {
+      var c = dev.cloneNode(true);
+      var sw = c.querySelector('.pv-sw');
+      if (sw) sw.parentNode.removeChild(sw);
+      [].slice.call(c.querySelectorAll('.pv-v')).forEach(function (el, j) {
+        if (j === i) { el.classList.add('on'); el.classList.remove('out'); }
+        else el.parentNode.removeChild(el);
+      });
+      c.style.setProperty('--pvfg', getComputedStyle(design).getPropertyValue('--pvfg').trim());
+      strip.appendChild(c);
+      clones.push(c);
+    });
+    dev.style.display = 'none';
+  }
+  /* The clones are in the document now, so the screens can be
+     measured and the strip put where the first design is. */
   fitPhone();
-  window.addEventListener('resize', fitPhone, { passive: true });
   render(0);
+  function walkStrip() {
+    if (!strip || !clones[at]) return;
+    clones.forEach(function (c, i) { c.classList.toggle('lead', i === at); });
+    var lead = clones[at];
+    var mid = pv.clientWidth / 2;
+    strip.style.setProperty('--slide', (mid - (lead.offsetLeft + lead.offsetWidth / 2)).toFixed(1) + 'px');
+  }
 
   var timer = null, hold = null;
   function start() {
@@ -2050,9 +2260,12 @@ if (prefersStill || !window.IntersectionObserver) {
 
   if (window.IntersectionObserver) {
     new IntersectionObserver(function (es) {
-      es.forEach(function (e) { if (e.isIntersecting) start(); else stop(); });
+      es.forEach(function (e) {
+        if (e.isIntersecting) { scene.classList.add('seen'); start(); } else stop();
+      });
     }, { threshold: 0.2 }).observe(pv);
   } else {
+    scene.classList.add('seen');
     start();
   }
 
@@ -2062,7 +2275,7 @@ if (prefersStill || !window.IntersectionObserver) {
   (function () {
     var bar = document.createElement('nav');
     bar.className = 'dswitch';
-    bar.setAttribute('aria-label', 'the preview scene, the layouts of round 2');
+    bar.setAttribute('aria-label', 'the preview scene, the compositions of round 3');
     var html = '<span>view</span>';
     for (var i = 1; i <= 5; i++) {
       html += '<a href="?id=' + i + '#preview"' + (String(i) === pick ? ' class="on"' : '') +

@@ -822,11 +822,39 @@ the phone rendered above the window and its negative margin pulled it up into th
 layout now says where each of the three elements sits, and a build check refuses a layout that
 leaves one of them to the markup order.
 
+**Round 3.** The operator rejected all five layouts: "they all look bad. title is always in the
+middle (we can play with that like we did for the first scenes). screens are always left aligned
+which is a weird combo. make the 5 next variations vastly distinct and get more creative in
+display, style and layout! this is for grabbing attention and really conveying how great curia
+is!" Their screenshot showed the fault plainly. At desktop width the claim sat in a centered
+`.wrap` while both devices leaned left inside a `.shot`, so the title floated in the middle with
+the screens jammed against the left edge and a screen of dead space beside them.
+
+**The scene is one composition canvas now.** The `.wrap` and the `.shot` are gone from it. The
+claim, both devices, the switcher and the fact line are grid items of `.pv`, and every variation
+places all five of them. Each variation is written twice, once for a phone and once past 60rem, so
+the five stay distinct on the screen the operator judges from as well as on a desktop.
+
+The five compositions on `?id=1..5`:
+
+1. **bleed** — scale is the whole idea. The phone is enormous and the edge of the page cuts it, so
+   the screen reads as a thing in the room rather than a picture of one. The claim holds the rest.
+2. **desk** — the workstation lies back in perspective, the way a monitor sits on a desk, and the
+   phone stands in front of it.
+3. **field** — the section keeps a bright field of its own, and that field takes the color of
+   whichever design is showing. The round repaints the page every three seconds, which is the
+   point the scene is making.
+4. **strip** — a round is five screens, so the scene shows five. The script clones the device once
+   per design, each clone pinned to its own, and the strip slides the active one to the middle.
+5. **stage** — one hard light, one phone, and the workstation lying flat behind it. The screen is
+   the only color in the scene, and its own key color spills onto the dark.
+
 **Six build checks** ran against the file, since no agent on this ticket has eyes on it: every
-design appears once with its own palette and its own art, every layout places all three elements,
-every layout states where each one sits, no two layouts are the same layout under two names, every
-class the markup uses is styled and every hook the script reaches for is in the markup, and the
-build rules hold (no image, no remote asset, no webfont). Each check was validated by breaking the
+design appears once with its own palette and its own art, every composition places all five
+elements of the scene, states a grid of its own and is written for a wide screen as well as a
+phone, no two compositions are the same composition under two names, every class the markup uses
+is styled and every hook the script reaches for is in the markup, and the build rules hold (no
+image, no remote asset, no webfont). Each check was validated by breaking the
 file on purpose first, one break at a time, and every break produced exactly one failure.
 
 ## The verdict of the Discord scene ([#626](https://github.com/alp82/curia/issues/626))
