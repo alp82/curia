@@ -117,8 +117,12 @@ export const MODELS_URL = 'https://api.anthropic.com/v1/models'
 // The cheapest completion Anthropic sells, asked for one token. Overridable so
 // a box whose plan drops this model still has a probe (`usage.probe_model`).
 export const PROBE_MODEL = 'claude-haiku-4-5-20251001'
-const OAUTH_BETA = 'oauth-2025-04-20'
-const ANTHROPIC_VERSION = '2023-06-01'
+// Exported since #660, which needs the same two headers to ask Anthropic whether
+// a freshly scraped `setup-token` is real. One definition, three callers: a
+// second copy would be free to fall behind a version bump in exactly the reader
+// nobody thinks to check.
+export const OAUTH_BETA = 'oauth-2025-04-20'
+export const ANTHROPIC_VERSION = '2023-06-01'
 // Past this age the reading is refetched, if fetching is on at all.
 export const USAGE_STALE_MS = 30 * 60 * 1000
 // And never more often than this, counted across every fetcher on the box.

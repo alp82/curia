@@ -204,12 +204,13 @@ export function parseCommand(text) {
     case 'deploy':
       return rest.length ? null : { verb: 'deploy' }
     // #642: the operator's way back into a dead model credential, with no ssh
-    // anywhere in it. Bare means `openai`, because it is the one consumer the
-    // daemon owns today — the claude lane and the overseer read theirs at
-    // container create and need #648 first.
+    // anywhere in it. The argument is a PROVIDER since #660, not a consumer:
+    // `reauth anthropic` signs in once for the claude containers AND the
+    // overseer, which is what a provider-keyed store means. Bare stays `openai`,
+    // the one lane whose credential dies on a timer.
     case 'reauth':
-      if (!rest.length) return { verb: 'reauth', consumer: 'openai' }
-      return rest.length === 1 && /^[a-z0-9][a-z0-9-]*$/.test(rest[0]) ? { verb: 'reauth', consumer: rest[0] } : null
+      if (!rest.length) return { verb: 'reauth', provider: 'openai' }
+      return rest.length === 1 && /^[a-z0-9][a-z0-9-]*$/.test(rest[0]) ? { verb: 'reauth', provider: rest[0] } : null
     // One meaning for one verb (#221): `start` works the thing. On a ticket it
     // dispatches that ticket; on a map it dispatches the map's next takeable
     // ticket. It never charts, and it never carries an instruction.
@@ -287,7 +288,7 @@ const USAGE = [
   '`cancel chat-1` / `resume chat-1` / `attach chat-1` — the same three verbs on an agent no ticket answers for, such as one charting a NEW map. `status` lists its handle',
   '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
   '`deploy` — self-deploy: fast-forward to origin/main, rebuild, restart the daemon; a failed health check rolls back automatically',
-  '`reauth [consumer]` — sign the model credential back in from a browser: curia opens a login session, you open a link and enter a one-time code. Defaults to `openai`',
+  '`reauth [provider]` — sign a model credential back in from a browser: curia opens a login session and you follow a link. `openai` prints a one-time code to read; `anthropic` asks for one to be pasted back. Defaults to `openai`',
 ].join('\n')
 
 export class CommandRouter {
@@ -378,7 +379,7 @@ export class CommandRouter {
           if (!this.deploy) return '❌ this daemon has no self-deploy seam — use bin/deploy.sh'
           return await this.deploy.run({ by: userId, interpreted })
         case 'reauth':
-          return await this.dispatcher.startReauth({ consumer: cmd.consumer, by: userId })
+          return await this.dispatcher.startReauth({ provider: cmd.provider, by: userId })
       }
     } catch (e) {
       this.log(`command "${canonical}" failed:`, e.message)

@@ -33,6 +33,10 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+// The anthropic request this module makes is ONE question — "does this token
+// work" (#660) — and it asks it with the headers `usage.mjs` already owns. The
+// import runs one way: nothing in the usage reader knows about this module.
+import { MODELS_URL, ANTHROPIC_VERSION, anthropicCredential } from './usage.mjs'
 
 // ---- reading the credential ------------------------------------------------
 
@@ -641,7 +645,12 @@ export function scrapeDeviceAuth(pane) {
 // `--user` is not decoration. The live check ran this as root and left a
 // root-owned `auth.json` the daemon could not read; the uid that owns the mount
 // is the uid that must write into it.
-export function reauthRunCmd({ name, image, cfgDir, agentUid, guestCfg = '/cfg', docker = 'docker' }) {
+// ONE BUILDER, TWO LANES since #660. Everything above is true of both logins —
+// the same image, the same uid, the same unlabelled container, the same scratch
+// mount — and only the environment variable naming the config home and the argv
+// differ. Splitting the shell-safety check across two copies is how one of them
+// stops checking.
+export function loginRunCmd({ name, image, cfgDir, agentUid, guestCfg = '/cfg', docker = 'docker', homeEnv, argv }) {
   for (const [what, value] of [['the session name', name], ['the image', image], ['the config dir', cfgDir], ['the uid', String(agentUid)]]) {
     if (!/^[A-Za-z0-9_.:/@=-]+$/.test(String(value ?? ''))) {
       throw new Error(`refusing to build the re-authentication command: ${what} (${value}) is not shell-safe`)
@@ -652,9 +661,28 @@ export function reauthRunCmd({ name, image, cfgDir, agentUid, guestCfg = '/cfg',
     '--name', name,
     '--user', `${agentUid}:${agentUid}`,
     '-v', `${cfgDir}:${guestCfg}`,
-    '-e', `CODEX_HOME=${guestCfg}`,
-    image, 'codex', 'login', '--device-auth',
+    '-e', `${homeEnv}=${guestCfg}`,
+    image, ...argv,
   ].join(' ')
+}
+
+export function reauthRunCmd(opts) {
+  return loginRunCmd({ ...opts, homeEnv: 'CODEX_HOME', argv: ['codex', 'login', '--device-auth'] })
+}
+
+// `claude setup-token` in the same shape (#660).
+//
+// `CLAUDE_CONFIG_DIR` and not `CODEX_HOME`, and it is NOT there to catch a
+// credential: #659 measured that `setup-token` writes none. It is there because
+// the CLI writes `.claude.json` wherever its config home points, and an
+// unpointed one would write into the image's own `$HOME` — a login leaving state
+// in a layer that every agent container then starts from.
+//
+// NO CREDENTIAL REACHES THIS CONTAINER, deliberately. The daemon's own token is
+// not passed in, so a login never runs against a credential it is replacing, and
+// the pane cannot show the operator a token that was already on the box.
+export function setupTokenRunCmd(opts) {
+  return loginRunCmd({ ...opts, homeEnv: 'CLAUDE_CONFIG_DIR', argv: ['claude', 'setup-token'] })
 }
 
 // The states a flow reports. `waiting` is the long one — the operator has the
@@ -666,15 +694,28 @@ export const REAUTH_STATES = Object.freeze(['starting', 'waiting', 'done', 'time
 // It is polled from the dispatch tick rather than waited on, for the reason the
 // broker is: the daemon may be replaced at any moment, and a flow that lived in
 // a promise would vanish with it. What survives a restart is the tmux session
-// and the file it will write, both of which `adoptIfComplete` re-reads from
+// and whatever the login leaves behind, both of which the lane re-reads from
 // scratch.
+//
+// KEYED BY PROVIDER, NOT BY CONSUMER (#660), and the rename is a correction
+// rather than a tidy-up. `curia-auth-openai` was provider-keyed from the first
+// commit while the code called it a consumer, and the anthropic lane is what
+// makes the muddle expensive: one login there serves TWO consumers, the claude
+// containers and the overseer, so "consumer: anthropic" would name nothing that
+// exists.
+//
+// WHAT VARIES PER PROVIDER IS A LANE, injected the way the broker is. The
+// machine here — one session per provider, the thirty-minute window, the
+// scrape-before-deadline ordering, the teardown, the journal — is the same on
+// both, and #660 kept it that way rather than growing a second flow that would
+// have to re-earn all five sweep guards.
 export class ReauthFlow {
   constructor({
-    broker, image, agentUid, cfgDirFor, docker = 'docker',
+    lanes = {}, image, agentUid, cfgDirFor, docker = 'docker',
     newSession, capturePane, killSession, hasSession, stopContainer,
     now = Date.now, log = () => {}, journal = () => {},
   }) {
-    this.broker = broker
+    this.lanes = lanes
     this.image = image
     this.agentUid = agentUid
     this.cfgDirFor = cfgDirFor
@@ -702,58 +743,85 @@ export class ReauthFlow {
   // chat log is a credential in a chat log; the dashboard is published over the
   // tailnet behind the operator's own Tailscale login, and that is the one
   // surface it may reach.
+  //
+  // THE ANTHROPIC TOKEN IS NOT IN HERE AND NEVER WILL BE (#660). A device code is
+  // a fifteen-minute secret and this object is the one place it is allowed; a
+  // `setup-token` credential is a YEAR-long one, and the lane hands it straight
+  // to the store without it passing through anything a surface reads. That is
+  // why `finish` returns an expiry and not a token.
   state() {
     if (!this.flow) return null
-    const { consumer, session, state, url, code, startedAt, deadline } = this.flow
+    const { provider, session, state, url, code, typed, startedAt, deadline } = this.flow
     return {
-      consumer,
+      provider,
       session,
       state,
       url,
       code,
+      // Whether the operator has to type into this pane, which is the one thing
+      // the two lanes differ on that the OPERATOR can feel. `codex login
+      // --device-auth` pastes nothing back; `claude setup-token` waits on a code
+      // the browser shows, and `sendText` refuses this session by name — so the
+      // typing is the operator's to do, on the device they opened the link on.
+      typed,
       started_at: new Date(startedAt).toISOString(),
       expires_at: new Date(deadline).toISOString(),
       seconds_left: Math.max(0, Math.round((deadline - this.now()) / 1000)),
     }
   }
 
-  // Start a device login, or hand back the one already running.
+  // The lane for one provider, or a refusal naming what this daemon can sign in.
+  laneFor(provider) {
+    return this.lanes[provider] ?? null
+  }
+
+  get providers() {
+    return Object.keys(this.lanes)
+  }
+
+  // Start a login, or hand back the one already running.
   //
-  // The scratch config dir is emptied of any previous `auth.json` FIRST.
-  // Completion is detected by that file appearing, so a leftover from an earlier
-  // attempt would be adopted on the very first poll — a stale credential read as
-  // a fresh login is the silent return to the failure this map exists for.
-  async start({ consumer = 'openai' } = {}) {
-    const session = authSessionName(consumer)
-    if (this.flow && this.flow.state === 'waiting') return { started: false, session, why: 'a re-authentication is already running for this consumer' }
+  // The scratch config dir is CLEARED BY THE LANE first, and each lane clears
+  // what its own completion rule would otherwise read twice. The codex lane
+  // removes a leftover `auth.json`, because a stale credential adopted on the
+  // first poll is the silent return to the failure this map exists for. The
+  // anthropic lane has no such file to remove (#659 measured that `setup-token`
+  // writes none) and clears the dir anyway, so a second attempt never starts on
+  // the first one's `.claude.json`.
+  async start({ provider = CODEX_PROVIDER } = {}) {
+    const lane = this.laneFor(provider)
+    if (!lane) throw new Error(`there is no re-authentication lane for provider "${provider}" — this daemon can sign in: ${this.providers.join(', ') || 'nothing'}`)
+    const session = authSessionName(provider)
+    if (this.flow && this.flow.state === 'waiting') return { started: false, session, why: 'a re-authentication is already running for this provider' }
     if (await this.hasSession(session)) {
       // A session with no flow record is one a previous daemon process started.
       // Adopt the record rather than killing the operator's half-finished login.
-      if (!this.flow) this.#track(consumer, session)
+      if (!this.flow) this.#track(provider, session)
       return { started: false, session, why: 'a re-authentication session is already open — attach to it' }
     }
     const cfgDir = this.cfgDirFor(session)
     fs.mkdirSync(cfgDir, { recursive: true })
-    fs.rmSync(path.join(cfgDir, 'auth.json'), { force: true })
-    const shellCmd = reauthRunCmd({
+    lane.prepare(cfgDir)
+    const shellCmd = lane.runCmd({
       name: session, image: this.image, cfgDir, agentUid: this.agentUid, docker: this.docker,
     })
     await this.newSession({ name: session, cwd: cfgDir, shellCmd })
-    this.#track(consumer, session)
-    this.journal('reauth_started', { consumer, session })
-    this.log(`re-authentication started for ${consumer} in tmux session ${session}`)
+    this.#track(provider, session)
+    this.journal('reauth_started', { provider, session })
+    this.log(`re-authentication started for ${provider} in tmux session ${session}`)
     return { started: true, session }
   }
 
-  #track(consumer, session) {
+  #track(provider, session) {
     this.flow = {
-      consumer,
+      provider,
       session,
       cfgDir: this.cfgDirFor(session),
       state: 'waiting',
       url: null,
       code: null,
       codeSeen: false,
+      typed: Boolean(this.laneFor(provider)?.typed),
       startedAt: this.now(),
       deadline: this.now() + REAUTH_TIMEOUT_MS,
     }
@@ -768,8 +836,8 @@ export class ReauthFlow {
   // populated even on the tick that finishes the flow.
   async poll() {
     if (!this.flow || this.flow.state !== 'waiting') return null
-    await this.#scrape()
-    const adopted = this.#adoptIfComplete()
+    const pane = await this.#scrape()
+    const adopted = await this.#adoptIfComplete(pane)
     if (adopted) return adopted
     if (this.now() >= this.flow.deadline) return this.#end('timeout', 'reauth_timed_out')
     // A session that is gone with no credential is an operator who closed it, or
@@ -786,48 +854,56 @@ export class ReauthFlow {
     return null
   }
 
+  // Returns the pane text so the completion check reads the SAME capture the
+  // card did. On the anthropic lane that matters rather than merely saving a
+  // call: the pane is the completion signal there, and two captures a moment
+  // apart could show the operator a link from one frame and adopt a token from
+  // another.
   async #scrape() {
     let pane
     try {
       pane = await this.capturePane(this.flow.session)
     } catch {
-      return
+      return null
     }
-    const { url, code } = scrapeDeviceAuth(pane)
+    const { url, code } = this.laneFor(this.flow.provider).scrape(pane)
     if (url) this.flow.url = url
     if (code) this.flow.code = code
     // Journalled ONCE and WITHOUT the code, so the record says the operator had
     // something to act on without becoming a place the code is written down.
     if (code && !this.flow.codeSeen) {
       this.flow.codeSeen = true
-      this.journal('reauth_code_seen', { consumer: this.flow.consumer, session: this.flow.session })
+      this.journal('reauth_code_seen', { provider: this.flow.provider, session: this.flow.session })
     }
+    return pane
   }
 
-  // The credential file appearing in the scratch dir is the completion signal —
-  // not the pane's "Successfully logged in", which is a wording upstream owns.
-  #adoptIfComplete() {
-    let text
+  // Has the login finished, and if so has the credential been taken?
+  //
+  // The LANE answers, because the two lanes answer differently and ADR-0027's
+  // rule holds on only one of them. Codex writes a credential file, so the file
+  // appearing is completion. `claude setup-token` writes nothing and prints the
+  // token once (#659 §3), so the pane is the only channel and the token
+  // appearing is completion.
+  //
+  // THREE RETURNS, and the middle one is the reason this is not a boolean.
+  // `null` means "not finished, ask again next tick" — including a probe that
+  // could not reach the network, which proves nothing about the token. A THROW
+  // means the login produced something curia refuses, and that ends the flow
+  // loudly. An object means done.
+  async #adoptIfComplete(pane) {
+    let adopted
     try {
-      text = fs.readFileSync(path.join(this.flow.cfgDir, 'auth.json'), 'utf8')
-    } catch {
-      return null
-    }
-    if (!Number.isFinite(codexAccessTokenExpiry(text))) {
-      // A file that is not a credential is not completion. Left in place: the
-      // login may still be writing it, and the next tick reads it again.
-      return null
-    }
-    let expiry
-    try {
-      expiry = this.broker.adopt(text)
+      adopted = await this.laneFor(this.flow.provider).finish({ pane, cfgDir: this.flow.cfgDir })
     } catch (e) {
       return this.#end('failed', 'reauth_failed', { why: `the fresh credential could not be adopted (${e.message})` })
     }
+    if (!adopted) return null
+    const expiry = Number.isFinite(adopted.expiresAt) ? adopted.expiresAt : null
     const done = this.#end('done', 'reauth_completed', {
       expires_at: expiry ? new Date(expiry).toISOString() : null,
     })
-    this.log(`re-authentication for ${done.consumer} completed — the codex credential now expires ${expiry ? new Date(expiry).toISOString() : 'at an unreadable instant'}`)
+    this.log(`re-authentication for ${done.provider} completed — the credential now expires ${expiry ? new Date(expiry).toISOString() : 'at an instant curia cannot read'}`)
     return done
   }
 
@@ -837,12 +913,19 @@ export class ReauthFlow {
   // The scratch config dir is removed WHOLE, credential included: it has been
   // copied to the host store by now, and a live refresh token left lying in a
   // directory nothing sweeps is the leftover `removeCredentials` exists to stop.
+  //
+  // THE TEARDOWN IS PART OF THE SECRET HANDLING SINCE #660, not only tidiness.
+  // On the anthropic lane the pane itself holds a plaintext year-long token in
+  // the frame the login left behind, so killing the session on the tick that
+  // adopts is what takes the last copy off the box. It is the same call in the
+  // same place; what changed is that skipping it would now leave a credential
+  // readable to anything that can attach.
   #end(state, event, extra = {}) {
     const flow = this.flow
     flow.state = state
-    const detail = { consumer: flow.consumer, session: flow.session, after_s: Math.round((this.now() - flow.startedAt) / 1000), ...extra }
+    const detail = { provider: flow.provider, session: flow.session, after_s: Math.round((this.now() - flow.startedAt) / 1000), ...extra }
     this.journal(event, detail)
-    if (state !== 'done') this.log(`re-authentication for ${flow.consumer} ended as ${state} after ${detail.after_s}s`)
+    if (state !== 'done') this.log(`re-authentication for ${flow.provider} ended as ${state} after ${detail.after_s}s`)
     // Detached, and in that order: the session first, then the container the
     // session's client may already have taken with it. Neither failure may
     // reach the caller — the outcome is already decided and journalled, and a
@@ -864,7 +947,7 @@ export class ReauthFlow {
     } catch (e) {
       this.log(`could not remove the re-authentication scratch dir ${flow.cfgDir} (${e.message})`)
     }
-    return { consumer: flow.consumer, state, ...extra }
+    return { provider: flow.provider, state, ...extra }
   }
 
   // Drop a finished flow so the surfaces stop drawing it. The dispatcher calls
@@ -1241,5 +1324,259 @@ export class AnthropicCredentialStore {
       }
     }
     return { healed, errors }
+  }
+}
+
+// ---- reading a wrapped TUI (#660) -------------------------------------------
+//
+// MEASURED, not assumed. `claude setup-token` is an Ink app, and Ink wraps its
+// own text at the pane width — it emits a REAL newline, so `tmux capture-pane
+// -J` does not rejoin it and no tmux flag does. Verified on the workstation at
+// 60 columns: the authorize URL came back as six lines, five of them exactly 60
+// characters and the sixth short, and `-J` returned the identical six.
+//
+// So a value longer than the pane is wide arrives in pieces, and something has
+// to put it back together. That is this function, and it is one function because
+// the same two facts govern both values the lane reads:
+//
+//   1. A string with no spaces in it breaks at EXACTLY the wrap width, so every
+//      piece except the last is full width. A short line therefore ends the run,
+//      which is what stops a rejoin from eating the paragraph underneath.
+//   2. The pieces sit alone on their lines. Ink's `gap:1` puts a blank line
+//      between every child of the column, so the line after the last piece is
+//      empty and fails any continuation test.
+//
+// Both guards are needed. The width rule alone would run on past a value whose
+// length happens to be a multiple of the pane width; the charset rule alone
+// would swallow a following single-word line if a layout ever dropped the gap.
+export function joinWrapped(lines, start, continues) {
+  let out = lines[start]
+  let width = out.length
+  for (let i = start + 1; i < lines.length; i++) {
+    if (lines[i - 1].length < width) break // the previous piece was the tail
+    if (!continues(lines[i])) break
+    out += lines[i]
+    width = Math.max(width, lines[i].length)
+  }
+  return out
+}
+
+// The pane, trimmed line by line. Ink pads the frame one column in, so every
+// line carries a leading space the reassembly must not keep — and tmux already
+// strips the trailing ones.
+const paneLines = (pane) => String(pane ?? '').split('\n').map((l) => l.trim())
+
+// ---- the anthropic login's own pane ----------------------------------------
+
+// The authorize URL, for the card. `claude.com/cai/oauth/authorize`, captured on
+// the workstation on 2026-08-24 — and it is the CARD's copy only: the operator
+// still has to type the code back into the pane, so the card is a convenience
+// here where on the codex lane it is the whole interaction.
+export const ANTHROPIC_AUTHORIZE_HEAD = 'https://claude.com/cai/oauth/authorize?'
+// A URL's own charset. Deliberately excludes the space, which is what makes rule
+// 1 above hold for it.
+const URL_PIECE_RE = /^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/
+
+export function scrapeAuthorizeUrl(pane) {
+  const lines = paneLines(pane)
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith(ANTHROPIC_AUTHORIZE_HEAD)) continue
+    const url = joinWrapped(lines, i, (l) => URL_PIECE_RE.test(l))
+    // Parsed rather than pattern-matched, and checked for the two parameters a
+    // PKCE authorize URL cannot work without. A reassembly that ran long lands
+    // its junk in the last parameter, so this is what stops the card offering a
+    // link that fails after the operator has already opened it.
+    try {
+      const parsed = new URL(url)
+      if (parsed.searchParams.get('code_challenge') && parsed.searchParams.get('state')) return url
+    } catch { /* not a URL is not the URL */ }
+  }
+  return null
+}
+
+// The token, reassembled off the completed frame.
+//
+// WHAT THE FRAME LOOKS LIKE, read out of the box's own agent image rather than
+// guessed — `curia-agent:2.1.220-0.146.0-7cba0f7a`, Claude Code 2.1.220, the
+// render tree for the `setup-token` success state:
+//
+//     ✓ Long-lived authentication token created successfully!
+//                                             <- Ink `gap:1`
+//     Your OAuth token (valid for 1 year):
+//
+//     sk-ant-oat01-…                          <- a bare Text, no border, no prefix
+//
+//     Store this token securely. You won't be able to see it again.
+//
+//     Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>
+//
+// The token is its own child of a `flexDirection: "column"` box with no border
+// and no padding of its own, so it is ALONE on its line or lines — and the two
+// lines that follow it both contain spaces, so neither can be mistaken for a
+// continuation. The last of them holds the literal string `<token>` and not the
+// value, so it cannot be mistaken for the token either.
+//
+// 108 characters on this account, measured, so it wraps on any pane narrower
+// than that and does not on a wide one. Both cases go through `joinWrapped`.
+const TOKEN_PIECE_RE = /^[A-Za-z0-9_-]+$/
+
+export function scrapeSetupToken(pane) {
+  const lines = paneLines(pane)
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i].startsWith('sk-ant-')) continue
+    const token = joinWrapped(lines, i, (l) => TOKEN_PIECE_RE.test(l))
+    if (ANTHROPIC_TOKEN_RE.test(token)) return token
+  }
+  return null
+}
+
+// ---- asking Anthropic whether the scrape is right ---------------------------
+//
+// THIS IS WHAT MAKES THE SCRAPE SAFE, and it is the answer to ADR-0027's own
+// objection to scraping. That ADR chose a tmux surface precisely to avoid a
+// parsing contract with a CLI's output, and this lane cannot avoid one: the
+// token is printed once and written nowhere (#659 §3). So the contract is made
+// FALSIFIABLE instead — curia asks the provider whether what it read is a
+// working credential, and adopts only on a yes.
+//
+// The failure mode this removes is the expensive one. `adopt` checks a prefix and
+// a charset, which a mis-reassembled token would pass; it would then be written
+// into the store and fanned out to every live claude agent, and the fleet would
+// stop. A probe turns that into a `failed` flow and an unchanged store.
+//
+// `/v1/models` is the request, for the reason `usage.mjs` already uses it: it
+// costs no quota and it answers the only question here, which is whether the
+// credential authenticates at all.
+export const TOKEN_CHECK_TIMEOUT_MS = 10_000
+
+// `{ ok }` adopts, `{ retry }` waits for the next tick, and neither is a
+// judgement about the operator. The split matters: a 401 says the token is wrong
+// and the flow should end loudly, while a timeout says curia could not ask and
+// proves nothing about the token — treating the second as the first would throw
+// away a good login because the box's network blinked.
+export async function checkAnthropicToken(token, { fetchImpl = globalThis.fetch, timeoutMs = TOKEN_CHECK_TIMEOUT_MS } = {}) {
+  let res
+  try {
+    res = await fetchImpl(MODELS_URL, {
+      headers: {
+        ...anthropicCredential({ token }).headers,
+        'anthropic-version': ANTHROPIC_VERSION,
+      },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (e) {
+    return { ok: false, retry: true, why: `curia could not reach Anthropic to check the token (${e?.message ?? e})` }
+  }
+  if (res.ok) return { ok: true, retry: false, why: 'Anthropic accepted the token' }
+  if (res.status === 401 || res.status === 403) {
+    return {
+      ok: false,
+      retry: false,
+      why: `Anthropic answered HTTP ${res.status} for the token read off the login pane — either the login did not finish or curia read the frame wrong, and neither is a credential worth storing`,
+    }
+  }
+  return { ok: false, retry: true, why: `Anthropic answered HTTP ${res.status}, which says nothing about the token` }
+}
+
+// ---- the two lanes ----------------------------------------------------------
+//
+// One object per provider, holding the three things the flow above cannot know:
+// what to run, what the pane means, and what completion is. Everything else —
+// the session name, the window, the teardown, the journal — is the flow's.
+
+// `codex login --device-auth`. Shipped by #642 and measured end to end on the
+// box; #660 only lifted it out of `ReauthFlow` so a second lane could exist.
+export class DeviceLoginLane {
+  // The operator reads a link and a code and types nothing back, which is what
+  // made this shape win for a phone.
+  typed = false
+
+  constructor({ broker }) {
+    this.broker = broker
+  }
+
+  get provider() { return CODEX_PROVIDER }
+
+  // The pane's whole interaction, so Discord can say what to expect.
+  get howTo() {
+    return 'Open the session and follow the two lines codex prints: a link, then a one-time code that lives fifteen minutes. Nothing is pasted back.'
+  }
+
+  prepare(cfgDir) {
+    fs.rmSync(path.join(cfgDir, 'auth.json'), { force: true })
+  }
+
+  runCmd(opts) { return reauthRunCmd(opts) }
+
+  scrape(pane) { return scrapeDeviceAuth(pane) }
+
+  // The credential file appearing in the scratch dir is the completion signal —
+  // not the pane's "Successfully logged in", which is a wording upstream owns.
+  async finish({ cfgDir }) {
+    let text
+    try {
+      text = fs.readFileSync(path.join(cfgDir, 'auth.json'), 'utf8')
+    } catch {
+      return null
+    }
+    // A file that is not a credential is not completion. Left in place: the
+    // login may still be writing it, and the next tick reads it again.
+    if (!Number.isFinite(codexAccessTokenExpiry(text))) return null
+    return { expiresAt: this.broker.adopt(text) }
+  }
+}
+
+// `claude setup-token` (#660). The lane whose completion rule ADR-0027 does not
+// cover, and the reason this slice is separate from #648.
+export class SetupTokenLane {
+  // The operator has to type the code back into this pane. `sendText` refuses a
+  // `curia-auth-` session by name — that guard is what stops the stall ladder
+  // typing into a login prompt — so curia cannot do it for them, and the
+  // writable ttyd terminal is where it happens.
+  typed = true
+
+  constructor({ store, check = checkAnthropicToken }) {
+    this.store = store
+    this.check = check
+  }
+
+  get provider() { return ANTHROPIC_PROVIDER }
+
+  get howTo() {
+    return 'Open the session, follow the link, and paste the code the browser shows back into the same terminal. curia takes the token from there; it never appears in this channel.'
+  }
+
+  // NOTHING TO CLEAR, and that is the measured fact rather than an oversight:
+  // `setup-token` writes no credential file (#659 §3), so there is no stale one
+  // to adopt. The dir is emptied anyway so a second attempt does not start on the
+  // first one's `.claude.json`.
+  prepare(cfgDir) {
+    fs.rmSync(cfgDir, { recursive: true, force: true })
+    fs.mkdirSync(cfgDir, { recursive: true })
+  }
+
+  runCmd(opts) { return setupTokenRunCmd(opts) }
+
+  // No code to show. The codex lane reads one OUT of the pane for the operator;
+  // here the operator puts one IN, so the card carries the link alone and says
+  // nothing it would have to invent.
+  scrape(pane) { return { url: scrapeAuthorizeUrl(pane), code: null } }
+
+  // THE PANE IS THE CREDENTIAL CHANNEL, which is what the whole slice turns on.
+  //
+  // Three outcomes, in the order they are cheap: no token in the frame yet is
+  // `null` and the next tick looks again; a token Anthropic accepts is adopted;
+  // a token Anthropic rejects throws, which ends the flow as `failed` and leaves
+  // the store untouched.
+  async finish({ pane }) {
+    const token = scrapeSetupToken(pane)
+    if (!token) return null
+    const verdict = await this.check(token)
+    if (verdict.retry) return null
+    if (!verdict.ok) throw new Error(verdict.why)
+    // `adopt` stamps `obtained_at`, which is the whole reason the row's expiry
+    // column can read a date instead of `unknown` (#648).
+    const record = this.store.adopt(token)
+    return { expiresAt: deliveryExpiry(record) }
   }
 }
