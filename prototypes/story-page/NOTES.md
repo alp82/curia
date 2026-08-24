@@ -605,6 +605,59 @@ A narrow-screen rule for the rail sat above the rule it meant to override, so it
 The message name row survived at `q` 0, so the window came in showing a header with nothing under
 it instead of the typing row alone.
 
+**The operator picked the stream, and sent a screenshot of the scene on their own screen:**
+
+> stream, but do not overflow the bottom. it should always have some padding and show the thinking
+> state a bit longer
+>
+> also the thread names should be nicer, the prose much much easier to scan and understand
+>
+> the window should look even more like a real discord window. we can make it a bit wider too as
+> long as it works both on desktop and mobile
+
+The screenshot showed the composer cut off by the bottom edge of the screen while the card was
+already streaming. Round 2's anchoring caused it, and the cause is worth recording.
+
+**Why the window overflowed.** `position: sticky` with `bottom: 0` only pushes an element down
+when its natural bottom would sit ABOVE the bottom of the viewport. The window's natural bottom is
+its top plus its height, and the height was growing. So the growth raced the scroll: for every
+pixel the track rose, the card added about a pixel, the natural bottom stayed put, and the sticky
+rule had nothing to correct. The window simply hung past the edge.
+
+**Round 3.** The anchoring is rebuilt so overflow is not a thing that can happen.
+
+- **The stage IS the viewport.** It is a screen tall and sticks at the top, and the window is
+  absolutely placed against its bottom with `bottom: 2.6svh`. The window's distance from the
+  bottom of the screen is then a constant, at every scroll position and every height.
+- **The track is pulled up under the claim**, 115svh of negative margin, so the stage is already
+  stuck by the time the claim arrives. A stage that sticks late anchors the window late, which is
+  the round 2 fault by another road.
+- **The entry is an unfold, not a climb.** The window is clipped from the bottom up, so the typing
+  row is the first thing on screen and nothing is ever placed past the edge.
+- **The thinking state holds.** The first 17 per cent of the growth is the typing row alone.
+- **Everything streams**, character by character with a caret, which is the cut the operator
+  picked at round 2.
+- **The words came down.** Every option is a bold label and one `↳` consequence. The `›` examples
+  are gone, and #415 left them to the agent's judgment, so the card is still card 4. The headline
+  went from "Re-arm it at boot, and from what?" to "Where does it re-arm from?", and the timeline
+  lost its filler.
+- **The thread names carry the type.** `⏳ 377 · curia · grilling`, `🔎 371 · curia · prototype`,
+  `🎫 218 · dotfiles · research`, `✅ 364 · curia · task`. That is the real shape from
+  `bridge.mjs:644`, and a second repo in the list is what makes it scan. The glyph turns green in
+  the header AND in the channel list when the answer lands.
+- **More of the real client.** The account panel pinned to the foot of the channel list, the
+  add-server button on the rail, category arrows, the threads, notifications, members, search and
+  help row in the channel header, and the gift, GIF, sticker and emoji row in the composer.
+- **Wider**: 52rem, and 64rem on the `wide` cut.
+
+Five cuts ride `?d=1..5`, all of them keeping the padding, the hold and the stream:
+
+1. **full** — the whole client.
+2. **wide** — the window across the whole page.
+3. **chat** — no rail and no channel list, so every pixel of width is the card.
+4. **lean** — the card cut to the bone. No visual, no spoiler, no small print.
+5. **reply** — the operator answers in the thread in their own words.
+
 ## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
 
 **Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
