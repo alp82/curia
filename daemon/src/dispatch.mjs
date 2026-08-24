@@ -552,6 +552,10 @@ export class Dispatcher {
       killSession: realKill,
       hasSession: (name) => this.deps.hasSession(name),
       stopContainer: (name) => this.deps.stopContainer(name),
+      // The login a restart interrupted (#671). The flow writes the journal and
+      // this reads it back, so the record the daemon dies holding is the record
+      // the next daemon picks up.
+      openLogin: () => this.reduction.openLogin(),
       log: this.log,
       journal: (event, detail) => this.reduction.journal(event, detail),
     }) : null
@@ -6734,6 +6738,12 @@ export class Dispatcher {
     // pass that can heal it, and the first tick is 60 s further away.
     await this.syncModelCredentials().catch((e) => this.log(`reconcile: the model credential sync failed (${e.message})`))
     try { this.syncAnthropicCredentials() } catch (e) { this.log(`reconcile: the anthropic credential sync failed (${e.message})`) }
+    // And the login the restart interrupted (#671), for a version of the same
+    // reason. The operator may be standing at a browser right now, and the
+    // panel that tells them what to do is drawn from this flow — so a boot that
+    // waited for the first tick would show them nothing for a minute, on the
+    // one surface a dead credential leaves them.
+    await this.pollReauth().catch((e) => this.log(`reconcile: the re-authentication poll failed (${e.message})`))
 
     // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
     // a TICKET-terminal state — the issue is positively closed (or positively
